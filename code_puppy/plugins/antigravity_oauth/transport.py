@@ -393,6 +393,7 @@ class AntigravityClient(httpx.AsyncClient):
                 "request": original_body,
                 "userAgent": "antigravity",
                 "requestId": request_id,
+                "requestType": "agent",
             }
 
             # Transform URL to Antigravity format
