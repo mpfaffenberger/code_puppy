@@ -215,9 +215,39 @@ class AntigravityModel(GoogleModel):
         response = await client.post(url, json=body)
 
         if response.status_code != 200:
-            raise RuntimeError(
-                f"Antigravity API Error {response.status_code}: {response.text}"
-            )
+            # Check for corrupted thought signature error and retry
+            # Error 400: { error: { code: 400, message: Corrupted thought signature., status: INVALID_ARGUMENT } }
+            error_text = response.text
+            if (
+                response.status_code == 400
+                and "Corrupted thought signature" in error_text
+            ):
+                logger.warning(
+                    "Received 400 Corrupted thought signature. Backfilling signatures and retrying."
+                )
+                _backfill_thought_signatures(messages)
+
+                # Re-map messages
+                system_instruction, contents = await self._map_messages(
+                    messages, model_request_parameters
+                )
+
+                # Update body
+                body["contents"] = contents
+                if system_instruction:
+                    body["systemInstruction"] = system_instruction
+
+                # Retry request
+                response = await client.post(url, json=body)
+                # Check error again after retry
+                if response.status_code != 200:
+                    raise RuntimeError(
+                        f"Antigravity API Error {response.status_code}: {response.text}"
+                    )
+            else:
+                raise RuntimeError(
+                    f"Antigravity API Error {response.status_code}: {error_text}"
+                )
 
         data = response.json()
 
@@ -318,24 +348,56 @@ class AntigravityModel(GoogleModel):
 
         # Create async generator for SSE events
         async def stream_chunks() -> AsyncIterator[dict[str, Any]]:
-            async with client.stream("POST", url, json=body) as response:
-                if response.status_code != 200:
-                    text = await response.aread()
-                    raise RuntimeError(
-                        f"Antigravity API Error {response.status_code}: {text.decode()}"
+            retry_count = 0
+            while retry_count < 2:
+                should_retry = False
+                async with client.stream("POST", url, json=body) as response:
+                    if response.status_code != 200:
+                        text = await response.aread()
+                        error_msg = text.decode()
+                        if (
+                            response.status_code == 400
+                            and "Corrupted thought signature" in error_msg
+                            and retry_count == 0
+                        ):
+                            should_retry = True
+                        else:
+                            raise RuntimeError(
+                                f"Antigravity API Error {response.status_code}: {error_msg}"
+                            )
+
+                    if not should_retry:
+                        async for line in response.aiter_lines():
+                            line = line.strip()
+                            if not line:
+                                continue
+                            if line.startswith("data: "):
+                                json_str = line[6:]  # Remove 'data: ' prefix
+                                if json_str:
+                                    try:
+                                        yield json.loads(json_str)
+                                    except json.JSONDecodeError:
+                                        continue
+                        return
+
+                # Handle retry outside the context manager
+                if should_retry:
+                    logger.warning(
+                        "Received 400 Corrupted thought signature in stream. Backfilling and retrying."
+                    )
+                    _backfill_thought_signatures(messages)
+
+                    # Re-map messages
+                    system_instruction, contents = await self._map_messages(
+                        messages, model_request_parameters
                     )
 
-                async for line in response.aiter_lines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if line.startswith("data: "):
-                        json_str = line[6:]  # Remove 'data: ' prefix
-                        if json_str:
-                            try:
-                                yield json.loads(json_str)
-                            except json.JSONDecodeError:
-                                continue
+                    # Update body in place
+                    body["contents"] = contents
+                    if system_instruction:
+                        body["systemInstruction"] = system_instruction
+
+                    retry_count += 1
 
         # Create streaming response
         streamed = AntigravityStreamingResponse(
@@ -666,3 +728,12 @@ def _antigravity_process_response_from_parts(
         provider_details=vendor_details,
         provider_name=provider_name,
     )
+
+
+def _backfill_thought_signatures(messages: list[ModelMessage]) -> None:
+    """Backfill all thinking parts with the bypass signature."""
+    for m in messages:
+        if isinstance(m, ModelResponse):
+            for part in m.parts:
+                if isinstance(part, ThinkingPart):
+                    object.__setattr__(part, "signature", BYPASS_THOUGHT_SIGNATURE)
