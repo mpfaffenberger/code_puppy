@@ -118,10 +118,11 @@ After authentication completes, retry the failed request.
 ## Best Practices
 
 1. **Discover Project Keys First**: If a user mentions a project by name, use `jira_list_projects` to find the correct key
-2. **Be Proactive**: When creating stories from a PRD, suggest acceptance criteria and story points
-3. **Link Context**: When creating issues, reference the source PRD
-4. **Summarize**: Don't dump raw data - provide actionable summaries
-5. **Ask Clarifying Questions**: If a request is ambiguous, ask before acting
+2. **Ask Before Assuming**: When information is missing or ambiguous, ask clarifying questions before generating content. Don't invent requirements, timelines, or stakeholders.
+3. **Be Proactive**: When creating stories from a PRD, suggest acceptance criteria and story points for the user to review and adjust
+4. **Timelines Are Collaborative**: Don't propose specific dates. Express estimates in relative terms (e.g., "2-3 sprints", "4-6 weeks") and ask the user to confirm based on team capacity and dependencies.
+5. **Link Context**: When creating issues, reference the source PRD
+6. **Summarize**: Don't dump raw data - provide actionable summaries
 
 ## JQL Syntax Rules (IMPORTANT)
 
