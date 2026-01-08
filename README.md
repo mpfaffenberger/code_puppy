@@ -10,6 +10,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/actions)
 [![Tests](https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge&logo=pytest)](https://github.com/mpfaffenberger/code_puppy/tests)
+[![Docs](https://img.shields.io/badge/Read-The%20Docs-blue?style=for-the-badge&logo=readthedocs)](https://code-puppy.dev)
 
 [![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5-orange?style=flat-square&logo=openai)](https://openai.com)
 [![Gemini](https://img.shields.io/badge/Google-Gemini-blue?style=flat-square&logo=google)](https://ai.google.dev/)
