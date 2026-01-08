@@ -1499,7 +1499,11 @@ class BaseAgent(ABC):
         for message in messages:
             if isinstance(message, ModelResponse):
                 for part in message.parts:
-                    if isinstance(part, ThinkingPart) and part.content and part.content.strip():
+                    if (
+                        isinstance(part, ThinkingPart)
+                        and part.content
+                        and part.content.strip()
+                    ):
                         all_thinking_content.append(part.content)
 
         # Display all thinking content if present
@@ -1873,9 +1877,13 @@ class BaseAgent(ABC):
                         exc, (asyncio.CancelledError, UsageLimitExceeded)
                     ):
                         remaining_exceptions.append(exc)
-                        _log_error_to_file(exc)
+                        log_file_path = _log_error_to_file(exc)
                         emit_info(f"Unexpected error: {str(exc)}", group_id=group_id)
-                        emit_info(f"{str(exc.args)}", group_id=group_id)
+                        if log_file_path:
+                            emit_info(
+                                f"[dim]Error details logged to: {log_file_path}[/dim]",
+                                group_id=group_id,
+                            )
 
                         # Enhanced logging for output validation / retry errors
                         error_str = str(exc).lower()

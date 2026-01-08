@@ -474,15 +474,27 @@ This is crucial for ensuring agents can properly use the tools they're given acc
 Your goal is to take users from idea to working agent in one smooth conversation!
 """
 
-    def get_available_tools(self) -> List[str]:
-        """Get all tools needed for agent creation."""
+    @staticmethod
+    def get_available_tools() -> list[str]:
+        """Return the list of tools available to this agent."""
         return [
+            # File operations
             "list_files",
             "read_file",
             "edit_file",
+            "grep",
+            # Shell
+            "agent_run_shell_command",
+            # Communication
             "agent_share_your_reasoning",
+            # Agent management
             "list_agents",
             "invoke_agent",
+            # Marketplace
+            "marketplace_search_agents",
+            "marketplace_download_agent",
+            "marketplace_upload_agent",
+            "marketplace_authenticate",
         ]
 
     def validate_agent_json(self, agent_config: Dict) -> List[str]:

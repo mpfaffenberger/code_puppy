@@ -889,7 +889,7 @@ def show_model_settings_summary(model_name: Optional[str] = None) -> None:
         return
 
     emit_info(f"Settings for {model}:")
-    
+
     # Create case-insensitive lookup for definitions since configparser lowercases keys
     def_lookup = {k.lower(): v for k, v in SETTING_DEFINITIONS.items()}
 
@@ -900,10 +900,10 @@ def show_model_settings_summary(model_name: Optional[str] = None) -> None:
             setting_def = def_lookup.get(setting_key.lower(), {})
 
         name = setting_def.get("name", setting_key)
-        
+
         # Format based on type to avoid crashing on strings/bools
         setting_type = setting_def.get("type")
-        
+
         if setting_type == "boolean":
             display_value = "Enabled" if value else "Disabled"
         elif setting_type == "choice":
@@ -914,5 +914,5 @@ def show_model_settings_summary(model_name: Optional[str] = None) -> None:
                 display_value = fmt.format(value)
             except (ValueError, TypeError):
                 display_value = str(value)
-                
+
         emit_info(f"  {name}: {display_value}")

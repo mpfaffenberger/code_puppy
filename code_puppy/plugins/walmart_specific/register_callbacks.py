@@ -25,7 +25,9 @@ from code_puppy.plugins.walmart_specific.auto_update import _handle_update
 from code_puppy.plugins.walmart_specific.model_config_fetcher import ModelConfigFetcher
 from code_puppy.plugins.walmart_specific.pingfed_auth import (
     get_pingfed_auth_help,
+    get_puppy_auth_help,
     handle_pingfed_auth_command,
+    handle_puppy_auth_command,
 )
 from code_puppy.plugins.walmart_specific.bigquery_auth import (
     get_bigquery_auth_help,
@@ -238,6 +240,8 @@ atexit.register(shutdown_telemetry)
 # Register custom command handlers
 register_callback("custom_command_help", get_pingfed_auth_help)
 register_callback("custom_command", handle_pingfed_auth_command)
+register_callback("custom_command_help", get_puppy_auth_help)
+register_callback("custom_command", handle_puppy_auth_command)
 register_callback("custom_command_help", get_confluence_auth_help)
 register_callback("custom_command", handle_confluence_auth_command)
 register_callback("custom_command_help", get_jira_auth_help)

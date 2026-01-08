@@ -543,7 +543,9 @@ class RichConsoleRenderer:
                         highlighted_line = line
 
                     ln = match.line_number
-                    self._console.print(f"  [dim grey70]{ln:4d}[/dim grey70] │ {highlighted_line}")
+                    self._console.print(
+                        f"  [dim grey70]{ln:4d}[/dim grey70] │ {highlighted_line}"
+                    )
         else:
             # Concise mode (default): Show only file summaries
             self._console.print("")

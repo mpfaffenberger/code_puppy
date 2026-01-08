@@ -498,12 +498,22 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
             # Default: assume common settings are supported for backwards compatibility
             # For Anthropic/Claude models, include extended thinking settings
             if model_name.startswith("claude-") or model_name.startswith("anthropic-"):
-                claude_settings = ["temperature", "extended_thinking", "budget_tokens", "interleaved_thinking"]
+                claude_settings = [
+                    "temperature",
+                    "extended_thinking",
+                    "budget_tokens",
+                    "interleaved_thinking",
+                ]
                 return setting_lower in claude_settings
 
             # For Gemini models, include thinking settings
             if model_config.get("type") == "custom_gemini" or "gemini" in model_name:
-                gemini_settings = ["thinkingenabled", "thinkinglevel", "temperature", "seed"]
+                gemini_settings = [
+                    "thinkingenabled",
+                    "thinkinglevel",
+                    "temperature",
+                    "seed",
+                ]
                 return setting_lower in gemini_settings
 
             return setting_lower in ["temperature", "seed"]

@@ -727,12 +727,11 @@ class TestDefaultModelSelection:
         mock_validate_model_exists.assert_called_once_with("invalid-model")
         mock_default_model.assert_called_once()
 
-    # NOTE: Tests that mock ModelFactory.load_config have been removed because
-    # they can't work due to a circular import issue in the codebase.
-    # The circular import: model_factory -> messaging -> rich_renderer -> tools -> agent_tools -> model_factory
-    # This causes _default_model_from_models_json() to always fall back to 'gpt-5'
-    # when trying to import ModelFactory inside the function.
-
+        # NOTE: Tests that mock ModelFactory.load_config have been removed because
+        # they can't work due to a circular import issue in the codebase.
+        # The circular import: model_factory -> messaging -> rich_renderer -> tools -> agent_tools -> model_factory
+        # This causes _default_model_from_models_json() to always fall back to 'gpt-5'
+        # when trying to import ModelFactory inside the function.
 
         assert result == "test-model-1"
         mock_load_config.assert_called_once()

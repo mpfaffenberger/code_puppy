@@ -145,7 +145,6 @@ def handle_paste_command(command: str) -> bool:
     return True
 
 
-
 @register_command(
     name="exit",
     description="Exit interactive mode",

@@ -827,7 +827,9 @@ def jira_update_issue(
             if add_components:
                 component_ops.extend([{"add": {"name": c}} for c in add_components])
             if remove_components:
-                component_ops.extend([{"remove": {"name": c}} for c in remove_components])
+                component_ops.extend(
+                    [{"remove": {"name": c}} for c in remove_components]
+                )
             if component_ops:
                 update["components"] = component_ops
                 updated_field_names.append("components")

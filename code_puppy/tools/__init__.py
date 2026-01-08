@@ -92,6 +92,14 @@ from code_puppy.tools.jira_tools import (
     register_jira_get_comments,
     register_jira_authenticate,
 )
+from code_puppy.tools.marketplace_tools import (
+    register_marketplace_search_agents,
+    register_marketplace_download_agent,
+    register_marketplace_upload_agent,
+    register_marketplace_check_update,
+    register_marketplace_authenticate,
+)
+
 from code_puppy.tools.msgraph import MSGRAPH_TOOLS
 from code_puppy.tools.file_modifications import register_delete_file, register_edit_file
 from code_puppy.tools.file_operations import (
@@ -193,6 +201,12 @@ TOOL_REGISTRY = {
     "databricks_get_table_schema": register_databricks_get_table_schema,
     "databricks_list_warehouses": register_databricks_list_warehouses,
     "databricks_execute_query": register_databricks_execute_query,
+    # Marketplace Tools
+    "marketplace_search_agents": register_marketplace_search_agents,
+    "marketplace_download_agent": register_marketplace_download_agent,
+    "marketplace_upload_agent": register_marketplace_upload_agent,
+    "marketplace_check_update": register_marketplace_check_update,
+    "marketplace_authenticate": register_marketplace_authenticate,
 }
 
 # Merge in GUI-Cub tools from separate registry
