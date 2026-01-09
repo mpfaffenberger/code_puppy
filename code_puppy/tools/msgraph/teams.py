@@ -21,6 +21,7 @@ from code_puppy.messaging import emit_info, emit_success
 from code_puppy.tools.msgraph.common import (
     get_msgraph_client,
     _handle_msgraph_error,
+    markdown_to_html,
 )
 
 
@@ -419,15 +420,22 @@ def msgraph_send_channel_message(
     team_id: str,
     channel_id: str,
     content: str,
-    content_type: str = "text",
+    content_type: str = "html",
 ) -> dict:
-    """Send a message to a channel.
+    """Send a message to a channel with full markdown/HTML support.
+
+    The content can contain markdown formatting which will be converted to HTML:
+    - **bold** and *italic*
+    - `inline code` and ```code blocks```
+    - # Headers, --- rules
+    - - bullet lists and 1. numbered lists
+    - [links](url)
 
     Args:
         team_id: The team ID.
         channel_id: The channel ID.
-        content: Message content.
-        content_type: "text" or "html" (default "text").
+        content: Message content (supports markdown formatting).
+        content_type: "text" or "html" (default "html" for rich formatting).
 
     Returns:
         Dict with success, sent message, or error.
@@ -443,10 +451,17 @@ def msgraph_send_channel_message(
     try:
         client = get_msgraph_client()
 
+        # Convert markdown to HTML if using html content type
+        final_content = content
+        final_type = content_type
+        if content_type.lower() == "html":
+            final_content = markdown_to_html(content)
+            final_type = "html"
+
         payload = {
             "body": {
-                "contentType": content_type,
-                "content": content,
+                "contentType": final_type,
+                "content": final_content,
             },
         }
 
@@ -631,14 +646,21 @@ def msgraph_send_chat_message(
     ctx: RunContext,
     chat_id: str,
     content: str,
-    content_type: str = "text",
+    content_type: str = "html",
 ) -> dict:
-    """Send a message to a chat.
+    """Send a message to a chat with full markdown/HTML support.
+
+    The content can contain markdown formatting which will be converted to HTML:
+    - **bold** and *italic*
+    - `inline code` and ```code blocks```
+    - # Headers, --- rules
+    - - bullet lists and 1. numbered lists
+    - [links](url)
 
     Args:
         chat_id: The chat ID (get from msgraph_list_chats).
-        content: Message content.
-        content_type: "text" or "html" (default "text").
+        content: Message content (supports markdown formatting).
+        content_type: "text" or "html" (default "html" for rich formatting).
 
     Returns:
         Dict with success, sent message details, or error.
@@ -654,10 +676,17 @@ def msgraph_send_chat_message(
     try:
         client = get_msgraph_client()
 
+        # Convert markdown to HTML if using html content type
+        final_content = content
+        final_type = content_type
+        if content_type.lower() == "html":
+            final_content = markdown_to_html(content)
+            final_type = "html"
+
         payload = {
             "body": {
-                "contentType": content_type,
-                "content": content,
+                "contentType": final_type,
+                "content": final_content,
             },
         }
 
