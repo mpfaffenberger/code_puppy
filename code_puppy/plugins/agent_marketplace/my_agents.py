@@ -188,8 +188,9 @@ def handle_my_agents(command: str) -> bool:
     try:
         # Run the async fetch
         from code_puppy.plugins.agent_marketplace.api_client import run_async
-        agents = run_async(_get_my_agents_async())
-        _display_agents(agents)
+
+        response = run_async(_get_my_agents_async())
+        _display_agents(response["data"])
 
     except Exception as e:
         error_msg = str(e)
