@@ -33,6 +33,7 @@ from code_puppy.messaging import (
     set_session_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
+from code_puppy.model_utils import is_claude_code_model
 from code_puppy.tools.common import generate_group_id
 
 # Set to track active subagent invocation tasks
@@ -539,6 +540,15 @@ def register_invoke_agent(agent):
             # Run the temporary agent with the provided prompt as an asyncio task
             # Pass the message_history from the session to continue the conversation
             workflow_id = None  # Track for potential cancellation
+
+            # For claude-code models, we MUST use streaming to properly handle
+            # tool name unprefixing in the HTTP transport layer
+            stream_handler = None
+            if is_claude_code_model(model_name):
+                from code_puppy.agents.event_stream_handler import event_stream_handler
+
+                stream_handler = event_stream_handler
+
             if get_use_dbos():
                 # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
                 workflow_id = _generate_dbos_workflow_id(group_id)
@@ -554,6 +564,7 @@ def register_invoke_agent(agent):
                             prompt,
                             message_history=message_history,
                             usage_limits=UsageLimits(request_limit=get_message_limit()),
+                            event_stream_handler=stream_handler,
                         )
                     )
                     _active_subagent_tasks.add(task)
@@ -563,6 +574,7 @@ def register_invoke_agent(agent):
                         prompt,
                         message_history=message_history,
                         usage_limits=UsageLimits(request_limit=get_message_limit()),
+                        event_stream_handler=stream_handler,
                     )
                 )
                 _active_subagent_tasks.add(task)
