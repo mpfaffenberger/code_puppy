@@ -8,7 +8,12 @@ from unittest.mock import AsyncMock, Mock, patch
 import httpx
 import pytest
 
-from code_puppy.claude_cache_client import TOKEN_MAX_AGE_SECONDS, ClaudeCacheAsyncClient
+from code_puppy.claude_cache_client import (
+    CLAUDE_CLI_USER_AGENT,
+    TOKEN_MAX_AGE_SECONDS,
+    TOOL_PREFIX,
+    ClaudeCacheAsyncClient,
+)
 
 
 def _create_jwt(iat: float | None = None, exp: float | None = None) -> str:
@@ -493,3 +498,181 @@ class TestTokenRefreshOnCloudflareError:
                 # The retry should have the extension flag set, preventing further retries
                 assert mock_send.call_count == 2
                 assert response.status_code == 401
+
+
+class TestToolPrefixing:
+    """Test tool name prefixing/unprefixing for Claude Code OAuth compatibility."""
+
+    def test_prefix_tool_names_basic(self):
+        """Test that tool names are prefixed correctly."""
+        body = json.dumps(
+            {
+                "model": "claude-3",
+                "tools": [
+                    {"name": "read_file", "description": "Read a file"},
+                    {"name": "edit_file", "description": "Edit a file"},
+                ],
+                "messages": [{"role": "user", "content": "Hello"}],
+            }
+        ).encode()
+
+        client = ClaudeCacheAsyncClient()
+        result = client._prefix_tool_names(body)
+
+        assert result is not None
+        data = json.loads(result)
+        assert data["tools"][0]["name"] == f"{TOOL_PREFIX}read_file"
+        assert data["tools"][1]["name"] == f"{TOOL_PREFIX}edit_file"
+
+    def test_prefix_tool_names_already_prefixed(self):
+        """Test that already-prefixed tools are not double-prefixed."""
+        body = json.dumps(
+            {
+                "tools": [
+                    {"name": f"{TOOL_PREFIX}read_file", "description": "Read a file"},
+                ],
+            }
+        ).encode()
+
+        client = ClaudeCacheAsyncClient()
+        result = client._prefix_tool_names(body)
+
+        # Should return None since nothing was modified
+        assert result is None
+
+    def test_prefix_tool_names_no_tools(self):
+        """Test that bodies without tools return None."""
+        body = json.dumps(
+            {
+                "model": "claude-3",
+                "messages": [{"role": "user", "content": "Hello"}],
+            }
+        ).encode()
+
+        client = ClaudeCacheAsyncClient()
+        result = client._prefix_tool_names(body)
+
+        assert result is None
+
+    def test_prefix_tool_names_invalid_json(self):
+        """Test that invalid JSON returns None."""
+        body = b"not valid json"
+
+        client = ClaudeCacheAsyncClient()
+        result = client._prefix_tool_names(body)
+
+        assert result is None
+
+    def test_unprefix_tool_names_in_text(self):
+        """Test that tool names are unprefixed in response text."""
+        response_text = (
+            "event: content_block_start\n"
+            f'data: {{"type": "content_block_start", "name": "{TOOL_PREFIX}read_file"}}'
+        )
+
+        client = ClaudeCacheAsyncClient()
+        result = client._unprefix_tool_names_in_text(response_text)
+
+        assert f'"{TOOL_PREFIX}read_file"' not in result
+        assert '"name": "read_file"' in result
+
+    def test_unprefix_tool_names_multiple_occurrences(self):
+        """Test that multiple tool names are unprefixed."""
+        response_text = f'{{"name": "{TOOL_PREFIX}read_file"}} and {{"name": "{TOOL_PREFIX}edit_file"}}'
+
+        client = ClaudeCacheAsyncClient()
+        result = client._unprefix_tool_names_in_text(response_text)
+
+        assert '"name": "read_file"' in result
+        assert '"name": "edit_file"' in result
+        assert TOOL_PREFIX not in result
+
+    def test_unprefix_tool_names_no_prefix(self):
+        """Test that text without prefixed names is unchanged."""
+        response_text = '{"name": "some_other_name"}'
+
+        client = ClaudeCacheAsyncClient()
+        result = client._unprefix_tool_names_in_text(response_text)
+
+        assert result == response_text
+
+
+class TestHeaderTransformation:
+    """Test header transformation for Claude Code OAuth compatibility."""
+
+    def test_transform_headers_sets_user_agent(self):
+        """Test that user-agent is set correctly."""
+        headers = {"anthropic-beta": "interleaved-thinking-2025-05-14"}
+
+        ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
+
+        assert headers["user-agent"] == CLAUDE_CLI_USER_AGENT
+
+    def test_transform_headers_adds_oauth_beta(self):
+        """Test that oauth beta is always added."""
+        headers = {}
+
+        ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
+
+        assert "oauth-2025-04-20" in headers["anthropic-beta"]
+        assert "interleaved-thinking-2025-05-14" in headers["anthropic-beta"]
+
+    def test_transform_headers_keeps_claude_code_beta_if_present(self):
+        """Test that claude-code beta is kept if it was in the incoming headers."""
+        headers = {
+            "anthropic-beta": "claude-code-20250219,interleaved-thinking-2025-05-14"
+        }
+
+        ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
+
+        assert "claude-code-20250219" in headers["anthropic-beta"]
+
+    def test_transform_headers_excludes_claude_code_beta_if_not_present(self):
+        """Test that claude-code beta is not added if it wasn't requested."""
+        headers = {"anthropic-beta": "interleaved-thinking-2025-05-14"}
+
+        ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
+
+        assert "claude-code-20250219" not in headers["anthropic-beta"]
+
+    def test_transform_headers_removes_x_api_key(self):
+        """Test that x-api-key is removed."""
+        headers = {
+            "x-api-key": "secret",
+            "anthropic-beta": "interleaved-thinking-2025-05-14",
+        }
+
+        ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
+
+        assert "x-api-key" not in headers
+        assert "X-API-Key" not in headers
+
+
+class TestUrlBetaParam:
+    """Test URL beta query parameter addition."""
+
+    def test_add_beta_query_param(self):
+        """Test that beta=true is added to URL."""
+        url = httpx.URL("https://api.anthropic.com/v1/messages")
+
+        new_url = ClaudeCacheAsyncClient._add_beta_query_param(url)
+
+        assert "beta=true" in str(new_url)
+
+    def test_add_beta_query_param_preserves_existing(self):
+        """Test that existing query params are preserved."""
+        url = httpx.URL("https://api.anthropic.com/v1/messages?foo=bar")
+
+        new_url = ClaudeCacheAsyncClient._add_beta_query_param(url)
+
+        assert "foo=bar" in str(new_url)
+        assert "beta=true" in str(new_url)
+
+    def test_add_beta_query_param_not_duplicated(self):
+        """Test that beta param is not duplicated if already present."""
+        url = httpx.URL("https://api.anthropic.com/v1/messages?beta=true")
+
+        new_url = ClaudeCacheAsyncClient._add_beta_query_param(url)
+
+        # Should be unchanged
+        assert str(new_url).count("beta") == 1
