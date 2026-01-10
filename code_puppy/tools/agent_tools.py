@@ -32,6 +32,7 @@ from code_puppy.messaging import (
     get_session_context,
     set_session_context,
 )
+from code_puppy.messaging.parallel_renderer import render_agent_output
 from code_puppy.model_utils import is_claude_code_model
 from code_puppy.tools.common import generate_group_id
 
@@ -425,6 +426,14 @@ def register_invoke_agent(agent):
             )
         )
 
+        # Get or enable parallel buffer for this sub-agent invocation
+        parallel_buffer = bus.get_parallel_buffer()
+        if parallel_buffer is None:
+            parallel_buffer = bus.enable_parallel_mode()
+
+        # Register this session for buffering
+        parallel_buffer.start_session(session_id)
+
         # Save current session context and set the new one for this sub-agent
         previous_session_id = get_session_context()
         set_session_context(session_id)
@@ -624,11 +633,36 @@ def register_invoke_agent(agent):
                 )
             )
 
+            # End the parallel session and get buffered messages
+            buffered_messages = parallel_buffer.end_session(session_id)
+
+            # Render the buffered output as a panel
+            from code_puppy.agents.event_stream_handler import get_streaming_console
+
+            render_agent_output(
+                messages=buffered_messages,
+                agent_name=agent_name,
+                session_id=session_id,
+                console=get_streaming_console(),
+            )
+
             return AgentInvokeOutput(
                 response=response, agent_name=agent_name, session_id=session_id
             )
 
         except Exception:
+            # End session even on error
+            if parallel_buffer:
+                buffered_messages = parallel_buffer.end_session(session_id)
+                from code_puppy.agents.event_stream_handler import get_streaming_console
+
+                render_agent_output(
+                    messages=buffered_messages,
+                    agent_name=agent_name,
+                    session_id=session_id,
+                    console=get_streaming_console(),
+                )
+
             error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
             emit_error(error_msg, message_group=group_id)
             return AgentInvokeOutput(
@@ -641,5 +675,9 @@ def register_invoke_agent(agent):
         finally:
             # Restore the previous session context
             set_session_context(previous_session_id)
+
+            # Disable parallel mode if no more active sessions
+            if parallel_buffer and not parallel_buffer.get_active_sessions():
+                bus.disable_parallel_mode()
 
     return invoke_agent
