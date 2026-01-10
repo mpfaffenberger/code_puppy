@@ -53,6 +53,7 @@ from .messages import (
     TextMessage,
     UserInputRequest,
 )
+from .parallel_buffer import ParallelOutputBuffer
 
 
 class MessageBus:
@@ -89,6 +90,9 @@ class MessageBus:
         # Session context for multi-agent tracking
         self._current_session_id: Optional[str] = None
 
+        # Parallel output buffering
+        self._parallel_buffer: Optional[ParallelOutputBuffer] = None
+
     # =========================================================================
     # Outgoing Messages (Agent → UI)
     # =========================================================================
@@ -111,6 +115,11 @@ class MessageBus:
             if not self._has_active_renderer:
                 self._startup_buffer.append(message)
                 return
+
+        # Check if message should be buffered for parallel output
+        if self._parallel_buffer is not None:
+            if self._parallel_buffer.buffer_message(message):
+                return  # Message was buffered, don't render
 
         # Direct put into thread-safe queue
         try:
@@ -195,6 +204,40 @@ class MessageBus:
         """
         with self._lock:
             return self._current_session_id
+
+    # =========================================================================
+    # Parallel Output Buffering
+    # =========================================================================
+
+    def enable_parallel_mode(self) -> ParallelOutputBuffer:
+        """Enable parallel output buffering mode.
+
+        Creates and returns a ParallelOutputBuffer for managing
+        parallel agent output. Messages from active sessions will
+        be buffered instead of rendered immediately.
+
+        Returns:
+            The ParallelOutputBuffer instance for managing sessions.
+        """
+        if self._parallel_buffer is None:
+            self._parallel_buffer = ParallelOutputBuffer()
+        return self._parallel_buffer
+
+    def disable_parallel_mode(self) -> None:
+        """Disable parallel output buffering mode.
+
+        Warning: Any remaining buffered messages will be lost!
+        Call end_session() for each active session first.
+        """
+        self._parallel_buffer = None
+
+    def get_parallel_buffer(self) -> Optional[ParallelOutputBuffer]:
+        """Get the current parallel buffer if enabled.
+
+        Returns:
+            The ParallelOutputBuffer if enabled, None otherwise.
+        """
+        return self._parallel_buffer
 
     # =========================================================================
     # User Input Requests (Agent waits for UI response)
@@ -607,4 +650,6 @@ __all__ = [
     # Session context
     "set_session_context",
     "get_session_context",
+    # Parallel output buffer re-export
+    "ParallelOutputBuffer",
 ]
