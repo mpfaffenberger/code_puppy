@@ -47,6 +47,7 @@ from code_puppy.config import (
     get_puppy_name,
     get_value,
 )
+from code_puppy.messaging import emit_info
 
 
 def _sanitize_for_encoding(text: str) -> str:
@@ -802,7 +803,9 @@ async def get_input_with_combined_completion(
 
 
 if __name__ == "__main__":
-    print("Type '@' for path-completion or '/model' to pick a model. Ctrl+D to exit.")
+    emit_info(
+        "Type '@' for path-completion or '/model' to pick a model. Ctrl+D to exit."
+    )
 
     async def main():
         while True:
@@ -810,11 +813,11 @@ if __name__ == "__main__":
                 inp = await get_input_with_combined_completion(
                     get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
                 )
-                print(f"You entered: {inp}")
+                emit_info(f"You entered: {inp}")
             except KeyboardInterrupt:
                 continue
             except EOFError:
                 break
-        print("\nGoodbye!")
+        emit_info("\nGoodbye!")
 
     asyncio.run(main())
