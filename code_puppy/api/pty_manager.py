@@ -225,36 +225,44 @@ class PTYManager:
         try:
             while session._running and session.master_fd is not None:
                 try:
-                    # Use asyncio to read from the PTY
                     data = await loop.run_in_executor(
                         None, self._read_unix_pty, session.master_fd
                     )
-                    if data and session.on_output:
-                        session.on_output(data)
-                    elif not data:
+                    
+                    if data is None:
+                        # No data available, wait a bit
+                        await asyncio.sleep(0.01)
+                        continue
+                    elif data == b"":
                         # EOF - process terminated
                         break
-                except OSError:
-                    # PTY closed
-                    break
+                    elif session.on_output:
+                        session.on_output(data)
+                        
                 except asyncio.CancelledError:
                     break
-
-                await asyncio.sleep(0.01)  # Small delay to prevent CPU spinning
 
         except Exception as e:
             logger.error(f"Unix reader loop error: {e}")
         finally:
             session._running = False
 
-    def _read_unix_pty(self, fd: int) -> bytes:
-        """Read from Unix PTY file descriptor."""
+    def _read_unix_pty(self, fd: int) -> bytes | None:
+        """Read from Unix PTY file descriptor.
+        
+        Returns:
+            bytes: Data read from PTY
+            None: No data available (would block)
+            b'': EOF (process terminated)
+        """
         try:
-            return os.read(fd, 4096)
+            data = os.read(fd, 4096)
+            return data
         except BlockingIOError:
-            return b""
+            return None
         except OSError:
             return b""
+
 
     async def _windows_reader_loop(self, session: PTYSession) -> None:
         """Read output from Windows PTY and forward to callback."""

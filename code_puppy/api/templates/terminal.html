@@ -268,7 +268,7 @@
             
             setStatus('connecting');
             
-            const url = `${CONFIG.wsUrl}?session=${encodeURIComponent(CONFIG.sessionId)}`;
+            const url = CONFIG.wsUrl;
             socket = new WebSocket(url);
             
             socket.onopen = () => {
