@@ -18,6 +18,9 @@ PhaseType = Literal[
     "custom_command",
     "custom_command_help",
     "file_permission",
+    "pre_tool_call",
+    "post_tool_call",
+    "stream_event",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -36,6 +39,9 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "custom_command": [],
     "custom_command_help": [],
     "file_permission": [],
+    "pre_tool_call": [],
+    "post_tool_call": [],
+    "stream_event": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -270,4 +276,71 @@ def on_file_permission(
         preview,
         message_group,
         operation_data,
+    )
+
+
+async def on_pre_tool_call(
+    tool_name: str, tool_args: dict, context: Any = None
+) -> List[Any]:
+    """Trigger callbacks before a tool is called.
+
+    This allows plugins to inspect, modify, or log tool calls before
+    they are executed.
+
+    Args:
+        tool_name: Name of the tool being called
+        tool_args: Arguments being passed to the tool
+        context: Optional context data for the tool call
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return await _trigger_callbacks("pre_tool_call", tool_name, tool_args, context)
+
+
+async def on_post_tool_call(
+    tool_name: str,
+    tool_args: dict,
+    result: Any,
+    duration_ms: float,
+    context: Any = None,
+) -> List[Any]:
+    """Trigger callbacks after a tool completes.
+
+    This allows plugins to inspect tool results, log execution times,
+    or perform post-processing.
+
+    Args:
+        tool_name: Name of the tool that was called
+        tool_args: Arguments that were passed to the tool
+        result: The result returned by the tool
+        duration_ms: Execution time in milliseconds
+        context: Optional context data for the tool call
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return await _trigger_callbacks(
+        "post_tool_call", tool_name, tool_args, result, duration_ms, context
+    )
+
+
+async def on_stream_event(
+    event_type: str, event_data: Any, agent_session_id: str | None = None
+) -> List[Any]:
+    """Trigger callbacks for streaming events.
+
+    This allows plugins to react to streaming events in real-time,
+    such as tokens being generated, tool calls starting, etc.
+
+    Args:
+        event_type: Type of the streaming event
+        event_data: Data associated with the event
+        agent_session_id: Optional session ID of the agent emitting the event
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return await _trigger_callbacks(
+        "stream_event", event_type, event_data, agent_session_id
     )
