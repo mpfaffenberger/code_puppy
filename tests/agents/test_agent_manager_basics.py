@@ -209,7 +209,7 @@ class TestAgentManagerBasics:
         self, mock_iter_modules, mock_json_agents
     ):
         """Test that import errors are handled gracefully."""
-        mock_iter_modules.return_value = [("code_puppy.agents", "broken_agent", True)]
+        mock_iter_modules.return_value = [("code_puppy.agents", "broken_agent", False)]
 
         # Create a side effect that only fails for the broken agent module
         def mock_import_side_effect(module_name):
