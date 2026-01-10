@@ -240,6 +240,22 @@ def set_config_value(key: str, value: str):
         config.write(f)
 
 
+# Alias for API compatibility
+def set_value(key: str, value: str) -> None:
+    """Set a config value. Alias for set_config_value."""
+    set_config_value(key, value)
+
+
+def reset_value(key: str) -> None:
+    """Remove a key from the config file, resetting it to default."""
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    if DEFAULT_SECTION in config and key in config[DEFAULT_SECTION]:
+        del config[DEFAULT_SECTION][key]
+        with open(CONFIG_FILE, "w") as f:
+            config.write(f)
+
+
 # --- MODEL STICKY EXTENSION STARTS HERE ---
 def load_mcp_server_configs():
     """
