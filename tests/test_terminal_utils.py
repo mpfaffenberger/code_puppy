@@ -230,14 +230,13 @@ class TestTruecolorWarningSizing:
         monkeypatch.setattr(terminal_utils, "detect_truecolor_support", lambda: False)
         monkeypatch.setitem(sys.modules, "rich", None)
         monkeypatch.setitem(sys.modules, "rich.console", None)
-        import builtins
 
-        print_mock = MagicMock()
-        monkeypatch.setattr(builtins, "print", print_mock)
+        emit_info_mock = MagicMock()
+        monkeypatch.setattr(terminal_utils, "emit_info", emit_info_mock)
 
         terminal_utils.print_truecolor_warning()
 
-        first_call = print_mock.call_args_list[0][0][0]
+        first_call = emit_info_mock.call_args_list[0][0][0]
         assert "=" * 70 in first_call
 
     def test_warning_rich_box_width(self, monkeypatch):

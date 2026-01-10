@@ -9,6 +9,8 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING, Callable, Optional
 
+from code_puppy.messaging import emit_info
+
 if TYPE_CHECKING:
     from rich.console import Console
 
@@ -361,20 +363,22 @@ def print_truecolor_warning(console: Optional["Console"] = None) -> None:
             console = Console()
         except ImportError:
             # Rich not available, fall back to plain print
-            print("\n" + "=" * 70)
-            print("⚠️  WARNING: TERMINAL DOES NOT SUPPORT TRUECOLOR (24-BIT COLOR)")
-            print("=" * 70)
-            print("Code Puppy looks best with truecolor support.")
-            print("Consider using a modern terminal like:")
-            print("  • iTerm2 (macOS)")
-            print("  • Windows Terminal (Windows)")
-            print("  • Kitty, Alacritty, or any modern terminal emulator")
-            print("")
-            print("You can also try setting: export COLORTERM=truecolor")
-            print("")
-            print("Note: The built-in macOS Terminal.app does not support truecolor")
-            print("(Sequoia and earlier). You'll need a different terminal app.")
-            print("=" * 70 + "\n")
+            emit_info("\n" + "=" * 70)
+            emit_info("⚠️  WARNING: TERMINAL DOES NOT SUPPORT TRUECOLOR (24-BIT COLOR)")
+            emit_info("=" * 70)
+            emit_info("Code Puppy looks best with truecolor support.")
+            emit_info("Consider using a modern terminal like:")
+            emit_info("  • iTerm2 (macOS)")
+            emit_info("  • Windows Terminal (Windows)")
+            emit_info("  • Kitty, Alacritty, or any modern terminal emulator")
+            emit_info("")
+            emit_info("You can also try setting: export COLORTERM=truecolor")
+            emit_info("")
+            emit_info(
+                "Note: The built-in macOS Terminal.app does not support truecolor"
+            )
+            emit_info("(Sequoia and earlier). You'll need a different terminal app.")
+            emit_info("=" * 70 + "\n")
             return
 
     # Get detected color system for diagnostic info
