@@ -291,7 +291,7 @@
                     
                     switch (message.type) {
                         case 'output':
-                            terminal.write(atob(message.data));
+                            terminal.write(new TextDecoder().decode(Uint8Array.from(atob(message.data), c => c.charCodeAt(0))));
                             break;
                         case 'error':
                             terminal.writeln(`\x1b[1;31mError: ${message.message}\x1b[0m`);
