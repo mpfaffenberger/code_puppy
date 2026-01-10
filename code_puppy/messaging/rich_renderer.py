@@ -18,7 +18,9 @@ from rich.rule import Rule
 # Note: Syntax import removed - file content not displayed, only header
 from rich.table import Table
 
+from code_puppy.config import get_subagent_verbose
 from code_puppy.tools.common import format_diff_with_colors
+from code_puppy.tools.subagent_context import is_subagent
 
 from .bus import MessageBus
 from .commands import (
@@ -158,6 +160,14 @@ class RichConsoleRenderer:
         """
         color = self._get_banner_color(banner_name)
         return f"[bold white on {color}] {text} [/bold white on {color}]"
+
+    def _should_suppress_subagent_output(self) -> bool:
+        """Check if sub-agent output should be suppressed.
+
+        Returns:
+            True if we're in a sub-agent context and verbose mode is disabled
+        """
+        return is_subagent() and not get_subagent_verbose()
 
     # =========================================================================
     # Lifecycle (Synchronous - for compatibility with main.py)
@@ -357,6 +367,10 @@ class RichConsoleRenderer:
         - Total size
         - Number of subdirectories
         """
+        # Skip for sub-agents unless verbose mode
+        if self._should_suppress_subagent_output():
+            return
+
         import os
         from collections import defaultdict
 
@@ -479,6 +493,10 @@ class RichConsoleRenderer:
 
         The file content is for the LLM only, not for display in the UI.
         """
+        # Skip for sub-agents unless verbose mode
+        if self._should_suppress_subagent_output():
+            return
+
         # Build line info
         line_info = ""
         if msg.start_line is not None and msg.num_lines is not None:
@@ -493,6 +511,10 @@ class RichConsoleRenderer:
 
     def _render_grep_result(self, msg: GrepResultMessage) -> None:
         """Render grep results grouped by file matching old format."""
+        # Skip for sub-agents unless verbose mode
+        if self._should_suppress_subagent_output():
+            return
+
         import re
 
         # Header
@@ -573,6 +595,10 @@ class RichConsoleRenderer:
 
     def _render_diff(self, msg: DiffMessage) -> None:
         """Render a diff with beautiful syntax highlighting."""
+        # Skip for sub-agents unless verbose mode
+        if self._should_suppress_subagent_output():
+            return
+
         # Operation-specific styling
         op_icons = {"create": "✨", "modify": "✏️", "delete": "🗑️"}
         op_colors = {"create": "green", "modify": "yellow", "delete": "red"}
@@ -617,6 +643,10 @@ class RichConsoleRenderer:
 
     def _render_shell_start(self, msg: ShellStartMessage) -> None:
         """Render shell command start notification."""
+        # Skip for sub-agents unless verbose mode
+        if self._should_suppress_subagent_output():
+            return
+
         # Escape command to prevent Rich markup injection
         safe_command = escape_rich_markup(msg.command)
         # Header showing command is starting
@@ -701,6 +731,10 @@ class RichConsoleRenderer:
 
     def _render_subagent_invocation(self, msg: SubAgentInvocationMessage) -> None:
         """Render sub-agent invocation header with nice formatting."""
+        # Skip for sub-agents unless verbose mode (avoid nested invocation banners)
+        if self._should_suppress_subagent_output():
+            return
+
         # Header with agent name and session
         session_type = (
             "New session"
