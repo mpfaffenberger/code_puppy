@@ -116,6 +116,7 @@ Code Puppy features a modular agent architecture. Each agent has its own system 
 | `file_operations.py` | List, read, grep filesystem operations |
 | `agent_tools.py` | Agent invocation and reasoning tools |
 | `tools_content.py` | Content manipulation utilities |
+| `search_tool.py` | Web search via Tavily API |
 
 ### `code_puppy/tools/browser/`
 
@@ -264,6 +265,9 @@ You can create custom agents using JSON files! Place them in `~/.code_puppy/agen
 
 **System Operations:**
 - `agent_run_shell_command` - Execute shell commands
+
+**Web Search:**
+- `search` - Search the web via Tavily API (requires `SEARCH_API_KEY`)
 
 **Agent Operations:**
 - `agent_share_your_reasoning` - Share thought process
