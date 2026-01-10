@@ -10,8 +10,9 @@ from code_puppy.plugins.antigravity_oauth.antigravity_model import AntigravityMo
 class TestAntigravityModelInitialization:
     """Test AntigravityModel initialization and basic properties."""
 
-    def test_model_initialization(self) -> None:
+    def test_model_initialization(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that model initializes with correct attributes."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-key-for-ci")
         model = AntigravityModel("gemini-1.5-pro")
         assert model._model_name == "gemini-1.5-pro"
         assert model.system == "google-gla"
@@ -19,7 +20,10 @@ class TestAntigravityModelInitialization:
     @pytest.mark.parametrize(
         "model_name", ["gemini-1.5-pro", "claude-3-5-sonnet", "custom-model"]
     )
-    def test_various_model_names(self, model_name: str) -> None:
+    def test_various_model_names(
+        self, model_name: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test model initialization with various model names."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-key-for-ci")
         model = AntigravityModel(model_name)
         assert model._model_name == model_name
