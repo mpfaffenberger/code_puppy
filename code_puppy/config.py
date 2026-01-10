@@ -208,6 +208,9 @@ def get_config_keys():
         "diff_context_lines",
         "default_agent",
         "temperature",
+        "frontend_emitter_enabled",
+        "frontend_emitter_max_recent_events",
+        "frontend_emitter_queue_size",
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
@@ -1584,3 +1587,34 @@ def set_default_agent(agent_name: str) -> None:
         agent_name: The name of the agent to set as default.
     """
     set_config_value("default_agent", agent_name)
+
+
+# --- FRONTEND EMITTER CONFIGURATION ---
+def get_frontend_emitter_enabled() -> bool:
+    """Check if frontend emitter is enabled."""
+    val = get_value("frontend_emitter_enabled")
+    if val is None:
+        return True  # Enabled by default
+    return str(val).lower() in ("1", "true", "yes", "on")
+
+
+def get_frontend_emitter_max_recent_events() -> int:
+    """Get max number of recent events to buffer."""
+    val = get_value("frontend_emitter_max_recent_events")
+    if val is None:
+        return 100
+    try:
+        return int(val)
+    except ValueError:
+        return 100
+
+
+def get_frontend_emitter_queue_size() -> int:
+    """Get max subscriber queue size."""
+    val = get_value("frontend_emitter_queue_size")
+    if val is None:
+        return 100
+    try:
+        return int(val)
+    except ValueError:
+        return 100
