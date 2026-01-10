@@ -1378,9 +1378,9 @@ def _find_best_window(
             best_window = window
 
     # Debug logging
-    console.log(best_span)
-    console.log(best_window)
-    console.log(best_score)
+    emit_info(str(best_span))
+    emit_info(str(best_window))
+    emit_info(str(best_score))
     return best_span, best_score
 
 

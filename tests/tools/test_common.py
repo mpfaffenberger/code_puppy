@@ -294,13 +294,13 @@ class TestFindBestWindow:
         haystack = ["test"]
         needle = "test"
 
-        mock_console = MagicMock()
-        common_module.console = mock_console
+        mock_emit_info = MagicMock()
+        common_module.emit_info = mock_emit_info
         _find_best_window(haystack, needle)
 
         # Should log: span, window, score
-        assert mock_console.log.call_count == 3, (
-            f"Expected 3 console.log calls, got {mock_console.log.call_count}"
+        assert mock_emit_info.call_count == 3, (
+            f"Expected 3 emit_info calls, got {mock_emit_info.call_count}"
         )
 
     def test_returns_best_match_not_first(self):
