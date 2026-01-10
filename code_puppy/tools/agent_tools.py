@@ -32,7 +32,6 @@ from code_puppy.messaging import (
     get_session_context,
     set_session_context,
 )
-from code_puppy.model_utils import is_claude_code_model
 from code_puppy.tools.common import generate_group_id
 
 # Set to track active subagent invocation tasks
@@ -413,6 +412,13 @@ def register_invoke_agent(agent):
             session_id = f"{session_id}-{hash_suffix}"
         # else: continuing existing session, use session_id as-is
 
+        # Lazy imports to avoid circular dependency
+        from code_puppy.messaging.subagent_console import SubAgentConsoleManager
+        from code_puppy.agents.subagent_stream_handler import subagent_stream_handler
+
+        # Register agent with console manager for dashboard display
+        console_manager = SubAgentConsoleManager.get_instance()
+
         # Emit structured invocation message via MessageBus
         bus = get_message_bus()
         bus.emit(
@@ -445,6 +451,9 @@ def register_invoke_agent(agent):
                 raise ValueError(f"Model '{model_name}' not found in configuration")
 
             model = ModelFactory.get_model(model_name, models_config)
+
+            # Register agent with console manager for dashboard display
+            console_manager.register_agent(session_id, agent_name, model_name)
 
             # Create a temporary agent instance to avoid interfering with current agent state
             instructions = agent_config.get_system_prompt()
@@ -485,9 +494,6 @@ def register_invoke_agent(agent):
             ):
                 manager = get_mcp_manager()
                 mcp_servers = manager.get_servers_for_agent()
-
-            # Import display function for non-streaming output
-            from code_puppy.tools.display import display_non_streamed_result
 
             if get_use_dbos():
                 from pydantic_ai.durable_exec.dbos import DBOSAgent
@@ -543,13 +549,9 @@ def register_invoke_agent(agent):
             # Pass the message_history from the session to continue the conversation
             workflow_id = None  # Track for potential cancellation
 
-            # For claude-code models, we MUST use streaming to properly handle
-            # tool name unprefixing in the HTTP transport layer
-            stream_handler = None
-            if is_claude_code_model(model_name):
-                from code_puppy.agents.event_stream_handler import event_stream_handler
-
-                stream_handler = event_stream_handler
+            # Always use subagent_stream_handler to silence output and update console manager
+            # This ensures all sub-agent output goes through the aggregated dashboard
+            stream_handler = subagent_stream_handler(session_id)
 
             if get_use_dbos():
                 # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
@@ -592,15 +594,8 @@ def register_invoke_agent(agent):
             # Extract the response from the result
             response = result.output
 
-            # Display the response using non-streaming output
-            from code_puppy.agents.event_stream_handler import get_streaming_console
-
-            display_non_streamed_result(
-                content=response,
-                console=get_streaming_console(),
-                banner_text=f"\u2713 {agent_name.upper()} RESPONSE",
-                banner_name="subagent_response",
-            )
+            # Update console manager status to completed
+            console_manager.update_agent(session_id, status="completed")
 
             # Update the session history with the new messages from this interaction
             # The result contains all_messages which includes the full conversation
@@ -628,9 +623,11 @@ def register_invoke_agent(agent):
                 response=response, agent_name=agent_name, session_id=session_id
             )
 
-        except Exception:
+        except Exception as e:
             error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
             emit_error(error_msg, message_group=group_id)
+            # Update console manager with error status
+            console_manager.update_agent(session_id, status="error", error_message=str(e))
             return AgentInvokeOutput(
                 response=None,
                 agent_name=agent_name,
@@ -639,6 +636,8 @@ def register_invoke_agent(agent):
             )
 
         finally:
+            # Unregister agent from console manager
+            console_manager.unregister_agent(session_id)
             # Restore the previous session context
             set_session_context(previous_session_id)
 
