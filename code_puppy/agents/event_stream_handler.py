@@ -1,5 +1,7 @@
 """Event stream handler for processing streaming events from agent runs."""
 
+import asyncio
+import logging
 from collections.abc import AsyncIterable
 from typing import Any, Optional
 
@@ -18,6 +20,32 @@ from rich.text import Text
 
 from code_puppy.config import get_banner_color
 from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
+
+logger = logging.getLogger(__name__)
+
+
+def _fire_stream_event(event_type: str, event_data: Any) -> None:
+    """Fire a stream event callback asynchronously (non-blocking).
+
+    Args:
+        event_type: Type of the event (e.g., 'part_start', 'part_delta', 'part_end')
+        event_data: Data associated with the event
+    """
+    try:
+        from code_puppy import callbacks
+        from code_puppy.messaging import get_session_context
+
+        agent_session_id = get_session_context()
+
+        # Use create_task to fire callback without blocking
+        asyncio.create_task(
+            callbacks.on_stream_event(event_type, event_data, agent_session_id)
+        )
+    except ImportError:
+        logger.debug("callbacks or messaging module not available for stream event")
+    except Exception as e:
+        logger.debug(f"Error firing stream event callback: {e}")
+
 
 # Module-level console for streaming output
 # Set via set_streaming_console() to share console with spinner
@@ -121,6 +149,16 @@ async def event_stream_handler(
     async for event in events:
         # PartStartEvent - register the part but defer banner until content arrives
         if isinstance(event, PartStartEvent):
+            # Fire stream event callback for part_start
+            _fire_stream_event(
+                "part_start",
+                {
+                    "index": event.index,
+                    "part_type": type(event.part).__name__,
+                    "part": event.part,
+                },
+            )
+
             part = event.part
             if isinstance(part, ThinkingPart):
                 streaming_parts.add(event.index)
@@ -156,6 +194,16 @@ async def event_stream_handler(
 
         # PartDeltaEvent - stream the content as it arrives
         elif isinstance(event, PartDeltaEvent):
+            # Fire stream event callback for part_delta
+            _fire_stream_event(
+                "part_delta",
+                {
+                    "index": event.index,
+                    "delta_type": type(event.delta).__name__,
+                    "delta": event.delta,
+                },
+            )
+
             if event.index in streaming_parts:
                 delta = event.delta
                 if isinstance(delta, (TextPartDelta, ThinkingPartDelta)):
@@ -208,6 +256,15 @@ async def event_stream_handler(
 
         # PartEndEvent - finish the streaming with a newline
         elif isinstance(event, PartEndEvent):
+            # Fire stream event callback for part_end
+            _fire_stream_event(
+                "part_end",
+                {
+                    "index": event.index,
+                    "next_part_kind": getattr(event, "next_part_kind", None),
+                },
+            )
+
             if event.index in streaming_parts:
                 # For text parts, finalize termflow rendering
                 if event.index in text_parts:
