@@ -28,6 +28,7 @@ from code_puppy.messaging import (
     SubAgentResponseMessage,
     emit_error,
     emit_info,
+    emit_success,
     get_message_bus,
     get_session_context,
     set_session_context,
@@ -631,13 +632,23 @@ def register_invoke_agent(agent):
                 )
             )
 
+            # Emit clean completion summary
+            emit_success(
+                f"✓ {agent_name} completed successfully", message_group=group_id
+            )
+
             return AgentInvokeOutput(
                 response=response, agent_name=agent_name, session_id=session_id
             )
 
-        except Exception:
+        except Exception as e:
+            # Emit clean failure summary
+            emit_error(f"✗ {agent_name} failed: {str(e)}", message_group=group_id)
+
+            # Full traceback for debugging
             error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
             emit_error(error_msg, message_group=group_id)
+
             return AgentInvokeOutput(
                 response=None,
                 agent_name=agent_name,
