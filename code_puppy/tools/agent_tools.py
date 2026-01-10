@@ -34,6 +34,7 @@ from code_puppy.messaging import (
 )
 from code_puppy.model_utils import is_claude_code_model
 from code_puppy.tools.common import generate_group_id
+from code_puppy.tools.subagent_context import subagent_context
 
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
@@ -551,16 +552,32 @@ def register_invoke_agent(agent):
 
                 stream_handler = event_stream_handler
 
-            if get_use_dbos():
-                # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
-                workflow_id = _generate_dbos_workflow_id(group_id)
+            # Wrap the agent run in subagent context for tracking
+            with subagent_context(agent_name):
+                if get_use_dbos():
+                    # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
+                    workflow_id = _generate_dbos_workflow_id(group_id)
 
-                # Add MCP servers to the DBOS agent's toolsets
-                # (temp_agent is discarded after this invocation, so no need to restore)
-                if subagent_mcp_servers:
-                    temp_agent._toolsets = temp_agent._toolsets + subagent_mcp_servers
+                    # Add MCP servers to the DBOS agent's toolsets
+                    # (temp_agent is discarded after this invocation, so no need to restore)
+                    if subagent_mcp_servers:
+                        temp_agent._toolsets = (
+                            temp_agent._toolsets + subagent_mcp_servers
+                        )
 
-                with SetWorkflowID(workflow_id):
+                    with SetWorkflowID(workflow_id):
+                        task = asyncio.create_task(
+                            temp_agent.run(
+                                prompt,
+                                message_history=message_history,
+                                usage_limits=UsageLimits(
+                                    request_limit=get_message_limit()
+                                ),
+                                event_stream_handler=stream_handler,
+                            )
+                        )
+                        _active_subagent_tasks.add(task)
+                else:
                     task = asyncio.create_task(
                         temp_agent.run(
                             prompt,
@@ -570,24 +587,14 @@ def register_invoke_agent(agent):
                         )
                     )
                     _active_subagent_tasks.add(task)
-            else:
-                task = asyncio.create_task(
-                    temp_agent.run(
-                        prompt,
-                        message_history=message_history,
-                        usage_limits=UsageLimits(request_limit=get_message_limit()),
-                        event_stream_handler=stream_handler,
-                    )
-                )
-                _active_subagent_tasks.add(task)
 
-            try:
-                result = await task
-            finally:
-                _active_subagent_tasks.discard(task)
-                if task.cancelled():
-                    if get_use_dbos() and workflow_id:
-                        DBOS.cancel_workflow(workflow_id)
+                try:
+                    result = await task
+                finally:
+                    _active_subagent_tasks.discard(task)
+                    if task.cancelled():
+                        if get_use_dbos() and workflow_id:
+                            DBOS.cancel_workflow(workflow_id)
 
             # Extract the response from the result
             response = result.output
