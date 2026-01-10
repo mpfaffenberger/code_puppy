@@ -16,8 +16,9 @@ from rich.console import Console
 from rich.markup import escape
 from rich.text import Text
 
-from code_puppy.config import get_banner_color
+from code_puppy.config import get_banner_color, get_subagent_verbose
 from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
+from code_puppy.tools.subagent_context import is_subagent
 
 # Module-level console for streaming output
 # Set via set_streaming_console() to share console with spinner
@@ -47,6 +48,15 @@ def get_streaming_console() -> Console:
     return Console()
 
 
+def _should_suppress_output() -> bool:
+    """Check if sub-agent output should be suppressed.
+    
+    Returns:
+        True if we're in a sub-agent context and verbose mode is disabled.
+    """
+    return is_subagent() and not get_subagent_verbose()
+
+
 async def event_stream_handler(
     ctx: RunContext,
     events: AsyncIterable[Any],
@@ -60,6 +70,12 @@ async def event_stream_handler(
         ctx: The run context.
         events: Async iterable of streaming events (PartStartEvent, PartDeltaEvent, etc.).
     """
+    # If we're in a sub-agent and verbose mode is disabled, silently consume events
+    if _should_suppress_output():
+        async for _ in events:
+            pass  # Just consume events without rendering
+        return
+
     import time
 
     from termflow import Parser as TermflowParser
