@@ -801,20 +801,20 @@ class TestPrintTruecolorWarning:
                 assert "WARNING" in call_text or "truecolor" in call_text.lower()
 
     def test_warning_without_rich(self):
-        """Test warning printed without Rich (fallback to plain print)."""
+        """Test warning printed without Rich (fallback to emit_info)."""
         with patch("code_puppy.terminal_utils.detect_truecolor_support") as mock_detect:
             mock_detect.return_value = False
 
             # Mock rich import failure
             with patch.dict("sys.modules", {"rich": None, "rich.console": None}):
-                with patch("builtins.print") as mock_print:
+                with patch("code_puppy.terminal_utils.emit_info") as mock_emit_info:
                     print_truecolor_warning()
 
-                    # Verify print was called
-                    mock_print.assert_called()
+                    # Verify emit_info was called
+                    mock_emit_info.assert_called()
 
-                    # Get all print calls and verify warning content
-                    calls = mock_print.call_args_list
+                    # Get all emit_info calls and verify warning content
+                    calls = mock_emit_info.call_args_list
                     call_args = [str(call) for call in calls]
                     call_text = " ".join(call_args).lower()
 
