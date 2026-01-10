@@ -4,8 +4,6 @@ Shared spinner implementation for CLI mode.
 This module provides consistent spinner animations across different UI modes.
 """
 
-from code_puppy.tools.subagent_context import is_subagent
-
 from .console_spinner import ConsoleSpinner
 from .spinner_base import SpinnerBase
 
@@ -27,10 +25,13 @@ def unregister_spinner(spinner):
 
 def pause_all_spinners():
     """Pause all active spinners.
-    
+
     No-op when called from a sub-agent context to prevent
     parallel sub-agents from interfering with the main spinner.
     """
+    # Lazy import to avoid circular dependency
+    from code_puppy.tools.subagent_context import is_subagent
+
     if is_subagent():
         return  # Sub-agents don't control the main spinner
     for spinner in _active_spinners:
@@ -43,10 +44,13 @@ def pause_all_spinners():
 
 def resume_all_spinners():
     """Resume all active spinners.
-    
+
     No-op when called from a sub-agent context to prevent
     parallel sub-agents from interfering with the main spinner.
     """
+    # Lazy import to avoid circular dependency
+    from code_puppy.tools.subagent_context import is_subagent
+
     if is_subagent():
         return  # Sub-agents don't control the main spinner
     for spinner in _active_spinners:
