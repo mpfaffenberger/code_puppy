@@ -32,7 +32,6 @@ from code_puppy.messaging import (
     get_session_context,
     set_session_context,
 )
-from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.model_utils import is_claude_code_model
 from code_puppy.tools.common import generate_group_id
 
@@ -431,6 +430,9 @@ def register_invoke_agent(agent):
         set_session_context(session_id)
 
         try:
+            # Lazy import to break circular dependency with messaging module
+            from code_puppy.model_factory import ModelFactory, make_model_settings
+
             # Load the specified agent config
             agent_config = load_agent(agent_name)
 

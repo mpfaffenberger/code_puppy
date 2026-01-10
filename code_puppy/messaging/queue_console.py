@@ -239,7 +239,7 @@ class QueueConsole:
             # Show the user's response in the chat as well
             if user_response:
                 self.queue.emit_simple(
-                    MessageType.USER, f"User response: {user_response}"
+                    MessageType.INFO, f"User response: {user_response}"
                 )
 
             return user_response

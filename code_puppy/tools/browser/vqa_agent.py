@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent
 
 from code_puppy.config import get_use_dbos, get_vqa_model_name
-from code_puppy.model_factory import ModelFactory
 
 
 class VisualAnalysisResult(BaseModel):
@@ -31,6 +30,7 @@ def _get_vqa_instructions() -> str:
 @lru_cache(maxsize=1)
 def _load_vqa_agent(model_name: str) -> Agent[None, VisualAnalysisResult]:
     """Create a cached agent instance for visual analysis."""
+    from code_puppy.model_factory import ModelFactory
     from code_puppy.model_utils import prepare_prompt_for_model
 
     models_config = ModelFactory.load_config()

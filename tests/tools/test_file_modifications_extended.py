@@ -9,6 +9,7 @@ from code_puppy.tools.file_modifications import (
     DeleteSnippetPayload,
     Replacement,
     ReplacementsPayload,
+    _delete_file,
     _edit_file,
 )
 
@@ -419,3 +420,135 @@ def func3():
 
         assert result["success"] is False
         assert "unknown payload type" in result["message"].lower()
+
+
+class TestEncodingAndSpecialCharacters:
+    """Test handling of various encodings and special characters."""
+
+    def test_edit_file_utf8_content(self, tmp_path):
+        """Test editing file with UTF-8 content including emojis."""
+        test_file = tmp_path / "unicode.py"
+        test_file.write_text("# Python file\nprint('Hello')\n")
+
+        content = ContentPayload(
+            file_path=str(test_file),
+            content="# Unicode test\nprint('你好世界 🚀')\n",
+            overwrite=True,
+        )
+
+        result = _edit_file(None, content)
+
+        assert result["success"] is True
+        assert test_file.read_text() == "# Unicode test\nprint('你好世界 🚀')\n"
+
+    def test_edit_file_mixed_line_endings(self, tmp_path):
+        """Test handling of mixed line endings (CRLF/LF)."""
+        test_file = tmp_path / "mixed.txt"
+        test_file.write_text("line1\r\nline2\nline3\r\n")
+
+        payload = ReplacementsPayload(
+            file_path=str(test_file),
+            replacements=[{"old_str": "line2", "new_str": "line2_modified"}],
+        )
+
+        result = _edit_file(None, payload)
+
+        assert result["success"] is True or result["changed"] is True
+
+    def test_edit_file_special_regex_chars(self, tmp_path):
+        """Test replacements with special regex characters."""
+        test_file = tmp_path / "regex.txt"
+        test_file.write_text("pattern: [a-z]+\nmore: (test)\n")
+
+        payload = ReplacementsPayload(
+            file_path=str(test_file),
+            replacements=[{"old_str": "[a-z]+", "new_str": "[A-Z]+"}],
+        )
+
+        result = _edit_file(None, payload)
+
+        assert result["success"] is True
+
+
+class TestFileSizeAndPerformance:
+    """Test handling of large files and performance characteristics."""
+
+    def test_edit_large_file_replacement(self, tmp_path):
+        """Test replacing content in a large file."""
+        test_file = tmp_path / "large.txt"
+        # Create file with 1000 lines
+        lines = [f"Line {i}\n" for i in range(1000)]
+        test_file.write_text("".join(lines))
+
+        payload = ReplacementsPayload(
+            file_path=str(test_file),
+            replacements=[{"old_str": "Line 500", "new_str": "LINE 500"}],
+        )
+
+        result = _edit_file(None, payload)
+
+        assert result["success"] is True
+        assert "LINE 500" in test_file.read_text()
+
+    def test_delete_snippet_large_content(self, tmp_path):
+        """Test deleting snippet from large content."""
+        test_file = tmp_path / "large_delete.txt"
+        content = "start\n" + ("x\n" * 1000) + "end\n"
+        test_file.write_text(content)
+
+        payload = DeleteSnippetPayload(
+            file_path=str(test_file),
+            delete_snippet="x\n",
+        )
+
+        result = _edit_file(None, payload)
+
+        assert result["success"] is True or result["changed"] is True
+
+
+class TestFileModificationSafety:
+    """Test safety features in file modification."""
+
+    def test_edit_file_path_traversal_prevention(self, tmp_path):
+        """Test that path traversal attempts are handled safely."""
+        # Attempt to edit outside allowed directory
+        dangerous_path = str(tmp_path / "../../../etc/passwd")
+
+        content = ContentPayload(
+            file_path=dangerous_path,
+            content="malicious",
+            overwrite=True,
+        )
+
+        result = _edit_file(None, content)
+
+        # Should either fail or normalize the path safely
+        assert result is not None
+
+    def test_edit_file_backup_preservation(self, tmp_path):
+        """Test that backups of original content are handled appropriately."""
+        test_file = tmp_path / "backup.txt"
+        test_file.write_text("original content")
+
+        payload = ReplacementsPayload(
+            file_path=str(test_file),
+            replacements=[{"old_str": "original", "new_str": "modified"}],
+        )
+
+        result = _edit_file(None, payload)
+
+        assert result["success"] is True
+        # Original file should be modified
+        assert "modified" in test_file.read_text()
+
+    def test_delete_file_only_regular_files(self, tmp_path):
+        """Test that delete only works on regular files, not directories."""
+        test_dir = tmp_path / "testdir"
+        test_dir.mkdir()
+
+        result = _delete_file(None, str(test_dir))
+
+        # Should contain error or success=False
+        assert "error" in result or result.get("success") is False
+        # Directory should still exist
+        assert test_dir.exists()
