@@ -48,6 +48,11 @@ Code Puppy features a modular agent architecture. Each agent has its own system 
 | **Go Reviewer** | `golang-reviewer` | Go code review specialist |
 | **JS Reviewer** | `javascript-reviewer` | JavaScript code review specialist |
 | **TS Reviewer** | `typescript-reviewer` | TypeScript code review specialist |
+| 🐺 **Pack Leader** | `pack-leader` | Orchestrates parallel multi-agent workflows using `bd` and `gh` |
+| 🐕‍🦺 **Bloodhound** | `bloodhound` | Issue tracking specialist with `bd` and `gh issue` |
+| 🐕 **Terrier** | `terrier` | Worktree management with `git worktree` |
+| 🦮 **Retriever** | `retriever` | PR lifecycle management with `gh pr` |
+| 🐺 **Husky** | `husky` | Task executor - does the actual coding work in worktrees |
 
 ### Switching Agents
 
@@ -55,6 +60,103 @@ Code Puppy features a modular agent architecture. Each agent has its own system 
 /agent code-puppy          # Switch to default agent
 /agent planning-agent      # Switch to planning mode
 /agent qa-kitten           # Switch to browser automation
+```
+
+---
+
+## 🐺 The Pack - Parallel Workflow Orchestration
+
+The Pack is a coordinated team of agents designed for complex, multi-step workflows that benefit from parallel execution. Think of them as a well-trained team of working dogs, each with their specialty!
+
+### Pack Members
+
+| Agent | Role | Specialty |
+|-------|------|-----------|
+| **Pack Leader** 🐺 | Orchestrator | Breaks down tasks into `bd` issues, coordinates parallel work |
+| **Bloodhound** 🐕‍🦺 | Issue Tracker | `bd` and `gh issue` operations - follows the scent of dependencies |
+| **Terrier** 🐕 | Digger | `git worktree` management - digs isolated workspaces |
+| **Retriever** 🦮 | Fetcher | `gh pr` lifecycle - fetches and delivers pull requests |
+| **Husky** 🐺 | Worker | Executes coding tasks - the sled dog that pulls the weight |
+
+### How The Pack Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      PACK LEADER 🐺                          │
+│              (Decomposes task → bd issues)                   │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+          ┌───────────────┼───────────────┐
+          ▼               ▼               ▼
+    ┌──────────┐    ┌──────────┐    ┌──────────┐
+    │ TERRIER  │    │ TERRIER  │    │ TERRIER  │  ← Create worktrees
+    │    🐕    │    │    🐕    │    │    🐕    │
+    └────┬─────┘    └────┬─────┘    └────┬─────┘
+         │               │               │
+         ▼               ▼               ▼
+    ┌──────────┐    ┌──────────┐    ┌──────────┐
+    │  HUSKY   │    │  HUSKY   │    │  HUSKY   │  ← Execute tasks
+    │    🐺    │    │    🐺    │    │    🐺    │     (in parallel!)
+    └────┬─────┘    └────┬─────┘    └────┬─────┘
+         │               │               │
+         ▼               ▼               ▼
+    ┌──────────┐    ┌──────────┐    ┌──────────┐
+    │RETRIEVER │    │RETRIEVER │    │RETRIEVER │  ← Create PRs
+    │    🦮    │    │    🦮    │    │    🦮    │
+    └──────────┘    └──────────┘    └──────────┘
+                          │
+                          ▼
+                   ┌──────────────┐
+                   │  BLOODHOUND  │  ← Track & close issues
+                   │     🐕‍🦺      │
+                   └──────────────┘
+```
+
+### Using The Pack
+
+1. **Switch to Pack Leader**: `/agent pack-leader`
+2. **Describe your complex task** - e.g., "Add user authentication with OAuth"
+3. **Pack Leader decomposes** it into `bd` issues with dependencies
+4. **Ready issues** (no blockers) are worked **in parallel** via worktrees
+5. **PRs are created**, reviewed, and merged automatically
+6. **Issues are closed** as work completes
+
+### Example Session
+
+```bash
+> /agent pack-leader
+Switched to Pack Leader 🐺
+
+> Add a REST API with users, posts, and comments endpoints
+
+# Pack Leader will:
+# 1. Create bd issues: bd-1 (models), bd-2 (user routes), bd-3 (post routes)...
+# 2. Set dependencies: routes depend on models, tests depend on routes
+# 3. Query `bd ready` to find parallelizable work
+# 4. Dispatch terrier → husky → retriever for each ready issue
+# 5. Monitor progress, merge PRs, close issues
+```
+
+### Requirements
+
+- **`bd` CLI** - Issue tracker with dependency support ([installation](#))
+- **`gh` CLI** - GitHub CLI, installed and authenticated (`gh auth login`)
+- **Git repository** - Initialized with a remote
+
+### Key Commands Used by The Pack
+
+```bash
+# Issue tracking (bd)
+bd create "Task title" -d "Description" --deps "blocks:bd-1"
+bd ready --json          # Get unblocked issues
+bd blocked --json        # Get blocked issues  
+bd dep tree bd-5         # Visualize dependencies
+bd close bd-5            # Mark complete
+
+# GitHub operations (gh)
+gh issue create --title "Feature" --body "Description"
+gh pr create --title "feat: Add X" --body "Closes #42"
+gh pr merge 123 --squash
 ```
 
 ---
@@ -104,6 +206,17 @@ Code Puppy features a modular agent architecture. Each agent has its own system 
 | `agent_golang_reviewer.py` | Go review agent |
 | `agent_javascript_reviewer.py` | JavaScript review agent |
 | `agent_typescript_reviewer.py` | TypeScript review agent |
+| `agent_pack_leader.py` | Pack Leader orchestration agent |
+
+### `code_puppy/agents/pack/`
+
+| File | Purpose |
+|------|----------|
+| `__init__.py` | Pack sub-package exports |
+| `bloodhound.py` | Issue tracking agent (bd + gh issues) |
+| `terrier.py` | Worktree management agent (git worktree) |
+| `retriever.py` | PR lifecycle agent (gh pr) |
+| `husky.py` | Task execution agent |
 
 ### `code_puppy/tools/`
 

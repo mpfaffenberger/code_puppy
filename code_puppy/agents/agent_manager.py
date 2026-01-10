@@ -225,6 +225,55 @@ def _discover_agents(message_group_id: Optional[str] = None):
             )
             continue
 
+    # 1b. Discover agents in sub-packages (like 'pack')
+    for _, subpkg_name, ispkg in pkgutil.iter_modules(agents_package.__path__):
+        if not ispkg or subpkg_name.startswith("_"):
+            continue
+
+        try:
+            # Import the sub-package
+            subpkg = importlib.import_module(f"code_puppy.agents.{subpkg_name}")
+
+            # Iterate through modules in the sub-package
+            if not hasattr(subpkg, "__path__"):
+                continue
+
+            for _, modname, _ in pkgutil.iter_modules(subpkg.__path__):
+                if modname.startswith("_"):
+                    continue
+
+                try:
+                    # Import the submodule
+                    module = importlib.import_module(
+                        f"code_puppy.agents.{subpkg_name}.{modname}"
+                    )
+
+                    # Look for BaseAgent subclasses
+                    for attr_name in dir(module):
+                        attr = getattr(module, attr_name)
+                        if (
+                            isinstance(attr, type)
+                            and issubclass(attr, BaseAgent)
+                            and attr not in [BaseAgent, JSONAgent]
+                        ):
+                            # Create an instance to get the name
+                            agent_instance = attr()
+                            _AGENT_REGISTRY[agent_instance.name] = attr
+
+                except Exception as e:
+                    emit_warning(
+                        f"Warning: Could not load agent {subpkg_name}.{modname}: {e}",
+                        message_group=message_group_id,
+                    )
+                    continue
+
+        except Exception as e:
+            emit_warning(
+                f"Warning: Could not load agent sub-package {subpkg_name}: {e}",
+                message_group=message_group_id,
+            )
+            continue
+
     # 2. Discover JSON agents in user directory
     try:
         json_agents = discover_json_agents()
