@@ -2,10 +2,12 @@
 
 The Pack consists of:
 - Pack Leader: Main orchestrator for parallel workflows
-- Bloodhound: Issue tracking specialist (bd + gh issues)
-- Terrier: Worktree management (git worktree)
-- Retriever: PR lifecycle (gh pr)
+- Bloodhound: Issue tracking specialist (bd only)
+- Terrier: Worktree management (git worktree) from base branch
 - Husky: Task execution in worktrees
+- Shepherd: Code review critic
+- Watchdog: QA/testing critic
+- Retriever: Local branch merging to base branch
 """
 
 import pytest
@@ -50,19 +52,35 @@ class TestPackImports:
 
         assert HuskyAgent is not None
 
+    def test_import_shepherd(self):
+        """Test Shepherd agent can be imported."""
+        from code_puppy.agents.pack.shepherd import ShepherdAgent
+
+        assert ShepherdAgent is not None
+
+    def test_import_watchdog(self):
+        """Test Watchdog agent can be imported."""
+        from code_puppy.agents.pack.watchdog import WatchdogAgent
+
+        assert WatchdogAgent is not None
+
     def test_import_from_pack_init(self):
         """Test all pack agents can be imported from pack __init__."""
         from code_puppy.agents.pack import (
             BloodhoundAgent,
             HuskyAgent,
             RetrieverAgent,
+            ShepherdAgent,
             TerrierAgent,
+            WatchdogAgent,
         )
 
         assert BloodhoundAgent is not None
         assert TerrierAgent is not None
         assert RetrieverAgent is not None
         assert HuskyAgent is not None
+        assert ShepherdAgent is not None
+        assert WatchdogAgent is not None
 
 
 # =============================================================================
@@ -137,11 +155,20 @@ class TestPackLeaderAgent:
         assert "bd ready" in prompt
         assert "bd create" in prompt
 
-    def test_system_prompt_mentions_gh(self, agent):
-        """Test Pack Leader system prompt mentions gh CLI."""
+    def test_system_prompt_mentions_local_merge(self, agent):
+        """Test Pack Leader system prompt mentions local merge workflow."""
         prompt = agent.get_system_prompt()
-        assert "gh" in prompt
-        assert "gh pr" in prompt or "gh issue" in prompt
+        # Should mention local operations, not GitHub
+        assert "local" in prompt.lower()
+        assert "base branch" in prompt.lower()
+        assert "git merge" in prompt or "merge" in prompt.lower()
+
+    def test_system_prompt_mentions_critics(self, agent):
+        """Test Pack Leader system prompt mentions critic agents."""
+        prompt = agent.get_system_prompt().lower()
+        assert "shepherd" in prompt
+        assert "watchdog" in prompt
+        assert "critic" in prompt
 
 
 # =============================================================================
@@ -269,13 +296,13 @@ class TestRetrieverAgent:
         """Test Retriever has correct display name."""
         assert "Retriever" in agent.display_name
 
-    def test_description_mentions_pr(self, agent):
-        """Test Retriever description mentions PR."""
+    def test_description_mentions_merge(self, agent):
+        """Test Retriever description mentions merge."""
         desc = agent.description.lower()
-        assert "pr" in desc or "pull request" in desc
+        assert "merge" in desc or "branch" in desc
 
     def test_tools_include_shell(self, agent):
-        """Test Retriever has shell command tool for gh pr."""
+        """Test Retriever has shell command tool for git merge."""
         tools = agent.get_available_tools()
         assert "agent_run_shell_command" in tools
 
@@ -342,6 +369,128 @@ class TestHuskyAgent:
 
 
 # =============================================================================
+# Shepherd Tests (Code Review Critic)
+# =============================================================================
+
+
+class TestShepherdAgent:
+    """Test Shepherd agent properties and configuration."""
+
+    @pytest.fixture
+    def agent(self):
+        """Create a Shepherd agent instance."""
+        from code_puppy.agents.pack.shepherd import ShepherdAgent
+
+        return ShepherdAgent()
+
+    def test_inherits_base_agent(self, agent):
+        """Test Shepherd inherits from BaseAgent."""
+        assert isinstance(agent, BaseAgent)
+
+    def test_name(self, agent):
+        """Test Shepherd has correct name."""
+        assert agent.name == "shepherd"
+
+    def test_display_name(self, agent):
+        """Test Shepherd has correct display name."""
+        assert "Shepherd" in agent.display_name
+
+    def test_description_mentions_review(self, agent):
+        """Test Shepherd description mentions code review."""
+        desc = agent.description.lower()
+        assert "review" in desc or "critic" in desc or "quality" in desc
+
+    def test_tools_include_exploration(self, agent):
+        """Test Shepherd has exploration tools for code review."""
+        tools = agent.get_available_tools()
+        assert "list_files" in tools
+        assert "read_file" in tools
+        assert "grep" in tools
+
+    def test_tools_include_shell(self, agent):
+        """Test Shepherd has shell command tool."""
+        tools = agent.get_available_tools()
+        assert "agent_run_shell_command" in tools
+
+    def test_tools_include_reasoning(self, agent):
+        """Test Shepherd has reasoning tool."""
+        tools = agent.get_available_tools()
+        assert "agent_share_your_reasoning" in tools
+
+    def test_system_prompt_not_empty(self, agent):
+        """Test Shepherd has a system prompt."""
+        prompt = agent.get_system_prompt()
+        assert prompt is not None
+        assert len(prompt) > 0
+
+    def test_system_prompt_mentions_critic_role(self, agent):
+        """Test Shepherd system prompt mentions critic/review role."""
+        prompt = agent.get_system_prompt().lower()
+        assert "review" in prompt or "critic" in prompt
+
+
+# =============================================================================
+# Watchdog Tests (QA/Testing Critic)
+# =============================================================================
+
+
+class TestWatchdogAgent:
+    """Test Watchdog agent properties and configuration."""
+
+    @pytest.fixture
+    def agent(self):
+        """Create a Watchdog agent instance."""
+        from code_puppy.agents.pack.watchdog import WatchdogAgent
+
+        return WatchdogAgent()
+
+    def test_inherits_base_agent(self, agent):
+        """Test Watchdog inherits from BaseAgent."""
+        assert isinstance(agent, BaseAgent)
+
+    def test_name(self, agent):
+        """Test Watchdog has correct name."""
+        assert agent.name == "watchdog"
+
+    def test_display_name(self, agent):
+        """Test Watchdog has correct display name."""
+        assert "Watchdog" in agent.display_name
+
+    def test_description_mentions_qa(self, agent):
+        """Test Watchdog description mentions QA/testing."""
+        desc = agent.description.lower()
+        assert "qa" in desc or "test" in desc or "quality" in desc
+
+    def test_tools_include_exploration(self, agent):
+        """Test Watchdog has exploration tools for QA."""
+        tools = agent.get_available_tools()
+        assert "list_files" in tools
+        assert "read_file" in tools
+        assert "grep" in tools
+
+    def test_tools_include_shell(self, agent):
+        """Test Watchdog has shell command tool for running tests."""
+        tools = agent.get_available_tools()
+        assert "agent_run_shell_command" in tools
+
+    def test_tools_include_reasoning(self, agent):
+        """Test Watchdog has reasoning tool."""
+        tools = agent.get_available_tools()
+        assert "agent_share_your_reasoning" in tools
+
+    def test_system_prompt_not_empty(self, agent):
+        """Test Watchdog has a system prompt."""
+        prompt = agent.get_system_prompt()
+        assert prompt is not None
+        assert len(prompt) > 0
+
+    def test_system_prompt_mentions_qa_role(self, agent):
+        """Test Watchdog system prompt mentions QA/testing role."""
+        prompt = agent.get_system_prompt().lower()
+        assert "test" in prompt or "qa" in prompt or "quality" in prompt
+
+
+# =============================================================================
 # Discovery Tests
 # =============================================================================
 
@@ -384,12 +533,34 @@ class TestPackDiscovery:
         agents = get_available_agents()
         assert "husky" in agents
 
+    def test_shepherd_discoverable(self):
+        """Test Shepherd is discoverable."""
+        from code_puppy.agents import get_available_agents
+
+        agents = get_available_agents()
+        assert "shepherd" in agents
+
+    def test_watchdog_discoverable(self):
+        """Test Watchdog is discoverable."""
+        from code_puppy.agents import get_available_agents
+
+        agents = get_available_agents()
+        assert "watchdog" in agents
+
     def test_all_pack_agents_discoverable(self):
         """Test all pack agents are discoverable in one check."""
         from code_puppy.agents import get_available_agents
 
         agents = get_available_agents()
-        pack_agents = ["pack-leader", "bloodhound", "terrier", "retriever", "husky"]
+        pack_agents = [
+            "pack-leader",
+            "bloodhound",
+            "terrier",
+            "retriever",
+            "husky",
+            "shepherd",
+            "watchdog",
+        ]
 
         for agent_name in pack_agents:
             assert agent_name in agents, f"{agent_name} not found in available agents"
@@ -398,7 +569,15 @@ class TestPackDiscovery:
         """Test all pack agents can be loaded via load_agent."""
         from code_puppy.agents import load_agent
 
-        pack_agents = ["pack-leader", "bloodhound", "terrier", "retriever", "husky"]
+        pack_agents = [
+            "pack-leader",
+            "bloodhound",
+            "terrier",
+            "retriever",
+            "husky",
+            "shepherd",
+            "watchdog",
+        ]
 
         for agent_name in pack_agents:
             agent = load_agent(agent_name)
@@ -411,7 +590,15 @@ class TestPackDiscovery:
         from code_puppy.agents import get_available_agents
 
         agents = get_available_agents()
-        pack_agents = ["pack-leader", "bloodhound", "terrier", "retriever", "husky"]
+        pack_agents = [
+            "pack-leader",
+            "bloodhound",
+            "terrier",
+            "retriever",
+            "husky",
+            "shepherd",
+            "watchdog",
+        ]
 
         for agent_name in pack_agents:
             display_name = agents[agent_name]
@@ -441,13 +628,23 @@ class TestPackIntegration:
         assert "terrier" in prompt
         assert "retriever" in prompt
         assert "husky" in prompt
+        assert "shepherd" in prompt
+        assert "watchdog" in prompt
 
     def test_all_pack_agents_have_unique_names(self):
         """Test all pack agents have unique names."""
         from code_puppy.agents import get_available_agents
 
         agents = get_available_agents()
-        pack_agents = ["pack-leader", "bloodhound", "terrier", "retriever", "husky"]
+        pack_agents = [
+            "pack-leader",
+            "bloodhound",
+            "terrier",
+            "retriever",
+            "husky",
+            "shepherd",
+            "watchdog",
+        ]
 
         # All should be unique (no duplicates in list)
         assert len(pack_agents) == len(set(pack_agents))
@@ -460,7 +657,15 @@ class TestPackIntegration:
         """Test pack agents have consistent tool availability."""
         from code_puppy.agents import load_agent
 
-        pack_agents = ["pack-leader", "bloodhound", "terrier", "retriever", "husky"]
+        pack_agents = [
+            "pack-leader",
+            "bloodhound",
+            "terrier",
+            "retriever",
+            "husky",
+            "shepherd",
+            "watchdog",
+        ]
 
         for agent_name in pack_agents:
             agent = load_agent(agent_name)

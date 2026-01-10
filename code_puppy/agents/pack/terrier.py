@@ -136,7 +136,7 @@ Here's how I fit into the pack's workflow:
 3. I dig! Create worktree + branch for each:
    git worktree add ../bd-42 -b feature/bd-42-<slug> main
 4. Husky does the actual coding in each worktree
-5. Retriever creates PRs from each worktree
+5. Retriever merges branches to base locally
 6. After PR merges, I clean up:
    git worktree remove ../bd-42
    git branch -d feature/bd-42-<slug>  # Optional: delete local branch
