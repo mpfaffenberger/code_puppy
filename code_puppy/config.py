@@ -75,6 +75,19 @@ def get_use_dbos() -> bool:
     return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def get_subagent_verbose() -> bool:
+    """Return True if sub-agent verbose output is enabled (default False).
+
+    When False (default), sub-agents produce quiet, sparse output suitable
+    for parallel execution. When True, sub-agents produce full verbose output
+    like the main agent (useful for debugging).
+    """
+    cfg_val = get_value("subagent_verbose")
+    if cfg_val is None:
+        return False
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
 
