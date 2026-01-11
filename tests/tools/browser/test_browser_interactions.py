@@ -48,7 +48,11 @@ class BrowserInteractionsBaseTest:
 
     @pytest.fixture
     def mock_locator(self):
-        """Mock a Playwright locator with common interaction methods."""
+        """Mock a Playwright locator with common interaction methods.
+
+        Note: The locator.first property returns self to handle the .first
+        chaining pattern used in the browser tools for strict mode handling.
+        """
         locator = AsyncMock()
         locator.wait_for = AsyncMock()
         locator.click = AsyncMock()
@@ -61,6 +65,8 @@ class BrowserInteractionsBaseTest:
         locator.select_option = AsyncMock()
         locator.check = AsyncMock()
         locator.uncheck = AsyncMock()
+        # Support .first chaining for strict mode handling
+        locator.first = locator
         return locator
 
     @pytest.fixture
@@ -796,17 +802,21 @@ class TestIntegrationScenarios(BrowserInteractionsBaseTest):
         manager, page = mock_browser_manager
 
         # Create separate locators for each call to ensure proper mock chain
+        # Note: each locator needs .first to support strict mode handling
         dropdown_locator1 = AsyncMock()
         dropdown_locator1.wait_for = AsyncMock()
         dropdown_locator1.select_option = AsyncMock()
+        dropdown_locator1.first = dropdown_locator1
 
         dropdown_locator2 = AsyncMock()
         dropdown_locator2.wait_for = AsyncMock()
         dropdown_locator2.select_option = AsyncMock()
+        dropdown_locator2.first = dropdown_locator2
 
         hover_locator = AsyncMock()
         hover_locator.wait_for = AsyncMock()
         hover_locator.hover = AsyncMock()
+        hover_locator.first = hover_locator
 
         # Configure page.locator to return different locators for different calls
         page.locator.side_effect = [

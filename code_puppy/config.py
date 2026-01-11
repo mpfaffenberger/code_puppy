@@ -504,11 +504,12 @@ def set_model_name(model: str):
 
 
 def get_vqa_model_name() -> str:
-    """Return the configured VQA model, falling back to an inferred default."""
+    """Return the configured VQA model, falling back to the global model."""
     stored_model = get_value("vqa_model_name")
     if stored_model and _validate_model_exists(stored_model):
         return stored_model
-    return _default_vqa_model_from_models_json()
+    # Fall back to the global model if no specific VQA model is set
+    return get_global_model_name()
 
 
 def set_vqa_model_name(model: str):
@@ -1323,6 +1324,8 @@ DEFAULT_BANNER_COLORS = {
     "invoke_agent": "deep_pink4",  # Ruby - agent invocation
     "subagent_response": "sea_green3",  # Emerald - sub-agent success
     "list_agents": "dark_slate_gray3",  # Slate - neutral listing
+    # Browser/Terminal tools - same color as edit_file (gold)
+    "terminal_tool": "dark_goldenrod",  # Gold - browser terminal operations
 }
 
 

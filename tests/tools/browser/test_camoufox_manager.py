@@ -16,7 +16,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "code_puppy"
 
 from tools.browser.camoufox_manager import (
     CamoufoxManager,
+    cleanup_all_browsers,
     get_camoufox_manager,
+    _sync_cleanup_browsers,
 )
 
 
@@ -49,36 +51,35 @@ class TestCamoufoxManagerBase:
         return mock_pw, mock_browser, mock_context, mock_page
 
 
-class TestCamoufoxManagerSingleton(TestCamoufoxManagerBase):
-    """Test CamoufoxManager singleton behavior."""
+class TestCamoufoxManagerMultiInstance(TestCamoufoxManagerBase):
+    """Test CamoufoxManager multi-instance behavior."""
 
-    def test_singleton_pattern(self):
-        """Test that CamoufoxManager follows singleton pattern."""
-        manager1 = CamoufoxManager()
-        manager2 = CamoufoxManager()
-        manager3 = CamoufoxManager.get_instance()
+    def test_different_sessions_create_different_instances(self):
+        """Test that different session IDs create different instances."""
+        manager1 = get_camoufox_manager("session-1")
+        manager2 = get_camoufox_manager("session-2")
 
-        # All should be the same instance
+        # Should be different instances
+        assert manager1 is not manager2
+        assert manager1.session_id == "session-1"
+        assert manager2.session_id == "session-2"
+
+    def test_same_session_returns_same_instance(self):
+        """Test that same session ID returns same instance."""
+        manager1 = get_camoufox_manager("test-session")
+        manager2 = get_camoufox_manager("test-session")
+
         assert manager1 is manager2
-        assert manager2 is manager3
 
-    def test_get_instance_returns_new_instance(self):
-        """Test get_instance returns a valid instance."""
-        manager = CamoufoxManager.get_instance()
+    def test_default_session_id(self):
+        """Test that default session ID is 'default'."""
+        manager = get_camoufox_manager()
 
+        assert manager.session_id == "default"
         assert isinstance(manager, CamoufoxManager)
         assert hasattr(manager, "headless")
         assert hasattr(manager, "homepage")
         assert hasattr(manager, "profile_dir")
-
-    def test_multiple_get_instance_calls(self):
-        """Test that multiple get_instance calls return same instance."""
-        manager1 = CamoufoxManager.get_instance()
-        manager2 = CamoufoxManager.get_instance()
-        manager3 = CamoufoxManager.get_instance()
-
-        assert manager1 is manager2
-        assert manager2 is manager3
 
 
 class TestCamoufoxManagerInitialization(TestCamoufoxManagerBase):
@@ -95,63 +96,52 @@ class TestCamoufoxManagerInitialization(TestCamoufoxManagerBase):
         assert manager.block_webrtc is True
         assert manager.humanize is True
 
-    def test_profile_directory_creation(self):
-        """Test that profile directory is created correctly."""
+    def test_profile_directory_creation_per_session(self):
+        """Test that each session gets its own profile directory."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Import the config module that camoufox_manager uses
             from code_puppy.tools.browser import camoufox_manager
 
-            # Patch the CACHE_DIR on the already-imported config object
             original_cache_dir = camoufox_manager.config.CACHE_DIR
             try:
                 camoufox_manager.config.CACHE_DIR = temp_dir
 
-                # Reset singleton to ensure fresh initialization
-                CamoufoxManager._instance = None
+                manager1 = CamoufoxManager("session-a")
+                manager2 = CamoufoxManager("session-b")
 
-                manager = CamoufoxManager()
-                # Call _get_profile_directory directly with the mock in place
-                profile_dir = manager._get_profile_directory()
+                # Each session should have its own profile directory
+                expected_path1 = Path(temp_dir) / "camoufox_profiles" / "session-a"
+                expected_path2 = Path(temp_dir) / "camoufox_profiles" / "session-b"
 
-                expected_path = Path(temp_dir) / "camoufox_profile"
-                assert profile_dir == expected_path
-                assert profile_dir.exists()
-                assert profile_dir.is_dir()
+                assert manager1.profile_dir == expected_path1
+                assert manager2.profile_dir == expected_path2
+                assert manager1.profile_dir != manager2.profile_dir
+                assert manager1.profile_dir.exists()
+                assert manager2.profile_dir.exists()
             finally:
-                # Restore original value
                 camoufox_manager.config.CACHE_DIR = original_cache_dir
 
-    def test_init_only_once(self):
-        """Test that initialization happens only once."""
-        manager = CamoufoxManager()
-
-        # Call __init__ multiple times
-        manager.__init__()
-        manager.__init__()
-
-        # Should only have done initialization once
-        assert hasattr(manager, "_init_done")
+    def test_session_id_attribute_set(self):
+        """Test that session_id attribute is set during initialization."""
+        manager = CamoufoxManager("my-session")
+        assert manager.session_id == "my-session"
 
     def test_profile_dir_attribute_set(self):
         """Test that profile_dir attribute is set during initialization."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Import the config module that camoufox_manager uses
             from code_puppy.tools.browser import camoufox_manager
 
-            # Patch the CACHE_DIR on the already-imported config object
             original_cache_dir = camoufox_manager.config.CACHE_DIR
             try:
                 camoufox_manager.config.CACHE_DIR = temp_dir
 
-                # Reset singleton to ensure fresh initialization
-                CamoufoxManager._instance = None
-
-                manager = CamoufoxManager()
+                manager = CamoufoxManager("test-session")
 
                 assert hasattr(manager, "profile_dir")
-                assert manager.profile_dir == Path(temp_dir) / "camoufox_profile"
+                assert (
+                    manager.profile_dir
+                    == Path(temp_dir) / "camoufox_profiles" / "test-session"
+                )
             finally:
-                # Restore original value
                 camoufox_manager.config.CACHE_DIR = original_cache_dir
 
 
@@ -160,10 +150,10 @@ class TestCamoufoxManagerAsyncInit(TestCamoufoxManagerBase):
 
     @pytest.mark.asyncio
     async def test_async_initialize_camoufox_success(self):
-        """Test successful Camoufox async initialization."""
-        # Reset singleton to ensure fresh initialization
-        CamoufoxManager._instance = None
-        manager = CamoufoxManager()
+        """Test successful Camoufox async initialization when browser_type is not chromium."""
+        manager = CamoufoxManager("test-init")
+        # Set browser_type to firefox to test the Camoufox path
+        manager.browser_type = "firefox"
 
         # Mock camoufox import and setup
         mock_camoufox = MagicMock()
@@ -187,6 +177,12 @@ class TestCamoufoxManagerAsyncInit(TestCamoufoxManagerBase):
                 assert manager._initialized is True
                 assert manager._browser is mock_browser
                 assert manager._context is mock_context
+
+    def test_default_browser_type_is_chromium(self):
+        """Test that browser_type defaults to 'chromium' for reliability."""
+        manager = CamoufoxManager("test-default-browser")
+        # Verify default browser_type is chromium (not camoufox/firefox)
+        assert manager.browser_type == "chromium"
 
     @pytest.mark.asyncio
     @pytest.mark.skip(reason="Complex import mocking makes this test unstable")
@@ -241,13 +237,12 @@ class TestCamoufoxManagerAsyncInit(TestCamoufoxManagerBase):
     @pytest.mark.asyncio
     async def test_async_initialize_exception_cleanup(self):
         """Test cleanup on initialization exception."""
-        # Reset singleton to ensure fresh initialization
-        CamoufoxManager._instance = None
-        manager = CamoufoxManager()
+        manager = CamoufoxManager("test-cleanup")
 
-        # Mock the _prefetch_camoufox method to raise an exception
+        # Mock the _initialize_chromium method to raise an exception
+        # (Since browser_type defaults to "chromium", _initialize_chromium is called)
         with patch.object(
-            manager, "_prefetch_camoufox", side_effect=Exception("Init failed")
+            manager, "_initialize_chromium", side_effect=Exception("Init failed")
         ):
             with patch.object(manager, "_cleanup") as mock_cleanup:
                 with pytest.raises(Exception, match="Init failed"):
@@ -309,18 +304,23 @@ class TestGetCamoufoxManagerFunction(TestCamoufoxManagerBase):
 
     def test_get_camoufox_manager_returns_instance(self):
         """Test that get_camoufox_manager returns a CamoufoxManager instance."""
-        manager = get_camoufox_manager()
+        manager = get_camoufox_manager("func-test")
 
         assert isinstance(manager, CamoufoxManager)
 
-    def test_get_camoufox_manager_same_instance(self):
-        """Test that get_camoufox_manager returns the same instance."""
-        manager1 = get_camoufox_manager()
-        manager2 = get_camoufox_manager()
-        manager3 = CamoufoxManager.get_instance()
+    def test_get_camoufox_manager_same_session_same_instance(self):
+        """Test that get_camoufox_manager returns the same instance for same session."""
+        manager1 = get_camoufox_manager("same-session")
+        manager2 = get_camoufox_manager("same-session")
 
         assert manager1 is manager2
-        assert manager2 is manager3
+
+    def test_get_camoufox_manager_different_sessions(self):
+        """Test that get_camoufox_manager returns different instances for different sessions."""
+        manager1 = get_camoufox_manager("session-x")
+        manager2 = get_camoufox_manager("session-y")
+
+        assert manager1 is not manager2
 
 
 class TestPageManagement(TestCamoufoxManagerBase):
@@ -361,9 +361,7 @@ class TestPageManagement(TestCamoufoxManagerBase):
         """Test get_current_page initializes when not already done."""
         mock_pw, mock_browser, mock_context, mock_page = mock_playwright
 
-        # Reset singleton to ensure fresh initialization
-        CamoufoxManager._instance = None
-        manager = CamoufoxManager()
+        manager = CamoufoxManager("page-test")
         manager._initialized = False
 
         with patch.object(manager, "async_initialize") as mock_init:
@@ -426,9 +424,7 @@ class TestPageManagement(TestCamoufoxManagerBase):
         """Test new_page initializes when not already done."""
         mock_pw, mock_browser, mock_context, mock_page = mock_playwright
 
-        # Reset singleton to ensure fresh initialization
-        CamoufoxManager._instance = None
-        manager = CamoufoxManager()
+        manager = CamoufoxManager("new-page-test")
         manager._initialized = False
 
         with patch.object(manager, "async_initialize") as mock_init:
@@ -553,26 +549,25 @@ class TestCleanupFunctionality(TestCamoufoxManagerBase):
 
             mock_cleanup.assert_called_once()
 
-    def test_del_method_best_effort(self):
-        """Test __del__ method attempts cleanup but doesn't block."""
-        manager = CamoufoxManager()
+    @pytest.mark.asyncio
+    async def test_cleanup_removes_from_active_managers(self):
+        """Test that cleanup removes the manager from active managers."""
+        from tools.browser import camoufox_manager
+
+        # Get a manager through the function to register it
+        manager = get_camoufox_manager("cleanup-test-2")
         manager._initialized = True
         manager._context = AsyncMock()
         manager._browser = AsyncMock()
 
-        with patch("asyncio.get_event_loop") as mock_get_loop:
-            mock_loop = MagicMock()
-            mock_loop.is_running.return_value = False
-            mock_loop.run_until_complete = MagicMock()
+        # Verify it's in active managers
+        assert "cleanup-test-2" in camoufox_manager._active_managers
 
-            mock_get_loop.return_value = mock_loop
+        # Cleanup
+        await manager._cleanup()
 
-            # Call __del__ directly
-            manager.__del__()
-
-            # Should attempt cleanup
-            mock_loop.create_task.assert_not_called()  # Loop not running
-            mock_loop.run_until_complete.assert_called_once()
+        # Should be removed from active managers
+        assert "cleanup-test-2" not in camoufox_manager._active_managers
 
 
 class TestIntegrationScenarios(TestCamoufoxManagerBase):
@@ -661,6 +656,145 @@ class TestIntegrationScenarios(TestCamoufoxManagerBase):
         # Current page should still be first one
         current_page = await manager.get_current_page()
         assert current_page == mock_context.pages[0]  # Should still be the first page
+
+
+class TestCleanupAllBrowsers(TestCamoufoxManagerBase):
+    """Tests for the cleanup_all_browsers and _sync_cleanup_browsers functions."""
+
+    @pytest.fixture(autouse=True)
+    def reset_cleanup_state(self):
+        """Reset the cleanup state before each test."""
+        from tools.browser import camoufox_manager
+
+        # Reset the cleanup flag and active managers
+        camoufox_manager._cleanup_done = False
+        # Don't clear active managers here - let tests manage their own state
+        yield
+        # Clean up after tests
+        camoufox_manager._cleanup_done = False
+
+    @pytest.mark.asyncio
+    async def test_cleanup_all_browsers_closes_all_initialized_managers(self):
+        """Test that cleanup_all_browsers closes all initialized browser managers."""
+        from tools.browser import camoufox_manager
+
+        # Create two managers and mock their initialization
+        manager1 = get_camoufox_manager("cleanup-test-a")
+        manager2 = get_camoufox_manager("cleanup-test-b")
+
+        # Mock them as initialized
+        manager1._initialized = True
+        manager1._context = AsyncMock()
+        manager1._browser = AsyncMock()
+
+        manager2._initialized = True
+        manager2._context = AsyncMock()
+        manager2._browser = AsyncMock()
+
+        # Run cleanup
+        await cleanup_all_browsers()
+
+        # Both managers should be cleaned up
+        assert not manager1._initialized
+        assert not manager2._initialized
+        assert camoufox_manager._cleanup_done is True
+
+    @pytest.mark.asyncio
+    async def test_cleanup_all_browsers_skips_if_already_done(self):
+        """Test that cleanup_all_browsers doesn't run twice."""
+        from tools.browser import camoufox_manager
+
+        # Mark cleanup as already done
+        camoufox_manager._cleanup_done = True
+
+        # Create a manager that should NOT be cleaned up
+        manager = get_camoufox_manager("no-cleanup-test")
+        manager._initialized = True
+        manager._context = AsyncMock()
+        manager._browser = AsyncMock()
+
+        # Run cleanup
+        await cleanup_all_browsers()
+
+        # Manager should still be initialized (cleanup was skipped)
+        assert manager._initialized is True
+
+    @pytest.mark.asyncio
+    async def test_cleanup_all_browsers_ignores_uninitialized_managers(self):
+        """Test that cleanup_all_browsers skips managers that aren't initialized."""
+        from tools.browser import camoufox_manager
+
+        # Create a manager but don't initialize it
+        manager = get_camoufox_manager("uninitialized-test")
+        manager._initialized = False
+
+        # Run cleanup - should not raise
+        await cleanup_all_browsers()
+
+        assert camoufox_manager._cleanup_done is True
+
+    @pytest.mark.asyncio
+    async def test_cleanup_all_browsers_handles_exceptions_silently(self):
+        """Test that cleanup_all_browsers silently ignores cleanup errors."""
+        from tools.browser import camoufox_manager
+
+        # Create a manager with mocked cleanup that raises
+        manager = get_camoufox_manager("error-test")
+        manager._initialized = True
+        manager._context = AsyncMock()
+        manager._browser = AsyncMock()
+
+        # Make cleanup raise an exception
+        with patch.object(manager, "_cleanup", side_effect=Exception("Boom!")):
+            # Should not raise, even though cleanup failed
+            await cleanup_all_browsers()
+
+        assert camoufox_manager._cleanup_done is True
+
+    def test_sync_cleanup_browsers_runs_when_no_managers(self):
+        """Test that _sync_cleanup_browsers handles empty managers dict."""
+        from tools.browser import camoufox_manager
+
+        # Clear all managers
+        camoufox_manager._active_managers.clear()
+        camoufox_manager._cleanup_done = False
+
+        # Should not raise even with no managers
+        _sync_cleanup_browsers()
+
+    def test_sync_cleanup_browsers_skips_if_already_done(self):
+        """Test that _sync_cleanup_browsers doesn't run twice."""
+        from tools.browser import camoufox_manager
+
+        # Mark as done
+        camoufox_manager._cleanup_done = True
+
+        # Create a manager that should NOT be cleaned up
+        manager = get_camoufox_manager("sync-no-cleanup")
+        manager._initialized = True
+        manager._context = MagicMock()
+        manager._browser = MagicMock()
+
+        # Run sync cleanup
+        _sync_cleanup_browsers()
+
+        # Manager should still be initialized
+        assert manager._initialized is True
+
+    def test_sync_cleanup_browsers_catches_all_exceptions(self):
+        """Test that _sync_cleanup_browsers catches all exceptions silently."""
+        from tools.browser import camoufox_manager
+
+        camoufox_manager._cleanup_done = False
+
+        # Create a manager
+        manager = get_camoufox_manager("sync-error-test")
+        manager._initialized = True
+
+        # Mock asyncio.new_event_loop to raise
+        with patch("asyncio.new_event_loop", side_effect=RuntimeError("No loop!")):
+            # Should not raise
+            _sync_cleanup_browsers()
 
 
 if __name__ == "__main__":

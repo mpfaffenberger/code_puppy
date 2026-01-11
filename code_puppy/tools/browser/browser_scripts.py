@@ -28,7 +28,9 @@ async def execute_javascript(
             return {"success": False, "error": "No active browser page available"}
 
         # Execute JavaScript
-        result = await page.evaluate(script, timeout=timeout)
+        # Note: page.evaluate() does NOT accept a timeout parameter
+        # The timeout arg to this function is kept for API compatibility but unused
+        result = await page.evaluate(script)
 
         emit_success("JavaScript executed successfully", message_group=group_id)
 
@@ -60,7 +62,7 @@ async def scroll_page(
 
         if element_selector:
             # Scroll specific element
-            element = page.locator(element_selector)
+            element = page.locator(element_selector).first
             await element.scroll_into_view_if_needed()
 
             # Get element's current scroll position and dimensions
@@ -152,7 +154,7 @@ async def scroll_to_element(
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="attached", timeout=timeout)
         await element.scroll_into_view_if_needed()
 
@@ -215,7 +217,7 @@ async def wait_for_element(
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state=state, timeout=timeout)
 
         emit_success(f"Element {selector} is now {state}", message_group=group_id)
@@ -246,7 +248,7 @@ async def highlight_element(
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
 
         # Add highlight style

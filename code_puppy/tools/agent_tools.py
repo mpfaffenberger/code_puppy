@@ -1,6 +1,5 @@
 # agent_tools.py
 import asyncio
-from functools import partial
 import hashlib
 import itertools
 import json
@@ -8,6 +7,7 @@ import pickle
 import re
 import traceback
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import List, Set
 
@@ -434,6 +434,15 @@ def register_invoke_agent(agent):
         previous_session_id = get_session_context()
         set_session_context(session_id)
 
+        # Set terminal session for browser-based terminal tools
+        # This uses contextvars which properly propagate through async tasks
+        from code_puppy.tools.browser.terminal_tools import (
+            _terminal_session_var,
+            set_terminal_session,
+        )
+
+        terminal_session_token = set_terminal_session(f"terminal-{session_id}")
+
         try:
             # Lazy import to break circular dependency with messaging module
             from code_puppy.model_factory import ModelFactory, make_model_settings
@@ -645,5 +654,7 @@ def register_invoke_agent(agent):
         finally:
             # Restore the previous session context
             set_session_context(previous_session_id)
+            # Reset terminal session context
+            _terminal_session_var.reset(terminal_session_token)
 
     return invoke_agent

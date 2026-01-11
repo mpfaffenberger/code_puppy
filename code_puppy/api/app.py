@@ -1,21 +1,98 @@
 """FastAPI application factory for Code Puppy API."""
 
+import asyncio
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+
+logger = logging.getLogger(__name__)
+
+# Default request timeout (seconds) - fail fast!
+REQUEST_TIMEOUT = 30.0
+
+
+class TimeoutMiddleware(BaseHTTPMiddleware):
+    """Middleware to enforce request timeouts and prevent hanging requests."""
+
+    def __init__(self, app, timeout: float = REQUEST_TIMEOUT):
+        super().__init__(app)
+        self.timeout = timeout
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip timeout for WebSocket upgrades and streaming endpoints
+        if request.headers.get(
+            "upgrade", ""
+        ).lower() == "websocket" or request.url.path.startswith("/ws/"):
+            return await call_next(request)
+
+        try:
+            return await asyncio.wait_for(
+                call_next(request),
+                timeout=self.timeout,
+            )
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                status_code=504,
+                content={
+                    "detail": f"Request timed out after {self.timeout}s",
+                    "error": "timeout",
+                },
+            )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Lifespan context manager for startup and shutdown events.
+
+    Handles graceful cleanup of resources when the server shuts down.
+    """
+    # Startup: nothing special needed yet, but this is where you'd do it
+    logger.info("🐶 Code Puppy API starting up...")
+    yield
+    # Shutdown: clean up all the things!
+    logger.info("🐶 Code Puppy API shutting down, cleaning up...")
+
+    # 1. Close all PTY sessions
+    try:
+        from code_puppy.api.pty_manager import get_pty_manager
+
+        pty_manager = get_pty_manager()
+        await pty_manager.close_all()
+        logger.info("✓ All PTY sessions closed")
+    except Exception as e:
+        logger.error(f"Error closing PTY sessions: {e}")
+
+    # 2. Remove PID file so /api status knows we're gone
+    try:
+        from code_puppy.config import STATE_DIR
+
+        pid_file = Path(STATE_DIR) / "api_server.pid"
+        if pid_file.exists():
+            pid_file.unlink()
+            logger.info("✓ PID file removed")
+    except Exception as e:
+        logger.error(f"Error removing PID file: {e}")
 
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
+        lifespan=lifespan,
         title="Code Puppy API",
         description="REST API and Interactive Terminal for Code Puppy",
         version="1.0.0",
         docs_url="/docs",
         redoc_url="/redoc",
     )
+
+    # Timeout middleware - added first so it wraps everything
+    app.add_middleware(TimeoutMiddleware, timeout=REQUEST_TIMEOUT)
 
     # CORS middleware for frontend access
     app.add_middleware(

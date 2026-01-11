@@ -1,31 +1,38 @@
-"""Terminal Screenshot and Visual Analysis Tools.
+"""Terminal Screenshot Tools.
 
 This module provides tools for:
-- Taking screenshots of the terminal and analyzing them with VQA
+- Taking screenshots of the terminal browser
 - Reading terminal output by scraping xterm.js DOM
-- Comparing terminal state to mockup images
-- Loading and analyzing arbitrary images from the filesystem
+- Loading images from the filesystem
 
-These tools use the ChromiumTerminalManager for browser access and
-the VQA agent for visual question answering capabilities.
+Screenshots are returned as base64-encoded data that multimodal models
+can directly see and analyze - no separate VQA agent needed.
+
+Screenshots are automatically resized to reduce token usage.
 """
 
-import asyncio
+import base64
+import io
 import logging
 from datetime import datetime
 from pathlib import Path
 from tempfile import gettempdir, mkdtemp
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
+from PIL import Image
 from pydantic_ai import RunContext
+from rich.text import Text
 
 from code_puppy.messaging import emit_error, emit_info, emit_success
+from code_puppy.tools.browser import format_terminal_banner
 from code_puppy.tools.common import generate_group_id
 
-from .chromium_terminal_manager import get_chromium_terminal_manager
-from .vqa_agent import run_vqa_analysis
+from .terminal_tools import get_session_manager
 
 logger = logging.getLogger(__name__)
+
+# Default max height for screenshots (reduces token usage significantly)
+DEFAULT_MAX_HEIGHT = 768
 
 # Temporary directory for screenshots
 _TEMP_SCREENSHOT_ROOT = Path(
@@ -33,16 +40,13 @@ _TEMP_SCREENSHOT_ROOT = Path(
 )
 
 # JavaScript to extract text content from xterm.js terminal
-# xterm.js stores rows in elements with class "xterm-rows"
-# Each row is a div containing spans with the actual text
 XTERM_TEXT_EXTRACTION_JS = """
 () => {
-    // Try multiple selectors for xterm.js compatibility
     const selectors = [
-        '.xterm-rows',           // Standard xterm.js rows container
-        '.xterm .xterm-rows',    // Nested under .xterm
-        '[class*="xterm-rows"]', // Partial class match
-        '.xterm-screen',         // Alternative container
+        '.xterm-rows',
+        '.xterm .xterm-rows',
+        '[class*="xterm-rows"]',
+        '.xterm-screen',
     ];
     
     let container = null;
@@ -52,10 +56,8 @@ XTERM_TEXT_EXTRACTION_JS = """
     }
     
     if (!container) {
-        // Try to find any xterm instance and get text from it
         const xtermElement = document.querySelector('.xterm');
         if (xtermElement) {
-            // Attempt to get all text content
             return {
                 success: true,
                 lines: xtermElement.innerText.split('\\n').filter(line => line.trim()),
@@ -65,12 +67,10 @@ XTERM_TEXT_EXTRACTION_JS = """
         return { success: false, error: 'Could not find xterm.js terminal container' };
     }
     
-    // Extract text from each row
     const rows = container.querySelectorAll('div');
     const lines = [];
     
     rows.forEach(row => {
-        // Get text content, preserving spaces
         let text = '';
         const spans = row.querySelectorAll('span');
         if (spans.length > 0) {
@@ -80,9 +80,7 @@ XTERM_TEXT_EXTRACTION_JS = """
         } else {
             text = row.textContent || '';
         }
-        // Trim trailing whitespace but preserve leading (for indentation)
-        text = text.replace(/\\s+$/, '');
-        if (text.length > 0) {
+        if (text.trim()) {
             lines.push(text);
         }
     });
@@ -90,84 +88,112 @@ XTERM_TEXT_EXTRACTION_JS = """
     return {
         success: true,
         lines: lines,
-        method: 'dom_scraping'
+        method: 'row_extraction'
     };
 }
 """
 
 
-def _build_screenshot_path(prefix: str, timestamp: str) -> Path:
-    """Build a path for saving a screenshot.
+def _build_screenshot_path(prefix: str = "terminal_screenshot") -> Path:
+    """Generate a unique screenshot path."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    return _TEMP_SCREENSHOT_ROOT / f"{prefix}_{timestamp}.png"
+
+
+def _resize_image(image_bytes: bytes, max_height: int = DEFAULT_MAX_HEIGHT) -> bytes:
+    """Resize image to max height while maintaining aspect ratio.
+
+    This dramatically reduces token usage for multimodal models.
 
     Args:
-        prefix: Prefix for the filename (e.g., 'terminal', 'comparison')
-        timestamp: Timestamp string for uniqueness
+        image_bytes: Original PNG image bytes.
+        max_height: Maximum height in pixels (default 384).
 
     Returns:
-        Path object for the screenshot file.
+        Resized PNG image bytes.
     """
-    filename = f"{prefix}_{timestamp}.png"
-    return _TEMP_SCREENSHOT_ROOT / filename
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
 
+        # Only resize if image is taller than max_height
+        if img.height <= max_height:
+            return image_bytes
 
-async def _get_terminal_page():
-    """Get the current terminal page from ChromiumTerminalManager.
+        # Calculate new dimensions maintaining aspect ratio
+        ratio = max_height / img.height
+        new_width = int(img.width * ratio)
+        new_height = max_height
 
-    Returns:
-        The current Playwright Page object, or None if not available.
-    """
-    manager = get_chromium_terminal_manager()
-    return await manager.get_current_page()
+        # Resize with high quality resampling
+        resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+        # Save to bytes
+        output = io.BytesIO()
+        resized.save(output, format="PNG", optimize=True)
+        output.seek(0)
+
+        logger.debug(
+            f"Resized image from {img.width}x{img.height} to {new_width}x{new_height}"
+        )
+        return output.read()
+
+    except Exception as e:
+        logger.warning(f"Failed to resize image: {e}, using original")
+        return image_bytes
 
 
 async def _capture_terminal_screenshot(
     full_page: bool = False,
-    save_screenshot: bool = True,
-    group_id: Optional[str] = None,
+    save_to_disk: bool = True,
+    group_id: str | None = None,
+    max_height: int = DEFAULT_MAX_HEIGHT,
 ) -> Dict[str, Any]:
-    """Internal function to capture a screenshot of the terminal.
+    """Internal function to capture terminal screenshot.
 
     Args:
-        full_page: Whether to capture the full page or just viewport.
-        save_screenshot: Whether to save the screenshot to disk.
-        group_id: Optional message group ID for emit functions.
+        full_page: Whether to capture full page or just viewport.
+        save_to_disk: Whether to save screenshot to disk.
+        group_id: Optional message group for logging.
+        max_height: Maximum height for resizing (default 768px).
 
     Returns:
-        Dict containing screenshot data and metadata.
+        Dict with screenshot_bytes, screenshot_path, base64_data, and success status.
     """
     try:
-        page = await _get_terminal_page()
+        manager = get_session_manager()
+        page = await manager.get_current_page()
 
         if not page:
             return {
                 "success": False,
-                "error": "No active terminal page. Please open terminal first with terminal_open().",
+                "error": "No active terminal page. Open terminal first.",
             }
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Capture screenshot as bytes
+        original_bytes = await page.screenshot(full_page=full_page, type="png")
 
-        # Take screenshot
-        screenshot_data = await page.screenshot(full_page=full_page)
+        # Resize to reduce token usage for multimodal models
+        screenshot_bytes = _resize_image(original_bytes, max_height=max_height)
 
-        result = {
+        result: Dict[str, Any] = {
             "success": True,
-            "screenshot_data": screenshot_data,
-            "timestamp": timestamp,
+            "screenshot_bytes": screenshot_bytes,
+            "base64_data": base64.b64encode(screenshot_bytes).decode("utf-8"),
         }
 
-        if save_screenshot:
-            screenshot_path = _build_screenshot_path("terminal", timestamp)
+        # Save to disk if requested (save the resized version)
+        if save_to_disk:
+            screenshot_path = _build_screenshot_path()
             screenshot_path.parent.mkdir(parents=True, exist_ok=True)
-
             with open(screenshot_path, "wb") as f:
-                f.write(screenshot_data)
-
+                f.write(screenshot_bytes)
             result["screenshot_path"] = str(screenshot_path)
-            message = f"Screenshot saved: {screenshot_path}"
+
             if group_id:
-                emit_success(message, message_group=group_id)
-            else:
-                emit_success(message)
+                emit_success(
+                    f"Terminal screenshot saved: {screenshot_path}",
+                    message_group=group_id,
+                )
 
         return result
 
@@ -176,508 +202,190 @@ async def _capture_terminal_screenshot(
         return {"success": False, "error": str(e)}
 
 
-async def terminal_screenshot_analyze(
-    question: str,
+async def terminal_screenshot(
     full_page: bool = False,
-    save_screenshot: bool = True,
+    save_to_disk: bool = True,
 ) -> Dict[str, Any]:
-    """Take a screenshot of the terminal and analyze it with VQA.
+    """Take a screenshot of the terminal browser.
 
-    Captures a screenshot of the current terminal browser page and uses
-    visual question answering to analyze it based on the provided question.
+    Captures a screenshot and returns it as base64-encoded PNG data.
+    Multimodal models can directly see and analyze this image.
 
     Args:
-        question: The question to ask about the terminal screenshot.
         full_page: Whether to capture the full page or just viewport.
-            Defaults to False (viewport only).
-        save_screenshot: Whether to save the screenshot to disk.
+            Defaults to False (viewport only - what's visible on screen).
+        save_to_disk: Whether to save the screenshot to disk.
             Defaults to True.
 
     Returns:
         A dictionary containing:
-            - success (bool): True if analysis succeeded.
-            - question (str): The original question.
-            - answer (str): The VQA answer (if successful).
-            - confidence (float): Confidence score 0-1 (if successful).
-            - observations (str): Additional observations (if successful).
-            - screenshot_path (str): Path to saved screenshot (if saved).
-            - error (str): Error message (if unsuccessful).
+            - success (bool): True if screenshot was captured.
+            - base64_image (str): Base64-encoded PNG image data.
+            - media_type (str): Always "image/png".
+            - screenshot_path (str): Path to saved file (if save_to_disk=True).
+            - error (str): Error message if unsuccessful.
 
     Example:
-        >>> result = await terminal_screenshot_analyze(
-        ...     "What is the last command that was run?"
-        ... )
+        >>> result = await terminal_screenshot()
         >>> if result["success"]:
-        ...     print(f"Answer: {result['answer']}")
+        ...     # The base64_image can be shown to multimodal models
+        ...     print(f"Screenshot saved to: {result['screenshot_path']}")
     """
     target = "full_page" if full_page else "viewport"
-    group_id = generate_group_id(
-        "terminal_screenshot_analyze", f"{question[:50]}_{target}"
-    )
+    group_id = generate_group_id("terminal_screenshot", target)
+    banner = format_terminal_banner("TERMINAL SCREENSHOT 📷")
     emit_info(
-        f"TERMINAL SCREENSHOT ANALYZE 📷 question='{question[:100]}{'...' if len(question) > 100 else ''}'",
+        Text.from_markup(f"{banner} [bold cyan]{target}[/bold cyan]"),
         message_group=group_id,
     )
 
-    try:
-        # Capture screenshot
-        screenshot_result = await _capture_terminal_screenshot(
-            full_page=full_page,
-            save_screenshot=save_screenshot,
-            group_id=group_id,
-        )
+    result = await _capture_terminal_screenshot(
+        full_page=full_page,
+        save_to_disk=save_to_disk,
+        group_id=group_id,
+    )
 
-        if not screenshot_result["success"]:
-            error_message = screenshot_result.get("error", "Screenshot failed")
-            emit_error(
-                f"Screenshot capture failed: {error_message}",
-                message_group=group_id,
-            )
-            return {
-                "success": False,
-                "error": error_message,
-                "question": question,
-            }
+    if not result["success"]:
+        emit_error(result.get("error", "Screenshot failed"), message_group=group_id)
+        return result
 
-        screenshot_bytes = screenshot_result.get("screenshot_data")
-        if not screenshot_bytes:
-            emit_error(
-                "Screenshot captured but pixel data missing.",
-                message_group=group_id,
-            )
-            return {
-                "success": False,
-                "error": "Screenshot captured but no image bytes available.",
-                "question": question,
-            }
-
-        # Run VQA analysis
-        try:
-            vqa_result = await asyncio.to_thread(
-                run_vqa_analysis,
-                question,
-                screenshot_bytes,
-            )
-        except Exception as exc:
-            emit_error(
-                f"Visual question answering failed: {exc}",
-                message_group=group_id,
-            )
-            return {
-                "success": False,
-                "error": f"Visual analysis failed: {exc}",
-                "question": question,
-                "screenshot_path": screenshot_result.get("screenshot_path"),
-            }
-
-        emit_success(
-            f"Analysis answer: {vqa_result.answer}",
-            message_group=group_id,
-        )
-        emit_info(
-            f"Observations: {vqa_result.observations}",
-            message_group=group_id,
-        )
-
-        return {
-            "success": True,
-            "question": question,
-            "answer": vqa_result.answer,
-            "confidence": vqa_result.confidence,
-            "observations": vqa_result.observations,
-            "screenshot_path": screenshot_result.get("screenshot_path"),
-        }
-
-    except Exception as e:
-        emit_error(
-            f"Terminal screenshot analysis failed: {str(e)}", message_group=group_id
-        )
-        logger.exception("Error in terminal_screenshot_analyze")
-        return {"success": False, "error": str(e), "question": question}
+    # Return clean result with base64 image for model consumption
+    return {
+        "success": True,
+        "base64_image": result["base64_data"],
+        "media_type": "image/png",
+        "screenshot_path": result.get("screenshot_path"),
+        "message": "Screenshot captured. The base64_image contains the terminal view.",
+    }
 
 
 async def terminal_read_output(lines: int = 50) -> Dict[str, Any]:
     """Read text output from the terminal by scraping the xterm.js DOM.
 
-    Extracts the text content from the terminal by parsing the xterm.js
-    DOM elements. Returns the last N lines of visible terminal output.
+    Extracts text content from the terminal by parsing xterm.js DOM.
+    This is useful when you need the actual text rather than an image.
 
     Args:
-        lines: Number of lines to return from the end of output.
-            Defaults to 50.
+        lines: Number of lines to return from the end. Defaults to 50.
 
     Returns:
         A dictionary containing:
-            - success (bool): True if extraction succeeded.
-            - output (str): The terminal text content (if successful).
-            - line_count (int): Number of lines returned (if successful).
-            - error (str): Error message (if unsuccessful).
-
-    Example:
-        >>> result = await terminal_read_output(lines=20)
-        >>> if result["success"]:
-        ...     print(result["output"])
+            - success (bool): True if text was extracted.
+            - output (str): The terminal text content.
+            - line_count (int): Number of lines extracted.
+            - error (str): Error message if unsuccessful.
     """
-    group_id = generate_group_id("terminal_read_output", f"lines={lines}")
+    group_id = generate_group_id("terminal_read_output", f"lines_{lines}")
+    banner = format_terminal_banner("TERMINAL READ OUTPUT 📖")
     emit_info(
-        f"TERMINAL READ OUTPUT 📜 lines={lines}",
+        Text.from_markup(f"{banner} [dim]last {lines} lines[/dim]"),
         message_group=group_id,
     )
 
     try:
-        page = await _get_terminal_page()
+        manager = get_session_manager()
+        page = await manager.get_current_page()
 
         if not page:
-            error_msg = "No active terminal page. Please open terminal first with terminal_open()."
+            error_msg = "No active terminal page. Open terminal first."
             emit_error(error_msg, message_group=group_id)
             return {"success": False, "error": error_msg}
 
-        # Execute JavaScript to extract text from xterm.js
-        extraction_result = await page.evaluate(XTERM_TEXT_EXTRACTION_JS)
+        # Execute JavaScript to extract text
+        result = await page.evaluate(XTERM_TEXT_EXTRACTION_JS)
 
-        if not extraction_result.get("success"):
-            error_msg = extraction_result.get(
-                "error", "Failed to extract terminal text"
-            )
+        if not result.get("success"):
+            error_msg = result.get("error", "Failed to extract terminal text")
             emit_error(error_msg, message_group=group_id)
             return {"success": False, "error": error_msg}
 
-        all_lines = extraction_result.get("lines", [])
+        extracted_lines = result.get("lines", [])
 
         # Get the last N lines
-        if lines > 0:
-            output_lines = all_lines[-lines:]
-        else:
-            output_lines = all_lines
+        if len(extracted_lines) > lines:
+            extracted_lines = extracted_lines[-lines:]
 
-        output_text = "\n".join(output_lines)
-        line_count = len(output_lines)
+        output_text = "\n".join(extracted_lines)
 
         emit_success(
-            f"Read {line_count} lines from terminal (method: {extraction_result.get('method', 'unknown')})",
+            f"Extracted {len(extracted_lines)} lines from terminal",
             message_group=group_id,
         )
 
         return {
             "success": True,
             "output": output_text,
-            "line_count": line_count,
+            "line_count": len(extracted_lines),
         }
 
     except Exception as e:
-        emit_error(f"Failed to read terminal output: {str(e)}", message_group=group_id)
+        error_msg = f"Failed to read terminal output: {str(e)}"
+        emit_error(error_msg, message_group=group_id)
         logger.exception("Error reading terminal output")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": error_msg}
 
 
-async def terminal_compare_mockup(
-    mockup_path: str,
-    question: str = "How closely does the terminal match the mockup? List differences.",
-) -> Dict[str, Any]:
-    """Compare the terminal screenshot to a mockup image.
-
-    Takes a screenshot of the current terminal and uses VQA to compare
-    it with a provided mockup image.
-
-    Args:
-        mockup_path: Path to the mockup image file on the filesystem.
-        question: The comparison question to ask the VQA model.
-            Defaults to asking about differences between terminal and mockup.
-
-    Returns:
-        A dictionary containing:
-            - success (bool): True if comparison succeeded.
-            - mockup_path (str): Path to the mockup image.
-            - comparison (str): The VQA comparison result (if successful).
-            - matches (bool): True if terminal matches mockup (if successful).
-            - confidence (float): Confidence score 0-1 (if successful).
-            - screenshot_path (str): Path to terminal screenshot (if saved).
-            - error (str): Error message (if unsuccessful).
-
-    Example:
-        >>> result = await terminal_compare_mockup(
-        ...     "/path/to/mockup.png",
-        ...     "Does the terminal show the expected welcome message?"
-        ... )
-        >>> if result["success"]:
-        ...     print(f"Matches: {result['matches']}")
-    """
-    group_id = generate_group_id("terminal_compare_mockup", mockup_path)
-    emit_info(
-        f"TERMINAL COMPARE MOCKUP 🖼️ mockup='{mockup_path}'",
-        message_group=group_id,
-    )
-
-    try:
-        # Verify mockup file exists
-        mockup_file = Path(mockup_path)
-        if not mockup_file.exists():
-            error_msg = f"Mockup file not found: {mockup_path}"
-            emit_error(error_msg, message_group=group_id)
-            return {
-                "success": False,
-                "error": error_msg,
-                "mockup_path": mockup_path,
-            }
-
-        if not mockup_file.is_file():
-            error_msg = f"Mockup path is not a file: {mockup_path}"
-            emit_error(error_msg, message_group=group_id)
-            return {
-                "success": False,
-                "error": error_msg,
-                "mockup_path": mockup_path,
-            }
-
-        # Load mockup image to verify it's readable
-        # Note: Currently we only analyze the terminal screenshot with context about
-        # the mockup comparison. A future enhancement could stitch images together
-        # or use multi-image VQA for direct comparison.
-        try:
-            _mockup_bytes = mockup_file.read_bytes()  # noqa: F841 - validates file is readable
-        except Exception as e:
-            error_msg = f"Failed to read mockup file: {e}"
-            emit_error(error_msg, message_group=group_id)
-            return {
-                "success": False,
-                "error": error_msg,
-                "mockup_path": mockup_path,
-            }
-
-        # Capture terminal screenshot
-        screenshot_result = await _capture_terminal_screenshot(
-            full_page=False,
-            save_screenshot=True,
-            group_id=group_id,
-        )
-
-        if not screenshot_result["success"]:
-            error_message = screenshot_result.get("error", "Screenshot failed")
-            emit_error(
-                f"Screenshot capture failed: {error_message}",
-                message_group=group_id,
-            )
-            return {
-                "success": False,
-                "error": error_message,
-                "mockup_path": mockup_path,
-            }
-
-        screenshot_bytes = screenshot_result.get("screenshot_data")
-        if not screenshot_bytes:
-            emit_error(
-                "Screenshot captured but no image data available.",
-                message_group=group_id,
-            )
-            return {
-                "success": False,
-                "error": "No screenshot data available.",
-                "mockup_path": mockup_path,
-            }
-
-        # Prepare comparison prompt that includes both images
-        # Note: VQA typically handles one image, so we'll combine them
-        # or describe the comparison context in the question
-        comparison_question = (
-            f"You are comparing a terminal screenshot to a mockup design. "
-            f"The mockup shows the expected design. {question}"
-        )
-
-        # Analyze the terminal screenshot (primary image for comparison)
-        # In a more sophisticated implementation, we could stitch images together
-        try:
-            vqa_result = await asyncio.to_thread(
-                run_vqa_analysis,
-                comparison_question,
-                screenshot_bytes,
-            )
-        except Exception as exc:
-            emit_error(
-                f"Visual comparison failed: {exc}",
-                message_group=group_id,
-            )
-            return {
-                "success": False,
-                "error": f"Visual comparison failed: {exc}",
-                "mockup_path": mockup_path,
-                "screenshot_path": screenshot_result.get("screenshot_path"),
-            }
-
-        # Determine if it matches based on answer content
-        answer_lower = vqa_result.answer.lower()
-        matches = (
-            "match" in answer_lower
-            and "not match" not in answer_lower
-            and "doesn't match" not in answer_lower
-            and "don't match" not in answer_lower
-        ) or (
-            "same" in answer_lower
-            or "identical" in answer_lower
-            or "similar" in answer_lower
-        )
-
-        emit_success(
-            f"Comparison result: {vqa_result.answer[:100]}..."
-            if len(vqa_result.answer) > 100
-            else f"Comparison result: {vqa_result.answer}",
-            message_group=group_id,
-        )
-
-        return {
-            "success": True,
-            "mockup_path": mockup_path,
-            "comparison": vqa_result.answer,
-            "matches": matches,
-            "confidence": vqa_result.confidence,
-            "observations": vqa_result.observations,
-            "screenshot_path": screenshot_result.get("screenshot_path"),
-        }
-
-    except Exception as e:
-        emit_error(f"Mockup comparison failed: {str(e)}", message_group=group_id)
-        logger.exception("Error comparing terminal to mockup")
-        return {
-            "success": False,
-            "error": str(e),
-            "mockup_path": mockup_path,
-        }
-
-
-async def load_image_for_analysis(
+async def load_image(
     image_path: str,
-    question: str,
+    max_height: int = DEFAULT_MAX_HEIGHT,
 ) -> Dict[str, Any]:
-    """Load an image from the filesystem and analyze it with VQA.
+    """Load an image from the filesystem as base64 data.
 
-    This tool loads any image file and uses visual question answering
-    to analyze it based on the provided question. Useful for analyzing
-    mockups, designs, saved screenshots, or any other images.
+    Loads any image file, resizes it to reduce token usage, and returns
+    it as base64-encoded data that multimodal models can directly see.
 
     Args:
-        image_path: Path to the image file on the filesystem.
-        question: The question to ask about the image.
+        image_path: Path to the image file.
+        max_height: Maximum height for resizing (default 768px).
 
     Returns:
         A dictionary containing:
-            - success (bool): True if analysis succeeded.
-            - image_path (str): Path to the analyzed image.
-            - question (str): The original question.
-            - answer (str): The VQA answer (if successful).
-            - confidence (float): Confidence score 0-1 (if successful).
-            - observations (str): Additional observations (if successful).
-            - error (str): Error message (if unsuccessful).
-
-    Example:
-        >>> result = await load_image_for_analysis(
-        ...     "/path/to/mockup.png",
-        ...     "What colors are used in this design?"
-        ... )
-        >>> if result["success"]:
-        ...     print(f"Answer: {result['answer']}")
+            - success (bool): True if image was loaded.
+            - base64_image (str): Base64-encoded image data (resized).
+            - media_type (str): The image MIME type (e.g., "image/png").
+            - image_path (str): The original path.
+            - error (str): Error message if unsuccessful.
     """
-    group_id = generate_group_id("load_image_analysis", f"{image_path}_{question[:30]}")
-    emit_info(
-        f"LOAD IMAGE ANALYZE 🔍 image='{image_path}' question='{question[:50]}...'"
-        if len(question) > 50
-        else f"LOAD IMAGE ANALYZE 🔍 image='{image_path}' question='{question}'",
-        message_group=group_id,
-    )
+    group_id = generate_group_id("load_image", image_path)
+    emit_info(f"LOAD IMAGE 🖼️ {image_path}", message_group=group_id)
 
     try:
-        # Verify image file exists
         image_file = Path(image_path)
+
         if not image_file.exists():
             error_msg = f"Image file not found: {image_path}"
             emit_error(error_msg, message_group=group_id)
-            return {
-                "success": False,
-                "error": error_msg,
-                "image_path": image_path,
-                "question": question,
-            }
+            return {"success": False, "error": error_msg, "image_path": image_path}
 
         if not image_file.is_file():
-            error_msg = f"Image path is not a file: {image_path}"
+            error_msg = f"Path is not a file: {image_path}"
             emit_error(error_msg, message_group=group_id)
-            return {
-                "success": False,
-                "error": error_msg,
-                "image_path": image_path,
-                "question": question,
-            }
+            return {"success": False, "error": error_msg, "image_path": image_path}
 
-        # Load image bytes
-        try:
-            image_bytes = image_file.read_bytes()
-        except Exception as e:
-            error_msg = f"Failed to read image file: {e}"
-            emit_error(error_msg, message_group=group_id)
-            return {
-                "success": False,
-                "error": error_msg,
-                "image_path": image_path,
-                "question": question,
-            }
+        # Read image bytes
+        original_bytes = image_file.read_bytes()
 
-        # Determine media type from extension
-        suffix = image_file.suffix.lower()
-        media_type_map = {
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".gif": "image/gif",
-            ".webp": "image/webp",
-            ".bmp": "image/bmp",
-        }
-        media_type = media_type_map.get(suffix, "image/png")
+        # Resize to reduce token usage
+        image_bytes = _resize_image(original_bytes, max_height=max_height)
 
-        # Run VQA analysis
-        try:
-            vqa_result = await asyncio.to_thread(
-                run_vqa_analysis,
-                question,
-                image_bytes,
-                media_type,
-            )
-        except Exception as exc:
-            emit_error(
-                f"Visual analysis failed: {exc}",
-                message_group=group_id,
-            )
-            return {
-                "success": False,
-                "error": f"Visual analysis failed: {exc}",
-                "image_path": image_path,
-                "question": question,
-            }
+        # Always return as PNG after resizing (consistent format)
+        base64_data = base64.b64encode(image_bytes).decode("utf-8")
 
-        emit_success(
-            f"Analysis answer: {vqa_result.answer}",
-            message_group=group_id,
-        )
-        emit_info(
-            f"Observations: {vqa_result.observations}",
-            message_group=group_id,
-        )
+        emit_success(f"Loaded image: {image_path}", message_group=group_id)
 
         return {
             "success": True,
+            "base64_image": base64_data,
+            "media_type": "image/png",  # Always PNG after resize
             "image_path": image_path,
-            "question": question,
-            "answer": vqa_result.answer,
-            "confidence": vqa_result.confidence,
-            "observations": vqa_result.observations,
+            "message": f"Image loaded (resized to max {max_height}px height for token efficiency).",
         }
 
     except Exception as e:
-        emit_error(f"Image analysis failed: {str(e)}", message_group=group_id)
-        logger.exception("Error analyzing image")
-        return {
-            "success": False,
-            "error": str(e),
-            "image_path": image_path,
-            "question": question,
-        }
+        error_msg = f"Failed to load image: {str(e)}"
+        emit_error(error_msg, message_group=group_id)
+        logger.exception("Error loading image")
+        return {"success": False, "error": error_msg, "image_path": image_path}
 
 
 # =============================================================================
@@ -685,137 +393,128 @@ async def load_image_for_analysis(
 # =============================================================================
 
 
-def register_terminal_screenshot_analyze(agent):
-    """Register the terminal screenshot analysis tool with an agent.
-
-    Args:
-        agent: The pydantic-ai agent to register the tool with.
-    """
+def register_terminal_screenshot(agent):
+    """Register the terminal screenshot tool."""
 
     @agent.tool
-    async def terminal_screenshot_analyze_tool(
+    async def terminal_screenshot_analyze(
         context: RunContext,
-        question: str,
         full_page: bool = False,
-        save_screenshot: bool = True,
     ) -> Dict[str, Any]:
         """
-        Take a screenshot of the terminal and analyze it with visual AI.
+        Take a screenshot of the terminal browser.
+
+        Returns the screenshot as base64 image data that you can see directly.
+        Use this to see what's displayed in the terminal.
 
         Args:
-            question: The question to ask about the terminal screenshot
-            full_page: Whether to capture full page or just viewport (default: False)
-            save_screenshot: Whether to save the screenshot to disk (default: True)
+            full_page: Capture full page (True) or just viewport (False).
 
         Returns:
-            Dict with:
-                - success: True if analysis succeeded
-                - question: The original question
-                - answer: The VQA answer (if successful)
-                - confidence: Confidence score 0-1 (if successful)
-                - screenshot_path: Path to saved screenshot (if saved)
-                - error: Error message (if unsuccessful)
+            Dict with base64_image (PNG data you can see), screenshot_path, etc.
         """
-        return await terminal_screenshot_analyze(
-            question=question,
-            full_page=full_page,
-            save_screenshot=save_screenshot,
-        )
+        # Session is set by invoke_agent via contextvar
+        return await terminal_screenshot(full_page=full_page)
 
 
 def register_terminal_read_output(agent):
-    """Register the terminal read output tool with an agent.
-
-    Args:
-        agent: The pydantic-ai agent to register the tool with.
-    """
+    """Register the terminal text reading tool."""
 
     @agent.tool
-    async def terminal_read_output_tool(
+    async def terminal_read_output(
         context: RunContext,
         lines: int = 50,
     ) -> Dict[str, Any]:
         """
-        Read text output from the terminal by scraping xterm.js DOM.
+        Read text from the terminal (scrapes xterm.js DOM).
+
+        Use this when you need the actual text content, not just an image.
 
         Args:
-            lines: Number of lines to return from end of output (default: 50)
+            lines: Number of lines to read from end (default: 50).
 
         Returns:
-            Dict with:
-                - success: True if extraction succeeded
-                - output: The terminal text content (if successful)
-                - line_count: Number of lines returned (if successful)
-                - error: Error message (if unsuccessful)
+            Dict with output (text content), line_count, success.
         """
-        return await terminal_read_output(lines=lines)
+        # Session is set by invoke_agent via contextvar
+        from . import terminal_screenshot_tools
+
+        return await terminal_screenshot_tools.terminal_read_output(lines=lines)
+
+
+def register_load_image(agent):
+    """Register the image loading tool."""
+
+    @agent.tool
+    async def load_image_for_analysis(
+        context: RunContext,
+        image_path: str,
+    ) -> Dict[str, Any]:
+        """
+        Load an image file so you can see and analyze it.
+
+        Returns the image as base64 data that you can see directly.
+
+        Args:
+            image_path: Path to the image file.
+
+        Returns:
+            Dict with base64_image (you can see this), media_type, etc.
+        """
+        # Session is set by invoke_agent via contextvar
+        return await load_image(image_path=image_path)
 
 
 def register_terminal_compare_mockup(agent):
-    """Register the terminal mockup comparison tool with an agent.
-
-    Args:
-        agent: The pydantic-ai agent to register the tool with.
-    """
+    """Register the mockup comparison tool."""
 
     @agent.tool
-    async def terminal_compare_mockup_tool(
+    async def terminal_compare_mockup(
         context: RunContext,
         mockup_path: str,
-        question: str = "How closely does the terminal match the mockup? List differences.",
     ) -> Dict[str, Any]:
         """
-        Compare the terminal screenshot to a mockup image.
+        Compare the terminal to a mockup image.
+
+        Takes a screenshot of the terminal and loads the mockup image.
+        Returns both as base64 so you can visually compare them.
 
         Args:
-            mockup_path: Path to the mockup image file
-            question: Comparison question to ask (default: asks about differences)
+            mockup_path: Path to the mockup/expected image.
 
         Returns:
-            Dict with:
-                - success: True if comparison succeeded
-                - mockup_path: Path to the mockup image
-                - comparison: The VQA comparison result (if successful)
-                - matches: True if terminal matches mockup (if successful)
-                - confidence: Confidence score 0-1 (if successful)
-                - error: Error message (if unsuccessful)
+            Dict with terminal_image, mockup_image (both base64), paths, etc.
         """
-        return await terminal_compare_mockup(
-            mockup_path=mockup_path,
-            question=question,
+        # Session is set by invoke_agent via contextvar
+        group_id = generate_group_id("terminal_compare_mockup", mockup_path)
+        banner = format_terminal_banner("TERMINAL COMPARE MOCKUP 🖼️")
+        emit_info(
+            Text.from_markup(f"{banner} [bold cyan]{mockup_path}[/bold cyan]"),
+            message_group=group_id,
         )
 
+        # Load the mockup
+        mockup_result = await load_image(mockup_path)
+        if not mockup_result["success"]:
+            return mockup_result
 
-def register_load_image_for_analysis(agent):
-    """Register the image analysis tool with an agent.
+        # Take terminal screenshot
+        terminal_result = await terminal_screenshot(full_page=False)
+        if not terminal_result["success"]:
+            return terminal_result
 
-    Args:
-        agent: The pydantic-ai agent to register the tool with.
-    """
-
-    @agent.tool
-    async def load_image_for_analysis_tool(
-        context: RunContext,
-        image_path: str,
-        question: str,
-    ) -> Dict[str, Any]:
-        """
-        Load an image from the filesystem and analyze it with visual AI.
-
-        Args:
-            image_path: Path to the image file to analyze
-            question: The question to ask about the image
-
-        Returns:
-            Dict with:
-                - success: True if analysis succeeded
-                - image_path: Path to the analyzed image
-                - question: The original question
-                - answer: The VQA answer (if successful)
-                - confidence: Confidence score 0-1 (if successful)
-                - error: Error message (if unsuccessful)
-        """
-        return await load_image_for_analysis(
-            image_path=image_path,
-            question=question,
+        emit_success(
+            "Both images loaded. Compare them visually.",
+            message_group=group_id,
         )
+
+        return {
+            "success": True,
+            "terminal_image": terminal_result["base64_image"],
+            "mockup_image": mockup_result["base64_image"],
+            "media_type": "image/png",
+            "terminal_path": terminal_result.get("screenshot_path"),
+            "mockup_path": mockup_path,
+            "message": "Both images loaded. terminal_image shows the current terminal, "
+            "mockup_image shows the expected design. Compare them visually.",
+        }

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from functools import lru_cache
-
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent
 
@@ -27,7 +25,6 @@ def _get_vqa_instructions() -> str:
     )
 
 
-@lru_cache(maxsize=1)
 def _load_vqa_agent(model_name: str) -> Agent[None, VisualAnalysisResult]:
     """Create a cached agent instance for visual analysis."""
     from code_puppy.model_factory import ModelFactory
@@ -60,9 +57,14 @@ def _load_vqa_agent(model_name: str) -> Agent[None, VisualAnalysisResult]:
 
 
 def _get_vqa_agent() -> Agent[None, VisualAnalysisResult]:
-    """Return a cached VQA agent configured with the current model."""
+    """Return a VQA agent configured with the current model.
+
+    We do NOT cache this agent because it may be called from different threads
+    (e.g. via asyncio.to_thread). httpx Clients are not thread-safe across
+    event loops, so we must create a fresh agent/client for each call to
+    ensure it binds to the correct thread's event loop.
+    """
     model_name = get_vqa_model_name()
-    # lru_cache keyed by model_name ensures refresh when configuration changes
     return _load_vqa_agent(model_name)
 
 

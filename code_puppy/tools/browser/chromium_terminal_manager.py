@@ -1,135 +1,106 @@
 """Chromium Terminal Manager - Simple Chromium browser for terminal use.
 
-This module provides a singleton manager for a Chromium browser instance
-optimized for terminal/CLI use cases. Unlike CamoufoxManager, this is
-a simple, non-privacy-focused browser that runs in visible mode by default.
+This module provides a browser manager for Chromium terminal automation.
+Each instance gets its own ephemeral browser context, allowing multiple
+terminal QA agents to run simultaneously without profile conflicts.
 """
 
 import logging
-from pathlib import Path
+import uuid
 from typing import Optional
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
-from code_puppy import config
 from code_puppy.messaging import emit_info, emit_success
 
 logger = logging.getLogger(__name__)
 
+# Store active manager instances by session ID
+_active_managers: dict[str, "ChromiumTerminalManager"] = {}
+
 
 class ChromiumTerminalManager:
-    """Singleton browser manager for Chromium terminal automation.
+    """Browser manager for Chromium terminal automation.
 
-    This manager provides a simple Chromium browser instance for terminal use.
-    Unlike CamoufoxManager, it doesn't include privacy features - just a
-    straightforward Chromium browser that's visible by default.
+    Each instance gets its own ephemeral browser context, allowing multiple
+    terminal QA agents to run simultaneously without profile conflicts.
 
     Key features:
-    - Singleton pattern ensures only one browser instance
-    - Persistent profile directory for consistent state across runs
+    - Ephemeral contexts (no profile locking issues)
+    - Multiple instances can run simultaneously
     - Visible (headless=False) by default for terminal use
     - Simple API: initialize, get_current_page, new_page, close
 
     Usage:
-        manager = get_chromium_terminal_manager()
+        manager = get_chromium_terminal_manager()  # or with session_id
         await manager.async_initialize()
         page = await manager.get_current_page()
         await page.goto("https://example.com")
         await manager.close()
     """
 
-    _instance: Optional["ChromiumTerminalManager"] = None
     _browser: Optional[Browser] = None
     _context: Optional[BrowserContext] = None
-    _playwright: Optional[object] = None  # Store playwright instance for cleanup
+    _playwright: Optional[object] = None
     _initialized: bool = False
 
-    def __new__(cls) -> "ChromiumTerminalManager":
-        """Create or return the singleton instance."""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+    def __init__(self, session_id: Optional[str] = None) -> None:
+        """Initialize manager settings.
 
-    def __init__(self) -> None:
-        """Initialize manager settings (only runs once due to singleton)."""
-        # Only initialize once
-        if hasattr(self, "_init_done"):
-            return
-        self._init_done = True
+        Args:
+            session_id: Optional session ID for tracking this instance.
+                If None, a UUID will be generated.
+        """
+        import os
+
+        self.session_id = session_id or str(uuid.uuid4())[:8]
 
         # Default to headless=False - we want to see the terminal browser!
         # Can override with CHROMIUM_HEADLESS=true if needed
-        import os
-
         self.headless = os.getenv("CHROMIUM_HEADLESS", "false").lower() == "true"
 
-        # Persistent profile directory for consistent browser state across runs
-        self.profile_dir = self._get_profile_directory()
-
         logger.debug(
-            f"ChromiumTerminalManager initialized: headless={self.headless}, "
-            f"profile={self.profile_dir}"
+            f"ChromiumTerminalManager created: session={self.session_id}, "
+            f"headless={self.headless}"
         )
-
-    @classmethod
-    def get_instance(cls) -> "ChromiumTerminalManager":
-        """Get the singleton instance.
-
-        Returns:
-            The singleton ChromiumTerminalManager instance.
-        """
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    def _get_profile_directory(self) -> Path:
-        """Get or create the persistent profile directory.
-
-        Uses XDG_CACHE_HOME/code_puppy/chromium_terminal_profile for storing
-        browser data (cookies, history, bookmarks, etc.).
-
-        Returns:
-            Path to the profile directory.
-        """
-        cache_dir = Path(config.CACHE_DIR)
-        profile_path = cache_dir / "chromium_terminal_profile"
-        profile_path.mkdir(parents=True, exist_ok=True, mode=0o700)
-        return profile_path
 
     async def async_initialize(self) -> None:
         """Initialize the Chromium browser.
 
-        Launches a Chromium browser with a persistent context. The browser
+        Launches a Chromium browser with an ephemeral context. The browser
         runs in visible mode by default (headless=False) for terminal use.
 
         Raises:
             Exception: If browser initialization fails.
         """
         if self._initialized:
-            logger.debug("ChromiumTerminalManager already initialized")
+            logger.debug(
+                f"ChromiumTerminalManager {self.session_id} already initialized"
+            )
             return
 
         try:
-            emit_info("Initializing Chromium terminal browser...")
-            emit_info(f"Using persistent profile: {self.profile_dir}")
+            emit_info(
+                f"Initializing Chromium terminal browser (session: {self.session_id})..."
+            )
 
             # Start Playwright
             self._playwright = await async_playwright().start()
 
-            # Launch persistent context (keeps profile data between sessions)
-            self._context = await self._playwright.chromium.launch_persistent_context(
-                user_data_dir=str(self.profile_dir),
+            # Launch browser (not persistent - allows multiple instances)
+            self._browser = await self._playwright.chromium.launch(
                 headless=self.headless,
             )
 
-            # Get browser reference from context
-            self._browser = self._context.browser
+            # Create ephemeral context
+            self._context = await self._browser.new_context()
             self._initialized = True
 
-            emit_success("Chromium terminal browser initialized")
+            emit_success(
+                f"Chromium terminal browser initialized (session: {self.session_id})"
+            )
             logger.info(
-                f"Chromium initialized: headless={self.headless}, "
-                f"profile={self.profile_dir}"
+                f"Chromium initialized: session={self.session_id}, headless={self.headless}"
             )
 
         except Exception as e:
@@ -207,74 +178,82 @@ class ChromiumTerminalManager:
             return []
         return self._context.pages
 
-    async def _cleanup(self) -> None:
-        """Clean up browser resources and save persistent state."""
+    async def _cleanup(self, silent: bool = False) -> None:
+        """Clean up browser resources.
+
+        Args:
+            silent: If True, suppress all errors (used during shutdown).
+        """
         try:
-            # Save browser state before closing
             if self._context:
                 try:
-                    storage_state_path = self.profile_dir / "storage_state.json"
-                    await self._context.storage_state(path=str(storage_state_path))
-                    logger.debug(f"Browser state saved to {storage_state_path}")
-                except Exception as e:
-                    logger.warning(f"Could not save storage state: {e}")
-
-                await self._context.close()
+                    await self._context.close()
+                except Exception:
+                    pass
                 self._context = None
 
             if self._browser:
-                await self._browser.close()
+                try:
+                    await self._browser.close()
+                except Exception:
+                    pass
                 self._browser = None
 
             if self._playwright:
-                await self._playwright.stop()
+                try:
+                    await self._playwright.stop()
+                except Exception:
+                    pass
                 self._playwright = None
 
             self._initialized = False
-            logger.debug("Browser resources cleaned up")
+
+            # Remove from active managers
+            if self.session_id in _active_managers:
+                del _active_managers[self.session_id]
+
+            if not silent:
+                logger.debug(
+                    f"Browser resources cleaned up (session: {self.session_id})"
+                )
 
         except Exception as e:
-            logger.warning(f"Warning during cleanup: {e}")
+            if not silent:
+                logger.warning(f"Warning during cleanup: {e}")
 
     async def close(self) -> None:
         """Close the browser and clean up all resources.
 
-        This properly shuts down the browser, saves state, and releases
-        all resources. Should be called when done with the browser.
+        This properly shuts down the browser and releases all resources.
+        Should be called when done with the browser.
         """
         await self._cleanup()
-        emit_info("Chromium terminal browser closed")
-
-    def __del__(self) -> None:
-        """Ensure cleanup on object destruction.
-
-        Note: Can't reliably use async in __del__, so this is best-effort.
-        Always prefer calling close() explicitly.
-        """
-        if self._initialized:
-            import asyncio
-
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(self._cleanup())
-                else:
-                    loop.run_until_complete(self._cleanup())
-            except Exception:
-                pass  # Best effort cleanup
+        emit_info(f"Chromium terminal browser closed (session: {self.session_id})")
 
 
-def get_chromium_terminal_manager() -> ChromiumTerminalManager:
-    """Get the singleton ChromiumTerminalManager instance.
+def get_chromium_terminal_manager(
+    session_id: Optional[str] = None,
+) -> ChromiumTerminalManager:
+    """Get or create a ChromiumTerminalManager instance.
 
-    This is the recommended way to access the ChromiumTerminalManager.
+    Args:
+        session_id: Optional session ID. If provided and a manager with this
+            session exists, returns that manager. Otherwise creates a new one.
+            If None, uses 'default' as the session ID.
 
     Returns:
-        The singleton ChromiumTerminalManager instance.
+        A ChromiumTerminalManager instance.
 
     Example:
+        # Default session (for single-agent use)
         manager = get_chromium_terminal_manager()
-        await manager.async_initialize()
-        page = await manager.get_current_page()
+
+        # Named session (for multi-agent use)
+        manager = get_chromium_terminal_manager("agent-1")
     """
-    return ChromiumTerminalManager.get_instance()
+    session_id = session_id or "default"
+
+    if session_id not in _active_managers:
+        _active_managers[session_id] = ChromiumTerminalManager(session_id)
+
+    return _active_managers[session_id]

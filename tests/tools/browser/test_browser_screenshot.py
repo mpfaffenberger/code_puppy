@@ -1,17 +1,17 @@
-"""Comprehensive tests for browser_screenshot.py with mocking.
+"""Comprehensive tests for browser_screenshot.py.
 
-Tests screenshot capture and VQA integration without actual browser execution.
+Tests screenshot capture functionality that returns base64 image data
+for direct viewing by multimodal models.
 """
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from code_puppy.tools.browser.browser_screenshot import (
-    ScreenshotResult,
     _capture_screenshot,
-    take_screenshot_and_analyze,
+    take_screenshot,
 )
 
 
@@ -28,8 +28,9 @@ class TestScreenshotCapture:
         result = await _capture_screenshot(mock_page, save_screenshot=False)
 
         assert result["success"] is True
-        assert result["screenshot_data"] == screenshot_data
+        assert result["screenshot_bytes"] == screenshot_data
         assert "timestamp" in result
+        assert "base64_data" in result
         assert mock_page.screenshot.called
 
     @pytest.mark.asyncio
@@ -90,8 +91,9 @@ class TestScreenshotCapture:
 
         result = await _capture_screenshot(mock_page, save_screenshot=False)
 
-        # Should either handle the error or propagate
-        assert result is not None
+        # Should handle the error gracefully
+        assert result["success"] is False
+        assert "error" in result
 
     @pytest.mark.asyncio
     async def test_capture_with_emit_messages(self):
@@ -115,86 +117,49 @@ class TestScreenshotCapture:
                 call_kwargs = mock_emit.call_args[1]
                 assert call_kwargs.get("message_group") == "test_group"
 
+    @pytest.mark.asyncio
+    async def test_capture_returns_base64(self):
+        """Test that capture returns base64-encoded data."""
+        mock_page = AsyncMock()
+        screenshot_data = b"test_png_bytes"
+        mock_page.screenshot.return_value = screenshot_data
 
-class TestScreenshotResult:
-    """Test ScreenshotResult model."""
+        result = await _capture_screenshot(mock_page, save_screenshot=False)
 
-    def test_screenshot_result_success(self):
-        """Test ScreenshotResult for successful capture."""
-        result = ScreenshotResult(
-            success=True,
-            screenshot_path="/tmp/screenshot.png",
-            timestamp="20240101_120000",
-        )
+        assert result["success"] is True
+        assert "base64_data" in result
+        # Verify it's valid base64
+        import base64
 
-        assert result.success is True
-        assert result.screenshot_path == "/tmp/screenshot.png"
-        assert result.error is None
-
-    def test_screenshot_result_failure(self):
-        """Test ScreenshotResult for failed capture."""
-        result = ScreenshotResult(
-            success=False,
-            error="Screenshot capture failed",
-        )
-
-        assert result.success is False
-        assert result.error == "Screenshot capture failed"
-        assert result.screenshot_path is None
-
-    def test_screenshot_result_with_binary_data(self):
-        """Test ScreenshotResult storing binary screenshot data."""
-        screenshot_bytes = b"fake_png_data_here"
-        result = ScreenshotResult(
-            success=True,
-            screenshot_data=screenshot_bytes,
-            timestamp="20240101_120000",
-        )
-
-        assert result.screenshot_data == screenshot_bytes
+        decoded = base64.b64decode(result["base64_data"])
+        assert decoded == screenshot_data
 
 
-class TestTakeScreenshotAndAnalyze:
-    """Test screenshot capture with VQA analysis."""
+class TestTakeScreenshot:
+    """Test take_screenshot function that wraps capture with browser access."""
 
     @pytest.mark.asyncio
-    async def test_screenshot_and_analyze_success(self):
-        """Test successful screenshot and VQA analysis."""
+    async def test_take_screenshot_success(self):
+        """Test successful screenshot capture."""
         mock_manager = AsyncMock()
         mock_page = AsyncMock()
         mock_page.screenshot = AsyncMock(return_value=b"screenshot_data")
         mock_manager.get_current_page.return_value = mock_page
-
-        # Mock VQA analysis result
-        mock_vqa_result = MagicMock()
-        mock_vqa_result.answer = "Yes, the button is visible"
-        mock_vqa_result.confidence = 0.95
-        mock_vqa_result.observations = "Button is in the center of the page"
 
         with patch(
             "code_puppy.tools.browser.browser_screenshot.get_camoufox_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.browser_screenshot.run_vqa_analysis",
-                    return_value=mock_vqa_result,
-                ):
-                    result = await take_screenshot_and_analyze(
-                        question="Is the button visible?",
-                        full_page=False,
-                    )
+                result = await take_screenshot(full_page=False)
 
-                    assert result["success"] is True
-                    assert "answer" in result
-                    assert result["answer"] == "Yes, the button is visible"
-                    assert "confidence" in result
-                    assert result["confidence"] == 0.95
-                    assert "screenshot_info" in result
+                assert result["success"] is True
+                assert "base64_image" in result
+                assert result["media_type"] == "image/png"
 
     @pytest.mark.asyncio
-    async def test_screenshot_analyze_no_page(self):
-        """Test analysis when no page is available."""
+    async def test_take_screenshot_no_page(self):
+        """Test screenshot when no page is available."""
         mock_manager = AsyncMock()
         mock_manager.get_current_page.return_value = None
 
@@ -203,15 +168,31 @@ class TestTakeScreenshotAndAnalyze:
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
-                result = await take_screenshot_and_analyze(question="What do you see?")
+                with patch("code_puppy.tools.browser.browser_screenshot.emit_error"):
+                    result = await take_screenshot()
 
-                assert result["success"] is False
-                assert "No active browser page" in result["error"]
+                    assert result["success"] is False
+                    assert "No active browser page" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_screenshot_analyze_with_element_selector(self):
-        """Test analysis of specific element screenshot - skipped due to async mocking."""
-        pytest.skip("Element selectors require deep Playwright mocking")
+    async def test_take_screenshot_full_page(self):
+        """Test full page screenshot."""
+        mock_manager = AsyncMock()
+        mock_page = AsyncMock()
+        mock_page.screenshot = AsyncMock(return_value=b"full_page_data")
+        mock_manager.get_current_page.return_value = mock_page
+
+        with patch(
+            "code_puppy.tools.browser.browser_screenshot.get_camoufox_manager",
+            return_value=mock_manager,
+        ):
+            with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
+                result = await take_screenshot(full_page=True)
+
+                assert result["success"] is True
+                # Verify full_page was passed to screenshot
+                call_kwargs = mock_page.screenshot.call_args[1]
+                assert call_kwargs.get("full_page") is True
 
 
 class TestScreenshotIntegration:
@@ -243,6 +224,22 @@ class TestScreenshotIntegration:
                 assert "timestamp" in result2
 
     @pytest.mark.asyncio
-    async def test_screenshot_compare_full_vs_element(self):
-        """Test comparing full page screenshot with element screenshot - skipped."""
-        pytest.skip("Element selection requires deep Playwright async mocking")
+    async def test_screenshot_returns_multimodal_format(self):
+        """Test that screenshot returns data in multimodal-ready format."""
+        mock_manager = AsyncMock()
+        mock_page = AsyncMock()
+        mock_page.screenshot = AsyncMock(return_value=b"png_bytes")
+        mock_manager.get_current_page.return_value = mock_page
+
+        with patch(
+            "code_puppy.tools.browser.browser_screenshot.get_camoufox_manager",
+            return_value=mock_manager,
+        ):
+            with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
+                result = await take_screenshot()
+
+                assert result["success"] is True
+                # These fields are what multimodal models need
+                assert "base64_image" in result
+                assert "media_type" in result
+                assert result["media_type"] == "image/png"

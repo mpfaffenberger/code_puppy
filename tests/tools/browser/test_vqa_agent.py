@@ -84,10 +84,17 @@ class TestVQAInstructions:
 
         # Should mention visual analysis
         assert "visual" in instructions.lower() or "image" in instructions.lower()
-        # Should mention structure
+        # Should mention structure/schema
         assert "schema" in instructions.lower() or "structured" in instructions.lower()
         # Should mention confidence
         assert "confidence" in instructions.lower()
+
+
+def _create_mock_agent_result(vqa_result: VisualAnalysisResult) -> MagicMock:
+    """Create a mock agent run result."""
+    mock_result = MagicMock()
+    mock_result.output = vqa_result
+    return mock_result
 
 
 class TestRunVQAAnalysis:
@@ -98,12 +105,12 @@ class TestRunVQAAnalysis:
         question = "What do you see in this image?"
         image_bytes = b"fake_image_data"
 
-        mock_result = MagicMock()
-        mock_result.output = VisualAnalysisResult(
+        expected_result = VisualAnalysisResult(
             answer="I see a button",
             confidence=0.85,
             observations="The button is blue and centered",
         )
+        mock_result = _create_mock_agent_result(expected_result)
 
         with patch(
             "code_puppy.tools.browser.vqa_agent._get_vqa_agent"
@@ -124,12 +131,12 @@ class TestRunVQAAnalysis:
         question = "What is this?"
         image_bytes = b"fake_jpeg_data"
 
-        mock_result = MagicMock()
-        mock_result.output = VisualAnalysisResult(
+        expected_result = VisualAnalysisResult(
             answer="It's a test image",
             confidence=0.9,
             observations="JPEG format image",
         )
+        mock_result = _create_mock_agent_result(expected_result)
 
         with patch(
             "code_puppy.tools.browser.vqa_agent._get_vqa_agent"
@@ -161,38 +168,36 @@ class TestRunVQAAnalysis:
             "The button says Submit",
         ]
 
-        with patch(
-            "code_puppy.tools.browser.vqa_agent._get_vqa_agent"
-        ) as mock_get_agent:
-            mock_agent = MagicMock()
+        for question, answer in zip(questions, answers):
+            expected_result = VisualAnalysisResult(
+                answer=answer,
+                confidence=0.9,
+                observations="Clear in image",
+            )
+            mock_result = _create_mock_agent_result(expected_result)
 
-            for answer in answers:
-                mock_result = MagicMock()
-                mock_result.output = VisualAnalysisResult(
-                    answer=answer,
-                    confidence=0.9,
-                    observations="Clear in image",
-                )
+            with patch(
+                "code_puppy.tools.browser.vqa_agent._get_vqa_agent"
+            ) as mock_get_agent:
+                mock_agent = MagicMock()
                 mock_agent.run_sync.return_value = mock_result
+                mock_get_agent.return_value = mock_agent
 
-            mock_get_agent.return_value = mock_agent
-
-            for question, expected_answer in zip(questions, answers):
                 result = run_vqa_analysis(question, image_bytes)
-                # In real execution, each would get a different answer
                 assert isinstance(result, VisualAnalysisResult)
+                assert result.answer == answer
 
     def test_run_vqa_analysis_low_confidence(self):
         """Test VQA analysis with low confidence result."""
         question = "Can you identify the obscured text?"
         image_bytes = b"blurry_image_data"
 
-        mock_result = MagicMock()
-        mock_result.output = VisualAnalysisResult(
+        expected_result = VisualAnalysisResult(
             answer="Cannot determine clearly",
             confidence=0.2,
             observations="Image is too blurry to identify text",
         )
+        mock_result = _create_mock_agent_result(expected_result)
 
         with patch(
             "code_puppy.tools.browser.vqa_agent._get_vqa_agent"
@@ -215,12 +220,12 @@ class TestVQAIntegration:
         question = "Is there a Submit button on the page?"
         image_bytes = b"screenshot_with_button"
 
-        mock_result = MagicMock()
-        mock_result.output = VisualAnalysisResult(
+        expected_result = VisualAnalysisResult(
             answer="Yes",
             confidence=0.98,
             observations="Blue Submit button visible in top right corner",
         )
+        mock_result = _create_mock_agent_result(expected_result)
 
         with patch(
             "code_puppy.tools.browser.vqa_agent._get_vqa_agent"
@@ -240,12 +245,12 @@ class TestVQAIntegration:
         question = "What is the main heading on this page?"
         image_bytes = b"screenshot_with_heading"
 
-        mock_result = MagicMock()
-        mock_result.output = VisualAnalysisResult(
+        expected_result = VisualAnalysisResult(
             answer="Welcome to Our Store",
             confidence=0.92,
             observations="Black text, large font, center-aligned at top of page",
         )
+        mock_result = _create_mock_agent_result(expected_result)
 
         with patch(
             "code_puppy.tools.browser.vqa_agent._get_vqa_agent"
@@ -264,12 +269,12 @@ class TestVQAIntegration:
         question = "Describe the layout of the navigation menu"
         image_bytes = b"screenshot_with_nav"
 
-        mock_result = MagicMock()
-        mock_result.output = VisualAnalysisResult(
+        expected_result = VisualAnalysisResult(
             answer="Horizontal navigation bar at the top with menu items",
             confidence=0.88,
             observations="Dark background, white text, items: Home, About, Services, Contact",
         )
+        mock_result = _create_mock_agent_result(expected_result)
 
         with patch(
             "code_puppy.tools.browser.vqa_agent._get_vqa_agent"

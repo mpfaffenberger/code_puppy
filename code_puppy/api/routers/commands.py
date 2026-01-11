@@ -7,10 +7,18 @@ This router provides REST endpoints for:
 - Autocomplete suggestions for partial commands
 """
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+# Thread pool for blocking command execution
+_executor = ThreadPoolExecutor(max_workers=4)
+
+# Timeout for command execution (seconds)
+COMMAND_TIMEOUT = 30.0
 
 router = APIRouter()
 
@@ -126,7 +134,8 @@ async def execute_command(request: CommandExecuteRequest) -> CommandExecuteRespo
     """Execute a slash command.
 
     Takes a command string (with or without leading /) and executes it
-    using the command handler.
+    using the command handler. Runs in a thread pool to avoid blocking
+    the event loop, with a timeout to prevent hangs.
 
     Args:
         request: CommandExecuteRequest with the command to execute.
@@ -140,9 +149,19 @@ async def execute_command(request: CommandExecuteRequest) -> CommandExecuteRespo
     if not command.startswith("/"):
         command = "/" + command
 
+    loop = asyncio.get_running_loop()
+
     try:
-        result = handle_command(command)
+        # Run blocking command in thread pool with timeout
+        result = await asyncio.wait_for(
+            loop.run_in_executor(_executor, handle_command, command),
+            timeout=COMMAND_TIMEOUT,
+        )
         return CommandExecuteResponse(success=True, result=result)
+    except asyncio.TimeoutError:
+        return CommandExecuteResponse(
+            success=False, error=f"Command timed out after {COMMAND_TIMEOUT}s"
+        )
     except Exception as e:
         return CommandExecuteResponse(success=False, error=str(e))
 

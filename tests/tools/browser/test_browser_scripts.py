@@ -46,12 +46,18 @@ class BrowserScriptsBaseTest:
 
     @pytest.fixture
     def mock_locator(self):
-        """Mock a Playwright locator with common methods."""
+        """Mock a Playwright locator with common methods.
+
+        Note: The locator.first property returns self to handle the .first
+        chaining pattern used in the browser tools for strict mode handling.
+        """
         locator = AsyncMock()
         locator.wait_for = AsyncMock()
         locator.scroll_into_view_if_needed = AsyncMock()
         locator.is_visible = AsyncMock(return_value=True)
         locator.evaluate = AsyncMock()
+        # Support .first chaining for strict mode handling
+        locator.first = locator
         return locator
 
     @pytest.fixture
@@ -79,7 +85,8 @@ class TestExecuteJavaScript(BrowserScriptsBaseTest):
             assert result["script"] == script
             assert result["result"] == {"success": True, "data": "result"}
 
-            page.evaluate.assert_called_once_with(script, timeout=5000)
+            # Note: page.evaluate() does NOT accept timeout param in Playwright
+            page.evaluate.assert_called_once_with(script)
 
     @pytest.mark.asyncio
     async def test_execute_javascript_void_result(self, mock_browser_manager):

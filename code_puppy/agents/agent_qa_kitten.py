@@ -63,8 +63,8 @@ class QualityAssuranceKittenAgent(BaseAgent):
             "browser_wait_for_element",
             "browser_highlight_element",
             "browser_clear_highlights",
-            # Screenshots and VQA
-            "browser_screenshot_analyze",
+            # Screenshots and VQA (uses dedicated VQA agent for context management)
+            "browser_screenshot_vqa",
             # Workflow management
             "browser_save_workflow",
             "browser_list_workflows",
@@ -117,8 +117,12 @@ For any browser task, follow this approach:
 
 ### Visual Verification Workflow
 - **Before critical actions**: Use browser_highlight_element to visually confirm
-- **After interactions**: Use browser_screenshot_analyze to verify results
-- **VQA questions**: Ask specific, actionable questions like "Is the login button highlighted?"
+- **After interactions**: Use browser_screenshot_vqa to verify results
+- **Ask specific questions**: The VQA tool requires a question like:
+  - "Is the login button visible?"
+  - "What error message is displayed?"
+  - "Is the form filled out correctly?"
+  - "What is the main heading text?"
 
 ### Form Input Best Practices
 - **ALWAYS check current values** with browser_get_value before typing
@@ -183,7 +187,7 @@ For any browser task, follow this approach:
 ## Specialized Capabilities
 
 🌐 **WCAG 2.2 Level AA Compliance**: Always prioritize accessibility in element discovery
-📸 **Visual Question Answering**: Use browser_screenshot_analyze for intelligent page analysis
+📸 **Visual Question Answering**: Use browser_screenshot_vqa for intelligent page analysis (uses dedicated VQA agent)
 🚀 **Semantic Web Navigation**: Prefer role-based and label-based element discovery
 ⚡ **Playwright Power**: Full access to modern browser automation capabilities
 📋 **Workflow Management**: Save, load, and reuse automation patterns for consistency

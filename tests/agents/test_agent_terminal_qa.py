@@ -90,20 +90,20 @@ class TestTerminalQAToolsTerminal:
         tools = agent.get_available_tools()
         assert "terminal_close" in tools
 
-    def test_tools_include_run_terminal_command(self, agent):
-        """Test agent has run_terminal_command tool."""
+    def test_tools_include_terminal_run_command(self, agent):
+        """Test agent has terminal_run_command tool."""
         tools = agent.get_available_tools()
-        assert "run_terminal_command" in tools
+        assert "terminal_run_command" in tools
 
-    def test_tools_include_send_terminal_keys(self, agent):
-        """Test agent has send_terminal_keys tool."""
+    def test_tools_include_terminal_send_keys(self, agent):
+        """Test agent has terminal_send_keys tool."""
         tools = agent.get_available_tools()
-        assert "send_terminal_keys" in tools
+        assert "terminal_send_keys" in tools
 
-    def test_tools_include_wait_for_terminal_output(self, agent):
-        """Test agent has wait_for_terminal_output tool."""
+    def test_tools_include_terminal_wait_output(self, agent):
+        """Test agent has terminal_wait_output tool."""
         tools = agent.get_available_tools()
-        assert "wait_for_terminal_output" in tools
+        assert "terminal_wait_output" in tools
 
     def test_tools_include_terminal_screenshot_analyze(self, agent):
         """Test agent has terminal_screenshot_analyze tool."""
@@ -127,12 +127,17 @@ class TestTerminalQAToolsTerminal:
 
 
 # =============================================================================
-# Browser Interaction Tools Tests
+# Browser Tools Excluded Tests
 # =============================================================================
 
 
-class TestTerminalQAToolsBrowserInteraction:
-    """Test Terminal QA Agent has browser interaction tools for terminal elements."""
+class TestTerminalQAToolsBrowserExcluded:
+    """Test Terminal QA Agent does NOT have browser tools.
+
+    Browser tools use CamoufoxManager (a separate web browser) and are
+    designed for HTML DOM interaction - NOT for terminal/TUI apps!
+    Terminal apps use keyboard input via terminal_send_keys.
+    """
 
     @pytest.fixture
     def agent(self):
@@ -141,75 +146,75 @@ class TestTerminalQAToolsBrowserInteraction:
 
         return TerminalQAAgent()
 
-    def test_tools_include_browser_click(self, agent):
-        """Test agent has browser_click tool."""
+    def test_tools_exclude_browser_click(self, agent):
+        """Test agent does NOT have browser_click tool."""
         tools = agent.get_available_tools()
-        assert "browser_click" in tools
+        assert "browser_click" not in tools
 
-    def test_tools_include_browser_double_click(self, agent):
-        """Test agent has browser_double_click tool."""
+    def test_tools_exclude_browser_double_click(self, agent):
+        """Test agent does NOT have browser_double_click tool."""
         tools = agent.get_available_tools()
-        assert "browser_double_click" in tools
+        assert "browser_double_click" not in tools
 
-    def test_tools_include_browser_hover(self, agent):
-        """Test agent has browser_hover tool."""
+    def test_tools_exclude_browser_hover(self, agent):
+        """Test agent does NOT have browser_hover tool."""
         tools = agent.get_available_tools()
-        assert "browser_hover" in tools
+        assert "browser_hover" not in tools
 
-    def test_tools_include_browser_find_by_role(self, agent):
-        """Test agent has browser_find_by_role tool."""
+    def test_tools_exclude_browser_find_by_role(self, agent):
+        """Test agent does NOT have browser_find_by_role tool."""
         tools = agent.get_available_tools()
-        assert "browser_find_by_role" in tools
+        assert "browser_find_by_role" not in tools
 
-    def test_tools_include_browser_find_by_text(self, agent):
-        """Test agent has browser_find_by_text tool."""
+    def test_tools_exclude_browser_find_by_text(self, agent):
+        """Test agent does NOT have browser_find_by_text tool."""
         tools = agent.get_available_tools()
-        assert "browser_find_by_text" in tools
+        assert "browser_find_by_text" not in tools
 
-    def test_tools_include_browser_find_by_label(self, agent):
-        """Test agent has browser_find_by_label tool."""
+    def test_tools_exclude_browser_find_by_label(self, agent):
+        """Test agent does NOT have browser_find_by_label tool."""
         tools = agent.get_available_tools()
-        assert "browser_find_by_label" in tools
+        assert "browser_find_by_label" not in tools
 
-    def test_tools_include_browser_find_buttons(self, agent):
-        """Test agent has browser_find_buttons tool."""
+    def test_tools_exclude_browser_find_buttons(self, agent):
+        """Test agent does NOT have browser_find_buttons tool."""
         tools = agent.get_available_tools()
-        assert "browser_find_buttons" in tools
+        assert "browser_find_buttons" not in tools
 
-    def test_tools_include_browser_find_links(self, agent):
-        """Test agent has browser_find_links tool."""
+    def test_tools_exclude_browser_find_links(self, agent):
+        """Test agent does NOT have browser_find_links tool."""
         tools = agent.get_available_tools()
-        assert "browser_find_links" in tools
+        assert "browser_find_links" not in tools
 
-    def test_tools_include_browser_xpath_query(self, agent):
-        """Test agent has browser_xpath_query tool."""
+    def test_tools_exclude_browser_xpath_query(self, agent):
+        """Test agent does NOT have browser_xpath_query tool."""
         tools = agent.get_available_tools()
-        assert "browser_xpath_query" in tools
+        assert "browser_xpath_query" not in tools
 
-    def test_tools_include_browser_execute_js(self, agent):
-        """Test agent has browser_execute_js tool."""
+    def test_tools_exclude_browser_execute_js(self, agent):
+        """Test agent does NOT have browser_execute_js tool."""
         tools = agent.get_available_tools()
-        assert "browser_execute_js" in tools
+        assert "browser_execute_js" not in tools
 
-    def test_tools_include_browser_scroll(self, agent):
-        """Test agent has browser_scroll tool."""
+    def test_tools_exclude_browser_scroll(self, agent):
+        """Test agent does NOT have browser_scroll tool."""
         tools = agent.get_available_tools()
-        assert "browser_scroll" in tools
+        assert "browser_scroll" not in tools
 
-    def test_tools_include_browser_wait_for_element(self, agent):
-        """Test agent has browser_wait_for_element tool."""
+    def test_tools_exclude_browser_wait_for_element(self, agent):
+        """Test agent does NOT have browser_wait_for_element tool."""
         tools = agent.get_available_tools()
-        assert "browser_wait_for_element" in tools
+        assert "browser_wait_for_element" not in tools
 
-    def test_tools_include_browser_highlight_element(self, agent):
-        """Test agent has browser_highlight_element tool."""
+    def test_tools_exclude_browser_highlight_element(self, agent):
+        """Test agent does NOT have browser_highlight_element tool."""
         tools = agent.get_available_tools()
-        assert "browser_highlight_element" in tools
+        assert "browser_highlight_element" not in tools
 
-    def test_tools_include_browser_clear_highlights(self, agent):
-        """Test agent has browser_clear_highlights tool."""
+    def test_tools_exclude_browser_clear_highlights(self, agent):
+        """Test agent does NOT have browser_clear_highlights tool."""
         tools = agent.get_available_tools()
-        assert "browser_clear_highlights" in tools
+        assert "browser_clear_highlights" not in tools
 
 
 # =============================================================================
@@ -395,9 +400,9 @@ class TestTerminalQAIntegration:
             "terminal_check_server",
             "terminal_open",
             "terminal_close",
-            "run_terminal_command",
-            "send_terminal_keys",
-            "wait_for_terminal_output",
+            "terminal_run_command",
+            "terminal_send_keys",
+            "terminal_wait_output",
             "terminal_screenshot_analyze",
             "terminal_read_output",
             "terminal_compare_mockup",
@@ -407,10 +412,12 @@ class TestTerminalQAIntegration:
         for tool in terminal_tools:
             assert tool in tools, f"Missing terminal tool: {tool}"
 
-    def test_all_browser_interaction_tools_present(self, agent):
-        """Test all required browser interaction tools are present."""
+    def test_no_browser_interaction_tools(self, agent):
+        """Test browser interaction tools are NOT present (they use wrong browser)."""
         tools = agent.get_available_tools()
 
+        # Browser tools use CamoufoxManager, not ChromiumTerminalManager
+        # They're for web pages, not terminal/TUI apps!
         browser_tools = [
             "browser_click",
             "browser_double_click",
@@ -429,7 +436,7 @@ class TestTerminalQAIntegration:
         ]
 
         for tool in browser_tools:
-            assert tool in tools, f"Missing browser tool: {tool}"
+            assert tool not in tools, f"Browser tool should NOT be present: {tool}"
 
     def test_no_dangerous_navigation_tools(self, agent):
         """Test that dangerous navigation tools are excluded."""
@@ -448,6 +455,6 @@ class TestTerminalQAIntegration:
     def test_tool_count_reasonable(self, agent):
         """Test agent has a reasonable number of tools."""
         tools = agent.get_available_tools()
-        # Should have roughly 25-30 tools
-        assert len(tools) >= 20, "Too few tools"
-        assert len(tools) <= 40, "Too many tools"
+        # Should have ~11 terminal-focused tools (no browser tools)
+        assert len(tools) >= 10, "Too few tools"
+        assert len(tools) <= 20, "Too many tools"

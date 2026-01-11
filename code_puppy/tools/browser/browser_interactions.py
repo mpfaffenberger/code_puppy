@@ -30,8 +30,9 @@ async def click_element(
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        # Find element
-        element = page.locator(selector)
+        # Find element - use .first to handle cases where selector matches multiple elements
+        # This avoids Playwright's strict mode violation errors
+        element = page.locator(selector).first
 
         # Wait for element to be visible and enabled
         await element.wait_for(state="visible", timeout=timeout)
@@ -75,7 +76,7 @@ async def double_click_element(
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
         await element.dblclick(force=force, timeout=timeout)
 
@@ -105,7 +106,7 @@ async def hover_element(
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
         await element.hover(force=force, timeout=timeout)
 
@@ -136,7 +137,7 @@ async def set_element_text(
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
 
         if clear_first:
@@ -175,7 +176,7 @@ async def get_element_text(
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
 
         text = await element.text_content()
@@ -203,7 +204,7 @@ async def get_element_value(
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
 
         value = await element.input_value()
@@ -237,7 +238,7 @@ async def select_option(
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
 
         if value is not None:
@@ -284,7 +285,7 @@ async def check_element(
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
         await element.check(timeout=timeout)
 
@@ -313,7 +314,7 @@ async def uncheck_element(
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
         await element.uncheck(timeout=timeout)
 
