@@ -87,6 +87,57 @@ class TestDBOSConfiguration:
         assert result is False, f"Failed for value: {falsy_value}"
 
 
+class TestSubagentVerbose:
+    """Test subagent_verbose configuration."""
+
+    def test_get_subagent_verbose_returns_false_by_default(self, mock_config_paths):
+        """Test that subagent verbose is disabled by default."""
+        mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
+
+        config = configparser.ConfigParser()
+        config["puppy"] = {}
+        os.makedirs(mock_cfg_dir, exist_ok=True)
+        with open(mock_cfg_file, "w") as f:
+            config.write(f)
+
+        result = cp_config.get_subagent_verbose()
+        assert result is False
+
+    @pytest.mark.parametrize(
+        "truthy_value", ["1", "true", "True", "yes", "on", "YES", "ON"]
+    )
+    def test_get_subagent_verbose_returns_true_for_truthy_values(
+        self, mock_config_paths, truthy_value
+    ):
+        """Test that various truthy values enable verbose output."""
+        mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
+
+        os.makedirs(mock_cfg_dir, exist_ok=True)
+        config = configparser.ConfigParser()
+        config["puppy"] = {"subagent_verbose": truthy_value}
+        with open(mock_cfg_file, "w") as f:
+            config.write(f)
+
+        result = cp_config.get_subagent_verbose()
+        assert result is True, f"Failed for value: {truthy_value}"
+
+    @pytest.mark.parametrize("falsy_value", ["0", "false", "no", "off", ""])
+    def test_get_subagent_verbose_returns_false_for_falsy_values(
+        self, mock_config_paths, falsy_value
+    ):
+        """Test that falsy values disable verbose output."""
+        mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
+
+        os.makedirs(mock_cfg_dir, exist_ok=True)
+        config = configparser.ConfigParser()
+        config["puppy"] = {"subagent_verbose": falsy_value}
+        with open(mock_cfg_file, "w") as f:
+            config.write(f)
+
+        result = cp_config.get_subagent_verbose()
+        assert result is False, f"Failed for value: {falsy_value}"
+
+
 class TestAllowRecursion:
     """Test allow_recursion configuration."""
 

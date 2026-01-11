@@ -274,7 +274,7 @@ class TestStatusDisplay:
             mock_task = MagicMock()
             mock_create_task.return_value = mock_task
 
-            with patch("code_puppy.status_display.emit_info") as mock_emit_info:
+            with patch("code_puppy.messaging.emit_info") as mock_emit_info:
                 status_display.start()
                 status_display.stop()
 
@@ -323,7 +323,7 @@ class TestStatusDisplay:
         status_display.token_count = 50
         status_display.start_time = 1.0
 
-        with patch("code_puppy.status_display.emit_info") as mock_emit_info:
+        with patch("code_puppy.messaging.emit_info") as mock_emit_info:
             status_display.stop()
 
             # Should have called emit_info
@@ -335,7 +335,7 @@ class TestStatusDisplay:
         with (
             patch("code_puppy.status_display.asyncio.create_task"),
             patch("code_puppy.status_display.Live") as mock_live,
-            patch("code_puppy.status_display.emit_info") as mock_emit_info,
+            patch("code_puppy.messaging.emit_info") as mock_emit_info,
         ):
             mock_live_instance = MagicMock()
             mock_live.return_value.__enter__.return_value = mock_live_instance
