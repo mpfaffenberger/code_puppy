@@ -646,3 +646,194 @@ class TestEventStreamHandler:
         # Both parts should be processed without error
         # Banners should be printed for both thinking and text
         assert console.print.call_count >= 2
+
+
+class TestSubAgentSuppression:
+    """Test that sub-agent output is properly suppressed."""
+
+    @pytest.fixture
+    def mock_ctx(self):
+        """Create a mock RunContext."""
+        return MagicMock(spec=RunContext)
+
+    @pytest.mark.asyncio
+    async def test_subagent_suppresses_output_when_verbose_false(
+        self, mock_ctx, monkeypatch
+    ):
+        """Sub-agent with verbose=False suppresses output."""
+        from code_puppy.tools.subagent_context import subagent_context
+
+        # Mock verbose to be False (default)
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_subagent_verbose",
+            lambda: False,
+        )
+
+        # Create a mock event stream with thinking and text parts
+        thinking_part = ThinkingPart(content="I am thinking...")
+        text_part = TextPart(content="Here is my response")
+
+        async def mock_events():
+            yield PartStartEvent(index=0, part=thinking_part)
+            yield PartDeltaEvent(
+                index=0, delta=ThinkingPartDelta(content_delta=" more")
+            )
+            yield PartEndEvent(index=0, part=thinking_part, next_part_kind="text")
+            yield PartStartEvent(index=1, part=text_part)
+            yield PartDeltaEvent(index=1, delta=TextPartDelta(content_delta=" text"))
+            yield PartEndEvent(index=1, part=text_part, next_part_kind=None)
+
+        console = MagicMock(spec=Console)
+        set_streaming_console(console)
+
+        # Run in sub-agent context
+        with subagent_context("test-agent"):
+            # The handler should suppress output
+            await event_stream_handler(mock_ctx, mock_events())
+
+        # Verify NO output was printed (console.print should NOT be called)
+        console.print.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_subagent_shows_output_when_verbose_true(self, mock_ctx, monkeypatch):
+        """Sub-agent with verbose=True does NOT suppress output."""
+        from code_puppy.tools.subagent_context import subagent_context
+
+        # Mock verbose to be True (verbose mode enabled)
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_subagent_verbose",
+            lambda: True,
+        )
+
+        # Create a mock event stream
+        text_part = TextPart(content="Response text")
+
+        async def mock_events():
+            yield PartStartEvent(index=0, part=text_part)
+            yield PartEndEvent(index=0, part=text_part, next_part_kind=None)
+
+        console = MagicMock(spec=Console, width=80)
+        console.file = StringIO()
+        set_streaming_console(console)
+
+        # Run in sub-agent context BUT with verbose=True
+        with subagent_context("test-agent"):
+            with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+                with patch(
+                    "code_puppy.agents.event_stream_handler.resume_all_spinners"
+                ):
+                    with patch(
+                        "code_puppy.agents.event_stream_handler.get_banner_color",
+                        return_value="blue",
+                    ):
+                        with patch("termflow.Parser") as mock_parser_cls:
+                            mock_parser = MagicMock()
+                            mock_parser.finalize.return_value = []
+                            mock_parser_cls.return_value = mock_parser
+
+                            with patch("termflow.Renderer"):
+                                await event_stream_handler(mock_ctx, mock_events())
+
+        # Verify output WAS printed (verbose=True overrides suppression)
+        console.print.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_main_agent_never_suppresses_output(self, mock_ctx, monkeypatch):
+        """Main agent output is never suppressed regardless of verbose setting."""
+        # Mock verbose to be False
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_subagent_verbose",
+            lambda: False,
+        )
+
+        # Create a mock event stream
+        text_part = TextPart(content="Main agent response")
+
+        async def mock_events():
+            yield PartStartEvent(index=0, part=text_part)
+            yield PartEndEvent(index=0, part=text_part, next_part_kind=None)
+
+        console = MagicMock(spec=Console, width=80)
+        console.file = StringIO()
+        set_streaming_console(console)
+
+        # NOT in subagent_context - main agent
+        with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+            with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
+                with patch(
+                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    return_value="blue",
+                ):
+                    with patch("termflow.Parser") as mock_parser_cls:
+                        mock_parser = MagicMock()
+                        mock_parser.finalize.return_value = []
+                        mock_parser_cls.return_value = mock_parser
+
+                        with patch("termflow.Renderer"):
+                            await event_stream_handler(mock_ctx, mock_events())
+
+        # Verify output WAS printed (main agent never suppresses)
+        console.print.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_suppression_works_with_tool_calls(self, mock_ctx, monkeypatch):
+        """Test that suppression also works for tool call parts."""
+        from code_puppy.tools.subagent_context import subagent_context
+
+        # Mock verbose to be False
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_subagent_verbose",
+            lambda: False,
+        )
+
+        # Create event stream with tool call
+        tool_part = ToolCallPart(tool_call_id="tool_1", tool_name="my_tool", args={})
+
+        async def mock_events():
+            yield PartStartEvent(index=0, part=tool_part)
+            yield PartDeltaEvent(
+                index=0, delta=ToolCallPartDelta(tool_name_delta="my_tool")
+            )
+            yield PartEndEvent(index=0, part=tool_part, next_part_kind=None)
+
+        console = MagicMock(spec=Console)
+        set_streaming_console(console)
+
+        # Run in sub-agent context
+        with subagent_context("test-agent"):
+            await event_stream_handler(mock_ctx, mock_events())
+
+        # Verify no tool call output was printed
+        console.print.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_suppression_consumes_all_events(self, mock_ctx, monkeypatch):
+        """Test that suppression still consumes all events from the stream."""
+        from code_puppy.tools.subagent_context import subagent_context
+
+        # Mock verbose to be False
+        monkeypatch.setattr(
+            "code_puppy.agents.event_stream_handler.get_subagent_verbose",
+            lambda: False,
+        )
+
+        # Track whether all events were consumed
+        events_consumed = 0
+
+        async def mock_events():
+            nonlocal events_consumed
+            for i in range(10):
+                events_consumed += 1
+                yield PartStartEvent(index=i, part=TextPart(content=f"text {i}"))
+
+        console = MagicMock(spec=Console)
+        set_streaming_console(console)
+
+        # Run in sub-agent context
+        with subagent_context("test-agent"):
+            await event_stream_handler(mock_ctx, mock_events())
+
+        # Verify all 10 events were consumed
+        assert events_consumed == 10
+        # But nothing was printed
+        console.print.assert_not_called()

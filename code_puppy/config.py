@@ -75,6 +75,19 @@ def get_use_dbos() -> bool:
     return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def get_subagent_verbose() -> bool:
+    """Return True if sub-agent verbose output is enabled (default False).
+
+    When False (default), sub-agents produce quiet, sparse output suitable
+    for parallel execution. When True, sub-agents produce full verbose output
+    like the main agent (useful for debugging).
+    """
+    cfg_val = get_value("subagent_verbose")
+    if cfg_val is None:
+        return False
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
 
@@ -208,6 +221,9 @@ def get_config_keys():
         "diff_context_lines",
         "default_agent",
         "temperature",
+        "frontend_emitter_enabled",
+        "frontend_emitter_max_recent_events",
+        "frontend_emitter_queue_size",
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
@@ -235,6 +251,22 @@ def set_config_value(key: str, value: str):
     config[DEFAULT_SECTION][key] = value
     with open(CONFIG_FILE, "w") as f:
         config.write(f)
+
+
+# Alias for API compatibility
+def set_value(key: str, value: str) -> None:
+    """Set a config value. Alias for set_config_value."""
+    set_config_value(key, value)
+
+
+def reset_value(key: str) -> None:
+    """Remove a key from the config file, resetting it to default."""
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    if DEFAULT_SECTION in config and key in config[DEFAULT_SECTION]:
+        del config[DEFAULT_SECTION][key]
+        with open(CONFIG_FILE, "w") as f:
+            config.write(f)
 
 
 # --- MODEL STICKY EXTENSION STARTS HERE ---
@@ -1584,3 +1616,34 @@ def set_default_agent(agent_name: str) -> None:
         agent_name: The name of the agent to set as default.
     """
     set_config_value("default_agent", agent_name)
+
+
+# --- FRONTEND EMITTER CONFIGURATION ---
+def get_frontend_emitter_enabled() -> bool:
+    """Check if frontend emitter is enabled."""
+    val = get_value("frontend_emitter_enabled")
+    if val is None:
+        return True  # Enabled by default
+    return str(val).lower() in ("1", "true", "yes", "on")
+
+
+def get_frontend_emitter_max_recent_events() -> int:
+    """Get max number of recent events to buffer."""
+    val = get_value("frontend_emitter_max_recent_events")
+    if val is None:
+        return 100
+    try:
+        return int(val)
+    except ValueError:
+        return 100
+
+
+def get_frontend_emitter_queue_size() -> int:
+    """Get max subscriber queue size."""
+    val = get_value("frontend_emitter_queue_size")
+    if val is None:
+        return 100
+    try:
+        return int(val)
+    except ValueError:
+        return 100

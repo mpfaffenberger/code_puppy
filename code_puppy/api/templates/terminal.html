@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐶 Code Puppy Terminal</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- xterm.js CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    
+    <!-- xterm.js -->
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+    
+    <style>
+        /* Custom terminal styling */
+        .xterm {
+            padding: 8px;
+        }
+        
+        .xterm-viewport::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .xterm-viewport::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+        
+        .xterm-viewport::-webkit-scrollbar-thumb {
+            background: #4a4a4a;
+            border-radius: 4px;
+        }
+        
+        .xterm-viewport::-webkit-scrollbar-thumb:hover {
+            background: #5a5a5a;
+        }
+        
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-connected {
+            background-color: #22c55e;
+            box-shadow: 0 0 8px #22c55e;
+        }
+        
+        .status-disconnected {
+            background-color: #ef4444;
+            box-shadow: 0 0 8px #ef4444;
+            animation: none;
+        }
+        
+        .status-connecting {
+            background-color: #f59e0b;
+            box-shadow: 0 0 8px #f59e0b;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="h-full bg-gray-900 text-white overflow-hidden">
+    <div class="h-full flex flex-col">
+        <!-- Header -->
+        <header class="bg-gray-800 border-b border-gray-700 px-4 py-2 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <span class="text-2xl">🐶</span>
+                <h1 class="text-lg font-semibold text-gray-100">Code Puppy Terminal</h1>
+            </div>
+            
+            <div class="flex items-center space-x-4">
+                <!-- Connection Status -->
+                <div class="flex items-center space-x-2">
+                    <div id="status-indicator" class="status-indicator status-disconnected"></div>
+                    <span id="status-text" class="text-sm text-gray-400">Disconnected</span>
+                </div>
+                
+                <!-- Session ID -->
+                <div class="text-sm text-gray-500">
+                    Session: <span id="session-id" class="font-mono text-gray-400">-</span>
+                </div>
+                
+                <!-- Controls -->
+                <div class="flex items-center space-x-2">
+                    <button id="btn-reconnect" 
+                            class="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled>
+                        Reconnect
+                    </button>
+                    <button id="btn-clear" 
+                            class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-700 rounded transition-colors">
+                        Clear
+                    </button>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Terminal Container -->
+        <main class="flex-1 bg-black p-2">
+            <div id="terminal" class="h-full w-full"></div>
+        </main>
+        
+        <!-- Footer -->
+        <footer class="bg-gray-800 border-t border-gray-700 px-4 py-1 flex items-center justify-between text-xs text-gray-500">
+            <div>
+                <span id="terminal-size">80x24</span>
+            </div>
+            <div class="flex items-center space-x-4">
+                <span>Ctrl+C to interrupt</span>
+                <span>•</span>
+                <span>Ctrl+D to exit</span>
+            </div>
+        </footer>
+    </div>
+    
+    <script>
+        // Terminal configuration
+        const CONFIG = {
+            wsUrl: `ws://${window.location.host}/ws/terminal`,
+            sessionId: new URLSearchParams(window.location.search).get('session') || 'default',
+            theme: {
+                background: '#1e1e1e',
+                foreground: '#d4d4d4',
+                cursor: '#aeafad',
+                cursorAccent: '#1e1e1e',
+                selection: 'rgba(255, 255, 255, 0.3)',
+                black: '#000000',
+                red: '#cd3131',
+                green: '#0dbc79',
+                yellow: '#e5e510',
+                blue: '#2472c8',
+                magenta: '#bc3fbc',
+                cyan: '#11a8cd',
+                white: '#e5e5e5',
+                brightBlack: '#666666',
+                brightRed: '#f14c4c',
+                brightGreen: '#23d18b',
+                brightYellow: '#f5f543',
+                brightBlue: '#3b8eea',
+                brightMagenta: '#d670d6',
+                brightCyan: '#29b8db',
+                brightWhite: '#ffffff'
+            }
+        };
+        
+        // State
+        let terminal = null;
+        let fitAddon = null;
+        let socket = null;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 5;
+        
+        // DOM Elements
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+        const sessionIdEl = document.getElementById('session-id');
+        const terminalSizeEl = document.getElementById('terminal-size');
+        const btnReconnect = document.getElementById('btn-reconnect');
+        const btnClear = document.getElementById('btn-clear');
+        
+        // Initialize terminal
+        function initTerminal() {
+            terminal = new Terminal({
+                theme: CONFIG.theme,
+                fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", Menlo, Monaco, monospace',
+                fontSize: 14,
+                lineHeight: 1.2,
+                cursorBlink: true,
+                cursorStyle: 'block',
+                scrollback: 10000,
+                convertEol: true,
+                allowTransparency: true
+            });
+            
+            // Load addons
+            fitAddon = new FitAddon.FitAddon();
+            const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+            
+            terminal.loadAddon(fitAddon);
+            terminal.loadAddon(webLinksAddon);
+            
+            // Open terminal in container
+            const container = document.getElementById('terminal');
+            terminal.open(container);
+            
+            // Fit to container
+            fitAddon.fit();
+            updateTerminalSize();
+            
+            // Handle user input
+            terminal.onData(data => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'input',
+                        data: data
+                    }));
+                }
+            });
+            
+            // Handle resize
+            terminal.onResize(({ cols, rows }) => {
+                updateTerminalSize();
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'resize',
+                        cols: cols,
+                        rows: rows
+                    }));
+                }
+            });
+            
+            // Welcome message
+            terminal.writeln('\x1b[1;36m🐶 Welcome to Code Puppy Terminal!\x1b[0m');
+            terminal.writeln('\x1b[90mConnecting to server...\x1b[0m');
+            terminal.writeln('');
+            
+            // Connect to WebSocket
+            connect();
+            
+            // Update session ID display
+            sessionIdEl.textContent = CONFIG.sessionId;
+        }
+        
+        // Update terminal size display
+        function updateTerminalSize() {
+            if (terminal) {
+                terminalSizeEl.textContent = `${terminal.cols}x${terminal.rows}`;
+            }
+        }
+        
+        // Update connection status
+        function setStatus(status) {
+            statusIndicator.className = 'status-indicator';
+            
+            switch (status) {
+                case 'connected':
+                    statusIndicator.classList.add('status-connected');
+                    statusText.textContent = 'Connected';
+                    btnReconnect.disabled = true;
+                    break;
+                case 'disconnected':
+                    statusIndicator.classList.add('status-disconnected');
+                    statusText.textContent = 'Disconnected';
+                    btnReconnect.disabled = false;
+                    break;
+                case 'connecting':
+                    statusIndicator.classList.add('status-connecting');
+                    statusText.textContent = 'Connecting...';
+                    btnReconnect.disabled = true;
+                    break;
+            }
+        }
+        
+        // Connect to WebSocket
+        function connect() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                return;
+            }
+            
+            setStatus('connecting');
+            
+            const url = CONFIG.wsUrl;
+            socket = new WebSocket(url);
+            
+            socket.onopen = () => {
+                setStatus('connected');
+                reconnectAttempts = 0;
+                terminal.writeln('\x1b[1;32m✓ Connected to server\x1b[0m');
+                terminal.writeln('');
+                
+                // Send initial resize
+                socket.send(JSON.stringify({
+                    type: 'resize',
+                    cols: terminal.cols,
+                    rows: terminal.rows
+                }));
+            };
+            
+            socket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    
+                    switch (message.type) {
+                        case 'output':
+                            terminal.write(new TextDecoder().decode(Uint8Array.from(atob(message.data), c => c.charCodeAt(0))));
+                            break;
+                        case 'error':
+                            terminal.writeln(`\x1b[1;31mError: ${message.message}\x1b[0m`);
+                            break;
+                        case 'session_started':
+                            terminal.writeln(`\x1b[90mSession started: ${message.session_id}\x1b[0m`);
+                            break;
+                    }
+                } catch (e) {
+                    // Plain text output
+                    terminal.write(event.data);
+                }
+            };
+            
+            socket.onclose = (event) => {
+                setStatus('disconnected');
+                
+                if (!event.wasClean) {
+                    terminal.writeln('');
+                    terminal.writeln('\x1b[1;31m✗ Connection lost\x1b[0m');
+                    
+                    // Auto-reconnect with backoff
+                    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                        reconnectAttempts++;
+                        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+                        terminal.writeln(`\x1b[90mReconnecting in ${delay/1000}s (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...\x1b[0m`);
+                        setTimeout(connect, delay);
+                    } else {
+                        terminal.writeln('\x1b[90mMax reconnection attempts reached. Click "Reconnect" to try again.\x1b[0m');
+                    }
+                }
+            };
+            
+            socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        // Event listeners
+        btnReconnect.addEventListener('click', () => {
+            reconnectAttempts = 0;
+            connect();
+        });
+        
+        btnClear.addEventListener('click', () => {
+            terminal.clear();
+        });
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            if (fitAddon) {
+                fitAddon.fit();
+            }
+        });
+        
+        // Handle page unload
+        window.addEventListener('beforeunload', () => {
+            if (socket) {
+                socket.close();
+            }
+        });
+        
+        // Initialize on DOM ready
+        document.addEventListener('DOMContentLoaded', initTerminal);
+    </script>
+</body>
+</html>

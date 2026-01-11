@@ -1,5 +1,6 @@
 # agent_tools.py
 import asyncio
+from functools import partial
 import hashlib
 import itertools
 import json
@@ -28,12 +29,13 @@ from code_puppy.messaging import (
     SubAgentResponseMessage,
     emit_error,
     emit_info,
+    emit_success,
     get_message_bus,
     get_session_context,
     set_session_context,
 )
-from code_puppy.model_utils import is_claude_code_model
 from code_puppy.tools.common import generate_group_id
+from code_puppy.tools.subagent_context import subagent_context
 
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
@@ -413,6 +415,9 @@ def register_invoke_agent(agent):
             session_id = f"{session_id}-{hash_suffix}"
         # else: continuing existing session, use session_id as-is
 
+        # Lazy imports to avoid circular dependency
+        from code_puppy.agents.subagent_stream_handler import subagent_stream_handler
+
         # Emit structured invocation message via MessageBus
         bus = get_message_bus()
         bus.emit(
@@ -486,9 +491,6 @@ def register_invoke_agent(agent):
                 manager = get_mcp_manager()
                 mcp_servers = manager.get_servers_for_agent()
 
-            # Import display function for non-streaming output
-            from code_puppy.tools.display import display_non_streamed_result
-
             if get_use_dbos():
                 from pydantic_ai.durable_exec.dbos import DBOSAgent
 
@@ -543,24 +545,36 @@ def register_invoke_agent(agent):
             # Pass the message_history from the session to continue the conversation
             workflow_id = None  # Track for potential cancellation
 
-            # For claude-code models, we MUST use streaming to properly handle
-            # tool name unprefixing in the HTTP transport layer
-            stream_handler = None
-            if is_claude_code_model(model_name):
-                from code_puppy.agents.event_stream_handler import event_stream_handler
+            # Always use subagent_stream_handler to silence output and update console manager
+            # This ensures all sub-agent output goes through the aggregated dashboard
+            stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
-                stream_handler = event_stream_handler
+            # Wrap the agent run in subagent context for tracking
+            with subagent_context(agent_name):
+                if get_use_dbos():
+                    # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
+                    workflow_id = _generate_dbos_workflow_id(group_id)
 
-            if get_use_dbos():
-                # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
-                workflow_id = _generate_dbos_workflow_id(group_id)
+                    # Add MCP servers to the DBOS agent's toolsets
+                    # (temp_agent is discarded after this invocation, so no need to restore)
+                    if subagent_mcp_servers:
+                        temp_agent._toolsets = (
+                            temp_agent._toolsets + subagent_mcp_servers
+                        )
 
-                # Add MCP servers to the DBOS agent's toolsets
-                # (temp_agent is discarded after this invocation, so no need to restore)
-                if subagent_mcp_servers:
-                    temp_agent._toolsets = temp_agent._toolsets + subagent_mcp_servers
-
-                with SetWorkflowID(workflow_id):
+                    with SetWorkflowID(workflow_id):
+                        task = asyncio.create_task(
+                            temp_agent.run(
+                                prompt,
+                                message_history=message_history,
+                                usage_limits=UsageLimits(
+                                    request_limit=get_message_limit()
+                                ),
+                                event_stream_handler=stream_handler,
+                            )
+                        )
+                        _active_subagent_tasks.add(task)
+                else:
                     task = asyncio.create_task(
                         temp_agent.run(
                             prompt,
@@ -570,37 +584,17 @@ def register_invoke_agent(agent):
                         )
                     )
                     _active_subagent_tasks.add(task)
-            else:
-                task = asyncio.create_task(
-                    temp_agent.run(
-                        prompt,
-                        message_history=message_history,
-                        usage_limits=UsageLimits(request_limit=get_message_limit()),
-                        event_stream_handler=stream_handler,
-                    )
-                )
-                _active_subagent_tasks.add(task)
 
-            try:
-                result = await task
-            finally:
-                _active_subagent_tasks.discard(task)
-                if task.cancelled():
-                    if get_use_dbos() and workflow_id:
-                        DBOS.cancel_workflow(workflow_id)
+                try:
+                    result = await task
+                finally:
+                    _active_subagent_tasks.discard(task)
+                    if task.cancelled():
+                        if get_use_dbos() and workflow_id:
+                            DBOS.cancel_workflow(workflow_id)
 
             # Extract the response from the result
             response = result.output
-
-            # Display the response using non-streaming output
-            from code_puppy.agents.event_stream_handler import get_streaming_console
-
-            display_non_streamed_result(
-                content=response,
-                console=get_streaming_console(),
-                banner_text=f"\u2713 {agent_name.upper()} RESPONSE",
-                banner_name="subagent_response",
-            )
 
             # Update the session history with the new messages from this interaction
             # The result contains all_messages which includes the full conversation
@@ -624,13 +618,23 @@ def register_invoke_agent(agent):
                 )
             )
 
+            # Emit clean completion summary
+            emit_success(
+                f"✓ {agent_name} completed successfully", message_group=group_id
+            )
+
             return AgentInvokeOutput(
                 response=response, agent_name=agent_name, session_id=session_id
             )
 
-        except Exception:
+        except Exception as e:
+            # Emit clean failure summary
+            emit_error(f"✗ {agent_name} failed: {str(e)}", message_group=group_id)
+
+            # Full traceback for debugging
             error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
             emit_error(error_msg, message_group=group_id)
+
             return AgentInvokeOutput(
                 response=None,
                 agent_name=agent_name,

@@ -12,6 +12,7 @@ from .agent_manager import (
     refresh_agents,
     set_current_agent,
 )
+from .subagent_stream_handler import subagent_stream_handler
 
 __all__ = [
     "get_available_agents",
@@ -20,4 +21,5 @@ __all__ = [
     "load_agent",
     "get_agent_descriptions",
     "refresh_agents",
+    "subagent_stream_handler",
 ]

@@ -773,6 +773,91 @@ def handle_mcp_command(command: str) -> bool:
 
 
 @register_command(
+    name="api",
+    description="Manage the Code Puppy API server",
+    usage="/api [start|stop|status]",
+    category="core",
+    detailed_help="Start, stop, or check status of the local FastAPI server for GUI integration.",
+)
+def handle_api_command(command: str) -> bool:
+    """Handle the /api command."""
+    import os
+    import signal
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from code_puppy.config import STATE_DIR
+    from code_puppy.messaging import emit_error, emit_info, emit_success
+
+    parts = command.split()
+    subcommand = parts[1] if len(parts) > 1 else "status"
+
+    pid_file = Path(STATE_DIR) / "api_server.pid"
+
+    if subcommand == "start":
+        # Check if already running
+        if pid_file.exists():
+            try:
+                pid = int(pid_file.read_text().strip())
+                os.kill(pid, 0)  # Check if process exists
+                emit_info(f"API server already running (PID {pid})")
+                return True
+            except (OSError, ValueError):
+                pid_file.unlink(missing_ok=True)  # Stale PID file
+
+        # Start the server in background
+        emit_info("Starting API server on http://127.0.0.1:8765 ...")
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "code_puppy.api.main"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(str(proc.pid))
+        emit_success(f"API server started (PID {proc.pid})")
+        emit_info("Docs available at http://127.0.0.1:8765/docs")
+        return True
+
+    elif subcommand == "stop":
+        if not pid_file.exists():
+            emit_info("API server is not running")
+            return True
+
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, signal.SIGTERM)
+            pid_file.unlink()
+            emit_success(f"API server stopped (PID {pid})")
+        except (OSError, ValueError) as e:
+            pid_file.unlink(missing_ok=True)
+            emit_error(f"Error stopping server: {e}")
+        return True
+
+    elif subcommand == "status":
+        if not pid_file.exists():
+            emit_info("API server is not running")
+            return True
+
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, 0)  # Check if process exists
+            emit_success(f"API server is running (PID {pid})")
+            emit_info("URL: http://127.0.0.1:8765")
+            emit_info("Docs: http://127.0.0.1:8765/docs")
+        except (OSError, ValueError):
+            pid_file.unlink(missing_ok=True)
+            emit_info("API server is not running (stale PID file removed)")
+        return True
+
+    else:
+        emit_error(f"Unknown subcommand: {subcommand}")
+        emit_info("Usage: /api [start|stop|status]")
+        return True
+
+
+@register_command(
     name="generate-pr-description",
     description="Generate comprehensive PR description",
     usage="/generate-pr-description [@dir]",
