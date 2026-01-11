@@ -85,7 +85,7 @@ class TestClickElement(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -109,7 +109,7 @@ class TestClickElement(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -137,7 +137,7 @@ class TestClickElement(BrowserInteractionsBaseTest):
         manager.get_current_page.return_value = None
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             result = await click_element("#button")
@@ -152,7 +152,7 @@ class TestClickElement(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -187,7 +187,7 @@ class TestDoubleClickElement(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -209,7 +209,7 @@ class TestDoubleClickElement(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -241,7 +241,7 @@ class TestHoverElement(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -261,7 +261,7 @@ class TestHoverElement(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -294,7 +294,7 @@ class TestSetElementText(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -315,7 +315,7 @@ class TestSetElementText(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -333,7 +333,7 @@ class TestSetElementText(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -354,7 +354,7 @@ class TestSetElementText(BrowserInteractionsBaseTest):
         long_text = "a" * 1000  # Long text
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -387,7 +387,7 @@ class TestGetElementText(BrowserInteractionsBaseTest):
         locator.text_content.return_value = "Element content"
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -409,7 +409,7 @@ class TestGetElementText(BrowserInteractionsBaseTest):
         locator.text_content.return_value = ""
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -427,7 +427,7 @@ class TestGetElementText(BrowserInteractionsBaseTest):
         locator.text_content.return_value = None
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -459,7 +459,7 @@ class TestGetElementValue(BrowserInteractionsBaseTest):
         locator.input_value.return_value = "current value"
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -480,7 +480,7 @@ class TestGetElementValue(BrowserInteractionsBaseTest):
         locator.input_value.return_value = ""
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -499,7 +499,7 @@ class TestGetElementValue(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -531,7 +531,7 @@ class TestSelectOption(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -553,7 +553,7 @@ class TestSelectOption(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -574,7 +574,7 @@ class TestSelectOption(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -595,7 +595,7 @@ class TestSelectOption(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -616,7 +616,7 @@ class TestSelectOption(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -648,7 +648,7 @@ class TestCheckElement(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -670,7 +670,7 @@ class TestCheckElement(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -688,7 +688,7 @@ class TestCheckElement(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -720,7 +720,7 @@ class TestUncheckElement(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -740,7 +740,7 @@ class TestUncheckElement(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -772,7 +772,7 @@ class TestIntegrationScenarios(BrowserInteractionsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -826,7 +826,7 @@ class TestIntegrationScenarios(BrowserInteractionsBaseTest):
         ]
 
         with patch(
-            "tools.browser.browser_interactions.get_camoufox_manager",
+            "tools.browser.browser_interactions.get_session_browser_manager",
             return_value=manager,
         ):
             # Select by value then select by label

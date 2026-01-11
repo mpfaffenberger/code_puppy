@@ -35,7 +35,7 @@ async def test_find_by_role_basic():
     mock_page.get_by_role = MagicMock(return_value=mock_locator)
 
     with patch(
-        "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+        "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
         return_value=mock_manager,
     ):
         with patch(
@@ -55,7 +55,7 @@ async def test_find_by_role_no_page():
     mock_manager.get_current_page.return_value = None
 
     with patch(
-        "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+        "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
         return_value=mock_manager,
     ):
         with patch("code_puppy.tools.browser.browser_locators.emit_info"):
@@ -72,7 +72,7 @@ async def test_find_by_role_exception():
     mock_manager.get_current_page.side_effect = Exception("Browser error")
 
     with patch(
-        "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+        "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
         return_value=mock_manager,
     ):
         with patch("code_puppy.tools.browser.browser_locators.emit_info"):

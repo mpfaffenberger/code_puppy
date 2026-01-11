@@ -92,10 +92,10 @@ class TestVQAInstructions:
         assert "confidence" in DEFAULT_VQA_INSTRUCTIONS.lower()
 
 
-def _create_mock_agent_result(vqa_result: VisualAnalysisResult) -> MagicMock:
-    """Create a mock agent run result."""
+def _create_mock_agent_result(output: str) -> MagicMock:
+    """Create a mock agent run result with string output."""
     mock_result = MagicMock()
-    mock_result.output = vqa_result
+    mock_result.output = output
     return mock_result
 
 
@@ -108,12 +108,8 @@ class TestRunVQAAnalysis:
         question = "What do you see in this image?"
         image_bytes = b"fake_image_data"
 
-        expected_result = VisualAnalysisResult(
-            answer="I see a button",
-            confidence=0.85,
-            observations="The button is blue and centered",
-        )
-        mock_result = _create_mock_agent_result(expected_result)
+        expected_output = "I see a button"
+        mock_result = _create_mock_agent_result(expected_output)
 
         with (
             patch("code_puppy.model_factory.ModelFactory") as mock_mf,
@@ -140,10 +136,9 @@ class TestRunVQAAnalysis:
 
             result = await run_vqa_analysis(question, image_bytes)
 
-            assert isinstance(result, VisualAnalysisResult)
-            assert result.answer == "I see a button"
-            assert result.confidence == 0.85
-            assert result.observations == "The button is blue and centered"
+            # Result is now a string
+            assert isinstance(result, str)
+            assert result == "I see a button"
 
     @pytest.mark.asyncio
     async def test_run_vqa_analysis_with_custom_media_type(self):
@@ -151,12 +146,8 @@ class TestRunVQAAnalysis:
         question = "What is this?"
         image_bytes = b"fake_jpeg_data"
 
-        expected_result = VisualAnalysisResult(
-            answer="It's a test image",
-            confidence=0.9,
-            observations="JPEG format image",
-        )
-        mock_result = _create_mock_agent_result(expected_result)
+        expected_output = "It's a test image"
+        mock_result = _create_mock_agent_result(expected_output)
 
         with (
             patch("code_puppy.model_factory.ModelFactory") as mock_mf,
@@ -185,21 +176,16 @@ class TestRunVQAAnalysis:
                 media_type="image/jpeg",
             )
 
-            assert result.answer == "It's a test image"
+            assert result == "It's a test image"
 
     @pytest.mark.asyncio
     async def test_run_vqa_analysis_with_custom_system_prompt(self):
-        """Test VQA analysis with custom system prompt."""
+        """Test VQA analysis - system prompt is now fixed (no custom parameter)."""
         question = "What color is the sky?"
         image_bytes = b"fake_image_data"
-        custom_prompt = "You are a color expert. Only report colors."
 
-        expected_result = VisualAnalysisResult(
-            answer="Blue",
-            confidence=0.99,
-            observations="Clear blue sky",
-        )
-        mock_result = _create_mock_agent_result(expected_result)
+        expected_output = "Blue"
+        mock_result = _create_mock_agent_result(expected_output)
 
         with (
             patch("code_puppy.model_factory.ModelFactory") as mock_mf,
@@ -222,31 +208,22 @@ class TestRunVQAAnalysis:
             mock_agent.run = AsyncMock(return_value=mock_result)
             mock_agent_class.return_value = mock_agent
 
+            # No custom system_prompt parameter anymore
             result = await run_vqa_analysis(
                 question,
                 image_bytes,
-                system_prompt=custom_prompt,
             )
 
-            assert result.answer == "Blue"
-            # Verify custom prompt was used (passed to prepare_prompt_for_model)
-            mock_prep.assert_called_once()
-            call_args = mock_prep.call_args
-            # The second positional arg should be our custom prompt (not the default)
-            assert custom_prompt in call_args[0][1]
+            assert result == "Blue"
 
     @pytest.mark.asyncio
     async def test_run_vqa_analysis_low_confidence(self):
-        """Test VQA analysis with low confidence result."""
+        """Test VQA analysis with uncertain result."""
         question = "Can you identify the obscured text?"
         image_bytes = b"blurry_image_data"
 
-        expected_result = VisualAnalysisResult(
-            answer="Cannot determine clearly",
-            confidence=0.2,
-            observations="Image is too blurry to identify text",
-        )
-        mock_result = _create_mock_agent_result(expected_result)
+        expected_output = "Cannot determine clearly - image is too blurry"
+        mock_result = _create_mock_agent_result(expected_output)
 
         with (
             patch("code_puppy.model_factory.ModelFactory") as mock_mf,
@@ -271,8 +248,7 @@ class TestRunVQAAnalysis:
 
             result = await run_vqa_analysis(question, image_bytes)
 
-            assert result.confidence == 0.2
-            assert "Cannot determine clearly" in result.answer
+            assert "Cannot determine clearly" in result
 
     @pytest.mark.asyncio
     async def test_run_vqa_analysis_with_prompt_additions(self):
@@ -280,12 +256,8 @@ class TestRunVQAAnalysis:
         question = "What do you see?"
         image_bytes = b"fake_image_data"
 
-        expected_result = VisualAnalysisResult(
-            answer="A dog",
-            confidence=0.9,
-            observations="Golden retriever",
-        )
-        mock_result = _create_mock_agent_result(expected_result)
+        expected_output = "A dog"
+        mock_result = _create_mock_agent_result(expected_output)
 
         with (
             patch("code_puppy.model_factory.ModelFactory") as mock_mf,
@@ -311,7 +283,7 @@ class TestRunVQAAnalysis:
 
             result = await run_vqa_analysis(question, image_bytes)
 
-            assert result.answer == "A dog"
+            assert result == "A dog"
             # Verify prepare_prompt was called with instructions that include additions
             call_args = mock_prep.call_args[0]
             assert "Extra instruction 1" in call_args[1]
@@ -327,12 +299,10 @@ class TestVQAIntegration:
         question = "Is there a Submit button on the page?"
         image_bytes = b"screenshot_with_button"
 
-        expected_result = VisualAnalysisResult(
-            answer="Yes",
-            confidence=0.98,
-            observations="Blue Submit button visible in top right corner",
+        expected_output = (
+            "Yes, there is a blue Submit button visible in top right corner"
         )
-        mock_result = _create_mock_agent_result(expected_result)
+        mock_result = _create_mock_agent_result(expected_output)
 
         with (
             patch("code_puppy.model_factory.ModelFactory") as mock_mf,
@@ -357,9 +327,8 @@ class TestVQAIntegration:
 
             result = await run_vqa_analysis(question, image_bytes)
 
-            assert result.answer == "Yes"
-            assert result.confidence > 0.9
-            assert "button" in result.observations.lower()
+            assert "Yes" in result
+            assert "button" in result.lower()
 
     @pytest.mark.asyncio
     async def test_vqa_for_text_recognition(self):
@@ -367,12 +336,8 @@ class TestVQAIntegration:
         question = "What is the main heading on this page?"
         image_bytes = b"screenshot_with_heading"
 
-        expected_result = VisualAnalysisResult(
-            answer="Welcome to Our Store",
-            confidence=0.92,
-            observations="Black text, large font, center-aligned at top of page",
-        )
-        mock_result = _create_mock_agent_result(expected_result)
+        expected_output = "Welcome to Our Store"
+        mock_result = _create_mock_agent_result(expected_output)
 
         with (
             patch("code_puppy.model_factory.ModelFactory") as mock_mf,
@@ -397,8 +362,7 @@ class TestVQAIntegration:
 
             result = await run_vqa_analysis(question, image_bytes)
 
-            assert "Welcome" in result.answer
-            assert result.confidence > 0.9
+            assert "Welcome" in result
 
     @pytest.mark.asyncio
     async def test_vqa_for_layout_analysis(self):
@@ -406,12 +370,8 @@ class TestVQAIntegration:
         question = "Describe the layout of the navigation menu"
         image_bytes = b"screenshot_with_nav"
 
-        expected_result = VisualAnalysisResult(
-            answer="Horizontal navigation bar at the top with menu items",
-            confidence=0.88,
-            observations="Dark background, white text, items: Home, About, Services, Contact",
-        )
-        mock_result = _create_mock_agent_result(expected_result)
+        expected_output = "Horizontal navigation bar at the top with menu items: Home, About, Services, Contact"
+        mock_result = _create_mock_agent_result(expected_output)
 
         with (
             patch("code_puppy.model_factory.ModelFactory") as mock_mf,
@@ -436,8 +396,8 @@ class TestVQAIntegration:
 
             result = await run_vqa_analysis(question, image_bytes)
 
-            assert "navigation" in result.answer.lower()
-            assert "horizontal" in result.answer.lower()
+            assert "navigation" in result.lower()
+            assert "horizontal" in result.lower()
 
     @pytest.mark.asyncio
     async def test_vqa_with_dbos_enabled(self):
@@ -445,12 +405,8 @@ class TestVQAIntegration:
         question = "What do you see?"
         image_bytes = b"fake_image_data"
 
-        expected_result = VisualAnalysisResult(
-            answer="A cat",
-            confidence=0.95,
-            observations="Orange tabby",
-        )
-        mock_result = _create_mock_agent_result(expected_result)
+        expected_output = "A cat"
+        mock_result = _create_mock_agent_result(expected_output)
 
         with (
             patch("code_puppy.model_factory.ModelFactory") as mock_mf,
@@ -480,6 +436,6 @@ class TestVQAIntegration:
 
             result = await run_vqa_analysis(question, image_bytes)
 
-            assert result.answer == "A cat"
+            assert result == "A cat"
             # Verify DBOSAgent was called to wrap the agent
             mock_dbos_agent.assert_called_once_with(mock_agent, name="vqa-agent")

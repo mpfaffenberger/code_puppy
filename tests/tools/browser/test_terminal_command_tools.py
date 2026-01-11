@@ -58,45 +58,49 @@ class TestRunTerminalCommand:
 
     @pytest.mark.asyncio
     async def test_run_command_success_with_screenshot(self):
-        """Test successful command execution with screenshot analysis."""
+        """Test successful command execution with screenshot."""
         mock_page = AsyncMock()
         mock_page.keyboard = AsyncMock()
-        mock_page.screenshot = AsyncMock(return_value=b"fake_screenshot_data")
 
         mock_manager = AsyncMock()
         mock_manager.get_current_page.return_value = mock_page
 
-        mock_vqa_result = MagicMock()
-        mock_vqa_result.answer = "Command executed successfully"
-        mock_vqa_result.confidence = 0.95
-        mock_vqa_result.observations = "Terminal shows output"
+        mock_screenshot_result = {
+            "success": True,
+            "base64_image": "fake_base64",
+            "screenshot_path": "/tmp/screenshot.png",
+        }
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
             with patch(
-                "code_puppy.tools.browser.terminal_command_tools.run_vqa_analysis",
-                return_value=mock_vqa_result,
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
             ):
-                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                with patch(
+                    "code_puppy.tools.browser.terminal_command_tools.terminal_screenshot",
+                    return_value=mock_screenshot_result,
+                ):
                     with patch(
-                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                        "code_puppy.tools.browser.terminal_command_tools.emit_info"
                     ):
-                        result = await run_terminal_command("ls -la")
+                        with patch(
+                            "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                        ):
+                            result = await run_terminal_command(
+                                "ls -la", capture_screenshot=True
+                            )
 
-                        assert result["success"] is True
-                        assert result["command"] == "ls -la"
-                        assert "screenshot_path" in result
-                        assert result["analysis"]["success"] is True
-                        assert (
-                            result["analysis"]["answer"]
-                            == "Command executed successfully"
-                        )
+                            assert result["success"] is True
+                            assert result["command"] == "ls -la"
+                            assert "base64_image" in result
+                            assert result["base64_image"] == "fake_base64"
 
-                        # Verify keyboard interactions
-                        mock_page.keyboard.type.assert_called_once_with("ls -la")
-                        mock_page.keyboard.press.assert_called_once_with("Enter")
+                            # Verify keyboard interactions
+                            mock_page.keyboard.type.assert_called_once_with("ls -la")
+                            mock_page.keyboard.press.assert_called_once_with("Enter")
 
     @pytest.mark.asyncio
     async def test_run_command_success_without_screenshot(self):
@@ -108,22 +112,25 @@ class TestRunTerminalCommand:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                ):
-                    result = await run_terminal_command(
-                        "echo hello",
-                        auto_screenshot=False,
-                    )
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                    ):
+                        result = await run_terminal_command(
+                            "echo hello",
+                            capture_screenshot=False,
+                        )
 
-                    assert result["success"] is True
-                    assert result["command"] == "echo hello"
-                    assert "screenshot_path" not in result
-                    assert "analysis" not in result
+                        assert result["success"] is True
+                        assert result["command"] == "echo hello"
+                        assert "base64_image" not in result
 
     @pytest.mark.asyncio
     async def test_run_command_no_active_page(self):
@@ -132,7 +139,7 @@ class TestRunTerminalCommand:
         mock_manager.get_current_page.return_value = None
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
@@ -156,23 +163,29 @@ class TestRunTerminalCommand:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                ):
-                    with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-                        result = await run_terminal_command(
-                            "long_running_command",
-                            wait_for_prompt=False,
-                            auto_screenshot=False,
-                        )
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                    ):
+                        with patch(
+                            "asyncio.sleep", new_callable=AsyncMock
+                        ) as mock_sleep:
+                            result = await run_terminal_command(
+                                "long_running_command",
+                                wait_for_prompt=False,
+                                capture_screenshot=False,
+                            )
 
-                        assert result["success"] is True
-                        # Should not have called sleep when not waiting
-                        mock_sleep.assert_not_called()
+                            assert result["success"] is True
+                            # Should not have called sleep when not waiting
+                            mock_sleep.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_run_command_keyboard_error(self):
@@ -185,46 +198,62 @@ class TestRunTerminalCommand:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_error"
-                ):
-                    result = await run_terminal_command("test")
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_error"
+                    ):
+                        result = await run_terminal_command("test")
 
-                    assert result["success"] is False
-                    assert "Failed to run terminal command" in result["error"]
+                        assert result["success"] is False
+                        assert "Failed to run terminal command" in result["error"]
 
     @pytest.mark.asyncio
     async def test_run_command_screenshot_failure_continues(self):
         """Test that command still succeeds even if screenshot fails."""
         mock_page = AsyncMock()
         mock_page.keyboard = AsyncMock()
-        mock_page.screenshot.side_effect = RuntimeError("Screenshot failed")
 
         mock_manager = AsyncMock()
         mock_manager.get_current_page.return_value = mock_page
 
+        mock_screenshot_result = {
+            "success": False,
+            "error": "Screenshot failed",
+        }
+
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
                 with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                    "code_puppy.tools.browser.terminal_command_tools.terminal_screenshot",
+                    return_value=mock_screenshot_result,
                 ):
                     with patch(
-                        "code_puppy.tools.browser.terminal_command_tools.emit_error"
+                        "code_puppy.tools.browser.terminal_command_tools.emit_info"
                     ):
-                        result = await run_terminal_command("ls")
+                        with patch(
+                            "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                        ):
+                            result = await run_terminal_command(
+                                "ls", capture_screenshot=True
+                            )
 
-                        # Command itself succeeds
-                        assert result["success"] is True
-                        assert result["command"] == "ls"
-                        # But screenshot error is recorded
-                        assert "screenshot_error" in result
+                            # Command itself succeeds, just no screenshot
+                            assert result["success"] is True
+                            assert result["command"] == "ls"
+                            assert "base64_image" not in result
 
     @pytest.mark.asyncio
     async def test_run_command_custom_timeout(self):
@@ -236,20 +265,24 @@ class TestRunTerminalCommand:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                ):
-                    result = await run_terminal_command(
-                        "sleep 5",
-                        timeout=60.0,
-                        auto_screenshot=False,
-                    )
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                    ):
+                        result = await run_terminal_command(
+                            "sleep 5",
+                            timeout=60.0,
+                            capture_screenshot=False,
+                        )
 
-                    assert result["success"] is True
+                        assert result["success"] is True
 
 
 class TestSendTerminalKeys:
@@ -265,21 +298,25 @@ class TestSendTerminalKeys:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                ):
-                    result = await send_terminal_keys("Tab")
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                    ):
+                        result = await send_terminal_keys("Tab")
 
-                    assert result["success"] is True
-                    assert result["keys_sent"] == "Tab"
-                    assert result["modifiers"] == []
+                        assert result["success"] is True
+                        assert result["keys_sent"] == "Tab"
+                        assert result["modifiers"] == []
 
-                    # Tab is a special key (multi-char), so press() should be used
-                    mock_page.keyboard.press.assert_called_once_with("Tab")
+                        # Tab is a special key (multi-char), so press() should be used
+                        mock_page.keyboard.press.assert_called_once_with("Tab")
 
     @pytest.mark.asyncio
     async def test_send_ctrl_c(self):
@@ -291,23 +328,27 @@ class TestSendTerminalKeys:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                ):
-                    result = await send_terminal_keys("c", modifiers=["Control"])
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                    ):
+                        result = await send_terminal_keys("c", modifiers=["Control"])
 
-                    assert result["success"] is True
-                    assert result["keys_sent"] == "c"
-                    assert result["modifiers"] == ["Control"]
+                        assert result["success"] is True
+                        assert result["keys_sent"] == "c"
+                        assert result["modifiers"] == ["Control"]
 
-                    # Verify modifier handling
-                    mock_page.keyboard.down.assert_called_once_with("Control")
-                    mock_page.keyboard.type.assert_called_once_with("c")
-                    mock_page.keyboard.up.assert_called_once_with("Control")
+                        # Verify modifier handling
+                        mock_page.keyboard.down.assert_called_once_with("Control")
+                        mock_page.keyboard.type.assert_called_once_with("c")
+                        mock_page.keyboard.up.assert_called_once_with("Control")
 
     @pytest.mark.asyncio
     async def test_send_arrow_keys(self):
@@ -319,17 +360,21 @@ class TestSendTerminalKeys:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                ):
-                    result = await send_terminal_keys("ArrowUp")
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                    ):
+                        result = await send_terminal_keys("ArrowUp")
 
-                    assert result["success"] is True
-                    mock_page.keyboard.press.assert_called_once_with("ArrowUp")
+                        assert result["success"] is True
+                        mock_page.keyboard.press.assert_called_once_with("ArrowUp")
 
     @pytest.mark.asyncio
     async def test_send_multiple_modifiers(self):
@@ -341,24 +386,28 @@ class TestSendTerminalKeys:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                ):
-                    result = await send_terminal_keys(
-                        "s",
-                        modifiers=["Control", "Shift"],
-                    )
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                    ):
+                        result = await send_terminal_keys(
+                            "s",
+                            modifiers=["Control", "Shift"],
+                        )
 
-                    assert result["success"] is True
-                    assert result["modifiers"] == ["Control", "Shift"]
+                        assert result["success"] is True
+                        assert result["modifiers"] == ["Control", "Shift"]
 
-                    # Both modifiers should be pressed
-                    down_calls = mock_page.keyboard.down.call_args_list
-                    assert len(down_calls) == 2
+                        # Both modifiers should be pressed
+                        down_calls = mock_page.keyboard.down.call_args_list
+                        assert len(down_calls) == 2
 
     @pytest.mark.asyncio
     async def test_send_keys_no_active_page(self):
@@ -367,7 +416,7 @@ class TestSendTerminalKeys:
         mock_manager.get_current_page.return_value = None
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
@@ -391,17 +440,21 @@ class TestSendTerminalKeys:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_error"
-                ):
-                    result = await send_terminal_keys("Enter")
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_error"
+                    ):
+                        result = await send_terminal_keys("Enter")
 
-                    assert result["success"] is False
-                    assert "Failed to send terminal keys" in result["error"]
+                        assert result["success"] is False
+                        assert "Failed to send terminal keys" in result["error"]
 
     @pytest.mark.asyncio
     async def test_send_keys_with_cmd_modifier(self):
@@ -413,18 +466,22 @@ class TestSendTerminalKeys:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                ):
-                    result = await send_terminal_keys("c", modifiers=["cmd"])
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                    ):
+                        result = await send_terminal_keys("c", modifiers=["cmd"])
 
-                    assert result["success"] is True
-                    # Verify Meta was used
-                    mock_page.keyboard.down.assert_called_once_with("Meta")
+                        assert result["success"] is True
+                        # Verify Meta was used
+                        mock_page.keyboard.down.assert_called_once_with("Meta")
 
     @pytest.mark.asyncio
     async def test_modifiers_released_on_error(self):
@@ -437,17 +494,21 @@ class TestSendTerminalKeys:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_error"
-                ):
-                    await send_terminal_keys("c", modifiers=["Control"])
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_error"
+                    ):
+                        await send_terminal_keys("c", modifiers=["Control"])
 
-                    # Even though it failed, modifier should be released
-                    mock_page.keyboard.up.assert_called_once_with("Control")
+                        # Even though it failed, modifier should be released
+                        mock_page.keyboard.up.assert_called_once_with("Control")
 
 
 class TestWaitForTerminalOutput:
@@ -456,117 +517,78 @@ class TestWaitForTerminalOutput:
     @pytest.mark.asyncio
     async def test_wait_for_any_output(self):
         """Test waiting for any terminal output."""
-        mock_page = AsyncMock()
-        mock_page.screenshot = AsyncMock(return_value=b"fake_screenshot")
-
-        mock_manager = AsyncMock()
-        mock_manager.get_current_page.return_value = mock_page
-
-        mock_vqa_result = MagicMock()
-        mock_vqa_result.answer = "Terminal shows $ prompt with some output"
-        mock_vqa_result.confidence = 0.9
-        mock_vqa_result.observations = "Clean terminal view"
+        mock_read_result = {
+            "success": True,
+            "output": "$ some output here\nmore output",
+            "line_count": 2,
+        }
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
-            return_value=mock_manager,
+            "code_puppy.tools.browser.terminal_command_tools.terminal_read_output",
+            return_value=mock_read_result,
         ):
-            with patch(
-                "code_puppy.tools.browser.terminal_command_tools.run_vqa_analysis",
-                return_value=mock_vqa_result,
-            ):
-                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                    with patch(
-                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                    ):
-                        result = await wait_for_terminal_output()
+            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                with patch(
+                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                ):
+                    result = await wait_for_terminal_output()
 
-                        assert result["success"] is True
-                        assert result["matched"] is True
-                        assert "screenshot_path" in result
-                        assert (
-                            result["output"]
-                            == "Terminal shows $ prompt with some output"
-                        )
+                    assert result["success"] is True
+                    assert result["matched"] is True  # Has output
+                    assert "$ some output here" in result["output"]
 
     @pytest.mark.asyncio
     async def test_wait_for_pattern_found(self):
         """Test waiting for specific pattern that is found."""
-        mock_page = AsyncMock()
-        mock_page.screenshot = AsyncMock(return_value=b"fake_screenshot")
-
-        mock_manager = AsyncMock()
-        mock_manager.get_current_page.return_value = mock_page
-
-        mock_vqa_result = MagicMock()
-        mock_vqa_result.answer = "Yes, I found 'success' in the terminal output"
-        mock_vqa_result.confidence = 0.95
-        mock_vqa_result.observations = "The word success appears in green text"
+        mock_read_result = {
+            "success": True,
+            "output": "Running tests...\nAll tests passed: SUCCESS\nDone.",
+            "line_count": 3,
+        }
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
-            return_value=mock_manager,
+            "code_puppy.tools.browser.terminal_command_tools.terminal_read_output",
+            return_value=mock_read_result,
         ):
-            with patch(
-                "code_puppy.tools.browser.terminal_command_tools.run_vqa_analysis",
-                return_value=mock_vqa_result,
-            ):
-                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                    with patch(
-                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                    ):
-                        result = await wait_for_terminal_output(pattern="success")
+            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                with patch(
+                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                ):
+                    result = await wait_for_terminal_output(pattern="SUCCESS")
 
-                        assert result["success"] is True
-                        assert result["matched"] is True
-                        assert (
-                            "success" in result["output"].lower()
-                            or "found" in result["output"].lower()
-                        )
+                    assert result["success"] is True
+                    assert result["matched"] is True
 
     @pytest.mark.asyncio
     async def test_wait_for_pattern_not_found(self):
         """Test waiting for specific pattern that is not found."""
-        mock_page = AsyncMock()
-        mock_page.screenshot = AsyncMock(return_value=b"fake_screenshot")
-
-        mock_manager = AsyncMock()
-        mock_manager.get_current_page.return_value = mock_page
-
-        mock_vqa_result = MagicMock()
-        # Answer should NOT contain the pattern word or trigger words
-        mock_vqa_result.answer = (
-            "No, I cannot see that text. The terminal shows only a blank prompt."
-        )
-        mock_vqa_result.confidence = 0.9
-        mock_vqa_result.observations = "Terminal shows normal output"
+        mock_read_result = {
+            "success": True,
+            "output": "Running tests...\nAll tests completed.\n",
+            "line_count": 2,
+        }
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
-            return_value=mock_manager,
+            "code_puppy.tools.browser.terminal_command_tools.terminal_read_output",
+            return_value=mock_read_result,
         ):
-            with patch(
-                "code_puppy.tools.browser.terminal_command_tools.run_vqa_analysis",
-                return_value=mock_vqa_result,
-            ):
-                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                    with patch(
-                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                    ):
-                        result = await wait_for_terminal_output(pattern="error")
+            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                result = await wait_for_terminal_output(pattern="ERROR")
 
-                        assert result["success"] is True
-                        assert result["matched"] is False
+                assert result["success"] is True
+                assert result["matched"] is False
 
     @pytest.mark.asyncio
     async def test_wait_no_active_page(self):
-        """Test error when no terminal page is available."""
-        mock_manager = AsyncMock()
-        mock_manager.get_current_page.return_value = None
+        """Test error when terminal read fails."""
+        mock_read_result = {
+            "success": False,
+            "error": "No active terminal page",
+        }
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
-            return_value=mock_manager,
+            "code_puppy.tools.browser.terminal_command_tools.terminal_read_output",
+            return_value=mock_read_result,
         ):
             with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
                 with patch(
@@ -581,98 +603,78 @@ class TestWaitForTerminalOutput:
     @pytest.mark.asyncio
     async def test_wait_screenshot_failure(self):
         """Test handling of screenshot failure."""
-        mock_page = AsyncMock()
-        mock_page.screenshot.side_effect = RuntimeError("Screenshot failed")
-
-        mock_manager = AsyncMock()
-        mock_manager.get_current_page.return_value = mock_page
+        mock_read_result = {
+            "success": True,
+            "output": "Some output",
+            "line_count": 1,
+        }
+        mock_screenshot_result = {
+            "success": False,
+            "error": "Screenshot failed",
+        }
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
-            return_value=mock_manager,
+            "code_puppy.tools.browser.terminal_command_tools.terminal_read_output",
+            return_value=mock_read_result,
+        ):
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools.terminal_screenshot",
+                return_value=mock_screenshot_result,
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    result = await wait_for_terminal_output(capture_screenshot=True)
+
+                    # Read succeeded, screenshot didn't add image
+                    assert result["success"] is True
+                    assert "base64_image" not in result
+
+    @pytest.mark.asyncio
+    async def test_wait_vqa_failure(self):
+        """Test handling of read output failure."""
+        with patch(
+            "code_puppy.tools.browser.terminal_command_tools.terminal_read_output",
+            side_effect=RuntimeError("Read failed"),
         ):
             with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
                 with patch(
                     "code_puppy.tools.browser.terminal_command_tools.emit_error"
                 ):
-                    result = await wait_for_terminal_output()
+                    result = await wait_for_terminal_output(pattern="test")
 
                     assert result["success"] is False
                     assert result["matched"] is False
-                    assert "Screenshot failed" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_wait_vqa_failure(self):
-        """Test handling of VQA analysis failure."""
-        mock_page = AsyncMock()
-        mock_page.screenshot = AsyncMock(return_value=b"fake_screenshot")
-
-        mock_manager = AsyncMock()
-        mock_manager.get_current_page.return_value = mock_page
-
-        with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
-            return_value=mock_manager,
-        ):
-            with patch(
-                "code_puppy.tools.browser.terminal_command_tools.run_vqa_analysis",
-                side_effect=RuntimeError("VQA failed"),
-            ):
-                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                    with patch(
-                        "code_puppy.tools.browser.terminal_command_tools.emit_error"
-                    ):
-                        with patch(
-                            "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                        ):
-                            result = await wait_for_terminal_output(pattern="test")
-
-                            assert result["success"] is True  # Screenshot succeeded
-                            assert result["matched"] is False
-                            assert "analysis_error" in result
+                    assert "Read failed" in result["error"]
 
     @pytest.mark.asyncio
     async def test_wait_pattern_detection_variants(self):
-        """Test various ways pattern matching is detected from VQA answers."""
+        """Test various pattern matching scenarios."""
         test_cases = [
-            ("Yes, I found the pattern", True),
-            ("The text matches the pattern", True),
-            ("The output contains 'success'", True),
-            ("No pattern was detected", False),
-            ("I cannot see that text", False),
+            ("Found the pattern in output", "pattern", True),
+            ("No matching text here", "pattern", False),
+            ("SUCCESS: all tests passed", "success", True),
+            ("Error occurred during build", "error", True),
         ]
 
-        for answer, expected_matched in test_cases:
-            mock_page = AsyncMock()
-            mock_page.screenshot = AsyncMock(return_value=b"fake")
-
-            mock_manager = AsyncMock()
-            mock_manager.get_current_page.return_value = mock_page
-
-            mock_vqa_result = MagicMock()
-            mock_vqa_result.answer = answer
-            mock_vqa_result.confidence = 0.9
-            mock_vqa_result.observations = ""
+        for output, pattern, expected_matched in test_cases:
+            mock_read_result = {
+                "success": True,
+                "output": output,
+                "line_count": 1,
+            }
 
             with patch(
-                "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
-                return_value=mock_manager,
+                "code_puppy.tools.browser.terminal_command_tools.terminal_read_output",
+                return_value=mock_read_result,
             ):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.run_vqa_analysis",
-                    return_value=mock_vqa_result,
-                ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
                     with patch(
-                        "code_puppy.tools.browser.terminal_command_tools.emit_info"
+                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
                     ):
-                        with patch(
-                            "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                        ):
-                            result = await wait_for_terminal_output(pattern="test")
+                        result = await wait_for_terminal_output(pattern=pattern)
 
-                            assert result["matched"] == expected_matched, (
-                                f"Expected matched={expected_matched} for answer '{answer}'"
-                            )
+                        assert result["matched"] == expected_matched, (
+                            f"Expected matched={expected_matched} for output '{output}' with pattern '{pattern}'"
+                        )
 
 
 class TestToolRegistration:
@@ -705,28 +707,33 @@ class TestToolRegistration:
         assert mock_agent.tool.called
 
     def test_register_wait_for_terminal_output(self):
-        """Test that wait_for_terminal_output registration works."""
+        """Test that wait_terminal_output registration works."""
         from code_puppy.tools.browser.terminal_command_tools import (
-            register_wait_for_terminal_output,
+            register_wait_terminal_output,
         )
 
         mock_agent = MagicMock()
         mock_agent.tool = MagicMock(return_value=lambda f: f)
 
-        register_wait_for_terminal_output(mock_agent)
+        register_wait_terminal_output(mock_agent)
 
         assert mock_agent.tool.called
 
     def test_register_all_terminal_command_tools(self):
         """Test that all tools can be registered at once."""
         from code_puppy.tools.browser.terminal_command_tools import (
-            register_all_terminal_command_tools,
+            register_run_terminal_command,
+            register_send_terminal_keys,
+            register_wait_terminal_output,
         )
 
         mock_agent = MagicMock()
         mock_agent.tool = MagicMock(return_value=lambda f: f)
 
-        register_all_terminal_command_tools(mock_agent)
+        # Register all three tools
+        register_run_terminal_command(mock_agent)
+        register_send_terminal_keys(mock_agent)
+        register_wait_terminal_output(mock_agent)
 
         # Should have been called 3 times (one for each tool)
         assert mock_agent.tool.call_count == 3
@@ -769,76 +776,84 @@ class TestIntegrationScenarios:
         """Test typical: run command → check output workflow."""
         mock_page = AsyncMock()
         mock_page.keyboard = AsyncMock()
-        mock_page.screenshot = AsyncMock(return_value=b"fake_screenshot")
 
         mock_manager = AsyncMock()
         mock_manager.get_current_page.return_value = mock_page
 
-        mock_vqa_result = MagicMock()
-        mock_vqa_result.answer = "Command completed successfully"
-        mock_vqa_result.confidence = 0.95
-        mock_vqa_result.observations = "Output visible"
+        mock_read_result = {
+            "success": True,
+            "output": "hello world\n$",
+            "line_count": 2,
+        }
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
             with patch(
-                "code_puppy.tools.browser.terminal_command_tools.run_vqa_analysis",
-                return_value=mock_vqa_result,
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
             ):
-                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                with patch(
+                    "code_puppy.tools.browser.terminal_command_tools.terminal_read_output",
+                    return_value=mock_read_result,
+                ):
                     with patch(
-                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                        "code_puppy.tools.browser.terminal_command_tools.emit_info"
                     ):
-                        # Run a command
-                        run_result = await run_terminal_command(
-                            "echo 'hello world'",
-                            auto_screenshot=False,
-                        )
-                        assert run_result["success"] is True
+                        with patch(
+                            "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                        ):
+                            # Run a command
+                            run_result = await run_terminal_command(
+                                "echo 'hello world'",
+                                capture_screenshot=False,
+                            )
+                            assert run_result["success"] is True
 
-                        # Then check output
-                        output_result = await wait_for_terminal_output(
-                            pattern="hello",
-                        )
-                        # With our mock saying "completed successfully",
-                        # it won't match "hello" directly
-                        assert output_result["success"] is True
+                            # Then check output
+                            output_result = await wait_for_terminal_output(
+                                pattern="hello",
+                            )
+                            assert output_result["success"] is True
+                            assert output_result["matched"] is True
 
     @pytest.mark.asyncio
     async def test_send_ctrl_c_to_interrupt(self):
         """Test typical: send Ctrl+C to interrupt long-running command."""
         mock_page = AsyncMock()
         mock_page.keyboard = AsyncMock()
-        mock_page.screenshot = AsyncMock(return_value=b"screenshot")
 
         mock_manager = AsyncMock()
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                ):
-                    # Start a command (no wait)
-                    run_result = await run_terminal_command(
-                        "sleep 100",
-                        wait_for_prompt=False,
-                        auto_screenshot=False,
-                    )
-                    assert run_result["success"] is True
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                    ):
+                        # Start a command (no wait)
+                        run_result = await run_terminal_command(
+                            "sleep 100",
+                            wait_for_prompt=False,
+                            capture_screenshot=False,
+                        )
+                        assert run_result["success"] is True
 
-                    # Send Ctrl+C to interrupt
-                    interrupt_result = await send_terminal_keys(
-                        "c",
-                        modifiers=["Control"],
-                    )
-                    assert interrupt_result["success"] is True
-                    assert interrupt_result["modifiers"] == ["Control"]
+                        # Send Ctrl+C to interrupt
+                        interrupt_result = await send_terminal_keys(
+                            "c",
+                            modifiers=["Control"],
+                        )
+                        assert interrupt_result["success"] is True
+                        assert interrupt_result["modifiers"] == ["Control"]
 
     @pytest.mark.asyncio
     async def test_tab_completion_workflow(self):
@@ -850,20 +865,24 @@ class TestIntegrationScenarios:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.terminal_command_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
             return_value=mock_manager,
         ):
-            with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
-                with patch(
-                    "code_puppy.tools.browser.terminal_command_tools.emit_success"
-                ):
-                    # Type partial command
-                    await run_terminal_command(
-                        "cd /us",
-                        wait_for_prompt=False,
-                        auto_screenshot=False,
-                    )
+            with patch(
+                "code_puppy.tools.browser.terminal_command_tools._focus_terminal",
+                return_value={"success": True},
+            ):
+                with patch("code_puppy.tools.browser.terminal_command_tools.emit_info"):
+                    with patch(
+                        "code_puppy.tools.browser.terminal_command_tools.emit_success"
+                    ):
+                        # Type partial command
+                        await run_terminal_command(
+                            "cd /us",
+                            wait_for_prompt=False,
+                            capture_screenshot=False,
+                        )
 
-                    # Press Tab for completion
-                    tab_result = await send_terminal_keys("Tab")
-                    assert tab_result["success"] is True
+                        # Press Tab for completion
+                        tab_result = await send_terminal_keys("Tab")
+                        assert tab_result["success"] is True

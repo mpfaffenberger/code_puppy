@@ -31,7 +31,7 @@ class TestNavigateToUrl:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -57,7 +57,7 @@ class TestNavigateToUrl:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -75,7 +75,7 @@ class TestNavigateToUrl:
         mock_manager.get_current_page.return_value = None
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -93,7 +93,7 @@ class TestNavigateToUrl:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -112,7 +112,7 @@ class TestNavigateToUrl:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -135,7 +135,7 @@ class TestGetPageInfo:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -152,7 +152,7 @@ class TestGetPageInfo:
         mock_manager.get_current_page.return_value = None
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -176,7 +176,7 @@ class TestGoBack:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -199,7 +199,7 @@ class TestGoBack:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -216,7 +216,7 @@ class TestGoBack:
         mock_manager.get_current_page.return_value = None
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -239,7 +239,7 @@ class TestGoForward:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -264,7 +264,7 @@ class TestReloadPage:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -288,7 +288,7 @@ class TestWaitForLoadState:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -311,7 +311,7 @@ class TestNavigationIntegration:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):
@@ -338,7 +338,7 @@ class TestNavigationIntegration:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_navigation.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_navigation.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_navigation.emit_info"):

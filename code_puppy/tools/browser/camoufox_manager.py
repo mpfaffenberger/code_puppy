@@ -5,6 +5,7 @@ Supports multiple simultaneous instances with unique profile directories.
 
 import asyncio
 import atexit
+import contextvars
 import os
 from pathlib import Path
 from typing import Optional
@@ -16,6 +17,51 @@ from code_puppy.messaging import emit_info, emit_success, emit_warning
 
 # Store active manager instances by session ID
 _active_managers: dict[str, "CamoufoxManager"] = {}
+
+# Context variable for browser session - properly inherits through async tasks
+# This allows parallel agent invocations to each have their own browser instance
+_browser_session_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "browser_session", default=None
+)
+
+
+def set_browser_session(session_id: Optional[str]) -> contextvars.Token:
+    """Set the browser session ID for the current context.
+
+    This must be called BEFORE any tool calls that use the browser.
+    The context will properly propagate to all subsequent async calls.
+
+    Args:
+        session_id: The session ID to use for browser operations.
+
+    Returns:
+        A token that can be used to reset the context.
+    """
+    return _browser_session_var.set(session_id)
+
+
+def get_browser_session() -> Optional[str]:
+    """Get the browser session ID for the current context.
+
+    Returns:
+        The current session ID, or None if not set.
+    """
+    return _browser_session_var.get()
+
+
+def get_session_browser_manager() -> "CamoufoxManager":
+    """Get the CamoufoxManager for the current context's session.
+
+    This is the preferred way to get a browser manager in tool functions,
+    as it automatically uses the correct session ID for the current
+    agent context.
+
+    Returns:
+        A CamoufoxManager instance for the current session.
+    """
+    session_id = get_browser_session()
+    return get_camoufox_manager(session_id)
+
 
 # Flag to track if cleanup has already run
 _cleanup_done: bool = False

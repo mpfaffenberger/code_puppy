@@ -18,7 +18,7 @@ from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
 from .browser_screenshot import _capture_screenshot
-from .camoufox_manager import get_camoufox_manager
+from .camoufox_manager import get_session_browser_manager
 from .vqa_agent import run_vqa_analysis_stream
 
 
@@ -66,7 +66,7 @@ async def take_screenshot_and_analyze(
 
     try:
         # Get the browser page
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:

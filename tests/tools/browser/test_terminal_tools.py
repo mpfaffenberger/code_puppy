@@ -197,9 +197,10 @@ class TestOpenTerminal:
         mock_page.url = "http://localhost:8765/terminal"
         mock_page.title.return_value = "Code Puppy Terminal"
         mock_page.wait_for_selector = AsyncMock()
+        mock_page.goto = AsyncMock()
 
         mock_manager = AsyncMock()
-        mock_manager.new_page.return_value = mock_page
+        mock_manager.get_current_page.return_value = mock_page
 
         with patch(
             "code_puppy.tools.browser.terminal_tools.check_terminal_server",
@@ -210,7 +211,7 @@ class TestOpenTerminal:
             },
         ):
             with patch(
-                "code_puppy.tools.browser.terminal_tools.get_chromium_terminal_manager",
+                "code_puppy.tools.browser.terminal_tools.get_session_manager",
                 return_value=mock_manager,
             ):
                 with patch("code_puppy.tools.browser.terminal_tools.emit_info"):
@@ -221,7 +222,7 @@ class TestOpenTerminal:
                         assert result["url"] == "http://localhost:8765/terminal"
                         assert result["page_title"] == "Code Puppy Terminal"
                         mock_manager.async_initialize.assert_called_once()
-                        mock_manager.new_page.assert_called_once_with(
+                        mock_page.goto.assert_called_once_with(
                             "http://localhost:8765/terminal"
                         )
 
@@ -232,9 +233,10 @@ class TestOpenTerminal:
         mock_page.url = "http://192.168.1.100:9000/terminal"
         mock_page.title.return_value = "Terminal"
         mock_page.wait_for_selector = AsyncMock()
+        mock_page.goto = AsyncMock()
 
         mock_manager = AsyncMock()
-        mock_manager.new_page.return_value = mock_page
+        mock_manager.get_current_page.return_value = mock_page
 
         with patch(
             "code_puppy.tools.browser.terminal_tools.check_terminal_server",
@@ -245,7 +247,7 @@ class TestOpenTerminal:
             },
         ):
             with patch(
-                "code_puppy.tools.browser.terminal_tools.get_chromium_terminal_manager",
+                "code_puppy.tools.browser.terminal_tools.get_session_manager",
                 return_value=mock_manager,
             ):
                 with patch("code_puppy.tools.browser.terminal_tools.emit_info"):
@@ -253,7 +255,7 @@ class TestOpenTerminal:
                         result = await open_terminal(host="192.168.1.100", port=9000)
 
                         assert result["success"] is True
-                        mock_manager.new_page.assert_called_once_with(
+                        mock_page.goto.assert_called_once_with(
                             "http://192.168.1.100:9000/terminal"
                         )
 
@@ -283,9 +285,10 @@ class TestOpenTerminal:
         mock_page.wait_for_selector.side_effect = Exception(
             "Timeout waiting for selector"
         )
+        mock_page.goto = AsyncMock()
 
         mock_manager = AsyncMock()
-        mock_manager.new_page.return_value = mock_page
+        mock_manager.get_current_page.return_value = mock_page
 
         with patch(
             "code_puppy.tools.browser.terminal_tools.check_terminal_server",
@@ -296,7 +299,7 @@ class TestOpenTerminal:
             },
         ):
             with patch(
-                "code_puppy.tools.browser.terminal_tools.get_chromium_terminal_manager",
+                "code_puppy.tools.browser.terminal_tools.get_session_manager",
                 return_value=mock_manager,
             ):
                 with patch("code_puppy.tools.browser.terminal_tools.emit_info"):
@@ -322,7 +325,7 @@ class TestOpenTerminal:
             },
         ):
             with patch(
-                "code_puppy.tools.browser.terminal_tools.get_chromium_terminal_manager",
+                "code_puppy.tools.browser.terminal_tools.get_session_manager",
                 return_value=mock_manager,
             ):
                 with patch("code_puppy.tools.browser.terminal_tools.emit_info"):
@@ -338,8 +341,11 @@ class TestOpenTerminal:
     @pytest.mark.asyncio
     async def test_open_terminal_navigation_error(self):
         """Test error handling when page navigation fails."""
+        mock_page = AsyncMock()
+        mock_page.goto.side_effect = RuntimeError("Navigation failed")
+
         mock_manager = AsyncMock()
-        mock_manager.new_page.side_effect = RuntimeError("Navigation failed")
+        mock_manager.get_current_page.return_value = mock_page
 
         with patch(
             "code_puppy.tools.browser.terminal_tools.check_terminal_server",
@@ -350,7 +356,7 @@ class TestOpenTerminal:
             },
         ):
             with patch(
-                "code_puppy.tools.browser.terminal_tools.get_chromium_terminal_manager",
+                "code_puppy.tools.browser.terminal_tools.get_session_manager",
                 return_value=mock_manager,
             ):
                 with patch("code_puppy.tools.browser.terminal_tools.emit_info"):
@@ -371,7 +377,7 @@ class TestCloseTerminal:
         mock_manager.close.return_value = None
 
         with patch(
-            "code_puppy.tools.browser.terminal_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_tools.get_session_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.terminal_tools.emit_info"):
@@ -392,7 +398,7 @@ class TestCloseTerminal:
         mock_manager.close.side_effect = RuntimeError("Close failed")
 
         with patch(
-            "code_puppy.tools.browser.terminal_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_tools.get_session_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.terminal_tools.emit_info"):
@@ -412,7 +418,7 @@ class TestCloseTerminal:
         mock_manager.close.side_effect = RuntimeError("Browser already closed")
 
         with patch(
-            "code_puppy.tools.browser.terminal_tools.get_chromium_terminal_manager",
+            "code_puppy.tools.browser.terminal_tools.get_session_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.terminal_tools.emit_info"):
@@ -500,7 +506,7 @@ class TestIntegrationScenarios:
             },
         ):
             with patch(
-                "code_puppy.tools.browser.terminal_tools.get_chromium_terminal_manager",
+                "code_puppy.tools.browser.terminal_tools.get_session_manager",
                 return_value=mock_manager,
             ):
                 with patch("code_puppy.tools.browser.terminal_tools.emit_info"):
@@ -538,7 +544,7 @@ class TestIntegrationScenarios:
         ) as mock_async_client:
             mock_async_client.return_value = mock_client
             with patch(
-                "code_puppy.tools.browser.terminal_tools.get_chromium_terminal_manager",
+                "code_puppy.tools.browser.terminal_tools.get_session_manager",
                 return_value=mock_manager,
             ):
                 with patch("code_puppy.tools.browser.terminal_tools.emit_info"):

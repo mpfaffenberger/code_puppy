@@ -7,7 +7,7 @@ from pydantic_ai import RunContext
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
-from .camoufox_manager import get_camoufox_manager
+from .camoufox_manager import get_session_browser_manager
 
 
 async def execute_javascript(
@@ -21,7 +21,7 @@ async def execute_javascript(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -54,7 +54,7 @@ async def scroll_page(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -148,7 +148,7 @@ async def scroll_to_element(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -180,7 +180,7 @@ async def set_viewport_size(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -211,7 +211,7 @@ async def wait_for_element(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -242,7 +242,7 @@ async def highlight_element(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -279,7 +279,7 @@ async def clear_highlights() -> Dict[str, Any]:
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:

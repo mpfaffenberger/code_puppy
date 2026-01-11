@@ -443,6 +443,14 @@ def register_invoke_agent(agent):
 
         terminal_session_token = set_terminal_session(f"terminal-{session_id}")
 
+        # Set browser session for Camoufox browser tools (qa-kitten, etc.)
+        # This allows parallel agent invocations to each have their own browser
+        from code_puppy.tools.browser.camoufox_manager import (
+            set_browser_session,
+        )
+
+        browser_session_token = set_browser_session(f"browser-{session_id}")
+
         try:
             # Lazy import to break circular dependency with messaging module
             from code_puppy.model_factory import ModelFactory, make_model_settings
@@ -656,5 +664,11 @@ def register_invoke_agent(agent):
             set_session_context(previous_session_id)
             # Reset terminal session context
             _terminal_session_var.reset(terminal_session_token)
+            # Reset browser session context
+            from code_puppy.tools.browser.camoufox_manager import (
+                _browser_session_var,
+            )
+
+            _browser_session_var.reset(browser_session_token)
 
     return invoke_agent

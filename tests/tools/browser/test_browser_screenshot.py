@@ -147,7 +147,7 @@ class TestTakeScreenshot:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_screenshot.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_screenshot.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
@@ -164,7 +164,7 @@ class TestTakeScreenshot:
         mock_manager.get_current_page.return_value = None
 
         with patch(
-            "code_puppy.tools.browser.browser_screenshot.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_screenshot.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
@@ -183,7 +183,7 @@ class TestTakeScreenshot:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_screenshot.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_screenshot.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
@@ -207,7 +207,7 @@ class TestScreenshotIntegration:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_screenshot.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_screenshot.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
@@ -232,7 +232,7 @@ class TestScreenshotIntegration:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_screenshot.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_screenshot.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):

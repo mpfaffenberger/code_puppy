@@ -30,7 +30,7 @@ class TestBrowserInitialization:
         mock_manager._initialized = True
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch(
@@ -60,7 +60,7 @@ class TestBrowserInitialization:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_control.emit_info"):
@@ -82,7 +82,7 @@ class TestBrowserInitialization:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_control.emit_info"):
@@ -105,7 +105,7 @@ class TestBrowserInitialization:
         mock_manager.get_current_page.return_value = None
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_control.emit_info"):
@@ -124,7 +124,7 @@ class TestBrowserInitialization:
         )
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_control.emit_info"):
@@ -149,7 +149,7 @@ class TestBrowserClosing:
         mock_manager.close.return_value = None
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_control.emit_info"):
@@ -170,7 +170,7 @@ class TestBrowserClosing:
         mock_manager.close.side_effect = RuntimeError("Browser already closed")
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_control.emit_info"):
@@ -186,7 +186,7 @@ class TestBrowserClosing:
         mock_manager.close.return_value = None
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_control.emit_info"):
@@ -214,7 +214,7 @@ class TestBrowserStatus:
         mock_manager.get_all_pages.return_value = [mock_page]
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_control.emit_info"):
@@ -234,7 +234,7 @@ class TestBrowserStatus:
         mock_manager.headless = False
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_control.emit_info"):
@@ -252,7 +252,7 @@ class TestBrowserStatus:
         mock_manager.get_current_page.side_effect = RuntimeError("Cannot get page")
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_control.emit_info"):
@@ -276,7 +276,7 @@ class TestBrowserIntegration:
         mock_manager._initialized = True
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_control.emit_info"):
@@ -303,7 +303,7 @@ class TestBrowserIntegration:
         mock_manager.get_current_page.return_value = mock_page
 
         with patch(
-            "code_puppy.tools.browser.browser_control.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_control.get_session_browser_manager",
             return_value=mock_manager,
         ):
             with patch("code_puppy.tools.browser.browser_control.emit_info"):
