@@ -17,18 +17,19 @@ class TestBaseAgentConfiguration:
             result = agent.load_puppy_rules()
             assert result is None
 
-    def test_load_puppy_rules_with_file(self, agent, tmp_path):
-        # Test with actual temp file
+    def test_load_puppy_rules_with_file(self, agent, tmp_path, monkeypatch):
+        # Test with actual temp file in project directory
         rules_file = tmp_path / "AGENTS.md"
         rules_file.write_text("Test rules")
 
-        # Mock Path to return our temp file for AGENTS.md
-        def mock_path_construction(path_str):
-            if "AGENTS.md" in path_str:
-                return rules_file
-            return Path(path_str)
+        # Clear any cached rules
+        agent._puppy_rules = None
 
-        with patch("pathlib.Path", side_effect=mock_path_construction):
+        # Change to temp directory so Path("AGENTS.md") finds our file
+        monkeypatch.chdir(tmp_path)
+
+        # Mock CONFIG_DIR to a non-existent location so global rules aren't found
+        with patch("code_puppy.config.CONFIG_DIR", str(tmp_path / "nonexistent")):
             result = agent.load_puppy_rules()
             assert result == "Test rules"
 
