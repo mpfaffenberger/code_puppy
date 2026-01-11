@@ -9,7 +9,12 @@ import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
 
 from code_puppy.tools.agent_tools import (
+    AgentInfo,
+    AgentInvokeOutput,
+    ListAgentsOutput,
+    _generate_dbos_workflow_id,
     _generate_session_hash_suffix,
+    _get_subagent_sessions_dir,
     _load_session_history,
     _save_session_history,
     _validate_session_id,
@@ -709,3 +714,468 @@ class TestSessionIntegration:
             with open(txt_file, "r") as f:
                 metadata = json.load(f)
             assert metadata["message_count"] == 0
+
+
+class TestDBOSWorkflowId:
+    """Test suite for _generate_dbos_workflow_id function."""
+
+    def test_generates_unique_ids(self):
+        """Test that consecutive calls generate unique workflow IDs."""
+        base_id = "test-group-id"
+        id1 = _generate_dbos_workflow_id(base_id)
+        id2 = _generate_dbos_workflow_id(base_id)
+        id3 = _generate_dbos_workflow_id(base_id)
+
+        # All IDs should be different
+        assert id1 != id2
+        assert id2 != id3
+        assert id1 != id3
+
+    def test_workflow_id_format(self):
+        """Test that workflow ID follows expected format."""
+        base_id = "invoke-agent-test"
+        workflow_id = _generate_dbos_workflow_id(base_id)
+
+        # Should have format: {base_id}-wf-{counter}
+        assert workflow_id.startswith(f"{base_id}-wf-")
+        # Counter should be a number
+        counter_part = workflow_id.split("-wf-")[1]
+        assert counter_part.isdigit()
+
+    def test_counter_increments(self):
+        """Test that the counter in workflow IDs increments."""
+        base_id = "test-increment"
+        ids = [_generate_dbos_workflow_id(base_id) for _ in range(5)]
+
+        # Extract counter values
+        counters = [int(id_.split("-wf-")[1]) for id_ in ids]
+
+        # Should be strictly increasing
+        for i in range(1, len(counters)):
+            assert counters[i] > counters[i - 1]
+
+
+class TestGetSubagentSessionsDir:
+    """Test suite for _get_subagent_sessions_dir function."""
+
+    def test_returns_path(self):
+        """Test that it returns a Path object."""
+        with patch("code_puppy.tools.agent_tools.DATA_DIR", "/tmp/test-data"):
+            result = _get_subagent_sessions_dir()
+            assert isinstance(result, Path)
+            assert result.name == "subagent_sessions"
+
+    def test_creates_directory_if_not_exists(self):
+        """Test that directory is created if it doesn't exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("code_puppy.tools.agent_tools.DATA_DIR", tmpdir):
+                result = _get_subagent_sessions_dir()
+                assert result.exists()
+                assert result.is_dir()
+
+
+class TestListAgentsExecution:
+    """Test suite for list_agents tool execution."""
+
+    def test_list_agents_returns_agents(self):
+        """Test that list_agents tool returns available agents."""
+        mock_agent = MagicMock()
+
+        # Register the tool
+        register_list_agents(mock_agent)
+
+        # Mock the dependencies
+        mock_agents_dict = {
+            "test-agent": "Test Agent",
+            "code-reviewer": "Code Reviewer",
+        }
+        mock_descriptions = {
+            "test-agent": "A test agent",
+            "code-reviewer": "Reviews code",
+        }
+
+        with (
+            patch("code_puppy.tools.agent_tools.get_message_bus"),
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch(
+                "code_puppy.agents.get_available_agents", return_value=mock_agents_dict
+            ),
+            patch(
+                "code_puppy.agents.get_agent_descriptions",
+                return_value=mock_descriptions,
+            ),
+            patch("code_puppy.config.get_banner_color", return_value="blue"),
+        ):
+            # Create a mock context
+            mock_context = MagicMock()
+
+            # If registration happened, extract and call the function
+            if mock_agent.tool.called:
+                actual_func = mock_agent.tool.call_args[0][0]
+                result = actual_func(mock_context)
+
+                # Verify result
+                assert isinstance(result, ListAgentsOutput)
+                assert len(result.agents) == 2
+                assert result.error is None
+
+                # Verify agent info
+                agent_names = [a.name for a in result.agents]
+                assert "test-agent" in agent_names
+                assert "code-reviewer" in agent_names
+
+    def test_list_agents_handles_exception(self):
+        """Test that list_agents handles exceptions gracefully."""
+        mock_agent = MagicMock()
+
+        # Register the tool
+        register_list_agents(mock_agent)
+
+        with (
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch(
+                "code_puppy.agents.get_available_agents",
+                side_effect=Exception("Test error"),
+            ),
+            patch("code_puppy.config.get_banner_color", return_value="blue"),
+        ):
+            mock_context = MagicMock()
+
+            if mock_agent.tool.called:
+                actual_func = mock_agent.tool.call_args[0][0]
+                result = actual_func(mock_context)
+
+                # Should return empty agents list with error
+                assert isinstance(result, ListAgentsOutput)
+                assert result.agents == []
+                assert result.error is not None
+                assert "Test error" in result.error
+
+
+class TestInvokeAgentExecution:
+    """Test suite for invoke_agent tool execution."""
+
+    @pytest.fixture
+    def temp_session_dir(self):
+        """Create a temporary directory for session storage."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield Path(tmpdir)
+
+    def test_invoke_agent_with_invalid_session_id(self):
+        """Test that invoke_agent returns error for invalid session_id."""
+        mock_agent = MagicMock()
+
+        # Register the tool
+        register_invoke_agent(mock_agent)
+
+        with patch("code_puppy.tools.agent_tools.emit_error"):
+            mock_context = MagicMock()
+
+            if mock_agent.tool.called:
+                actual_func = mock_agent.tool.call_args[0][0]
+
+                # Call with invalid session_id
+                import asyncio
+
+                result = asyncio.get_event_loop().run_until_complete(
+                    actual_func(
+                        mock_context,
+                        agent_name="test-agent",
+                        prompt="test",
+                        session_id="Invalid_Session",  # Invalid: uses underscore
+                    )
+                )
+
+                # Should return error
+                assert isinstance(result, AgentInvokeOutput)
+                assert result.response is None
+                assert result.error is not None
+                assert "must be kebab-case" in result.error
+
+    @pytest.mark.asyncio
+    async def test_invoke_agent_model_not_found(self, temp_session_dir):
+        """Test that invoke_agent handles model not found error."""
+        mock_agent = MagicMock()
+
+        # Register the tool
+        register_invoke_agent(mock_agent)
+
+        # Mock agent config
+        mock_agent_config = MagicMock()
+        mock_agent_config.get_model_name.return_value = "nonexistent-model"
+        mock_agent_config.get_system_prompt.return_value = "System prompt"
+        mock_agent_config.load_puppy_rules.return_value = None
+
+        with (
+            patch(
+                "code_puppy.tools.agent_tools._get_subagent_sessions_dir",
+                return_value=temp_session_dir,
+            ),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch("code_puppy.tools.agent_tools.emit_success"),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context", return_value=None
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=mock_agent_config,
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value={"other-model": {}},  # Model not in config
+            ),
+        ):
+            mock_context = MagicMock()
+            mock_bus.return_value.emit = MagicMock()
+
+            if mock_agent.tool.called:
+                actual_func = mock_agent.tool.call_args[0][0]
+
+                result = await actual_func(
+                    mock_context,
+                    agent_name="test-agent",
+                    prompt="test prompt",
+                    session_id=None,
+                )
+
+                # Should return error about model not found
+                assert isinstance(result, AgentInvokeOutput)
+                assert result.response is None
+                assert result.error is not None
+
+    @pytest.mark.asyncio
+    async def test_invoke_agent_auto_generates_session_id(self, temp_session_dir):
+        """Test that invoke_agent auto-generates session_id when None."""
+        mock_agent = MagicMock()
+
+        # Register the tool
+        register_invoke_agent(mock_agent)
+
+        # Create mock result
+        mock_result = MagicMock()
+        mock_result.output = "Test response"
+        mock_result.all_messages.return_value = []
+
+        # Mock agent config
+        mock_agent_config = MagicMock()
+        mock_agent_config.get_model_name.return_value = "test-model"
+        mock_agent_config.get_system_prompt.return_value = "System prompt"
+        mock_agent_config.load_puppy_rules.return_value = None
+        mock_agent_config.get_available_tools.return_value = []
+        mock_agent_config.message_history_accumulator = MagicMock()
+
+        # Mock model
+        mock_model = MagicMock()
+
+        # Create an async mock for temp_agent.run
+        async def mock_run(*args, **kwargs):
+            return mock_result
+
+        mock_temp_agent = MagicMock()
+        mock_temp_agent.run = mock_run
+
+        with (
+            patch(
+                "code_puppy.tools.agent_tools._get_subagent_sessions_dir",
+                return_value=temp_session_dir,
+            ),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch("code_puppy.tools.agent_tools.emit_success"),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context", return_value=None
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=mock_agent_config,
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value={"test-model": {}},
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.get_model",
+                return_value=mock_model,
+            ),
+            patch(
+                "code_puppy.model_factory.make_model_settings",
+                return_value={},
+            ),
+            patch(
+                "code_puppy.tools.agent_tools.Agent",
+                return_value=mock_temp_agent,
+            ),
+            patch(
+                "code_puppy.callbacks.on_load_prompt",
+                return_value=[],
+            ),
+            patch("code_puppy.model_utils.prepare_prompt_for_model") as mock_prepare,
+            patch(
+                "code_puppy.tools.agent_tools.get_use_dbos",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.tools.agent_tools.get_value",
+                return_value="true",  # MCP disabled
+            ),
+            patch("code_puppy.tools.register_tools_for_agent"),
+            patch("code_puppy.agents.subagent_stream_handler.subagent_stream_handler"),
+        ):
+            mock_bus.return_value.emit = MagicMock()
+            mock_prepare.return_value = MagicMock(
+                instructions="prepared instructions", user_prompt="prepared prompt"
+            )
+
+            mock_context = MagicMock()
+
+            if mock_agent.tool.called:
+                actual_func = mock_agent.tool.call_args[0][0]
+
+                result = await actual_func(
+                    mock_context,
+                    agent_name="test-agent",
+                    prompt="test prompt",
+                    session_id=None,
+                )
+
+                # Should have auto-generated session_id
+                assert result.session_id is not None
+                assert result.session_id.startswith("test-agent-session-")
+
+
+class TestSaveSessionMetadataException:
+    """Test exception handling in _save_session_history metadata update."""
+
+    @pytest.fixture
+    def temp_session_dir(self):
+        """Create a temporary directory for session storage."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield Path(tmpdir)
+
+    @pytest.fixture
+    def mock_messages(self):
+        """Create mock ModelMessage objects for testing."""
+        return [
+            ModelRequest(parts=[TextPart(content="Hello")]),
+            ModelResponse(parts=[TextPart(content="Hi there!")]),
+        ]
+
+    def test_metadata_update_exception_is_silently_handled(
+        self, temp_session_dir, mock_messages
+    ):
+        """Test that exceptions in metadata update are silently handled."""
+        session_id = "test-session"
+        agent_name = "test-agent"
+
+        with patch(
+            "code_puppy.tools.agent_tools._get_subagent_sessions_dir",
+            return_value=temp_session_dir,
+        ):
+            # First save - creates the files
+            _save_session_history(
+                session_id=session_id,
+                message_history=mock_messages[:1],
+                agent_name=agent_name,
+                initial_prompt="Test",
+            )
+
+            # Corrupt the txt file so json.load will fail
+            txt_file = temp_session_dir / f"{session_id}.txt"
+            with open(txt_file, "w") as f:
+                f.write("not valid json{{{")
+
+            # Second save - should not raise despite corrupted metadata
+            # This tests the except Exception: pass block
+            _save_session_history(
+                session_id=session_id,
+                message_history=mock_messages,
+                agent_name=agent_name,
+                initial_prompt=None,
+            )
+
+            # Pickle should still be saved correctly
+            loaded = _load_session_history(session_id)
+            assert len(loaded) == 2
+
+
+class TestAgentInfoModel:
+    """Test suite for AgentInfo Pydantic model."""
+
+    def test_agent_info_creation(self):
+        """Test creating AgentInfo with valid data."""
+        info = AgentInfo(
+            name="test-agent", display_name="Test Agent", description="A test agent"
+        )
+        assert info.name == "test-agent"
+        assert info.display_name == "Test Agent"
+        assert info.description == "A test agent"
+
+    def test_agent_info_serialization(self):
+        """Test that AgentInfo can be serialized to dict."""
+        info = AgentInfo(
+            name="test-agent", display_name="Test Agent", description="A test agent"
+        )
+        data = info.model_dump()
+        assert data["name"] == "test-agent"
+        assert data["display_name"] == "Test Agent"
+        assert data["description"] == "A test agent"
+
+
+class TestListAgentsOutput:
+    """Test suite for ListAgentsOutput Pydantic model."""
+
+    def test_list_agents_output_with_agents(self):
+        """Test ListAgentsOutput with agents."""
+        agents = [
+            AgentInfo(name="agent1", display_name="Agent 1", description="First agent"),
+            AgentInfo(
+                name="agent2", display_name="Agent 2", description="Second agent"
+            ),
+        ]
+        output = ListAgentsOutput(agents=agents)
+        assert len(output.agents) == 2
+        assert output.error is None
+
+    def test_list_agents_output_with_error(self):
+        """Test ListAgentsOutput with error."""
+        output = ListAgentsOutput(agents=[], error="Something went wrong")
+        assert output.agents == []
+        assert output.error == "Something went wrong"
+
+
+class TestAgentInvokeOutput:
+    """Test suite for AgentInvokeOutput Pydantic model."""
+
+    def test_agent_invoke_output_success(self):
+        """Test AgentInvokeOutput for successful invocation."""
+        output = AgentInvokeOutput(
+            response="Hello, world!",
+            agent_name="test-agent",
+            session_id="test-session-abc123",
+        )
+        assert output.response == "Hello, world!"
+        assert output.agent_name == "test-agent"
+        assert output.session_id == "test-session-abc123"
+        assert output.error is None
+
+    def test_agent_invoke_output_error(self):
+        """Test AgentInvokeOutput for failed invocation."""
+        output = AgentInvokeOutput(
+            response=None,
+            agent_name="test-agent",
+            session_id="test-session-abc123",
+            error="Agent failed to respond",
+        )
+        assert output.response is None
+        assert output.error == "Agent failed to respond"
+
+    def test_agent_invoke_output_no_session(self):
+        """Test AgentInvokeOutput without session_id."""
+        output = AgentInvokeOutput(
+            response="Test", agent_name="test-agent", session_id=None
+        )
+        assert output.session_id is None
