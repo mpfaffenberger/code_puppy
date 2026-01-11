@@ -19,7 +19,6 @@ from typing import Dict, List, Optional
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
-from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
@@ -134,7 +133,9 @@ class SubAgentConsoleManager:
         self._stop_event = threading.Event()
 
     @classmethod
-    def get_instance(cls, console: Optional[Console] = None) -> "SubAgentConsoleManager":
+    def get_instance(
+        cls, console: Optional[Console] = None
+    ) -> "SubAgentConsoleManager":
         """Get or create the singleton instance.
 
         Thread-safe singleton pattern using double-checked locking.
@@ -168,9 +169,7 @@ class SubAgentConsoleManager:
     # Agent Registration
     # =========================================================================
 
-    def register_agent(
-        self, session_id: str, agent_name: str, model_name: str
-    ) -> None:
+    def register_agent(self, session_id: str, agent_name: str, model_name: str) -> None:
         """Register a new sub-agent and start display if needed.
 
         Args:
@@ -336,7 +335,9 @@ class SubAgentConsoleManager:
             if not self._agents:
                 return Group(Text("No active sub-agents", style="dim"))
 
-            panels = [self._render_agent_panel(agent) for agent in self._agents.values()]
+            panels = [
+                self._render_agent_panel(agent) for agent in self._agents.values()
+            ]
             return Group(*panels)
 
     def _render_agent_panel(self, agent: AgentState) -> Panel:
@@ -383,7 +384,7 @@ class SubAgentConsoleManager:
         tool_text = Text()
         tool_text.append(str(agent.tool_call_count), style="bold yellow")
         if agent.current_tool:
-            tool_text.append(f" (calling: ", style="dim")
+            tool_text.append(" (calling: ", style="dim")
             tool_text.append(agent.current_tool, style="yellow")
             tool_text.append(")", style="dim")
         table.add_row("Tools:", tool_text)

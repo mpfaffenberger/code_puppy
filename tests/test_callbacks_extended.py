@@ -456,7 +456,9 @@ class TestPostToolCallCallback:
         register_callback("post_tool_call", logger_callback)
         register_callback("post_tool_call", metrics_callback)
 
-        await on_post_tool_call("delete_file", {"path": "x.txt"}, {"deleted": True}, 15.3, None)
+        await on_post_tool_call(
+            "delete_file", {"path": "x.txt"}, {"deleted": True}, 15.3, None
+        )
 
         assert call_order == ["logged:delete_file", "metrics:15.3ms"]
 
@@ -476,7 +478,9 @@ class TestPostToolCallCallback:
         register_callback("post_tool_call", good_callback)
 
         with patch("code_puppy.callbacks.logger") as mock_logger:
-            results = await on_post_tool_call("edit_file", {}, {"edited": True}, 200.0, None)
+            results = await on_post_tool_call(
+                "edit_file", {}, {"edited": True}, 200.0, None
+            )
 
             assert len(results) == 2
             assert results[0] is None  # Failed callback
@@ -546,7 +550,9 @@ class TestStreamEventCallback:
         # Simulate various streaming events
         await on_stream_event("token", {"content": "foo"}, "sess-1")
         await on_stream_event("tool_call_start", {"tool": "edit_file"}, "sess-1")
-        await on_stream_event("tool_call_end", {"tool": "edit_file", "success": True}, "sess-1")
+        await on_stream_event(
+            "tool_call_end", {"tool": "edit_file", "success": True}, "sess-1"
+        )
         await on_stream_event("token", {"content": "bar"}, "sess-1")
         await on_stream_event("stream_end", {"reason": "complete"}, "sess-1")
 
@@ -749,7 +755,9 @@ class TestWithToolCallbacksDecorator:
         async def exploding_pre_hook(tool_name, tool_args, context):
             raise RuntimeError("Pre-hook exploded!")
 
-        async def exploding_post_hook(tool_name, tool_args, result, duration_ms, context):
+        async def exploding_post_hook(
+            tool_name, tool_args, result, duration_ms, context
+        ):
             raise RuntimeError("Post-hook exploded!")
 
         register_callback("pre_tool_call", exploding_pre_hook)

@@ -50,9 +50,7 @@ def _fire_callback(event_type: str, event_data: Any, session_id: Optional[str]) 
         from code_puppy import callbacks
 
         loop = asyncio.get_running_loop()
-        loop.create_task(
-            callbacks.on_stream_event(event_type, event_data, session_id)
-        )
+        loop.create_task(callbacks.on_stream_event(event_type, event_data, session_id))
     except RuntimeError:
         # No event loop running - this can happen during shutdown
         logger.debug("No event loop available for stream event callback")

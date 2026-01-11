@@ -65,10 +65,10 @@ def setup_websocket(app: FastAPI) -> None:
         manager = get_pty_manager()
         session_id = str(uuid.uuid4())[:8]
         session = None
-        
+
         # Get the current event loop for thread-safe scheduling
         loop = asyncio.get_running_loop()
-        
+
         # Queue to receive PTY output in a thread-safe way
         output_queue: asyncio.Queue[bytes] = asyncio.Queue()
 
@@ -84,17 +84,19 @@ def setup_websocket(app: FastAPI) -> None:
             try:
                 while True:
                     data = await output_queue.get()
-                    await websocket.send_json({
-                        "type": "output",
-                        "data": base64.b64encode(data).decode("ascii"),
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "output",
+                            "data": base64.b64encode(data).decode("ascii"),
+                        }
+                    )
             except asyncio.CancelledError:
                 pass
             except Exception as e:
                 logger.error(f"output_sender error: {e}")
 
         sender_task = None
-        
+
         try:
             # Create PTY session
             session = await manager.create_session(
@@ -104,7 +106,7 @@ def setup_websocket(app: FastAPI) -> None:
 
             # Send session info
             await websocket.send_json({"type": "session", "id": session_id})
-            
+
             # Start output sender task
             sender_task = asyncio.create_task(output_sender())
 

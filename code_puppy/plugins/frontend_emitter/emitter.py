@@ -55,9 +55,7 @@ def emit_event(event_type: str, data: Any = None) -> None:
         try:
             subscriber_queue.put_nowait(event)
         except asyncio.QueueFull:
-            logger.warning(
-                f"Subscriber queue full, dropping event: {event_type}"
-            )
+            logger.warning(f"Subscriber queue full, dropping event: {event_type}")
         except Exception as e:
             logger.error(f"Failed to emit event to subscriber: {e}")
 
@@ -89,9 +87,7 @@ def unsubscribe(queue: asyncio.Queue[Dict[str, Any]]) -> None:
         queue: The queue returned from subscribe()
     """
     _subscribers.discard(queue)
-    logger.debug(
-        f"Subscriber removed, remaining subscribers: {len(_subscribers)}"
-    )
+    logger.debug(f"Subscriber removed, remaining subscribers: {len(_subscribers)}")
 
 
 def get_recent_events() -> List[Dict[str, Any]]:

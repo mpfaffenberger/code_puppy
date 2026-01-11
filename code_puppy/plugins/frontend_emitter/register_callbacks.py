@@ -65,7 +65,9 @@ async def on_post_tool_call(
                 "result_summary": _summarize_result(result),
             },
         )
-        logger.debug(f"Emitted tool_call_complete for {tool_name} ({duration_ms:.2f}ms)")
+        logger.debug(
+            f"Emitted tool_call_complete for {tool_name} ({duration_ms:.2f}ms)"
+        )
     except Exception as e:
         logger.error(f"Failed to emit post_tool_call event: {e}")
 

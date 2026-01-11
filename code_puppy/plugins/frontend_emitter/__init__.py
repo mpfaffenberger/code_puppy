@@ -14,12 +14,12 @@ Usage:
 
     # Subscribe to events
     queue = subscribe()
-    
+
     # Process events in your WebSocket handler
     while True:
         event = await queue.get()
         await websocket.send_json(event)
-    
+
     # Clean up
     unsubscribe(queue)
 """

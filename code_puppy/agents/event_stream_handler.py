@@ -78,7 +78,7 @@ def get_streaming_console() -> Console:
 
 def _should_suppress_output() -> bool:
     """Check if sub-agent output should be suppressed.
-    
+
     Returns:
         True if we're in a sub-agent context and verbose mode is disabled.
     """

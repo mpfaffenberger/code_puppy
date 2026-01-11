@@ -299,14 +299,22 @@ class SubAgentStatusMessage(BaseMessage):
     session_id: str = Field(description="Unique session ID of the sub-agent")
     agent_name: str = Field(description="Name of the agent (e.g., 'code-puppy')")
     model_name: str = Field(description="Model being used by this agent")
-    status: Literal["starting", "running", "thinking", "tool_calling", "completed", "error"] = Field(
-        description="Current status of the agent"
+    status: Literal[
+        "starting", "running", "thinking", "tool_calling", "completed", "error"
+    ] = Field(description="Current status of the agent")
+    tool_call_count: int = Field(
+        default=0, ge=0, description="Number of tools called so far"
     )
-    tool_call_count: int = Field(default=0, ge=0, description="Number of tools called so far")
     token_count: int = Field(default=0, ge=0, description="Estimated tokens in context")
-    current_tool: Optional[str] = Field(default=None, description="Name of tool currently being called")
-    elapsed_seconds: float = Field(default=0.0, ge=0, description="Time since agent started")
-    error_message: Optional[str] = Field(default=None, description="Error message if status is 'error'")
+    current_tool: Optional[str] = Field(
+        default=None, description="Name of tool currently being called"
+    )
+    elapsed_seconds: float = Field(
+        default=0.0, ge=0, description="Time since agent started"
+    )
+    error_message: Optional[str] = Field(
+        default=None, description="Error message if status is 'error'"
+    )
 
 
 # =============================================================================

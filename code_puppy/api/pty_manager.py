@@ -168,9 +168,7 @@ class PTYManager:
             session._running = True
 
             # Start reader task
-            session._reader_task = asyncio.create_task(
-                self._unix_reader_loop(session)
-            )
+            session._reader_task = asyncio.create_task(self._unix_reader_loop(session))
 
             return session
 
@@ -207,9 +205,7 @@ class PTYManager:
         session._running = True
 
         # Start reader task
-        session._reader_task = asyncio.create_task(
-            self._windows_reader_loop(session)
-        )
+        session._reader_task = asyncio.create_task(self._windows_reader_loop(session))
 
         return session
 
@@ -228,7 +224,7 @@ class PTYManager:
                     data = await loop.run_in_executor(
                         None, self._read_unix_pty, session.master_fd
                     )
-                    
+
                     if data is None:
                         # No data available, wait a bit
                         await asyncio.sleep(0.01)
@@ -238,7 +234,7 @@ class PTYManager:
                         break
                     elif session.on_output:
                         session.on_output(data)
-                        
+
                 except asyncio.CancelledError:
                     break
 
@@ -249,7 +245,7 @@ class PTYManager:
 
     def _read_unix_pty(self, fd: int) -> bytes | None:
         """Read from Unix PTY file descriptor.
-        
+
         Returns:
             bytes: Data read from PTY
             None: No data available (would block)
@@ -262,7 +258,6 @@ class PTYManager:
             return None
         except OSError:
             return b""
-
 
     async def _windows_reader_loop(self, session: PTYSession) -> None:
         """Read output from Windows PTY and forward to callback."""
@@ -279,7 +274,9 @@ class PTYManager:
                         None, session.winpty_process.read, 4096
                     )
                     if data and session.on_output:
-                        session.on_output(data.encode() if isinstance(data, str) else data)
+                        session.on_output(
+                            data.encode() if isinstance(data, str) else data
+                        )
                 except EOFError:
                     break
                 except asyncio.CancelledError:
@@ -323,9 +320,7 @@ class PTYManager:
 
         return False
 
-    async def resize(
-        self, session_id: str, cols: int, rows: int
-    ) -> bool:
+    async def resize(self, session_id: str, cols: int, rows: int) -> bool:
         """Resize a PTY session.
 
         Args:
