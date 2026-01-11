@@ -1,5 +1,6 @@
 # agent_tools.py
 import asyncio
+from functools import partial
 import hashlib
 import itertools
 import json
@@ -551,7 +552,7 @@ def register_invoke_agent(agent):
 
             # Always use subagent_stream_handler to silence output and update console manager
             # This ensures all sub-agent output goes through the aggregated dashboard
-            stream_handler = subagent_stream_handler(session_id)
+            stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
             if get_use_dbos():
                 # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
