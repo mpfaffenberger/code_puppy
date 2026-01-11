@@ -275,7 +275,8 @@ class RichConsoleRenderer:
         elif isinstance(message, SubAgentInvocationMessage):
             self._render_subagent_invocation(message)
         elif isinstance(message, SubAgentResponseMessage):
-            self._render_subagent_response(message)
+            # Skip rendering - we now display sub-agent responses via display_non_streamed_result
+            pass
         elif isinstance(message, UserInputRequest):
             # Can't handle async user input in sync context - skip
             self._console.print("[dim]User input requested (requires async)[/dim]")

@@ -101,6 +101,9 @@ from code_puppy.tools.marketplace_tools import (
 )
 
 from code_puppy.tools.msgraph import MSGRAPH_TOOLS
+from code_puppy.tools.display import (
+    display_non_streamed_result as display_non_streamed_result,
+)
 from code_puppy.tools.file_modifications import register_delete_file, register_edit_file
 from code_puppy.tools.file_operations import (
     register_grep,

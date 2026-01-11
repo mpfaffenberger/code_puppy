@@ -32,3 +32,4 @@ pytest-reports/
 
 .env
 .serena/
+.agents/

@@ -477,8 +477,10 @@ class BaseAgent(ABC):
         # fixed instructions. For other models, count the full system prompt.
         try:
             from code_puppy.model_utils import (
+                get_antigravity_instructions,
                 get_chatgpt_codex_instructions,
                 get_claude_code_instructions,
+                is_antigravity_model,
                 is_chatgpt_codex_model,
                 is_claude_code_model,
             )
@@ -495,6 +497,11 @@ class BaseAgent(ABC):
                 # For ChatGPT Codex models, only count the short fixed instructions
                 # The full system prompt is already in the message history
                 instructions = get_chatgpt_codex_instructions()
+                total_tokens += self.estimate_token_count(instructions)
+            elif is_antigravity_model(model_name):
+                # For Antigravity models, only count the short fixed instructions
+                # The full system prompt is already in the message history
+                instructions = get_antigravity_instructions()
                 total_tokens += self.estimate_token_count(instructions)
             else:
                 # For other models, count the full system prompt
@@ -1744,8 +1751,10 @@ class BaseAgent(ABC):
             is_gemini_model,
         )
 
-        if is_claude_code_model(self.get_model_name()) or is_chatgpt_codex_model(
-            self.get_model_name()
+        if (
+            is_claude_code_model(self.get_model_name())
+            or is_chatgpt_codex_model(self.get_model_name())
+            or is_antigravity_model(self.get_model_name())
         ):
             if len(self.get_message_history()) == 0:
                 system_prompt = self.get_system_prompt()
