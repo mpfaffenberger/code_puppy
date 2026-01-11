@@ -9,17 +9,17 @@ Use this for qa-kitten where context management is important.
 Use browser_screenshot.py for terminal-qa where direct image viewing is needed.
 """
 
-import asyncio
 from typing import Any, Dict, Optional
 
 from pydantic_ai import RunContext
+from rich.console import Console
 
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
 from .browser_screenshot import _capture_screenshot
 from .camoufox_manager import get_camoufox_manager
-from .vqa_agent import run_vqa_analysis
+from .vqa_agent import run_vqa_analysis_stream
 
 
 async def take_screenshot_and_analyze(
@@ -51,9 +51,7 @@ async def take_screenshot_and_analyze(
     Returns:
         Dict containing:
             - success (bool): True if analysis succeeded.
-            - answer (str): The VQA agent's answer to your question.
-            - confidence (float): Confidence level from 0.0 to 1.0.
-            - observations (str): Additional visual observations.
+            - answer (str): The VQA agent's streamed answer to your question.
             - screenshot_info (dict): Path, timestamp, and other metadata.
             - error (str): Error message if unsuccessful.
     """
@@ -104,10 +102,13 @@ async def take_screenshot_and_analyze(
                 "question": question,
             }
 
-        # Run VQA analysis in a thread to not block the event loop
+        # Run VQA analysis with streaming output
         try:
-            vqa_result = await asyncio.to_thread(
-                run_vqa_analysis,
+            console = Console()
+            console.print()  # Newline before streaming starts
+            console.print("[bold cyan]🔍 VQA Analysis:[/bold cyan]")
+
+            vqa_answer = await run_vqa_analysis_stream(
                 question,
                 screenshot_bytes,
             )
@@ -129,20 +130,14 @@ async def take_screenshot_and_analyze(
             }
 
         emit_success(
-            f"Visual analysis answer: {vqa_result.answer}",
-            message_group=group_id,
-        )
-        emit_info(
-            f"Observations: {vqa_result.observations}",
+            "Visual analysis complete",
             message_group=group_id,
         )
 
         return {
             "success": True,
             "question": question,
-            "answer": vqa_result.answer,
-            "confidence": vqa_result.confidence,
-            "observations": vqa_result.observations,
+            "answer": vqa_answer,
             "screenshot_info": {
                 "path": screenshot_result.get("screenshot_path"),
                 "size": len(screenshot_bytes),
@@ -190,9 +185,7 @@ def register_take_screenshot_and_analyze_vqa(agent):
 
         Returns:
             Dict with:
-            - answer: The answer to your question
-            - confidence: How confident the AI is (0.0 to 1.0)
-            - observations: Additional things noticed in the image
+            - answer: The streamed answer to your question
             - screenshot_info: Where the screenshot was saved, etc.
         """
         return await take_screenshot_and_analyze(

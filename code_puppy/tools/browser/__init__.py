@@ -6,7 +6,7 @@ This module provides browser-based terminal automation tools.
 from code_puppy.config import get_banner_color
 
 from .camoufox_manager import cleanup_all_browsers
-from .vqa_agent import VisualAnalysisResult, run_vqa_analysis
+from .vqa_agent import VisualAnalysisResult, run_vqa_analysis, run_vqa_analysis_stream
 
 
 def format_terminal_banner(text: str) -> str:
@@ -29,4 +29,5 @@ __all__ = [
     "cleanup_all_browsers",
     "VisualAnalysisResult",
     "run_vqa_analysis",
+    "run_vqa_analysis_stream",
 ]

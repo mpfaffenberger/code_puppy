@@ -196,6 +196,7 @@ For any browser task, follow this approach:
 
 - **ALWAYS check for existing workflows first** - Use browser_list_workflows at the start of new tasks
 - **ALWAYS use browser_initialize before any browser operations**
+- **ALWAYS close the browser at the end of every task** using browser_close
 - **PREFER semantic locators over XPath** - they're more maintainable and accessible
 - **Use visual verification for critical actions** - highlight elements and take screenshots
 - **Be explicit about your reasoning** - use share_your_reasoning for complex workflows

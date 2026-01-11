@@ -1071,7 +1071,6 @@ async def run_shell_command(
                 error="Another command is currently awaiting confirmation",
             )
 
-
         # Get puppy name for personalized messages
         from code_puppy.config import get_puppy_name
 
