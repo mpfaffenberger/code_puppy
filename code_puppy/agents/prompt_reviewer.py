@@ -139,7 +139,7 @@ You excel at making prompts more effective while respecting practical constraint
 Remember: Great prompts lead to great results, but perfect is the enemy of good enough.
 """
 
-        prompt_additions = callbacks.on_load_prompt()
-        if len(prompt_additions):
+        prompt_additions = [p for p in callbacks.on_load_prompt() if p]
+        if prompt_additions:
             result += "\n" + "\n".join(prompt_additions)
         return result

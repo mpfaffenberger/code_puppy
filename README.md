@@ -5,18 +5,20 @@
 **🐶✨The sassy AI code agent that makes IDEs look outdated** ✨🐶
 
 [![Version](https://img.shields.io/pypi/v/code-puppy?style=for-the-badge&logo=python&label=Version&color=purple)](https://pypi.org/project/code-puppy/)
-[![Downloads](https://img.shields.io/badge/Downloads-170k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/code-puppy/)
+[![Downloads](https://img.shields.io/badge/Downloads-100k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/code-puppy/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/actions)
+[![Coverage](https://img.shields.io/badge/Coverage-95%25-brightgreen?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
+[![Code Style](https://img.shields.io/badge/Code%20Style-Black-black?style=for-the-badge)](https://github.com/psf/black)
 [![Tests](https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge&logo=pytest)](https://github.com/mpfaffenberger/code_puppy/tests)
 
-[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5.2--Codex-orange?style=flat-square&logo=openai)](https://openai.com)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5-orange?style=flat-square&logo=openai)](https://openai.com)
 [![Gemini](https://img.shields.io/badge/Google-Gemini-blue?style=flat-square&logo=google)](https://ai.google.dev/)
 [![Anthropic](https://img.shields.io/badge/Anthropic-Claude-orange?style=flat-square&logo=anthropic)](https://anthropic.com)
-[![Cerebras](https://img.shields.io/badge/Cerebras-GLM%204.7-red?style=flat-square)](https://cerebras.ai)
-[![Z.AI](https://img.shields.io/badge/Z.AI-GLM%204.7-purple?style=flat-square)](https://z.ai/)
-[![Synthetic](https://img.shields.io/badge/Synthetic-MINIMAX_M2.1-green?style=flat-square)](https://synthetic.new)
+[![Cerebras](https://img.shields.io/badge/Cerebras-GLM%204.6-red?style=flat-square)](https://cerebras.ai)
+[![Z.AI](https://img.shields.io/badge/Z.AI-GLM%204.6-purple?style=flat-square)](https://z.ai/)
+[![Synthetic](https://img.shields.io/badge/Synthetic-MINIMAX_M2-green?style=flat-square)](https://synthetic.new)
 
 [![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
 [![Pydantic AI](https://img.shields.io/badge/Pydantic-AI-success?style=for-the-badge)](https://github.com/pydantic/pydantic-ai)
@@ -25,9 +27,6 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/mpfaffenberger/code_puppy?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/mpfaffenberger/code_puppy?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/network)
-
-[![Discord](https://img.shields.io/badge/Discord-Community-purple?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/SqYAaXVy)
-[![Docs](https://img.shields.io/badge/Read-The%20Docs-blue?style=for-the-badge&logo=readthedocs)](https://code-puppy.dev)
 
 **[⭐ Star this repo if you hate expensive IDEs! ⭐](#quick-start)**
 
@@ -62,31 +61,65 @@ uvx code-puppy -i
 
 ### UV (Recommended)
 
-#### macOS / Linux
-
 ```bash
 # Install UV if you don't have it
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-uvx code-puppy
+# Set UV to always use managed Python (one-time setup)
+echo 'export UV_MANAGED_PYTHON=1' >> ~/.zshrc  # or ~/.bashrc
+source ~/.zshrc  # or ~/.bashrc
+
+# Install and run code-puppy
+uvx code-puppy -i
 ```
 
-#### Windows
+UV will automatically download the latest compatible Python version (3.11+) if your system doesn't have one.
 
-On Windows, we recommend installing code-puppy as a global tool for the best experience with keyboard shortcuts (Ctrl+C/Ctrl+X cancellation):
+### pip (Alternative)
 
-```powershell
-# Install UV if you don't have it (run in PowerShell as Admin)
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-uvx code-puppy
+```bash
+pip install code-puppy
 ```
 
-## Changelog (By Kittylog!)
+*Note: pip installation requires your system Python to be 3.11 or newer.*
 
-[📋 View the full changelog on Kittylog](https://kittylog.app/c/mpfaffenberger/code_puppy)
+### Permanent Python Management
+
+To make UV always use managed Python versions (recommended):
+
+```bash
+# Set environment variable permanently
+echo 'export UV_MANAGED_PYTHON=1' >> ~/.zshrc  # or ~/.bashrc
+source ~/.zshrc  # or ~/.bashrc
+
+# Now all UV commands will prefer managed Python installations
+uvx code-puppy  # No need for --managed-python flag anymore
+```
+
+### Verifying Python Version
+
+```bash
+# Check which Python UV will use
+uv python find
+
+# Or check the current project's Python
+uv run python --version
+```
 
 ## Usage
+
+### Custom Commands
+Create markdown files in `.claude/commands/`, `.github/prompts/`, or `.agents/commands/` to define custom slash commands. The filename becomes the command name and the content runs as a prompt.
+
+```bash
+# Create a custom command
+echo "# Code Review
+
+Please review this code for security issues." > .claude/commands/review.md
+
+# Use it in Code Puppy
+/review with focus on authentication
+```
 
 ### Adding Models from models.dev 🆕
 
@@ -155,18 +188,6 @@ The following environment variables control DBOS behavior:
 - `DBOS_SYSTEM_DATABASE_URL`: Database URL used by DBOS. Can point to a local SQLite file or a Postgres instance. Example: `postgresql://postgres:dbos@localhost:5432/postgres`. Default: `dbos_store.sqlite` file in the config directory.
 - `DBOS_APP_VERSION`: If set, Code Puppy uses it as the [DBOS application version](https://docs.dbos.dev/architecture#application-and-workflow-versions) and automatically tries to recover pending workflows for this version. Default: Code Puppy version + Unix timestamp in millisecond (disable automatic recovery).
 
-### Custom Commands
-Create markdown files in `.claude/commands/`, `.github/prompts/`, or `.agents/commands/` to define custom slash commands. The filename becomes the command name and the content runs as a prompt.
-
-```bash
-# Create a custom command
-echo "# Code Review
-
-Please review this code for security issues." > .claude/commands/review.md
-
-# Use it in Code Puppy
-/review with focus on authentication
-```
 
 ## Requirements
 
@@ -185,6 +206,58 @@ For examples and more information about agent rules, visit [https://agent.md](ht
 ## Using MCP Servers for External Tools
 
 Use the `/mcp` command to manage MCP (list, start, stop, status, etc.)
+
+Watch this video for examples! https://www.youtube.com/watch?v=1t1zEetOqlo
+
+
+## Skills Plugin 📚
+
+Code Puppy supports **Claude Code-compatible skills** - modular knowledge packages that extend the LLM with specialized expertise.
+
+### Quick Start
+
+```bash
+/skill list              # List installed skills
+/skill add ~/my-skill    # Install a skill
+/skill info <name>       # View skill details
+/skill show <name>       # Show full documentation
+/skill remove <name>     # Uninstall skill
+/skill refresh           # Rescan skills directory
+```
+
+### Skills Directory
+
+```
+~/.code_puppy/skills/
+├── pdf/
+│   └── SKILL.md
+└── docx/
+    └── SKILL.md
+```
+
+### SKILL.md Format
+
+```yaml
+---
+name: my-skill              # kebab-case, required
+description: "What it does" # required
+license: "MIT"              # optional
+---
+
+# Skill Documentation
+
+Full instructions go here...
+```
+
+### How It Works
+
+1. **Startup** → Plugin scans `~/.code_puppy/skills/` for valid skills
+2. **Prompts** → Skill catalog is injected into system prompts
+3. **Usage** → LLM sees available skills and can request full docs
+
+See [Skills Plugin README](code_puppy/plugins/skills/README.md) for full documentation.
+
+---
 
 ## Round Robin Model Distribution
 

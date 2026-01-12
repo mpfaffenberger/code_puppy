@@ -7,7 +7,6 @@ import pickle
 import re
 import traceback
 from datetime import datetime
-from functools import partial
 from pathlib import Path
 from typing import List, Set
 
@@ -22,20 +21,18 @@ from code_puppy.config import (
     DATA_DIR,
     get_message_limit,
     get_use_dbos,
-    get_value,
 )
 from code_puppy.messaging import (
     SubAgentInvocationMessage,
     SubAgentResponseMessage,
     emit_error,
     emit_info,
-    emit_success,
     get_message_bus,
     get_session_context,
     set_session_context,
 )
+from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.tools.common import generate_group_id
-from code_puppy.tools.subagent_context import subagent_context
 
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
@@ -249,12 +246,9 @@ def register_list_agents(agent):
 
         from rich.text import Text
 
-        from code_puppy.config import get_banner_color
-
-        list_agents_color = get_banner_color("list_agents")
         emit_info(
             Text.from_markup(
-                f"\n[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}]"
+                "\n[bold white on blue] LIST AGENTS [/bold white on blue]"
             ),
             message_group=group_id,
         )
@@ -415,9 +409,6 @@ def register_invoke_agent(agent):
             session_id = f"{session_id}-{hash_suffix}"
         # else: continuing existing session, use session_id as-is
 
-        # Lazy imports to avoid circular dependency
-        from code_puppy.agents.subagent_stream_handler import subagent_stream_handler
-
         # Emit structured invocation message via MessageBus
         bus = get_message_bus()
         bus.emit(
@@ -434,27 +425,7 @@ def register_invoke_agent(agent):
         previous_session_id = get_session_context()
         set_session_context(session_id)
 
-        # Set terminal session for browser-based terminal tools
-        # This uses contextvars which properly propagate through async tasks
-        from code_puppy.tools.browser.terminal_tools import (
-            _terminal_session_var,
-            set_terminal_session,
-        )
-
-        terminal_session_token = set_terminal_session(f"terminal-{session_id}")
-
-        # Set browser session for Camoufox browser tools (qa-kitten, etc.)
-        # This allows parallel agent invocations to each have their own browser
-        from code_puppy.tools.browser.camoufox_manager import (
-            set_browser_session,
-        )
-
-        browser_session_token = set_browser_session(f"browser-{session_id}")
-
         try:
-            # Lazy import to break circular dependency with messaging module
-            from code_puppy.model_factory import ModelFactory, make_model_settings
-
             # Load the specified agent config
             agent_config = load_agent(agent_name)
 
@@ -480,8 +451,8 @@ def register_invoke_agent(agent):
             from code_puppy import callbacks
             from code_puppy.model_utils import prepare_prompt_for_model
 
-            prompt_additions = callbacks.on_load_prompt()
-            if len(prompt_additions):
+            prompt_additions = [p for p in callbacks.on_load_prompt() if p]
+            if prompt_additions:
                 instructions += "\n" + "\n".join(prompt_additions)
 
             # Handle claude-code models: swap instructions, and prepend system prompt only on first message
@@ -497,118 +468,59 @@ def register_invoke_agent(agent):
             subagent_name = f"temp-invoke-agent-{session_id}"
             model_settings = make_model_settings(model_name)
 
-            # Get MCP servers for sub-agents (same as main agent)
-            from code_puppy.mcp_ import get_mcp_manager
+            temp_agent = Agent(
+                model=model,
+                instructions=instructions,
+                output_type=str,
+                retries=3,
+                history_processors=[agent_config.message_history_accumulator],
+                model_settings=model_settings,
+            )
 
-            mcp_servers = []
-            mcp_disabled = get_value("disable_mcp_servers")
-            if not (
-                mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on")
-            ):
-                manager = get_mcp_manager()
-                mcp_servers = manager.get_servers_for_agent()
+            # Register the tools that the agent needs
+            from code_puppy.tools import register_tools_for_agent
+
+            agent_tools = agent_config.get_available_tools()
+            register_tools_for_agent(temp_agent, agent_tools)
 
             if get_use_dbos():
                 from pydantic_ai.durable_exec.dbos import DBOSAgent
 
-                # For DBOS, create agent without MCP servers (to avoid serialization issues)
-                # and add them at runtime
-                temp_agent = Agent(
-                    model=model,
-                    instructions=instructions,
-                    output_type=str,
-                    retries=3,
-                    toolsets=[],  # MCP servers added separately for DBOS
-                    history_processors=[agent_config.message_history_accumulator],
-                    model_settings=model_settings,
-                )
-
-                # Register the tools that the agent needs
-                from code_puppy.tools import register_tools_for_agent
-
-                agent_tools = agent_config.get_available_tools()
-                register_tools_for_agent(temp_agent, agent_tools)
-
-                # Wrap with DBOS - no streaming for sub-agents
-                dbos_agent = DBOSAgent(
-                    temp_agent,
-                    name=subagent_name,
-                )
+                dbos_agent = DBOSAgent(temp_agent, name=subagent_name)
                 temp_agent = dbos_agent
-
-                # Store MCP servers to add at runtime
-                subagent_mcp_servers = mcp_servers
-            else:
-                # Non-DBOS path - include MCP servers directly in the agent
-                temp_agent = Agent(
-                    model=model,
-                    instructions=instructions,
-                    output_type=str,
-                    retries=3,
-                    toolsets=mcp_servers,
-                    history_processors=[agent_config.message_history_accumulator],
-                    model_settings=model_settings,
-                )
-
-                # Register the tools that the agent needs
-                from code_puppy.tools import register_tools_for_agent
-
-                agent_tools = agent_config.get_available_tools()
-                register_tools_for_agent(temp_agent, agent_tools)
-
-                subagent_mcp_servers = None
 
             # Run the temporary agent with the provided prompt as an asyncio task
             # Pass the message_history from the session to continue the conversation
             workflow_id = None  # Track for potential cancellation
-
-            # Always use subagent_stream_handler to silence output and update console manager
-            # This ensures all sub-agent output goes through the aggregated dashboard
-            stream_handler = partial(subagent_stream_handler, session_id=session_id)
-
-            # Wrap the agent run in subagent context for tracking
-            with subagent_context(agent_name):
-                if get_use_dbos():
-                    # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
-                    workflow_id = _generate_dbos_workflow_id(group_id)
-
-                    # Add MCP servers to the DBOS agent's toolsets
-                    # (temp_agent is discarded after this invocation, so no need to restore)
-                    if subagent_mcp_servers:
-                        temp_agent._toolsets = (
-                            temp_agent._toolsets + subagent_mcp_servers
-                        )
-
-                    with SetWorkflowID(workflow_id):
-                        task = asyncio.create_task(
-                            temp_agent.run(
-                                prompt,
-                                message_history=message_history,
-                                usage_limits=UsageLimits(
-                                    request_limit=get_message_limit()
-                                ),
-                                event_stream_handler=stream_handler,
-                            )
-                        )
-                        _active_subagent_tasks.add(task)
-                else:
+            if get_use_dbos():
+                # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
+                workflow_id = _generate_dbos_workflow_id(group_id)
+                with SetWorkflowID(workflow_id):
                     task = asyncio.create_task(
                         temp_agent.run(
                             prompt,
                             message_history=message_history,
                             usage_limits=UsageLimits(request_limit=get_message_limit()),
-                            event_stream_handler=stream_handler,
                         )
                     )
                     _active_subagent_tasks.add(task)
+            else:
+                task = asyncio.create_task(
+                    temp_agent.run(
+                        prompt,
+                        message_history=message_history,
+                        usage_limits=UsageLimits(request_limit=get_message_limit()),
+                    )
+                )
+                _active_subagent_tasks.add(task)
 
-                try:
-                    result = await task
-                finally:
-                    _active_subagent_tasks.discard(task)
-                    if task.cancelled():
-                        if get_use_dbos() and workflow_id:
-                            DBOS.cancel_workflow(workflow_id)
+            try:
+                result = await task
+            finally:
+                _active_subagent_tasks.discard(task)
+                if task.cancelled():
+                    if get_use_dbos() and workflow_id:
+                        DBOS.cancel_workflow(workflow_id)
 
             # Extract the response from the result
             response = result.output
@@ -635,23 +547,13 @@ def register_invoke_agent(agent):
                 )
             )
 
-            # Emit clean completion summary
-            emit_success(
-                f"✓ {agent_name} completed successfully", message_group=group_id
-            )
-
             return AgentInvokeOutput(
                 response=response, agent_name=agent_name, session_id=session_id
             )
 
-        except Exception as e:
-            # Emit clean failure summary
-            emit_error(f"✗ {agent_name} failed: {str(e)}", message_group=group_id)
-
-            # Full traceback for debugging
+        except Exception:
             error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
             emit_error(error_msg, message_group=group_id)
-
             return AgentInvokeOutput(
                 response=None,
                 agent_name=agent_name,
@@ -662,13 +564,5 @@ def register_invoke_agent(agent):
         finally:
             # Restore the previous session context
             set_session_context(previous_session_id)
-            # Reset terminal session context
-            _terminal_session_var.reset(terminal_session_token)
-            # Reset browser session context
-            from code_puppy.tools.browser.camoufox_manager import (
-                _browser_session_var,
-            )
-
-            _browser_session_var.reset(browser_session_token)
 
     return invoke_agent
