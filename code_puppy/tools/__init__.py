@@ -41,9 +41,6 @@ from code_puppy.tools.browser.browser_navigation import (
 from code_puppy.tools.browser.browser_screenshot import (
     register_take_screenshot_and_analyze,
 )
-from code_puppy.tools.browser.browser_screenshot_vqa import (
-    register_take_screenshot_and_analyze_vqa,
-)
 from code_puppy.tools.browser.browser_scripts import (
     register_browser_clear_highlights,
     register_browser_highlight_element,
@@ -146,9 +143,8 @@ TOOL_REGISTRY = {
     "browser_wait_for_element": register_wait_for_element,
     "browser_highlight_element": register_browser_highlight_element,
     "browser_clear_highlights": register_browser_clear_highlights,
-    # Browser Screenshots and VQA
+    # Browser Screenshots
     "browser_screenshot_analyze": register_take_screenshot_and_analyze,
-    "browser_screenshot_vqa": register_take_screenshot_and_analyze_vqa,
     # Browser Workflows
     "browser_save_workflow": register_save_workflow,
     "browser_list_workflows": register_list_workflows,

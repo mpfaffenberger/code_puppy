@@ -98,7 +98,6 @@ _CURRENT_AUTOSAVE_ID: Optional[str] = None
 _model_validation_cache = {}
 _default_model_cache = None
 _default_vision_model_cache = None
-_default_vqa_model_cache = None
 
 
 def ensure_config_exists():
@@ -358,47 +357,6 @@ def _default_vision_model_from_models_json() -> str:
         return "gpt-4.1"
 
 
-def _default_vqa_model_from_models_json() -> str:
-    """Select a default VQA-capable model, preferring vision-ready options."""
-    global _default_vqa_model_cache
-
-    if _default_vqa_model_cache is not None:
-        return _default_vqa_model_cache
-
-    try:
-        from code_puppy.model_factory import ModelFactory
-
-        models_config = ModelFactory.load_config()
-        if models_config:
-            # Allow explicit VQA hints if present
-            for name, config in models_config.items():
-                if config.get("supports_vqa"):
-                    _default_vqa_model_cache = name
-                    return name
-
-            # Reuse multimodal heuristics before falling back to generic default
-            preferred_candidates = (
-                "gpt-4.1",
-                "gpt-4.1-mini",
-                "claude-4-0-sonnet",
-                "gemini-2.5-flash-preview-05-20",
-                "gpt-4.1-nano",
-            )
-            for candidate in preferred_candidates:
-                if candidate in models_config:
-                    _default_vqa_model_cache = candidate
-                    return candidate
-
-            _default_vqa_model_cache = _default_model_from_models_json()
-            return _default_vqa_model_cache
-
-        _default_vqa_model_cache = "gpt-4.1"
-        return "gpt-4.1"
-    except Exception:
-        _default_vqa_model_cache = "gpt-4.1"
-        return "gpt-4.1"
-
-
 def _validate_model_exists(model_name: str) -> bool:
     """Check if a model exists in models.json with caching to avoid redundant calls."""
     global _model_validation_cache
@@ -424,15 +382,10 @@ def _validate_model_exists(model_name: str) -> bool:
 
 def clear_model_cache():
     """Clear the model validation cache. Call this when models.json changes."""
-    global \
-        _model_validation_cache, \
-        _default_model_cache, \
-        _default_vision_model_cache, \
-        _default_vqa_model_cache
+    global _model_validation_cache, _default_model_cache, _default_vision_model_cache
     _model_validation_cache.clear()
     _default_model_cache = None
     _default_vision_model_cache = None
-    _default_vqa_model_cache = None
 
 
 def model_supports_setting(model_name: str, setting: str) -> bool:
@@ -500,21 +453,6 @@ def set_model_name(model: str):
         config.write(f)
 
     # Clear model cache when switching models to ensure fresh validation
-    clear_model_cache()
-
-
-def get_vqa_model_name() -> str:
-    """Return the configured VQA model, falling back to the global model."""
-    stored_model = get_value("vqa_model_name")
-    if stored_model and _validate_model_exists(stored_model):
-        return stored_model
-    # Fall back to the global model if no specific VQA model is set
-    return get_global_model_name()
-
-
-def set_vqa_model_name(model: str):
-    """Persist the configured VQA model name and refresh caches."""
-    set_config_value("vqa_model_name", model or "")
     clear_model_cache()
 
 

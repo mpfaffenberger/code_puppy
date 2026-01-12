@@ -11,7 +11,6 @@ from .camoufox_manager import (
     get_session_browser_manager,
     set_browser_session,
 )
-from .vqa_agent import VisualAnalysisResult, run_vqa_analysis, run_vqa_analysis_stream
 
 
 def format_terminal_banner(text: str) -> str:
@@ -35,7 +34,4 @@ __all__ = [
     "get_browser_session",
     "get_session_browser_manager",
     "set_browser_session",
-    "VisualAnalysisResult",
-    "run_vqa_analysis",
-    "run_vqa_analysis_stream",
 ]

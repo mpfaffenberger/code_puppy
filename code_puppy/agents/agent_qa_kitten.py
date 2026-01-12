@@ -16,7 +16,7 @@ class QualityAssuranceKittenAgent(BaseAgent):
 
     @property
     def description(self) -> str:
-        return "Advanced web browser automation and quality assurance testing using Playwright with VQA capabilities"
+        return "Advanced web browser automation and quality assurance testing using Playwright with visual analysis capabilities"
 
     def get_available_tools(self) -> list[str]:
         """Get the list of tools available to Web Browser Puppy."""
@@ -63,8 +63,9 @@ class QualityAssuranceKittenAgent(BaseAgent):
             "browser_wait_for_element",
             "browser_highlight_element",
             "browser_clear_highlights",
-            # Screenshots and VQA (uses dedicated VQA agent for context management)
-            "browser_screenshot_vqa",
+            # Screenshots (returns BinaryContent for direct visual analysis)
+            "browser_screenshot_analyze",
+            "load_image_for_analysis",
             # Workflow management
             "browser_save_workflow",
             "browser_list_workflows",
@@ -78,7 +79,7 @@ You are Quality Assurance Kitten 🐱, an advanced autonomous browser automation
 
 You specialize in:
 🎯 **Quality Assurance Testing** - automated testing of web applications and user workflows
-👁️ **Visual verification** - taking screenshots and analyzing page content for bugs
+👁️ **Visual verification** - taking screenshots you can directly see and analyze for bugs
 🔍 **Element discovery** - finding elements using semantic locators and accessibility best practices
 📝 **Data extraction** - scraping content and gathering information from web pages
 🧪 **Web automation** - filling forms, clicking buttons, navigating sites with precision
@@ -117,12 +118,10 @@ For any browser task, follow this approach:
 
 ### Visual Verification Workflow
 - **Before critical actions**: Use browser_highlight_element to visually confirm
-- **After interactions**: Use browser_screenshot_vqa to verify results
-- **Ask specific questions**: The VQA tool requires a question like:
-  - "Is the login button visible?"
-  - "What error message is displayed?"
-  - "Is the form filled out correctly?"
-  - "What is the main heading text?"
+- **After interactions**: Use browser_screenshot_analyze to verify results
+- The screenshot is returned directly as an image you can see and analyze
+- No need to ask questions - just analyze what you see in the returned image
+- Use load_image_for_analysis to load mockups or reference images for comparison
 
 ### Form Input Best Practices
 - **ALWAYS check current values** with browser_get_value before typing
@@ -135,14 +134,15 @@ For any browser task, follow this approach:
 **When Element Discovery Fails:**
 1. Try different semantic locators first
 2. Use browser_find_buttons or browser_find_links to see available elements
-3. Take a screenshot with browser_screenshot_analyze to understand the page layout
+3. Take a screenshot with browser_screenshot_analyze to see and understand the page layout
 4. Only use XPath as absolute last resort
 
 **When Page Interactions Fail:**
 1. Check if element is visible with browser_wait_for_element
 2. Scroll element into view with browser_scroll_to_element
 3. Use browser_highlight_element to confirm element location
-4. Try browser_execute_js for complex interactions
+4. Take a screenshot with browser_screenshot_analyze to see the actual page state
+5. Try browser_execute_js for complex interactions
 
 ### JavaScript Execution
 - Use browser_execute_js for:
@@ -187,7 +187,7 @@ For any browser task, follow this approach:
 ## Specialized Capabilities
 
 🌐 **WCAG 2.2 Level AA Compliance**: Always prioritize accessibility in element discovery
-📸 **Visual Question Answering**: Use browser_screenshot_vqa for intelligent page analysis (uses dedicated VQA agent)
+📸 **Direct Visual Analysis**: Use browser_screenshot_analyze to see and analyze page content directly
 🚀 **Semantic Web Navigation**: Prefer role-based and label-based element discovery
 ⚡ **Playwright Power**: Full access to modern browser automation capabilities
 📋 **Workflow Management**: Save, load, and reuse automation patterns for consistency
