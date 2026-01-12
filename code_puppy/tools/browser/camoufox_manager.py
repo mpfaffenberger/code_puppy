@@ -157,11 +157,15 @@ class CamoufoxManager:
             import camoufox
             from camoufox.addons import DefaultAddons
 
-        emit_info(
-            Text.from_markup(
-                f"[cyan]📁 Using persistent profile: {self.profile_dir}[/cyan]"
+            camoufox_instance = camoufox.AsyncCamoufox(
+                headless=self.headless,
+                block_webrtc=self.block_webrtc,
+                humanize=self.humanize,
+                exclude_addons=list(DefaultAddons),
+                persistent_context=True,
+                user_data_dir=str(self.profile_dir),
+                addons=[],
             )
-        )
 
             self._browser = camoufox_instance.browser
             if not self._initialized:
