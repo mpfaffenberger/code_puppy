@@ -1,6 +1,6 @@
 """Comprehensive tests for browser_screenshot.py.
 
-Tests screenshot capture functionality that returns base64 image data
+Tests screenshot capture functionality that returns ToolReturn with BinaryContent
 for direct viewing by multimodal models.
 """
 
@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic_ai import BinaryContent, ToolReturn
 
 from code_puppy.tools.browser.browser_screenshot import (
     _capture_screenshot,
@@ -30,7 +31,6 @@ class TestScreenshotCapture:
         assert result["success"] is True
         assert result["screenshot_bytes"] == screenshot_data
         assert "timestamp" in result
-        assert "base64_data" in result
         assert mock_page.screenshot.called
 
     @pytest.mark.asyncio
@@ -118,8 +118,8 @@ class TestScreenshotCapture:
                 assert call_kwargs.get("message_group") == "test_group"
 
     @pytest.mark.asyncio
-    async def test_capture_returns_base64(self):
-        """Test that capture returns base64-encoded data."""
+    async def test_capture_returns_raw_bytes(self):
+        """Test that capture returns raw screenshot bytes."""
         mock_page = AsyncMock()
         screenshot_data = b"test_png_bytes"
         mock_page.screenshot.return_value = screenshot_data
@@ -127,12 +127,8 @@ class TestScreenshotCapture:
         result = await _capture_screenshot(mock_page, save_screenshot=False)
 
         assert result["success"] is True
-        assert "base64_data" in result
-        # Verify it's valid base64
-        import base64
-
-        decoded = base64.b64decode(result["base64_data"])
-        assert decoded == screenshot_data
+        assert "screenshot_bytes" in result
+        assert result["screenshot_bytes"] == screenshot_data
 
 
 class TestTakeScreenshot:
@@ -140,7 +136,7 @@ class TestTakeScreenshot:
 
     @pytest.mark.asyncio
     async def test_take_screenshot_success(self):
-        """Test successful screenshot capture."""
+        """Test successful screenshot capture returns ToolReturn with BinaryContent."""
         mock_manager = AsyncMock()
         mock_page = AsyncMock()
         mock_page.screenshot = AsyncMock(return_value=b"screenshot_data")
@@ -153,13 +149,26 @@ class TestTakeScreenshot:
             with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
                 result = await take_screenshot(full_page=False)
 
-                assert result["success"] is True
-                assert "base64_image" in result
-                assert result["media_type"] == "image/png"
+                # Should be a ToolReturn with rich content
+                assert isinstance(result, ToolReturn)
+                assert "Screenshot captured successfully" in result.return_value
+
+                # Content should include BinaryContent image
+                assert result.content is not None
+                binary_contents = [
+                    c for c in result.content if isinstance(c, BinaryContent)
+                ]
+                assert len(binary_contents) == 1
+                assert binary_contents[0].media_type == "image/png"
+                assert binary_contents[0].data == b"screenshot_data"
+
+                # Metadata should have success info
+                assert result.metadata is not None
+                assert result.metadata["success"] is True
 
     @pytest.mark.asyncio
     async def test_take_screenshot_no_page(self):
-        """Test screenshot when no page is available."""
+        """Test screenshot when no page is available returns error dict."""
         mock_manager = AsyncMock()
         mock_manager.get_current_page.return_value = None
 
@@ -171,12 +180,14 @@ class TestTakeScreenshot:
                 with patch("code_puppy.tools.browser.browser_screenshot.emit_error"):
                     result = await take_screenshot()
 
+                    # Error case returns dict, not ToolReturn
+                    assert isinstance(result, dict)
                     assert result["success"] is False
                     assert "No active browser page" in result["error"]
 
     @pytest.mark.asyncio
     async def test_take_screenshot_full_page(self):
-        """Test full page screenshot."""
+        """Test full page screenshot includes metadata."""
         mock_manager = AsyncMock()
         mock_page = AsyncMock()
         mock_page.screenshot = AsyncMock(return_value=b"full_page_data")
@@ -189,10 +200,13 @@ class TestTakeScreenshot:
             with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
                 result = await take_screenshot(full_page=True)
 
-                assert result["success"] is True
+                assert isinstance(result, ToolReturn)
                 # Verify full_page was passed to screenshot
                 call_kwargs = mock_page.screenshot.call_args[1]
                 assert call_kwargs.get("full_page") is True
+                # Metadata should reflect full_page
+                assert result.metadata["full_page"] is True
+                assert result.metadata["target"] == "full_page"
 
 
 class TestScreenshotIntegration:
@@ -224,8 +238,8 @@ class TestScreenshotIntegration:
                 assert "timestamp" in result2
 
     @pytest.mark.asyncio
-    async def test_screenshot_returns_multimodal_format(self):
-        """Test that screenshot returns data in multimodal-ready format."""
+    async def test_screenshot_returns_toolreturn_with_binary_content(self):
+        """Test that screenshot returns ToolReturn with BinaryContent for multimodal."""
         mock_manager = AsyncMock()
         mock_page = AsyncMock()
         mock_page.screenshot = AsyncMock(return_value=b"png_bytes")
@@ -238,8 +252,22 @@ class TestScreenshotIntegration:
             with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
                 result = await take_screenshot()
 
-                assert result["success"] is True
-                # These fields are what multimodal models need
-                assert "base64_image" in result
-                assert "media_type" in result
-                assert result["media_type"] == "image/png"
+                # Must be ToolReturn for pydantic-ai to handle properly
+                assert isinstance(result, ToolReturn)
+
+                # return_value is the text summary
+                assert isinstance(result.return_value, str)
+                assert "Screenshot captured" in result.return_value
+
+                # content list should have BinaryContent for the model to SEE
+                assert result.content is not None
+                assert len(result.content) == 3  # description, image, prompt
+                binary_content = result.content[1]
+                assert isinstance(binary_content, BinaryContent)
+                assert binary_content.media_type == "image/png"
+                assert binary_content.data == b"png_bytes"
+
+                # metadata for structured access
+                assert result.metadata is not None
+                assert result.metadata["success"] is True
+                assert "timestamp" in result.metadata

@@ -5,22 +5,22 @@ This module provides tools for:
 - Reading terminal output by scraping xterm.js DOM
 - Loading images from the filesystem
 
-Screenshots are returned as base64-encoded data that multimodal models
-can directly see and analyze - no separate VQA agent needed.
+Screenshots and images are returned via ToolReturn with BinaryContent
+so multimodal models can directly see and analyze them.
 
-Screenshots are automatically resized to reduce token usage.
+Images are automatically resized to reduce token usage.
 """
 
-import base64
 import io
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 from tempfile import gettempdir, mkdtemp
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 from PIL import Image
-from pydantic_ai import RunContext
+from pydantic_ai import BinaryContent, RunContext, ToolReturn
 from rich.text import Text
 
 from code_puppy.messaging import emit_error, emit_info, emit_success
@@ -178,7 +178,6 @@ async def _capture_terminal_screenshot(
         result: Dict[str, Any] = {
             "success": True,
             "screenshot_bytes": screenshot_bytes,
-            "base64_data": base64.b64encode(screenshot_bytes).decode("utf-8"),
         }
 
         # Save to disk if requested (save the resized version)
@@ -205,11 +204,11 @@ async def _capture_terminal_screenshot(
 async def terminal_screenshot(
     full_page: bool = False,
     save_to_disk: bool = True,
-) -> Dict[str, Any]:
+) -> Union[ToolReturn, Dict[str, Any]]:
     """Take a screenshot of the terminal browser.
 
-    Captures a screenshot and returns it as base64-encoded PNG data.
-    Multimodal models can directly see and analyze this image.
+    Captures a screenshot and returns it via ToolReturn with BinaryContent
+    so multimodal models can directly see and analyze the image.
 
     Args:
         full_page: Whether to capture the full page or just viewport.
@@ -218,18 +217,11 @@ async def terminal_screenshot(
             Defaults to True.
 
     Returns:
-        A dictionary containing:
-            - success (bool): True if screenshot was captured.
-            - base64_image (str): Base64-encoded PNG image data.
-            - media_type (str): Always "image/png".
-            - screenshot_path (str): Path to saved file (if save_to_disk=True).
-            - error (str): Error message if unsuccessful.
-
-    Example:
-        >>> result = await terminal_screenshot()
-        >>> if result["success"]:
-        ...     # The base64_image can be shown to multimodal models
-        ...     print(f"Screenshot saved to: {result['screenshot_path']}")
+        ToolReturn containing:
+            - return_value: Success message with screenshot path
+            - content: List with description and BinaryContent image
+            - metadata: Screenshot details (path, target, timestamp)
+        Or Dict with error info if failed.
     """
     target = "full_page" if full_page else "viewport"
     group_id = generate_group_id("terminal_screenshot", target)
@@ -249,14 +241,27 @@ async def terminal_screenshot(
         emit_error(result.get("error", "Screenshot failed"), message_group=group_id)
         return result
 
-    # Return clean result with base64 image for model consumption
-    return {
-        "success": True,
-        "base64_image": result["base64_data"],
-        "media_type": "image/png",
-        "screenshot_path": result.get("screenshot_path"),
-        "message": "Screenshot captured. The base64_image contains the terminal view.",
-    }
+    screenshot_path = result.get("screenshot_path", "(not saved)")
+
+    # Return as ToolReturn with BinaryContent so the model can SEE the image!
+    return ToolReturn(
+        return_value=f"Terminal screenshot captured. Saved to: {screenshot_path}",
+        content=[
+            f"Here's the terminal screenshot ({target}):",
+            BinaryContent(
+                data=result["screenshot_bytes"],
+                media_type="image/png",
+            ),
+            "Please analyze what you see in the terminal.",
+        ],
+        metadata={
+            "success": True,
+            "screenshot_path": screenshot_path,
+            "target": target,
+            "full_page": full_page,
+            "timestamp": time.time(),
+        },
+    )
 
 
 async def terminal_read_output(lines: int = 50) -> Dict[str, Any]:
@@ -328,23 +333,22 @@ async def terminal_read_output(lines: int = 50) -> Dict[str, Any]:
 async def load_image(
     image_path: str,
     max_height: int = DEFAULT_MAX_HEIGHT,
-) -> Dict[str, Any]:
-    """Load an image from the filesystem as base64 data.
+) -> Union[ToolReturn, Dict[str, Any]]:
+    """Load an image from the filesystem for visual analysis.
 
     Loads any image file, resizes it to reduce token usage, and returns
-    it as base64-encoded data that multimodal models can directly see.
+    it via ToolReturn with BinaryContent so multimodal models can see it.
 
     Args:
         image_path: Path to the image file.
         max_height: Maximum height for resizing (default 768px).
 
     Returns:
-        A dictionary containing:
-            - success (bool): True if image was loaded.
-            - base64_image (str): Base64-encoded image data (resized).
-            - media_type (str): The image MIME type (e.g., "image/png").
-            - image_path (str): The original path.
-            - error (str): Error message if unsuccessful.
+        ToolReturn containing:
+            - return_value: Success message with path info
+            - content: List with description and BinaryContent image
+            - metadata: Image details (path, resized height)
+        Or Dict with error info if failed.
     """
     group_id = generate_group_id("load_image", image_path)
     emit_info(f"LOAD IMAGE 🖼️ {image_path}", message_group=group_id)
@@ -368,18 +372,26 @@ async def load_image(
         # Resize to reduce token usage
         image_bytes = _resize_image(original_bytes, max_height=max_height)
 
-        # Always return as PNG after resizing (consistent format)
-        base64_data = base64.b64encode(image_bytes).decode("utf-8")
-
         emit_success(f"Loaded image: {image_path}", message_group=group_id)
 
-        return {
-            "success": True,
-            "base64_image": base64_data,
-            "media_type": "image/png",  # Always PNG after resize
-            "image_path": image_path,
-            "message": f"Image loaded (resized to max {max_height}px height for token efficiency).",
-        }
+        # Return as ToolReturn with BinaryContent so the model can SEE the image!
+        return ToolReturn(
+            return_value=f"Image loaded from: {image_path}",
+            content=[
+                f"Here's the image from {image_file.name}:",
+                BinaryContent(
+                    data=image_bytes,
+                    media_type="image/png",  # Always PNG after resize
+                ),
+                "Please analyze what you see in this image.",
+            ],
+            metadata={
+                "success": True,
+                "image_path": image_path,
+                "max_height": max_height,
+                "timestamp": time.time(),
+            },
+        )
 
     except Exception as e:
         error_msg = f"Failed to load image: {str(e)}"
@@ -400,18 +412,18 @@ def register_terminal_screenshot(agent):
     async def terminal_screenshot_analyze(
         context: RunContext,
         full_page: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> Union[ToolReturn, Dict[str, Any]]:
         """
         Take a screenshot of the terminal browser.
 
-        Returns the screenshot as base64 image data that you can see directly.
-        Use this to see what's displayed in the terminal.
+        Returns the screenshot via ToolReturn with BinaryContent that you can
+        see directly. Use this to see what's displayed in the terminal.
 
         Args:
             full_page: Capture full page (True) or just viewport (False).
 
         Returns:
-            Dict with base64_image (PNG data you can see), screenshot_path, etc.
+            ToolReturn with the terminal screenshot you can analyze, or error dict.
         """
         # Session is set by invoke_agent via contextvar
         return await terminal_screenshot(full_page=full_page)
@@ -449,17 +461,18 @@ def register_load_image(agent):
     async def load_image_for_analysis(
         context: RunContext,
         image_path: str,
-    ) -> Dict[str, Any]:
+    ) -> Union[ToolReturn, Dict[str, Any]]:
         """
         Load an image file so you can see and analyze it.
 
-        Returns the image as base64 data that you can see directly.
+        Returns the image via ToolReturn with BinaryContent that you can
+        see directly.
 
         Args:
             image_path: Path to the image file.
 
         Returns:
-            Dict with base64_image (you can see this), media_type, etc.
+            ToolReturn with the image you can analyze, or error dict.
         """
         # Session is set by invoke_agent via contextvar
         return await load_image(image_path=image_path)
@@ -472,18 +485,18 @@ def register_terminal_compare_mockup(agent):
     async def terminal_compare_mockup(
         context: RunContext,
         mockup_path: str,
-    ) -> Dict[str, Any]:
+    ) -> Union[ToolReturn, Dict[str, Any]]:
         """
         Compare the terminal to a mockup image.
 
         Takes a screenshot of the terminal and loads the mockup image.
-        Returns both as base64 so you can visually compare them.
+        Returns both via ToolReturn with BinaryContent so you can compare them.
 
         Args:
             mockup_path: Path to the mockup/expected image.
 
         Returns:
-            Dict with terminal_image, mockup_image (both base64), paths, etc.
+            ToolReturn with both images (terminal and mockup) you can compare.
         """
         # Session is set by invoke_agent via contextvar
         group_id = generate_group_id("terminal_compare_mockup", mockup_path)
@@ -493,28 +506,51 @@ def register_terminal_compare_mockup(agent):
             message_group=group_id,
         )
 
-        # Load the mockup
-        mockup_result = await load_image(mockup_path)
-        if not mockup_result["success"]:
-            return mockup_result
+        # Capture terminal screenshot (get raw result for bytes)
+        terminal_capture = await _capture_terminal_screenshot(
+            full_page=False,
+            save_to_disk=True,
+            group_id=group_id,
+        )
+        if not terminal_capture["success"]:
+            return terminal_capture
 
-        # Take terminal screenshot
-        terminal_result = await terminal_screenshot(full_page=False)
-        if not terminal_result["success"]:
-            return terminal_result
+        # Load the mockup image
+        mockup_file = Path(mockup_path)
+        if not mockup_file.exists():
+            error_msg = f"Mockup file not found: {mockup_path}"
+            emit_error(error_msg, message_group=group_id)
+            return {"success": False, "error": error_msg}
+
+        mockup_bytes = _resize_image(mockup_file.read_bytes())
 
         emit_success(
             "Both images loaded. Compare them visually.",
             message_group=group_id,
         )
 
-        return {
-            "success": True,
-            "terminal_image": terminal_result["base64_image"],
-            "mockup_image": mockup_result["base64_image"],
-            "media_type": "image/png",
-            "terminal_path": terminal_result.get("screenshot_path"),
-            "mockup_path": mockup_path,
-            "message": "Both images loaded. terminal_image shows the current terminal, "
-            "mockup_image shows the expected design. Compare them visually.",
-        }
+        terminal_path = terminal_capture.get("screenshot_path", "(not saved)")
+
+        # Return as ToolReturn with BOTH images as BinaryContent!
+        return ToolReturn(
+            return_value=f"Comparison ready: terminal vs mockup ({mockup_path})",
+            content=[
+                "Here's the CURRENT terminal screenshot:",
+                BinaryContent(
+                    data=terminal_capture["screenshot_bytes"],
+                    media_type="image/png",
+                ),
+                f"And here's the EXPECTED mockup ({mockup_file.name}):",
+                BinaryContent(
+                    data=mockup_bytes,
+                    media_type="image/png",
+                ),
+                "Please compare these images and describe any differences.",
+            ],
+            metadata={
+                "success": True,
+                "terminal_path": terminal_path,
+                "mockup_path": mockup_path,
+                "timestamp": time.time(),
+            },
+        )

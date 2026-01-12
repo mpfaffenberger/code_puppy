@@ -20,32 +20,32 @@ import pytest
 # Import the module directly
 from code_puppy.tools import command_runner
 from code_puppy.tools.command_runner import (
-    ShellCommandOutput,
-    ShellSafetyAssessment,
-    ReasoningOutput,
-    run_shell_command_streaming,
-    kill_all_running_shell_processes,
-    get_running_shell_process_count,
-    is_awaiting_user_input,
-    set_awaiting_user_input,
-    share_your_reasoning,
-    _truncate_line,
-    _register_process,
-    _unregister_process,
-    _kill_process_group,
-    _acquire_keyboard_context,
-    _release_keyboard_context,
-    _start_keyboard_listener,
-    _stop_keyboard_listener,
-    _spawn_ctrl_x_key_listener,
-    _shell_command_keyboard_context,
-    _handle_ctrl_x_press,
-    _shell_sigint_handler,
+    _KEYBOARD_CONTEXT_LOCK,
     _RUNNING_PROCESSES,
     _RUNNING_PROCESSES_LOCK,
     _USER_KILLED_PROCESSES,
-    _KEYBOARD_CONTEXT_LOCK,
     MAX_LINE_LENGTH,
+    ReasoningOutput,
+    ShellCommandOutput,
+    ShellSafetyAssessment,
+    _acquire_keyboard_context,
+    _handle_ctrl_x_press,
+    _kill_process_group,
+    _register_process,
+    _release_keyboard_context,
+    _shell_command_keyboard_context,
+    _shell_sigint_handler,
+    _spawn_ctrl_x_key_listener,
+    _start_keyboard_listener,
+    _stop_keyboard_listener,
+    _truncate_line,
+    _unregister_process,
+    get_running_shell_process_count,
+    is_awaiting_user_input,
+    kill_all_running_shell_processes,
+    run_shell_command_streaming,
+    set_awaiting_user_input,
+    share_your_reasoning,
 )
 
 
@@ -75,8 +75,8 @@ class TestRunShellCommandStreaming:
         )
         _register_process(proc)
 
-        with patch.object(command_runner, 'emit_shell_line'):
-            with patch.object(command_runner, 'get_message_bus') as mock_bus:
+        with patch.object(command_runner, "emit_shell_line"):
+            with patch.object(command_runner, "get_message_bus") as mock_bus:
                 mock_bus.return_value = MagicMock()
                 result = run_shell_command_streaming(
                     proc, timeout=10, command="echo hello", silent=True
@@ -97,8 +97,8 @@ class TestRunShellCommandStreaming:
         )
         _register_process(proc)
 
-        with patch.object(command_runner, 'emit_shell_line'):
-            with patch.object(command_runner, 'get_message_bus') as mock_bus:
+        with patch.object(command_runner, "emit_shell_line"):
+            with patch.object(command_runner, "get_message_bus") as mock_bus:
                 mock_bus.return_value = MagicMock()
                 result = run_shell_command_streaming(
                     proc, timeout=10, command="failing", silent=True
@@ -118,8 +118,8 @@ class TestRunShellCommandStreaming:
         )
         _register_process(proc)
 
-        with patch.object(command_runner, 'emit_shell_line'):
-            with patch.object(command_runner, 'get_message_bus') as mock_bus:
+        with patch.object(command_runner, "emit_shell_line"):
+            with patch.object(command_runner, "get_message_bus") as mock_bus:
                 mock_bus.return_value = MagicMock()
                 result = run_shell_command_streaming(
                     proc, timeout=10, command="stderr test", silent=True
@@ -127,7 +127,9 @@ class TestRunShellCommandStreaming:
 
         assert "error output" in result.stderr
 
-    @pytest.mark.skip(reason="Slow test - subprocess timeout test works but takes too long")
+    @pytest.mark.skip(
+        reason="Slow test - subprocess timeout test works but takes too long"
+    )
     def test_streaming_inactivity_timeout(self):
         """Test that inactivity timeout triggers process cleanup."""
         # This test is skipped because it requires real subprocess which can be slow
@@ -162,15 +164,17 @@ class TestRunShellCommandStreaming:
         )
         _register_process(proc)
 
-        with patch.object(command_runner, 'emit_shell_line'):
-            with patch.object(command_runner, 'get_message_bus') as mock_bus:
+        with patch.object(command_runner, "emit_shell_line"):
+            with patch.object(command_runner, "get_message_bus") as mock_bus:
                 mock_bus.return_value = MagicMock()
                 result = run_shell_command_streaming(
                     proc, timeout=10, command="long line", silent=True
                 )
 
         # Lines should be truncated to MAX_LINE_LENGTH
-        assert len(result.stdout.split('\n')[0]) <= MAX_LINE_LENGTH + 20  # +20 for "... [truncated]"
+        assert (
+            len(result.stdout.split("\n")[0]) <= MAX_LINE_LENGTH + 20
+        )  # +20 for "... [truncated]"
 
     def test_streaming_silent_mode(self):
         """Test that silent mode suppresses output emission."""
@@ -183,8 +187,8 @@ class TestRunShellCommandStreaming:
         )
         _register_process(proc)
 
-        with patch.object(command_runner, 'emit_shell_line') as mock_emit:
-            with patch.object(command_runner, 'get_message_bus') as mock_bus:
+        with patch.object(command_runner, "emit_shell_line") as mock_emit:
+            with patch.object(command_runner, "get_message_bus") as mock_bus:
                 mock_bus.return_value = MagicMock()
                 result = run_shell_command_streaming(
                     proc, timeout=10, command="silent", silent=True
@@ -205,8 +209,8 @@ class TestRunShellCommandStreaming:
         )
         _register_process(proc)
 
-        with patch.object(command_runner, 'emit_shell_line') as mock_emit:
-            with patch.object(command_runner, 'get_message_bus') as mock_bus:
+        with patch.object(command_runner, "emit_shell_line") as mock_emit:
+            with patch.object(command_runner, "get_message_bus") as mock_bus:
                 mock_bus.return_value = MagicMock()
                 result = run_shell_command_streaming(
                     proc, timeout=10, command="visible", silent=False
@@ -240,36 +244,36 @@ class TestKeyboardContextManagement:
         """Test that acquiring keyboard context increments refcount."""
         initial = command_runner._KEYBOARD_CONTEXT_REFCOUNT
 
-        with patch.object(command_runner, '_start_keyboard_listener'):
+        with patch.object(command_runner, "_start_keyboard_listener"):
             _acquire_keyboard_context()
 
         assert command_runner._KEYBOARD_CONTEXT_REFCOUNT == initial + 1
 
         # Clean up
-        with patch.object(command_runner, '_stop_keyboard_listener'):
+        with patch.object(command_runner, "_stop_keyboard_listener"):
             _release_keyboard_context()
 
     def test_release_keyboard_context_decrements_refcount(self):
         """Test that releasing keyboard context decrements refcount."""
         # First acquire
-        with patch.object(command_runner, '_start_keyboard_listener'):
+        with patch.object(command_runner, "_start_keyboard_listener"):
             _acquire_keyboard_context()
             _acquire_keyboard_context()
 
         refcount_after_acquire = command_runner._KEYBOARD_CONTEXT_REFCOUNT
 
-        with patch.object(command_runner, '_stop_keyboard_listener'):
+        with patch.object(command_runner, "_stop_keyboard_listener"):
             _release_keyboard_context()
 
         assert command_runner._KEYBOARD_CONTEXT_REFCOUNT == refcount_after_acquire - 1
 
         # Clean up remaining
-        with patch.object(command_runner, '_stop_keyboard_listener'):
+        with patch.object(command_runner, "_stop_keyboard_listener"):
             _release_keyboard_context()
 
     def test_acquire_starts_listener_on_first_command(self):
         """Test that listener starts only on first command."""
-        with patch.object(command_runner, '_start_keyboard_listener') as mock_start:
+        with patch.object(command_runner, "_start_keyboard_listener") as mock_start:
             _acquire_keyboard_context()
             assert mock_start.call_count == 1
 
@@ -277,17 +281,17 @@ class TestKeyboardContextManagement:
             assert mock_start.call_count == 1
 
         # Clean up
-        with patch.object(command_runner, '_stop_keyboard_listener'):
+        with patch.object(command_runner, "_stop_keyboard_listener"):
             _release_keyboard_context()
             _release_keyboard_context()
 
     def test_release_stops_listener_on_last_command(self):
         """Test that listener stops only when last command finishes."""
-        with patch.object(command_runner, '_start_keyboard_listener'):
+        with patch.object(command_runner, "_start_keyboard_listener"):
             _acquire_keyboard_context()
             _acquire_keyboard_context()
 
-        with patch.object(command_runner, '_stop_keyboard_listener') as mock_stop:
+        with patch.object(command_runner, "_stop_keyboard_listener") as mock_stop:
             _release_keyboard_context()  # Still one active
             assert mock_stop.call_count == 0
 
@@ -296,7 +300,7 @@ class TestKeyboardContextManagement:
 
     def test_refcount_clamped_to_zero(self):
         """Test that refcount doesn't go negative."""
-        with patch.object(command_runner, '_stop_keyboard_listener'):
+        with patch.object(command_runner, "_stop_keyboard_listener"):
             _release_keyboard_context()
             _release_keyboard_context()
             _release_keyboard_context()
@@ -309,18 +313,18 @@ class TestShellCommandKeyboardContext:
 
     def test_context_manager_sets_up_listener(self):
         """Test that context manager sets up Ctrl-X listener."""
-        with patch.object(command_runner, '_spawn_ctrl_x_key_listener') as mock_spawn:
+        with patch.object(command_runner, "_spawn_ctrl_x_key_listener") as mock_spawn:
             mock_spawn.return_value = None
-            with patch('signal.signal'):
+            with patch("signal.signal"):
                 with _shell_command_keyboard_context():
                     # Inside context, stop event should be set
                     assert command_runner._SHELL_CTRL_X_STOP_EVENT is not None
 
     def test_context_manager_cleans_up(self):
         """Test that context manager cleans up on exit."""
-        with patch.object(command_runner, '_spawn_ctrl_x_key_listener') as mock_spawn:
+        with patch.object(command_runner, "_spawn_ctrl_x_key_listener") as mock_spawn:
             mock_spawn.return_value = None
-            with patch('signal.signal'):
+            with patch("signal.signal"):
                 with _shell_command_keyboard_context():
                     pass
 
@@ -345,16 +349,20 @@ class TestHandleCtrlXPress:
 
     def test_handle_ctrl_x_calls_kill_all(self):
         """Test that Ctrl-X handler calls kill_all_running_shell_processes."""
-        with patch.object(command_runner, 'kill_all_running_shell_processes') as mock_kill:
-            with patch.object(command_runner, 'emit_warning'):
+        with patch.object(
+            command_runner, "kill_all_running_shell_processes"
+        ) as mock_kill:
+            with patch.object(command_runner, "emit_warning"):
                 _handle_ctrl_x_press()
 
         mock_kill.assert_called_once()
 
     def test_shell_sigint_handler_calls_kill_all(self):
         """Test that SIGINT handler calls kill_all_running_shell_processes."""
-        with patch.object(command_runner, 'kill_all_running_shell_processes') as mock_kill:
-            with patch.object(command_runner, 'emit_warning'):
+        with patch.object(
+            command_runner, "kill_all_running_shell_processes"
+        ) as mock_kill:
+            with patch.object(command_runner, "emit_warning"):
                 _shell_sigint_handler(None, None)
 
         mock_kill.assert_called_once()
@@ -370,10 +378,10 @@ class TestKillProcessGroup:
         mock_proc.pid = 99999
         mock_proc.poll.return_value = None  # First call: running
 
-        with patch.object(command_runner, 'emit_error'):
-            with patch('os.getpgid', return_value=99999):
-                with patch('os.killpg'):
-                    with patch('os.kill'):
+        with patch.object(command_runner, "emit_error"):
+            with patch("os.getpgid", return_value=99999):
+                with patch("os.killpg"):
+                    with patch("os.kill"):
                         _kill_process_group(mock_proc)
 
     def test_kill_process_group_handles_already_dead(self):
@@ -386,7 +394,7 @@ class TestKillProcessGroup:
         proc.wait()  # Wait for it to finish
 
         # Should not raise
-        with patch.object(command_runner, 'emit_error'):
+        with patch.object(command_runner, "emit_error"):
             _kill_process_group(proc)
 
 
@@ -422,8 +430,8 @@ class TestKillAllRunningShellProcesses:
 
         _register_process(mock_proc)
 
-        with patch.object(command_runner, 'emit_error'):
-            with patch.object(command_runner, '_kill_process_group'):
+        with patch.object(command_runner, "emit_error"):
+            with patch.object(command_runner, "_kill_process_group"):
                 count = kill_all_running_shell_processes()
 
         assert count == 1
@@ -459,8 +467,8 @@ class TestKillAllRunningShellProcesses:
 
         _register_process(mock_proc)
 
-        with patch.object(command_runner, 'emit_error'):
-            with patch.object(command_runner, '_kill_process_group'):
+        with patch.object(command_runner, "emit_error"):
+            with patch.object(command_runner, "_kill_process_group"):
                 kill_all_running_shell_processes()
 
         # close() should have been called on pipes
@@ -521,12 +529,10 @@ class TestShareYourReasoning:
         """Test that share_your_reasoning returns success."""
         mock_context = MagicMock()
 
-        with patch.object(command_runner, 'get_message_bus') as mock_bus:
+        with patch.object(command_runner, "get_message_bus") as mock_bus:
             mock_bus.return_value = MagicMock()
             result = share_your_reasoning(
-                mock_context,
-                reasoning="Testing reasoning",
-                next_steps="Step 1"
+                mock_context, reasoning="Testing reasoning", next_steps="Step 1"
             )
 
         assert isinstance(result, ReasoningOutput)
@@ -536,12 +542,12 @@ class TestShareYourReasoning:
         """Test share_your_reasoning with list of next steps."""
         mock_context = MagicMock()
 
-        with patch.object(command_runner, 'get_message_bus') as mock_bus:
+        with patch.object(command_runner, "get_message_bus") as mock_bus:
             mock_bus.return_value = MagicMock()
             result = share_your_reasoning(
                 mock_context,
                 reasoning="Multi-step reasoning",
-                next_steps=["Step 1", "Step 2", "Step 3"]
+                next_steps=["Step 1", "Step 2", "Step 3"],
             )
 
         assert result.success is True
@@ -551,11 +557,9 @@ class TestShareYourReasoning:
         mock_context = MagicMock()
         mock_bus = MagicMock()
 
-        with patch.object(command_runner, 'get_message_bus', return_value=mock_bus):
+        with patch.object(command_runner, "get_message_bus", return_value=mock_bus):
             share_your_reasoning(
-                mock_context,
-                reasoning="Test reasoning",
-                next_steps=None
+                mock_context, reasoning="Test reasoning", next_steps=None
             )
 
         mock_bus.emit.assert_called_once()
@@ -564,12 +568,10 @@ class TestShareYourReasoning:
         """Test share_your_reasoning with None next_steps."""
         mock_context = MagicMock()
 
-        with patch.object(command_runner, 'get_message_bus') as mock_bus:
+        with patch.object(command_runner, "get_message_bus") as mock_bus:
             mock_bus.return_value = MagicMock()
             result = share_your_reasoning(
-                mock_context,
-                reasoning="No next steps",
-                next_steps=None
+                mock_context, reasoning="No next steps", next_steps=None
             )
 
         assert result.success is True
@@ -578,12 +580,12 @@ class TestShareYourReasoning:
         """Test share_your_reasoning with empty string next_steps."""
         mock_context = MagicMock()
 
-        with patch.object(command_runner, 'get_message_bus') as mock_bus:
+        with patch.object(command_runner, "get_message_bus") as mock_bus:
             mock_bus.return_value = MagicMock()
             result = share_your_reasoning(
                 mock_context,
                 reasoning="Empty steps",
-                next_steps="  "  # Whitespace only
+                next_steps="  ",  # Whitespace only
             )
 
         assert result.success is True
@@ -608,7 +610,7 @@ class TestSpawnCtrlXKeyListener:
 
     def test_spawn_listener_returns_none_when_not_tty(self):
         """Test that listener returns None when stdin is not a tty."""
-        with patch('sys.stdin') as mock_stdin:
+        with patch("sys.stdin") as mock_stdin:
             mock_stdin.isatty.return_value = False
             stop_event = threading.Event()
 
@@ -631,7 +633,7 @@ class TestSpawnCtrlXKeyListener:
 
     def test_spawn_listener_handles_isatty_exception(self):
         """Test that listener handles exception from isatty()."""
-        with patch('sys.stdin') as mock_stdin:
+        with patch("sys.stdin") as mock_stdin:
             mock_stdin.isatty.side_effect = Exception("tty error")
             stop_event = threading.Event()
 
@@ -656,8 +658,10 @@ class TestStartStopKeyboardListener:
 
     def test_start_keyboard_listener_creates_stop_event(self):
         """Test that _start_keyboard_listener creates stop event."""
-        with patch.object(command_runner, '_spawn_ctrl_x_key_listener', return_value=None):
-            with patch('signal.signal'):
+        with patch.object(
+            command_runner, "_spawn_ctrl_x_key_listener", return_value=None
+        ):
+            with patch("signal.signal"):
                 _start_keyboard_listener()
 
         assert command_runner._SHELL_CTRL_X_STOP_EVENT is not None
@@ -667,7 +671,7 @@ class TestStartStopKeyboardListener:
         """Test that _stop_keyboard_listener sets the stop event."""
         command_runner._SHELL_CTRL_X_STOP_EVENT = threading.Event()
 
-        with patch('signal.signal'):
+        with patch("signal.signal"):
             _stop_keyboard_listener()
 
         # Check that event was set before cleanup
@@ -691,14 +695,14 @@ class TestSetAwaitingUserInput:
 
     def test_set_awaiting_true(self):
         """Test setting awaiting user input to true."""
-        with patch('code_puppy.messaging.spinner.pause_all_spinners'):
+        with patch("code_puppy.messaging.spinner.pause_all_spinners"):
             set_awaiting_user_input(True)
 
         assert is_awaiting_user_input() is True
 
     def test_set_awaiting_false(self):
         """Test setting awaiting user input to false."""
-        with patch('code_puppy.messaging.spinner.resume_all_spinners'):
+        with patch("code_puppy.messaging.spinner.resume_all_spinners"):
             set_awaiting_user_input(False)
 
         assert is_awaiting_user_input() is False
@@ -706,7 +710,7 @@ class TestSetAwaitingUserInput:
     def test_set_awaiting_handles_import_error(self):
         """Test that set_awaiting_user_input handles ImportError gracefully."""
         # This should not raise even if spinner module is not available
-        with patch.dict('sys.modules', {'code_puppy.messaging.spinner': None}):
+        with patch.dict("sys.modules", {"code_puppy.messaging.spinner": None}):
             set_awaiting_user_input(True)
             set_awaiting_user_input(False)
 
@@ -833,25 +837,19 @@ class TestShellSafetyAssessmentModel:
         """Test all valid risk levels."""
         for risk in ["none", "low", "medium", "high", "critical"]:
             assessment = ShellSafetyAssessment(
-                risk=risk,
-                reasoning=f"Testing {risk} risk"
+                risk=risk, reasoning=f"Testing {risk} risk"
             )
             assert assessment.risk == risk
 
     def test_fallback_flag_default(self):
         """Test that is_fallback defaults to False."""
-        assessment = ShellSafetyAssessment(
-            risk="none",
-            reasoning="Safe command"
-        )
+        assessment = ShellSafetyAssessment(risk="none", reasoning="Safe command")
         assert assessment.is_fallback is False
 
     def test_fallback_flag_explicit(self):
         """Test setting is_fallback explicitly."""
         assessment = ShellSafetyAssessment(
-            risk="medium",
-            reasoning="Could not parse properly",
-            is_fallback=True
+            risk="medium", reasoning="Could not parse properly", is_fallback=True
         )
         assert assessment.is_fallback is True
 
@@ -924,8 +922,8 @@ class TestStreamingExceptionHandling:
         mock_process.stderr = mock_stderr
         mock_process.stdin = mock_stdin
 
-        with patch.object(command_runner, 'emit_shell_line'):
-            with patch.object(command_runner, 'get_message_bus') as mock_bus:
+        with patch.object(command_runner, "emit_shell_line"):
+            with patch.object(command_runner, "get_message_bus") as mock_bus:
                 mock_bus.return_value = MagicMock()
                 result = run_shell_command_streaming(
                     mock_process, timeout=5, command="test", silent=True

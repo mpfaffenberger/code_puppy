@@ -8,15 +8,14 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-
 from code_puppy.plugins.customizable_commands.register_callbacks import (
     MarkdownCommandResult,
+    _command_descriptions,
+    _custom_commands,
     _custom_help,
     _generate_unique_command_name,
     _handle_custom_command,
     _load_markdown_commands,
-    _custom_commands,
-    _command_descriptions,
 )
 
 
@@ -162,9 +161,7 @@ class TestLoadMarkdownCommands:
                 "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
                 [".github/prompts"],
             ):
-                with patch.object(
-                    Path, "expanduser", return_value=prompts_dir
-                ):
+                with patch.object(Path, "expanduser", return_value=prompts_dir):
                     with patch.object(Path, "exists", return_value=True):
                         with patch.object(
                             Path,
@@ -473,7 +470,10 @@ class TestCallbackRegistration:
 
         callbacks = get_callbacks("custom_command_help")
         # _custom_help should be registered
-        assert any(cb is _custom_help or getattr(cb, '__wrapped__', None) is _custom_help for cb in callbacks)
+        assert any(
+            cb is _custom_help or getattr(cb, "__wrapped__", None) is _custom_help
+            for cb in callbacks
+        )
 
     def test_custom_command_callback_registered(self):
         """Test that custom_command callback is registered."""
@@ -481,7 +481,11 @@ class TestCallbackRegistration:
 
         callbacks = get_callbacks("custom_command")
         # _handle_custom_command should be registered
-        assert any(cb is _handle_custom_command or getattr(cb, '__wrapped__', None) is _handle_custom_command for cb in callbacks)
+        assert any(
+            cb is _handle_custom_command
+            or getattr(cb, "__wrapped__", None) is _handle_custom_command
+            for cb in callbacks
+        )
 
 
 class TestModuleExports:

@@ -67,10 +67,13 @@ class TestStderrFileCaptureMonitoring:
             # Verify emit_info was called with the line content
             emit_calls = [str(call) for call in mock_emit_info.call_args_list]
             # Check that some call contains our line
-            assert any(
-                "New stderr line" in str(call) or "test-server" in str(call)
-                for call in emit_calls
-            ) or len(capture.captured_lines) > 0
+            assert (
+                any(
+                    "New stderr line" in str(call) or "test-server" in str(call)
+                    for call in emit_calls
+                )
+                or len(capture.captured_lines) > 0
+            )
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
@@ -262,14 +265,13 @@ class TestSimpleCapturedMCPServerStdioClientStreams:
         async def mock_stdio_client(server, errlog=None):
             yield mock_read_stream, mock_write_stream
 
-        with patch(
-            "code_puppy.mcp_.blocking_startup.stdio_client", mock_stdio_client
-        ), patch(
-            "code_puppy.mcp_.blocking_startup.rotate_log_if_needed"
-        ), patch(
-            "code_puppy.mcp_.blocking_startup.get_log_file_path"
-        ) as mock_get_path, patch(
-            "code_puppy.mcp_.blocking_startup.write_log"
+        with (
+            patch("code_puppy.mcp_.blocking_startup.stdio_client", mock_stdio_client),
+            patch("code_puppy.mcp_.blocking_startup.rotate_log_if_needed"),
+            patch(
+                "code_puppy.mcp_.blocking_startup.get_log_file_path"
+            ) as mock_get_path,
+            patch("code_puppy.mcp_.blocking_startup.write_log"),
         ):
             # Create a temp file for the log
             with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp:
@@ -294,14 +296,13 @@ class TestSimpleCapturedMCPServerStdioClientStreams:
         async def mock_stdio_client(server, errlog=None):
             yield AsyncMock(), AsyncMock()
 
-        with patch(
-            "code_puppy.mcp_.blocking_startup.stdio_client", mock_stdio_client
-        ), patch(
-            "code_puppy.mcp_.blocking_startup.rotate_log_if_needed"
-        ), patch(
-            "code_puppy.mcp_.blocking_startup.get_log_file_path"
-        ) as mock_get_path, patch(
-            "code_puppy.mcp_.blocking_startup.write_log"
+        with (
+            patch("code_puppy.mcp_.blocking_startup.stdio_client", mock_stdio_client),
+            patch("code_puppy.mcp_.blocking_startup.rotate_log_if_needed"),
+            patch(
+                "code_puppy.mcp_.blocking_startup.get_log_file_path"
+            ) as mock_get_path,
+            patch("code_puppy.mcp_.blocking_startup.write_log"),
         ):
             with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp:
                 mock_get_path.return_value = tmp.name
@@ -325,14 +326,13 @@ class TestSimpleCapturedMCPServerStdioClientStreams:
         async def mock_stdio_client(server, errlog=None):
             yield AsyncMock(), AsyncMock()
 
-        with patch(
-            "code_puppy.mcp_.blocking_startup.stdio_client", mock_stdio_client
-        ), patch(
-            "code_puppy.mcp_.blocking_startup.rotate_log_if_needed"
-        ), patch(
-            "code_puppy.mcp_.blocking_startup.get_log_file_path"
-        ) as mock_get_path, patch(
-            "code_puppy.mcp_.blocking_startup.write_log"
+        with (
+            patch("code_puppy.mcp_.blocking_startup.stdio_client", mock_stdio_client),
+            patch("code_puppy.mcp_.blocking_startup.rotate_log_if_needed"),
+            patch(
+                "code_puppy.mcp_.blocking_startup.get_log_file_path"
+            ) as mock_get_path,
+            patch("code_puppy.mcp_.blocking_startup.write_log"),
         ):
             with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp:
                 mock_get_path.return_value = tmp.name
@@ -389,11 +389,12 @@ class TestBlockingMCPServerStdioExceptionGroup:
         exc_group = ExceptionGroup("group")
         exc_group.exceptions = [inner_error, RuntimeError("Second error")]
 
-        with patch.object(
-            SimpleCapturedMCPServerStdio, "__aenter__", new_callable=AsyncMock
-        ) as mock_aenter, patch(
-            "code_puppy.mcp_.blocking_startup.emit_info"
-        ) as mock_emit:
+        with (
+            patch.object(
+                SimpleCapturedMCPServerStdio, "__aenter__", new_callable=AsyncMock
+            ) as mock_aenter,
+            patch("code_puppy.mcp_.blocking_startup.emit_info") as mock_emit,
+        ):
             mock_aenter.side_effect = exc_group
 
             with pytest.raises(Exception):
@@ -416,11 +417,12 @@ class TestBlockingMCPServerStdioExceptionGroup:
 
         regular_error = RuntimeError("Regular error")
 
-        with patch.object(
-            SimpleCapturedMCPServerStdio, "__aenter__", new_callable=AsyncMock
-        ) as mock_aenter, patch(
-            "code_puppy.mcp_.blocking_startup.emit_info"
-        ) as mock_emit:
+        with (
+            patch.object(
+                SimpleCapturedMCPServerStdio, "__aenter__", new_callable=AsyncMock
+            ) as mock_aenter,
+            patch("code_puppy.mcp_.blocking_startup.emit_info") as mock_emit,
+        ):
             mock_aenter.side_effect = regular_error
 
             with pytest.raises(RuntimeError):

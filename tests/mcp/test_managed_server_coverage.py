@@ -112,9 +112,7 @@ class TestProcessToolCall:
                 tool_args={},
             )
 
-        mock_call_tool.assert_called_once_with(
-            "empty_args_tool", {}, {"deps": None}
-        )
+        mock_call_tool.assert_called_once_with("empty_args_tool", {}, {"deps": None})
         assert result == "result"
 
 
@@ -598,9 +596,7 @@ class TestGetHttpClient:
         with (
             patch.dict(os.environ, {"TEST_TOKEN": "secret123"}),
             patch("code_puppy.mcp_.managed_server.MCPServerSSE") as mock_sse,
-            patch(
-                "code_puppy.mcp_.managed_server.create_async_client"
-            ) as mock_create,
+            patch("code_puppy.mcp_.managed_server.create_async_client") as mock_create,
         ):
             mock_sse.return_value = MagicMock()
             mock_create.return_value = MagicMock()
@@ -626,9 +622,7 @@ class TestGetHttpClient:
 
         with (
             patch("code_puppy.mcp_.managed_server.MCPServerSSE") as mock_sse,
-            patch(
-                "code_puppy.mcp_.managed_server.create_async_client"
-            ) as mock_create,
+            patch("code_puppy.mcp_.managed_server.create_async_client") as mock_create,
         ):
             mock_sse.return_value = MagicMock()
             mock_create.return_value = MagicMock()
@@ -652,9 +646,7 @@ class TestGetHttpClient:
 
         with (
             patch("code_puppy.mcp_.managed_server.MCPServerSSE") as mock_sse,
-            patch(
-                "code_puppy.mcp_.managed_server.create_async_client"
-            ) as mock_create,
+            patch("code_puppy.mcp_.managed_server.create_async_client") as mock_create,
         ):
             mock_sse.return_value = MagicMock()
             mock_create.return_value = MagicMock()

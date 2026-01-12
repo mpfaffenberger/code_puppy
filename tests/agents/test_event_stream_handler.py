@@ -515,12 +515,12 @@ class TestEventStreamHandler:
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 await event_stream_handler(mock_ctx, event_stream())
 
-        # Console should show chunk counts
+        # Console should show token counts
         assert console.print.called
-        # Check that chunk counter was printed (contains "chunks")
+        # Check that token counter was printed (contains "token(s)")
         call_args_list = [str(call) for call in console.print.call_args_list]
-        # Should have printed something with chunks
-        assert any("chunks" in str(call) for call in call_args_list)
+        # Should have printed something with token(s)
+        assert any("token(s)" in str(call) for call in call_args_list)
 
     @pytest.mark.asyncio
     async def test_thinking_part_without_initial_content_defers_banner(self, mock_ctx):

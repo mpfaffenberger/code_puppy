@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic_ai import BinaryContent, ToolReturn
 
 from code_puppy.tools.browser.terminal_screenshot_tools import (
     XTERM_TEXT_EXTRACTION_JS,
@@ -152,7 +153,7 @@ class TestTerminalScreenshot:
 
     @pytest.mark.asyncio
     async def test_screenshot_success(self):
-        """Test successful terminal screenshot."""
+        """Test successful terminal screenshot returns ToolReturn with BinaryContent."""
         mock_page = AsyncMock()
         mock_page.screenshot.return_value = b"screenshot"
         mock_manager = AsyncMock()
@@ -168,9 +169,19 @@ class TestTerminalScreenshot:
                 ):
                     result = await terminal_screenshot(full_page=False)
 
-                    assert result["success"] is True
-                    assert result["base64_image"]
-                    assert result["media_type"] == "image/png"
+                    # Should be ToolReturn with BinaryContent
+                    assert isinstance(result, ToolReturn)
+                    assert "screenshot" in result.return_value.lower()
+
+                    # Content should include BinaryContent image
+                    binary_contents = [
+                        c for c in result.content if isinstance(c, BinaryContent)
+                    ]
+                    assert len(binary_contents) == 1
+                    assert binary_contents[0].media_type == "image/png"
+
+                    # Metadata should have success info
+                    assert result.metadata["success"] is True
 
 
 class TestTerminalReadOutput:
@@ -300,7 +311,7 @@ class TestLoadImage:
 
     @pytest.mark.asyncio
     async def test_load_image_success(self):
-        """Test successful image loading."""
+        """Test successful image loading returns ToolReturn with BinaryContent."""
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
             f.write(b"fake_image_data")
             image_path = f.name
@@ -312,10 +323,20 @@ class TestLoadImage:
                 ):
                     result = await load_image(image_path=image_path)
 
-                    assert result["success"] is True
-                    assert result["image_path"] == image_path
-                    assert result["base64_image"]
-                    assert result["media_type"] == "image/png"
+                    # Should be ToolReturn with BinaryContent
+                    assert isinstance(result, ToolReturn)
+                    assert image_path in result.return_value
+
+                    # Content should include BinaryContent image
+                    binary_contents = [
+                        c for c in result.content if isinstance(c, BinaryContent)
+                    ]
+                    assert len(binary_contents) == 1
+                    assert binary_contents[0].media_type == "image/png"
+
+                    # Metadata should have path info
+                    assert result.metadata["success"] is True
+                    assert result.metadata["image_path"] == image_path
         finally:
             Path(image_path).unlink()
 
@@ -344,7 +365,7 @@ class TestLoadImage:
 
     @pytest.mark.asyncio
     async def test_load_image_different_formats(self):
-        """Test loading different image formats."""
+        """Test loading different image formats returns ToolReturn."""
         formats = [
             ".png",
             ".jpg",
@@ -367,9 +388,13 @@ class TestLoadImage:
                     ):
                         result = await load_image(image_path=image_path)
 
-                        assert result["success"] is True
+                        assert isinstance(result, ToolReturn)
                         # All images are converted to PNG after resizing
-                        assert result["media_type"] == "image/png"
+                        binary_contents = [
+                            c for c in result.content if isinstance(c, BinaryContent)
+                        ]
+                        assert len(binary_contents) == 1
+                        assert binary_contents[0].media_type == "image/png"
             finally:
                 Path(image_path).unlink()
 
@@ -463,7 +488,7 @@ class TestIntegrationScenarios:
 
     @pytest.mark.asyncio
     async def test_screenshot_then_load_image_workflow(self):
-        """Test taking screenshot then loading an image."""
+        """Test taking screenshot then loading an image - both return ToolReturn."""
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
             f.write(b"image_data")
             image_path = f.name
@@ -486,17 +511,19 @@ class TestIntegrationScenarios:
                     ):
                         # First take screenshot
                         screenshot_result = await terminal_screenshot(full_page=False)
-                        assert screenshot_result["success"] is True
+                        assert isinstance(screenshot_result, ToolReturn)
+                        assert screenshot_result.metadata["success"] is True
 
                         # Then load image
                         load_result = await load_image(image_path=image_path)
-                        assert load_result["success"] is True
+                        assert isinstance(load_result, ToolReturn)
+                        assert load_result.metadata["success"] is True
         finally:
             Path(image_path).unlink()
 
     @pytest.mark.asyncio
     async def test_read_output_then_screenshot_workflow(self):
-        """Test reading output then taking screenshot."""
+        """Test reading output then taking screenshot - screenshot returns ToolReturn."""
         mock_page = AsyncMock()
         mock_page.evaluate.return_value = {
             "success": True,
@@ -515,11 +542,12 @@ class TestIntegrationScenarios:
                 with patch(
                     "code_puppy.tools.browser.terminal_screenshot_tools.emit_success"
                 ):
-                    # First read output
+                    # First read output (still returns dict)
                     read_result = await terminal_read_output(lines=10)
                     assert read_result["success"] is True
                     assert "hello" in read_result["output"]
 
-                    # Then take screenshot
+                    # Then take screenshot (returns ToolReturn now!)
                     screenshot_result = await terminal_screenshot(full_page=False)
-                    assert screenshot_result["success"] is True
+                    assert isinstance(screenshot_result, ToolReturn)
+                    assert screenshot_result.metadata["success"] is True

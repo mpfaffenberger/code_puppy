@@ -19,6 +19,7 @@ import pytest
 from rich.console import Console, Group
 from rich.panel import Panel
 
+from code_puppy.messaging.messages import SubAgentStatusMessage
 from code_puppy.messaging.subagent_console import (
     DEFAULT_STYLE,
     STATUS_STYLES,
@@ -26,8 +27,6 @@ from code_puppy.messaging.subagent_console import (
     SubAgentConsoleManager,
     get_subagent_console_manager,
 )
-from code_puppy.messaging.messages import SubAgentStatusMessage
-
 
 # =============================================================================
 # AgentState Tests
@@ -282,7 +281,7 @@ class TestAgentRegistration:
     def test_register_agent_creates_state(self, mock_start):
         """Test that register_agent creates an AgentState."""
         self.manager.register_agent("sess-1", "agent-one", "gpt-4o")
-        
+
         state = self.manager.get_agent_state("sess-1")
         assert state is not None
         assert state.session_id == "sess-1"
@@ -308,7 +307,7 @@ class TestAgentRegistration:
     def test_update_agent_modifies_state(self, mock_start):
         """Test that update_agent modifies existing state."""
         self.manager.register_agent("sess-1", "agent", "model")
-        
+
         self.manager.update_agent(
             "sess-1",
             status="running",
@@ -317,7 +316,7 @@ class TestAgentRegistration:
             current_tool="grep",
             error_message="test error",
         )
-        
+
         state = self.manager.get_agent_state("sess-1")
         assert state.status == "running"
         assert state.tool_call_count == 5
@@ -330,7 +329,7 @@ class TestAgentRegistration:
         """Test partial update only changes specified fields."""
         self.manager.register_agent("sess-1", "agent", "model")
         self.manager.update_agent("sess-1", status="running")
-        
+
         state = self.manager.get_agent_state("sess-1")
         assert state.status == "running"
         assert state.tool_call_count == 0  # Unchanged
@@ -347,7 +346,7 @@ class TestAgentRegistration:
         """Test that unregister_agent removes the agent state."""
         self.manager.register_agent("sess-1", "agent", "model")
         self.manager.unregister_agent("sess-1")
-        
+
         assert self.manager.get_agent_state("sess-1") is None
 
     @patch.object(SubAgentConsoleManager, "_start_display")
@@ -365,7 +364,7 @@ class TestAgentRegistration:
         self.manager.register_agent("sess-1", "agent1", "model")
         self.manager.register_agent("sess-2", "agent2", "model")
         self.manager.unregister_agent("sess-1")
-        
+
         # Display should not be stopped
         mock_stop.assert_not_called()
         # Second agent should still exist
@@ -402,7 +401,7 @@ class TestAgentRegistration:
         """Test get_all_agents returns list of all agents."""
         self.manager.register_agent("sess-1", "agent1", "model1")
         self.manager.register_agent("sess-2", "agent2", "model2")
-        
+
         agents = self.manager.get_all_agents()
         assert len(agents) == 2
         session_ids = {a.session_id for a in agents}
@@ -430,15 +429,15 @@ class TestDisplayManagement:
         """Test that _start_display creates a Live instance."""
         mock_live = MagicMock()
         mock_live_class.return_value = mock_live
-        
+
         mock_console = Mock(spec=Console)
         manager = SubAgentConsoleManager(console=mock_console)
         manager._start_display()
-        
+
         # Verify Live was created with correct params
         mock_live_class.assert_called_once()
         mock_live.start.assert_called_once()
-        
+
         # Clean up
         manager._stop_display()
 
@@ -447,14 +446,14 @@ class TestDisplayManagement:
         """Test that calling _start_display twice doesn't create duplicate."""
         mock_live = MagicMock()
         mock_live_class.return_value = mock_live
-        
+
         manager = SubAgentConsoleManager(console=Mock(spec=Console))
         manager._start_display()
         manager._start_display()  # Second call should be no-op
-        
+
         # Should only be called once
         assert mock_live_class.call_count == 1
-        
+
         manager._stop_display()
 
     @patch("code_puppy.messaging.subagent_console.Live")
@@ -462,11 +461,11 @@ class TestDisplayManagement:
         """Test that _stop_display stops the Live instance."""
         mock_live = MagicMock()
         mock_live_class.return_value = mock_live
-        
+
         manager = SubAgentConsoleManager(console=Mock(spec=Console))
         manager._start_display()
         manager._stop_display()
-        
+
         mock_live.stop.assert_called_once()
         assert manager._live is None
 
@@ -482,10 +481,10 @@ class TestDisplayManagement:
         mock_live = MagicMock()
         mock_live.stop.side_effect = Exception("Stop failed")
         mock_live_class.return_value = mock_live
-        
+
         manager = SubAgentConsoleManager(console=Mock(spec=Console))
         manager._start_display()
-        
+
         # Should not raise
         manager._stop_display()
         assert manager._live is None
@@ -505,16 +504,16 @@ class TestUpdateLoop:
         """Test that update loop runs and can be stopped."""
         mock_live = MagicMock()
         mock_live_class.return_value = mock_live
-        
+
         manager = SubAgentConsoleManager(console=Mock(spec=Console))
         manager._start_display()
-        
+
         # Let it run briefly
         time.sleep(0.2)
-        
+
         # Verify update was called at least once
         assert mock_live.update.call_count >= 1
-        
+
         manager._stop_display()
 
     @patch("code_puppy.messaging.subagent_console.Live")
@@ -523,16 +522,16 @@ class TestUpdateLoop:
         mock_live = MagicMock()
         mock_live.update.side_effect = Exception("Render failed")
         mock_live_class.return_value = mock_live
-        
+
         manager = SubAgentConsoleManager(console=Mock(spec=Console))
         manager._start_display()
-        
+
         # Let it attempt updates
         time.sleep(0.2)
-        
+
         # Should still be running (didn't crash)
         assert manager._update_thread is not None
-        
+
         manager._stop_display()
 
 
@@ -561,7 +560,7 @@ class TestRendering:
         """Test _render_display with registered agents."""
         self.manager.register_agent("sess-1", "agent1", "model1")
         self.manager.register_agent("sess-2", "agent2", "model2")
-        
+
         result = self.manager._render_display()
         assert isinstance(result, Group)
 
@@ -573,7 +572,7 @@ class TestRendering:
             model_name="gpt-4o",
             status="running",
         )
-        
+
         panel = self.manager._render_agent_panel(state)
         assert isinstance(panel, Panel)
 
@@ -587,7 +586,7 @@ class TestRendering:
             current_tool="read_file",
             tool_call_count=3,
         )
-        
+
         panel = self.manager._render_agent_panel(state)
         assert isinstance(panel, Panel)
 
@@ -600,7 +599,7 @@ class TestRendering:
             status="error",
             error_message="Something went wrong!",
         )
-        
+
         panel = self.manager._render_agent_panel(state)
         assert isinstance(panel, Panel)
 
@@ -611,7 +610,7 @@ class TestRendering:
             agent_name="test-agent",
             model_name="gpt-4o",
         )
-        
+
         panel = self.manager._render_agent_panel(state)
         assert isinstance(panel, Panel)
 
@@ -623,13 +622,20 @@ class TestRendering:
             model_name="gpt-4o",
             token_count=15000,
         )
-        
+
         panel = self.manager._render_agent_panel(state)
         assert isinstance(panel, Panel)
 
     def test_render_agent_panel_all_statuses(self):
         """Test rendering panels for all status types."""
-        for status in ["starting", "running", "thinking", "tool_calling", "completed", "error"]:
+        for status in [
+            "starting",
+            "running",
+            "thinking",
+            "tool_calling",
+            "completed",
+            "error",
+        ]:
             state = AgentState(
                 session_id=f"sess-{status}",
                 agent_name="test-agent",
@@ -648,7 +654,7 @@ class TestRendering:
         )
         # Force an unknown status by directly setting it
         state.status = "unknown_status"
-        
+
         panel = self.manager._render_agent_panel(state)
         assert isinstance(panel, Panel)
 
@@ -671,7 +677,7 @@ class TestContextManager:
     def test_context_manager_enter_returns_self(self, mock_stop):
         """Test __enter__ returns the manager instance."""
         manager = SubAgentConsoleManager(console=Mock(spec=Console))
-        
+
         with manager as ctx:
             assert ctx is manager
 
@@ -679,21 +685,21 @@ class TestContextManager:
     def test_context_manager_exit_stops_display(self, mock_stop):
         """Test __exit__ calls _stop_display."""
         manager = SubAgentConsoleManager(console=Mock(spec=Console))
-        
+
         with manager:
             pass
-        
+
         mock_stop.assert_called_once()
 
     @patch.object(SubAgentConsoleManager, "_stop_display")
     def test_context_manager_exit_on_exception(self, mock_stop):
         """Test __exit__ is called even on exception."""
         manager = SubAgentConsoleManager(console=Mock(spec=Console))
-        
+
         with pytest.raises(ValueError):
             with manager:
                 raise ValueError("Test error")
-        
+
         mock_stop.assert_called_once()
 
 
@@ -739,7 +745,14 @@ class TestStatusStyles:
 
     def test_status_styles_contains_all_statuses(self):
         """Test STATUS_STYLES has all expected statuses."""
-        expected_statuses = {"starting", "running", "thinking", "tool_calling", "completed", "error"}
+        expected_statuses = {
+            "starting",
+            "running",
+            "thinking",
+            "tool_calling",
+            "completed",
+            "error",
+        }
         assert set(STATUS_STYLES.keys()) == expected_statuses
 
     def test_status_styles_have_required_keys(self):
@@ -779,7 +792,7 @@ class TestThreadSafety:
         """Test concurrent agent registration is thread-safe."""
         manager = SubAgentConsoleManager(console=Mock(spec=Console))
         errors = []
-        
+
         def register_agent(i):
             try:
                 manager.register_agent(f"sess-{i}", f"agent-{i}", "model")
@@ -787,28 +800,30 @@ class TestThreadSafety:
                 manager.unregister_agent(f"sess-{i}")
             except Exception as e:
                 errors.append(e)
-        
-        threads = [threading.Thread(target=register_agent, args=(i,)) for i in range(10)]
+
+        threads = [
+            threading.Thread(target=register_agent, args=(i,)) for i in range(10)
+        ]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
-        
+
         assert len(errors) == 0, f"Thread errors: {errors}"
 
     def test_singleton_thread_safety(self):
         """Test get_instance is thread-safe."""
         instances = []
-        
+
         def get_instance():
             inst = SubAgentConsoleManager.get_instance()
             instances.append(inst)
-        
+
         threads = [threading.Thread(target=get_instance) for _ in range(10)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
-        
+
         # All instances should be the same object
         assert all(inst is instances[0] for inst in instances)

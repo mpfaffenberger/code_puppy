@@ -26,7 +26,6 @@ from code_puppy.messaging.renderers import (
     SynchronousInteractiveRenderer,
 )
 
-
 # =============================================================================
 # InteractiveRenderer - Uncovered Message Types
 # =============================================================================
@@ -73,7 +72,9 @@ class TestInteractiveRendererMessageTypes:
         console = Console(file=output, force_terminal=True)
 
         renderer = InteractiveRenderer(queue, console)
-        msg = UIMessage(type=MessageType.PLANNED_NEXT_STEPS, content="1. Do this\n2. Do that")
+        msg = UIMessage(
+            type=MessageType.PLANNED_NEXT_STEPS, content="1. Do this\n2. Do that"
+        )
 
         await renderer.render_message(msg)
 
@@ -88,7 +89,9 @@ class TestInteractiveRendererMessageTypes:
         console = Console(file=output, force_terminal=True)
 
         renderer = InteractiveRenderer(queue, console)
-        msg = UIMessage(type=MessageType.AGENT_RESPONSE, content="# Header\n\nParagraph text")
+        msg = UIMessage(
+            type=MessageType.AGENT_RESPONSE, content="# Header\n\nParagraph text"
+        )
 
         await renderer.render_message(msg)
 
@@ -107,7 +110,10 @@ class TestInteractiveRendererMessageTypes:
         msg = UIMessage(type=MessageType.AGENT_RESPONSE, content="Simple text")
 
         # Mock Markdown to raise an exception
-        with patch("code_puppy.messaging.renderers.Markdown", side_effect=Exception("Markdown error")):
+        with patch(
+            "code_puppy.messaging.renderers.Markdown",
+            side_effect=Exception("Markdown error"),
+        ):
             await renderer.render_message(msg)
 
         output_text = output.getvalue()
@@ -231,7 +237,7 @@ class TestInteractiveRendererHumanInput:
         msg = UIMessage(
             type=MessageType.HUMAN_INPUT_REQUEST,
             content="Please enter your name:",
-            metadata={"prompt_id": "test-123"}
+            metadata={"prompt_id": "test-123"},
         )
 
         await renderer.render_message(msg)
@@ -446,7 +452,9 @@ class TestSynchronousInteractiveRendererMessageTypes:
         console = Console(file=output, force_terminal=True)
 
         renderer = SynchronousInteractiveRenderer(queue, console)
-        msg = UIMessage(type=MessageType.AGENT_REASONING, content="Thinking about it...")
+        msg = UIMessage(
+            type=MessageType.AGENT_REASONING, content="Thinking about it..."
+        )
 
         renderer._render_message(msg)
 
@@ -475,7 +483,10 @@ class TestSynchronousInteractiveRendererMessageTypes:
         renderer = SynchronousInteractiveRenderer(queue, console)
         msg = UIMessage(type=MessageType.AGENT_RESPONSE, content="Plain fallback")
 
-        with patch("code_puppy.messaging.renderers.Markdown", side_effect=Exception("Parse error")):
+        with patch(
+            "code_puppy.messaging.renderers.Markdown",
+            side_effect=Exception("Parse error"),
+        ):
             renderer._render_message(msg)
 
         assert "Plain fallback" in output.getvalue()
@@ -584,7 +595,7 @@ class TestSynchronousInteractiveRendererHumanInput:
         msg = UIMessage(
             type=MessageType.HUMAN_INPUT_REQUEST,
             content="Enter something:",
-            metadata={}  # No prompt_id!
+            metadata={},  # No prompt_id!
         )
 
         renderer._render_message(msg)
@@ -601,7 +612,7 @@ class TestSynchronousInteractiveRendererHumanInput:
         msg = UIMessage(
             type=MessageType.HUMAN_INPUT_REQUEST,
             content="Enter something:",
-            metadata=None
+            metadata=None,
         )
 
         renderer._render_message(msg)
@@ -618,12 +629,14 @@ class TestSynchronousInteractiveRendererHumanInput:
         msg = UIMessage(
             type=MessageType.HUMAN_INPUT_REQUEST,
             content="Enter your name:",
-            metadata={"prompt_id": "prompt-abc"}
+            metadata={"prompt_id": "prompt-abc"},
         )
 
         # Mock input() to return a value and patch provide_prompt_response at the import location
         with patch("builtins.input", return_value="Claude"):
-            with patch("code_puppy.messaging.message_queue.provide_prompt_response") as mock_provide:
+            with patch(
+                "code_puppy.messaging.message_queue.provide_prompt_response"
+            ) as mock_provide:
                 renderer._render_message(msg)
 
                 mock_provide.assert_called_once_with("prompt-abc", "Claude")
@@ -640,7 +653,7 @@ class TestSynchronousInteractiveRendererHumanInput:
         msg = UIMessage(
             type=MessageType.HUMAN_INPUT_REQUEST,
             content="Please enter something:",
-            metadata={"prompt_id": "prompt-display"}
+            metadata={"prompt_id": "prompt-display"},
         )
 
         # Mock input to return immediately and mock the response function
@@ -745,7 +758,7 @@ class TestSynchronousInteractiveRendererHumanInputFlush:
         msg = UIMessage(
             type=MessageType.HUMAN_INPUT_REQUEST,
             content="Enter:",
-            metadata={"prompt_id": "test"}
+            metadata={"prompt_id": "test"},
         )
 
         flush_count = [0]
@@ -799,7 +812,7 @@ class TestMessageRendererErrorHandling:
             msg = UIMessage(type=MessageType.INFO, content="Will fail")
             queue.emit(msg)
 
-            with patch.object(sys.stderr, 'write', side_effect=capture_stderr):
+            with patch.object(sys.stderr, "write", side_effect=capture_stderr):
                 # Give time to process
                 await asyncio.sleep(0.3)
 

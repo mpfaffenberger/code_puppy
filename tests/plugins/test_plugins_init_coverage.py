@@ -70,9 +70,7 @@ class TestLoadBuiltinPlugins:
         callbacks_file.write_text("# Plugin callbacks")
 
         with (
-            patch(
-                "code_puppy.config.get_safety_permission_level", return_value="high"
-            ),
+            patch("code_puppy.config.get_safety_permission_level", return_value="high"),
             patch("code_puppy.plugins.importlib.import_module") as mock_import,
         ):
             result = _load_builtin_plugins(tmp_path)
@@ -89,9 +87,7 @@ class TestLoadBuiltinPlugins:
         (private_dir / "register_callbacks.py").write_text("# Private")
 
         with (
-            patch(
-                "code_puppy.config.get_safety_permission_level", return_value="high"
-            ),
+            patch("code_puppy.config.get_safety_permission_level", return_value="high"),
             patch("code_puppy.plugins.importlib.import_module") as mock_import,
         ):
             result = _load_builtin_plugins(tmp_path)
@@ -104,9 +100,7 @@ class TestLoadBuiltinPlugins:
         (tmp_path / "some_file.py").write_text("# Just a file")
 
         with (
-            patch(
-                "code_puppy.config.get_safety_permission_level", return_value="high"
-            ),
+            patch("code_puppy.config.get_safety_permission_level", return_value="high"),
             patch("code_puppy.plugins.importlib.import_module") as mock_import,
         ):
             result = _load_builtin_plugins(tmp_path)
@@ -121,9 +115,7 @@ class TestLoadBuiltinPlugins:
         (plugin_dir / "__init__.py").write_text("# Just init")
 
         with (
-            patch(
-                "code_puppy.config.get_safety_permission_level", return_value="high"
-            ),
+            patch("code_puppy.config.get_safety_permission_level", return_value="high"),
             patch("code_puppy.plugins.importlib.import_module") as mock_import,
         ):
             result = _load_builtin_plugins(tmp_path)
@@ -138,9 +130,7 @@ class TestLoadBuiltinPlugins:
         (plugin_dir / "register_callbacks.py").write_text("# Shell safety")
 
         with (
-            patch(
-                "code_puppy.config.get_safety_permission_level", return_value="high"
-            ),
+            patch("code_puppy.config.get_safety_permission_level", return_value="high"),
             patch("code_puppy.plugins.importlib.import_module") as mock_import,
         ):
             result = _load_builtin_plugins(tmp_path)
@@ -170,9 +160,7 @@ class TestLoadBuiltinPlugins:
         (plugin_dir / "register_callbacks.py").write_text("# Shell safety")
 
         with (
-            patch(
-                "code_puppy.config.get_safety_permission_level", return_value="low"
-            ),
+            patch("code_puppy.config.get_safety_permission_level", return_value="low"),
             patch("code_puppy.plugins.importlib.import_module") as mock_import,
         ):
             result = _load_builtin_plugins(tmp_path)
@@ -188,9 +176,7 @@ class TestLoadBuiltinPlugins:
         (plugin_dir / "register_callbacks.py").write_text("# Shell safety")
 
         with (
-            patch(
-                "code_puppy.config.get_safety_permission_level", return_value="none"
-            ),
+            patch("code_puppy.config.get_safety_permission_level", return_value="none"),
             patch("code_puppy.plugins.importlib.import_module"),
         ):
             result = _load_builtin_plugins(tmp_path)
@@ -203,9 +189,7 @@ class TestLoadBuiltinPlugins:
         (plugin_dir / "register_callbacks.py").write_text("# Broken")
 
         with (
-            patch(
-                "code_puppy.config.get_safety_permission_level", return_value="high"
-            ),
+            patch("code_puppy.config.get_safety_permission_level", return_value="high"),
             patch(
                 "code_puppy.plugins.importlib.import_module",
                 side_effect=ImportError("Module not found"),
@@ -222,9 +206,7 @@ class TestLoadBuiltinPlugins:
         (plugin_dir / "register_callbacks.py").write_text("# Exploding")
 
         with (
-            patch(
-                "code_puppy.config.get_safety_permission_level", return_value="high"
-            ),
+            patch("code_puppy.config.get_safety_permission_level", return_value="high"),
             patch(
                 "code_puppy.plugins.importlib.import_module",
                 side_effect=RuntimeError("Something went wrong"),
@@ -243,9 +225,7 @@ class TestLoadBuiltinPlugins:
             (plugin_dir / "register_callbacks.py").write_text(f"# {name}")
 
         with (
-            patch(
-                "code_puppy.config.get_safety_permission_level", return_value="high"
-            ),
+            patch("code_puppy.config.get_safety_permission_level", return_value="high"),
             patch("code_puppy.plugins.importlib.import_module"),
         ):
             result = _load_builtin_plugins(tmp_path)
@@ -685,9 +665,7 @@ class TestLoadPluginCallbacks:
                 "code_puppy.plugins._load_builtin_plugins",
                 return_value=["test_builtin"],
             ),
-            patch(
-                "code_puppy.plugins._load_user_plugins", return_value=["test_user"]
-            ),
+            patch("code_puppy.plugins._load_user_plugins", return_value=["test_user"]),
             caplog.at_level(logging.DEBUG),
         ):
             try:

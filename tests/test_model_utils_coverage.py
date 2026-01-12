@@ -9,8 +9,6 @@ This file focuses on testing the uncovered functions and branches:
 - _load_codex_prompt() and _load_antigravity_prompt() fallback paths
 """
 
-
-
 from code_puppy import model_utils
 from code_puppy.model_utils import (
     PreparedPrompt,
@@ -340,15 +338,18 @@ class TestEdgeCases:
         # (though this shouldn't happen with real model names)
         from code_puppy.model_utils import CLAUDE_CODE_INSTRUCTIONS
 
-        result = prepare_prompt_for_model(
-            "claude-code-sonnet", "System", "User"
-        )
+        result = prepare_prompt_for_model("claude-code-sonnet", "System", "User")
         assert result.instructions == CLAUDE_CODE_INSTRUCTIONS
         assert result.is_claude_code is True
 
     def test_prepare_prompt_returns_dataclass(self):
         """All model types should return PreparedPrompt dataclass."""
-        for model_name in ["gpt-4", "chatgpt-codex", "antigravity-gemini", "claude-code-sonnet"]:
+        for model_name in [
+            "gpt-4",
+            "chatgpt-codex",
+            "antigravity-gemini",
+            "claude-code-sonnet",
+        ]:
             result = prepare_prompt_for_model(model_name, "System", "User")
             assert isinstance(result, PreparedPrompt)
             assert hasattr(result, "instructions")
@@ -357,7 +358,9 @@ class TestEdgeCases:
 
     def test_special_characters_in_prompts(self):
         """Should handle special characters in prompts correctly."""
-        system = "System prompt with\nnewlines\tand\ttabs and 'quotes' and \"double quotes\""
+        system = (
+            "System prompt with\nnewlines\tand\ttabs and 'quotes' and \"double quotes\""
+        )
         user = "User prompt with special: $@#%^&*()[]{}|\\;:'\",.<>?/`~"
 
         result = prepare_prompt_for_model("chatgpt-codex", system, user)

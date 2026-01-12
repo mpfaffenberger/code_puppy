@@ -8,7 +8,6 @@ import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
-
 from code_puppy.tools.file_operations import (
     GrepOutput,
     ListFileOutput,
@@ -218,8 +217,13 @@ class TestGrepFunction:
     def test_grep_ripgrep_not_found(self, tmp_path):
         """Test grep when ripgrep is not available."""
         # Mock both shutil.which and os.path.exists to ensure rg is not found
-        with patch("shutil.which", return_value=None), \
-             patch("os.path.exists", side_effect=lambda p: not (p.endswith("rg") or p.endswith("rg.exe"))):
+        with (
+            patch("shutil.which", return_value=None),
+            patch(
+                "os.path.exists",
+                side_effect=lambda p: not (p.endswith("rg") or p.endswith("rg.exe")),
+            ),
+        ):
             result = _grep(None, "test", str(tmp_path))
 
         assert result.error is not None
@@ -255,8 +259,13 @@ class TestListFilesRipgrepHandling:
     def test_list_files_ripgrep_not_found_recursive(self, tmp_path):
         """Test list_files error when ripgrep not found for recursive listing."""
         # Mock both shutil.which and os.path.exists to ensure rg is not found
-        with patch("shutil.which", return_value=None), \
-             patch("os.path.exists", side_effect=lambda p: not (p.endswith("rg") or p.endswith("rg.exe"))):
+        with (
+            patch("shutil.which", return_value=None),
+            patch(
+                "os.path.exists",
+                side_effect=lambda p: not (p.endswith("rg") or p.endswith("rg.exe")),
+            ),
+        ):
             result = _list_files(None, str(tmp_path), recursive=True)
 
         assert result.error is not None
@@ -544,7 +553,7 @@ class TestMatchInfoModel:
         match = MatchInfo(
             file_path="/path/to/file.py",
             line_number=42,
-            line_content="def test_function():"
+            line_content="def test_function():",
         )
 
         assert match.file_path == "/path/to/file.py"
@@ -553,11 +562,7 @@ class TestMatchInfoModel:
 
     def test_match_info_with_none_values(self):
         """Test MatchInfo with None values."""
-        match = MatchInfo(
-            file_path=None,
-            line_number=None,
-            line_content=None
-        )
+        match = MatchInfo(file_path=None, line_number=None, line_content=None)
 
         assert match.file_path is None
         assert match.line_number is None
@@ -599,8 +604,7 @@ class TestListFileOutputModel:
     def test_list_file_output_with_error(self):
         """Test ListFileOutput with error."""
         output = ListFileOutput(
-            content="Error: Directory not found",
-            error="Directory not found"
+            content="Error: Directory not found", error="Directory not found"
         )
 
         assert output.error is not None
@@ -619,11 +623,7 @@ class TestReadFileOutputModel:
 
     def test_read_file_output_with_error(self):
         """Test ReadFileOutput with error."""
-        output = ReadFileOutput(
-            content=None,
-            num_tokens=0,
-            error="File not found"
-        )
+        output = ReadFileOutput(content=None, num_tokens=0, error="File not found")
 
         assert output.content is None
         assert output.num_tokens == 0

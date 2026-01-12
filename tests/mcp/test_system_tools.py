@@ -11,7 +11,6 @@ This module tests the SystemToolDetector class which provides:
 import subprocess
 from unittest.mock import MagicMock, Mock, patch
 
-
 from code_puppy.mcp_.system_tools import (
     SystemToolDetector,
     ToolInfo,
@@ -173,6 +172,7 @@ class TestSystemToolDetectorDetectTools:
 
     def test_detect_tools_multiple(self):
         """Test detection of multiple tools."""
+
         def mock_which(tool_name):
             paths = {
                 "node": "/usr/bin/node",
@@ -287,7 +287,9 @@ More lines"""
 
     def test_parse_version_go_style(self):
         """Test parsing Go-style version output."""
-        result = SystemToolDetector._parse_version("go", "go version go1.21.0 darwin/arm64")
+        result = SystemToolDetector._parse_version(
+            "go", "go version go1.21.0 darwin/arm64"
+        )
         assert result == "1.21.0"
 
 
@@ -333,9 +335,7 @@ class TestSystemToolDetectorCheckPackageDependencies:
             with patch.object(
                 SystemToolDetector, "_check_python_package", return_value=True
             ):
-                result = SystemToolDetector.check_package_dependencies(
-                    ["some-package"]
-                )
+                result = SystemToolDetector.check_package_dependencies(["some-package"])
 
         assert result["some-package"] is True
 
@@ -413,9 +413,7 @@ class TestSystemToolDetectorCheckNpmPackage:
 
     def test_check_npm_package_timeout(self):
         """Test checking npm package when timeout occurs."""
-        with patch(
-            "subprocess.run", side_effect=subprocess.TimeoutExpired("npm", 10)
-        ):
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("npm", 10)):
             result = SystemToolDetector._check_npm_package("typescript")
 
         assert result is False
@@ -594,6 +592,7 @@ class TestIntegrationScenarios:
 
     def test_detect_node_ecosystem(self):
         """Test detecting Node.js ecosystem tools."""
+
         def mock_which(tool):
             if tool in ["node", "npm", "npx"]:
                 return f"/usr/local/bin/{tool}"
@@ -613,6 +612,7 @@ class TestIntegrationScenarios:
 
     def test_detect_python_ecosystem(self):
         """Test detecting Python ecosystem tools."""
+
         def mock_which(tool):
             if tool in ["python", "python3", "pip", "pip3"]:
                 return f"/usr/bin/{tool}"
@@ -633,6 +633,7 @@ class TestIntegrationScenarios:
 
     def test_mixed_availability_scenario(self):
         """Test scenario with mixed tool availability."""
+
         def mock_which(tool):
             available = {"git": "/usr/bin/git", "docker": None, "node": "/usr/bin/node"}
             return available.get(tool)

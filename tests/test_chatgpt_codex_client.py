@@ -89,18 +89,22 @@ class TestExtractBodyBytes:
         """Test fallback to _content attribute."""
         request = Mock()
         # Mock content property to raise an exception
-        type(request).content = property(lambda self: (_ for _ in ()).throw(Exception("No content")))
+        type(request).content = property(
+            lambda self: (_ for _ in ()).throw(Exception("No content"))
+        )
         request._content = b'{"fallback": true}'
-        
+
         result = ChatGPTCodexAsyncClient._extract_body_bytes(request)
         assert result == b'{"fallback": true}'
 
     def test_extract_returns_none_on_all_exceptions(self):
         """Test that exceptions result in None."""
         request = Mock()
-        type(request).content = property(lambda self: (_ for _ in ()).throw(Exception()))
+        type(request).content = property(
+            lambda self: (_ for _ in ()).throw(Exception())
+        )
         del request._content  # Remove _content to trigger second exception path
-        
+
         result = ChatGPTCodexAsyncClient._extract_body_bytes(request)
         assert result is None
 
@@ -112,7 +116,7 @@ class TestInjectCodexFields:
         """Test that store=false is injected when missing."""
         body = json.dumps({"model": "gpt-4"}).encode()
         result, forced_stream = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert data["store"] is False
@@ -121,7 +125,7 @@ class TestInjectCodexFields:
         """Test that store=true is changed to store=false."""
         body = json.dumps({"model": "gpt-4", "store": True}).encode()
         result, forced_stream = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert data["store"] is False
@@ -130,7 +134,7 @@ class TestInjectCodexFields:
         """Test that stream=true is injected when missing."""
         body = json.dumps({"model": "gpt-4"}).encode()
         result, forced_stream = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert data["stream"] is True
@@ -140,7 +144,7 @@ class TestInjectCodexFields:
         """Test that stream=false is changed to stream=true."""
         body = json.dumps({"model": "gpt-4", "stream": False}).encode()
         result, forced_stream = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert data["stream"] is True
@@ -150,7 +154,7 @@ class TestInjectCodexFields:
         """Test that stream is not forced when already true."""
         body = json.dumps({"model": "gpt-4", "stream": True}).encode()
         result, forced_stream = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         # Still modifies because store is missing
         assert result is not None
         data = json.loads(result)
@@ -161,7 +165,7 @@ class TestInjectCodexFields:
         """Test that reasoning settings are added for GPT-5 models."""
         body = json.dumps({"model": "gpt-5.2"}).encode()
         result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert "reasoning" in data
@@ -172,7 +176,7 @@ class TestInjectCodexFields:
         """Test that reasoning settings are added for o1 models."""
         body = json.dumps({"model": "o1-mini"}).encode()
         result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert "reasoning" in data
@@ -181,19 +185,18 @@ class TestInjectCodexFields:
         """Test that reasoning is NOT added for GPT-4 models."""
         body = json.dumps({"model": "gpt-4"}).encode()
         result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert "reasoning" not in data
 
     def test_preserve_existing_reasoning(self):
         """Test that existing reasoning settings are preserved."""
-        body = json.dumps({
-            "model": "gpt-5",
-            "reasoning": {"effort": "high", "summary": "detailed"}
-        }).encode()
+        body = json.dumps(
+            {"model": "gpt-5", "reasoning": {"effort": "high", "summary": "detailed"}}
+        ).encode()
         result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert data["reasoning"]["effort"] == "high"  # Preserved
@@ -203,7 +206,7 @@ class TestInjectCodexFields:
         """Test that max_output_tokens is removed."""
         body = json.dumps({"model": "gpt-4", "max_output_tokens": 1000}).encode()
         result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert "max_output_tokens" not in data
@@ -212,7 +215,7 @@ class TestInjectCodexFields:
         """Test that max_tokens is removed."""
         body = json.dumps({"model": "gpt-4", "max_tokens": 2000}).encode()
         result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert "max_tokens" not in data
@@ -221,22 +224,24 @@ class TestInjectCodexFields:
         """Test that verbosity is removed."""
         body = json.dumps({"model": "gpt-4", "verbosity": "detailed"}).encode()
         result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert "verbosity" not in data
 
     def test_remove_all_unsupported_params(self):
         """Test that all unsupported params are removed together."""
-        body = json.dumps({
-            "model": "gpt-4",
-            "max_output_tokens": 1000,
-            "max_tokens": 2000,
-            "verbosity": "high",
-            "temperature": 0.7,  # This should be preserved
-        }).encode()
+        body = json.dumps(
+            {
+                "model": "gpt-4",
+                "max_output_tokens": 1000,
+                "max_tokens": 2000,
+                "verbosity": "high",
+                "temperature": 0.7,  # This should be preserved
+            }
+        ).encode()
         result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert "max_output_tokens" not in data
@@ -248,7 +253,7 @@ class TestInjectCodexFields:
         """Test that invalid JSON returns (None, False)."""
         body = b"not valid json"
         result, forced_stream = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is None
         assert forced_stream is False
 
@@ -256,19 +261,21 @@ class TestInjectCodexFields:
         """Test that non-dict JSON returns (None, False)."""
         body = b'["an", "array"]'
         result, forced_stream = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is None
         assert forced_stream is False
 
     def test_no_modification_when_all_correct(self):
         """Test that no modification happens when all fields are correct."""
-        body = json.dumps({
-            "model": "gpt-4",
-            "store": False,
-            "stream": True,
-        }).encode()
+        body = json.dumps(
+            {
+                "model": "gpt-4",
+                "store": False,
+                "stream": True,
+            }
+        ).encode()
         result, forced_stream = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         # When everything is correct, nothing to modify
         assert result is None
         assert forced_stream is False
@@ -277,7 +284,7 @@ class TestInjectCodexFields:
         """Test that non-ASCII characters are handled correctly."""
         body = json.dumps({"model": "gpt-4", "prompt": "Héllo Wörld!"}).encode("utf-8")
         result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-        
+
         assert result is not None
         data = json.loads(result)
         assert data["prompt"] == "Héllo Wörld!"
@@ -295,20 +302,20 @@ class TestConvertStreamToResponse:
             'data: {"type": "response.output_text.delta", "delta": "world!"}',
             "data: [DONE]",
         ]
-        
+
         async def mock_aiter_lines():
             for line in sse_lines:
                 yield line
-        
+
         mock_response = Mock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.headers = {"content-type": "text/event-stream"}
         mock_response.aiter_lines = mock_aiter_lines
         mock_response.request = Mock()
-        
+
         client = ChatGPTCodexAsyncClient()
         result = await client._convert_stream_to_response(mock_response)
-        
+
         assert result.status_code == 200
         body = json.loads(result.content)
         # Should have reconstructed response with collected text
@@ -323,20 +330,20 @@ class TestConvertStreamToResponse:
             'data: {"type": "response.function_call_arguments.done", "name": "get_weather", "arguments": "{\\"city\\": \\"NYC\\"}", "call_id": "call_123"}',
             "data: [DONE]",
         ]
-        
+
         async def mock_aiter_lines():
             for line in sse_lines:
                 yield line
-        
+
         mock_response = Mock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
         mock_response.request = Mock()
-        
+
         client = ChatGPTCodexAsyncClient()
         result = await client._convert_stream_to_response(mock_response)
-        
+
         body = json.loads(result.content)
         assert len(body["output"]) == 1
         assert body["output"][0]["type"] == "function_call"
@@ -356,20 +363,20 @@ class TestConvertStreamToResponse:
             f'data: {{"type": "response.completed", "response": {json.dumps(final_response)}}}',
             "data: [DONE]",
         ]
-        
+
         async def mock_aiter_lines():
             for line in sse_lines:
                 yield line
-        
+
         mock_response = Mock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
         mock_response.request = Mock()
-        
+
         client = ChatGPTCodexAsyncClient()
         result = await client._convert_stream_to_response(mock_response)
-        
+
         body = json.loads(result.content)
         # Should use the response.completed data, not reconstructed
         assert body["id"] == "resp_abc123"
@@ -384,20 +391,20 @@ class TestConvertStreamToResponse:
             "",
             "data: [DONE]",
         ]
-        
+
         async def mock_aiter_lines():
             for line in sse_lines:
                 yield line
-        
+
         mock_response = Mock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
         mock_response.request = Mock()
-        
+
         client = ChatGPTCodexAsyncClient()
         result = await client._convert_stream_to_response(mock_response)
-        
+
         body = json.loads(result.content)
         assert body["output"][0]["content"][0]["text"] == "Hi"
 
@@ -411,20 +418,20 @@ class TestConvertStreamToResponse:
             ": comment line",
             "data: [DONE]",
         ]
-        
+
         async def mock_aiter_lines():
             for line in sse_lines:
                 yield line
-        
+
         mock_response = Mock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
         mock_response.request = Mock()
-        
+
         client = ChatGPTCodexAsyncClient()
         result = await client._convert_stream_to_response(mock_response)
-        
+
         body = json.loads(result.content)
         assert body["output"][0]["content"][0]["text"] == "Test"
 
@@ -436,21 +443,21 @@ class TestConvertStreamToResponse:
             'data: {"type": "response.output_text.delta", "delta": "Ok"}',
             "data: [DONE]",
         ]
-        
+
         async def mock_aiter_lines():
             for line in sse_lines:
                 yield line
-        
+
         mock_response = Mock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
         mock_response.request = Mock()
-        
+
         client = ChatGPTCodexAsyncClient()
         # Should not raise an exception
         result = await client._convert_stream_to_response(mock_response)
-        
+
         body = json.loads(result.content)
         assert body["output"][0]["content"][0]["text"] == "Ok"
 
@@ -458,20 +465,20 @@ class TestConvertStreamToResponse:
     async def test_handle_empty_stream(self):
         """Test handling of empty stream."""
         sse_lines = ["data: [DONE]"]
-        
+
         async def mock_aiter_lines():
             for line in sse_lines:
                 yield line
-        
+
         mock_response = Mock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
         mock_response.request = Mock()
-        
+
         client = ChatGPTCodexAsyncClient()
         result = await client._convert_stream_to_response(mock_response)
-        
+
         body = json.loads(result.content)
         assert body["id"] == "reconstructed"
         assert body["output"] == []  # No content collected
@@ -485,20 +492,20 @@ class TestConvertStreamToResponse:
             'data: {"type": "response.function_call_arguments.done", "name": "get_weather", "arguments": "{}", "call_id": "call_456"}',
             "data: [DONE]",
         ]
-        
+
         async def mock_aiter_lines():
             for line in sse_lines:
                 yield line
-        
+
         mock_response = Mock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
         mock_response.request = Mock()
-        
+
         client = ChatGPTCodexAsyncClient()
         result = await client._convert_stream_to_response(mock_response)
-        
+
         body = json.loads(result.content)
         assert len(body["output"]) == 2
         assert body["output"][0]["type"] == "message"
@@ -515,20 +522,23 @@ class TestSendMethod:
         success_response = Mock(spec=httpx.Response)
         success_response.status_code = 200
         success_response.headers = {"content-type": "application/json"}
-        
+
         with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=success_response
+            httpx.AsyncClient,
+            "send",
+            new_callable=AsyncMock,
+            return_value=success_response,
         ) as mock_send:
             client = ChatGPTCodexAsyncClient()
-            
+
             request = httpx.Request(
                 "POST",
                 "https://api.openai.com/v1/chat/completions",
                 content=json.dumps({"model": "gpt-4"}).encode(),
             )
-            
+
             await client.send(request)
-            
+
             # Verify parent send was called
             mock_send.assert_called_once()
             # The request should have been modified
@@ -542,19 +552,22 @@ class TestSendMethod:
         """Test that GET requests pass through unmodified."""
         success_response = Mock(spec=httpx.Response)
         success_response.status_code = 200
-        
+
         with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=success_response
+            httpx.AsyncClient,
+            "send",
+            new_callable=AsyncMock,
+            return_value=success_response,
         ) as mock_send:
             client = ChatGPTCodexAsyncClient()
-            
+
             request = httpx.Request(
                 "GET",
                 "https://api.openai.com/v1/models",
             )
-            
+
             result = await client.send(request)
-            
+
             mock_send.assert_called_once()
             assert result.status_code == 200
 
@@ -566,31 +579,34 @@ class TestSendMethod:
             'data: {"type": "response.output_text.delta", "delta": "Hi"}',
             "data: [DONE]",
         ]
-        
+
         async def mock_aiter_lines():
             for line in sse_lines:
                 yield line
-        
+
         stream_response = Mock(spec=httpx.Response)
         stream_response.status_code = 200
         stream_response.headers = {"content-type": "text/event-stream"}
         stream_response.aiter_lines = mock_aiter_lines
         stream_response.request = Mock()
-        
+
         with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=stream_response
+            httpx.AsyncClient,
+            "send",
+            new_callable=AsyncMock,
+            return_value=stream_response,
         ):
             client = ChatGPTCodexAsyncClient()
-            
+
             # stream=False means we force it to true and need conversion
             request = httpx.Request(
                 "POST",
                 "https://api.openai.com/v1/chat/completions",
                 content=json.dumps({"model": "gpt-4", "stream": False}).encode(),
             )
-            
+
             result = await client.send(request)
-            
+
             # Should be a converted response
             body = json.loads(result.content)
             assert body["output"][0]["content"][0]["text"] == "Hi"
@@ -601,21 +617,26 @@ class TestSendMethod:
         stream_response = Mock(spec=httpx.Response)
         stream_response.status_code = 200
         stream_response.headers = {"content-type": "text/event-stream"}
-        
+
         with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=stream_response
+            httpx.AsyncClient,
+            "send",
+            new_callable=AsyncMock,
+            return_value=stream_response,
         ):
             client = ChatGPTCodexAsyncClient()
-            
+
             # stream=True means no forced conversion
             request = httpx.Request(
                 "POST",
                 "https://api.openai.com/v1/chat/completions",
-                content=json.dumps({"model": "gpt-4", "stream": True, "store": False}).encode(),
+                content=json.dumps(
+                    {"model": "gpt-4", "stream": True, "store": False}
+                ).encode(),
             )
-            
+
             result = await client.send(request)
-            
+
             # Should return original response (not converted)
             assert result is stream_response
 
@@ -625,20 +646,23 @@ class TestSendMethod:
         error_response = Mock(spec=httpx.Response)
         error_response.status_code = 400
         error_response.headers = {"content-type": "application/json"}
-        
+
         with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=error_response
+            httpx.AsyncClient,
+            "send",
+            new_callable=AsyncMock,
+            return_value=error_response,
         ):
             client = ChatGPTCodexAsyncClient()
-            
+
             request = httpx.Request(
                 "POST",
                 "https://api.openai.com/v1/chat/completions",
                 content=json.dumps({"model": "gpt-4", "stream": False}).encode(),
             )
-            
+
             result = await client.send(request)
-            
+
             # Should return original error response
             assert result.status_code == 400
 
@@ -647,21 +671,26 @@ class TestSendMethod:
         """Test that exceptions during body modification don't crash."""
         success_response = Mock(spec=httpx.Response)
         success_response.status_code = 200
-        
+
         with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=success_response
+            httpx.AsyncClient,
+            "send",
+            new_callable=AsyncMock,
+            return_value=success_response,
         ):
             with patch.object(
-                ChatGPTCodexAsyncClient, "_extract_body_bytes", side_effect=Exception("Test error")
+                ChatGPTCodexAsyncClient,
+                "_extract_body_bytes",
+                side_effect=Exception("Test error"),
             ):
                 client = ChatGPTCodexAsyncClient()
-                
+
                 request = httpx.Request(
                     "POST",
                     "https://api.openai.com/v1/chat/completions",
                     content=b'{"model": "gpt-4"}',
                 )
-                
+
                 # Should not raise, just proceed with original request
                 result = await client.send(request)
                 assert result.status_code == 200
@@ -669,27 +698,31 @@ class TestSendMethod:
     @pytest.mark.asyncio
     async def test_stream_conversion_failure_logs_warning(self):
         """Test that stream conversion failure logs warning and returns original."""
+
         # Create a streaming response that fails during conversion
         async def failing_aiter_lines():
             raise Exception("Stream read error")
             yield  # Make it a generator
-        
+
         stream_response = Mock(spec=httpx.Response)
         stream_response.status_code = 200
         stream_response.headers = {}
         stream_response.aiter_lines = failing_aiter_lines
-        
+
         with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=stream_response
+            httpx.AsyncClient,
+            "send",
+            new_callable=AsyncMock,
+            return_value=stream_response,
         ):
             client = ChatGPTCodexAsyncClient()
-            
+
             request = httpx.Request(
                 "POST",
                 "https://api.openai.com/v1/chat/completions",
                 content=json.dumps({"model": "gpt-4", "stream": False}).encode(),
             )
-            
+
             # Should return original response on conversion failure
             result = await client.send(request)
             assert result is stream_response
@@ -701,7 +734,7 @@ class TestCreateCodexAsyncClient:
     def test_creates_client_with_defaults(self):
         """Test that factory creates client with default settings."""
         client = create_codex_async_client()
-        
+
         assert isinstance(client, ChatGPTCodexAsyncClient)
         assert client.timeout.connect == 30.0
         assert client.timeout.read == 300.0
@@ -710,7 +743,7 @@ class TestCreateCodexAsyncClient:
         """Test that factory respects custom headers."""
         headers = {"Authorization": "Bearer test-token", "X-Custom": "value"}
         client = create_codex_async_client(headers=headers)
-        
+
         assert isinstance(client, ChatGPTCodexAsyncClient)
         # Headers are stored in the client
         assert client.headers.get("authorization") == "Bearer test-token"
@@ -719,7 +752,7 @@ class TestCreateCodexAsyncClient:
     def test_creates_client_with_verify_false(self):
         """Test that factory respects verify=False."""
         client = create_codex_async_client(verify=False)
-        
+
         assert isinstance(client, ChatGPTCodexAsyncClient)
         # The verify setting is stored in _transport
         # Just check client was created without error
@@ -730,7 +763,7 @@ class TestCreateCodexAsyncClient:
         # The actual SSL context creation happens on first request
         # Using verify=False to avoid file not found errors
         client = create_codex_async_client(verify=False)
-        
+
         assert isinstance(client, ChatGPTCodexAsyncClient)
 
     def test_creates_client_with_kwargs(self):
@@ -739,7 +772,7 @@ class TestCreateCodexAsyncClient:
             headers={"X-Test": "yes"},
             follow_redirects=True,
         )
-        
+
         assert isinstance(client, ChatGPTCodexAsyncClient)
         assert client.follow_redirects is True
 
@@ -776,18 +809,21 @@ class TestEdgeCases:
         """Test send with POST request but no body content."""
         success_response = Mock(spec=httpx.Response)
         success_response.status_code = 200
-        
+
         with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=success_response
+            httpx.AsyncClient,
+            "send",
+            new_callable=AsyncMock,
+            return_value=success_response,
         ):
             client = ChatGPTCodexAsyncClient()
-            
+
             request = httpx.Request(
                 "POST",
                 "https://api.openai.com/v1/chat/completions",
                 # No content
             )
-            
+
             result = await client.send(request)
             assert result.status_code == 200
 
@@ -809,20 +845,20 @@ class TestEdgeCases:
             'data: {"type": "response.output_text.delta"}',  # Missing delta key
             "data: [DONE]",
         ]
-        
+
         async def mock_aiter_lines():
             for line in sse_lines:
                 yield line
-        
+
         mock_response = Mock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
         mock_response.request = Mock()
-        
+
         client = ChatGPTCodexAsyncClient()
         result = await client._convert_stream_to_response(mock_response)
-        
+
         body = json.loads(result.content)
         # Only "Hello" should be collected (empty strings are falsy)
         assert body["output"][0]["content"][0]["text"] == "Hello"

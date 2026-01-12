@@ -24,7 +24,7 @@ class TestRegisterDuplicateId:
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("code_puppy.mcp_.registry.config.DATA_DIR", tmpdir):
                 registry = ServerRegistry()
-                
+
                 # Register first server with explicit ID
                 config1 = ServerConfig(
                     id="duplicate-id",
@@ -34,7 +34,7 @@ class TestRegisterDuplicateId:
                     config={"command": "echo"},
                 )
                 registry.register(config1)
-                
+
                 # Try to register second server with same ID
                 config2 = ServerConfig(
                     id="duplicate-id",
@@ -55,7 +55,7 @@ class TestUpdateValidationErrors:
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("code_puppy.mcp_.registry.config.DATA_DIR", tmpdir):
                 registry = ServerRegistry()
-                
+
                 # Register a valid server
                 config = ServerConfig(
                     id="test-id",
@@ -65,7 +65,7 @@ class TestUpdateValidationErrors:
                     config={"command": "echo"},
                 )
                 registry.register(config)
-                
+
                 # Try to update with invalid config (empty name)
                 invalid_config = ServerConfig(
                     id="test-id",
@@ -304,7 +304,9 @@ class TestValidationEdgeCases:
                     config={"command": "echo", "env": "not-a-dict"},
                 )
                 errors = registry.validate_config(config)
-                assert any("Environment variables must be a dictionary" in e for e in errors)
+                assert any(
+                    "Environment variables must be a dictionary" in e for e in errors
+                )
 
     def test_validate_env_values_not_strings(self):
         """Test validation fails when env values are not strings."""
@@ -319,7 +321,9 @@ class TestValidationEdgeCases:
                     config={"command": "echo", "env": {"VAR1": "valid", "VAR2": 123}},
                 )
                 errors = registry.validate_config(config)
-                assert any("All environment variables must be strings" in e for e in errors)
+                assert any(
+                    "All environment variables must be strings" in e for e in errors
+                )
 
     def test_validate_cwd_not_string(self):
         """Test validation fails when cwd is not a string."""
@@ -345,7 +349,7 @@ class TestPersistException:
         with tempfile.TemporaryDirectory() as tmpdir:
             storage_path = Path(tmpdir) / "registry.json"
             registry = ServerRegistry(storage_path=str(storage_path))
-            
+
             # Add a server so we have something to persist
             config = ServerConfig(
                 id="test",
@@ -355,9 +359,11 @@ class TestPersistException:
                 config={"command": "echo"},
             )
             registry._servers["test"] = config
-            
+
             # Make the directory read-only to cause write failure
-            with patch.object(Path, 'replace', side_effect=PermissionError("Write denied")):
+            with patch.object(
+                Path, "replace", side_effect=PermissionError("Write denied")
+            ):
                 with pytest.raises(PermissionError):
                     registry._persist()
 
@@ -371,7 +377,7 @@ class TestLoadEdgeCases:
             storage_path = Path(tmpdir) / "registry.json"
             # Create empty file
             storage_path.touch()
-            
+
             registry = ServerRegistry(storage_path=str(storage_path))
             assert len(registry._servers) == 0
 
@@ -382,7 +388,7 @@ class TestLoadEdgeCases:
             # Write a JSON array instead of object
             with open(storage_path, "w") as f:
                 json.dump(["not", "a", "dict"], f)
-            
+
             registry = ServerRegistry(storage_path=str(storage_path))
             assert len(registry._servers) == 0
 
@@ -393,7 +399,7 @@ class TestLoadEdgeCases:
             # Write entry that is not a dict
             with open(storage_path, "w") as f:
                 json.dump({"server1": "not-a-dict"}, f)
-            
+
             registry = ServerRegistry(storage_path=str(storage_path))
             assert len(registry._servers) == 0
 
@@ -403,15 +409,18 @@ class TestLoadEdgeCases:
             storage_path = Path(tmpdir) / "registry.json"
             # Write entry missing 'config' field
             with open(storage_path, "w") as f:
-                json.dump({
-                    "server1": {
-                        "id": "server1",
-                        "name": "test",
-                        "type": "stdio",
-                        # Missing 'config' field
-                    }
-                }, f)
-            
+                json.dump(
+                    {
+                        "server1": {
+                            "id": "server1",
+                            "name": "test",
+                            "type": "stdio",
+                            # Missing 'config' field
+                        }
+                    },
+                    f,
+                )
+
             registry = ServerRegistry(storage_path=str(storage_path))
             assert len(registry._servers) == 0
 
@@ -421,16 +430,19 @@ class TestLoadEdgeCases:
             storage_path = Path(tmpdir) / "registry.json"
             # Write entry with invalid config (no command for stdio)
             with open(storage_path, "w") as f:
-                json.dump({
-                    "server1": {
-                        "id": "server1",
-                        "name": "test",
-                        "type": "stdio",
-                        "enabled": True,
-                        "config": {},  # Missing required 'command'
-                    }
-                }, f)
-            
+                json.dump(
+                    {
+                        "server1": {
+                            "id": "server1",
+                            "name": "test",
+                            "type": "stdio",
+                            "enabled": True,
+                            "config": {},  # Missing required 'command'
+                        }
+                    },
+                    f,
+                )
+
             registry = ServerRegistry(storage_path=str(storage_path))
             assert len(registry._servers) == 0
 
@@ -440,18 +452,24 @@ class TestLoadEdgeCases:
             storage_path = Path(tmpdir) / "registry.json"
             # Write valid JSON but entry will cause ServerConfig to fail
             with open(storage_path, "w") as f:
-                json.dump({
-                    "server1": {
-                        "id": "server1",
-                        "name": "test",
-                        "type": "stdio",
-                        "enabled": "not-a-bool",  # This should work but let's mock failure
-                        "config": {"command": "echo"},
-                    }
-                }, f)
-            
+                json.dump(
+                    {
+                        "server1": {
+                            "id": "server1",
+                            "name": "test",
+                            "type": "stdio",
+                            "enabled": "not-a-bool",  # This should work but let's mock failure
+                            "config": {"command": "echo"},
+                        }
+                    },
+                    f,
+                )
+
             # Mock ServerConfig to raise an exception
-            with patch("code_puppy.mcp_.registry.ServerConfig", side_effect=Exception("Parse error")):
+            with patch(
+                "code_puppy.mcp_.registry.ServerConfig",
+                side_effect=Exception("Parse error"),
+            ):
                 registry = ServerRegistry(storage_path=str(storage_path))
                 assert len(registry._servers) == 0
 
@@ -462,7 +480,7 @@ class TestLoadEdgeCases:
             # Write invalid JSON
             with open(storage_path, "w") as f:
                 f.write("{invalid json syntax")
-            
+
             registry = ServerRegistry(storage_path=str(storage_path))
             assert len(registry._servers) == 0
 
@@ -472,19 +490,29 @@ class TestLoadEdgeCases:
             storage_path = Path(tmpdir) / "registry.json"
             # Write valid JSON
             with open(storage_path, "w") as f:
-                json.dump({"server1": {"id": "1", "name": "t", "type": "stdio", "config": {"command": "e"}}}, f)
-            
+                json.dump(
+                    {
+                        "server1": {
+                            "id": "1",
+                            "name": "t",
+                            "type": "stdio",
+                            "config": {"command": "e"},
+                        }
+                    },
+                    f,
+                )
+
             # Mock open to raise an exception after exists() check
             original_open = open
             call_count = [0]
-            
+
             def mock_open_with_error(*args, **kwargs):
                 call_count[0] += 1
                 if "r" in args[1] if len(args) > 1 else kwargs.get("mode", "r") == "r":
                     if call_count[0] > 0:  # Fail on read
                         raise IOError("Read error")
                 return original_open(*args, **kwargs)
-            
+
             with patch("builtins.open", side_effect=IOError("Read error")):
                 registry = ServerRegistry(storage_path=str(storage_path))
                 assert len(registry._servers) == 0

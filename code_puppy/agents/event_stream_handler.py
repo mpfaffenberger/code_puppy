@@ -119,6 +119,7 @@ async def event_stream_handler(
     tool_parts: set[int] = set()  # Track which parts are tool calls
     banner_printed: set[int] = set()  # Track if banner was already printed
     token_count: dict[int, int] = {}  # Track token count per text/tool part
+    tool_names: dict[int, str] = {}  # Track tool name per tool part index
     did_stream_anything = False  # Track if we streamed any content
 
     # Termflow streaming state for text parts
@@ -203,6 +204,8 @@ async def event_stream_handler(
                 streaming_parts.add(event.index)
                 tool_parts.add(event.index)
                 token_count[event.index] = 0  # Initialize token counter
+                # Capture tool name from the start event
+                tool_names[event.index] = part.tool_name or ""
                 # Track tool name for display
                 banner_printed.add(
                     event.index
@@ -253,20 +256,36 @@ async def event_stream_handler(
                             escaped = escape(delta.content_delta)
                             console.print(f"[dim]{escaped}[/dim]", end="")
                 elif isinstance(delta, ToolCallPartDelta):
-                    # For tool calls, count chunks received
-                    token_count[event.index] += 1
-                    # Get tool name if available
-                    tool_name = getattr(delta, "tool_name_delta", "")
+                    # For tool calls, estimate tokens from args_delta content
+                    # args_delta contains the streaming JSON arguments
+                    args_delta = getattr(delta, "args_delta", "") or ""
+                    if args_delta:
+                        # Rough estimate: 4 chars ≈ 1 token (same heuristic as subagent_stream_handler)
+                        estimated_tokens = max(1, len(args_delta) // 4)
+                        token_count[event.index] += estimated_tokens
+                    else:
+                        # Even empty deltas count as activity
+                        token_count[event.index] += 1
+
+                    # Update tool name if delta provides more of it
+                    tool_name_delta = getattr(delta, "tool_name_delta", "") or ""
+                    if tool_name_delta:
+                        tool_names[event.index] = (
+                            tool_names.get(event.index, "") + tool_name_delta
+                        )
+
+                    # Use stored tool name for display
+                    tool_name = tool_names.get(event.index, "")
                     count = token_count[event.index]
                     # Display with tool wrench icon and tool name
                     if tool_name:
                         console.print(
-                            f"  \U0001f527 Calling {tool_name}... {count} chunks   ",
+                            f"  \U0001f527 Calling {tool_name}... {count} token(s)   ",
                             end="\r",
                         )
                     else:
                         console.print(
-                            f"  \U0001f527 Calling tool... {count} chunks   ",
+                            f"  \U0001f527 Calling tool... {count} token(s)   ",
                             end="\r",
                         )
 
@@ -311,8 +330,9 @@ async def event_stream_handler(
                 elif event.index in banner_printed:
                     console.print()  # Final newline after streaming
 
-                # Clean up token count
+                # Clean up token count and tool names
                 token_count.pop(event.index, None)
+                tool_names.pop(event.index, None)
                 # Clean up all tracking sets
                 streaming_parts.discard(event.index)
                 thinking_parts.discard(event.index)

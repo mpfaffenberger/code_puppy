@@ -1,16 +1,16 @@
 """Screenshot tool for browser automation.
 
-Captures screenshots and returns them as base64 data that multimodal
-models can directly see and analyze - no separate VQA agent needed.
+Captures screenshots and returns them via ToolReturn with BinaryContent
+so multimodal models can directly see and analyze - no separate VQA agent needed.
 """
 
-import base64
+import time
 from datetime import datetime
 from pathlib import Path
 from tempfile import gettempdir, mkdtemp
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
-from pydantic_ai import RunContext
+from pydantic_ai import BinaryContent, RunContext, ToolReturn
 
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
@@ -54,7 +54,6 @@ async def _capture_screenshot(
         result: Dict[str, Any] = {
             "success": True,
             "screenshot_bytes": screenshot_bytes,
-            "base64_data": base64.b64encode(screenshot_bytes).decode("utf-8"),
             "timestamp": timestamp,
         }
 
@@ -80,11 +79,11 @@ async def take_screenshot(
     full_page: bool = False,
     element_selector: Optional[str] = None,
     save_screenshot: bool = True,
-) -> Dict[str, Any]:
+) -> Union[ToolReturn, Dict[str, Any]]:
     """Take a screenshot of the browser page.
 
-    Returns the screenshot as base64-encoded PNG data that multimodal
-    models can directly see and analyze.
+    Returns a ToolReturn with BinaryContent so multimodal models can
+    directly see and analyze the screenshot.
 
     Args:
         full_page: Whether to capture full page or just viewport.
@@ -92,12 +91,11 @@ async def take_screenshot(
         save_screenshot: Whether to save the screenshot to disk.
 
     Returns:
-        Dict containing:
-            - success (bool): True if screenshot was captured.
-            - base64_image (str): Base64-encoded PNG image data.
-            - media_type (str): Always "image/png".
-            - screenshot_path (str): Path to saved file (if saved).
-            - error (str): Error message if unsuccessful.
+        ToolReturn containing:
+            - return_value: Success message with screenshot path
+            - content: List with description and BinaryContent image
+            - metadata: Screenshot details (path, target, timestamp)
+        Or Dict with error info if failed.
     """
     target = element_selector or ("full_page" if full_page else "viewport")
     group_id = generate_group_id("browser_screenshot", target)
@@ -122,15 +120,30 @@ async def take_screenshot(
 
         if not result["success"]:
             emit_error(result.get("error", "Screenshot failed"), message_group=group_id)
-            return result
+            return {"success": False, "error": result.get("error")}
 
-        return {
-            "success": True,
-            "base64_image": result["base64_data"],
-            "media_type": "image/png",
-            "screenshot_path": result.get("screenshot_path"),
-            "message": "Screenshot captured. The base64_image contains the browser view.",
-        }
+        screenshot_path = result.get("screenshot_path", "(not saved)")
+
+        # Return as ToolReturn with BinaryContent so the model can SEE the image!
+        return ToolReturn(
+            return_value=f"Screenshot captured successfully. Saved to: {screenshot_path}",
+            content=[
+                f"Here's the browser screenshot ({target}):",
+                BinaryContent(
+                    data=result["screenshot_bytes"],
+                    media_type="image/png",
+                ),
+                "Please analyze what you see and describe any relevant details.",
+            ],
+            metadata={
+                "success": True,
+                "screenshot_path": screenshot_path,
+                "target": target,
+                "full_page": full_page,
+                "element_selector": element_selector,
+                "timestamp": time.time(),
+            },
+        )
 
     except Exception as e:
         error_msg = f"Screenshot failed: {str(e)}"
@@ -146,19 +159,19 @@ def register_take_screenshot_and_analyze(agent):
         context: RunContext,
         full_page: bool = False,
         element_selector: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> Union[ToolReturn, Dict[str, Any]]:
         """
         Take a screenshot of the browser page.
 
-        Returns the screenshot as base64 image data that you can see directly.
-        Use this to see what's displayed in the browser.
+        Returns the screenshot via ToolReturn with BinaryContent that you can
+        see directly. Use this to see what's displayed in the browser.
 
         Args:
             full_page: Capture full page (True) or just viewport (False).
             element_selector: Optional CSS selector to screenshot specific element.
 
         Returns:
-            Dict with base64_image (PNG data you can see), screenshot_path, etc.
+            ToolReturn with the screenshot image you can analyze, or error dict.
         """
         return await take_screenshot(
             full_page=full_page,

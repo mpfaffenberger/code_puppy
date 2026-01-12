@@ -125,9 +125,7 @@ class TestGetSubagentSessionsDir:
 
     def test_returns_same_path_on_multiple_calls(self):
         """Test that function returns consistent path."""
-        with patch(
-            "code_puppy.tools.agent_tools.DATA_DIR", tempfile.gettempdir()
-        ):
+        with patch("code_puppy.tools.agent_tools.DATA_DIR", tempfile.gettempdir()):
             path1 = _get_subagent_sessions_dir()
             path2 = _get_subagent_sessions_dir()
             assert path1 == path2
@@ -282,19 +280,19 @@ class TestRegisterListAgentsExecution:
 
         # Mock the agent manager functions and config
         # Note: get_banner_color is imported from code_puppy.config inside the function
-        with patch(
-            "code_puppy.config.get_banner_color",
-            return_value="blue",
-        ), patch(
-            "code_puppy.tools.agent_tools.emit_info"
-        ), patch(
-            "code_puppy.tools.agent_tools.generate_group_id",
-            return_value="test-group",
-        ), patch(
-            "code_puppy.agents.get_available_agents"
-        ) as mock_available, patch(
-            "code_puppy.agents.get_agent_descriptions"
-        ) as mock_descriptions:
+        with (
+            patch(
+                "code_puppy.config.get_banner_color",
+                return_value="blue",
+            ),
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.agents.get_available_agents") as mock_available,
+            patch("code_puppy.agents.get_agent_descriptions") as mock_descriptions,
+        ):
             mock_available.return_value = {
                 "code-reviewer": "Code Reviewer",
                 "qa-expert": "QA Expert",
@@ -333,19 +331,21 @@ class TestRegisterListAgentsExecution:
         register_list_agents(mock_agent)
 
         # Mock to raise an exception
-        with patch(
-            "code_puppy.config.get_banner_color",
-            return_value="blue",
-        ), patch(
-            "code_puppy.tools.agent_tools.emit_info"
-        ), patch(
-            "code_puppy.tools.agent_tools.emit_error"
-        ) as mock_emit_error, patch(
-            "code_puppy.tools.agent_tools.generate_group_id",
-            return_value="test-group",
-        ), patch(
-            "code_puppy.agents.get_available_agents",
-            side_effect=RuntimeError("Database connection failed"),
+        with (
+            patch(
+                "code_puppy.config.get_banner_color",
+                return_value="blue",
+            ),
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch("code_puppy.tools.agent_tools.emit_error") as mock_emit_error,
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch(
+                "code_puppy.agents.get_available_agents",
+                side_effect=RuntimeError("Database connection failed"),
+            ),
         ):
             result = registered_func(mock_context)
 
@@ -370,19 +370,19 @@ class TestRegisterListAgentsExecution:
         mock_agent.tool = capture_tool
         register_list_agents(mock_agent)
 
-        with patch(
-            "code_puppy.config.get_banner_color",
-            return_value="blue",
-        ), patch(
-            "code_puppy.tools.agent_tools.emit_info"
-        ), patch(
-            "code_puppy.tools.agent_tools.generate_group_id",
-            return_value="test-group",
-        ), patch(
-            "code_puppy.agents.get_available_agents"
-        ) as mock_available, patch(
-            "code_puppy.agents.get_agent_descriptions"
-        ) as mock_descriptions:
+        with (
+            patch(
+                "code_puppy.config.get_banner_color",
+                return_value="blue",
+            ),
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.agents.get_available_agents") as mock_available,
+            patch("code_puppy.agents.get_agent_descriptions") as mock_descriptions,
+        ):
             mock_available.return_value = {
                 "new-agent": "New Agent",
             }
@@ -425,11 +425,12 @@ class TestRegisterInvokeAgentExecution:
         invoke_agent = self._get_registered_invoke_agent()
         mock_context = MagicMock()
 
-        with patch(
-            "code_puppy.tools.agent_tools.emit_error"
-        ) as mock_emit_error, patch(
-            "code_puppy.tools.agent_tools.generate_group_id",
-            return_value="test-group",
+        with (
+            patch("code_puppy.tools.agent_tools.emit_error") as mock_emit_error,
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
         ):
             # Call with invalid session_id (uppercase not allowed)
             result = await invoke_agent(
@@ -455,30 +456,34 @@ class TestRegisterInvokeAgentExecution:
         mock_agent_config = MagicMock()
         mock_agent_config.get_model_name.return_value = "nonexistent-model"
 
-        with patch(
-            "code_puppy.tools.agent_tools.generate_group_id",
-            return_value="test-group",
-        ), patch(
-            "code_puppy.tools.agent_tools.get_message_bus"
-        ) as mock_bus, patch(
-            "code_puppy.tools.agent_tools.get_session_context",
-            return_value="parent",
-        ), patch(
-            "code_puppy.tools.agent_tools.set_session_context"
-        ), patch(
-            "code_puppy.tools.agent_tools.emit_error"
-        ) as mock_emit_error, patch(
-            "code_puppy.agents.agent_manager.load_agent",
-            return_value=mock_agent_config,
-        ), patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
-            return_value={},  # No models configured
-        ), patch(
-            "code_puppy.tools.agent_tools._load_session_history",
-            return_value=[],
-        ), patch(
-            "code_puppy.tools.agent_tools._generate_session_hash_suffix",
-            return_value="abc123",
+        with (
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context",
+                return_value="parent",
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch("code_puppy.tools.agent_tools.emit_error") as mock_emit_error,
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=mock_agent_config,
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value={},  # No models configured
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._load_session_history",
+                return_value=[],
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
         ):
             mock_bus.return_value.emit = MagicMock()
 
@@ -507,31 +512,37 @@ class TestRegisterInvokeAgentExecution:
 
         set_context_calls = []
 
-        with patch(
-            "code_puppy.tools.agent_tools.generate_group_id",
-            return_value="test-group",
-        ), patch(
-            "code_puppy.tools.agent_tools.get_message_bus"
-        ) as mock_bus, patch(
-            "code_puppy.tools.agent_tools.get_session_context",
-            return_value="original-parent",
-        ), patch(
-            "code_puppy.tools.agent_tools.set_session_context",
-            side_effect=lambda x: set_context_calls.append(x),
-        ), patch(
-            "code_puppy.tools.agent_tools.emit_error"
-        ), patch(
-            "code_puppy.agents.agent_manager.load_agent",
-            return_value=mock_agent_config,
-        ), patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
-            side_effect=RuntimeError("Config load failed"),
-        ), patch(
-            "code_puppy.tools.agent_tools._load_session_history",
-            return_value=[],
-        ), patch(
-            "code_puppy.tools.agent_tools._generate_session_hash_suffix",
-            return_value="abc123",
+        with (
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context",
+                return_value="original-parent",
+            ),
+            patch(
+                "code_puppy.tools.agent_tools.set_session_context",
+                side_effect=lambda x: set_context_calls.append(x),
+            ),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=mock_agent_config,
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                side_effect=RuntimeError("Config load failed"),
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._load_session_history",
+                return_value=[],
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
         ):
             mock_bus.return_value.emit = MagicMock()
 
@@ -573,8 +584,9 @@ class TestDBOSWorkflowCounter:
 
     def test_counter_is_thread_safe_type(self):
         """Test that the counter uses a thread-safe implementation."""
-        from code_puppy.tools.agent_tools import _dbos_workflow_counter
         import itertools
+
+        from code_puppy.tools.agent_tools import _dbos_workflow_counter
 
         # Should be an itertools.count object
         assert isinstance(_dbos_workflow_counter, type(itertools.count()))
@@ -609,11 +621,12 @@ class TestSessionIdValidationInInvokeAgent:
         invoke_agent = self._get_registered_invoke_agent()
         mock_context = MagicMock()
 
-        with patch(
-            "code_puppy.tools.agent_tools.emit_error"
-        ), patch(
-            "code_puppy.tools.agent_tools.generate_group_id",
-            return_value="test-group",
+        with (
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
         ):
             result = await invoke_agent(
                 mock_context,
@@ -631,11 +644,12 @@ class TestSessionIdValidationInInvokeAgent:
         invoke_agent = self._get_registered_invoke_agent()
         mock_context = MagicMock()
 
-        with patch(
-            "code_puppy.tools.agent_tools.emit_error"
-        ), patch(
-            "code_puppy.tools.agent_tools.generate_group_id",
-            return_value="test-group",
+        with (
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
         ):
             result = await invoke_agent(
                 mock_context,
@@ -653,11 +667,12 @@ class TestSessionIdValidationInInvokeAgent:
         invoke_agent = self._get_registered_invoke_agent()
         mock_context = MagicMock()
 
-        with patch(
-            "code_puppy.tools.agent_tools.emit_error"
-        ), patch(
-            "code_puppy.tools.agent_tools.generate_group_id",
-            return_value="test-group",
+        with (
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
         ):
             result = await invoke_agent(
                 mock_context,
@@ -675,11 +690,12 @@ class TestSessionIdValidationInInvokeAgent:
         invoke_agent = self._get_registered_invoke_agent()
         mock_context = MagicMock()
 
-        with patch(
-            "code_puppy.tools.agent_tools.emit_error"
-        ), patch(
-            "code_puppy.tools.agent_tools.generate_group_id",
-            return_value="test-group",
+        with (
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
         ):
             long_id = "a" * 129
             result = await invoke_agent(
@@ -711,20 +727,24 @@ class TestListAgentsEmitsBannerAndInfo:
         mock_agent.tool = capture_tool
         register_list_agents(mock_agent)
 
-        with patch(
-            "code_puppy.config.get_banner_color",
-            return_value="green",
-        ) as mock_banner_color, patch(
-            "code_puppy.tools.agent_tools.emit_info"
-        ) as mock_emit_info, patch(
-            "code_puppy.tools.agent_tools.generate_group_id",
-            return_value="banner-group",
-        ), patch(
-            "code_puppy.agents.get_available_agents",
-            return_value={},
-        ), patch(
-            "code_puppy.agents.get_agent_descriptions",
-            return_value={},
+        with (
+            patch(
+                "code_puppy.config.get_banner_color",
+                return_value="green",
+            ) as mock_banner_color,
+            patch("code_puppy.tools.agent_tools.emit_info") as mock_emit_info,
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="banner-group",
+            ),
+            patch(
+                "code_puppy.agents.get_available_agents",
+                return_value={},
+            ),
+            patch(
+                "code_puppy.agents.get_agent_descriptions",
+                return_value={},
+            ),
         ):
             registered_func(mock_context)
 
