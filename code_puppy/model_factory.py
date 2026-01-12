@@ -232,7 +232,6 @@ class ModelFactory:
 
         # Import OAuth model file paths from main config
         from code_puppy.config import (
-            ANTIGRAVITY_MODELS_FILE,
             CHATGPT_MODELS_FILE,
             CLAUDE_MODELS_FILE,
             GEMINI_MODELS_FILE,
@@ -244,7 +243,6 @@ class ModelFactory:
             (pathlib.Path(CHATGPT_MODELS_FILE), "ChatGPT OAuth models", False),
             (pathlib.Path(CLAUDE_MODELS_FILE), "Claude Code OAuth models", True),
             (pathlib.Path(GEMINI_MODELS_FILE), "Gemini OAuth models", False),
-            (pathlib.Path(ANTIGRAVITY_MODELS_FILE), "Antigravity OAuth models", False),
         ]
 
         for source_path, label, use_filtered in extra_sources:

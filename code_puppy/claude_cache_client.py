@@ -5,11 +5,6 @@ ClaudeCacheAsyncClient: httpx client that tries to patch /v1/messages bodies.
 We now also expose `patch_anthropic_client_messages` which monkey-patches
 AsyncAnthropic.messages.create() so we can inject cache_control BEFORE
 serialization, avoiding httpx/Pydantic internals.
-
-This module also handles:
-- Tool name prefixing/unprefixing for Claude Code OAuth compatibility
-- Header transformations (anthropic-beta, user-agent)
-- URL modifications (adding ?beta=true query param)
 """
 
 from __future__ import annotations
@@ -35,40 +30,28 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         try:
             if request.url.path.endswith("/v1/messages"):
                 body_bytes = self._extract_body_bytes(request)
-                headers = dict(request.headers)
-                url = request.url
-                body_modified = False
-                headers_modified = False
-
-                # 1. Transform headers for Claude Code OAuth
-                self._transform_headers_for_claude_code(headers)
-                headers_modified = True
-
-                # 2. Add ?beta=true query param
-                url = self._add_beta_query_param(url)
-
-                # 3. Prefix tool names in request body
                 if body_bytes:
-                    prefixed_body = self._prefix_tool_names(body_bytes)
-                    if prefixed_body is not None:
-                        body_bytes = prefixed_body
-                        body_modified = True
+                    updated = self._inject_cache_control(body_bytes)
+                    if updated is not None:
+                        # Rebuild a request with the updated body and transplant internals
+                        try:
+                            rebuilt = self.build_request(
+                                method=request.method,
+                                url=request.url,
+                                headers=request.headers,
+                                content=updated,
+                            )
 
-                    # 4. Inject cache_control
-                    cached_body = self._inject_cache_control(body_bytes)
-                    if cached_body is not None:
-                        body_bytes = cached_body
-                        body_modified = True
+                            # Copy core internals so httpx uses the modified body/stream
+                            if hasattr(rebuilt, "_content"):
+                                setattr(request, "_content", rebuilt._content)  # type: ignore[attr-defined]
+                            if hasattr(rebuilt, "stream"):
+                                request.stream = rebuilt.stream
+                            if hasattr(rebuilt, "extensions"):
+                                request.extensions = rebuilt.extensions
 
-                # Rebuild request if anything changed
-                if body_modified or headers_modified or url != request.url:
-                    try:
-                        rebuilt = self.build_request(
-                            method=request.method,
-                            url=url,
-                            headers=headers,
-                            content=body_bytes,
-                        )
+                            # Ensure Content-Length matches the new body
+                            request.headers["Content-Length"] = str(len(updated))
 
                         except Exception:
                             # Swallow instrumentation errors; do not break real calls.
@@ -197,3 +180,4 @@ def patch_anthropic_client_messages(client: Any) -> None:
         return await original_create(*args, **kwargs)
 
     messages_obj.create = wrapped_create  # type: ignore[assignment]
+
