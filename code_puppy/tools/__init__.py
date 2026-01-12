@@ -55,6 +55,25 @@ from code_puppy.tools.browser.browser_workflows import (
     register_read_workflow,
     register_save_workflow,
 )
+from code_puppy.tools.browser.terminal_command_tools import (
+    register_run_terminal_command,
+    register_send_terminal_keys,
+    register_wait_terminal_output,
+)
+from code_puppy.tools.browser.terminal_screenshot_tools import (
+    register_load_image,
+    register_terminal_compare_mockup,
+    register_terminal_read_output,
+    register_terminal_screenshot,
+)
+
+# Terminal automation tools
+from code_puppy.tools.browser.terminal_tools import (
+    register_check_terminal_server,
+    register_close_terminal,
+    register_open_terminal,
+    register_start_api_server,
+)
 from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
@@ -169,7 +188,7 @@ TOOL_REGISTRY = {
     "browser_wait_for_element": register_wait_for_element,
     "browser_highlight_element": register_browser_highlight_element,
     "browser_clear_highlights": register_browser_clear_highlights,
-    # Browser Screenshots and VQA
+    # Browser Screenshots
     "browser_screenshot_analyze": register_take_screenshot_and_analyze,
     # Browser Workflows
     "browser_save_workflow": register_save_workflow,
@@ -210,6 +229,20 @@ TOOL_REGISTRY = {
     "marketplace_upload_agent": register_marketplace_upload_agent,
     "marketplace_check_update": register_marketplace_check_update,
     "marketplace_authenticate": register_marketplace_authenticate,
+    # Terminal Connection Tools
+    "terminal_check_server": register_check_terminal_server,
+    "terminal_open": register_open_terminal,
+    "terminal_close": register_close_terminal,
+    "start_api_server": register_start_api_server,
+    # Terminal Command Execution Tools
+    "terminal_run_command": register_run_terminal_command,
+    "terminal_send_keys": register_send_terminal_keys,
+    "terminal_wait_output": register_wait_terminal_output,
+    # Terminal Screenshot Tools
+    "terminal_screenshot_analyze": register_terminal_screenshot,
+    "terminal_read_output": register_terminal_read_output,
+    "terminal_compare_mockup": register_terminal_compare_mockup,
+    "load_image_for_analysis": register_load_image,
 }
 
 # Merge in GUI-Cub tools from separate registry

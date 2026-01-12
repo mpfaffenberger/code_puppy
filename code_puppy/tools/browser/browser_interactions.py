@@ -9,7 +9,7 @@ from rich.text import Text
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
-from .camoufox_manager import get_camoufox_manager
+from .camoufox_manager import get_session_browser_manager
 
 
 # --- Click Helper Functions ---
@@ -92,13 +92,15 @@ async def click_element(
     )
 
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        # Find element - use .first to handle cases where selector matches multiple elements
+        # This avoids Playwright's strict mode violation errors
+        element = page.locator(selector).first
 
         # Pre-flight check: does element exist at all?
         count = await element.count()
@@ -240,13 +242,15 @@ async def double_click_element(
     )
 
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
+        await element.wait_for(state="visible", timeout=timeout)
+        await element.dblclick(force=force, timeout=timeout)
 
         # Pre-flight check
         count = await element.count()
@@ -373,13 +377,15 @@ async def hover_element(
     )
 
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
+        await element.wait_for(state="visible", timeout=timeout)
+        await element.hover(force=force, timeout=timeout)
 
         # Pre-flight check
         count = await element.count()
@@ -503,13 +509,13 @@ async def set_element_text(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
 
         if clear_first:
@@ -542,13 +548,13 @@ async def get_element_text(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
 
         text = await element.text_content()
@@ -570,13 +576,13 @@ async def get_element_value(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
 
         value = await element.input_value()
@@ -604,13 +610,13 @@ async def select_option(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
 
         if value is not None:
@@ -651,13 +657,13 @@ async def check_element(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
         await element.check(timeout=timeout)
 
@@ -680,13 +686,13 @@ async def uncheck_element(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
         await element.uncheck(timeout=timeout)
 

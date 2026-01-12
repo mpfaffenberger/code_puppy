@@ -46,12 +46,18 @@ class BrowserScriptsBaseTest:
 
     @pytest.fixture
     def mock_locator(self):
-        """Mock a Playwright locator with common methods."""
+        """Mock a Playwright locator with common methods.
+
+        Note: The locator.first property returns self to handle the .first
+        chaining pattern used in the browser tools for strict mode handling.
+        """
         locator = AsyncMock()
         locator.wait_for = AsyncMock()
         locator.scroll_into_view_if_needed = AsyncMock()
         locator.is_visible = AsyncMock(return_value=True)
         locator.evaluate = AsyncMock()
+        # Support .first chaining for strict mode handling
+        locator.first = locator
         return locator
 
     @pytest.fixture
@@ -70,7 +76,8 @@ class TestExecuteJavaScript(BrowserScriptsBaseTest):
         page.evaluate.return_value = {"success": True, "data": "result"}
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             script = "return document.title;"
             result = await execute_javascript(script, timeout=5000)
@@ -79,7 +86,8 @@ class TestExecuteJavaScript(BrowserScriptsBaseTest):
             assert result["script"] == script
             assert result["result"] == {"success": True, "data": "result"}
 
-            page.evaluate.assert_called_once_with(script, timeout=5000)
+            # Note: page.evaluate() does NOT accept timeout param in Playwright
+            page.evaluate.assert_called_once_with(script)
 
     @pytest.mark.asyncio
     async def test_execute_javascript_void_result(self, mock_browser_manager):
@@ -88,7 +96,8 @@ class TestExecuteJavaScript(BrowserScriptsBaseTest):
         page.evaluate.return_value = None
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             script = "console.log('hello');"
             result = await execute_javascript(script)
@@ -103,7 +112,8 @@ class TestExecuteJavaScript(BrowserScriptsBaseTest):
         page.evaluate.return_value = "Hello World"
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             script = "return 'Hello World';"
             result = await execute_javascript(script)
@@ -118,7 +128,8 @@ class TestExecuteJavaScript(BrowserScriptsBaseTest):
         manager.get_current_page.return_value = None
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await execute_javascript("return true;")
 
@@ -132,7 +143,8 @@ class TestExecuteJavaScript(BrowserScriptsBaseTest):
         page.evaluate.side_effect = Exception("Syntax Error")
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             script = "invalid javaScript code"
             result = await execute_javascript(script)
@@ -148,7 +160,8 @@ class TestExecuteJavaScript(BrowserScriptsBaseTest):
         page.evaluate.side_effect = Exception("Timeout")
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             script = "while(true) { }"  # Infinite loop
             result = await execute_javascript(script, timeout=1000)
@@ -181,7 +194,8 @@ class TestScrollPage(BrowserScriptsBaseTest):
         page.evaluate.side_effect = [600, None, {"x": 0, "y": 200}]
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await scroll_page(direction="down", amount=3)
 
@@ -202,7 +216,8 @@ class TestScrollPage(BrowserScriptsBaseTest):
         page.evaluate.side_effect = [600, None, {"x": 0, "y": -100}]
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await scroll_page(direction="up", amount=2)
 
@@ -222,7 +237,8 @@ class TestScrollPage(BrowserScriptsBaseTest):
         page.evaluate.side_effect = [600, None, {"x": -150, "y": 0}]
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await scroll_page(direction="left", amount=3)
 
@@ -254,7 +270,8 @@ class TestScrollPage(BrowserScriptsBaseTest):
         page.evaluate.return_value = {"x": 0, "y": 0}
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             page.locator.return_value = locator
 
@@ -276,7 +293,8 @@ class TestScrollPage(BrowserScriptsBaseTest):
         manager.get_current_page.return_value = None
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await scroll_page("down", 3)
 
@@ -290,7 +308,8 @@ class TestScrollPage(BrowserScriptsBaseTest):
         page.evaluate.side_effect = Exception("Scroll failed")
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await scroll_page("down", 3)
 
@@ -318,7 +337,8 @@ class TestScrollToElement(BrowserScriptsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             page.locator.return_value = locator
 
@@ -342,7 +362,8 @@ class TestScrollToElement(BrowserScriptsBaseTest):
         locator.is_visible.return_value = False
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             page.locator.return_value = locator
 
@@ -358,7 +379,8 @@ class TestScrollToElement(BrowserScriptsBaseTest):
         page.locator.side_effect = Exception("Element not found")
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await scroll_to_element("#nonexistent")
 
@@ -385,7 +407,8 @@ class TestSetViewportSize(BrowserScriptsBaseTest):
         manager, page = mock_browser_manager
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await set_viewport_size(width=1200, height=800)
 
@@ -403,7 +426,8 @@ class TestSetViewportSize(BrowserScriptsBaseTest):
         manager, page = mock_browser_manager
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await set_viewport_size(width=375, height=667)
 
@@ -422,7 +446,8 @@ class TestSetViewportSize(BrowserScriptsBaseTest):
         manager.get_current_page.return_value = None
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await set_viewport_size(800, 600)
 
@@ -436,7 +461,8 @@ class TestSetViewportSize(BrowserScriptsBaseTest):
         page.set_viewport_size.side_effect = Exception("Invalid viewport size")
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await set_viewport_size(-100, -100)
 
@@ -466,7 +492,8 @@ class TestWaitForElement(BrowserScriptsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             page.locator.return_value = locator
 
@@ -487,7 +514,8 @@ class TestWaitForElement(BrowserScriptsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             page.locator.return_value = locator
 
@@ -505,7 +533,8 @@ class TestWaitForElement(BrowserScriptsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             page.locator.return_value = locator
 
@@ -523,7 +552,8 @@ class TestWaitForElement(BrowserScriptsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             page.locator.return_value = locator
 
@@ -541,7 +571,8 @@ class TestWaitForElement(BrowserScriptsBaseTest):
         manager.get_current_page.return_value = None
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await wait_for_element("#element")
 
@@ -556,7 +587,8 @@ class TestWaitForElement(BrowserScriptsBaseTest):
         locator.wait_for.side_effect = Exception("Timeout exceeded")
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             page.locator.return_value = locator
 
@@ -587,7 +619,8 @@ class TestHighlightElement(BrowserScriptsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             page.locator.return_value = locator
 
@@ -613,7 +646,8 @@ class TestHighlightElement(BrowserScriptsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             page.locator.return_value = locator
 
@@ -632,7 +666,8 @@ class TestHighlightElement(BrowserScriptsBaseTest):
         manager.get_current_page.return_value = None
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await highlight_element("#element")
 
@@ -646,7 +681,8 @@ class TestHighlightElement(BrowserScriptsBaseTest):
         page.locator.side_effect = Exception("Element not found")
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await highlight_element("#missing")
 
@@ -674,7 +710,8 @@ class TestClearHighlights(BrowserScriptsBaseTest):
         page.evaluate.return_value = 3  # 3 highlights cleared
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await clear_highlights()
 
@@ -694,7 +731,8 @@ class TestClearHighlights(BrowserScriptsBaseTest):
         page.evaluate.return_value = 0  # No highlights to clear
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await clear_highlights()
 
@@ -708,7 +746,8 @@ class TestClearHighlights(BrowserScriptsBaseTest):
         manager.get_current_page.return_value = None
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await clear_highlights()
 
@@ -722,7 +761,8 @@ class TestClearHighlights(BrowserScriptsBaseTest):
         page.evaluate.side_effect = Exception("JavaScript error")
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             result = await clear_highlights()
 
@@ -757,7 +797,8 @@ class TestIntegrationScenarios(BrowserScriptsBaseTest):
         ]
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             page.locator.return_value = locator
 
@@ -786,7 +827,8 @@ class TestIntegrationScenarios(BrowserScriptsBaseTest):
         locator = mock_locator
 
         with patch(
-            "tools.browser.browser_scripts.get_camoufox_manager", return_value=manager
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
         ):
             page.locator.return_value = locator
             page.evaluate.return_value = 2  # 2 highlights cleared

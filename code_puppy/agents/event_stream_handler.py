@@ -1,5 +1,7 @@
 """Event stream handler for processing streaming events from agent runs."""
 
+import asyncio
+import logging
 from collections.abc import AsyncIterable
 from typing import Any, Optional
 
@@ -16,8 +18,35 @@ from rich.console import Console
 from rich.markup import escape
 from rich.text import Text
 
-from code_puppy.config import get_banner_color
+from code_puppy.config import get_banner_color, get_subagent_verbose
 from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
+from code_puppy.tools.subagent_context import is_subagent
+
+logger = logging.getLogger(__name__)
+
+
+def _fire_stream_event(event_type: str, event_data: Any) -> None:
+    """Fire a stream event callback asynchronously (non-blocking).
+
+    Args:
+        event_type: Type of the event (e.g., 'part_start', 'part_delta', 'part_end')
+        event_data: Data associated with the event
+    """
+    try:
+        from code_puppy import callbacks
+        from code_puppy.messaging import get_session_context
+
+        agent_session_id = get_session_context()
+
+        # Use create_task to fire callback without blocking
+        asyncio.create_task(
+            callbacks.on_stream_event(event_type, event_data, agent_session_id)
+        )
+    except ImportError:
+        logger.debug("callbacks or messaging module not available for stream event")
+    except Exception as e:
+        logger.debug(f"Error firing stream event callback: {e}")
+
 
 # Module-level console for streaming output
 # Set via set_streaming_console() to share console with spinner
@@ -47,6 +76,15 @@ def get_streaming_console() -> Console:
     return Console()
 
 
+def _should_suppress_output() -> bool:
+    """Check if sub-agent output should be suppressed.
+
+    Returns:
+        True if we're in a sub-agent context and verbose mode is disabled.
+    """
+    return is_subagent() and not get_subagent_verbose()
+
+
 async def event_stream_handler(
     ctx: RunContext,
     events: AsyncIterable[Any],
@@ -60,6 +98,12 @@ async def event_stream_handler(
         ctx: The run context.
         events: Async iterable of streaming events (PartStartEvent, PartDeltaEvent, etc.).
     """
+    # If we're in a sub-agent and verbose mode is disabled, silently consume events
+    if _should_suppress_output():
+        async for _ in events:
+            pass  # Just consume events without rendering
+        return
+
     import time
 
     from termflow import Parser as TermflowParser
@@ -75,6 +119,7 @@ async def event_stream_handler(
     tool_parts: set[int] = set()  # Track which parts are tool calls
     banner_printed: set[int] = set()  # Track if banner was already printed
     token_count: dict[int, int] = {}  # Track token count per text/tool part
+    tool_names: dict[int, str] = {}  # Track tool name per tool part index
     did_stream_anything = False  # Track if we streamed any content
 
     # Termflow streaming state for text parts
@@ -121,6 +166,16 @@ async def event_stream_handler(
     async for event in events:
         # PartStartEvent - register the part but defer banner until content arrives
         if isinstance(event, PartStartEvent):
+            # Fire stream event callback for part_start
+            _fire_stream_event(
+                "part_start",
+                {
+                    "index": event.index,
+                    "part_type": type(event.part).__name__,
+                    "part": event.part,
+                },
+            )
+
             part = event.part
             if isinstance(part, ThinkingPart):
                 streaming_parts.add(event.index)
@@ -149,6 +204,8 @@ async def event_stream_handler(
                 streaming_parts.add(event.index)
                 tool_parts.add(event.index)
                 token_count[event.index] = 0  # Initialize token counter
+                # Capture tool name from the start event
+                tool_names[event.index] = part.tool_name or ""
                 # Track tool name for display
                 banner_printed.add(
                     event.index
@@ -156,6 +213,16 @@ async def event_stream_handler(
 
         # PartDeltaEvent - stream the content as it arrives
         elif isinstance(event, PartDeltaEvent):
+            # Fire stream event callback for part_delta
+            _fire_stream_event(
+                "part_delta",
+                {
+                    "index": event.index,
+                    "delta_type": type(event.delta).__name__,
+                    "delta": event.delta,
+                },
+            )
+
             if event.index in streaming_parts:
                 delta = event.delta
                 if isinstance(delta, (TextPartDelta, ThinkingPartDelta)):
@@ -189,25 +256,50 @@ async def event_stream_handler(
                             escaped = escape(delta.content_delta)
                             console.print(f"[dim]{escaped}[/dim]", end="")
                 elif isinstance(delta, ToolCallPartDelta):
-                    # For tool calls, count chunks received
-                    token_count[event.index] += 1
-                    # Get tool name if available
-                    tool_name = getattr(delta, "tool_name_delta", "")
+                    # For tool calls, estimate tokens from args_delta content
+                    # args_delta contains the streaming JSON arguments
+                    args_delta = getattr(delta, "args_delta", "") or ""
+                    if args_delta:
+                        # Rough estimate: 4 chars ≈ 1 token (same heuristic as subagent_stream_handler)
+                        estimated_tokens = max(1, len(args_delta) // 4)
+                        token_count[event.index] += estimated_tokens
+                    else:
+                        # Even empty deltas count as activity
+                        token_count[event.index] += 1
+
+                    # Update tool name if delta provides more of it
+                    tool_name_delta = getattr(delta, "tool_name_delta", "") or ""
+                    if tool_name_delta:
+                        tool_names[event.index] = (
+                            tool_names.get(event.index, "") + tool_name_delta
+                        )
+
+                    # Use stored tool name for display
+                    tool_name = tool_names.get(event.index, "")
                     count = token_count[event.index]
                     # Display with tool wrench icon and tool name
                     if tool_name:
                         console.print(
-                            f"  \U0001f527 Calling {tool_name}... {count} chunks   ",
+                            f"  \U0001f527 Calling {tool_name}... {count} token(s)   ",
                             end="\r",
                         )
                     else:
                         console.print(
-                            f"  \U0001f527 Calling tool... {count} chunks   ",
+                            f"  \U0001f527 Calling tool... {count} token(s)   ",
                             end="\r",
                         )
 
         # PartEndEvent - finish the streaming with a newline
         elif isinstance(event, PartEndEvent):
+            # Fire stream event callback for part_end
+            _fire_stream_event(
+                "part_end",
+                {
+                    "index": event.index,
+                    "next_part_kind": getattr(event, "next_part_kind", None),
+                },
+            )
+
             if event.index in streaming_parts:
                 # For text parts, finalize termflow rendering
                 if event.index in text_parts:
@@ -238,8 +330,9 @@ async def event_stream_handler(
                 elif event.index in banner_printed:
                     console.print()  # Final newline after streaming
 
-                # Clean up token count
+                # Clean up token count and tool names
                 token_count.pop(event.index, None)
+                tool_names.pop(event.index, None)
                 # Clean up all tracking sets
                 streaming_parts.discard(event.index)
                 thinking_parts.discard(event.index)

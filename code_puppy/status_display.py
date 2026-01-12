@@ -7,8 +7,6 @@ from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
 
-from code_puppy.messaging import emit_info
-
 # Global variable to track current token per second rate
 CURRENT_TOKEN_RATE = 0.0
 
@@ -186,6 +184,9 @@ class StatusDisplay:
 
     async def _update_display(self) -> None:
         """Update the display continuously while active using Rich Live display"""
+        # Lazy import to avoid circular dependency during module initialization
+        from code_puppy.messaging import emit_info
+
         # Add a newline to ensure we're below the blue bar
         emit_info("")
 
@@ -214,6 +215,9 @@ class StatusDisplay:
 
     def stop(self) -> None:
         """Stop the status display"""
+        # Lazy import to avoid circular dependency during module initialization
+        from code_puppy.messaging import emit_info
+
         if self.is_active:
             self.is_active = False
             if self.task:

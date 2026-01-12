@@ -32,4 +32,5 @@ pytest-reports/
 
 .env
 .serena/
+.beads/
 .agents/

@@ -171,6 +171,12 @@ class TestMessagingPackageExports:
             # Shell output rendering
             "ShellLineMessage",
             "emit_shell_line",
+            # Sub-agent console manager
+            "SubAgentStatusMessage",
+            "AgentState",
+            "SubAgentConsoleManager",
+            "get_subagent_console_manager",
+            "SUBAGENT_STATUS_STYLES",
         }
 
         expected_exports = legacy_exports | new_api_exports
