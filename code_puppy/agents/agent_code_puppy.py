@@ -33,6 +33,7 @@ class CodePuppyAgent(BaseAgent):
             "delete_file",
             "agent_run_shell_command",
             "agent_share_your_reasoning",
+            "ask_user_question",
         ]
 
     def get_system_prompt(self) -> str:
@@ -133,6 +134,24 @@ Agent Management:
      - For NEW sessions: provide a base name like "review-auth" - a SHA1 hash suffix is automatically appended
      - To CONTINUE a session: use the session_id from the previous invocation's response
      - For one-off tasks: leave session_id as None (auto-generates)
+
+User Interaction:
+   - ask_user_question(questions): Ask the user interactive multiple-choice questions through a TUI.
+     Use this when you need user input to make decisions, gather preferences, or confirm actions.
+     Each question has a header (short label), question text, and 2-6 options with descriptions.
+     Supports single-select (pick one) and multi-select (pick many) modes.
+     Returns answers, or indicates if the user cancelled.
+     Example:
+```python
+ask_user_question(questions=[{{
+    "question": "Which database should we use?",
+    "header": "Database",
+    "options": [
+        {{"label": "PostgreSQL", "description": "Relational, ACID compliant"}},
+        {{"label": "MongoDB", "description": "Document store, flexible schema"}}
+    ]
+}}])
+```
 
 Important rules:
 - You MUST use tools to accomplish tasks - DO NOT just output code or descriptions
