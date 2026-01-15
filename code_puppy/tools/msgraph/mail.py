@@ -20,6 +20,7 @@ from code_puppy.messaging import emit_info, emit_success
 from code_puppy.tools.msgraph.common import (
     get_msgraph_client,
     _handle_msgraph_error,
+    markdown_to_html,
 )
 
 
@@ -407,11 +408,18 @@ def msgraph_reply_to_message(
     body: str,
     reply_all: bool = False,
 ) -> dict:
-    """Reply to an email message.
+    """Reply to an email message with full HTML/markdown support.
+
+    The body can contain markdown formatting which will be converted to HTML:
+    - **bold** and *italic*
+    - `inline code` and ```code blocks```
+    - # Headers, --- rules
+    - - bullet lists and 1. numbered lists
+    - [links](url)
 
     Args:
         message_id: The message ID to reply to.
-        body: Reply body text.
+        body: Reply body text (supports markdown formatting).
         reply_all: If True, reply to all recipients.
 
     Returns:
@@ -429,15 +437,36 @@ def msgraph_reply_to_message(
     try:
         client = get_msgraph_client()
 
-        # Use reply or replyAll endpoint
-        action = "replyAll" if reply_all else "reply"
-        endpoint = f"/me/messages/{message_id}/{action}"
+        # Step 1: Create a draft reply
+        create_action = "createReplyAll" if reply_all else "createReply"
+        create_endpoint = f"/me/messages/{message_id}/{create_action}"
+        
+        draft_response = client.post(create_endpoint, json={})
+        draft_id = draft_response.get("id")
+        
+        if not draft_id:
+            return {
+                "success": False,
+                "error": "Failed to create reply draft",
+                "error_type": "api_error",
+            }
 
-        payload = {
-            "comment": body,
+        # Step 2: Update the draft with HTML body
+        html_body = markdown_to_html(body)
+        update_endpoint = f"/me/messages/{draft_id}"
+        
+        update_payload = {
+            "body": {
+                "contentType": "HTML",
+                "content": html_body,
+            }
         }
+        
+        client.patch(update_endpoint, json=update_payload)
 
-        client.post(endpoint, json=payload)
+        # Step 3: Send the draft
+        send_endpoint = f"/me/messages/{draft_id}/send"
+        client.post(send_endpoint, json={})
 
         emit_success(f"{reply_type} sent successfully!")
 
