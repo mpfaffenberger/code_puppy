@@ -89,6 +89,7 @@ class GUICubAgent(BaseAgent):
             "desktop_click_debugging",
             "desktop_click_element_smart",
             "desktop_vqa",
+            "vqa_image",
             "desktop_mouse",
             "desktop_shortcuts",
             "desktop_keyboard",
