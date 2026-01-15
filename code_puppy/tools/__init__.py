@@ -103,6 +103,7 @@ from code_puppy.tools.confluence_tools import (
 )
 from code_puppy.tools.jira_tools import (
     register_jira_search,
+    register_jira_list_projects,
     register_jira_get_issue,
     register_jira_create_issue,
     register_jira_add_comment,
@@ -201,6 +202,7 @@ TOOL_REGISTRY = {
     "confluence_authenticate": register_confluence_authenticate,
     # Jira Tools
     "jira_search": register_jira_search,
+    "jira_list_projects": register_jira_list_projects,
     "jira_get_issue": register_jira_get_issue,
     "jira_create_issue": register_jira_create_issue,
     "jira_add_comment": register_jira_add_comment,
