@@ -219,7 +219,7 @@ async def take_desktop_screenshot_and_analyze(
             format_change = (
                 f" (converted to {vqa_format})" if vqa_format != "PNG" else ""
             )
-            emit_info(
+            emit_rich(
                 f"[green]Image resized: {original_size_mb:.2f} MB → {new_size_mb:.2f} MB "
                 f"(scale factor: {vqa_scale:.2f}){format_change}[/green]",
                 message_group=group_id,
@@ -292,11 +292,11 @@ async def take_desktop_screenshot_and_analyze(
                 coordinate_system=coordinate_system,
             )
 
-        emit_info(
+        emit_rich(
             f"[green]Visual analysis answer: {vqa_result.answer}[/green]",
             message_group=group_id,
         )
-        emit_info(
+        emit_rich(
             f"[dim]Observations: {vqa_result.observations}[/dim]",
             message_group=group_id,
         )
@@ -351,7 +351,7 @@ async def take_desktop_screenshot_and_analyze(
             full_result, truncate_answer=truncate_answer
         )
         truncate_msg = "answer truncated" if truncate_answer else "full answer"
-        emit_info(
+        emit_rich(
             f"[dim]💾 Compacted VQA result: screenshot metadata stripped, {truncate_msg}[/dim]",
             message_group=group_id,
         )

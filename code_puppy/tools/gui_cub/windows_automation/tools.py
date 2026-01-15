@@ -102,7 +102,7 @@ def register_windows_tools(agent):
         group_id = generate_group_id(
             "windows_focus_window", window_title or class_name or "unknown"
         )
-        emit_info(
+        emit_rich(
             f"[bold white on blue] WINDOWS FOCUS [/bold white on blue] 🪟 {window_title or class_name}",
             message_group=group_id,
         )
@@ -269,7 +269,7 @@ def register_windows_tools(agent):
             click_target = title or automation_id or control_type or "unknown"
 
         group_id = generate_group_id("windows_click_element", str(click_target))
-        emit_info(
+        emit_rich(
             f"[bold white on blue] WINDOWS CLICK [/bold white on blue] 🖱️ {click_target}",
             message_group=group_id,
         )
@@ -286,7 +286,7 @@ def register_windows_tools(agent):
         )
 
         if result.success:
-            emit_info(
+            emit_rich(
                 f"[green]Clicked element using {result.method}[/green]",
                 message_group=group_id,
             )
@@ -388,7 +388,7 @@ def register_windows_tools(agent):
             )
 
         group_id = generate_group_id("windows_list_interactive", str(max_elements))
-        emit_info(
+        emit_rich(
             f"[bold white on blue] WINDOWS LIST INTERACTIVE ELEMENTS [/bold white on blue] 🔘 (max={max_elements})",
             message_group=group_id,
         )
@@ -404,7 +404,7 @@ def register_windows_tools(agent):
             result = _compact_element_list_result(result, max_elements=max_elements)
 
         if result.success:
-            emit_info(
+            emit_rich(
                 f"[green]Found {len(result.elements or [])} interactive elements ({result.total_elements} total)[/green]",
                 message_group=group_id,
             )
@@ -458,7 +458,7 @@ def register_windows_tools(agent):
             )
 
         group_id = generate_group_id("windows_search_elements", search_query)
-        emit_info(
+        emit_rich(
             f"[bold white on blue] WINDOWS SEARCH ELEMENTS [/bold white on blue] 🔍 '{search_query}' (fuzzy={fuzzy})",
             message_group=group_id,
         )
@@ -668,7 +668,7 @@ def register_windows_tools(agent):
         group_id = generate_group_id(
             "windows_list_app_elements", app_title_pattern[:20]
         )
-        emit_info(
+        emit_rich(
             f"[bold white on blue] WINDOWS LIST APPLICATION ELEMENTS [/bold white on blue] 🪟\n"
             f"[dim]Pattern: {app_title_pattern}[/dim]",
             message_group=group_id,
@@ -687,7 +687,7 @@ def register_windows_tools(agent):
                 if isinstance(result.summary, dict)
                 else 0
             )
-            emit_info(
+            emit_rich(
                 f"[green]Found {result.total_elements} elements across {window_count} windows[/green]",
                 message_group=group_id,
             )
@@ -736,7 +736,7 @@ def register_windows_tools(agent):
             )
 
         group_id = generate_group_id("windows_list_windows", str(include_minimized))
-        emit_info(
+        emit_rich(
             f"[bold white on blue] WINDOWS LIST WINDOWS [/bold white on blue] 🪟 (minimized={include_minimized})",
             message_group=group_id,
         )
@@ -744,7 +744,7 @@ def register_windows_tools(agent):
         windows = list_windows(include_minimized=include_minimized)
         minimized_count = sum(1 for w in windows if w.get("minimized", False))
 
-        emit_info(
+        emit_rich(
             f"[green]Found {len(windows)} windows ({minimized_count} minimized)[/green]",
             message_group=group_id,
         )
@@ -777,7 +777,7 @@ def register_windows_tools(agent):
             )
 
         group_id = generate_group_id("windows_un_minimize", window_title or str(hwnd))
-        emit_info(
+        emit_rich(
             f"[bold white on blue] UN-MINIMIZE WINDOW [/bold white on blue] ↗️ {window_title or hwnd}",
             message_group=group_id,
         )
@@ -933,7 +933,7 @@ def register_windows_tools(agent):
                     time.sleep(0.2)
                     is_restored = not win32gui.IsIconic(target_hwnd)
                     if is_restored:
-                        emit_info(
+                        emit_rich(
                             "[green]✅ Taskbar button click restored window![/green]",
                             message_group=group_id,
                         )
@@ -942,7 +942,7 @@ def register_windows_tools(agent):
                             window=window_title or str(hwnd),
                         )
 
-                emit_info(
+                emit_rich(
                     "[cyan]💡 NEXT STEP: Use desktop_vqa_click_two_stage() to visually find and click the taskbar button[/cyan]",
                     message_group=group_id,
                 )
@@ -953,7 +953,7 @@ def register_windows_tools(agent):
                 )
 
         except Exception as e:
-            emit_info(
+            emit_rich(
                 f"[red]❌ Failed to un-minimize: {e}[/red]",
                 message_group=group_id,
             )
@@ -980,7 +980,7 @@ def register_windows_tools(agent):
             )
 
         group_id = generate_group_id("windows_list_taskbar_apps")
-        emit_info(
+        emit_rich(
             "[bold white on blue] TASKBAR APPS [/bold white on blue] 📦",
             message_group=group_id,
         )
@@ -1020,7 +1020,7 @@ def register_windows_tools(agent):
                     # Some processes can't be queried
                     continue
 
-            emit_info(
+            emit_rich(
                 f"[green]Found {len(taskbar_apps)} taskbar apps ({sum(1 for a in taskbar_apps if a['minimized'])} minimized)[/green]",
                 message_group=group_id,
             )
@@ -1032,7 +1032,7 @@ def register_windows_tools(agent):
             )
 
         except Exception as e:
-            emit_info(
+            emit_rich(
                 f"[red]❌ Failed to list taskbar apps: {e}[/red]",
                 message_group=group_id,
             )
@@ -1316,7 +1316,7 @@ def register_windows_tools(agent):
                     errors.append(f"hwnd {target_hwnd}: {str(e)}")
 
             if closed_count > 0:
-                emit_info(
+                emit_rich(
                     f"[green]✅ Closed {closed_count} window(s)[/green]",
                     message_group=group_id,
                 )

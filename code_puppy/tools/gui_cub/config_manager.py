@@ -18,6 +18,7 @@ from rich.text import Text
 
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.common import generate_group_id
+from .rich_emit import emit_rich
 
 from .core.config_validation import (
     validate_resolution_match,
@@ -408,7 +409,7 @@ async def ensure_calibrated() -> Dict[str, Any]:
         Dict with success status and config
     """
     group_id = generate_group_id("ensure_calibrated")
-    emit_info(
+    emit_rich(
         "[bold cyan]🔍 Checking platform configuration...[/bold cyan]",
         message_group=group_id,
     )
@@ -425,7 +426,7 @@ async def ensure_calibrated() -> Dict[str, Any]:
             f"[dim]Config file not found at {config_path}[/dim]",
             message_group=group_id,
         )
-        emit_info(
+        emit_rich(
             "[cyan]📋 First run detected, calibrating platform...[/cyan]",
             message_group=group_id,
         )
@@ -455,7 +456,7 @@ async def ensure_calibrated() -> Dict[str, Any]:
     )
     is_valid, reason = validate_config(config)
     if not is_valid:
-        emit_info(
+        emit_rich(
             f"[cyan]♻️ {reason}, re-calibrating...[/cyan]",
             message_group=group_id,
         )
@@ -477,7 +478,7 @@ async def ensure_calibrated() -> Dict[str, Any]:
         return await run_calibration()
 
     # Config is valid, use cached version
-    emit_info(
+    emit_rich(
         "[green]✅ Using cached platform config[/green]",
         message_group=group_id,
     )
@@ -531,7 +532,7 @@ def register_debug_screenshot_tools(agent):
         )
 
         group_id = generate_group_id("save_debug_screenshot")
-        emit_info(
+        emit_rich(
             "[bold cyan]📸 Saving debug screenshot...[/bold cyan]",
             message_group=group_id,
         )
@@ -539,7 +540,7 @@ def register_debug_screenshot_tools(agent):
         result_path = copy_last_screenshot_to_pwd(filename)
 
         if result_path:
-            emit_info(
+            emit_rich(
                 f"[green]✅ Debug screenshot saved: {result_path}[/green]",
                 message_group=group_id,
             )
@@ -549,7 +550,7 @@ def register_debug_screenshot_tools(agent):
                 "message": f"Screenshot saved to {result_path.name}",
             }
         else:
-            emit_warning(
+            emit_rich(
                 "[yellow]⚠️ No debug screenshot available[/yellow]",
                 message_group=group_id,
             )
@@ -589,7 +590,7 @@ def register_config_tools(agent):
             Dict with success, config, and calibration results
         """
         group_id = generate_group_id("gui_cub_calibrate")
-        emit_info(
+        emit_rich(
             "[bold green] CALIBRATE [/bold green] 🔧 Forcing platform re-calibration...",
             message_group=group_id,
         )
@@ -608,7 +609,7 @@ def register_config_tools(agent):
             Dict with valid status and reason
         """
         group_id = generate_group_id("gui_cub_validate")
-        emit_info(
+        emit_rich(
             "[bold cyan] VALIDATE CONFIG [/bold cyan] ✓",
             message_group=group_id,
         )
@@ -624,12 +625,12 @@ def register_config_tools(agent):
         is_valid, reason = validate_config(config)
 
         if is_valid:
-            emit_info(
+            emit_rich(
                 f"[green]✅ {reason}[/green]",
                 message_group=group_id,
             )
         else:
-            emit_info(
+            emit_rich(
                 f"[yellow]⚠️ {reason}[/yellow]",
                 message_group=group_id,
             )
@@ -651,7 +652,7 @@ def register_config_tools(agent):
             Dict with success status
         """
         group_id = generate_group_id("gui_cub_reset")
-        emit_info(
+        emit_rich(
             "[bold yellow] RESET CONFIG [/bold yellow] 🗑️",
             message_group=group_id,
         )
@@ -661,7 +662,7 @@ def register_config_tools(agent):
         if config_path.exists():
             try:
                 config_path.unlink()
-                emit_info(
+                emit_rich(
                     "[green]✅ Config deleted, will re-calibrate on next run[/green]",
                     message_group=group_id,
                 )
