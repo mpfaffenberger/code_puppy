@@ -15,7 +15,6 @@ Formats that need conversion: BMP, TIFF, and others.
 from __future__ import annotations
 
 import io
-from typing import Tuple
 
 
 # MIME types universally accepted by vision APIs
@@ -34,7 +33,7 @@ DEFAULT_OUTPUT_MIME_TYPE = "image/png"
 def normalize_image_for_vqa(
     image_bytes: bytes,
     media_type: str,
-) -> Tuple[bytes, str]:
+) -> tuple[bytes, str]:
     """Normalize image format for VQA model compatibility.
 
     If the image is already in an accepted format, returns it unchanged.

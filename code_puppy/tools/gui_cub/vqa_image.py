@@ -11,8 +11,12 @@ not just screenshots. Useful for analyzing:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import RunContext
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from code_puppy.tools.common import generate_group_id
 
@@ -136,8 +140,14 @@ def vqa_analyze_image_impl(
         )
 
 
-def register_vqa_image_tools(agent):
+def register_vqa_image_tools(agent: "Agent[Any, Any]") -> "Agent[Any, Any]":
     """Register VQA image analysis tools with an agent.
+
+    Args:
+        agent: The pydantic-ai Agent instance to register tools with.
+
+    Returns:
+        The same agent instance with tools registered.
 
     Registers:
         - vqa_analyze_image: Analyze any image file with VQA

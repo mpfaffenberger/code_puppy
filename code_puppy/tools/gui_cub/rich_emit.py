@@ -10,6 +10,7 @@ into a Rich Text object which bypasses the escaping.
 
 from typing import Any
 
+from rich.markup import MarkupError
 from rich.text import Text
 
 from code_puppy.messaging import emit_info
@@ -22,6 +23,9 @@ def emit_rich(message: str, **kwargs: Any) -> None:
     formatting tags like [bold], [green], [dim] are rendered as
     styles rather than being escaped to literal text.
 
+    If the message contains malformed Rich tags, falls back to emitting
+    the message as literal text.
+
     Args:
         message: A string containing Rich markup (e.g., "[bold]Hello[/bold]")
         **kwargs: Additional arguments passed to emit_info (e.g., message_group)
@@ -29,8 +33,9 @@ def emit_rich(message: str, **kwargs: Any) -> None:
     Example:
         emit_rich("[bold green]Success![/bold green] Task completed.")
         emit_rich(f"[cyan]Processing[/cyan] {filename}", message_group=group_id)
-
-    Note:
-        Raises MarkupError if message contains malformed Rich tags.
     """
-    emit_info(Text.from_markup(message), **kwargs)
+    try:
+        emit_info(Text.from_markup(message), **kwargs)
+    except MarkupError:
+        # Fallback to literal text if markup is malformed
+        emit_info(message, **kwargs)
