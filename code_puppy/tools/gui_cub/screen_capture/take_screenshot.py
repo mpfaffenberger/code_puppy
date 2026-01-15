@@ -6,6 +6,7 @@ import asyncio
 from io import BytesIO
 
 from code_puppy.messaging import emit_error, emit_info, emit_warning
+from ..rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from ..constants import DEFAULT_GRID_SPACING
@@ -137,7 +138,7 @@ async def take_desktop_screenshot_and_analyze(
     group_id = generate_group_id(
         "desktop_screenshot_analyze", f"{question[:50]}_{target}"
     )
-    emit_info(
+    emit_rich(
         f"[bold white on blue] DESKTOP SCREENSHOT ANALYZE [/bold white on blue] 📷 question='{question[:100]}{'...' if len(question) > 100 else ''}' target={target}",
         message_group=group_id,
     )
@@ -160,7 +161,7 @@ async def take_desktop_screenshot_and_analyze(
             return VQAResult(success=False, error=error_message, question=question)
 
         if save_screenshot:
-            emit_info(
+            emit_rich(
                 f"[green]Screenshot saved: {screenshot_result.screenshot_path}[/green]",
                 message_group=group_id,
             )

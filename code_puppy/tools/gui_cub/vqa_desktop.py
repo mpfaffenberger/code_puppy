@@ -74,13 +74,14 @@ def run_desktop_vqa_analysis(
     media_type: str = "image/png",
 ) -> DesktopVisualAnalysisResult:
     """Execute the desktop VQA agent synchronously against screenshot bytes."""
-    from code_puppy.messaging import emit_info, emit_warning
+    from code_puppy.messaging import emit_warning
+    from .rich_emit import emit_rich
 
     # Use internal model selection logic (prefers current global model)
     model_name = _get_model_for_vqa()
     image_size_mb = len(image_bytes) / 1_000_000
 
-    emit_info(
+    emit_rich(
         f"[bold cyan]🤖 VQA REQUEST[/bold cyan]\n"
         f"[dim]   Model: {model_name}[/dim]\n"
         f"[dim]   Image size: {image_size_mb:.2f} MB[/dim]\n"
@@ -126,7 +127,7 @@ def run_desktop_vqa_analysis(
                 ]
             )
 
-        emit_info(
+        emit_rich(
             f"[bold green]✅ VQA RESPONSE[/bold green]\n"
             f"[dim]   Answer: {result.output.answer[:150]}{'...' if len(result.output.answer) > 150 else ''}[/dim]\n"
             f"[dim]   Confidence: {result.output.confidence:.2%}[/dim]\n"

@@ -25,7 +25,8 @@ else:
 
 from rich.text import Text
 
-from code_puppy.messaging import emit_error, emit_info
+from code_puppy.messaging import emit_error
+from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from .constants import ERROR_PILLOW_MISSING, ERROR_PYAUTOGUI_MISSING
@@ -283,10 +284,10 @@ def register_grid_calibration_tools(agent):
         spacing = get_grid_spacing(density)
         estimated_time = estimate_vqa_time(spacing)
 
-        emit_info(
+        emit_rich(
             f"[bold cyan]Grid density set to '{density}' ({spacing}px spacing)[/bold cyan]"
         )
-        emit_info(
+        emit_rich(
             f"[dim]Estimated VQA time: {estimated_time:.1f}s (use with grid_spacing={spacing})[/dim]"
         )
 
@@ -332,7 +333,7 @@ def register_grid_calibration_tools(agent):
             )
 
         group_id = generate_group_id("grid_test_pattern", f"spacing_{grid_spacing}")
-        emit_info(
+        emit_rich(
             "[bold white on blue] GRID TEST PATTERN [/bold white on blue] 🎯 Creating calibration test pattern...",
             message_group=group_id,
         )
@@ -380,11 +381,11 @@ Marker reference:
             for idx, (x, y) in enumerate(CALIBRATION_GRID_POINTS[:markers_placed], 1):
                 instructions += f"  Marker #{idx}: ({x}, {y})\n"
 
-            emit_info(
+            emit_rich(
                 Text.from_markup(f"[green]Test pattern saved: {save_path}[/green]"),
                 message_group=group_id,
             )
-            emit_info(
+            emit_rich(
                 Text.from_markup(f"[dim]{instructions.strip()}[/dim]"),
                 message_group=group_id,
             )
@@ -444,7 +445,7 @@ Marker reference:
         from .screen_capture import screenshot_analyze  # noqa: TCH001
 
         group_id = generate_group_id("screenshot_with_confidence", question[:50])
-        emit_info(
+        emit_rich(
             f"[bold white on blue] CONFIDENCE-BASED SCREENSHOT [/bold white on blue] question='{question[:80]}...' threshold={confidence_threshold}",
             message_group=group_id,
         )

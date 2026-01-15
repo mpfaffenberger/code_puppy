@@ -13,7 +13,8 @@ import subprocess
 
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_error, emit_info
+from code_puppy.messaging import emit_error
+from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from .platform import IS_MACOS
@@ -148,7 +149,7 @@ def register_mac_app_launcher_tools(agent):
                 error="mac_launch_app is only available on macOS",
             )
 
-        emit_info(
+        emit_rich(
             f"[bold white on blue] MAC LAUNCH APP [/bold white on blue] 🚀 app_name='{app_name}'",
             message_group=group_id,
         )

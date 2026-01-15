@@ -17,7 +17,7 @@ else:
 
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_info
+from ..rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from ..constants import ERROR_ATOMACOS_MISSING, ERROR_NO_FRONTMOST_APP
@@ -107,7 +107,7 @@ def desktop_click_accessible_element(
                     element_ref = matches[0]
                     try:
                         element_ref.Press()
-                        emit_info(
+                        emit_rich(
                             f"[green]Pressed '{best_match.title}' using native AX Press[/green]",
                             message_group=group_id,
                         )
@@ -144,7 +144,7 @@ def desktop_click_accessible_element(
                 success=False, error=f"Native click failed: {error}"
             )
 
-        emit_info(
+        emit_rich(
             f"[green]Clicked '{best_match.title}' at ({best_match.center_x}, {best_match.center_y})[/green]",
             message_group=group_id,
         )
@@ -185,13 +185,13 @@ def register_accessibility_tools(agent):
             return WindowListResult(success=False, error=ERROR_ATOMACOS_MISSING)
 
         group_id = generate_group_id("desktop_list_windows", str(include_minimized))
-        emit_info(
+        emit_rich(
             f"[bold white on blue] MAC LIST WINDOWS [/bold white on blue] 🪟 (minimized={include_minimized})",
             message_group=group_id,
         )
         wins = _list_macos_windows(include_minimized=include_minimized)
         minimized_count = sum(1 for w in wins if w.get("minimized", False))
-        emit_info(
+        emit_rich(
             f"[green]Found {len(wins)} windows ({minimized_count} minimized)[/green]",
             message_group=group_id,
         )
@@ -218,7 +218,7 @@ def register_accessibility_tools(agent):
             return WindowFocusResult(success=False, error=ERROR_ATOMACOS_MISSING)
 
         group_id = generate_group_id("desktop_un_minimize", app_name)
-        emit_info(
+        emit_rich(
             f"[bold white on blue] UN-MINIMIZE WINDOW [/bold white on blue] ↗️ {app_name}",
             message_group=group_id,
         )
@@ -252,7 +252,7 @@ def register_accessibility_tools(agent):
                 running_app_names = [
                     app.localizedName() for app in running_apps if app.localizedName()
                 ]
-                emit_info(
+                emit_rich(
                     f"[yellow]App '{app_name}' not found or not running[/yellow]\n"
                     f"[dim]Running apps: {', '.join(sorted(set(running_app_names))[:20])}[/dim]",
                     message_group=group_id,
@@ -298,7 +298,7 @@ def register_accessibility_tools(agent):
                     # Success! The window is now at the topmost layer
                     # Add a tiny buffer to ensure it's fully settled
                     time.sleep(0.2)  # 200ms buffer for stability
-                    emit_info(
+                    emit_rich(
                         f"[green]✅ Un-minimized {app_name}[/green]",
                         message_group=group_id,
                     )
@@ -314,7 +314,7 @@ def register_accessibility_tools(agent):
                 bounds_result.app_name if bounds_result.success else "unknown"
             )
 
-            emit_info(
+            emit_rich(
                 f"[yellow]⚠️  Un-minimized {app_name} but {actual_topmost} is still topmost[/yellow]",
                 message_group=group_id,
             )
@@ -324,7 +324,7 @@ def register_accessibility_tools(agent):
             )
 
         except Exception as e:
-            emit_info(
+            emit_rich(
                 f"[red]❌ Failed to un-minimize: {e}[/red]",
                 message_group=group_id,
             )
@@ -349,7 +349,7 @@ def register_accessibility_tools(agent):
             return WindowListResult(success=False, error=ERROR_ATOMACOS_MISSING)
 
         group_id = generate_group_id("desktop_list_dock_apps")
-        emit_info(
+        emit_rich(
             "[bold white on blue] DOCK APPS [/bold white on blue] 📦",
             message_group=group_id,
         )
@@ -376,7 +376,7 @@ def register_accessibility_tools(agent):
                     }
                 )
 
-            emit_info(
+            emit_rich(
                 f"[green]Found {len(dock_apps)} running apps ({sum(1 for a in dock_apps if a['hidden'])} hidden)[/green]",
                 message_group=group_id,
             )
@@ -388,7 +388,7 @@ def register_accessibility_tools(agent):
             )
 
         except Exception as e:
-            emit_info(
+            emit_rich(
                 f"[red]❌ Failed to list dock apps: {e}[/red]",
                 message_group=group_id,
             )
@@ -433,7 +433,7 @@ def register_accessibility_tools(agent):
             return ElementListResult(success=False, error=ERROR_ATOMACOS_MISSING)
 
         group_id = generate_group_id("desktop_list_accessible_tree", str(max_depth))
-        emit_info(
+        emit_rich(
             "[bold white on blue] ACCESSIBILITY TREE [/bold white on blue] 🌲",
             message_group=group_id,
         )
@@ -448,7 +448,7 @@ def register_accessibility_tools(agent):
             t = node.get("type", "Unknown")
             by_type.setdefault(t, []).append(node)
 
-        emit_info(
+        emit_rich(
             f"[green]Tree contains {len(elements)} nodes across {len(by_type)} types[/green]",
             message_group=group_id,
         )
@@ -465,7 +465,7 @@ def register_accessibility_tools(agent):
         # Success-conditional compaction: Return filtered actionable elements
         if len(elements) > 0:
             compact_result = _compact_element_list_result(full_result)
-            emit_info(
+            emit_rich(
                 f"[dim]💾 Compacted tree: {len(elements)} total → {compact_result.filtered_count} actionable elements[/dim]",
                 message_group=group_id,
             )
@@ -690,7 +690,7 @@ def register_accessibility_tools(agent):
                 # Try native Press action first
                 try:
                     element_ref.Press()
-                    emit_info(
+                    emit_rich(
                         f"[green]Pressed '{best_match.title}' using native AX Press[/green]",
                         message_group=group_id,
                     )
@@ -725,7 +725,7 @@ def register_accessibility_tools(agent):
                     success=False, error=f"Native click failed: {error}"
                 )
 
-            emit_info(
+            emit_rich(
                 f"[green]Clicked '{best_match.title}' at ({best_match.center_x}, {best_match.center_y})[/green]",
                 message_group=group_id,
             )

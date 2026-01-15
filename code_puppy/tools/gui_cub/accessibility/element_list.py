@@ -7,7 +7,8 @@ import sys
 from datetime import datetime
 from typing import Any
 
-from code_puppy.messaging import emit_error, emit_info
+from code_puppy.messaging import emit_error
+from ..rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from ..constants import ERROR_ATOMACOS_MISSING, ERROR_NO_FRONTMOST_APP
@@ -62,7 +63,7 @@ def list_accessible_elements(
         return ElementListResult(success=False, error=ERROR_ATOMACOS_MISSING)
 
     group_id = generate_group_id("list_accessible_elements", str(role))
-    emit_info(
+    emit_rich(
         f"[bold white on blue] LIST ACCESSIBLE ELEMENTS [/bold white on blue] 📋 role={role}",
         message_group=group_id,
     )
@@ -129,13 +130,13 @@ def list_accessible_elements(
             except Exception:
                 continue
 
-        emit_info(
+        emit_rich(
             f"[green]Found {len(elements)} elements across {len(by_role)} roles[/green]",
             message_group=group_id,
         )
 
         for role_name, elems in sorted(by_role.items()):
-            emit_info(f"  {role_name}: {len(elems)} elements", message_group=group_id)
+            emit_rich(f"  {role_name}: {len(elems)} elements", message_group=group_id)
 
         return ElementListResult(
             success=True,
