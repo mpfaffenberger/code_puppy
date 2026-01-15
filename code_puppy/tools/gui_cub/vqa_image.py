@@ -16,6 +16,7 @@ from pydantic_ai import RunContext
 
 from code_puppy.tools.common import generate_group_id
 
+from .image_conversion import get_mime_type_from_extension
 from .result_types import VQAResult
 from .rich_emit import emit_rich
 from .vqa_desktop import run_desktop_vqa_analysis
@@ -24,14 +25,16 @@ from .vqa_desktop import run_desktop_vqa_analysis
 # Maximum image file size in MB (prevents memory issues with huge files)
 MAX_IMAGE_SIZE_MB = 50
 
-# Supported image formats and their MIME types
-SUPPORTED_IMAGE_FORMATS = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".bmp": "image/bmp",
-    ".webp": "image/webp",
+# Supported image file extensions (format conversion handled by vqa_desktop)
+SUPPORTED_IMAGE_EXTENSIONS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".webp",
+    ".tiff",
+    ".tif",
 }
 
 
@@ -66,18 +69,20 @@ def vqa_analyze_image_impl(
             error=f"Path is not a file: {file_path}",
         )
 
-    # Determine media type from extension
+    # Validate extension is supported
     extension = path.suffix.lower()
-    media_type = SUPPORTED_IMAGE_FORMATS.get(extension)
-    if not media_type:
+    if extension not in SUPPORTED_IMAGE_EXTENSIONS:
         supported = ", ".join(
-            ext.upper().lstrip(".") for ext in SUPPORTED_IMAGE_FORMATS.keys()
+            ext.upper().lstrip(".") for ext in sorted(SUPPORTED_IMAGE_EXTENSIONS)
         )
         return VQAResult(
             success=False,
             question=question,
             error=f"Unsupported image format: {extension}. Supported: {supported}",
         )
+
+    # Get MIME type from extension (conversion handled by vqa_desktop if needed)
+    media_type = get_mime_type_from_extension(extension)
 
     # Get file size and check against limit
     file_size_mb = path.stat().st_size / 1_000_000
