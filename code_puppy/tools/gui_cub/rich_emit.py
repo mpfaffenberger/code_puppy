@@ -8,12 +8,14 @@ malformed tags in shell output. This helper pre-renders the markup
 into a Rich Text object which bypasses the escaping.
 """
 
+from typing import Any
+
 from rich.text import Text
 
 from code_puppy.messaging import emit_info
 
 
-def emit_rich(message: str, **kwargs) -> None:
+def emit_rich(message: str, **kwargs: Any) -> None:
     """Emit a message with Rich markup that will render correctly.
 
     This wraps emit_info() with Text.from_markup() to ensure Rich
@@ -27,5 +29,8 @@ def emit_rich(message: str, **kwargs) -> None:
     Example:
         emit_rich("[bold green]Success![/bold green] Task completed.")
         emit_rich(f"[cyan]Processing[/cyan] {filename}", message_group=group_id)
+
+    Note:
+        Raises MarkupError if message contains malformed Rich tags.
     """
     emit_info(Text.from_markup(message), **kwargs)

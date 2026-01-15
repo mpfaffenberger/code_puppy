@@ -11,16 +11,18 @@ not just screenshots. Useful for analyzing:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
 
 from pydantic_ai import RunContext
 
-from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from .result_types import VQAResult
+from .rich_emit import emit_rich
 from .vqa_desktop import run_desktop_vqa_analysis
 
+
+# Maximum image file size in MB (prevents memory issues with huge files)
+MAX_IMAGE_SIZE_MB = 50
 
 # Supported image formats and their MIME types
 SUPPORTED_IMAGE_FORMATS = {
@@ -77,11 +79,17 @@ def vqa_analyze_image_impl(
             error=f"Unsupported image format: {extension}. Supported: {supported}",
         )
 
-    # Get file size for logging
+    # Get file size and check against limit
     file_size_mb = path.stat().st_size / 1_000_000
+    if file_size_mb > MAX_IMAGE_SIZE_MB:
+        return VQAResult(
+            success=False,
+            question=question,
+            error=f"Image too large: {file_size_mb:.1f}MB (max: {MAX_IMAGE_SIZE_MB}MB)",
+        )
 
     emit_rich(
-        f"[bold cyan]\U0001F5BC\ufe0f  VQA ANALYZE IMAGE[/bold cyan]\n"
+        f"[bold cyan]🖼️  VQA ANALYZE IMAGE[/bold cyan]\n"
         f"[dim]   File: {path}[/dim]\n"
         f"[dim]   Size: {file_size_mb:.2f} MB[/dim]\n"
         f"[dim]   Format: {extension.upper().lstrip('.')}[/dim]\n"
@@ -112,7 +120,7 @@ def vqa_analyze_image_impl(
 
     except Exception as e:
         emit_rich(
-            f"[red]\u274c VQA ANALYZE IMAGE FAILED[/red]\n"
+            f"[red]❌ VQA ANALYZE IMAGE FAILED[/red]\n"
             f"[dim]   Error: {str(e)[:200]}[/dim]",
             message_group=group_id,
         )
@@ -132,7 +140,7 @@ def register_vqa_image_tools(agent):
 
     @agent.tool
     def vqa_analyze_image(
-        context: RunContext,
+        _context: RunContext,
         file_path: str,
         question: str,
     ) -> VQAResult:
