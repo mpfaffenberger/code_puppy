@@ -423,7 +423,7 @@ def register_ocr_tools(agent):
                 )
         # Now emit the main header with the final region description
         emit_rich(
-            f"[bold white on blue] OCR EXTRACT TEXT [/bold white on blue] 📖 region={region_description} language={language}",
+            f"[bold white on blue] OCR EXTRACT TEXT 🐻 [/bold white on blue] 📖 region={region_description} language={language}",
             message_group=group_id,
         )
 
@@ -581,7 +581,7 @@ def register_ocr_tools(agent):
         """
         group_id = generate_group_id("ocr_find", search_text[:30])
         emit_rich(
-            f"[bold white on blue] OCR FIND TEXT [/bold white on blue] 🔍 search='{search_text}' case_sensitive={case_sensitive}",
+            f"[bold white on blue] OCR FIND TEXT 🐻 [/bold white on blue] 🔍 search='{search_text}' case_sensitive={case_sensitive}",
             message_group=group_id,
         )
 
@@ -698,7 +698,7 @@ def register_ocr_tools(agent):
         """
         group_id = generate_group_id("ocr_verify", expected_text[:30])
         emit_rich(
-            f"[bold white on blue] OCR VERIFY TEXT [/bold white on blue] ✓ expected='{expected_text}'",
+            f"[bold white on blue] OCR VERIFY TEXT 🐻 [/bold white on blue] ✓ expected='{expected_text}'",
             message_group=group_id,
         )
 
@@ -1097,7 +1097,7 @@ def register_ocr_tools(agent):
             f"{search_text[:30]}_conf{int(min_confidence * 100)}",
         )
         emit_rich(
-            f"[bold white on blue] OCR FIND (RELIABLE) [/bold white on blue] 🔍 search='{search_text}' min_confidence={min_confidence}",
+            f"[bold white on blue] OCR FIND (HIGH CONFIDENCE) 🐻 [/bold white on blue] 🔍 search='{search_text}' min_confidence={min_confidence}",
             message_group=group_id,
         )
 

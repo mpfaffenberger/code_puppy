@@ -70,7 +70,7 @@ def ui_click_element(
     """
     group_id = generate_group_id("ui_click_element", sys.platform)
     emit_rich(
-        f"[bold white on blue] UI CLICK ELEMENT [/bold white on blue] 🖱️ ({sys.platform})",
+        f"[bold white on blue] UI CLICK ELEMENT 🐻 [/bold white on blue] 🖱️ ({sys.platform})",
         message_group=group_id,
     )
     try:
@@ -190,7 +190,7 @@ def register_os_unified_tools(agent):
         """
         group_id = generate_group_id("ui_list_windows", sys.platform)
         emit_rich(
-            f"[bold white on blue] UI LIST WINDOWS [/bold white on blue] 🪟 ({sys.platform})",
+            f"[bold white on blue] UI LIST WINDOWS 🐻 [/bold white on blue] 🪟 ({sys.platform})",
             message_group=group_id,
         )
         try:
@@ -224,7 +224,7 @@ def register_os_unified_tools(agent):
         """
         group_id = generate_group_id("ui_list_elements", sys.platform)
         emit_rich(
-            f"[bold white on blue] UI LIST ELEMENTS [/bold white on blue] 📋 ({sys.platform})",
+            f"[bold white on blue] UI LIST ELEMENTS 🐻 [/bold white on blue] 📋 ({sys.platform})",
             message_group=group_id,
         )
         try:
@@ -299,7 +299,7 @@ def register_os_unified_tools(agent):
         """
         group_id = generate_group_id("ui_find_element", sys.platform)
         emit_rich(
-            f"[bold white on blue] UI FIND ELEMENT [/bold white on blue] 🔍 ({sys.platform})",
+            f"[bold white on blue] UI FIND ELEMENT 🐻 [/bold white on blue] 🔍 ({sys.platform})",
             message_group=group_id,
         )
         try:

@@ -64,7 +64,7 @@ def list_accessible_elements(
 
     group_id = generate_group_id("list_accessible_elements", str(role))
     emit_rich(
-        f"[bold white on blue] LIST ACCESSIBLE ELEMENTS [/bold white on blue] 📋 role={role}",
+        f"[bold white on blue] MAC LIST ACCESSIBLE ELEMENTS 🐻 [/bold white on blue] 📋 role={role}",
         message_group=group_id,
     )
 

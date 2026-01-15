@@ -388,7 +388,7 @@ def desktop_click_element_vqa(
     group_id = generate_group_id("vqa_click")
 
     emit_rich(
-        "[bold cyan]🤖 VQA Two-Stage Click[/bold cyan]",
+        "[bold cyan]🤖 VQA CLICK 🐻 [/bold cyan]",
         message_group=group_id,
     )
     emit_rich(

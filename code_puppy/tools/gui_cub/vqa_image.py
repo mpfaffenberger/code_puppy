@@ -94,7 +94,7 @@ def vqa_analyze_image_impl(
         )
 
     emit_rich(
-        f"[bold cyan]🖼️  VQA ANALYZE IMAGE[/bold cyan]\n"
+        f"[bold cyan]🖼️  VQA ANALYZE IMAGE 🐻 [/bold cyan]\n"
         f"[dim]   File: {path}[/dim]\n"
         f"[dim]   Size: {file_size_mb:.2f} MB[/dim]\n"
         f"[dim]   Format: {extension.upper().lstrip('.')}[/dim]\n"

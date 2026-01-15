@@ -895,7 +895,7 @@ def register_click_debugging_tools(agent):
         group_id = generate_group_id("click_with_verification", f"{x}_{y}")
         emit_rich(
             Text.from_markup(
-                f"[bold white on blue] VERIFIED CLICK [/bold white on blue] 🖱️  Clicking ({x}, {y}) with {button} button"
+                f"[bold white on blue] VERIFIED CLICK 🐻 [/bold white on blue] 🖱️  Clicking ({x}, {y}) with {button} button"
             ),
             message_group=group_id,
         )

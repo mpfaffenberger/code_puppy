@@ -150,7 +150,7 @@ def register_mac_app_launcher_tools(agent):
             )
 
         emit_rich(
-            f"[bold white on blue] MAC LAUNCH APP [/bold white on blue] 🚀 app_name='{app_name}'",
+            f"[bold white on blue] MAC LAUNCH APP 🐻 [/bold white on blue] 🚀 app_name='{app_name}'",
             message_group=group_id,
         )
 

@@ -186,7 +186,7 @@ def register_accessibility_tools(agent):
 
         group_id = generate_group_id("desktop_list_windows", str(include_minimized))
         emit_rich(
-            f"[bold white on blue] MAC LIST WINDOWS [/bold white on blue] 🪟 (minimized={include_minimized})",
+            f"[bold white on blue] MAC LIST WINDOWS 🐻 [/bold white on blue] 🪟 (minimized={include_minimized})",
             message_group=group_id,
         )
         wins = _list_macos_windows(include_minimized=include_minimized)
@@ -219,7 +219,7 @@ def register_accessibility_tools(agent):
 
         group_id = generate_group_id("desktop_un_minimize", app_name)
         emit_rich(
-            f"[bold white on blue] UN-MINIMIZE WINDOW [/bold white on blue] ↗️ {app_name}",
+            f"[bold white on blue] UN-MINIMIZE WINDOW 🐻 [/bold white on blue] ↗️ {app_name}",
             message_group=group_id,
         )
 
@@ -350,7 +350,7 @@ def register_accessibility_tools(agent):
 
         group_id = generate_group_id("desktop_list_dock_apps")
         emit_rich(
-            "[bold white on blue] DOCK APPS [/bold white on blue] 📦",
+            "[bold white on blue] MAC DOCK APPS 🐻 [/bold white on blue] 📦",
             message_group=group_id,
         )
 
@@ -434,7 +434,7 @@ def register_accessibility_tools(agent):
 
         group_id = generate_group_id("desktop_list_accessible_tree", str(max_depth))
         emit_rich(
-            "[bold white on blue] ACCESSIBILITY TREE [/bold white on blue] 🌲",
+            "[bold white on blue] MAC ACCESSIBILITY TREE 🐻 [/bold white on blue] 🌲",
             message_group=group_id,
         )
 

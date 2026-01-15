@@ -149,7 +149,7 @@ def find_accessible_element(
     monitor = get_monitor()
     group_id = generate_group_id("find_accessible_element", f"{role}_{title}")
     emit_rich(
-        f"[bold white on blue] FIND ACCESSIBLE ELEMENT [/bold white on blue] 🔍 role={role} title='{title}' fuzzy={fuzzy}",
+        f"[bold white on blue] MAC FIND ACCESSIBLE ELEMENT 🐻 [/bold white on blue] 🔍 role={role} title='{title}' fuzzy={fuzzy}",
         message_group=group_id,
     )
 

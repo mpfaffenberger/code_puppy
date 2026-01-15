@@ -105,8 +105,8 @@ TOOL_EMOJIS = {
     "CONFIRM": "❓",
     "PROMPT": "💬",
     # Accessibility
-    "FIND ACCESSIBLE ELEMENT": "🔍",
-    "LIST ACCESSIBLE ELEMENTS": "📋",
+    "MAC FIND ACCESSIBLE ELEMENT": "🔍",
+    "MAC LIST ACCESSIBLE ELEMENTS": "📋",
     "CLICK ACCESSIBLE ELEMENT": "👆",
     # Windows automation
     "WINDOWS FOCUS": "🪟",

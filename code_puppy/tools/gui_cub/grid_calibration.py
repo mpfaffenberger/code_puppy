@@ -334,7 +334,7 @@ def register_grid_calibration_tools(agent):
 
         group_id = generate_group_id("grid_test_pattern", f"spacing_{grid_spacing}")
         emit_rich(
-            "[bold white on blue] GRID TEST PATTERN [/bold white on blue] 🎯 Creating calibration test pattern...",
+            "[bold white on blue] GRID TEST PATTERN 🐻 [/bold white on blue] 🎯 Creating calibration test pattern...",
             message_group=group_id,
         )
 
@@ -446,7 +446,7 @@ Marker reference:
 
         group_id = generate_group_id("screenshot_with_confidence", question[:50])
         emit_rich(
-            f"[bold white on blue] CONFIDENCE-BASED SCREENSHOT [/bold white on blue] question='{question[:80]}...' threshold={confidence_threshold}",
+            f"[bold white on blue] SCREENSHOT UNTIL CONFIDENT 🐻 [/bold white on blue] question='{question[:80]}...' threshold={confidence_threshold}",
             message_group=group_id,
         )
 

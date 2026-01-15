@@ -610,7 +610,7 @@ def register_config_tools(agent):
         """
         group_id = generate_group_id("gui_cub_validate")
         emit_rich(
-            "[bold cyan] VALIDATE CONFIG [/bold cyan] ✓",
+            "[bold cyan] VALIDATE CONFIG 🐻 [/bold cyan] ✓",
             message_group=group_id,
         )
 

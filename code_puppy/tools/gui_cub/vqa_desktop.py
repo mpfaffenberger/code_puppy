@@ -101,7 +101,7 @@ def run_desktop_vqa_analysis(
     image_size_mb = len(image_bytes) / 1_000_000
 
     emit_rich(
-        f"[bold cyan]🤖 VQA REQUEST[/bold cyan]\n"
+        f"[bold cyan]🤖 VQA REQUEST 🐻 [/bold cyan]\n"
         f"[dim]   Model: {model_name}[/dim]\n"
         f"[dim]   Image size: {image_size_mb:.2f} MB[/dim]\n"
         f"[dim]   Media type: {media_type}[/dim]\n"

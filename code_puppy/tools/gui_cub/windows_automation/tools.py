@@ -103,7 +103,7 @@ def register_windows_tools(agent):
             "windows_focus_window", window_title or class_name or "unknown"
         )
         emit_rich(
-            f"[bold white on blue] WINDOWS FOCUS [/bold white on blue] 🪟 {window_title or class_name}",
+            f"[bold white on blue] WINDOWS FOCUS 🐻 [/bold white on blue] 🪟 {window_title or class_name}",
             message_group=group_id,
         )
 
@@ -167,7 +167,7 @@ def register_windows_tools(agent):
         )
         emit_info(
             Text.from_markup(
-                f"[bold white on blue] WINDOWS FIND ELEMENT [/bold white on blue] 🔍 {title or control_type}"
+                f"[bold white on blue] WINDOWS FIND ELEMENT 🐻 [/bold white on blue] 🔍 {title or control_type}"
             ),
             message_group=group_id,
         )
@@ -270,7 +270,7 @@ def register_windows_tools(agent):
 
         group_id = generate_group_id("windows_click_element", str(click_target))
         emit_rich(
-            f"[bold white on blue] WINDOWS CLICK [/bold white on blue] 🖱️ {click_target}",
+            f"[bold white on blue] WINDOWS CLICK 🐻 [/bold white on blue] 🖱️ {click_target}",
             message_group=group_id,
         )
 
@@ -329,7 +329,7 @@ def register_windows_tools(agent):
         )
         emit_info(
             Text.from_markup(
-                "[bold white on blue] WINDOWS LIST ELEMENTS [/bold white on blue] 📋"
+                "[bold white on blue] WINDOWS LIST ELEMENTS 🐻 [/bold white on blue] 📋"
             ),
             message_group=group_id,
         )
@@ -389,7 +389,7 @@ def register_windows_tools(agent):
 
         group_id = generate_group_id("windows_list_interactive", str(max_elements))
         emit_rich(
-            f"[bold white on blue] WINDOWS LIST INTERACTIVE ELEMENTS [/bold white on blue] 🔘 (max={max_elements})",
+            f"[bold white on blue] WINDOWS LIST INTERACTIVE ELEMENTS 🐻 [/bold white on blue] 🔘 (max={max_elements})",
             message_group=group_id,
         )
 
@@ -459,7 +459,7 @@ def register_windows_tools(agent):
 
         group_id = generate_group_id("windows_search_elements", search_query)
         emit_rich(
-            f"[bold white on blue] WINDOWS SEARCH ELEMENTS [/bold white on blue] 🔍 '{search_query}' (fuzzy={fuzzy})",
+            f"[bold white on blue] WINDOWS SEARCH ELEMENTS 🐻 [/bold white on blue] 🔍 '{search_query}' (fuzzy={fuzzy})",
             message_group=group_id,
         )
 
@@ -536,7 +536,7 @@ def register_windows_tools(agent):
         )
         emit_info(
             Text.from_markup(
-                "[bold white on blue] WINDOWS LIST ALL ELEMENTS [/bold white on blue] 📋"
+                "[bold white on blue] WINDOWS LIST ALL ELEMENTS 🐻 [/bold white on blue] 📋"
             ),
             message_group=group_id,
         )
@@ -669,7 +669,7 @@ def register_windows_tools(agent):
             "windows_list_app_elements", app_title_pattern[:20]
         )
         emit_rich(
-            f"[bold white on blue] WINDOWS LIST APPLICATION ELEMENTS [/bold white on blue] 🪟\n"
+            f"[bold white on blue] WINDOWS LIST APPLICATION ELEMENTS 🐻 [/bold white on blue] 🪟\n"
             f"[dim]Pattern: {app_title_pattern}[/dim]",
             message_group=group_id,
         )
@@ -737,7 +737,7 @@ def register_windows_tools(agent):
 
         group_id = generate_group_id("windows_list_windows", str(include_minimized))
         emit_rich(
-            f"[bold white on blue] WINDOWS LIST WINDOWS [/bold white on blue] 🪟 (minimized={include_minimized})",
+            f"[bold white on blue] WINDOWS LIST WINDOWS 🐻 [/bold white on blue] 🪟 (minimized={include_minimized})",
             message_group=group_id,
         )
 
@@ -778,7 +778,7 @@ def register_windows_tools(agent):
 
         group_id = generate_group_id("windows_un_minimize", window_title or str(hwnd))
         emit_rich(
-            f"[bold white on blue] UN-MINIMIZE WINDOW [/bold white on blue] ↗️ {window_title or hwnd}",
+            f"[bold white on blue] UN-MINIMIZE WINDOW 🐻 [/bold white on blue] ↗️ {window_title or hwnd}",
             message_group=group_id,
         )
 
@@ -981,7 +981,7 @@ def register_windows_tools(agent):
 
         group_id = generate_group_id("windows_list_taskbar_apps")
         emit_rich(
-            "[bold white on blue] TASKBAR APPS [/bold white on blue] 📦",
+            "[bold white on blue] WINDOWS TASKBAR APPS 🐻 [/bold white on blue] 📦",
             message_group=group_id,
         )
 
@@ -1106,7 +1106,7 @@ def register_windows_tools(agent):
         group_id = generate_group_id("windows_get_focused_element", f"pid_{pid}")
         emit_info(
             Text.from_markup(
-                f"[bold white on blue] WINDOWS GET FOCUSED ELEMENT [/bold white on blue] 🎯 PID {pid}"
+                f"[bold white on blue] WINDOWS GET FOCUSED ELEMENT 🐻 [/bold white on blue] 🎯 PID {pid}"
             ),
             message_group=group_id,
         )
@@ -1181,7 +1181,7 @@ def register_windows_tools(agent):
         )
         emit_info(
             Text.from_markup(
-                f"[bold white on blue] WINDOWS GET ELEMENT VALUE [/bold white on blue] 📝 PID {pid}"
+                f"[bold white on blue] WINDOWS GET ELEMENT VALUE 🐻 [/bold white on blue] 📝 PID {pid}"
             ),
             message_group=group_id,
         )
@@ -1253,7 +1253,7 @@ def register_windows_tools(agent):
         )
         emit_info(
             Text.from_markup(
-                f"[bold white on blue] CLOSE WINDOW [/bold white on blue] ✖️ {window_title or hwnd or f'PID {pid}'} (force={force})"
+                f"[bold white on blue] WINDOWS CLOSE WINDOW 🐻 [/bold white on blue] ✖️ {window_title or hwnd or f'PID {pid}'} (force={force})"
             ),
             message_group=group_id,
         )

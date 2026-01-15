@@ -139,7 +139,7 @@ async def take_desktop_screenshot_and_analyze(
         "desktop_screenshot_analyze", f"{question[:50]}_{target}"
     )
     emit_rich(
-        f"[bold white on blue] DESKTOP SCREENSHOT ANALYZE [/bold white on blue] 📷 question='{question[:100]}{'...' if len(question) > 100 else ''}' target={target}",
+        f"[bold white on blue] DESKTOP SCREENSHOT ANALYZE 🐻 [/bold white on blue] 📷 question='{question[:100]}{'...' if len(question) > 100 else ''}' target={target}",
         message_group=group_id,
     )
 
