@@ -237,7 +237,7 @@ def desktop_tool(
                         success_msg = f"Answer: {result['answer'][:100]}"
 
                     emit_rich(
-                        Text.from_markup(f"[green]{success_msg}[/green]"),
+                        f"[green]{success_msg}[/green]",
                         message_group=group_id,
                     )
 
