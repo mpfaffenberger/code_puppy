@@ -1,19 +1,21 @@
-"""Screenshot and visual analysis tool with VQA capabilities."""
+"""Screenshot tool for browser automation.
 
-import asyncio
+Captures screenshots and returns them via ToolReturn with BinaryContent
+so multimodal models can directly see and analyze - no separate VQA agent needed.
+"""
+
+import time
 from datetime import datetime
 from pathlib import Path
 from tempfile import gettempdir, mkdtemp
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
-from pydantic import BaseModel
-from pydantic_ai import RunContext
+from pydantic_ai import BinaryContent, RunContext, ToolReturn
 
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
-from .camoufox_manager import get_camoufox_manager
-from .vqa_agent import run_vqa_analysis
+from .camoufox_manager import get_session_browser_manager
 
 _TEMP_SCREENSHOT_ROOT = Path(
     mkdtemp(prefix="code_puppy_screenshots_", dir=gettempdir())
@@ -21,19 +23,9 @@ _TEMP_SCREENSHOT_ROOT = Path(
 
 
 def _build_screenshot_path(timestamp: str) -> Path:
-    """Return the target path for a screenshot using a shared temp directory."""
+    """Return the target path for a screenshot."""
     filename = f"screenshot_{timestamp}.png"
     return _TEMP_SCREENSHOT_ROOT / filename
-
-
-class ScreenshotResult(BaseModel):
-    """Result from screenshot operation."""
-
-    success: bool
-    screenshot_path: Optional[str] = None
-    screenshot_data: Optional[bytes] = None
-    timestamp: Optional[str] = None
-    error: Optional[str] = None
 
 
 async def _capture_screenshot(
@@ -45,41 +37,37 @@ async def _capture_screenshot(
 ) -> Dict[str, Any]:
     """Internal screenshot capture function."""
     try:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
         # Take screenshot
         if element_selector:
-            # Screenshot specific element
             element = await page.locator(element_selector).first
             if not await element.is_visible():
                 return {
                     "success": False,
                     "error": f"Element '{element_selector}' is not visible",
                 }
-            screenshot_data = await element.screenshot()
+            screenshot_bytes = await element.screenshot()
         else:
-            # Screenshot page or full page
-            screenshot_data = await page.screenshot(full_page=full_page)
+            screenshot_bytes = await page.screenshot(full_page=full_page)
 
-        result = {
+        result: Dict[str, Any] = {
             "success": True,
-            "screenshot_data": screenshot_data,
+            "screenshot_bytes": screenshot_bytes,
             "timestamp": timestamp,
         }
 
         if save_screenshot:
             screenshot_path = _build_screenshot_path(timestamp)
             screenshot_path.parent.mkdir(parents=True, exist_ok=True)
-
             with open(screenshot_path, "wb") as f:
-                f.write(screenshot_data)
-
+                f.write(screenshot_bytes)
             result["screenshot_path"] = str(screenshot_path)
-            message = f"Screenshot saved: {screenshot_path}"
+
             if group_id:
-                emit_success(message, message_group=group_id)
-            else:
-                emit_success(message)
+                emit_success(
+                    f"Screenshot saved: {screenshot_path}", message_group=group_id
+                )
 
         return result
 
@@ -87,46 +75,42 @@ async def _capture_screenshot(
         return {"success": False, "error": str(e)}
 
 
-async def take_screenshot_and_analyze(
-    question: str,
+async def take_screenshot(
     full_page: bool = False,
     element_selector: Optional[str] = None,
     save_screenshot: bool = True,
-) -> Dict[str, Any]:
-    """
-    Take a screenshot and analyze it using visual understanding.
+) -> Union[ToolReturn, Dict[str, Any]]:
+    """Take a screenshot of the browser page.
+
+    Returns a ToolReturn with BinaryContent so multimodal models can
+    directly see and analyze the screenshot.
 
     Args:
-        question: The specific question to ask about the screenshot
-        full_page: Whether to capture the full page or just viewport
-        element_selector: Optional selector to screenshot just a specific element
-        save_screenshot: Whether to save the screenshot to disk
+        full_page: Whether to capture full page or just viewport.
+        element_selector: Optional selector to screenshot specific element.
+        save_screenshot: Whether to save the screenshot to disk.
 
     Returns:
-        Dict containing analysis results and screenshot info
+        ToolReturn containing:
+            - return_value: Success message with screenshot path
+            - content: List with description and BinaryContent image
+            - metadata: Screenshot details (path, target, timestamp)
+        Or Dict with error info if failed.
     """
     target = element_selector or ("full_page" if full_page else "viewport")
-    group_id = generate_group_id(
-        "browser_screenshot_analyze", f"{question[:50]}_{target}"
-    )
-    emit_info(
-        f"BROWSER SCREENSHOT ANALYZE 📷 question='{question[:100]}{'...' if len(question) > 100 else ''}' target={target}",
-        message_group=group_id,
-    )
+    group_id = generate_group_id("browser_screenshot", target)
+    emit_info(f"BROWSER SCREENSHOT 📷 target={target}", message_group=group_id)
+
     try:
-        # Get the current browser page
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
-            return {
-                "success": False,
-                "error": "No active browser page available. Please navigate to a webpage first.",
-                "question": question,
-            }
+            error_msg = "No active browser page. Navigate to a webpage first."
+            emit_error(error_msg, message_group=group_id)
+            return {"success": False, "error": error_msg}
 
-        # Take screenshot
-        screenshot_result = await _capture_screenshot(
+        result = await _capture_screenshot(
             page,
             full_page=full_page,
             element_selector=element_selector,
@@ -134,108 +118,62 @@ async def take_screenshot_and_analyze(
             group_id=group_id,
         )
 
-        if not screenshot_result["success"]:
-            error_message = screenshot_result.get("error", "Screenshot failed")
-            emit_error(
-                f"Screenshot capture failed: {error_message}",
-                message_group=group_id,
-            )
-            return {
-                "success": False,
-                "error": error_message,
-                "question": question,
-            }
+        if not result["success"]:
+            emit_error(result.get("error", "Screenshot failed"), message_group=group_id)
+            return {"success": False, "error": result.get("error")}
 
-        screenshot_bytes = screenshot_result.get("screenshot_data")
-        if not screenshot_bytes:
-            emit_error(
-                "Screenshot captured but pixel data missing; cannot run visual analysis.",
-                message_group=group_id,
-            )
-            return {
-                "success": False,
-                "error": "Screenshot captured but no image bytes available for analysis.",
-                "question": question,
-            }
+        screenshot_path = result.get("screenshot_path", "(not saved)")
 
-        try:
-            vqa_result = await asyncio.to_thread(
-                run_vqa_analysis,
-                question,
-                screenshot_bytes,
-            )
-        except Exception as exc:
-            emit_error(
-                f"Visual question answering failed: {exc}",
-                message_group=group_id,
-            )
-            return {
-                "success": False,
-                "error": f"Visual analysis failed: {exc}",
-                "question": question,
-                "screenshot_info": {
-                    "path": screenshot_result.get("screenshot_path"),
-                    "timestamp": screenshot_result.get("timestamp"),
-                    "full_page": full_page,
-                    "element_selector": element_selector,
-                },
-            }
-
-        emit_success(
-            f"Visual analysis answer: {vqa_result.answer}",
-            message_group=group_id,
-        )
-        emit_info(
-            f"Observations: {vqa_result.observations}",
-            message_group=group_id,
-        )
-
-        return {
-            "success": True,
-            "question": question,
-            "answer": vqa_result.answer,
-            "confidence": vqa_result.confidence,
-            "observations": vqa_result.observations,
-            "screenshot_info": {
-                "path": screenshot_result.get("screenshot_path"),
-                "size": len(screenshot_bytes),
-                "timestamp": screenshot_result.get("timestamp"),
+        # Return as ToolReturn with BinaryContent so the model can SEE the image!
+        return ToolReturn(
+            return_value=f"Screenshot captured successfully. Saved to: {screenshot_path}",
+            content=[
+                f"Here's the browser screenshot ({target}):",
+                BinaryContent(
+                    data=result["screenshot_bytes"],
+                    media_type="image/png",
+                ),
+                "Please analyze what you see and describe any relevant details.",
+            ],
+            metadata={
+                "success": True,
+                "screenshot_path": screenshot_path,
+                "target": target,
                 "full_page": full_page,
                 "element_selector": element_selector,
+                "timestamp": time.time(),
             },
-        }
+        )
 
     except Exception as e:
-        emit_error(f"Screenshot analysis failed: {str(e)}", message_group=group_id)
-        return {"success": False, "error": str(e), "question": question}
+        error_msg = f"Screenshot failed: {str(e)}"
+        emit_error(error_msg, message_group=group_id)
+        return {"success": False, "error": error_msg}
 
 
 def register_take_screenshot_and_analyze(agent):
-    """Register the screenshot analysis tool."""
+    """Register the screenshot tool."""
 
     @agent.tool
     async def browser_screenshot_analyze(
         context: RunContext,
-        question: str,
         full_page: bool = False,
         element_selector: Optional[str] = None,
-        save_screenshot: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> Union[ToolReturn, Dict[str, Any]]:
         """
-        Take a screenshot and analyze it to answer a specific question.
+        Take a screenshot of the browser page.
+
+        Returns the screenshot via ToolReturn with BinaryContent that you can
+        see directly. Use this to see what's displayed in the browser.
 
         Args:
-            question: The specific question to ask about the screenshot
-            full_page: Whether to capture the full page or just viewport
-            element_selector: Optional CSS/XPath selector to screenshot specific element
-            save_screenshot: Whether to save the screenshot to disk
+            full_page: Capture full page (True) or just viewport (False).
+            element_selector: Optional CSS selector to screenshot specific element.
 
         Returns:
-            Dict with analysis results including answer, confidence, and observations
+            ToolReturn with the screenshot image you can analyze, or error dict.
         """
-        return await take_screenshot_and_analyze(
-            question=question,
+        return await take_screenshot(
             full_page=full_page,
             element_selector=element_selector,
-            save_screenshot=save_screenshot,
         )

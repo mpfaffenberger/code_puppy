@@ -472,35 +472,11 @@ class BaseAgent(ABC):
         total_tokens = 0
 
         # 1. Estimate tokens for system prompt / instructions
-        # For Claude Code models, the full system prompt is prepended to the first
-        # user message (already in message history), so we only count the short
-        # fixed instructions. For other models, count the full system prompt.
+        # Count the system prompt tokens
         try:
-            from code_puppy.model_utils import (
-                get_chatgpt_codex_instructions,
-                get_claude_code_instructions,
-                is_chatgpt_codex_model,
-                is_claude_code_model,
-            )
-
-            model_name = (
-                self.get_model_name() if hasattr(self, "get_model_name") else ""
-            )
-            if is_claude_code_model(model_name):
-                # For Claude Code models, only count the short fixed instructions
-                # The full system prompt is already in the message history
-                instructions = get_claude_code_instructions()
-                total_tokens += self.estimate_token_count(instructions)
-            elif is_chatgpt_codex_model(model_name):
-                # For ChatGPT Codex models, only count the short fixed instructions
-                # The full system prompt is already in the message history
-                instructions = get_chatgpt_codex_instructions()
-                total_tokens += self.estimate_token_count(instructions)
-            else:
-                # For other models, count the full system prompt
-                system_prompt = self.get_system_prompt()
-                if system_prompt:
-                    total_tokens += self.estimate_token_count(system_prompt)
+            system_prompt = self.get_system_prompt()
+            if system_prompt:
+                total_tokens += self.estimate_token_count(system_prompt)
         except Exception:
             pass  # If we can't get system prompt, skip it
 
@@ -1737,22 +1713,7 @@ class BaseAgent(ABC):
         if output_type is not None:
             pydantic_agent = self._create_agent_with_output_type(output_type)
 
-        # Handle claude-code and chatgpt-codex models: prepend system prompt to first user message
-        from code_puppy.model_utils import (
-            is_chatgpt_codex_model,
-            is_claude_code_model,
-            is_gemini_model,
-        )
-
-        if is_claude_code_model(self.get_model_name()) or is_chatgpt_codex_model(
-            self.get_model_name()
-        ):
-            if len(self.get_message_history()) == 0:
-                system_prompt = self.get_system_prompt()
-                puppy_rules = self.load_puppy_rules()
-                if puppy_rules:
-                    system_prompt += f"\n{puppy_rules}"
-                prompt = system_prompt + "\n\n" + prompt
+        from code_puppy.model_utils import is_gemini_model
 
         # Build combined prompt payload when attachments are provided.
         attachment_parts: List[Any] = []

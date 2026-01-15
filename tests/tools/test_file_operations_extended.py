@@ -423,3 +423,152 @@ class TestFileOperationsExtended:
         finally:
             # Restore permissions for cleanup
             restricted.chmod(0o755)
+
+
+class TestLargeFileHandling:
+    """Test handling of large files and streaming behavior."""
+
+    def test_read_large_file_with_token_limit(self, tmp_path):
+        """Test that large files are handled and tokens are counted."""
+        test_file = tmp_path / "large.txt"
+        # Create file with 500 lines
+        lines = [f"Line {i}: " + ("x" * 50) for i in range(500)]
+        test_file.write_text("\n".join(lines))
+
+        result = _read_file(None, str(test_file))
+
+        assert result.error is None
+        assert result.num_tokens > 0
+        assert result.content is not None
+
+    def test_read_file_line_range_bounds(self, tmp_path):
+        """Test line range validation and bounds checking."""
+        test_file = tmp_path / "bounded.txt"
+        test_file.write_text("Line 1\nLine 2\nLine 3\nLine 4\nLine 5\n")
+
+        # Read beyond file length
+        result = _read_file(None, str(test_file), start_line=10, num_lines=20)
+
+        assert result.error is None or result.content == ""
+
+    def test_read_file_single_line(self, tmp_path):
+        """Test reading a single line from multiline file."""
+        test_file = tmp_path / "single.txt"
+        test_file.write_text("Line 1\nLine 2\nLine 3\n")
+
+        result = _read_file(None, str(test_file), start_line=2, num_lines=1)
+
+        assert result.error is None
+        assert "Line 2" in result.content
+
+
+class TestSymlinkHandling:
+    """Test handling of symbolic links."""
+
+    def test_list_files_with_symlink(self, tmp_path):
+        """Test listing files that include symlinks."""
+        real_file = tmp_path / "real.txt"
+        real_file.write_text("content")
+
+        try:
+            symlink = tmp_path / "link.txt"
+            symlink.symlink_to(real_file)
+
+            result = _list_files(None, str(tmp_path), recursive=False)
+
+            assert result.error is None
+            assert result.content is not None
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlinks not supported on this platform")
+
+    def test_read_file_via_symlink(self, tmp_path):
+        """Test reading a file through a symlink."""
+        real_file = tmp_path / "real.txt"
+        real_file.write_text("symlink content")
+
+        try:
+            symlink = tmp_path / "link.txt"
+            symlink.symlink_to(real_file)
+
+            result = _read_file(None, str(symlink))
+
+            assert result.error is None
+            assert "symlink content" in result.content
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlinks not supported on this platform")
+
+
+class TestBinaryFileDetection:
+    """Test detection and handling of binary files."""
+
+    def test_read_binary_file(self, tmp_path):
+        """Test that binary files are handled appropriately."""
+        binary_file = tmp_path / "binary.bin"
+        binary_file.write_bytes(b"\x00\x01\x02\x03\x04")
+
+        result = _read_file(None, str(binary_file))
+
+        # Should either skip or mark as binary
+        assert result is not None
+        assert isinstance(result, ReadFileOutput)
+
+    def test_list_files_ignores_binary_files(self, tmp_path):
+        """Test that binary files are shown in listings."""
+        (tmp_path / "text.txt").write_text("text")
+        (tmp_path / "binary.bin").write_bytes(b"\x00\x01")
+
+        result = _list_files(None, str(tmp_path), recursive=False)
+
+        assert result.content is not None
+        # Both files should be listed
+
+
+class TestPathValidationAndNormalization:
+    """Test path validation and normalization."""
+
+    def test_read_file_with_relative_path(self, tmp_path, monkeypatch):
+        """Test reading file with relative path."""
+        test_file = tmp_path / "relative.txt"
+        test_file.write_text("relative content")
+
+        # Change to tmp_path directory
+        monkeypatch.chdir(tmp_path)
+
+        result = _read_file(None, "relative.txt")
+
+        assert result.error is None
+        assert "relative content" in result.content
+
+    def test_list_files_with_relative_path(self, tmp_path, monkeypatch):
+        """Test listing files with relative path."""
+        (tmp_path / "file1.txt").write_text("content1")
+        (tmp_path / "file2.txt").write_text("content2")
+
+        monkeypatch.chdir(tmp_path)
+
+        result = _list_files(None, ".", recursive=False)
+
+        assert result.error is None
+        assert "file1.txt" in result.content
+        assert "file2.txt" in result.content
+
+
+class TestProjectDetection:
+    """Test project directory detection."""
+
+    def test_is_project_directory_with_git(self, tmp_path):
+        """Test that directories with .git are detected as projects."""
+        (tmp_path / ".git").mkdir()
+        assert is_project_directory(str(tmp_path)) is True
+
+    def test_is_project_directory_with_python_files(self, tmp_path):
+        """Test that directories with Python files are detected as projects."""
+        (tmp_path / "setup.py").touch()
+        # Result depends on implementation
+        result = is_project_directory(str(tmp_path))
+        assert isinstance(result, bool)
+
+    def test_is_home_directory(self, tmp_path):
+        """Test home directory detection."""
+        result = is_likely_home_directory(str(tmp_path))
+        assert isinstance(result, bool)

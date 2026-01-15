@@ -85,7 +85,7 @@ class TestFindByRole(BrowserLocatorsBaseTest):
         locator, element = mock_locator
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_role.return_value = locator
@@ -115,7 +115,7 @@ class TestFindByRole(BrowserLocatorsBaseTest):
         manager.get_current_page.return_value = None
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             result = await find_by_role("button")
@@ -129,7 +129,7 @@ class TestFindByRole(BrowserLocatorsBaseTest):
         manager, page = mock_browser_manager
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_role.side_effect = Exception("Timeout")
@@ -153,7 +153,7 @@ class TestFindByRole(BrowserLocatorsBaseTest):
         locator.nth.side_effect = [element, element, element]  # All visible
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_role.return_value = locator
@@ -186,7 +186,7 @@ class TestFindByText(BrowserLocatorsBaseTest):
         locator, element = mock_locator
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_text.return_value = locator
@@ -207,7 +207,7 @@ class TestFindByText(BrowserLocatorsBaseTest):
         locator, element = mock_locator
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_text.return_value = locator
@@ -228,7 +228,7 @@ class TestFindByText(BrowserLocatorsBaseTest):
         element.is_visible.return_value = False
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_text.return_value = locator
@@ -267,7 +267,7 @@ class TestFindByLabel(BrowserLocatorsBaseTest):
         element.input_value.return_value = "user input"
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_label.return_value = locator
@@ -293,7 +293,7 @@ class TestFindByLabel(BrowserLocatorsBaseTest):
         element.input_value.return_value = "textarea content"
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_label.return_value = locator
@@ -330,7 +330,7 @@ class TestFindByPlaceholder(BrowserLocatorsBaseTest):
         element.input_value.return_value = "test@example.com"
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_placeholder.return_value = locator
@@ -349,7 +349,7 @@ class TestFindByPlaceholder(BrowserLocatorsBaseTest):
         locator, element = mock_locator
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_placeholder.return_value = locator
@@ -381,7 +381,7 @@ class TestFindByTestId(BrowserLocatorsBaseTest):
         locator, element = mock_locator
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_test_id.return_value = locator
@@ -407,7 +407,7 @@ class TestFindByTestId(BrowserLocatorsBaseTest):
         element.text_content.return_value = long_text
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_test_id.return_value = locator
@@ -442,7 +442,7 @@ class TestXPathQuery(BrowserLocatorsBaseTest):
         element.get_attribute.side_effect = ["container", "main-content"]  # class, id
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -469,7 +469,7 @@ class TestXPathQuery(BrowserLocatorsBaseTest):
         element.get_attribute.return_value = None
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.return_value = locator
@@ -486,7 +486,7 @@ class TestXPathQuery(BrowserLocatorsBaseTest):
         manager, page = mock_browser_manager
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.locator.side_effect = Exception("Invalid XPath")
@@ -529,7 +529,7 @@ class TestFindButtons(BrowserLocatorsBaseTest):
         element.is_visible.return_value = True
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_role.return_value = locator
@@ -558,7 +558,7 @@ class TestFindButtons(BrowserLocatorsBaseTest):
         element.is_visible.return_value = True
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_role.return_value = locator
@@ -589,7 +589,7 @@ class TestFindButtons(BrowserLocatorsBaseTest):
         element.is_visible.return_value = True
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_role.return_value = locator
@@ -611,7 +611,7 @@ class TestFindButtons(BrowserLocatorsBaseTest):
         element.is_visible.return_value = False  # All buttons hidden
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_role.return_value = locator
@@ -652,7 +652,7 @@ class TestFindLinks(BrowserLocatorsBaseTest):
         element.is_visible.return_value = True
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_role.return_value = locator
@@ -694,7 +694,7 @@ class TestFindLinks(BrowserLocatorsBaseTest):
         page.get_by_role = MagicMock(return_value=locator)
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             with patch("code_puppy.tools.browser.browser_locators.emit_info"):
@@ -718,7 +718,7 @@ class TestFindLinks(BrowserLocatorsBaseTest):
         element.is_visible.return_value = True
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             page.get_by_role.return_value = locator
@@ -751,7 +751,7 @@ class TestIntegrationScenarios(BrowserLocatorsBaseTest):
         locator, element = mock_locator
 
         with patch(
-            "code_puppy.tools.browser.browser_locators.get_camoufox_manager",
+            "code_puppy.tools.browser.browser_locators.get_session_browser_manager",
             return_value=manager,
         ):
             # Mock different locator methods on the same page

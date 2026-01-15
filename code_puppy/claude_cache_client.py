@@ -180,3 +180,4 @@ def patch_anthropic_client_messages(client: Any) -> None:
         return await original_create(*args, **kwargs)
 
     messages_obj.create = wrapped_create  # type: ignore[assignment]
+

@@ -7,7 +7,7 @@ from pydantic_ai import RunContext
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
-from .camoufox_manager import get_camoufox_manager
+from .camoufox_manager import get_session_browser_manager
 
 
 async def execute_javascript(
@@ -21,14 +21,16 @@ async def execute_javascript(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
         # Execute JavaScript
-        result = await page.evaluate(script, timeout=timeout)
+        # Note: page.evaluate() does NOT accept a timeout parameter
+        # The timeout arg to this function is kept for API compatibility but unused
+        result = await page.evaluate(script)
 
         emit_success("JavaScript executed successfully", message_group=group_id)
 
@@ -52,7 +54,7 @@ async def scroll_page(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -60,7 +62,7 @@ async def scroll_page(
 
         if element_selector:
             # Scroll specific element
-            element = page.locator(element_selector)
+            element = page.locator(element_selector).first
             await element.scroll_into_view_if_needed()
 
             # Get element's current scroll position and dimensions
@@ -146,13 +148,13 @@ async def scroll_to_element(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="attached", timeout=timeout)
         await element.scroll_into_view_if_needed()
 
@@ -178,7 +180,7 @@ async def set_viewport_size(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
@@ -209,13 +211,13 @@ async def wait_for_element(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state=state, timeout=timeout)
 
         emit_success(f"Element {selector} is now {state}", message_group=group_id)
@@ -240,13 +242,13 @@ async def highlight_element(
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:
             return {"success": False, "error": "No active browser page available"}
 
-        element = page.locator(selector)
+        element = page.locator(selector).first
         await element.wait_for(state="visible", timeout=timeout)
 
         # Add highlight style
@@ -277,7 +279,7 @@ async def clear_highlights() -> Dict[str, Any]:
         message_group=group_id,
     )
     try:
-        browser_manager = get_camoufox_manager()
+        browser_manager = get_session_browser_manager()
         page = await browser_manager.get_current_page()
 
         if not page:

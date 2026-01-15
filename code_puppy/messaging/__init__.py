@@ -113,12 +113,21 @@ from .messages import (  # Enums, Base, Text, File ops, Diff, Shell, Agent, etc.
     StatusPanelMessage,
     SubAgentInvocationMessage,
     SubAgentResponseMessage,
+    SubAgentStatusMessage,
     TextMessage,
     UserInputRequest,
     VersionCheckMessage,
 )
 from .queue_console import QueueConsole, get_queue_console
 from .renderers import InteractiveRenderer, SynchronousInteractiveRenderer
+
+# Sub-agent console manager
+from .subagent_console import (
+    AgentState,
+    SubAgentConsoleManager,
+    get_subagent_console_manager,
+    STATUS_STYLES as SUBAGENT_STATUS_STYLES,
+)
 
 # Renderer
 from .rich_renderer import (
@@ -193,6 +202,7 @@ __all__ = [
     "AgentResponseMessage",
     "SubAgentInvocationMessage",
     "SubAgentResponseMessage",
+    "SubAgentStatusMessage",
     "UserInputRequest",
     "ConfirmationRequest",
     "SelectionRequest",
@@ -229,4 +239,9 @@ __all__ = [
     "DIFF_STYLES",
     # Markdown patches
     "patch_markdown_headings",
+    # Sub-agent console manager
+    "AgentState",
+    "SubAgentConsoleManager",
+    "get_subagent_console_manager",
+    "SUBAGENT_STATUS_STYLES",
 ]
