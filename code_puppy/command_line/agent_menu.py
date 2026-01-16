@@ -6,6 +6,7 @@ with live preview of agent details.
 
 import sys
 import time
+import unicodedata
 from typing import List, Optional, Tuple
 
 from prompt_toolkit.application import Application
@@ -22,6 +23,30 @@ from code_puppy.agents import (
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
 PAGE_SIZE = 10  # Agents per page
+
+
+def _sanitize_display_text(text: str) -> str:
+    """Remove or replace characters that cause terminal rendering issues.
+    
+    Args:
+        text: Text that may contain emojis or wide characters
+        
+    Returns:
+        Sanitized text safe for prompt_toolkit rendering
+    """
+    # Keep only characters that render cleanly in terminals
+    result = []
+    for char in text:
+        # Get unicode category
+        cat = unicodedata.category(char)
+        # Keep letters, numbers, punctuation, spaces, and common symbols
+        # Skip "So" (Symbol, other - includes most emojis) that cause issues
+        if cat != "So" and cat != "Cn":  # Cn = not assigned
+            result.append(char)
+        # Optionally, you could replace emojis with a placeholder:
+        # else:
+        #     result.append("*")
+    return "".join(result).strip()
 
 
 def _get_agent_entries() -> List[Tuple[str, str, str]]:
@@ -65,7 +90,7 @@ def _render_menu_panel(
     start_idx = page * PAGE_SIZE
     end_idx = min(start_idx + PAGE_SIZE, len(entries))
 
-    lines.append(("bold", " Agents"))
+    lines.append(("bold", "Agents"))
     lines.append(("fg:ansibrightblack", f" (Page {page + 1}/{total_pages})"))
     lines.append(("", "\n\n"))
 
@@ -78,14 +103,17 @@ def _render_menu_panel(
             name, display_name, _ = entries[i]
             is_selected = i == selected_idx
             is_current = name == current_agent_name
+            
+            # Sanitize display name to avoid emoji rendering issues
+            safe_display_name = _sanitize_display_text(display_name)
 
             # Build the line
             if is_selected:
-                lines.append(("fg:ansigreen", " ▶ "))
-                lines.append(("fg:ansigreen bold", display_name))
+                lines.append(("fg:ansigreen", "▶ "))
+                lines.append(("fg:ansigreen bold", safe_display_name))
             else:
-                lines.append(("", "   "))
-                lines.append(("", display_name))
+                lines.append(("", "  "))
+                lines.append(("", safe_display_name))
 
             # Add current marker
             if is_current:
@@ -132,35 +160,39 @@ def _render_preview_panel(
 
     name, display_name, description = entry
     is_current = name == current_agent_name
+    
+    # Sanitize text to avoid emoji rendering issues
+    safe_display_name = _sanitize_display_text(display_name)
+    safe_description = _sanitize_display_text(description)
 
     # Agent name (identifier)
-    lines.append(("bold", "  Name: "))
+    lines.append(("bold", "Name: "))
     lines.append(("", name))
     lines.append(("", "\n\n"))
 
     # Display name
-    lines.append(("bold", "  Display Name: "))
-    lines.append(("fg:ansicyan", display_name))
+    lines.append(("bold", "Display Name: "))
+    lines.append(("fg:ansicyan", safe_display_name))
     lines.append(("", "\n\n"))
 
     # Description
-    lines.append(("bold", "  Description:"))
+    lines.append(("bold", "Description:"))
     lines.append(("", "\n"))
 
     # Wrap description to fit panel
-    desc_lines = description.split("\n")
+    desc_lines = safe_description.split("\n")
     for desc_line in desc_lines:
         # Word wrap long lines
         words = desc_line.split()
-        current_line = "  "
+        current_line = ""
         for word in words:
-            if len(current_line) + len(word) + 1 > 60:
+            if len(current_line) + len(word) + 1 > 55:
                 lines.append(("fg:ansibrightblack", current_line))
                 lines.append(("", "\n"))
-                current_line = "  " + word
+                current_line = word
             else:
-                if current_line == "  ":
-                    current_line += word
+                if current_line == "":
+                    current_line = word
                 else:
                     current_line += " " + word
         if current_line.strip():
@@ -222,10 +254,10 @@ async def interactive_agent_picker() -> Optional[str]:
         )
 
     menu_window = Window(
-        content=menu_control, wrap_lines=True, width=Dimension(weight=35)
+        content=menu_control, wrap_lines=False, width=Dimension(weight=35)
     )
     preview_window = Window(
-        content=preview_control, wrap_lines=True, width=Dimension(weight=65)
+        content=preview_control, wrap_lines=False, width=Dimension(weight=65)
     )
 
     menu_frame = Frame(menu_window, width=Dimension(weight=35), title="Agents")

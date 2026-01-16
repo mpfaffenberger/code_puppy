@@ -172,7 +172,10 @@ class TestRenderMenuPanel:
         assert "Page 1/1" in text
 
     def test_renders_single_agent(self):
-        """Test rendering a single agent."""
+        """Test rendering a single agent.
+
+        Note: Emojis are stripped from display names for clean terminal rendering.
+        """
         entries = [("code_puppy", "Code Puppy 🐶", "A friendly assistant.")]
 
         result = _render_menu_panel(
@@ -180,7 +183,8 @@ class TestRenderMenuPanel:
         )
 
         text = _get_text_from_formatted(result)
-        assert "Code Puppy 🐶" in text
+        # Emojis are sanitized for clean terminal rendering
+        assert "Code Puppy" in text
         assert "Page 1/1" in text
 
     def test_highlights_selected_agent(self):
@@ -334,14 +338,18 @@ class TestRenderPreviewPanel:
         assert "code_puppy" in text
 
     def test_renders_display_name(self):
-        """Test that display name is shown."""
+        """Test that display name is shown.
+
+        Note: Emojis are stripped from display names for clean terminal rendering.
+        """
         entry = ("code_puppy", "Code Puppy 🐶", "A friendly assistant.")
 
         result = _render_preview_panel(entry, current_agent_name="")
 
         text = _get_text_from_formatted(result)
         assert "Display Name:" in text
-        assert "Code Puppy 🐶" in text
+        # Emojis are sanitized for clean terminal rendering
+        assert "Code Puppy" in text
 
     def test_renders_description(self):
         """Test that description is displayed."""
