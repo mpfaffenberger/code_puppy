@@ -6,7 +6,6 @@ pagination, current agent marking, and preview panel display.
 
 from unittest.mock import patch
 
-
 from code_puppy.command_line.agent_menu import (
     PAGE_SIZE,
     _get_agent_entries,
@@ -17,11 +16,11 @@ from code_puppy.command_line.agent_menu import (
 
 def _get_text_from_formatted(result):
     """Extract plain text from formatted text control output.
-    
+
     The render functions return List[(style, text)] tuples.
     This helper extracts just the text content for easier assertions.
     """
-    return ''.join(text for _, text in result)
+    return "".join(text for _, text in result)
 
 
 class TestPageSizeConstant:
@@ -62,7 +61,11 @@ class TestGetAgentEntries:
         result = _get_agent_entries()
 
         assert len(result) == 1
-        assert result[0] == ("code_puppy", "Code Puppy 🐶", "A friendly coding assistant.")
+        assert result[0] == (
+            "code_puppy",
+            "Code Puppy 🐶",
+            "A friendly coding assistant.",
+        )
 
     @patch("code_puppy.command_line.agent_menu.get_agent_descriptions")
     @patch("code_puppy.command_line.agent_menu.get_available_agents")
@@ -213,8 +216,7 @@ class TestRenderMenuPanel:
         """Test pagination shows correct info for page 0."""
         # Create 25 agents for multiple pages
         entries = [
-            (f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}")
-            for i in range(25)
+            (f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}") for i in range(25)
         ]
 
         result = _render_menu_panel(
@@ -230,8 +232,7 @@ class TestRenderMenuPanel:
     def test_pagination_page_one(self):
         """Test pagination shows correct info for page 1."""
         entries = [
-            (f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}")
-            for i in range(25)
+            (f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}") for i in range(25)
         ]
 
         result = _render_menu_panel(
@@ -247,8 +248,7 @@ class TestRenderMenuPanel:
     def test_pagination_last_page(self):
         """Test pagination shows correct info for last page."""
         entries = [
-            (f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}")
-            for i in range(25)
+            (f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}") for i in range(25)
         ]
 
         result = _render_menu_panel(
@@ -283,8 +283,7 @@ class TestRenderMenuPanel:
     def test_selected_agent_on_second_page(self):
         """Test selection highlighting works on second page."""
         entries = [
-            (f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}")
-            for i in range(15)
+            (f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}") for i in range(15)
         ]
 
         # Select agent 12 on page 1 (indices 10-14)
@@ -510,8 +509,7 @@ class TestRenderPanelEdgeCases:
     def test_menu_panel_last_item_on_page_selected(self):
         """Test selection of last item on a page."""
         entries = [
-            (f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}")
-            for i in range(15)
+            (f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}") for i in range(15)
         ]
 
         # Select the last item on page 0 (index 9)
