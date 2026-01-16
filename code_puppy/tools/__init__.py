@@ -101,6 +101,12 @@ from code_puppy.tools.confluence_tools import (
     register_confluence_search_by_space,
     register_confluence_authenticate,
 )
+from code_puppy.tools.servicenow_tools import (
+    register_servicenow_kb_search,
+    register_servicenow_kb_read_article,
+    register_servicenow_kb_search_by_category,
+    register_servicenow_authenticate,
+)
 from code_puppy.tools.jira_tools import (
     register_jira_search,
     register_jira_list_projects,
@@ -200,6 +206,11 @@ TOOL_REGISTRY = {
     "confluence_read_page": register_confluence_read_page,
     "confluence_search_by_space": register_confluence_search_by_space,
     "confluence_authenticate": register_confluence_authenticate,
+    # ServiceNow KB Tools
+    "servicenow_kb_search": register_servicenow_kb_search,
+    "servicenow_kb_read_article": register_servicenow_kb_read_article,
+    "servicenow_kb_search_by_category": register_servicenow_kb_search_by_category,
+    "servicenow_authenticate": register_servicenow_authenticate,
     # Jira Tools
     "jira_search": register_jira_search,
     "jira_list_projects": register_jira_list_projects,
