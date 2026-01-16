@@ -65,7 +65,7 @@ def _render_menu_panel(
     start_idx = page * PAGE_SIZE
     end_idx = min(start_idx + PAGE_SIZE, len(entries))
 
-    lines.append(("bold", f" Agents"))
+    lines.append(("bold", " Agents"))
     lines.append(("fg:ansibrightblack", f" (Page {page + 1}/{total_pages})"))
     lines.append(("", "\n\n"))
 
@@ -188,7 +188,7 @@ async def interactive_agent_picker() -> Optional[str]:
     """
     entries = _get_agent_entries()
     current_agent = get_current_agent()
-    current_agent_name = current_agent.name
+    current_agent_name = current_agent.name if current_agent else ""
 
     if not entries:
         from code_puppy.messaging import emit_info
