@@ -27,26 +27,64 @@ PAGE_SIZE = 10  # Agents per page
 
 def _sanitize_display_text(text: str) -> str:
     """Remove or replace characters that cause terminal rendering issues.
-    
+
     Args:
         text: Text that may contain emojis or wide characters
-        
+
     Returns:
         Sanitized text safe for prompt_toolkit rendering
     """
     # Keep only characters that render cleanly in terminals
+    # Be aggressive about stripping anything that could cause width issues
     result = []
     for char in text:
         # Get unicode category
         cat = unicodedata.category(char)
-        # Keep letters, numbers, punctuation, spaces, and common symbols
-        # Skip "So" (Symbol, other - includes most emojis) that cause issues
-        if cat != "So" and cat != "Cn":  # Cn = not assigned
+        # Categories to KEEP:
+        # - L* (Letters): Lu, Ll, Lt, Lm, Lo
+        # - N* (Numbers): Nd, Nl, No
+        # - P* (Punctuation): Pc, Pd, Ps, Pe, Pi, Pf, Po
+        # - Zs (Space separator)
+        # - Sm (Math symbols like +, -, =)
+        # - Sc (Currency symbols like $, €)
+        # - Sk (Modifier symbols)
+        #
+        # Categories to SKIP (cause rendering issues):
+        # - So (Symbol, other) - emojis
+        # - Cf (Format) - ZWJ, etc.
+        # - Mn (Mark, nonspacing) - combining characters
+        # - Mc (Mark, spacing combining)
+        # - Me (Mark, enclosing)
+        # - Cn (Not assigned)
+        # - Co (Private use)
+        # - Cs (Surrogate)
+        safe_categories = (
+            "Lu",
+            "Ll",
+            "Lt",
+            "Lm",
+            "Lo",  # Letters
+            "Nd",
+            "Nl",
+            "No",  # Numbers
+            "Pc",
+            "Pd",
+            "Ps",
+            "Pe",
+            "Pi",
+            "Pf",
+            "Po",  # Punctuation
+            "Zs",  # Space
+            "Sm",
+            "Sc",
+            "Sk",  # Safe symbols (math, currency, modifier)
+        )
+        if cat in safe_categories:
             result.append(char)
-        # Optionally, you could replace emojis with a placeholder:
-        # else:
-        #     result.append("*")
-    return "".join(result).strip()
+
+    # Clean up any double spaces left behind and strip
+    cleaned = " ".join("".join(result).split())
+    return cleaned
 
 
 def _get_agent_entries() -> List[Tuple[str, str, str]]:
@@ -103,7 +141,7 @@ def _render_menu_panel(
             name, display_name, _ = entries[i]
             is_selected = i == selected_idx
             is_current = name == current_agent_name
-            
+
             # Sanitize display name to avoid emoji rendering issues
             safe_display_name = _sanitize_display_text(display_name)
 
@@ -160,7 +198,7 @@ def _render_preview_panel(
 
     name, display_name, description = entry
     is_current = name == current_agent_name
-    
+
     # Sanitize text to avoid emoji rendering issues
     safe_display_name = _sanitize_display_text(display_name)
     safe_description = _sanitize_display_text(description)
