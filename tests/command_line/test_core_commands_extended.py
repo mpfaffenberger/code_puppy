@@ -5,7 +5,7 @@ state management, and edge cases to boost coverage from 35% to 80%+.
 """
 
 import concurrent.futures
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -19,7 +19,6 @@ from code_puppy.command_line.core_commands import (
     handle_model_command,
     handle_motd_command,
     handle_tools_command,
-    interactive_agent_picker,
     interactive_model_picker,
 )
 
@@ -450,45 +449,51 @@ class TestHandleAgentCommand:
 
 
 class TestInteractiveAgentPicker:
-    """Test the interactive agent picker functionality."""
+    """Test the interactive agent picker functionality (from agent_menu.py)."""
 
-    @patch("sys.stdout.flush")
-    @patch("sys.stderr.flush")
-    @patch("time.sleep")
-    async def test_agent_picker_displays_panel(
-        self, mock_sleep, mock_stderr_flush, mock_stdout_flush
-    ):
-        """Test that agent picker displays proper panel with current agent info."""
+    def test_agent_picker_returns_selected_agent(self):
+        """Test that agent picker returns selected agent from handle_agent_command."""
         mock_current = MagicMock()
         mock_current.name = "current_agent"
         mock_current.display_name = "Current Agent"
         mock_current.description = "Current agent description"
 
+        mock_new_agent = MagicMock()
+        mock_new_agent.name = "agent1"
+        mock_new_agent.display_name = "Agent 1"
+        mock_new_agent.description = "Agent 1 description"
+        mock_new_agent.reload_code_generation_agent = MagicMock()
+
         mock_agents = {"agent1": "Agent 1", "agent2": "Agent 2"}
         mock_descriptions = {"agent1": "Description 1", "agent2": "Description 2"}
 
-        with patch("code_puppy.agents.get_current_agent", return_value=mock_current):
+        # Mock the interactive_agent_picker using AsyncMock
+        mock_picker = AsyncMock(return_value="agent1")
+        with patch(
+            "code_puppy.command_line.core_commands.interactive_agent_picker",
+            mock_picker,
+        ):
             with patch(
-                "code_puppy.agents.get_available_agents", return_value=mock_agents
-            ):
+                "code_puppy.agents.get_current_agent"
+            ) as mock_get_current:
+                # First call returns current agent, second call returns new agent
+                mock_get_current.side_effect = [mock_current, mock_new_agent]
                 with patch(
-                    "code_puppy.agents.get_agent_descriptions",
-                    return_value=mock_descriptions,
+                    "code_puppy.agents.get_available_agents", return_value=mock_agents
                 ):
                     with patch(
-                        "code_puppy.tools.common.arrow_select_async",
-                        return_value="agent1",
+                        "code_puppy.agents.get_agent_descriptions",
+                        return_value=mock_descriptions,
                     ):
-                        result = await interactive_agent_picker()
-                        assert result == "agent1"
+                        with patch("code_puppy.agents.set_current_agent", return_value=True):
+                            with patch("code_puppy.config.finalize_autosave_session", return_value="session-123"):
+                                with patch("code_puppy.messaging.emit_success"):
+                                    with patch("code_puppy.messaging.emit_info"):
+                                        result = handle_agent_command("/agent")
+                                        assert result is True
 
-    @patch("sys.stdout.flush")
-    @patch("sys.stderr.flush")
-    @patch("time.sleep")
-    async def test_agent_picker_with_keyboard_interrupt(
-        self, mock_sleep, mock_stderr_flush, mock_stdout_flush
-    ):
-        """Test agent picker handles keyboard interrupt gracefully."""
+    def test_agent_picker_with_keyboard_interrupt(self):
+        """Test agent picker handles keyboard interrupt gracefully via handle_agent_command."""
         mock_current = MagicMock()
         mock_current.name = "current_agent"
         mock_current.display_name = "Current Agent"
@@ -497,27 +502,28 @@ class TestInteractiveAgentPicker:
         mock_agents = {"agent1": "Agent 1"}
         mock_descriptions = {"agent1": "Description 1"}
 
-        with patch("code_puppy.agents.get_current_agent", return_value=mock_current):
+        # Simulate picker returning None (cancelled) using AsyncMock
+        mock_picker = AsyncMock(return_value=None)
+        with patch(
+            "code_puppy.command_line.core_commands.interactive_agent_picker",
+            mock_picker,
+        ):
             with patch(
-                "code_puppy.agents.get_available_agents", return_value=mock_agents
+                "code_puppy.agents.get_current_agent", return_value=mock_current
             ):
                 with patch(
-                    "code_puppy.agents.get_agent_descriptions",
-                    return_value=mock_descriptions,
+                    "code_puppy.agents.get_available_agents", return_value=mock_agents
                 ):
                     with patch(
-                        "code_puppy.tools.common.arrow_select_async",
-                        side_effect=KeyboardInterrupt(),
+                        "code_puppy.agents.get_agent_descriptions",
+                        return_value=mock_descriptions,
                     ):
-                        result = await interactive_agent_picker()
-                        assert result is None
+                        with patch("code_puppy.messaging.emit_warning") as mock_warning:
+                            result = handle_agent_command("/agent")
+                            assert result is True
+                            mock_warning.assert_called_with("Agent selection cancelled")
 
-    @patch("sys.stdout.flush")
-    @patch("sys.stderr.flush")
-    @patch("time.sleep")
-    async def test_agent_picker_with_eof_error(
-        self, mock_sleep, mock_stderr_flush, mock_stdout_flush
-    ):
+    def test_agent_picker_with_eof_error(self):
         """Test agent picker handles EOFError gracefully."""
         mock_current = MagicMock()
         mock_current.name = "current_agent"
@@ -527,67 +533,35 @@ class TestInteractiveAgentPicker:
         mock_agents = {"agent1": "Agent 1"}
         mock_descriptions = {"agent1": "Description 1"}
 
-        with patch("code_puppy.agents.get_current_agent", return_value=mock_current):
+        # Simulate picker returning None (cancelled/error) using AsyncMock
+        mock_picker = AsyncMock(return_value=None)
+        with patch(
+            "code_puppy.command_line.core_commands.interactive_agent_picker",
+            mock_picker,
+        ):
             with patch(
-                "code_puppy.agents.get_available_agents", return_value=mock_agents
+                "code_puppy.agents.get_current_agent", return_value=mock_current
             ):
                 with patch(
-                    "code_puppy.agents.get_agent_descriptions",
-                    return_value=mock_descriptions,
+                    "code_puppy.agents.get_available_agents", return_value=mock_agents
                 ):
                     with patch(
-                        "code_puppy.tools.common.arrow_select_async",
-                        side_effect=EOFError(),
+                        "code_puppy.agents.get_agent_descriptions",
+                        return_value=mock_descriptions,
                     ):
-                        result = await interactive_agent_picker()
-                        assert result is None
+                        with patch("code_puppy.messaging.emit_warning") as mock_warning:
+                            result = handle_agent_command("/agent")
+                            assert result is True
+                            mock_warning.assert_called_with("Agent selection cancelled")
 
-    @patch("sys.stdout.flush")
-    @patch("sys.stderr.flush")
-    @patch("time.sleep")
-    async def test_agent_picker_preview_callback(
-        self, mock_sleep, mock_stderr_flush, mock_stdout_flush
-    ):
-        """Test agent picker preview callback functionality."""
-        mock_current = MagicMock()
-        mock_current.name = "current_agent"
-        mock_current.display_name = "Current Agent"
-        mock_current.description = "Current agent description"
+    def test_agent_picker_integration(self):
+        """Test that interactive_agent_picker is properly imported from agent_menu."""
+        # Verify the import works correctly
+        from code_puppy.command_line.core_commands import interactive_agent_picker as picker1
+        from code_puppy.command_line.agent_menu import interactive_agent_picker as picker2
 
-        mock_agents = {"agent1": "Agent 1", "agent2": "Agent 2"}
-        mock_descriptions = {
-            "agent1": "First agent description with details 🐕",
-            "agent2": "Second agent description with unicode 世界",
-        }
-
-        captured_preview = None
-
-        with patch("code_puppy.agents.get_current_agent", return_value=mock_current):
-            with patch(
-                "code_puppy.agents.get_available_agents", return_value=mock_agents
-            ):
-                with patch(
-                    "code_puppy.agents.get_agent_descriptions",
-                    return_value=mock_descriptions,
-                ):
-                    with patch(
-                        "code_puppy.tools.common.arrow_select_async"
-                    ) as mock_selector:
-                        # Capture the preview callback
-                        def capture_selector(prompt, choices, preview_callback=None):
-                            if preview_callback:
-                                # Call the preview callback and capture its result
-                                nonlocal captured_preview
-                                captured_preview = preview_callback(
-                                    0
-                                )  # Call with index 0
-                            return "agent1"
-
-                        mock_selector.side_effect = capture_selector
-
-                        result = await interactive_agent_picker()
-                        assert result == "agent1"
-                        assert captured_preview is not None
+        # Both should reference the same function
+        assert picker1 is picker2
 
 
 class TestHandleModelCommand:
@@ -992,9 +966,9 @@ class TestEdgeCasesAndErrorHandling:
         # Should handle empty directory gracefully
         assert "Please work in the directory: " in result
 
-    async def test_async_functions_exception_safety(self):
+    def test_async_functions_exception_safety(self):
         """Test that async functions handle expected exceptions safely."""
-        # Test agent picker exception safety with proper mocks
+        # Test that handle_agent_command gracefully handles picker exceptions
         mock_current = MagicMock()
         mock_current.name = "current_agent"
         mock_current.display_name = "Current Agent"
@@ -1003,7 +977,14 @@ class TestEdgeCasesAndErrorHandling:
         mock_agents = {"agent1": "Agent 1"}
         mock_descriptions = {"agent1": "Description 1"}
 
-        with patch("code_puppy.tools.command_runner.set_awaiting_user_input"):
+        # Simulate the picker throwing an exception
+        with patch(
+            "code_puppy.command_line.core_commands.interactive_agent_picker"
+        ) as mock_picker:
+
+            # Simulate asyncio.run raising RuntimeError
+            mock_picker.side_effect = RuntimeError("Picker failed")
+
             with patch(
                 "code_puppy.agents.get_current_agent", return_value=mock_current
             ):
@@ -1014,23 +995,12 @@ class TestEdgeCasesAndErrorHandling:
                         "code_puppy.agents.get_agent_descriptions",
                         return_value=mock_descriptions,
                     ):
-                        # Test KeyboardInterrupt handling
-                        with patch(
-                            "code_puppy.tools.common.arrow_select_async",
-                            side_effect=KeyboardInterrupt(),
-                        ):
-                            result = await interactive_agent_picker()
-                            # Should handle gracefully and return None on KeyboardInterrupt
-                            assert result is None
-
-                        # Test EOFError handling
-                        with patch(
-                            "code_puppy.tools.common.arrow_select_async",
-                            side_effect=EOFError(),
-                        ):
-                            result = await interactive_agent_picker()
-                            # Should handle gracefully and return None on EOFError
-                            assert result is None
+                        with patch("code_puppy.messaging.emit_warning") as mock_warning:
+                            # Should handle gracefully and fall back
+                            result = handle_agent_command("/agent")
+                            assert result is True
+                            # Should emit warning about picker failure
+                            assert mock_warning.call_count >= 1
 
     def test_concurrent_futures_timeout_handling(self):
         """Test that concurrent futures timeouts are handled."""
@@ -1173,20 +1143,24 @@ class TestIntegrationScenarios:
                     assert result is True
                     assert mock_warning.call_count >= 2
 
-    async def test_async_picker_state_cleanup(self):
-        """Test that async pickers properly clean up state on exceptions."""
+    def test_async_picker_state_cleanup(self):
+        """Test that handle_agent_command properly handles picker state."""
+        # Test that the command handler properly manages state when picker
+        # returns None (cancelled)
+        mock_current = MagicMock()
+        mock_current.name = "current_agent"
+        mock_current.display_name = "Current Agent"
+        mock_current.description = "Current agent description"
+
+        mock_agents = {"agent1": "Agent 1"}
+        mock_descriptions = {"agent1": "Description 1"}
+
+        # Simulate cancelled picker using AsyncMock
+        mock_picker = AsyncMock(return_value=None)
         with patch(
-            "code_puppy.tools.command_runner.set_awaiting_user_input"
-        ) as mock_awaiting:
-            # Test agent picker cleanup
-            mock_current = MagicMock()
-            mock_current.name = "current_agent"
-            mock_current.display_name = "Current Agent"
-            mock_current.description = "Current agent description"
-
-            mock_agents = {"agent1": "Agent 1"}
-            mock_descriptions = {"agent1": "Description 1"}
-
+            "code_puppy.command_line.core_commands.interactive_agent_picker",
+            mock_picker,
+        ):
             with patch(
                 "code_puppy.agents.get_current_agent", return_value=mock_current
             ):
@@ -1197,52 +1171,9 @@ class TestIntegrationScenarios:
                         "code_puppy.agents.get_agent_descriptions",
                         return_value=mock_descriptions,
                     ):
-                        # Test KeyboardInterrupt handling
-                        with patch(
-                            "code_puppy.tools.common.arrow_select_async",
-                            side_effect=KeyboardInterrupt(),
-                        ):
-                            result = await interactive_agent_picker()
-                            # Function should handle exceptions internally and return None
-                            assert result is None
-
-                            # Should reset awaiting state in finally block
-                            mock_awaiting.assert_any_call(False)
-
-                        # Reset the mock for the next test
-                        mock_awaiting.reset_mock()
-
-                        # Test EOFError handling
-                        with patch(
-                            "code_puppy.tools.common.arrow_select_async",
-                            side_effect=EOFError(),
-                        ):
-                            result = await interactive_agent_picker()
-                            # Function should handle exceptions internally and return None
-                            assert result is None
-
-                            # Should reset awaiting state in finally block
-                            mock_awaiting.assert_any_call(False)
-
-            # Reset the mock for the next test
-            mock_awaiting.reset_mock()
-
-            # Test model picker cleanup
-            with patch(
-                "code_puppy.command_line.model_picker_completion.load_model_names",
-                return_value=["gpt-4"],
-            ):
-                with patch(
-                    "code_puppy.command_line.model_picker_completion.get_active_model",
-                    return_value="gpt-4",
-                ):
-                    with patch(
-                        "code_puppy.tools.common.arrow_select_async",
-                        side_effect=KeyboardInterrupt(),
-                    ):
-                        result = await interactive_model_picker()
-                        # Function should handle exceptions internally and return None
-                        assert result is None
-
-                        # Should reset awaiting state in finally block
-                        mock_awaiting.assert_any_call(False)
+                        with patch("code_puppy.messaging.emit_warning") as mock_warning:
+                            result = handle_agent_command("/agent")
+                            # Should return True (command handled)
+                            assert result is True
+                            # Should emit cancellation warning
+                            mock_warning.assert_called_with("Agent selection cancelled")

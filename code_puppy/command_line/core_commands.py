@@ -6,6 +6,7 @@ discovered by the command registry system.
 
 import os
 
+from code_puppy.command_line.agent_menu import interactive_agent_picker
 from code_puppy.command_line.command_registry import register_command
 from code_puppy.command_line.model_picker_completion import update_model_in_input
 from code_puppy.command_line.motd import print_motd
@@ -396,115 +397,6 @@ def handle_agent_command(command: str) -> bool:
     else:
         emit_warning("Usage: /agent [agent-name]")
         return True
-
-
-async def interactive_agent_picker() -> str | None:
-    """Show an interactive arrow-key selector to pick an agent (async version).
-
-    Returns:
-        The selected agent name, or None if cancelled
-    """
-    import sys
-    import time
-
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.text import Text
-
-    from code_puppy.agents import (
-        get_agent_descriptions,
-        get_available_agents,
-        get_current_agent,
-    )
-    from code_puppy.tools.command_runner import set_awaiting_user_input
-    from code_puppy.tools.common import arrow_select_async
-
-    # Load available agents
-    available_agents = get_available_agents()
-    descriptions = get_agent_descriptions()
-    current_agent = get_current_agent()
-
-    # Build choices with current agent indicator and keep track of agent names
-    choices = []
-    agent_names = list(available_agents.keys())
-    for agent_name in agent_names:
-        display_name = available_agents[agent_name]
-        if agent_name == current_agent.name:
-            choices.append(f"✓ {agent_name} - {display_name} (current)")
-        else:
-            choices.append(f"  {agent_name} - {display_name}")
-
-    # Create preview callback to show agent description
-    def get_preview(index: int) -> str:
-        """Get the description for the agent at the given index."""
-        agent_name = agent_names[index]
-        description = descriptions.get(agent_name, "No description available")
-        return description
-
-    # Create panel content
-    panel_content = Text()
-    panel_content.append("🐶 Select an agent to use\n", style="bold cyan")
-    panel_content.append("Current agent: ", style="dim")
-    panel_content.append(f"{current_agent.name}", style="bold green")
-    panel_content.append(" - ", style="dim")
-    panel_content.append(current_agent.display_name, style="bold green")
-    panel_content.append("\n", style="dim")
-    panel_content.append(current_agent.description, style="dim italic")
-
-    # Display panel
-    panel = Panel(
-        panel_content,
-        title="[bold white]Agent Selection[/bold white]",
-        border_style="cyan",
-        padding=(1, 2),
-    )
-
-    # Pause spinners BEFORE showing panel
-    set_awaiting_user_input(True)
-    time.sleep(0.3)  # Let spinners fully stop
-
-    local_console = Console()
-    emit_info("")
-    local_console.print(panel)
-    emit_info("")
-
-    # Flush output before prompt_toolkit takes control
-    sys.stdout.flush()
-    sys.stderr.flush()
-    time.sleep(0.1)
-
-    selected_agent = None
-
-    try:
-        # Final flush
-        sys.stdout.flush()
-
-        # Show arrow-key selector with preview (async version)
-        choice = await arrow_select_async(
-            "💭 Which agent would you like to use?",
-            choices,
-            preview_callback=get_preview,
-        )
-
-        # Extract agent name from choice (remove prefix and suffix)
-        if choice:
-            # Remove the "✓ " or "  " prefix and extract agent name (before " - ")
-            choice_stripped = choice.strip().lstrip("✓").strip()
-            # Split on " - " and take the first part (agent name)
-            agent_name = choice_stripped.split(" - ")[0].strip()
-            # Remove " (current)" suffix if present
-            if agent_name.endswith(" (current)"):
-                agent_name = agent_name[:-10].strip()
-            selected_agent = agent_name
-
-    except (KeyboardInterrupt, EOFError):
-        emit_error("Cancelled by user")
-        selected_agent = None
-
-    finally:
-        set_awaiting_user_input(False)
-
-    return selected_agent
 
 
 async def interactive_model_picker() -> str | None:
