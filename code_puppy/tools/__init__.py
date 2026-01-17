@@ -106,6 +106,22 @@ from code_puppy.tools.servicenow_tools import (
     register_servicenow_kb_read_article,
     register_servicenow_kb_search_by_category,
     register_servicenow_authenticate,
+    # Incident Management
+    register_servicenow_create_incident,
+    register_servicenow_get_incident,
+    register_servicenow_list_my_incidents,
+    register_servicenow_add_incident_comment,
+    register_servicenow_reassign_incident,
+    # Service Catalog
+    register_servicenow_list_catalog_items,
+    register_servicenow_get_catalog_item_details,
+    register_servicenow_submit_catalog_request,
+    register_servicenow_get_request_status,
+    # Assignment Groups & Users
+    register_servicenow_search_assignment_groups,
+    register_servicenow_search_users,
+    register_servicenow_get_user_groups,
+    register_servicenow_get_group_members,
 )
 from code_puppy.tools.jira_tools import (
     register_jira_search,
@@ -211,6 +227,22 @@ TOOL_REGISTRY = {
     "servicenow_kb_read_article": register_servicenow_kb_read_article,
     "servicenow_kb_search_by_category": register_servicenow_kb_search_by_category,
     "servicenow_authenticate": register_servicenow_authenticate,
+    # ServiceNow Incident Management
+    "servicenow_create_incident": register_servicenow_create_incident,
+    "servicenow_get_incident": register_servicenow_get_incident,
+    "servicenow_list_my_incidents": register_servicenow_list_my_incidents,
+    "servicenow_add_incident_comment": register_servicenow_add_incident_comment,
+    "servicenow_reassign_incident": register_servicenow_reassign_incident,
+    # ServiceNow Service Catalog
+    "servicenow_list_catalog_items": register_servicenow_list_catalog_items,
+    "servicenow_get_catalog_item_details": register_servicenow_get_catalog_item_details,
+    "servicenow_submit_catalog_request": register_servicenow_submit_catalog_request,
+    "servicenow_get_request_status": register_servicenow_get_request_status,
+    # ServiceNow Assignment Groups & Users
+    "servicenow_search_assignment_groups": register_servicenow_search_assignment_groups,
+    "servicenow_search_users": register_servicenow_search_users,
+    "servicenow_get_user_groups": register_servicenow_get_user_groups,
+    "servicenow_get_group_members": register_servicenow_get_group_members,
     # Jira Tools
     "jira_search": register_jira_search,
     "jira_list_projects": register_jira_list_projects,
