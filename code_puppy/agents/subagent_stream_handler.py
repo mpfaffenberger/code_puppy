@@ -123,6 +123,17 @@ async def subagent_stream_handler(
     active_tool_parts: set[int] = set()  # Track active tool call indices
 
     async for event in events:
+        # === PAUSE CHECKPOINT ===
+        # Check if we should pause (Ctrl+G pressed)
+        # This is non-blocking when not paused, blocks until resumed when paused
+        try:
+            from code_puppy.steering import SteeringManager
+
+            await SteeringManager.get_instance().wait_for_resume()
+        except Exception:
+            pass  # Don't break streaming if steering unavailable
+        # === END PAUSE CHECKPOINT ===
+
         try:
             await _handle_event(
                 event=event,
