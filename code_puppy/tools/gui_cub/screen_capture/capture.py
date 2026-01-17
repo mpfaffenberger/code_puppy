@@ -8,6 +8,7 @@ from pathlib import Path
 from tempfile import gettempdir, mkdtemp
 
 from code_puppy.messaging import emit_error, emit_info
+from ..rich_emit import emit_rich
 
 from ..dependencies import PIL_AVAILABLE, PYAUTOGUI_AVAILABLE
 from ..platform import IS_MACOS
@@ -161,7 +162,7 @@ def capture_screen(
             phys_w = int(w * scale_factor)
             phys_h = int(h * scale_factor)
 
-            emit_info(
+            emit_rich(
                 f"[cyan]📸 CAPTURING SCREENSHOT[/cyan]\n"
                 f"[dim]   Mode: Region capture[/dim]\n"
                 f"[dim]   Region (logical): ({x}, {y}) size {w}x{h}[/dim]\n"
@@ -170,7 +171,7 @@ def capture_screen(
             )
             screenshot = _safe_screenshot(region=(phys_x, phys_y, phys_w, phys_h))
         else:
-            emit_info(
+            emit_rich(
                 f"[cyan]📸 CAPTURING SCREENSHOT[/cyan]\n"
                 f"[dim]   Mode: Full screen[/dim]\n"
                 f"[dim]   Grid overlay: {'Yes' if add_grid else 'No'}[/dim]"
@@ -179,7 +180,7 @@ def capture_screen(
 
         # Add coordinate grid if requested
         if add_grid:
-            emit_info(
+            emit_rich(
                 f"[dim]🏛️  Adding coordinate grid (spacing: {grid_spacing}px)[/dim]"
             )
             screenshot = add_coordinate_grid(screenshot, grid_spacing=grid_spacing)
@@ -213,17 +214,17 @@ def capture_screen(
             if get_debug_screenshots_enabled():
                 cwd_path = Path.cwd() / screenshot_path.name
                 screenshot.save(cwd_path)
-                emit_info(
+                emit_rich(
                     f"[yellow]🐛 DEBUG: Screenshot copied to CWD: {cwd_path}[/yellow]"
                 )
 
-            emit_info(
+            emit_rich(
                 f"[green]✅ SCREENSHOT CAPTURED[/green]\n"
                 f"[dim]   Size: {screenshot.width}x{screenshot.height} pixels ({file_size_mb:.2f} MB)[/dim]\n"
                 f"[dim]   Saved: {screenshot_path}[/dim]"
             )
         else:
-            emit_info(
+            emit_rich(
                 f"[green]✅ SCREENSHOT CAPTURED[/green]\n"
                 f"[dim]   Size: {screenshot.width}x{screenshot.height} pixels ({file_size_mb:.2f} MB)[/dim]\n"
                 f"[dim]   (Not saved to disk)[/dim]"
@@ -234,7 +235,7 @@ def capture_screen(
             import base64
 
             result.image_base64 = base64.b64encode(screenshot_data).decode("utf-8")
-            emit_info(
+            emit_rich(
                 f"[yellow]⚠️  Image included in result (~{file_size_mb:.2f} MB base64)[/yellow]\n"
                 f"[dim]   Token cost: ~{int(file_size_mb * 100_000)} tokens[/dim]\n"
                 f"[dim]   Consider using include_image=False for 99%+ token savings[/dim]"

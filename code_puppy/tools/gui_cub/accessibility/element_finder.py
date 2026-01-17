@@ -19,7 +19,8 @@ else:
         atomacos = None
 
 
-from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.messaging import emit_error, emit_warning
+from ..rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from ..constants import ERROR_ATOMACOS_MISSING, ERROR_NO_FRONTMOST_APP
@@ -147,8 +148,8 @@ def find_accessible_element(
 
     monitor = get_monitor()
     group_id = generate_group_id("find_accessible_element", f"{role}_{title}")
-    emit_info(
-        f"[bold white on blue] FIND ACCESSIBLE ELEMENT [/bold white on blue] 🔍 role={role} title='{title}' fuzzy={fuzzy}",
+    emit_rich(
+        f"[bold white on blue] MAC FIND ACCESSIBLE ELEMENT 🐻 [/bold white on blue] 🔍 role={role} title='{title}' fuzzy={fuzzy}",
         message_group=group_id,
     )
 
@@ -158,13 +159,13 @@ def find_accessible_element(
             app = get_frontmost_app()
             if not app:
                 return ElementSearchResult(success=False, error=ERROR_NO_FRONTMOST_APP)
-            emit_info(
+            emit_rich(
                 "[dim]Searching in frontmost application...[/dim]",
                 message_group=group_id,
             )
         else:
             app = get_frontmost_app()
-            emit_info(
+            emit_rich(
                 "[dim]Searching in frontmost application (system-wide not fully implemented)...[/dim]",
                 message_group=group_id,
             )
@@ -172,7 +173,7 @@ def find_accessible_element(
         # Strategy 0: Try identifier exact match first (HIGHEST PRIORITY)
         matches = []
         if identifier:
-            emit_info(
+            emit_rich(
                 f"[cyan]Trying identifier exact match: '{identifier}'...[/cyan]",
                 message_group=group_id,
             )
@@ -186,14 +187,14 @@ def find_accessible_element(
                     identifier_matches = app.findAllR(AXIdentifier=identifier)
 
                 if identifier_matches:
-                    emit_info(
+                    emit_rich(
                         f"[green]✅ Found {len(identifier_matches)} identifier match(es)![/green]",
                         message_group=group_id,
                     )
                     matches = identifier_matches
             except Exception as e:
                 # AXIdentifier might not be supported on all elements
-                emit_info(
+                emit_rich(
                     f"[dim]Identifier search failed: {e}[/dim]",
                     message_group=group_id,
                 )
@@ -204,7 +205,7 @@ def find_accessible_element(
             try:
                 exact_matches = app.findAllR(AXRole=role, AXTitle=title)
                 if exact_matches:
-                    emit_info(
+                    emit_rich(
                         f"[green]Found {len(exact_matches)} exact match(es)[/green]",
                         message_group=group_id,
                     )
@@ -214,7 +215,7 @@ def find_accessible_element(
 
         # Strategy 2: If no exact match and fuzzy enabled, do fuzzy search
         if not matches and title and fuzzy:
-            emit_info(
+            emit_rich(
                 "[cyan]No exact match, trying fuzzy search...[/cyan]",
                 message_group=group_id,
             )
@@ -225,7 +226,7 @@ def find_accessible_element(
             else:
                 all_elements = app.findAllR()
 
-            emit_info(
+            emit_rich(
                 f"[dim]Searching through {len(all_elements)} elements...[/dim]",
                 message_group=group_id,
             )
@@ -281,14 +282,14 @@ def find_accessible_element(
                 top_score = fuzzy_matches[0][1] if fuzzy_matches else 0.0
                 if top_score > early_stop_threshold:
                     monitor.record_early_stop()
-                    emit_info(
+                    emit_rich(
                         f"[green]✓ Early stop - confident match (score: {top_score:.2f} > {early_stop_threshold})[/green]",
                         message_group=group_id,
                     )
                 else:
                     monitor.record_full_search()
 
-                emit_info(
+                emit_rich(
                     f"[green]Found {len(fuzzy_matches)} fuzzy match(es)[/green]",
                     message_group=group_id,
                 )
@@ -296,11 +297,11 @@ def find_accessible_element(
                 # Show top 3 matches with scores
                 for i, (elem_dict, score) in enumerate(fuzzy_matches[:3]):
                     explanation = explain_match(title, elem_dict["title"], score)
-                    emit_info(
+                    emit_rich(
                         f"  [{i + 1}] {elem_dict['role']} - '{elem_dict['title']}' (score: {score:.2f})",
                         message_group=group_id,
                     )
-                    emit_info(
+                    emit_rich(
                         f"      {explanation}",
                         message_group=group_id,
                     )
@@ -338,7 +339,7 @@ def find_accessible_element(
             except Exception:
                 continue
 
-        emit_info(
+        emit_rich(
             f"[green]Found {len(results)} matching element(s)[/green]",
             message_group=group_id,
         )
@@ -347,12 +348,12 @@ def find_accessible_element(
         for i, (info, _) in enumerate(results[:3]):
             title_str = info.title or "(no title)"
             if info.center_x and info.center_y:
-                emit_info(
+                emit_rich(
                     f"  [{i + 1}] {info.role} - '{title_str}' at ({info.center_x}, {info.center_y})",
                     message_group=group_id,
                 )
             else:
-                emit_info(
+                emit_rich(
                     f"  [{i + 1}] {info.role} - '{title_str}' (no position)",
                     message_group=group_id,
                 )

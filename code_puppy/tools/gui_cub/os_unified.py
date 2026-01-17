@@ -11,6 +11,7 @@ from typing import Any
 from pydantic_ai import RunContext
 
 from code_puppy.messaging import emit_info, emit_warning
+from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 from code_puppy.tools.gui_cub.result_types import (
     ElementClickResult,
@@ -68,8 +69,8 @@ def ui_click_element(
     macOS: role/title
     """
     group_id = generate_group_id("ui_click_element", sys.platform)
-    emit_info(
-        f"[bold white on blue] UI CLICK ELEMENT [/bold white on blue] 🖱️ ({sys.platform})",
+    emit_rich(
+        f"[bold white on blue] UI CLICK ELEMENT 🐻 [/bold white on blue] 🖱️ ({sys.platform})",
         message_group=group_id,
     )
     try:
@@ -188,8 +189,8 @@ def register_os_unified_tools(agent):
         macOS: returns windows with owner/title/bounds
         """
         group_id = generate_group_id("ui_list_windows", sys.platform)
-        emit_info(
-            f"[bold white on blue] UI LIST WINDOWS [/bold white on blue] 🪟 ({sys.platform})",
+        emit_rich(
+            f"[bold white on blue] UI LIST WINDOWS 🐻 [/bold white on blue] 🪟 ({sys.platform})",
             message_group=group_id,
         )
         try:
@@ -222,8 +223,8 @@ def register_os_unified_tools(agent):
         macOS: uses accessibility to list elements grouped by role.
         """
         group_id = generate_group_id("ui_list_elements", sys.platform)
-        emit_info(
-            f"[bold white on blue] UI LIST ELEMENTS [/bold white on blue] 📋 ({sys.platform})",
+        emit_rich(
+            f"[bold white on blue] UI LIST ELEMENTS 🐻 [/bold white on blue] 📋 ({sys.platform})",
             message_group=group_id,
         )
         try:
@@ -297,8 +298,8 @@ def register_os_unified_tools(agent):
         macOS: role/title
         """
         group_id = generate_group_id("ui_find_element", sys.platform)
-        emit_info(
-            f"[bold white on blue] UI FIND ELEMENT [/bold white on blue] 🔍 ({sys.platform})",
+        emit_rich(
+            f"[bold white on blue] UI FIND ELEMENT 🐻 [/bold white on blue] 🔍 ({sys.platform})",
             message_group=group_id,
         )
         try:

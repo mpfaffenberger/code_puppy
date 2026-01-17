@@ -11,7 +11,7 @@ if PYAUTOGUI_AVAILABLE:
 else:
     pyautogui = None
 
-from code_puppy.messaging import emit_info
+from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from .platform import IS_MACOS, get_platform_display_name
@@ -49,8 +49,8 @@ def register_keyboard_shortcut_tools(agent):
         platform = get_platform_display_name()
 
         group_id = generate_group_id("desktop_copy", platform)
-        emit_info(
-            f"[bold cyan]COPY[/bold cyan] ⌨️  Using {modifier}+C ({platform})",
+        emit_rich(
+            f"[bold cyan]COPY 🐻 [/bold cyan] ⌨️  Using {modifier}+C ({platform})",
             message_group=group_id,
         )
 
@@ -80,8 +80,8 @@ def register_keyboard_shortcut_tools(agent):
         platform = get_platform_display_name()
 
         group_id = generate_group_id("desktop_paste", platform)
-        emit_info(
-            f"[bold cyan]PASTE[/bold cyan] ⌨️  Using {modifier}+V ({platform})",
+        emit_rich(
+            f"[bold cyan]PASTE 🐻 [/bold cyan] ⌨️  Using {modifier}+V ({platform})",
             message_group=group_id,
         )
 
@@ -111,8 +111,8 @@ def register_keyboard_shortcut_tools(agent):
         platform = get_platform_display_name()
 
         group_id = generate_group_id("desktop_cut", platform)
-        emit_info(
-            f"[bold cyan]CUT[/bold cyan] ⌨️  Using {modifier}+X ({platform})",
+        emit_rich(
+            f"[bold cyan]CUT 🐻 [/bold cyan] ⌨️  Using {modifier}+X ({platform})",
             message_group=group_id,
         )
 
@@ -142,8 +142,8 @@ def register_keyboard_shortcut_tools(agent):
         platform = get_platform_display_name()
 
         group_id = generate_group_id("desktop_select_all", platform)
-        emit_info(
-            f"[bold cyan]SELECT ALL[/bold cyan] ⌨️  Using {modifier}+A ({platform})",
+        emit_rich(
+            f"[bold cyan]SELECT ALL 🐻 [/bold cyan] ⌨️  Using {modifier}+A ({platform})",
             message_group=group_id,
         )
 
@@ -173,8 +173,8 @@ def register_keyboard_shortcut_tools(agent):
         platform = get_platform_display_name()
 
         group_id = generate_group_id("desktop_save", platform)
-        emit_info(
-            f"[bold cyan]SAVE[/bold cyan] ⌨️  Using {modifier}+S ({platform})",
+        emit_rich(
+            f"[bold cyan]SAVE 🐻 [/bold cyan] ⌨️  Using {modifier}+S ({platform})",
             message_group=group_id,
         )
 
@@ -204,8 +204,8 @@ def register_keyboard_shortcut_tools(agent):
         platform = get_platform_display_name()
 
         group_id = generate_group_id("desktop_undo", platform)
-        emit_info(
-            f"[bold cyan]UNDO[/bold cyan] ⌨️  Using {modifier}+Z ({platform})",
+        emit_rich(
+            f"[bold cyan]UNDO 🐻 [/bold cyan] ⌨️  Using {modifier}+Z ({platform})",
             message_group=group_id,
         )
 
@@ -237,8 +237,8 @@ def register_keyboard_shortcut_tools(agent):
 
         if IS_MACOS:
             # macOS uses Cmd+Shift+Z for redo
-            emit_info(
-                f"[bold cyan]REDO[/bold cyan] ⌨️  Using command+shift+Z ({platform})",
+            emit_rich(
+                f"[bold cyan]REDO 🐻 [/bold cyan] ⌨️  Using command+shift+Z ({platform})",
                 message_group=group_id,
             )
             pyautogui.hotkey("command", "shift", "z")
@@ -250,8 +250,8 @@ def register_keyboard_shortcut_tools(agent):
             )
         else:
             # Windows use Ctrl+Y for redo
-            emit_info(
-                f"[bold cyan]REDO[/bold cyan] ⌨️  Using ctrl+Y ({platform})",
+            emit_rich(
+                f"[bold cyan]REDO 🐻 [/bold cyan] ⌨️  Using ctrl+Y ({platform})",
                 message_group=group_id,
             )
             pyautogui.hotkey("ctrl", "y")
@@ -280,8 +280,8 @@ def register_keyboard_shortcut_tools(agent):
         platform = get_platform_display_name()
 
         group_id = generate_group_id("desktop_find", platform)
-        emit_info(
-            f"[bold cyan]FIND[/bold cyan] ⌨️  Using {modifier}+F ({platform})",
+        emit_rich(
+            f"[bold cyan]FIND 🐻 [/bold cyan] ⌨️  Using {modifier}+F ({platform})",
             message_group=group_id,
         )
 
@@ -311,8 +311,8 @@ def register_keyboard_shortcut_tools(agent):
         platform = get_platform_display_name()
 
         group_id = generate_group_id("desktop_new", platform)
-        emit_info(
-            f"[bold cyan]NEW[/bold cyan] ⌨️  Using {modifier}+N ({platform})",
+        emit_rich(
+            f"[bold cyan]NEW 🐻 [/bold cyan] ⌨️  Using {modifier}+N ({platform})",
             message_group=group_id,
         )
 
@@ -342,8 +342,8 @@ def register_keyboard_shortcut_tools(agent):
         platform = get_platform_display_name()
 
         group_id = generate_group_id("desktop_open", platform)
-        emit_info(
-            f"[bold cyan]OPEN[/bold cyan] ⌨️  Using {modifier}+O ({platform})",
+        emit_rich(
+            f"[bold cyan]OPEN 🐻 [/bold cyan] ⌨️  Using {modifier}+O ({platform})",
             message_group=group_id,
         )
 
@@ -373,8 +373,8 @@ def register_keyboard_shortcut_tools(agent):
         platform = get_platform_display_name()
 
         group_id = generate_group_id("desktop_close", platform)
-        emit_info(
-            f"[bold cyan]CLOSE[/bold cyan] ⌨️  Using {modifier}+W ({platform})",
+        emit_rich(
+            f"[bold cyan]CLOSE 🐻 [/bold cyan] ⌨️  Using {modifier}+W ({platform})",
             message_group=group_id,
         )
 
@@ -405,8 +405,8 @@ def register_keyboard_shortcut_tools(agent):
         group_id = generate_group_id("desktop_quit", platform)
 
         if IS_MACOS:
-            emit_info(
-                f"[bold cyan]QUIT[/bold cyan] ⌨️  Using command+Q ({platform})",
+            emit_rich(
+                f"[bold cyan]QUIT 🐻 [/bold cyan] ⌨️  Using command+Q ({platform})",
                 message_group=group_id,
             )
             pyautogui.hotkey("command", "q")
@@ -417,8 +417,8 @@ def register_keyboard_shortcut_tools(agent):
                 platform=platform,
             )
         else:
-            emit_info(
-                f"[bold cyan]QUIT[/bold cyan] ⌨️  Using alt+F4 ({platform})",
+            emit_rich(
+                f"[bold cyan]QUIT 🐻 [/bold cyan] ⌨️  Using alt+F4 ({platform})",
                 message_group=group_id,
             )
             pyautogui.hotkey("alt", "f4")

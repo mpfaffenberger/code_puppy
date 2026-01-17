@@ -6,6 +6,7 @@ from typing import Any, Dict
 from pydantic_ai import RunContext
 
 from code_puppy.messaging import emit_info
+from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 
@@ -25,7 +26,7 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
         content: Workflow content (Markdown)
     """
     group_id = generate_group_id("save_workflow", name)
-    emit_info(
+    emit_rich(
         f"[bold white on green] SAVE WORKFLOW [/bold white on green] 💾 name='{name}'",
         message_group=group_id,
     )
@@ -48,7 +49,7 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
         with open(workflow_path, "w", encoding="utf-8") as f:
             f.write(content)
 
-        emit_info(
+        emit_rich(
             f"[green]✅ Workflow saved successfully: {workflow_path}[/green]",
             message_group=group_id,
         )
@@ -61,7 +62,7 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        emit_info(
+        emit_rich(
             f"[red]❌ Failed to save workflow: {e}[/red]",
             message_group=group_id,
         )
@@ -71,7 +72,7 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
 async def list_workflows() -> Dict[str, Any]:
     """List all available GUI-Cub workflows."""
     group_id = generate_group_id("list_workflows")
-    emit_info(
+    emit_rich(
         "[bold white on green] LIST WORKFLOWS [/bold white on green] 📋",
         message_group=group_id,
     )
@@ -95,14 +96,14 @@ async def list_workflows() -> Dict[str, Any]:
                     }
                 )
             except Exception as e:
-                emit_info(
+                emit_rich(
                     f"[yellow]Warning: Could not read {workflow_file}: {e}[/yellow]"
                 )
 
         # Sort by modification time (newest first)
         workflows.sort(key=lambda x: x["modified"], reverse=True)
 
-        emit_info(
+        emit_rich(
             f"[green]✅ Found {len(workflows)} workflow(s)[/green]",
             message_group=group_id,
         )
@@ -115,7 +116,7 @@ async def list_workflows() -> Dict[str, Any]:
         }
 
     except Exception as e:
-        emit_info(
+        emit_rich(
             f"[red]❌ Failed to list workflows: {e}[/red]",
             message_group=group_id,
         )
@@ -125,7 +126,7 @@ async def list_workflows() -> Dict[str, Any]:
 async def read_workflow(name: str) -> Dict[str, Any]:
     """Read a saved GUI-Cub workflow."""
     group_id = generate_group_id("read_workflow", name)
-    emit_info(
+    emit_rich(
         f"[bold white on green] READ WORKFLOW [/bold white on green] 📖 name='{name}'",
         message_group=group_id,
     )
@@ -146,7 +147,7 @@ async def read_workflow(name: str) -> Dict[str, Any]:
                 break
 
         if not workflow_path:
-            emit_info(
+            emit_rich(
                 f"[red]❌ Workflow not found: {name}[/red]",
                 message_group=group_id,
             )
@@ -160,7 +161,7 @@ async def read_workflow(name: str) -> Dict[str, Any]:
         with open(workflow_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        emit_info(
+        emit_rich(
             f"[green]✅ Workflow read successfully: {workflow_path.name}[/green]",
             message_group=group_id,
         )
@@ -174,7 +175,7 @@ async def read_workflow(name: str) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        emit_info(
+        emit_rich(
             f"[red]❌ Failed to read workflow: {e}[/red]",
             message_group=group_id,
         )

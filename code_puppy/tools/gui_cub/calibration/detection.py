@@ -29,7 +29,7 @@ if sys.platform == "win32":
     WM_SETTINGCHANGE = 0x001A
     SMTO_ABORTIFHUNG = 0x0002
 
-from code_puppy.messaging import emit_info
+from ..rich_emit import emit_rich
 
 try:
     from code_puppy import __version__ as code_puppy_version
@@ -95,11 +95,11 @@ def download_with_walmart_fallback(
         return True
 
     except Exception as e:
-        emit_info(
+        emit_rich(
             f"  • Download with Walmart settings failed: {e}",
             message_group=group_id,
         )
-        emit_info(
+        emit_rich(
             "  • Retrying without proxy/cert...",
             message_group=group_id,
         )
@@ -117,14 +117,14 @@ def download_with_walmart_fallback(
                 if chunk:
                     f.write(chunk)
 
-        emit_info(
+        emit_rich(
             "  • Download succeeded without proxy",
             message_group=group_id,
         )
         return True
 
     except Exception as e:
-        emit_info(
+        emit_rich(
             f"  • Direct download also failed: {e}",
             message_group=group_id,
         )

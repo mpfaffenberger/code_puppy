@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_info
+from .rich_emit import emit_rich
 
 from .vqa_vision_click import desktop_click_element_vqa
 from .window_control import focus_window
@@ -124,9 +124,9 @@ def register_vqa_two_stage_tools(agent):
         if window_title:
             focus_result = focus_window(window_title)
             if focus_result.success:
-                emit_info(f"   Focused window: {window_title}")
+                emit_rich(f"   Focused window: {window_title}")
             else:
-                emit_info(
+                emit_rich(
                     f"   Could not focus window '{window_title}', using active window"
                 )
 

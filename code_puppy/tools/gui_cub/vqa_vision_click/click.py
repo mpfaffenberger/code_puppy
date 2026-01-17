@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from PIL import Image
 
-from code_puppy.messaging import emit_info, emit_warning
+from code_puppy.messaging import emit_warning
+from ..rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from ..platform import get_screen_scale_factor
@@ -209,11 +210,11 @@ def vqa_find_element_in_crop(
     if group_id is None:
         group_id = generate_group_id("vqa_element_search")
 
-    emit_info(
+    emit_rich(
         f"🔍 {stage_name}: Searching for '{element_description}'",
         message_group=group_id,
     )
-    emit_info(
+    emit_rich(
         f"   Crop size: {crop.width}x{crop.height}px",
         message_group=group_id,
     )
@@ -223,7 +224,7 @@ def vqa_find_element_in_crop(
     downscale_ratio = crop.width / processed_crop.width
 
     if downscale_ratio > 1.0:
-        emit_info(
+        emit_rich(
             f"   Downscaled: {processed_crop.width}x{processed_crop.height}px "
             f"({downscale_ratio:.2f}x)",
             message_group=group_id,
@@ -319,7 +320,7 @@ Example for a 12px button at position (100, 50):
             location.bbox.width = int(location.bbox.width * downscale_ratio)
             location.bbox.height = int(location.bbox.height * downscale_ratio)
 
-        emit_info(
+        emit_rich(
             f"   Result: found={location.found}, "
             f"bbox=({location.bbox.x}, {location.bbox.y}, "
             f"{location.bbox.width}x{location.bbox.height}), "
@@ -386,18 +387,18 @@ def desktop_click_element_vqa(
     """
     group_id = generate_group_id("vqa_click")
 
-    emit_info(
-        "[bold cyan]🤖 VQA Two-Stage Click[/bold cyan]",
+    emit_rich(
+        "[bold cyan]🤖 VQA CLICK 🐻 [/bold cyan]",
         message_group=group_id,
     )
-    emit_info(
+    emit_rich(
         f"   Element: '{element_description}'",
         message_group=group_id,
     )
 
     try:
         scale_factor = get_screen_scale_factor()
-        emit_info(f"   Scale: {scale_factor}x", message_group=group_id)
+        emit_rich(f"   Scale: {scale_factor}x", message_group=group_id)
 
         # ============================================================
         # Smart OS Element Detection
@@ -422,7 +423,7 @@ def desktop_click_element_vqa(
                     window_info.height or 600,
                 )
                 original_window_bounds = crop_region  # Save for edge detection
-                emit_info(
+                emit_rich(
                     f"   Window: {crop_region[2]}x{crop_region[3]} at "
                     f"({crop_region[0]}, {crop_region[1]})",
                     message_group=group_id,
@@ -435,7 +436,7 @@ def desktop_click_element_vqa(
         elif scope == "screen":
             # OS element detected - use full screen for Stage 1
             crop_region = None
-            emit_info(
+            emit_rich(
                 "   Scope: Full screen (OS element detected)",
                 message_group=group_id,
             )
@@ -450,7 +451,7 @@ def desktop_click_element_vqa(
         # ============================================================
         # STAGE 1: Coarse VQA on full window
         # ============================================================
-        emit_info(
+        emit_rich(
             "\n📍 STAGE 1: Coarse Detection",
             message_group=group_id,
         )
@@ -488,7 +489,7 @@ def desktop_click_element_vqa(
             stage1_result.center_y / scale_factor
         )
 
-        emit_info(
+        emit_rich(
             f"   Stage 1 center (screen): "
             f"({stage1_center_screen_x}, {stage1_center_screen_y})",
             message_group=group_id,
@@ -497,7 +498,7 @@ def desktop_click_element_vqa(
         # ============================================================
         # STAGE 2: Fine VQA on ±100px crop around Stage 1 result
         # ============================================================
-        emit_info(
+        emit_rich(
             "\n🎯 STAGE 2: Fine Detection (±100px zoom)",
             message_group=group_id,
         )
@@ -528,7 +529,7 @@ def desktop_click_element_vqa(
         ):
             # Stage 1 found element near window edge - likely outside
             use_screen_bounds_for_stage2 = True
-            emit_info(
+            emit_rich(
                 "   Stage 1 result near window edge, using screen bounds for Stage 2",
                 message_group=group_id,
             )
@@ -544,7 +545,7 @@ def desktop_click_element_vqa(
             fine_crop_x2 = min(fine_crop_x2, screen_width)
             fine_crop_y2 = min(fine_crop_y2, screen_height)
 
-            emit_info(
+            emit_rich(
                 "   Clipped to screen bounds",
                 message_group=group_id,
             )
@@ -559,7 +560,7 @@ def desktop_click_element_vqa(
             fine_crop_x2 = min(fine_crop_x2, window_x2)
             fine_crop_y2 = min(fine_crop_y2, window_y2)
 
-            emit_info(
+            emit_rich(
                 "   Clipped to window bounds",
                 message_group=group_id,
             )
@@ -567,7 +568,7 @@ def desktop_click_element_vqa(
         fine_crop_width = fine_crop_x2 - fine_crop_x
         fine_crop_height = fine_crop_y2 - fine_crop_y
 
-        emit_info(
+        emit_rich(
             f"   Fine crop: {fine_crop_width}x{fine_crop_height} at "
             f"({fine_crop_x}, {fine_crop_y})",
             message_group=group_id,
@@ -609,7 +610,7 @@ def desktop_click_element_vqa(
             )
             final_confidence = stage2_result.confidence
 
-            emit_info(
+            emit_rich(
                 f"   Stage 2 center (screen): ({click_x_logical}, {click_y_logical})",
                 message_group=group_id,
             )
@@ -638,7 +639,7 @@ def desktop_click_element_vqa(
         # ============================================================
         # Click!
         # ============================================================
-        emit_info(
+        emit_rich(
             f"\n🖱️  Clicking at ({click_x_logical}, {click_y_logical}) "
             f"[confidence: {final_confidence:.0%}]",
             message_group=group_id,
