@@ -1,3 +1,9 @@
+"""AntigravityModel - extends GeminiModel with thinking signature handling.
+
+This model handles the special Antigravity envelope format and preserves
+Claude thinking signatures for Gemini 3 models.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -19,6 +25,7 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     ModelResponsePart,
+    ModelResponseStreamEvent,
     RetryPromptPart,
     SystemPromptPart,
     TextPart,
@@ -27,35 +34,101 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
-from typing_extensions import assert_never
-
-# Define types locally if needed to avoid import errors
-try:
-    from pydantic_ai.messages import BlobDict, ContentDict, FunctionCallDict, PartDict
-except ImportError:
-    ContentDict = dict[str, Any]
-    PartDict = dict[str, Any]
-    FunctionCallDict = dict[str, Any]
-    BlobDict = dict[str, Any]
-
-from pydantic_ai.messages import ModelResponseStreamEvent
 from pydantic_ai.models import ModelRequestParameters, StreamedResponse
-from pydantic_ai.models.google import GoogleModel, GoogleModelName, _utils
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage
+from typing_extensions import assert_never
+
+from code_puppy.gemini_model import (
+    GeminiModel,
+    generate_tool_call_id,
+)
+from code_puppy.model_utils import _load_antigravity_prompt
+from code_puppy.plugins.antigravity_oauth.transport import _inline_refs
 
 logger = logging.getLogger(__name__)
 
+# Type aliases for clarity
+ContentDict = dict[str, Any]
+PartDict = dict[str, Any]
+FunctionCallDict = dict[str, Any]
+BlobDict = dict[str, Any]
 
-class AntigravityModel(GoogleModel):
-    """Custom GoogleModel that correctly handles Claude thinking signatures via Antigravity."""
+# Bypass signature for when no real thought signature is available.
+BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
+
+
+def _is_signature_error(error_text: str) -> bool:
+    """Check if the error is a thought signature error that can be retried.
+
+    Detects both:
+    - Gemini: "Corrupted thought signature"
+    - Claude: "thinking.signature: Field required" or similar
+    """
+    return (
+        "Corrupted thought signature" in error_text
+        or "thinking.signature" in error_text
+    )
+
+
+class AntigravityModel(GeminiModel):
+    """Custom GeminiModel that correctly handles Claude thinking signatures via Antigravity.
+
+    This model extends GeminiModel and adds:
+    - Proper thoughtSignature handling for both Gemini and Claude models
+    - Backfill logic for corrupted thought signatures
+    - Special message merging for parallel function calls
+    """
+
+    def _get_instructions(
+        self,
+        messages: list,
+        model_request_parameters,
+    ) -> str | None:
+        """Return the Antigravity system prompt.
+
+        The Antigravity endpoint expects requests to include the special
+        Antigravity identity prompt in the systemInstruction field.
+        """
+        return _load_antigravity_prompt()
+
+    def _is_claude_model(self) -> bool:
+        """Check if this is a Claude model (vs Gemini)."""
+        return "claude" in self.model_name.lower()
+
+    def _build_tools(self, tools: list) -> list[dict]:
+        """Build tool definitions with model-appropriate schema handling.
+
+        Claude and Gemini have different JSON Schema requirements:
+        - Gemini: needs anyOf->any_of conversion, etc.
+        - Claude: needs standard JSON Schema, simplified unions
+        """
+
+        is_claude = self._is_claude_model()
+        function_declarations = []
+
+        for tool in tools:
+            func_decl = {
+                "name": tool.name,
+                "description": tool.description or "",
+            }
+            if tool.parameters_json_schema:
+                # Use _inline_refs with appropriate flags for the model type
+                func_decl["parameters"] = _inline_refs(
+                    tool.parameters_json_schema,
+                    convert_unions=not is_claude,  # Gemini needs any_of conversion
+                    simplify_for_claude=is_claude,  # Claude needs simplified unions
+                )
+            function_declarations.append(func_decl)
+
+        return [{"functionDeclarations": function_declarations}]
 
     async def _map_messages(
         self,
         messages: list[ModelMessage],
         model_request_parameters: ModelRequestParameters,
     ) -> tuple[ContentDict | None, list[dict]]:
-        """Map messages to Google GenAI format, preserving thinking signatures.
+        """Map messages to Gemini API format, preserving thinking signatures.
 
         IMPORTANT: For Gemini with parallel function calls, the API expects:
         - Model message: [FC1 + signature, FC2, ...] (all function calls together)
@@ -120,8 +193,7 @@ class AntigravityModel(GoogleModel):
                         contents.append({"role": "user", "parts": message_parts})
 
             elif isinstance(m, ModelResponse):
-                # USE CUSTOM HELPER HERE
-                # Pass model name so we can handle Claude vs Gemini signature placement
+                # Use custom helper for thinking signature handling
                 maybe_content = _antigravity_content_model_response(
                     m, self.system, self._model_name
                 )
@@ -138,8 +210,11 @@ class AntigravityModel(GoogleModel):
         if not contents:
             contents = [{"role": "user", "parts": [{"text": ""}]}]
 
-        if instructions := self._get_instructions(messages, model_request_parameters):
+        # Get any injected instructions
+        instructions = self._get_instructions(messages, model_request_parameters)
+        if instructions:
             system_parts.insert(0, {"text": instructions})
+
         system_instruction = (
             ContentDict(role="user", parts=system_parts) if system_parts else None
         )
@@ -152,33 +227,15 @@ class AntigravityModel(GoogleModel):
         model_settings: ModelSettings | None,
         model_request_parameters: ModelRequestParameters,
     ) -> ModelResponse:
-        """Override request to use direct HTTP calls, bypassing google-genai validation."""
-        # Prepare request (normalizes settings)
-        model_settings, model_request_parameters = self.prepare_request(
-            model_settings, model_request_parameters
-        )
-
+        """Override request to handle Antigravity envelope and thinking signatures."""
         system_instruction, contents = await self._map_messages(
             messages, model_request_parameters
         )
 
         # Build generation config from model settings
-        gen_config: dict[str, Any] = {}
-        if model_settings:
-            if (
-                hasattr(model_settings, "temperature")
-                and model_settings.temperature is not None
-            ):
-                gen_config["temperature"] = model_settings.temperature
-            if hasattr(model_settings, "top_p") and model_settings.top_p is not None:
-                gen_config["topP"] = model_settings.top_p
-            if (
-                hasattr(model_settings, "max_tokens")
-                and model_settings.max_tokens is not None
-            ):
-                gen_config["maxOutputTokens"] = model_settings.max_tokens
+        gen_config = self._build_generation_config(model_settings)
 
-        # Build JSON body manually to ensure thoughtSignature is preserved
+        # Build JSON body
         body: dict[str, Any] = {
             "contents": contents,
         }
@@ -187,43 +244,23 @@ class AntigravityModel(GoogleModel):
         if system_instruction:
             body["systemInstruction"] = system_instruction
 
-        # Serialize tools manually
+        # Serialize tools
         if model_request_parameters.function_tools:
-            funcs = []
-            for t in model_request_parameters.function_tools:
-                funcs.append(
-                    {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.parameters_json_schema,
-                    }
-                )
-            body["tools"] = [{"functionDeclarations": funcs}]
+            body["tools"] = self._build_tools(model_request_parameters.function_tools)
 
-        # Use the http_client from the google-genai client directly
-        # This bypasses google-genai library's strict validation/serialization
-        # Path: self.client._api_client._async_httpx_client
-        try:
-            client = self.client._api_client._async_httpx_client
-        except AttributeError:
-            raise RuntimeError(
-                "AntigravityModel requires access to the underlying httpx client"
-            )
+        # Get httpx client
+        client = await self._get_client()
         url = f"/models/{self._model_name}:generateContent"
 
         # Send request
         response = await client.post(url, json=body)
 
         if response.status_code != 200:
-            # Check for corrupted thought signature error and retry
-            # Error 400: { error: { code: 400, message: Corrupted thought signature., status: INVALID_ARGUMENT } }
             error_text = response.text
-            if (
-                response.status_code == 400
-                and "Corrupted thought signature" in error_text
-            ):
+            if response.status_code == 400 and _is_signature_error(error_text):
                 logger.warning(
-                    "Received 400 Corrupted thought signature. Backfilling signatures and retrying."
+                    "Received 400 signature error. Backfilling with bypass signatures and retrying. Error: %s",
+                    error_text[:200],
                 )
                 _backfill_thought_signatures(messages)
 
@@ -239,7 +276,6 @@ class AntigravityModel(GoogleModel):
 
                 # Retry request
                 response = await client.post(url, json=body)
-                # Check error again after retry
                 if response.status_code != 200:
                     raise RuntimeError(
                         f"Antigravity API Error {response.status_code}: {response.text}"
@@ -254,7 +290,6 @@ class AntigravityModel(GoogleModel):
         # Extract candidates
         candidates = data.get("candidates", [])
         if not candidates:
-            # Handle empty response or safety block?
             return ModelResponse(
                 parts=[TextPart(content="")],
                 model_name=self._model_name,
@@ -289,31 +324,13 @@ class AntigravityModel(GoogleModel):
         model_request_parameters: ModelRequestParameters,
         run_context: RunContext[Any] | None = None,
     ) -> AsyncIterator[StreamedResponse]:
-        """Override request_stream to use streaming with proper signature handling."""
-        # Prepare request
-        model_settings, model_request_parameters = self.prepare_request(
-            model_settings, model_request_parameters
-        )
-
+        """Override request_stream for streaming with signature handling."""
         system_instruction, contents = await self._map_messages(
             messages, model_request_parameters
         )
 
         # Build generation config
-        gen_config: dict[str, Any] = {}
-        if model_settings:
-            if (
-                hasattr(model_settings, "temperature")
-                and model_settings.temperature is not None
-            ):
-                gen_config["temperature"] = model_settings.temperature
-            if hasattr(model_settings, "top_p") and model_settings.top_p is not None:
-                gen_config["topP"] = model_settings.top_p
-            if (
-                hasattr(model_settings, "max_tokens")
-                and model_settings.max_tokens is not None
-            ):
-                gen_config["maxOutputTokens"] = model_settings.max_tokens
+        gen_config = self._build_generation_config(model_settings)
 
         # Build request body
         body: dict[str, Any] = {"contents": contents}
@@ -324,31 +341,17 @@ class AntigravityModel(GoogleModel):
 
         # Add tools
         if model_request_parameters.function_tools:
-            funcs = []
-            for t in model_request_parameters.function_tools:
-                funcs.append(
-                    {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.parameters_json_schema,
-                    }
-                )
-            body["tools"] = [{"functionDeclarations": funcs}]
+            body["tools"] = self._build_tools(model_request_parameters.function_tools)
 
         # Get httpx client
-        try:
-            client = self.client._api_client._async_httpx_client
-        except AttributeError:
-            raise RuntimeError(
-                "AntigravityModel requires access to the underlying httpx client"
-            )
-
-        # Use streaming endpoint
+        client = await self._get_client()
         url = f"/models/{self._model_name}:streamGenerateContent?alt=sse"
 
         # Create async generator for SSE events
         async def stream_chunks() -> AsyncIterator[dict[str, Any]]:
             retry_count = 0
+            nonlocal body  # Allow modification for retry
+
             while retry_count < 2:
                 should_retry = False
                 async with client.stream("POST", url, json=body) as response:
@@ -357,7 +360,7 @@ class AntigravityModel(GoogleModel):
                         error_msg = text.decode()
                         if (
                             response.status_code == 400
-                            and "Corrupted thought signature" in error_msg
+                            and _is_signature_error(error_msg)
                             and retry_count == 0
                         ):
                             should_retry = True
@@ -372,7 +375,7 @@ class AntigravityModel(GoogleModel):
                             if not line:
                                 continue
                             if line.startswith("data: "):
-                                json_str = line[6:]  # Remove 'data: ' prefix
+                                json_str = line[6:]
                                 if json_str:
                                     try:
                                         yield json.loads(json_str)
@@ -383,7 +386,7 @@ class AntigravityModel(GoogleModel):
                 # Handle retry outside the context manager
                 if should_retry:
                     logger.warning(
-                        "Received 400 Corrupted thought signature in stream. Backfilling and retrying."
+                        "Received 400 signature error in stream. Backfilling with bypass signatures and retrying."
                     )
                     _backfill_thought_signatures(messages)
 
@@ -392,7 +395,7 @@ class AntigravityModel(GoogleModel):
                         messages, model_request_parameters
                     )
 
-                    # Update body in place
+                    # Update body
                     body["contents"] = contents
                     if system_instruction:
                         body["systemInstruction"] = system_instruction
@@ -445,11 +448,9 @@ class AntigravityStreamingResponse(StreamedResponse):
             parts = content.get("parts", [])
 
             for part in parts:
-                # Extract signature (for Gemini, it's on the functionCall part)
+                # Extract signature
                 thought_signature = part.get("thoughtSignature")
                 if thought_signature:
-                    # For Gemini: if this is a function call with signature,
-                    # the signature belongs to the previous thinking block
                     if is_gemini and pending_signature is None:
                         pending_signature = thought_signature
 
@@ -465,7 +466,6 @@ class AntigravityStreamingResponse(StreamedResponse):
                         yield event
 
                     # For Claude: signature is ON the thinking block itself
-                    # We need to explicitly set it after the part is created
                     if thought_signature and not is_gemini:
                         for existing_part in reversed(self._parts_manager._parts):
                             if isinstance(existing_part, ThinkingPart):
@@ -490,13 +490,10 @@ class AntigravityStreamingResponse(StreamedResponse):
                 elif part.get("functionCall"):
                     fc = part["functionCall"]
 
-                    # For Gemini: the signature on a function call belongs to the
-                    # PREVIOUS thinking block. We need to retroactively set it.
+                    # For Gemini: signature on function call belongs to previous thinking
                     if is_gemini and thought_signature:
-                        # Find the most recent ThinkingPart and set its signature
                         for existing_part in reversed(self._parts_manager._parts):
                             if isinstance(existing_part, ThinkingPart):
-                                # Directly set the signature attribute
                                 object.__setattr__(
                                     existing_part, "signature", thought_signature
                                 )
@@ -506,7 +503,7 @@ class AntigravityStreamingResponse(StreamedResponse):
                         vendor_part_id=uuid4(),
                         tool_name=fc.get("name"),
                         args=fc.get("args"),
-                        tool_call_id=fc.get("id") or _utils.generate_tool_call_id(),
+                        tool_call_id=fc.get("id") or generate_tool_call_id(),
                     )
                     if event:
                         yield event
@@ -524,13 +521,6 @@ class AntigravityStreamingResponse(StreamedResponse):
         return self._timestamp_val
 
 
-# Bypass signature for when no real thought signature is available.
-# Gemini API requires EVERY function call to have a thoughtSignature field.
-# When there's no thinking block or no signature was captured, we use this bypass.
-# This specific key is the official bypass token for Gemini 3 Pro.
-BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
-
-
 def _antigravity_content_model_response(
     m: ModelResponse, provider_name: str, model_name: str = ""
 ) -> ContentDict | None:
@@ -538,20 +528,13 @@ def _antigravity_content_model_response(
 
     Handles different signature protocols:
     - Claude models: signature goes ON the thinking block itself
-    - Gemini models: signature goes on the NEXT part (function_call or text) after thinking
-
-    IMPORTANT: For Gemini, EVERY function call MUST have a thoughtSignature field.
-    If no real signature is available (no preceding ThinkingPart, or ThinkingPart
-    had no signature), we use BYPASS_THOUGHT_SIGNATURE as a fallback.
+    - Gemini models: signature goes on the NEXT part after thinking
     """
     parts: list[PartDict] = []
 
-    # Determine which protocol to use based on model name
     is_claude = "claude" in model_name.lower()
     is_gemini = "gemini" in model_name.lower()
 
-    # For Gemini: save signature from ThinkingPart to attach to next part
-    # Initialize to None - we'll use BYPASS_THOUGHT_SIGNATURE if still None when needed
     pending_signature: str | None = None
 
     for item in m.parts:
@@ -563,11 +546,7 @@ def _antigravity_content_model_response(
             )
             part["function_call"] = function_call
 
-            # For Gemini: ALWAYS attach a thoughtSignature to function calls.
-            # Use the real signature if available, otherwise use bypass.
-            # NOTE: Do NOT clear pending_signature here! Multiple tool calls
-            # in a row (e.g., parallel function calls) all need the same
-            # signature from the preceding ThinkingPart.
+            # For Gemini: ALWAYS attach a thoughtSignature to function calls
             if is_gemini:
                 part["thoughtSignature"] = (
                     pending_signature
@@ -578,8 +557,6 @@ def _antigravity_content_model_response(
         elif isinstance(item, TextPart):
             part["text"] = item.content
 
-            # For Gemini: attach pending signature to text part if available
-            # Clear signature after text since text typically ends a response
             if is_gemini and pending_signature is not None:
                 part["thoughtSignature"] = pending_signature
                 pending_signature = None
@@ -589,32 +566,29 @@ def _antigravity_content_model_response(
                 part["text"] = item.content
                 part["thought"] = True
 
+                # Try to use original signature first. If the API rejects it
+                # (Gemini: "Corrupted thought signature", Claude: "thinking.signature: Field required"),
+                # we'll backfill with bypass signatures and retry.
                 if item.signature:
                     if is_claude:
-                        # Claude: signature goes ON the thinking block
+                        # Claude expects signature ON the thinking block
                         part["thoughtSignature"] = item.signature
                     elif is_gemini:
-                        # Gemini: save signature for NEXT part
+                        # Gemini expects signature on the NEXT part
                         pending_signature = item.signature
                     else:
-                        # Default: try both (put on thinking block)
                         part["thoughtSignature"] = item.signature
                 elif is_gemini:
-                    # ThinkingPart exists but has no signature - use bypass
-                    # This ensures subsequent tool calls still get a signature
                     pending_signature = BYPASS_THOUGHT_SIGNATURE
 
         elif isinstance(item, BuiltinToolCallPart):
-            # Skip code execution for now
             pass
 
         elif isinstance(item, BuiltinToolReturnPart):
-            # Skip code execution result
             pass
 
         elif isinstance(item, FilePart):
             content = item.content
-            # Ensure data is base64 string, not bytes
             data_val = content.data
             if isinstance(data_val, bytes):
                 data_val = base64.b64encode(data_val).decode("utf-8")
@@ -636,25 +610,19 @@ def _antigravity_content_model_response(
 
 
 def _antigravity_process_response_from_parts(
-    parts: list[Any],  # dicts or objects
+    parts: list[Any],
     grounding_metadata: Any | None,
-    model_name: GoogleModelName,
+    model_name: str,
     provider_name: str,
     usage: RequestUsage,
     vendor_id: str | None,
     vendor_details: dict[str, Any] | None = None,
 ) -> ModelResponse:
-    """Custom response parser that extracts signatures from ThinkingParts.
-
-    Handles different signature protocols:
-    - Claude: signature is ON the thinking block
-    - Gemini: signature is on the NEXT part after thinking (we associate it back)
-    """
+    """Custom response parser that extracts signatures from ThinkingParts."""
     items: list[ModelResponsePart] = []
 
     is_gemini = "gemini" in str(model_name).lower()
 
-    # Helper to get attribute from dict or object
     def get_attr(obj, attr):
         if isinstance(obj, dict):
             return obj.get(attr)
@@ -667,7 +635,6 @@ def _antigravity_process_response_from_parts(
             part, "thought_signature"
         )
 
-        # Also check provider details
         pd = get_attr(part, "provider_details")
         if not thought_signature and pd:
             thought_signature = pd.get("thought_signature") or pd.get(
@@ -676,7 +643,6 @@ def _antigravity_process_response_from_parts(
 
         text = get_attr(part, "text")
         thought = get_attr(part, "thought")
-        # API returns camelCase 'functionCall'
         function_call = get_attr(part, "functionCall") or get_attr(
             part, "function_call"
         )
@@ -694,7 +660,6 @@ def _antigravity_process_response_from_parts(
     if is_gemini:
         for i, pp in enumerate(parsed_parts):
             if pp["thought"] and not pp["signature"]:
-                # Look at next part for signature
                 if i + 1 < len(parsed_parts):
                     next_sig = parsed_parts[i + 1].get("signature")
                     if next_sig:
@@ -714,7 +679,7 @@ def _antigravity_process_response_from_parts(
             fc = pp["function_call"]
             fc_name = get_attr(fc, "name")
             fc_args = get_attr(fc, "args")
-            fc_id = get_attr(fc, "id") or _utils.generate_tool_call_id()
+            fc_id = get_attr(fc, "id") or generate_tool_call_id()
 
             items.append(
                 ToolCallPart(tool_name=fc_name, args=fc_args, tool_call_id=fc_id)

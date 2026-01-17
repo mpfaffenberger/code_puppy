@@ -9,11 +9,12 @@ import os
 import socket
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 import httpx
-import requests
 
+if TYPE_CHECKING:
+    import requests
 from code_puppy.config import get_http2
 
 
@@ -246,7 +247,9 @@ def create_requests_session(
     timeout: float = 5.0,
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
-) -> requests.Session:
+) -> "requests.Session":
+    import requests
+
     session = requests.Session()
 
     if verify is None:

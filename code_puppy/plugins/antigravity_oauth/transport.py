@@ -264,17 +264,91 @@ class UnwrappedSSEResponse(httpx.Response):
 
 
 class AntigravityClient(httpx.AsyncClient):
-    """Custom httpx client that handles Antigravity request/response wrapping."""
+    """Custom httpx client that handles Antigravity request/response wrapping.
+
+    Supports proactive token refresh to prevent expiry during long sessions.
+    """
 
     def __init__(
         self,
         project_id: str = "",
         model_name: str = "",
+        refresh_token: str = "",
+        expires_at: Optional[float] = None,
+        on_token_refreshed: Optional[Any] = None,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
         self.project_id = project_id
         self.model_name = model_name
+        self._refresh_token = refresh_token
+        self._expires_at = expires_at
+        self._on_token_refreshed = on_token_refreshed
+        self._refresh_lock = None  # Lazy init for async lock
+
+    async def _ensure_valid_token(self) -> None:
+        """Proactively refresh the access token if it's expired or about to expire.
+
+        This prevents 401 errors during long-running sessions by checking and
+        refreshing the token BEFORE making requests, not after they fail.
+        """
+        import asyncio
+
+        from .token import is_token_expired, refresh_access_token
+
+        # Skip if no refresh token configured
+        if not self._refresh_token:
+            return
+
+        # Check if token needs refresh (includes 60-second buffer)
+        if not is_token_expired(self._expires_at):
+            return
+
+        # Lazy init the async lock
+        if self._refresh_lock is None:
+            self._refresh_lock = asyncio.Lock()
+
+        async with self._refresh_lock:
+            # Double-check after acquiring lock (another coroutine may have refreshed)
+            if not is_token_expired(self._expires_at):
+                return
+
+            logger.debug("Proactively refreshing Antigravity access token...")
+
+            try:
+                # Run the synchronous refresh in a thread pool to avoid blocking
+                loop = asyncio.get_event_loop()
+                new_tokens = await loop.run_in_executor(
+                    None, refresh_access_token, self._refresh_token
+                )
+
+                if new_tokens:
+                    # Update internal state
+                    new_access_token = new_tokens.access_token
+                    self._expires_at = new_tokens.expires_at
+                    self._refresh_token = new_tokens.refresh_token
+
+                    # Update the Authorization header
+                    self.headers["Authorization"] = f"Bearer {new_access_token}"
+
+                    logger.info(
+                        "Proactively refreshed Antigravity token (expires in %ds)",
+                        int(self._expires_at - __import__("time").time()),
+                    )
+
+                    # Notify callback (e.g., to persist updated tokens)
+                    if self._on_token_refreshed:
+                        try:
+                            self._on_token_refreshed(new_tokens)
+                        except Exception as e:
+                            logger.warning("Token refresh callback failed: %s", e)
+                else:
+                    logger.warning(
+                        "Failed to proactively refresh token - request may fail with 401"
+                    )
+
+            except Exception as e:
+                logger.warning("Proactive token refresh error: %s", e)
 
     def _wrap_request(self, content: bytes, url: str) -> tuple[bytes, str, str, bool]:
         """Wrap request body in Antigravity envelope and transform URL.
@@ -424,6 +498,9 @@ class AntigravityClient(httpx.AsyncClient):
     async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
         """Override send to intercept at the lowest level with endpoint fallback."""
         import asyncio
+
+        # Proactively refresh token BEFORE making the request
+        await self._ensure_valid_token()
 
         # Transform POST requests to Antigravity format
         if request.method == "POST" and request.content:
@@ -638,14 +715,36 @@ class AntigravityClient(httpx.AsyncClient):
             return None
 
 
+# Type alias for token refresh callback
+TokenRefreshCallback = Any  # Callable[[OAuthTokens], None]
+
+
 def create_antigravity_client(
     access_token: str,
     project_id: str = "",
     model_name: str = "",
     base_url: str = "https://daily-cloudcode-pa.sandbox.googleapis.com",
     headers: Optional[Dict[str, str]] = None,
+    refresh_token: str = "",
+    expires_at: Optional[float] = None,
+    on_token_refreshed: Optional[TokenRefreshCallback] = None,
 ) -> AntigravityClient:
-    """Create an httpx client configured for Antigravity API."""
+    """Create an httpx client configured for Antigravity API.
+
+    Args:
+        access_token: The OAuth access token for authentication
+        project_id: The GCP project ID
+        model_name: The model name being used
+        base_url: The API base URL
+        headers: Additional headers to include
+        refresh_token: The OAuth refresh token for proactive token refresh
+        expires_at: Unix timestamp when the access token expires
+        on_token_refreshed: Callback called when token is proactively refreshed,
+                           receives OAuthTokens object to persist the new tokens
+
+    Returns:
+        An AntigravityClient configured for API requests with proactive token refresh
+    """
     # Start with Antigravity-specific headers
     default_headers = {
         "Authorization": f"Bearer {access_token}",
@@ -659,6 +758,9 @@ def create_antigravity_client(
     return AntigravityClient(
         project_id=project_id,
         model_name=model_name,
+        refresh_token=refresh_token,
+        expires_at=expires_at,
+        on_token_refreshed=on_token_refreshed,
         base_url=base_url,
         headers=default_headers,
         timeout=httpx.Timeout(180.0, connect=30.0),

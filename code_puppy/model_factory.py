@@ -7,7 +7,6 @@ from typing import Any, Dict
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
-from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import (
     OpenAIChatModel,
     OpenAIChatModelSettings,
@@ -16,11 +15,11 @@ from pydantic_ai.models.openai import (
 from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
-from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
 
+from code_puppy.gemini_model import GeminiModel
 from code_puppy.messaging import emit_warning
 
 from . import callbacks
@@ -28,6 +27,8 @@ from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_
 from .config import EXTRA_MODELS_FILE, get_value
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .round_robin_model import RoundRobinModel
+
+logger = logging.getLogger(__name__)
 
 
 def get_api_key(env_var_name: str) -> str | None:
@@ -288,9 +289,7 @@ class ModelFactory:
                 )
                 return None
 
-            provider = GoogleProvider(api_key=api_key)
-            model = GoogleModel(model_name=model_config["name"], provider=provider)
-            setattr(model, "provider", provider)
+            model = GeminiModel(model_name=model_config["name"], api_key=api_key)
             return model
 
         elif model_type == "openai":
@@ -615,11 +614,13 @@ class ModelFactory:
                     refresh_token = tokens.get("refresh_token", "")
                     expires_at = tokens.get("expires_at")
 
-                    # Refresh if expired or about to expire
+                    # Refresh if expired or about to expire (initial check)
                     if is_token_expired(expires_at):
                         new_tokens = refresh_access_token(refresh_token)
                         if new_tokens:
                             access_token = new_tokens.access_token
+                            refresh_token = new_tokens.refresh_token
+                            expires_at = new_tokens.expires_at
                             tokens["access_token"] = new_tokens.access_token
                             tokens["refresh_token"] = new_tokens.refresh_token
                             tokens["expires_at"] = new_tokens.expires_at
@@ -630,6 +631,21 @@ class ModelFactory:
                             )
                             return None
 
+                    # Callback to persist tokens when proactively refreshed during session
+                    def on_token_refreshed(new_tokens):
+                        """Persist new tokens when proactively refreshed."""
+                        try:
+                            updated_tokens = load_stored_tokens() or {}
+                            updated_tokens["access_token"] = new_tokens.access_token
+                            updated_tokens["refresh_token"] = new_tokens.refresh_token
+                            updated_tokens["expires_at"] = new_tokens.expires_at
+                            save_tokens(updated_tokens)
+                            logger.debug(
+                                "Persisted proactively refreshed Antigravity tokens"
+                            )
+                        except Exception as e:
+                            logger.warning("Failed to persist refreshed tokens: %s", e)
+
                     project_id = tokens.get(
                         "project_id", model_config.get("project_id", "")
                     )
@@ -639,20 +655,26 @@ class ModelFactory:
                         model_name=model_config["name"],
                         base_url=url,
                         headers=headers,
+                        refresh_token=refresh_token,
+                        expires_at=expires_at,
+                        on_token_refreshed=on_token_refreshed,
                     )
 
-                    provider = GoogleProvider(
-                        api_key=api_key, base_url=url, http_client=client
-                    )
-
-                    # Use custom model if available to preserve thinking signatures
+                    # Use custom model with direct httpx client
                     if AntigravityModel:
                         model = AntigravityModel(
-                            model_name=model_config["name"], provider=provider
+                            model_name=model_config["name"],
+                            api_key=api_key
+                            or "",  # Antigravity uses OAuth, key may be empty
+                            base_url=url,
+                            http_client=client,
                         )
                     else:
-                        model = GoogleModel(
-                            model_name=model_config["name"], provider=provider
+                        model = GeminiModel(
+                            model_name=model_config["name"],
+                            api_key=api_key or "",
+                            base_url=url,
+                            http_client=client,
                         )
 
                     return model
@@ -665,8 +687,12 @@ class ModelFactory:
             else:
                 client = create_async_client(headers=headers, verify=verify)
 
-            provider = GoogleProvider(api_key=api_key, base_url=url, http_client=client)
-            model = GoogleModel(model_name=model_config["name"], provider=provider)
+            model = GeminiModel(
+                model_name=model_config["name"],
+                api_key=api_key,
+                base_url=url,
+                http_client=client,
+            )
             return model
         elif model_type == "cerebras":
 

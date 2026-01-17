@@ -119,21 +119,26 @@ class TestRequestMethod:
         self, mock_google_model, model_request_params
     ):
         """Test error when http client is unavailable."""
-        mock_google_model.client = MagicMock(spec=[])
         messages = [
             ModelRequest(
                 parts=[UserPromptPart(content="Hello", timestamp=datetime.now())]
             )
         ]
 
+        async def raise_client_error():
+            raise RuntimeError("Cannot access underlying httpx client")
+
         with patch.object(mock_google_model, "prepare_request") as mock_prepare:
             mock_prepare.return_value = (ModelSettings(), model_request_params)
             with patch.object(mock_google_model, "_map_user_prompt") as mock_map:
                 mock_map.return_value = [{"text": "Hello"}]
-                with pytest.raises(RuntimeError, match="underlying httpx client"):
-                    await mock_google_model.request(
-                        messages, ModelSettings(), model_request_params
-                    )
+                with patch.object(
+                    mock_google_model, "_get_client", side_effect=raise_client_error
+                ):
+                    with pytest.raises(RuntimeError, match="underlying httpx client"):
+                        await mock_google_model.request(
+                            messages, ModelSettings(), model_request_params
+                        )
 
     @pytest.mark.asyncio
     async def test_request_with_corrupted_signature_retry(

@@ -96,7 +96,7 @@ def test_gemini_load_model(monkeypatch):
     config = {"gemini": {"type": "gemini", "name": "gemini-pro"}}
     model = ModelFactory.get_model("gemini", config)
     assert model is not None
-    assert hasattr(model, "provider")
+    assert model.model_name == "gemini-pro"
 
 
 def test_openai_load_model(monkeypatch):

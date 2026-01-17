@@ -473,9 +473,7 @@ class TestInteractiveAgentPicker:
             "code_puppy.command_line.core_commands.interactive_agent_picker",
             mock_picker,
         ):
-            with patch(
-                "code_puppy.agents.get_current_agent"
-            ) as mock_get_current:
+            with patch("code_puppy.agents.get_current_agent") as mock_get_current:
                 # First call returns current agent, second call returns new agent
                 mock_get_current.side_effect = [mock_current, mock_new_agent]
                 with patch(
@@ -485,8 +483,13 @@ class TestInteractiveAgentPicker:
                         "code_puppy.agents.get_agent_descriptions",
                         return_value=mock_descriptions,
                     ):
-                        with patch("code_puppy.agents.set_current_agent", return_value=True):
-                            with patch("code_puppy.config.finalize_autosave_session", return_value="session-123"):
+                        with patch(
+                            "code_puppy.agents.set_current_agent", return_value=True
+                        ):
+                            with patch(
+                                "code_puppy.config.finalize_autosave_session",
+                                return_value="session-123",
+                            ):
                                 with patch("code_puppy.messaging.emit_success"):
                                     with patch("code_puppy.messaging.emit_info"):
                                         result = handle_agent_command("/agent")
@@ -557,8 +560,12 @@ class TestInteractiveAgentPicker:
     def test_agent_picker_integration(self):
         """Test that interactive_agent_picker is properly imported from agent_menu."""
         # Verify the import works correctly
-        from code_puppy.command_line.core_commands import interactive_agent_picker as picker1
-        from code_puppy.command_line.agent_menu import interactive_agent_picker as picker2
+        from code_puppy.command_line.agent_menu import (
+            interactive_agent_picker as picker2,
+        )
+        from code_puppy.command_line.core_commands import (
+            interactive_agent_picker as picker1,
+        )
 
         # Both should reference the same function
         assert picker1 is picker2
@@ -981,7 +988,6 @@ class TestEdgeCasesAndErrorHandling:
         with patch(
             "code_puppy.command_line.core_commands.interactive_agent_picker"
         ) as mock_picker:
-
             # Simulate asyncio.run raising RuntimeError
             mock_picker.side_effect = RuntimeError("Picker failed")
 

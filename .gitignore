@@ -25,3 +25,6 @@ dummy_path
 .env
 .serena/
 .beads/
+main.dist/
+nuitka-crash-report.xml
+*.backup
