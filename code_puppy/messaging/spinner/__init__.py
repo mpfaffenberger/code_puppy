@@ -24,7 +24,7 @@ def unregister_spinner(spinner):
 
 
 def pause_all_spinners():
-    """Pause all active spinners.
+    """Pause all active spinners AND the dashboard.
 
     No-op when called from a sub-agent context to prevent
     parallel sub-agents from interfering with the main spinner.
@@ -41,9 +41,17 @@ def pause_all_spinners():
             # Ignore errors if a spinner can't be paused
             pass
 
+    # Also pause the dashboard
+    try:
+        from code_puppy.messaging.subagent_console import pause_dashboard
+
+        pause_dashboard()
+    except ImportError:
+        pass
+
 
 def resume_all_spinners():
-    """Resume all active spinners.
+    """Resume all active spinners AND the dashboard.
 
     No-op when called from a sub-agent context to prevent
     parallel sub-agents from interfering with the main spinner.
@@ -59,6 +67,14 @@ def resume_all_spinners():
         except Exception:
             # Ignore errors if a spinner can't be resumed
             pass
+
+    # Also resume the dashboard
+    try:
+        from code_puppy.messaging.subagent_console import resume_dashboard
+
+        resume_dashboard()
+    except ImportError:
+        pass
 
 
 def update_spinner_context(info: str) -> None:
