@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic_ai import BinaryContent
@@ -125,30 +125,39 @@ async def test_run_prompt_with_attachments_passes_binary(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_run_prompt_with_attachments_uses_spinner(tmp_path: Path) -> None:
+async def test_run_prompt_with_attachments_registers_dashboard(tmp_path: Path) -> None:
+    """Test that run_prompt_with_attachments registers main agent with dashboard."""
     pdf_path = tmp_path / "paper.pdf"
     pdf_path.write_bytes(b"%PDF")
 
     fake_agent = AsyncMock()
+    fake_agent.name = "test-agent"
+    fake_agent.get_model_name = MagicMock(return_value="test-model")
     fake_agent.run_with_mcp.return_value = AsyncMock()
 
     dummy_console = object()
 
     with (
-        patch("code_puppy.messaging.spinner.ConsoleSpinner") as mock_spinner,
+        patch(
+            "code_puppy.messaging.subagent_console.SubAgentConsoleManager"
+        ) as mock_manager,
         patch("code_puppy.messaging.emit_system_message"),
         patch("code_puppy.messaging.emit_warning"),
     ):
+        # Set up mock to return a mock instance
+        mock_instance = MagicMock()
+        mock_manager.get_instance.return_value = mock_instance
+
         await run_prompt_with_attachments(
             fake_agent,
             f"please summarise {pdf_path}",
             spinner_console=dummy_console,
-            use_spinner=True,
+            use_spinner=True,  # Parameter is deprecated but still accepted
         )
 
-    mock_spinner.assert_called_once()
-    args, kwargs = mock_spinner.call_args
-    assert kwargs["console"] is dummy_console
+    # Verify dashboard registration was called
+    mock_manager.get_instance.assert_called()
+    mock_instance.register_main_agent.assert_called_once()
 
 
 @pytest.mark.asyncio
