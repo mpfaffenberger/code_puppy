@@ -58,7 +58,7 @@ class TestAgentTools:
             )
 
             # Get prompt additions to verify they exist
-            prompt_additions = callbacks.on_load_prompt()
+            prompt_additions = [p for p in callbacks.on_load_prompt() if p]
 
             # Verify we have file permission prompt additions
             assert len(prompt_additions) > 0
