@@ -149,16 +149,6 @@ def patch_tool_call_json_repair() -> None:
                 try:
                     repaired = json_repair.repair_json(call.args)
                     if repaired != call.args:
-                        # JSON was repaired! Log and update
-                        try:
-                            from rich.console import Console
-                            console = Console(stderr=True)
-                            console.print(
-                                "[bold yellow]🐕 WOOF! Repaired malformed tool call JSON! AWOOOOOOOOOO![/]"
-                            )
-                        except ImportError:
-                            pass  # No rich console available
-
                         # Update the call args with repaired JSON
                         call.args = repaired
                 except Exception:
