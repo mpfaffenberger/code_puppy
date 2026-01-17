@@ -1373,17 +1373,20 @@ class BaseAgent(ABC):
         stop_event: threading.Event,
         on_escape: Callable[[], None],
         on_cancel_agent: Optional[Callable[[], None]] = None,
+        on_steering: Optional[Callable[[], None]] = None,
     ) -> Optional[threading.Thread]:
         """Start a keyboard listener thread for CLI sessions.
 
-        Listens for Ctrl+X (shell command cancel) and optionally the configured
-        cancel_agent_key (when not using SIGINT/Ctrl+C).
+        Listens for Ctrl+X (shell command cancel), optionally the configured
+        cancel_agent_key (when not using SIGINT/Ctrl+C), and Ctrl+G for the
+        steering menu.
 
         Args:
             stop_event: Event to signal the listener to stop.
             on_escape: Callback for Ctrl+X (shell command cancel).
             on_cancel_agent: Optional callback for cancel_agent_key (only used
                 when cancel_agent_uses_signal() returns False).
+            on_steering: Optional callback for Ctrl+G (steering menu).
         """
         try:
             import sys
@@ -1403,11 +1406,11 @@ class BaseAgent(ABC):
             try:
                 if sys.platform.startswith("win"):
                     self._listen_for_ctrl_x_windows(
-                        stop_event, on_escape, on_cancel_agent
+                        stop_event, on_escape, on_cancel_agent, on_steering
                     )
                 else:
                     self._listen_for_ctrl_x_posix(
-                        stop_event, on_escape, on_cancel_agent
+                        stop_event, on_escape, on_cancel_agent, on_steering
                     )
             except Exception:
                 emit_warning(
@@ -1425,6 +1428,7 @@ class BaseAgent(ABC):
         stop_event: threading.Event,
         on_escape: Callable[[], None],
         on_cancel_agent: Optional[Callable[[], None]] = None,
+        on_steering: Optional[Callable[[], None]] = None,
     ) -> None:
         import msvcrt
         import time
@@ -1445,6 +1449,12 @@ class BaseAgent(ABC):
                             emit_warning(
                                 "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
                             )
+                    elif key == "\x07":  # Ctrl+G (steering menu)
+                        if on_steering is not None:
+                            try:
+                                on_steering()
+                            except Exception:
+                                emit_warning("Ctrl+G handler raised unexpectedly.")
                     elif (
                         cancel_agent_char
                         and on_cancel_agent
@@ -1466,6 +1476,7 @@ class BaseAgent(ABC):
         stop_event: threading.Event,
         on_escape: Callable[[], None],
         on_cancel_agent: Optional[Callable[[], None]] = None,
+        on_steering: Optional[Callable[[], None]] = None,
     ) -> None:
         import select
         import sys
@@ -1506,6 +1517,12 @@ class BaseAgent(ABC):
                         emit_warning(
                             "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
                         )
+                elif data == "\x07":  # Ctrl+G (steering menu)
+                    if on_steering is not None:
+                        try:
+                            on_steering()
+                        except Exception:
+                            emit_warning("Ctrl+G handler raised unexpectedly.")
                 elif (
                     cancel_agent_char and on_cancel_agent and data == cancel_agent_char
                 ):
@@ -1808,6 +1825,20 @@ class BaseAgent(ABC):
             cancel_key = get_cancel_agent_display_name()
             emit_info(f"Use {cancel_key} to cancel the agent task.")
 
+        def schedule_steering_menu() -> None:
+            """Schedule the steering menu to run from the key listener thread."""
+            try:
+                from code_puppy.command_line.steering_menu import run_steering_menu
+
+                # Schedule the async steering menu to run on the event loop
+                loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(run_steering_menu())
+                )
+            except ImportError:
+                emit_warning("Steering menu not available.")
+            except Exception as e:
+                emit_warning(f"Failed to open steering menu: {e}")
+
         original_handler = None
         key_listener_stop_event = None
         _key_listener_thread = None
@@ -1818,16 +1849,25 @@ class BaseAgent(ABC):
                 original_handler = signal.signal(
                     signal.SIGINT, keyboard_interrupt_handler
                 )
+                # Still spawn key listener for Ctrl+G (steering menu) support
+                key_listener_stop_event = threading.Event()
+                _key_listener_thread = self._spawn_ctrl_x_key_listener(
+                    key_listener_stop_event,
+                    on_escape=lambda: None,  # Ctrl+X handled by command_runner
+                    on_cancel_agent=None,  # Cancel handled by SIGINT
+                    on_steering=schedule_steering_menu,
+                )
             else:
                 # Use keyboard listener for agent cancellation
                 # Set a graceful SIGINT handler that shows a hint
                 original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
-                # Spawn keyboard listener with the cancel agent callback
+                # Spawn keyboard listener with the cancel agent callback and steering
                 key_listener_stop_event = threading.Event()
                 _key_listener_thread = self._spawn_ctrl_x_key_listener(
                     key_listener_stop_event,
                     on_escape=lambda: None,  # Ctrl+X handled by command_runner
                     on_cancel_agent=schedule_agent_cancel,
+                    on_steering=schedule_steering_menu,
                 )
 
             # Wait for the task to complete or be cancelled
