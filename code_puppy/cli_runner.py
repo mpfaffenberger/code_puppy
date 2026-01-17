@@ -367,6 +367,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         f"Press {cancel_key} during processing to cancel the current task or inference. Use Ctrl+X to interrupt running shell commands."
     )
     emit_system_message(
+        "Press Ctrl+G during agent execution to open the steering menu (pause & steer agents)."
+    )
+    emit_system_message(
         "Use /autosave_load to manually load a previous autosave session."
     )
     emit_system_message(
