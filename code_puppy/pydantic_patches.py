@@ -121,6 +121,67 @@ def patch_process_message_history() -> None:
         pass
 
 
+def patch_tool_call_json_repair() -> None:
+    """Patch pydantic-ai's _call_tool to auto-repair malformed JSON arguments.
+
+    LLMs sometimes produce slightly broken JSON in tool calls (trailing commas,
+    missing quotes, etc.). This patch intercepts tool calls and runs json_repair
+    on the arguments before validation, preventing unnecessary retries.
+    """
+    try:
+        import json_repair
+        from pydantic_ai._tool_manager import ToolManager
+
+        # Store the original method
+        _original_call_tool = ToolManager._call_tool
+
+        async def _patched_call_tool(
+            self,
+            call,
+            *,
+            allow_partial: bool,
+            wrap_validation_errors: bool,
+            approved: bool,
+        ):
+            """Patched _call_tool that repairs malformed JSON before validation."""
+            # Only attempt repair if args is a string (JSON)
+            if isinstance(call.args, str) and call.args:
+                try:
+                    repaired = json_repair.repair_json(call.args)
+                    if repaired != call.args:
+                        # JSON was repaired! Log and update
+                        try:
+                            from rich.console import Console
+                            console = Console(stderr=True)
+                            console.print(
+                                "[bold yellow]🐕 WOOF! Repaired malformed tool call JSON! AWOOOOOOOOOO![/]"
+                            )
+                        except ImportError:
+                            pass  # No rich console available
+
+                        # Update the call args with repaired JSON
+                        call.args = repaired
+                except Exception:
+                    pass  # If repair fails, let original validation handle it
+
+            # Call the original method
+            return await _original_call_tool(
+                self,
+                call,
+                allow_partial=allow_partial,
+                wrap_validation_errors=wrap_validation_errors,
+                approved=approved,
+            )
+
+        # Apply the patch
+        ToolManager._call_tool = _patched_call_tool
+
+    except ImportError:
+        pass  # json_repair or pydantic_ai not available
+    except Exception:
+        pass  # Don't crash on patch failure
+
+
 def apply_all_patches() -> None:
     """Apply all pydantic-ai monkey patches.
 
@@ -129,3 +190,4 @@ def apply_all_patches() -> None:
     patch_user_agent()
     patch_message_history_cleaning()
     patch_process_message_history()
+    patch_tool_call_json_repair()

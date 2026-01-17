@@ -462,7 +462,8 @@ class TestTokenValidity:
         assert is_token_expired(tokens) is True
 
     def test_is_token_expired_false(self):
-        tokens = {"expires_at": time.time() + 3600}
+        # Use 7200 seconds (2 hours) to be safely outside the 1-hour refresh buffer
+        tokens = {"expires_at": time.time() + 7200}
         assert is_token_expired(tokens) is False
 
     def test_get_valid_access_token_refreshes(self):
@@ -483,7 +484,8 @@ class TestTokenValidity:
                 mock_refresh.assert_called_once()
 
     def test_get_valid_access_token_uses_existing(self):
-        tokens = {"access_token": "current_token", "expires_at": time.time() + 3600}
+        # Use 7200 seconds (2 hours) to be safely outside the 1-hour refresh buffer
+        tokens = {"access_token": "current_token", "expires_at": time.time() + 7200}
         with patch(
             "code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens",
             return_value=tokens,

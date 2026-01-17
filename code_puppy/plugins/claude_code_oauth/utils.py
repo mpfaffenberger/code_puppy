@@ -21,7 +21,10 @@ from .config import (
     get_token_storage_path,
 )
 
-TOKEN_REFRESH_BUFFER_SECONDS = 60
+# Proactive refresh buffer: refresh tokens 1 hour before expiration
+# This ensures smooth operation by refreshing during model requests,
+# well before the token actually expires
+TOKEN_REFRESH_BUFFER_SECONDS = 3600  # 1 hour
 
 logger = logging.getLogger(__name__)
 

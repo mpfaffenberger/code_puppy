@@ -356,29 +356,36 @@ class TestTokenRefreshOnCloudflareError:
                 "_refresh_claude_oauth_token",
                 return_value="new_token_123",
             ) as mock_refresh:
-                client = ClaudeCacheAsyncClient(
-                    headers={"Authorization": "Bearer old_token"}
-                )
+                # Mock stored token expiry check to prevent proactive refresh
+                # (we want to test the Cloudflare error path, not proactive refresh)
+                with patch.object(
+                    ClaudeCacheAsyncClient,
+                    "_check_stored_token_expiry",
+                    return_value=False,
+                ):
+                    client = ClaudeCacheAsyncClient(
+                        headers={"Authorization": "Bearer old_token"}
+                    )
 
-                # Create a mock request
-                request = httpx.Request(
-                    "POST",
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"Authorization": "Bearer old_token"},
-                    content=b'{"model": "claude-3-opus"}',
-                )
+                    # Create a mock request
+                    request = httpx.Request(
+                        "POST",
+                        "https://api.anthropic.com/v1/messages",
+                        headers={"Authorization": "Bearer old_token"},
+                        content=b'{"model": "claude-3-opus"}',
+                    )
 
-                # Send the request
-                response = await client.send(request)
+                    # Send the request
+                    response = await client.send(request)
 
-                # Verify refresh was called
-                mock_refresh.assert_called_once()
+                    # Verify refresh was called (once, for the Cloudflare error)
+                    mock_refresh.assert_called_once()
 
-                # Verify we got the success response
-                assert response.status_code == 200
+                    # Verify we got the success response
+                    assert response.status_code == 200
 
-                # Verify send was called twice (initial + retry)
-                assert mock_send.call_count == 2
+                    # Verify send was called twice (initial + retry)
+                    assert mock_send.call_count == 2
 
     @pytest.mark.asyncio
     async def test_no_refresh_on_json_400(self):
@@ -395,22 +402,28 @@ class TestTokenRefreshOnCloudflareError:
             with patch.object(
                 ClaudeCacheAsyncClient, "_refresh_claude_oauth_token"
             ) as mock_refresh:
-                client = ClaudeCacheAsyncClient(
-                    headers={"Authorization": "Bearer token"}
-                )
+                # Mock stored token expiry check to prevent proactive refresh
+                with patch.object(
+                    ClaudeCacheAsyncClient,
+                    "_check_stored_token_expiry",
+                    return_value=False,
+                ):
+                    client = ClaudeCacheAsyncClient(
+                        headers={"Authorization": "Bearer token"}
+                    )
 
-                request = httpx.Request(
-                    "POST",
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"Authorization": "Bearer token"},
-                    content=b'{"model": "claude-3-opus"}',
-                )
+                    request = httpx.Request(
+                        "POST",
+                        "https://api.anthropic.com/v1/messages",
+                        headers={"Authorization": "Bearer token"},
+                        content=b'{"model": "claude-3-opus"}',
+                    )
 
-                result = await client.send(request)
+                    result = await client.send(request)
 
-                # Refresh should NOT be called for non-Cloudflare 400s
-                mock_refresh.assert_not_called()
-                assert result.status_code == 400
+                    # Refresh should NOT be called for non-Cloudflare 400s
+                    mock_refresh.assert_not_called()
+                    assert result.status_code == 400
 
     @pytest.mark.asyncio
     async def test_refresh_on_401(self):
@@ -438,27 +451,34 @@ class TestTokenRefreshOnCloudflareError:
                 "_refresh_claude_oauth_token",
                 return_value="new_token_456",
             ) as mock_refresh:
-                client = ClaudeCacheAsyncClient(
-                    headers={"Authorization": "Bearer old_token"}
-                )
+                # Mock stored token expiry check to prevent proactive refresh
+                # (we want to test the 401 error path, not proactive refresh)
+                with patch.object(
+                    ClaudeCacheAsyncClient,
+                    "_check_stored_token_expiry",
+                    return_value=False,
+                ):
+                    client = ClaudeCacheAsyncClient(
+                        headers={"Authorization": "Bearer old_token"}
+                    )
 
-                request = httpx.Request(
-                    "POST",
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"Authorization": "Bearer old_token"},
-                    content=b'{"model": "claude-3-opus"}',
-                )
+                    request = httpx.Request(
+                        "POST",
+                        "https://api.anthropic.com/v1/messages",
+                        headers={"Authorization": "Bearer old_token"},
+                        content=b'{"model": "claude-3-opus"}',
+                    )
 
-                response = await client.send(request)
+                    response = await client.send(request)
 
-                # Verify refresh was called
-                mock_refresh.assert_called_once()
+                    # Verify refresh was called (once, for the 401 error)
+                    mock_refresh.assert_called_once()
 
-                # Verify we got the success response
-                assert response.status_code == 200
+                    # Verify we got the success response
+                    assert response.status_code == 200
 
-                # Verify send was called twice
-                assert mock_send.call_count == 2
+                    # Verify send was called twice
+                    assert mock_send.call_count == 2
 
     @pytest.mark.asyncio
     async def test_no_infinite_retry_loop(self):
