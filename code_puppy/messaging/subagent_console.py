@@ -365,6 +365,37 @@ class SubAgentConsoleManager:
     # Display Management
     # =========================================================================
 
+    def pause_display(self) -> None:
+        """Temporarily pause the Live display for streaming output.
+
+        Call this before printing directly to console (e.g., streaming responses).
+        The Live display will be stopped but state is preserved.
+        """
+        with self._agents_lock:
+            if self._live is not None:
+                try:
+                    self._live.stop()
+                except Exception:
+                    pass
+                self._live = None  # Mark as paused
+
+    def resume_display(self) -> None:
+        """Resume the Live display after streaming output completes.
+
+        Call this after finishing direct console printing.
+        Only resumes if there are still active agents.
+        """
+        with self._agents_lock:
+            if self._agents and self._live is None:
+                # Restart the Live display
+                self._live = Live(
+                    self._render_display(),
+                    console=self.console,
+                    refresh_per_second=10,
+                    transient=True,
+                )
+                self._live.start()
+
     def _start_display(self) -> None:
         """Start the Rich Live display.
 
@@ -413,21 +444,22 @@ class SubAgentConsoleManager:
         """Background thread that refreshes the display."""
         while not self._stop_event.is_set():
             try:
-                # Update spinner frames for animated agents
                 with self._agents_lock:
-                    for agent in self._agents.values():
-                        if agent.status in [
-                            "starting",
-                            "running",
-                            "thinking",
-                            "tool_calling",
-                        ]:
-                            agent.spinner_frame_index = (
-                                agent.spinner_frame_index + 1
-                            ) % len(SpinnerBase.FRAMES)
-
-                if self._live is not None:
-                    self._live.update(self._render_display())
+                    # Only update if Live is active (not paused)
+                    if self._live is not None:
+                        # Update spinner frames
+                        for agent in self._agents.values():
+                            if agent.status in [
+                                "starting",
+                                "running",
+                                "thinking",
+                                "tool_calling",
+                            ]:
+                                agent.spinner_frame_index = (
+                                    agent.spinner_frame_index + 1
+                                ) % len(SpinnerBase.FRAMES)
+                        # Update the Live display INSIDE the lock
+                        self._live.update(self._render_display())
             except Exception:
                 pass  # Ignore rendering errors, keep trying
 
@@ -632,6 +664,24 @@ def get_subagent_console_manager(
     return SubAgentConsoleManager.get_instance(console)
 
 
+def pause_dashboard() -> None:
+    """Pause the dashboard display for streaming output."""
+    try:
+        manager = SubAgentConsoleManager.get_instance()
+        manager.pause_display()
+    except Exception:
+        pass  # Gracefully handle if manager not available
+
+
+def resume_dashboard() -> None:
+    """Resume the dashboard display after streaming output."""
+    try:
+        manager = SubAgentConsoleManager.get_instance()
+        manager.resume_display()
+    except Exception:
+        pass  # Gracefully handle if manager not available
+
+
 # =============================================================================
 # Exports
 # =============================================================================
@@ -640,6 +690,8 @@ __all__ = [
     "AgentState",
     "SubAgentConsoleManager",
     "get_subagent_console_manager",
+    "pause_dashboard",
+    "resume_dashboard",
     "STATUS_STYLES",
     "DEFAULT_STYLE",
     "MAIN_AGENT_SESSION_ID",
