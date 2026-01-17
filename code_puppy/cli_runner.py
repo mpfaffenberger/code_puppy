@@ -776,13 +776,24 @@ async def run_prompt_with_attachments(
     raw_prompt: str,
     *,
     spinner_console=None,
-    use_spinner: bool = True,
+    use_spinner: bool = True,  # DEPRECATED: Ignored, dashboard handles display
 ):
     """Run the agent after parsing CLI attachments for image/document support.
+
+    Args:
+        agent: The agent instance to run.
+        raw_prompt: The raw prompt string which may contain attachment paths.
+        spinner_console: Console instance for streaming output.
+        use_spinner: DEPRECATED - This parameter is ignored. The unified
+                     SubAgentConsoleManager dashboard handles all display
+                     including the animated puppy spinner.
 
     Returns:
         tuple: (result, task) where result is the agent response and task is the asyncio task
     """
+    # Note: use_spinner parameter kept for backward compatibility but is ignored.
+    # The SubAgentConsoleManager now handles all display with a single rich.Live instance.
+    _ = use_spinner  # Explicitly mark as unused
     import asyncio
     import re
 
