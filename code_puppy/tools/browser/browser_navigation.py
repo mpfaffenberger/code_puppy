@@ -7,7 +7,7 @@ from pydantic_ai import RunContext
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
-from .camoufox_manager import get_session_browser_manager
+from .browser_manager import get_session_browser_manager
 
 
 async def navigate_to_url(url: str) -> Dict[str, Any]:

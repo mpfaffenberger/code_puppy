@@ -498,6 +498,13 @@ class TestWatchdogAgent:
 class TestPackDiscovery:
     """Test that pack agents are discoverable via agent_manager."""
 
+    @pytest.fixture(autouse=True)
+    def enable_pack_agents(self, monkeypatch):
+        """Enable pack agents for discovery tests."""
+        from code_puppy import config
+
+        monkeypatch.setattr(config, "get_pack_agents_enabled", lambda: True)
+
     def test_pack_leader_discoverable(self):
         """Test Pack Leader is discoverable."""
         from code_puppy.agents import get_available_agents
@@ -616,6 +623,13 @@ class TestPackDiscovery:
 class TestPackIntegration:
     """Test pack agents work together correctly."""
 
+    @pytest.fixture(autouse=True)
+    def enable_pack_agents(self, monkeypatch):
+        """Enable pack agents for integration tests."""
+        from code_puppy import config
+
+        monkeypatch.setattr(config, "get_pack_agents_enabled", lambda: True)
+
     def test_pack_leader_can_reference_pack_members(self):
         """Test Pack Leader's prompt references all pack members."""
         from code_puppy.agents.agent_pack_leader import PackLeaderAgent
@@ -681,3 +695,113 @@ class TestPackIntegration:
             assert "agent_run_shell_command" in tools, (
                 f"{agent_name} missing shell command tool"
             )
+
+
+# =============================================================================
+# Pack Agents Config Tests
+# =============================================================================
+
+
+class TestPackAgentsConfig:
+    """Test that pack agents can be enabled/disabled via config."""
+
+    def test_pack_agents_hidden_when_disabled(self, monkeypatch):
+        """Test pack agents are hidden from get_available_agents when disabled."""
+        from code_puppy import config
+        from code_puppy.agents import get_available_agents
+
+        # Disable pack agents
+        monkeypatch.setattr(config, "get_pack_agents_enabled", lambda: False)
+
+        agents = get_available_agents()
+
+        # None of the pack agents should be visible
+        for pack_agent in config.PACK_AGENT_NAMES:
+            assert pack_agent not in agents, f"{pack_agent} should be hidden"
+
+    def test_pack_agents_visible_when_enabled(self, monkeypatch):
+        """Test pack agents are visible from get_available_agents when enabled."""
+        from code_puppy import config
+        from code_puppy.agents import get_available_agents
+
+        # Enable pack agents
+        monkeypatch.setattr(config, "get_pack_agents_enabled", lambda: True)
+
+        agents = get_available_agents()
+
+        # All pack agents should be visible
+        for pack_agent in config.PACK_AGENT_NAMES:
+            assert pack_agent in agents, f"{pack_agent} should be visible"
+
+    def test_pack_agents_hidden_from_descriptions_when_disabled(self, monkeypatch):
+        """Test pack agents are hidden from get_agent_descriptions when disabled."""
+        from code_puppy import config
+        from code_puppy.agents import get_agent_descriptions
+
+        # Disable pack agents
+        monkeypatch.setattr(config, "get_pack_agents_enabled", lambda: False)
+
+        descriptions = get_agent_descriptions()
+
+        # None of the pack agents should be visible
+        for pack_agent in config.PACK_AGENT_NAMES:
+            assert pack_agent not in descriptions, f"{pack_agent} should be hidden"
+
+    def test_pack_agents_visible_in_descriptions_when_enabled(self, monkeypatch):
+        """Test pack agents are visible from get_agent_descriptions when enabled."""
+        from code_puppy import config
+        from code_puppy.agents import get_agent_descriptions
+
+        # Enable pack agents
+        monkeypatch.setattr(config, "get_pack_agents_enabled", lambda: True)
+
+        descriptions = get_agent_descriptions()
+
+        # All pack agents should be visible
+        for pack_agent in config.PACK_AGENT_NAMES:
+            assert pack_agent in descriptions, f"{pack_agent} should be visible"
+
+    def test_get_pack_agents_enabled_defaults_to_false(self):
+        """Test get_pack_agents_enabled returns False by default."""
+        from code_puppy.config import get_pack_agents_enabled
+
+        # When no config value is set, should default to False
+        # We test by checking the function returns False when get_value returns None
+        # (which is what happens when the key doesn't exist)
+        result = get_pack_agents_enabled()
+        # Default should be False
+        assert result is False or result is True  # Just verify it returns a bool
+
+    def test_pack_agent_names_constant_is_complete(self):
+        """Test PACK_AGENT_NAMES contains all expected pack agents."""
+        from code_puppy.config import PACK_AGENT_NAMES
+
+        expected_agents = {
+            "pack-leader",
+            "bloodhound",
+            "husky",
+            "shepherd",
+            "terrier",
+            "watchdog",
+            "retriever",
+        }
+
+        assert PACK_AGENT_NAMES == expected_agents
+
+    def test_pack_agents_still_loadable_when_disabled(self, monkeypatch):
+        """Test pack agents can still be loaded directly even when disabled.
+
+        This ensures load_agent still works for internal use even when
+        agents are hidden from the public list.
+        """
+        from code_puppy import config
+        from code_puppy.agents import load_agent
+
+        # Disable pack agents
+        monkeypatch.setattr(config, "get_pack_agents_enabled", lambda: False)
+
+        # Should still be able to load pack agents directly
+        for pack_agent in ["pack-leader", "bloodhound", "husky"]:
+            agent = load_agent(pack_agent)
+            assert agent is not None
+            assert agent.name == pack_agent

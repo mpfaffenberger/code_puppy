@@ -88,6 +88,35 @@ def get_subagent_verbose() -> bool:
     return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 
+# Pack agents - the specialized sub-agents coordinated by Pack Leader
+PACK_AGENT_NAMES = frozenset(
+    [
+        "pack-leader",
+        "bloodhound",
+        "husky",
+        "shepherd",
+        "terrier",
+        "watchdog",
+        "retriever",
+    ]
+)
+
+
+def get_pack_agents_enabled() -> bool:
+    """Return True if pack agents are enabled (default False).
+
+    When False (default), pack agents (pack-leader, bloodhound, husky, shepherd,
+    terrier, watchdog, retriever) are hidden from `list_agents` tool and `/agents`
+    command. They cannot be invoked by other agents or selected by users.
+
+    When True, pack agents are available for use.
+    """
+    cfg_val = get_value("enable_pack_agents")
+    if cfg_val is None:
+        return False
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
 
@@ -226,6 +255,8 @@ def get_config_keys():
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
+    # Add pack agents control key
+    default_keys.append("enable_pack_agents")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
     # Add banner color keys

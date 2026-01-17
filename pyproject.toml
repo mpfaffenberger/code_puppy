@@ -25,7 +25,6 @@ dependencies = [
     "ripgrep==14.1.0",
     "tenacity>=8.2.0",
     "playwright>=1.40.0",
-    "camoufox>=0.4.11",
     "dbos>=2.5.0",
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",

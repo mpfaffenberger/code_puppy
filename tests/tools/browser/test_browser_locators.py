@@ -35,7 +35,7 @@ class BrowserLocatorsBaseTest:
 
     @pytest.fixture
     def mock_browser_manager(self):
-        """Mock the camoufox manager and page."""
+        """Mock the browser manager and page."""
         manager = AsyncMock()
         page = AsyncMock()
         # Playwright's page.get_by_* methods are synchronous, so use MagicMock

@@ -36,7 +36,7 @@ class BrowserScriptsBaseTest:
 
     @pytest.fixture
     def mock_browser_manager(self):
-        """Mock the camoufox manager and page."""
+        """Mock the browser manager and page."""
         manager = AsyncMock()
         page = AsyncMock()
         # Make page.locator a regular MagicMock to return locator fixtures

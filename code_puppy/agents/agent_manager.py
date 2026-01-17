@@ -295,12 +295,21 @@ def get_available_agents() -> Dict[str, str]:
     Returns:
         Dict mapping agent names to display names.
     """
+    from ..config import PACK_AGENT_NAMES, get_pack_agents_enabled
+
     # Generate a message group ID for this operation
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
 
+    # Check if pack agents are enabled
+    pack_agents_enabled = get_pack_agents_enabled()
+
     agents = {}
     for name, agent_ref in _AGENT_REGISTRY.items():
+        # Filter out pack agents if disabled
+        if not pack_agents_enabled and name in PACK_AGENT_NAMES:
+            continue
+
         try:
             if isinstance(agent_ref, str):  # JSON agent (file path)
                 agent_instance = JSONAgent(agent_ref)
@@ -423,12 +432,21 @@ def get_agent_descriptions() -> Dict[str, str]:
     Returns:
         Dict mapping agent names to their descriptions.
     """
+    from ..config import PACK_AGENT_NAMES, get_pack_agents_enabled
+
     # Generate a message group ID for this operation
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
 
+    # Check if pack agents are enabled
+    pack_agents_enabled = get_pack_agents_enabled()
+
     descriptions = {}
     for name, agent_ref in _AGENT_REGISTRY.items():
+        # Filter out pack agents if disabled
+        if not pack_agents_enabled and name in PACK_AGENT_NAMES:
+            continue
+
         try:
             if isinstance(agent_ref, str):  # JSON agent (file path)
                 agent_instance = JSONAgent(agent_ref)
