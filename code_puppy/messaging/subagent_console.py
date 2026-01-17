@@ -371,12 +371,13 @@ class SubAgentConsoleManager:
         Call this before printing directly to console (e.g., streaming responses).
         The Live display will be stopped but state is preserved.
         """
-        if self._live is not None:
-            try:
-                self._live.stop()
-            except Exception:
-                pass
-            self._live = None  # Mark as paused
+        with self._agents_lock:
+            if self._live is not None:
+                try:
+                    self._live.stop()
+                except Exception:
+                    pass
+                self._live = None  # Mark as paused
 
     def resume_display(self) -> None:
         """Resume the Live display after streaming output completes.
@@ -443,9 +444,9 @@ class SubAgentConsoleManager:
         """Background thread that refreshes the display."""
         while not self._stop_event.is_set():
             try:
-                # Only update if Live is active (not paused)
-                if self._live is not None:
-                    with self._agents_lock:
+                with self._agents_lock:
+                    # Only update if Live is active (not paused)
+                    if self._live is not None:
                         # Update spinner frames
                         for agent in self._agents.values():
                             if agent.status in [
@@ -457,7 +458,8 @@ class SubAgentConsoleManager:
                                 agent.spinner_frame_index = (
                                     agent.spinner_frame_index + 1
                                 ) % len(SpinnerBase.FRAMES)
-                    self._live.update(self._render_display())
+                        # Update the Live display INSIDE the lock
+                        self._live.update(self._render_display())
             except Exception:
                 pass  # Ignore rendering errors, keep trying
 
