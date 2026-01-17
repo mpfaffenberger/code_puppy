@@ -28,3 +28,5 @@ dummy_path
 main.dist/
 nuitka-crash-report.xml
 *.backup
+main.bin
+
