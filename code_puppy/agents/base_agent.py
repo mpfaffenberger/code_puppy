@@ -72,6 +72,7 @@ from code_puppy.messaging.spinner import (
     update_spinner_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
+from code_puppy.steering import get_steering_manager
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
@@ -1556,6 +1557,35 @@ class BaseAgent(ABC):
                 )
 
         group_id = str(uuid.uuid4())
+        session_id = group_id  # Use group_id as session_id for steering
+
+        # Register with steering manager for pause/resume control
+        steering_manager = get_steering_manager()
+        try:
+            steering_manager.register_agent(
+                session_id, self.name, self.get_model_name()
+            )
+        except Exception:
+            pass  # Don't fail if steering registration fails
+
+        # Check for steering pause BEFORE starting agent run
+        try:
+            await steering_manager.wait_for_resume()
+        except Exception:
+            pass  # Don't fail if steering check fails
+
+        # Check for any queued steering messages and inject them
+        try:
+            queued_messages = steering_manager.get_queued_messages(session_id)
+            if queued_messages:
+                # Prepend queued steering messages to the prompt
+                steering_prefix = "\n".join(
+                    f"[STEERING]: {msg}" for msg in queued_messages
+                )
+                prompt = f"{steering_prefix}\n\n{prompt}"
+        except Exception:
+            pass  # Don't fail if message retrieval fails
+
         # Avoid double-loading: reuse existing agent if already built
         pydantic_agent = (
             self._code_generation_agent or self.reload_code_generation_agent()
@@ -1818,6 +1848,12 @@ class BaseAgent(ABC):
             if not agent_task.done():
                 agent_task.cancel()
         finally:
+            # Unregister from steering manager
+            try:
+                steering_manager.unregister_agent(session_id)
+            except Exception:
+                pass  # Don't fail if steering unregistration fails
+
             # Stop keyboard listener if it was started
             if key_listener_stop_event is not None:
                 key_listener_stop_event.set()
