@@ -784,6 +784,10 @@ async def run_prompt_with_attachments(
     import re
 
     from code_puppy.messaging import emit_system_message, emit_warning
+    from code_puppy.messaging.subagent_console import (
+        MAIN_AGENT_SESSION_ID,
+        SubAgentConsoleManager,
+    )
 
     processed_prompt = parse_prompt_attachments(raw_prompt)
 
@@ -834,6 +838,13 @@ async def run_prompt_with_attachments(
 
     set_streaming_console(spinner_console)
 
+    # Register main agent with SubAgentConsoleManager for dashboard visibility
+    console_manager = SubAgentConsoleManager.get_instance()
+    try:
+        console_manager.register_main_agent(agent.name, agent.get_model_name())
+    except Exception:
+        pass  # Gracefully handle registration failures
+
     # Create the agent task first so we can track and cancel it
     agent_task = asyncio.create_task(
         agent.run_with_mcp(
@@ -843,23 +854,30 @@ async def run_prompt_with_attachments(
         )
     )
 
-    if use_spinner and spinner_console is not None:
-        from code_puppy.messaging.spinner import ConsoleSpinner
+    try:
+        if use_spinner and spinner_console is not None:
+            from code_puppy.messaging.spinner import ConsoleSpinner
 
-        with ConsoleSpinner(console=spinner_console):
+            with ConsoleSpinner(console=spinner_console):
+                try:
+                    result = await agent_task
+                    return result, agent_task
+                except asyncio.CancelledError:
+                    emit_info("Agent task cancelled")
+                    return None, agent_task
+        else:
             try:
                 result = await agent_task
                 return result, agent_task
             except asyncio.CancelledError:
                 emit_info("Agent task cancelled")
                 return None, agent_task
-    else:
+    finally:
+        # Unregister main agent from dashboard
         try:
-            result = await agent_task
-            return result, agent_task
-        except asyncio.CancelledError:
-            emit_info("Agent task cancelled")
-            return None, agent_task
+            console_manager.unregister_agent(MAIN_AGENT_SESSION_ID)
+        except Exception:
+            pass  # Gracefully handle unregistration failures
 
 
 async def execute_single_prompt(prompt: str, message_renderer) -> None:
