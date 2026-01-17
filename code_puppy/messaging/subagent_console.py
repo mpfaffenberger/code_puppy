@@ -29,6 +29,7 @@ from rich.table import Table
 from rich.text import Text
 
 from code_puppy.messaging.messages import SubAgentStatusMessage
+from code_puppy.messaging.spinner.spinner_base import SpinnerBase
 
 # Conditional import for SteeringManager - may not exist yet (created by Task 1.1)
 try:
@@ -82,6 +83,7 @@ class AgentState:
     current_tool: Optional[str] = None
     start_time: float = field(default_factory=time.time)
     error_message: Optional[str] = None
+    spinner_frame_index: int = 0  # For animation in unified dashboard
 
     def elapsed_seconds(self) -> float:
         """Calculate elapsed time since agent started."""
@@ -411,6 +413,19 @@ class SubAgentConsoleManager:
         """Background thread that refreshes the display."""
         while not self._stop_event.is_set():
             try:
+                # Update spinner frames for animated agents
+                with self._agents_lock:
+                    for agent in self._agents.values():
+                        if agent.status in [
+                            "starting",
+                            "running",
+                            "thinking",
+                            "tool_calling",
+                        ]:
+                            agent.spinner_frame_index = (
+                                agent.spinner_frame_index + 1
+                            ) % len(SpinnerBase.FRAMES)
+
                 if self._live is not None:
                     self._live.update(self._render_display())
             except Exception:
@@ -547,6 +562,23 @@ class SubAgentConsoleManager:
         if agent.error_message:
             error_text = Text(agent.error_message, style="red")
             table.add_row("Error:", error_text)
+
+        # For main agent with active status, show animated spinner (puppy animation)
+        if is_main and agent.status in [
+            "starting",
+            "running",
+            "thinking",
+            "tool_calling",
+        ]:
+            # Get current spinner frame from SpinnerBase
+            spinner_frame = SpinnerBase.FRAMES[
+                agent.spinner_frame_index % len(SpinnerBase.FRAMES)
+            ]
+            # Add thinking message row with animated puppy
+            thinking_text = Text()
+            thinking_text.append(SpinnerBase.THINKING_MESSAGE, style="bold cyan")
+            thinking_text.append(spinner_frame, style="bold cyan")
+            table.add_row("", thinking_text)  # Empty label, thinking message as value
 
         # Build panel title with special indicator for main agent
         title = Text()

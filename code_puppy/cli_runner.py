@@ -858,23 +858,14 @@ async def run_prompt_with_attachments(
     )
 
     try:
-        if use_spinner and spinner_console is not None:
-            from code_puppy.messaging.spinner import ConsoleSpinner
-
-            with ConsoleSpinner(console=spinner_console):
-                try:
-                    result = await agent_task
-                    return result, agent_task
-                except asyncio.CancelledError:
-                    emit_info("Agent task cancelled")
-                    return None, agent_task
-        else:
-            try:
-                result = await agent_task
-                return result, agent_task
-            except asyncio.CancelledError:
-                emit_info("Agent task cancelled")
-                return None, agent_task
+        # No separate spinner needed - SubAgentConsoleManager handles the display
+        # with unified rich.Live and animated puppy spinner for the main agent
+        try:
+            result = await agent_task
+            return result, agent_task
+        except asyncio.CancelledError:
+            emit_info("Agent task cancelled")
+            return None, agent_task
     finally:
         # Unregister main agent from dashboard
         try:
