@@ -94,6 +94,14 @@ def make_model_settings(
     effective_settings = get_effective_model_settings(model_name)
     model_settings_dict.update(effective_settings)
 
+    # Default to clear_thinking=False for GLM-4.7 models (preserved thinking)
+    if "glm-4.7" in model_name.lower():
+        clear_thinking = effective_settings.get("clear_thinking", False)
+        model_settings_dict["thinking"] = {
+            "type": "enabled",
+            "clear_thinking": clear_thinking,
+        }
+
     model_settings: ModelSettings = ModelSettings(**model_settings_dict)
 
     if "gpt-5" in model_name:

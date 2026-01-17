@@ -90,6 +90,12 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "type": "boolean",
         "default": False,
     },
+    "clear_thinking": {
+        "name": "Clear Thinking",
+        "description": "False = Preserved Thinking (keep <think> blocks visible). True = strip thinking from responses.",
+        "type": "boolean",
+        "default": False,
+    },
 }
 
 
