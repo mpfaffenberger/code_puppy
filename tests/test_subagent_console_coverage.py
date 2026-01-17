@@ -22,6 +22,7 @@ from rich.panel import Panel
 from code_puppy.messaging.messages import SubAgentStatusMessage
 from code_puppy.messaging.subagent_console import (
     DEFAULT_STYLE,
+    MAIN_AGENT_SESSION_ID,
     STATUS_STYLES,
     AgentState,
     SubAgentConsoleManager,
@@ -752,6 +753,7 @@ class TestStatusStyles:
             "tool_calling",
             "completed",
             "error",
+            "paused",
         }
         assert set(STATUS_STYLES.keys()) == expected_statuses
 
@@ -770,6 +772,12 @@ class TestStatusStyles:
         """Test completed and error statuses have no spinner."""
         assert STATUS_STYLES["completed"]["spinner"] is None
         assert STATUS_STYLES["error"]["spinner"] is None
+
+    def test_paused_status_has_no_spinner(self):
+        """Test paused status has no spinner."""
+        assert STATUS_STYLES["paused"]["spinner"] is None
+        assert STATUS_STYLES["paused"]["color"] == "yellow"
+        assert STATUS_STYLES["paused"]["emoji"] == "⏸️"
 
 
 # =============================================================================
@@ -827,3 +835,306 @@ class TestThreadSafety:
 
         # All instances should be the same object
         assert all(inst is instances[0] for inst in instances)
+
+
+# =============================================================================
+# Main Agent Registration Tests
+# =============================================================================
+
+
+class TestMainAgentRegistration:
+    """Test main agent registration functionality."""
+
+    def setup_method(self):
+        SubAgentConsoleManager.reset_instance()
+        self.mock_console = Mock(spec=Console)
+        self.manager = SubAgentConsoleManager(console=self.mock_console)
+
+    def teardown_method(self):
+        SubAgentConsoleManager.reset_instance()
+
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    def test_register_main_agent_uses_special_session_id(self, mock_start):
+        """Test that register_main_agent uses MAIN_AGENT_SESSION_ID."""
+        self.manager.register_main_agent("code-puppy", "claude-3-opus")
+
+        state = self.manager.get_agent_state(MAIN_AGENT_SESSION_ID)
+        assert state is not None
+        assert state.session_id == MAIN_AGENT_SESSION_ID
+        assert state.agent_name == "code-puppy"
+        assert state.model_name == "claude-3-opus"
+
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    def test_is_main_agent_returns_true_for_main_agent(self, mock_start):
+        """Test is_main_agent returns True for main agent session."""
+        self.manager.register_main_agent("code-puppy", "claude-3-opus")
+        assert self.manager.is_main_agent(MAIN_AGENT_SESSION_ID) is True
+
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    def test_is_main_agent_returns_false_for_sub_agents(self, mock_start):
+        """Test is_main_agent returns False for sub-agents."""
+        self.manager.register_agent("sub-agent-123", "sub-agent", "gpt-4o")
+        assert self.manager.is_main_agent("sub-agent-123") is False
+
+    def test_main_agent_session_id_constant(self):
+        """Test MAIN_AGENT_SESSION_ID is the expected value."""
+        assert MAIN_AGENT_SESSION_ID == "main-agent"
+
+
+# =============================================================================
+# Agent Context Tests
+# =============================================================================
+
+
+class TestGetAgentContext:
+    """Test get_agent_context functionality."""
+
+    def setup_method(self):
+        SubAgentConsoleManager.reset_instance()
+        self.mock_console = Mock(spec=Console)
+        self.manager = SubAgentConsoleManager(console=self.mock_console)
+
+    def teardown_method(self):
+        SubAgentConsoleManager.reset_instance()
+
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    def test_get_agent_context_returns_all_fields(self, mock_start):
+        """Test get_agent_context returns all expected fields."""
+        self.manager.register_agent("sess-1", "test-agent", "gpt-4o")
+        self.manager.update_agent(
+            "sess-1",
+            status="running",
+            tool_call_count=5,
+            token_count=1000,
+            current_tool="read_file",
+        )
+
+        context = self.manager.get_agent_context("sess-1")
+
+        assert context["agent_name"] == "test-agent"
+        assert context["model_name"] == "gpt-4o"
+        assert context["status"] == "running"
+        assert context["session_id"] == "sess-1"
+        assert context["tool_call_count"] == 5
+        assert context["token_count"] == 1000
+        assert context["current_tool"] == "read_file"
+        assert "elapsed_seconds" in context
+        assert context["pending_steering_count"] == 0  # No steering manager
+
+    def test_get_agent_context_returns_empty_for_unknown(self):
+        """Test get_agent_context returns empty dict for unknown session."""
+        context = self.manager.get_agent_context("nonexistent")
+        assert context == {}
+
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    def test_get_agent_context_includes_error_message(self, mock_start):
+        """Test get_agent_context includes error_message when present."""
+        self.manager.register_agent("sess-1", "agent", "model")
+        self.manager.update_agent(
+            "sess-1", status="error", error_message="Something failed"
+        )
+
+        context = self.manager.get_agent_context("sess-1")
+        assert context["error_message"] == "Something failed"
+
+
+# =============================================================================
+# PAUSED Banner and Global Pause Tests
+# =============================================================================
+
+
+class TestPausedBanner:
+    """Test PAUSED banner rendering."""
+
+    def setup_method(self):
+        SubAgentConsoleManager.reset_instance()
+        self.mock_console = Mock(spec=Console)
+        self.manager = SubAgentConsoleManager(console=self.mock_console)
+
+    def teardown_method(self):
+        SubAgentConsoleManager.reset_instance()
+
+    def test_render_paused_banner_returns_panel(self):
+        """Test _render_paused_banner returns a Panel."""
+        banner = self.manager._render_paused_banner()
+        assert isinstance(banner, Panel)
+
+    def test_is_globally_paused_returns_false_without_steering(self):
+        """Test _is_globally_paused returns False when steering unavailable."""
+        # Without SteeringManager available, should return False
+        result = self.manager._is_globally_paused()
+        assert result is False
+
+    @patch("code_puppy.messaging.subagent_console._STEERING_AVAILABLE", True)
+    @patch("code_puppy.messaging.subagent_console.SteeringManager")
+    def test_is_globally_paused_checks_steering_manager(self, mock_steering_cls):
+        """Test _is_globally_paused checks SteeringManager.is_paused()."""
+        mock_steering = MagicMock()
+        mock_steering.is_paused.return_value = True
+        mock_steering_cls.return_value = mock_steering
+
+        result = self.manager._is_globally_paused()
+        assert result is True
+        mock_steering.is_paused.assert_called_once()
+
+    @patch("code_puppy.messaging.subagent_console._STEERING_AVAILABLE", True)
+    @patch("code_puppy.messaging.subagent_console.SteeringManager")
+    def test_is_globally_paused_handles_exception(self, mock_steering_cls):
+        """Test _is_globally_paused handles exceptions gracefully."""
+        mock_steering_cls.return_value.is_paused.side_effect = Exception("Error")
+
+        # Should return False on exception, not raise
+        result = self.manager._is_globally_paused()
+        assert result is False
+
+    @patch.object(SubAgentConsoleManager, "_is_globally_paused")
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    def test_render_display_includes_paused_banner_when_paused(
+        self, mock_start, mock_paused
+    ):
+        """Test _render_display includes PAUSED banner when globally paused."""
+        mock_paused.return_value = True
+        self.manager.register_agent("sess-1", "agent", "model")
+
+        result = self.manager._render_display()
+        assert isinstance(result, Group)
+        # First element should be the paused banner
+
+    @patch.object(SubAgentConsoleManager, "_is_globally_paused")
+    def test_render_display_no_banner_when_not_paused(self, mock_paused):
+        """Test _render_display doesn't include banner when not paused."""
+        mock_paused.return_value = False
+        result = self.manager._render_display()
+        assert isinstance(result, Group)
+
+
+# =============================================================================
+# Main Agent Rendering Tests
+# =============================================================================
+
+
+class TestMainAgentRendering:
+    """Test main agent panel rendering."""
+
+    def setup_method(self):
+        SubAgentConsoleManager.reset_instance()
+        self.manager = SubAgentConsoleManager(console=Mock(spec=Console))
+
+    def teardown_method(self):
+        SubAgentConsoleManager.reset_instance()
+
+    def test_render_agent_panel_with_is_main_true(self):
+        """Test _render_agent_panel with is_main=True."""
+        state = AgentState(
+            session_id=MAIN_AGENT_SESSION_ID,
+            agent_name="code-puppy",
+            model_name="claude-3-opus",
+            status="running",
+        )
+
+        panel = self.manager._render_agent_panel(state, is_main=True)
+        assert isinstance(panel, Panel)
+
+    def test_render_agent_panel_default_is_main_false(self):
+        """Test _render_agent_panel defaults is_main to False."""
+        state = AgentState(
+            session_id="sub-agent-1",
+            agent_name="sub-agent",
+            model_name="gpt-4o",
+        )
+
+        panel = self.manager._render_agent_panel(state)
+        assert isinstance(panel, Panel)
+
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    @patch.object(SubAgentConsoleManager, "_is_globally_paused")
+    def test_render_display_main_agent_first(self, mock_paused, mock_start):
+        """Test _render_display puts main agent before sub-agents."""
+        mock_paused.return_value = False
+
+        # Register sub-agent first, then main agent
+        self.manager.register_agent("sub-1", "sub-agent-1", "model")
+        self.manager.register_main_agent("main-agent", "model")
+        self.manager.register_agent("sub-2", "sub-agent-2", "model")
+
+        result = self.manager._render_display()
+        assert isinstance(result, Group)
+
+
+# =============================================================================
+# Steering Manager Integration Tests
+# =============================================================================
+
+
+class TestSteeringManagerIntegration:
+    """Test integration with SteeringManager."""
+
+    def setup_method(self):
+        SubAgentConsoleManager.reset_instance()
+        self.mock_console = Mock(spec=Console)
+        self.manager = SubAgentConsoleManager(console=self.mock_console)
+
+    def teardown_method(self):
+        SubAgentConsoleManager.reset_instance()
+
+    @patch("code_puppy.messaging.subagent_console._STEERING_AVAILABLE", True)
+    @patch("code_puppy.messaging.subagent_console.SteeringManager")
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    def test_register_agent_calls_steering_register(
+        self, mock_start, mock_steering_cls
+    ):
+        """Test register_agent calls SteeringManager.register_agent."""
+        mock_steering = MagicMock()
+        mock_steering_cls.return_value = mock_steering
+
+        self.manager.register_agent("sess-1", "agent", "model")
+
+        mock_steering.register_agent.assert_called_once_with("sess-1")
+
+    @patch("code_puppy.messaging.subagent_console._STEERING_AVAILABLE", True)
+    @patch("code_puppy.messaging.subagent_console.SteeringManager")
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    @patch.object(SubAgentConsoleManager, "_stop_display")
+    def test_unregister_agent_calls_steering_unregister(
+        self, mock_stop, mock_start, mock_steering_cls
+    ):
+        """Test unregister_agent calls SteeringManager.unregister_agent."""
+        mock_steering = MagicMock()
+        mock_steering_cls.return_value = mock_steering
+
+        self.manager.register_agent("sess-1", "agent", "model")
+        self.manager.unregister_agent("sess-1")
+
+        mock_steering.unregister_agent.assert_called_once_with("sess-1")
+
+    @patch("code_puppy.messaging.subagent_console._STEERING_AVAILABLE", True)
+    @patch("code_puppy.messaging.subagent_console.SteeringManager")
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    def test_register_agent_handles_steering_exception(
+        self, mock_start, mock_steering_cls
+    ):
+        """Test register_agent handles SteeringManager exceptions gracefully."""
+        mock_steering = MagicMock()
+        mock_steering.register_agent.side_effect = Exception("Steering error")
+        mock_steering_cls.return_value = mock_steering
+
+        # Should not raise, just continue
+        self.manager.register_agent("sess-1", "agent", "model")
+        assert self.manager.get_agent_state("sess-1") is not None
+
+    @patch("code_puppy.messaging.subagent_console._STEERING_AVAILABLE", True)
+    @patch("code_puppy.messaging.subagent_console.SteeringManager")
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    def test_get_agent_context_calls_steering_get_pending(
+        self, mock_start, mock_steering_cls
+    ):
+        """Test get_agent_context calls SteeringManager.get_pending_count."""
+        mock_steering = MagicMock()
+        mock_steering.get_pending_count.return_value = 5
+        mock_steering_cls.return_value = mock_steering
+
+        self.manager.register_agent("sess-1", "agent", "model")
+        context = self.manager.get_agent_context("sess-1")
+
+        assert context["pending_steering_count"] == 5
+        mock_steering.get_pending_count.assert_called_with("sess-1")

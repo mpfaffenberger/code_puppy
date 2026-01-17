@@ -4,8 +4,14 @@ Provides a Rich Live dashboard that shows real-time status of multiple
 running sub-agents, each in its own panel with spinner animations,
 status badges, and performance metrics.
 
+Supports the Pause & Steer system with:
+- Main agent registration (the primary code-puppy agent)
+- PAUSED status indicator when global pause is active
+- Integration with SteeringManager for agent registration/unregistration
+
 Usage:
     >>> manager = SubAgentConsoleManager.get_instance()
+    >>> manager.register_main_agent("code-puppy", "claude-3-opus")
     >>> manager.register_agent("session-123", "code-puppy", "gpt-4o")
     >>> manager.update_agent("session-123", status="running", tool_call_count=5)
     >>> manager.unregister_agent("session-123")
@@ -24,6 +30,15 @@ from rich.text import Text
 
 from code_puppy.messaging.messages import SubAgentStatusMessage
 
+# Conditional import for SteeringManager - may not exist yet (created by Task 1.1)
+try:
+    from code_puppy.steering import SteeringManager
+
+    _STEERING_AVAILABLE = True
+except ImportError:
+    _STEERING_AVAILABLE = False
+    SteeringManager = None  # type: ignore[misc, assignment]
+
 
 # =============================================================================
 # Status Configuration
@@ -36,7 +51,11 @@ STATUS_STYLES = {
     "tool_calling": {"color": "yellow", "spinner": "dots12", "emoji": "🔧"},
     "completed": {"color": "green", "spinner": None, "emoji": "✅"},
     "error": {"color": "red", "spinner": None, "emoji": "❌"},
+    "paused": {"color": "yellow", "spinner": None, "emoji": "⏸️"},
 }
+
+# Special session ID for the main agent
+MAIN_AGENT_SESSION_ID = "main-agent"
 
 DEFAULT_STYLE = {"color": "white", "spinner": "dots", "emoji": "⏳"}
 
@@ -169,6 +188,22 @@ class SubAgentConsoleManager:
     # Agent Registration
     # =========================================================================
 
+    def register_main_agent(self, agent_name: str, model_name: str) -> None:
+        """Register the main (top-level) agent on the dashboard.
+
+        The main agent gets a special session_id like 'main-agent' and
+        is displayed distinctly from sub-agents.
+
+        Args:
+            agent_name: Name of the agent (e.g., 'code-puppy').
+            model_name: Name of the model being used (e.g., 'claude-3-opus').
+        """
+        self.register_agent(
+            session_id=MAIN_AGENT_SESSION_ID,
+            agent_name=agent_name,
+            model_name=model_name,
+        )
+
     def register_agent(self, session_id: str, agent_name: str, model_name: str) -> None:
         """Register a new sub-agent and start display if needed.
 
@@ -184,6 +219,13 @@ class SubAgentConsoleManager:
                 agent_name=agent_name,
                 model_name=model_name,
             )
+
+            # Register with SteeringManager if available
+            if _STEERING_AVAILABLE and SteeringManager is not None:
+                try:
+                    SteeringManager().register_agent(session_id)
+                except Exception:
+                    pass  # Gracefully handle steering integration failures
 
             # Start display if this is the first agent
             if len(self._agents) == 1:
@@ -236,6 +278,13 @@ class SubAgentConsoleManager:
                 # Remove from tracking
                 del self._agents[session_id]
 
+                # Unregister from SteeringManager if available
+                if _STEERING_AVAILABLE and SteeringManager is not None:
+                    try:
+                        SteeringManager().unregister_agent(session_id)
+                    except Exception:
+                        pass  # Gracefully handle steering integration failures
+
                 # Stop display if no agents remain
                 if not self._agents:
                     self._stop_display()
@@ -260,6 +309,55 @@ class SubAgentConsoleManager:
         """
         with self._agents_lock:
             return list(self._agents.values())
+
+    def get_agent_context(self, session_id: str) -> dict:
+        """Get context info for an agent (for steering TUI display).
+
+        Args:
+            session_id: The session ID to look up.
+
+        Returns:
+            Dict with agent_name, model_name, status, and pending_steering_count.
+            Returns empty dict if agent not found.
+        """
+        with self._agents_lock:
+            agent = self._agents.get(session_id)
+            if agent is None:
+                return {}
+
+            # Get pending steering messages count from SteeringManager
+            pending_steering_count = 0
+            if _STEERING_AVAILABLE and SteeringManager is not None:
+                try:
+                    pending_steering_count = SteeringManager().get_pending_count(
+                        session_id
+                    )
+                except Exception:
+                    pass  # Gracefully handle steering integration failures
+
+            return {
+                "agent_name": agent.agent_name,
+                "model_name": agent.model_name,
+                "status": agent.status,
+                "session_id": agent.session_id,
+                "tool_call_count": agent.tool_call_count,
+                "token_count": agent.token_count,
+                "current_tool": agent.current_tool,
+                "elapsed_seconds": agent.elapsed_seconds(),
+                "error_message": agent.error_message,
+                "pending_steering_count": pending_steering_count,
+            }
+
+    def is_main_agent(self, session_id: str) -> bool:
+        """Check if a session_id is the main agent.
+
+        Args:
+            session_id: The session ID to check.
+
+        Returns:
+            True if this is the main agent session.
+        """
+        return session_id == MAIN_AGENT_SESSION_ID
 
     # =========================================================================
     # Display Management
@@ -325,26 +423,74 @@ class SubAgentConsoleManager:
     # Rendering
     # =========================================================================
 
+    def _is_globally_paused(self) -> bool:
+        """Check if the global pause is active via SteeringManager.
+
+        Returns:
+            True if global pause is active, False otherwise.
+        """
+        if _STEERING_AVAILABLE and SteeringManager is not None:
+            try:
+                return SteeringManager().is_paused()
+            except Exception:
+                pass  # Gracefully handle steering integration failures
+        return False
+
+    def _render_paused_banner(self) -> Panel:
+        """Render a prominent PAUSED banner for the dashboard.
+
+        Returns:
+            A Rich Panel displaying the PAUSED status.
+        """
+        paused_style = STATUS_STYLES["paused"]
+        banner_text = Text()
+        banner_text.append(f"{paused_style['emoji']} ", style="bold yellow")
+        banner_text.append("PAUSED", style="bold yellow")
+        banner_text.append(" - Agents are waiting for steering input", style="yellow")
+
+        return Panel(
+            banner_text,
+            border_style="yellow",
+            padding=(0, 1),
+            title=Text("⚠️  GLOBAL PAUSE ACTIVE", style="bold yellow"),
+            title_align="center",
+        )
+
     def _render_display(self) -> Group:
         """Render all agent panels as a Rich Group.
 
         Returns:
             A Group containing all agent panels stacked vertically.
+            Includes a PAUSED banner at top if global pause is active.
         """
         with self._agents_lock:
+            renderables = []
+
+            # Add PAUSED banner if global pause is active
+            if self._is_globally_paused():
+                renderables.append(self._render_paused_banner())
+
             if not self._agents:
-                return Group(Text("No active sub-agents", style="dim"))
+                renderables.append(Text("No active sub-agents", style="dim"))
+            else:
+                # Render main agent first (if present), then sub-agents
+                for session_id, agent in self._agents.items():
+                    if session_id == MAIN_AGENT_SESSION_ID:
+                        renderables.insert(
+                            1 if renderables else 0,
+                            self._render_agent_panel(agent, is_main=True),
+                        )
+                    else:
+                        renderables.append(self._render_agent_panel(agent))
 
-            panels = [
-                self._render_agent_panel(agent) for agent in self._agents.values()
-            ]
-            return Group(*panels)
+            return Group(*renderables)
 
-    def _render_agent_panel(self, agent: AgentState) -> Panel:
+    def _render_agent_panel(self, agent: AgentState, is_main: bool = False) -> Panel:
         """Render a single agent's status panel.
 
         Args:
             agent: The AgentState to render.
+            is_main: Whether this is the main agent (displays differently).
 
         Returns:
             A Rich Panel containing the agent's status information.
@@ -374,11 +520,12 @@ class SubAgentConsoleManager:
         # Model
         table.add_row("Model:", Text(agent.model_name, style="cyan"))
 
-        # Session ID (truncated for display)
-        session_display = agent.session_id
-        if len(session_display) > 24:
-            session_display = session_display[:21] + "..."
-        table.add_row("Session:", Text(session_display, style="dim"))
+        # Session ID (truncated for display) - skip for main agent
+        if not is_main:
+            session_display = agent.session_id
+            if len(session_display) > 24:
+                session_display = session_display[:21] + "..."
+            table.add_row("Session:", Text(session_display, style="dim"))
 
         # Tool calls
         tool_text = Text()
@@ -401,16 +548,21 @@ class SubAgentConsoleManager:
             error_text = Text(agent.error_message, style="red")
             table.add_row("Error:", error_text)
 
-        # Build panel title with spinner for active states
+        # Build panel title with special indicator for main agent
         title = Text()
-        title.append("🐕 ", style="bold")
+        if is_main:
+            title.append("🐾 ", style="bold")
+            title.append("MAIN AGENT: ", style="bold white")
+        else:
+            title.append("🐕 ", style="bold")
         title.append(agent.agent_name, style=f"bold {color}")
 
-        # Create panel
+        # Create panel with distinct border for main agent
+        border_style = "bold " + color if is_main else color
         return Panel(
             table,
             title=title,
-            border_style=color,
+            border_style=border_style,
             padding=(0, 1),
         )
 
@@ -458,4 +610,5 @@ __all__ = [
     "get_subagent_console_manager",
     "STATUS_STYLES",
     "DEFAULT_STYLE",
+    "MAIN_AGENT_SESSION_ID",
 ]
