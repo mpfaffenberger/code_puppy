@@ -685,3 +685,101 @@ class TestSubagentStreamHandler:
                     assert mock_manager.update_agent.call_count > 0
                     # Should have fired callbacks for all events
                     assert mock_fire.call_count == len(events)
+
+
+# =============================================================================
+# Pause Checkpoint Tests
+# =============================================================================
+
+
+class TestPauseCheckpoint:
+    """Tests for pause checkpoint in subagent stream handler."""
+
+    @pytest.mark.asyncio
+    async def test_pause_checkpoint_called_during_stream(self):
+        """Verify wait_for_resume is called during sub-agent event stream processing."""
+        from unittest.mock import AsyncMock
+
+        # Mock the SteeringManager
+        mock_steering_instance = MagicMock()
+        mock_steering_instance.wait_for_resume = AsyncMock()
+
+        # Create mock manager
+        mock_manager = MagicMock()
+        mock_manager.update_agent = MagicMock()
+
+        with patch(
+            "code_puppy.steering.SteeringManager"
+        ) as mock_steering_class:
+            mock_steering_class.get_instance.return_value = mock_steering_instance
+
+            with patch(
+                "code_puppy.messaging.subagent_console.SubAgentConsoleManager.get_instance",
+                return_value=mock_manager,
+            ):
+                with patch(
+                    "code_puppy.messaging.get_session_context",
+                    return_value="test-session",
+                ):
+                    with patch(
+                        "code_puppy.agents.subagent_stream_handler._fire_callback"
+                    ):
+                        # Create mock context and events
+                        mock_ctx = MagicMock(spec=RunContext)
+
+                        async def mock_events():
+                            for i in range(3):
+                                yield MagicMock(spec=object)
+
+                        # Run the handler
+                        await subagent_stream_handler(
+                            ctx=mock_ctx,
+                            events=mock_events(),
+                            session_id="test-session",
+                        )
+
+                        # Verify wait_for_resume was called
+                        assert mock_steering_instance.wait_for_resume.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_pause_checkpoint_graceful_when_steering_unavailable(self):
+        """Verify sub-agent streaming continues if SteeringManager fails."""
+
+        events_processed = []
+
+        async def mock_events():
+            for i in range(3):
+                events_processed.append(i)
+                yield MagicMock(spec=object)
+
+        # Create mock manager
+        mock_manager = MagicMock()
+        mock_manager.update_agent = MagicMock()
+
+        with patch(
+            "code_puppy.steering.SteeringManager"
+        ) as mock_steering_class:
+            mock_steering_class.get_instance.side_effect = RuntimeError(
+                "Steering unavailable"
+            )
+
+            with patch(
+                "code_puppy.messaging.subagent_console.SubAgentConsoleManager.get_instance",
+                return_value=mock_manager,
+            ):
+                with patch(
+                    "code_puppy.messaging.get_session_context",
+                    return_value="test-session",
+                ):
+                    with patch(
+                        "code_puppy.agents.subagent_stream_handler._fire_callback"
+                    ):
+                        mock_ctx = MagicMock(spec=RunContext)
+
+                        await subagent_stream_handler(
+                            ctx=mock_ctx,
+                            events=mock_events(),
+                            session_id="test-session",
+                        )
+
+                        assert len(events_processed) == 3
