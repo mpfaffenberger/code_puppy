@@ -23,20 +23,78 @@ from .constants import (
 logger = logging.getLogger(__name__)
 
 
-def _inline_refs(
-    schema: dict, convert_unions: bool = False, simplify_for_claude: bool = False
-) -> dict:
+def _flatten_union_to_object(union_items: list, defs: dict, resolve_fn) -> dict:
+    """Flatten a union of object types into a single object with all properties.
+
+    For discriminated unions like EditFilePayload (ContentPayload | ReplacementsPayload | DeleteSnippetPayload),
+    we merge all object types into one with all properties marked as optional.
+    """
+    merged_properties = {}
+    has_string_type = False
+
+    for item in union_items:
+        if not isinstance(item, dict):
+            continue
+
+        # Resolve $ref first
+        if "$ref" in item:
+            ref_path = item["$ref"]
+            ref_name = None
+            if ref_path.startswith("#/$defs/"):
+                ref_name = ref_path[8:]
+            elif ref_path.startswith("#/definitions/"):
+                ref_name = ref_path[14:]
+            if ref_name and ref_name in defs:
+                item = copy.deepcopy(defs[ref_name])
+            else:
+                continue
+
+        # Check for string type (common fallback)
+        if item.get("type") == "string":
+            has_string_type = True
+            continue
+
+        # Skip null types
+        if item.get("type") == "null":
+            continue
+
+        # Merge properties from object types
+        if item.get("type") == "object" or "properties" in item:
+            props = item.get("properties", {})
+            for prop_name, prop_schema in props.items():
+                if prop_name not in merged_properties:
+                    # Resolve the property schema
+                    merged_properties[prop_name] = resolve_fn(
+                        copy.deepcopy(prop_schema)
+                    )
+
+    if not merged_properties:
+        # No object properties found, return string type as fallback
+        return {"type": "string"} if has_string_type else {"type": "object"}
+
+    # Build merged object - no required fields since any subset is valid
+    result = {
+        "type": "object",
+        "properties": merged_properties,
+    }
+
+    return result
+
+
+def _inline_refs(schema: dict, simplify_unions: bool = False) -> dict:
     """Inline $ref references and transform schema for Antigravity compatibility.
 
     - Inlines $ref references
     - Removes $defs, definitions, $schema, $id
-    - Optionally converts anyOf/oneOf/allOf to any_of/one_of/all_of (only for Gemini)
     - Removes unsupported fields like 'default', 'examples', 'const'
-    - For Claude: simplifies anyOf unions to single types
+    - When simplify_unions=True: flattens anyOf/oneOf unions:
+      - For unions of objects: merges into single object with all properties
+      - For simple unions (string | null): picks first non-null type
+      (required for both Gemini AND Claude - neither supports union types in function schemas!)
 
     Args:
-        convert_unions: If True, convert anyOf->any_of etc. (for Gemini).
-        simplify_for_claude: If True, simplify anyOf to single types.
+        simplify_unions: If True, simplify anyOf/oneOf unions.
+                         Required for Gemini and Claude models.
     """
     if not isinstance(schema, dict):
         return schema
@@ -47,31 +105,73 @@ def _inline_refs(
     # Extract $defs for reference resolution
     defs = schema.pop("$defs", schema.pop("definitions", {}))
 
-    def resolve_refs(
-        obj, convert_unions=convert_unions, simplify_for_claude=simplify_for_claude
-    ):
+    def resolve_refs(obj, simplify_unions=simplify_unions):
         """Recursively resolve $ref references and transform schema."""
         if isinstance(obj, dict):
-            # For Claude: simplify anyOf/oneOf unions to first non-null type
-            if simplify_for_claude:
+            # Handle anyOf/oneOf unions
+            if simplify_unions:
                 for union_key in ["anyOf", "oneOf"]:
                     if union_key in obj:
                         union = obj[union_key]
                         if isinstance(union, list):
-                            # Find first non-null type
+                            # Check if this is a complex union of objects (discriminated union)
+                            # vs a simple nullable type (string | null)
+                            object_count = 0
+                            has_refs = False
+                            for item in union:
+                                if isinstance(item, dict):
+                                    if "$ref" in item:
+                                        has_refs = True
+                                        object_count += 1
+                                    elif (
+                                        item.get("type") == "object"
+                                        or "properties" in item
+                                    ):
+                                        object_count += 1
+
+                            # If multiple objects or has refs, flatten to single object
+                            if object_count > 1 or has_refs:
+                                flattened = _flatten_union_to_object(
+                                    union, defs, resolve_refs
+                                )
+                                # Keep description if present
+                                if "description" in obj:
+                                    flattened["description"] = obj["description"]
+                                return flattened
+
+                            # Simple union - pick first non-null type
                             for item in union:
                                 if (
                                     isinstance(item, dict)
                                     and item.get("type") != "null"
                                 ):
-                                    # Replace the whole object with this type
                                     result = dict(item)
-                                    # Keep description if present
                                     if "description" in obj:
                                         result["description"] = obj["description"]
-                                    return resolve_refs(
-                                        result, convert_unions, simplify_for_claude
-                                    )
+                                    return resolve_refs(result, simplify_unions)
+
+            # Also handle allOf by merging all schemas
+            if simplify_unions and "allOf" in obj:
+                all_of = obj["allOf"]
+                if isinstance(all_of, list):
+                    merged = {}
+                    merged_properties = {}
+                    for item in all_of:
+                        if isinstance(item, dict):
+                            resolved_item = resolve_refs(item, simplify_unions)
+                            # Deep merge properties dicts
+                            if "properties" in resolved_item:
+                                merged_properties.update(
+                                    resolved_item.pop("properties")
+                                )
+                            merged.update(resolved_item)
+                    if merged_properties:
+                        merged["properties"] = merged_properties
+                    # Keep other fields from original object (except allOf)
+                    for k, v in obj.items():
+                        if k != "allOf":
+                            merged[k] = v
+                    return resolve_refs(merged, simplify_unions)
 
             # Check for $ref
             if "$ref" in obj:
@@ -111,34 +211,23 @@ def _inline_refs(
                 ):
                     continue
 
-                # For Claude: skip additionalProperties
-                if simplify_for_claude and key == "additionalProperties":
+                # Skip additionalProperties (not supported by Gemini or Claude)
+                if simplify_unions and key == "additionalProperties":
                     continue
 
-                # Optionally transform union types for Gemini
-                new_key = key
-                if convert_unions:
-                    if key == "anyOf":
-                        new_key = "any_of"
-                    elif key == "oneOf":
-                        new_key = "one_of"
-                    elif key == "allOf":
-                        new_key = "all_of"
-                    elif key == "additionalProperties":
-                        new_key = "additional_properties"
+                # Skip any remaining union type keys that weren't simplified above
+                # (This shouldn't happen normally, but just in case)
+                if simplify_unions and key in ("anyOf", "oneOf", "allOf"):
+                    continue
 
-                result[new_key] = resolve_refs(
-                    value, convert_unions, simplify_for_claude
-                )
+                result[key] = resolve_refs(value, simplify_unions)
             return result
         elif isinstance(obj, list):
-            return [
-                resolve_refs(item, convert_unions, simplify_for_claude) for item in obj
-            ]
+            return [resolve_refs(item, simplify_unions) for item in obj]
         else:
             return obj
 
-    return resolve_refs(schema, convert_unions, simplify_for_claude)
+    return resolve_refs(schema, simplify_unions)
 
 
 class UnwrappedResponse(httpx.Response):
@@ -405,15 +494,14 @@ class AntigravityClient(httpx.AsyncClient):
                                         )
 
                                     # Inline $refs and remove $defs from parameters
-                                    # Convert unions (anyOf->any_of) only for Gemini
-                                    # Simplify schemas for Claude (no anyOf, no additionalProperties)
+                                    # Simplify union types (anyOf/oneOf/allOf) for BOTH Gemini and Claude
+                                    # Neither API supports union types in function schemas!
                                     if "parameters" in func_decl:
                                         is_gemini = "gemini" in model.lower()
                                         is_claude = "claude" in model.lower()
                                         func_decl["parameters"] = _inline_refs(
                                             func_decl["parameters"],
-                                            convert_unions=is_gemini,
-                                            simplify_for_claude=is_claude,
+                                            simplify_unions=(is_gemini or is_claude),
                                         )
 
                 # Fix generationConfig for Antigravity compatibility

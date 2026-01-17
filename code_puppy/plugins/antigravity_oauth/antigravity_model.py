@@ -99,12 +99,11 @@ class AntigravityModel(GeminiModel):
     def _build_tools(self, tools: list) -> list[dict]:
         """Build tool definitions with model-appropriate schema handling.
 
-        Claude and Gemini have different JSON Schema requirements:
-        - Gemini: needs anyOf->any_of conversion, etc.
-        - Claude: needs standard JSON Schema, simplified unions
+        Both Gemini and Claude require simplified union types in function schemas:
+        - Neither supports anyOf/oneOf/allOf in function parameter schemas
+        - We simplify by picking the first non-null type from unions
         """
 
-        is_claude = self._is_claude_model()
         function_declarations = []
 
         for tool in tools:
@@ -113,11 +112,10 @@ class AntigravityModel(GeminiModel):
                 "description": tool.description or "",
             }
             if tool.parameters_json_schema:
-                # Use _inline_refs with appropriate flags for the model type
+                # Simplify union types for all models (Gemini and Claude both need this)
                 func_decl["parameters"] = _inline_refs(
                     tool.parameters_json_schema,
-                    convert_unions=not is_claude,  # Gemini needs any_of conversion
-                    simplify_for_claude=is_claude,  # Claude needs simplified unions
+                    simplify_unions=True,  # Both Gemini and Claude need simplified unions
                 )
             function_declarations.append(func_decl)
 

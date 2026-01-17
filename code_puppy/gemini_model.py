@@ -46,6 +46,58 @@ def generate_tool_call_id() -> str:
     return str(uuid.uuid4())
 
 
+def _flatten_union_to_object_gemini(union_items: list, defs: dict, resolve_fn) -> dict:
+    """Flatten a union of object types into a single object with all properties.
+
+    For discriminated unions like EditFilePayload, we merge all object types
+    into one with all properties (Gemini doesn't support anyOf/oneOf).
+    """
+    import copy as copy_module
+
+    merged_properties = {}
+    has_string_type = False
+
+    for item in union_items:
+        if not isinstance(item, dict):
+            continue
+
+        # Resolve $ref first
+        if "$ref" in item:
+            ref_path = item["$ref"]
+            ref_name = None
+            if ref_path.startswith("#/$defs/"):
+                ref_name = ref_path[8:]
+            elif ref_path.startswith("#/definitions/"):
+                ref_name = ref_path[14:]
+            if ref_name and ref_name in defs:
+                item = copy_module.deepcopy(defs[ref_name])
+            else:
+                continue
+
+        if item.get("type") == "string":
+            has_string_type = True
+            continue
+
+        if item.get("type") == "null":
+            continue
+
+        if item.get("type") == "object" or "properties" in item:
+            props = item.get("properties", {})
+            for prop_name, prop_schema in props.items():
+                if prop_name not in merged_properties:
+                    merged_properties[prop_name] = resolve_fn(
+                        copy_module.deepcopy(prop_schema)
+                    )
+
+    if not merged_properties:
+        return {"type": "string"} if has_string_type else {"type": "object"}
+
+    return {
+        "type": "object",
+        "properties": merged_properties,
+    }
+
+
 def _sanitize_schema_for_gemini(schema: dict) -> dict:
     """Sanitize JSON schema for Gemini API compatibility.
 
@@ -53,7 +105,9 @@ def _sanitize_schema_for_gemini(schema: dict) -> dict:
     - $defs, definitions, $schema, $id
     - additionalProperties
     - $ref (inlined)
-    - anyOf/oneOf/allOf (converted to any_of/one_of/all_of)
+    - anyOf/oneOf/allOf (flattened - Gemini doesn't support unions!)
+      - For unions of objects: merges into single object with all properties
+      - For simple unions (string | null): picks first non-null type
     """
     import copy
 
@@ -69,6 +123,62 @@ def _sanitize_schema_for_gemini(schema: dict) -> dict:
     def resolve_refs(obj):
         """Recursively resolve $ref references and clean schema."""
         if isinstance(obj, dict):
+            # Handle anyOf/oneOf unions
+            for union_key in ["anyOf", "oneOf"]:
+                if union_key in obj:
+                    union = obj[union_key]
+                    if isinstance(union, list):
+                        # Check if this is a complex union of objects
+                        object_count = 0
+                        has_refs = False
+                        for item in union:
+                            if isinstance(item, dict):
+                                if "$ref" in item:
+                                    has_refs = True
+                                    object_count += 1
+                                elif (
+                                    item.get("type") == "object" or "properties" in item
+                                ):
+                                    object_count += 1
+
+                        # If multiple objects or has refs, flatten to single object
+                        if object_count > 1 or has_refs:
+                            flattened = _flatten_union_to_object_gemini(
+                                union, defs, resolve_refs
+                            )
+                            if "description" in obj:
+                                flattened["description"] = obj["description"]
+                            return flattened
+
+                        # Simple union - pick first non-null type
+                        for item in union:
+                            if isinstance(item, dict) and item.get("type") != "null":
+                                result = dict(item)
+                                if "description" in obj:
+                                    result["description"] = obj["description"]
+                                return resolve_refs(result)
+
+            # Handle allOf by merging all schemas
+            if "allOf" in obj:
+                all_of = obj["allOf"]
+                if isinstance(all_of, list):
+                    merged = {}
+                    merged_properties = {}
+                    for item in all_of:
+                        if isinstance(item, dict):
+                            resolved_item = resolve_refs(item)
+                            if "properties" in resolved_item:
+                                merged_properties.update(
+                                    resolved_item.pop("properties")
+                                )
+                            merged.update(resolved_item)
+                    if merged_properties:
+                        merged["properties"] = merged_properties
+                    for k, v in obj.items():
+                        if k != "allOf":
+                            merged[k] = v
+                    return resolve_refs(merged)
+
             # Check for $ref
             if "$ref" in obj:
                 ref_path = obj["$ref"]
@@ -102,19 +212,13 @@ def _sanitize_schema_for_gemini(schema: dict) -> dict:
                     "default",
                     "examples",
                     "const",
+                    "anyOf",  # Skip any remaining union types
+                    "oneOf",
+                    "allOf",
                 ):
                     continue
 
-                # Transform union types for Gemini
-                new_key = key
-                if key == "anyOf":
-                    new_key = "any_of"
-                elif key == "oneOf":
-                    new_key = "one_of"
-                elif key == "allOf":
-                    new_key = "all_of"
-
-                result[new_key] = resolve_refs(value)
+                result[key] = resolve_refs(value)
             return result
         elif isinstance(obj, list):
             return [resolve_refs(item) for item in obj]
