@@ -177,6 +177,7 @@ class TestAgentCreatorAgent:
             "agent_share_your_reasoning",
             "list_agents",
             "invoke_agent",
+            "universal_constructor",
         ]
         assert agent.get_available_tools() == expected_tools
 
