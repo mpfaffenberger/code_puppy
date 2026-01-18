@@ -673,6 +673,147 @@ class TestRunAgentWithPauseCheckpoints:
         mock_pause_manager.async_pause_checkpoint.assert_called_with("test-subagent-id")
 
     @pytest.mark.asyncio
+    async def test_stream_handler_called_for_model_request_node(self):
+        """Test that stream handler is called for model request nodes."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from code_puppy.tools.agent_tools import _run_agent_with_pause_checkpoints
+
+        mock_agent = MagicMock()
+        mock_agent.is_model_request_node.return_value = True
+        mock_agent.is_call_tools_node.return_value = False
+
+        mock_result = MagicMock()
+        mock_result.output = "Test response"
+        mock_result.all_messages.return_value = []
+
+        run_ctx = MagicMock()
+        mock_node = MagicMock()
+        mock_stream = MagicMock()
+
+        class MockStream:
+            async def __aenter__(self):
+                return mock_stream
+
+            async def __aexit__(self, *args):
+                pass
+
+        class MockAgentRun:
+            def __init__(self):
+                self.result = mock_result
+                self.ctx = run_ctx
+                self._iter_count = 0
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self._iter_count >= 1:
+                    raise StopAsyncIteration
+                self._iter_count += 1
+                return mock_node
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        mock_node.stream.return_value = MockStream()
+        mock_agent.iter.return_value = MockAgentRun()
+
+        mock_pause_manager = MagicMock()
+        mock_pause_manager.async_pause_checkpoint = AsyncMock(return_value=False)
+        mock_pause_manager.async_wait_for_resume = AsyncMock(return_value=True)
+
+        mock_stream_handler = AsyncMock()
+        run_context = MagicMock()
+
+        with (
+            patch("code_puppy.tools.agent_tools.get_message_limit", return_value=100),
+            patch(
+                "pydantic_ai._agent_graph.build_run_context",
+                return_value=run_context,
+            ) as build_run_context,
+        ):
+            await _run_agent_with_pause_checkpoints(
+                mock_agent,
+                "test prompt",
+                [],
+                mock_stream_handler,
+                mock_pause_manager,
+                "test-subagent-id",
+            )
+
+        build_run_context.assert_called_once_with(run_ctx)
+        mock_node.stream.assert_called_once_with(run_ctx)
+        mock_stream_handler.assert_awaited_once_with(run_context, mock_stream)
+
+    @pytest.mark.asyncio
+    async def test_stream_handler_not_called_for_non_stream_nodes(self):
+        """Test that stream handler is skipped for non-stream nodes."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from code_puppy.tools.agent_tools import _run_agent_with_pause_checkpoints
+
+        mock_agent = MagicMock()
+        mock_agent.is_model_request_node.return_value = False
+        mock_agent.is_call_tools_node.return_value = False
+
+        mock_result = MagicMock()
+        mock_result.output = "Test response"
+        mock_result.all_messages.return_value = []
+
+        run_ctx = MagicMock()
+        mock_node = MagicMock()
+
+        class MockAgentRun:
+            def __init__(self):
+                self.result = mock_result
+                self.ctx = run_ctx
+                self._iter_count = 0
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self._iter_count >= 1:
+                    raise StopAsyncIteration
+                self._iter_count += 1
+                return mock_node
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        mock_agent.iter.return_value = MockAgentRun()
+
+        mock_pause_manager = MagicMock()
+        mock_pause_manager.async_pause_checkpoint = AsyncMock(return_value=False)
+        mock_pause_manager.async_wait_for_resume = AsyncMock(return_value=True)
+
+        mock_stream_handler = AsyncMock()
+
+        with (
+            patch("code_puppy.tools.agent_tools.get_message_limit", return_value=100),
+            patch("pydantic_ai._agent_graph.build_run_context") as build_run_context,
+        ):
+            await _run_agent_with_pause_checkpoints(
+                mock_agent,
+                "test prompt",
+                [],
+                mock_stream_handler,
+                mock_pause_manager,
+                "test-subagent-id",
+            )
+
+        build_run_context.assert_not_called()
+        mock_node.stream.assert_not_called()
+        mock_stream_handler.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_pause_checkpoint_waits_when_paused(self):
         """Test that execution waits when pause checkpoint returns True."""
         from unittest.mock import AsyncMock, MagicMock
