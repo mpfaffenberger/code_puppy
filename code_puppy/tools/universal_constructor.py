@@ -4,6 +4,9 @@ This module provides the universal_constructor tool that enables users
 to create, manage, and call custom tools dynamically during a session.
 """
 
+import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -120,7 +123,15 @@ def _handle_call_action(
 ) -> UniversalConstructorOutput:
     """Handle the 'call' action - execute a UC tool.
 
-    Stub implementation - returns "Not implemented yet".
+    Validates the tool exists and is enabled, then executes it with a timeout.
+
+    Args:
+        context: The run context from pydantic-ai
+        tool_name: Name of the tool to call (required)
+        tool_args: Arguments to pass to the tool function
+
+    Returns:
+        UniversalConstructorOutput with call_result on success or error on failure
     """
     if not tool_name:
         return UniversalConstructorOutput(
@@ -128,7 +139,74 @@ def _handle_call_action(
             success=False,
             error="tool_name is required for call action",
         )
-    return _stub_not_implemented("call")
+
+    from code_puppy.plugins.universal_constructor.registry import get_registry
+
+    registry = get_registry()
+    tool = registry.get_tool(tool_name)
+
+    if not tool:
+        return UniversalConstructorOutput(
+            action="call",
+            success=False,
+            error=f"Tool '{tool_name}' not found",
+        )
+
+    if not tool.meta.enabled:
+        return UniversalConstructorOutput(
+            action="call",
+            success=False,
+            error=f"Tool '{tool_name}' is disabled",
+        )
+
+    func = registry.get_tool_function(tool_name)
+    if not func:
+        return UniversalConstructorOutput(
+            action="call",
+            success=False,
+            error=f"Could not load function for '{tool_name}'",
+        )
+
+    args = tool_args or {}
+    start_time = time.time()
+
+    try:
+        # Execute with timeout using ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(func, **args)
+            result = future.result(timeout=30)
+
+        execution_time = time.time() - start_time
+
+        return UniversalConstructorOutput(
+            action="call",
+            success=True,
+            call_result=UCCallOutput(
+                success=True,
+                tool_name=tool_name,
+                result=result,
+                execution_time=execution_time,
+            ),
+        )
+    except FuturesTimeoutError:
+        return UniversalConstructorOutput(
+            action="call",
+            success=False,
+            error=f"Tool '{tool_name}' timed out after 30s",
+        )
+    except TypeError as e:
+        # Invalid arguments
+        return UniversalConstructorOutput(
+            action="call",
+            success=False,
+            error=f"Invalid arguments for '{tool_name}': {e!s}",
+        )
+    except Exception as e:
+        return UniversalConstructorOutput(
+            action="call",
+            success=False,
+            error=f"Tool execution failed: {e!s}",
+        )
 
 
 def _handle_create_action(
