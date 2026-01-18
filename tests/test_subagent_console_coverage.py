@@ -26,6 +26,8 @@ from code_puppy.messaging.subagent_console import (
     AgentState,
     SubAgentConsoleManager,
     get_subagent_console_manager,
+    setup_subagent_pause_coordination,
+    teardown_subagent_pause_coordination,
 )
 
 # =============================================================================
@@ -827,3 +829,158 @@ class TestThreadSafety:
 
         # All instances should be the same object
         assert all(inst is instances[0] for inst in instances)
+
+
+# =============================================================================
+# Pause/Resume Tests
+# =============================================================================
+
+
+class TestPauseResume:
+    """Test pause/resume methods for pause+steer coordination."""
+
+    def setup_method(self):
+        SubAgentConsoleManager.reset_instance()
+
+    def teardown_method(self):
+        SubAgentConsoleManager.reset_instance()
+
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    def test_pause_sets_paused_flag(self, mock_start):
+        """Test that pause() sets the paused flag."""
+        manager = SubAgentConsoleManager(console=Mock(spec=Console))
+        assert manager.is_paused() is False
+        manager.pause()
+        assert manager.is_paused() is True
+
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    def test_resume_clears_paused_flag(self, mock_start):
+        """Test that resume() clears the paused flag."""
+        manager = SubAgentConsoleManager(console=Mock(spec=Console))
+        manager.pause()
+        manager.resume()
+        assert manager.is_paused() is False
+
+    @patch("code_puppy.messaging.subagent_console.Live")
+    def test_pause_stops_live_display(self, mock_live_class):
+        """Test that pause() stops the Live display."""
+        mock_live = MagicMock()
+        mock_live_class.return_value = mock_live
+
+        manager = SubAgentConsoleManager(console=Mock(spec=Console))
+        manager.register_agent("sess-1", "agent", "model")
+
+        # Verify Live was started
+        mock_live.start.assert_called_once()
+
+        # Pause should stop Live
+        manager.pause()
+        mock_live.stop.assert_called()
+        assert manager._live is None
+
+    @patch("code_puppy.messaging.subagent_console.Live")
+    def test_resume_restarts_live_display(self, mock_live_class):
+        """Test that resume() restarts the Live display when agents present."""
+        mock_live = MagicMock()
+        mock_live_class.return_value = mock_live
+
+        manager = SubAgentConsoleManager(console=Mock(spec=Console))
+        manager.register_agent("sess-1", "agent", "model")
+        manager.pause()
+
+        # Resume should restart
+        manager.resume()
+        assert manager._live is not None
+
+    @patch("code_puppy.messaging.subagent_console.Live")
+    def test_resume_no_restart_if_no_agents(self, mock_live_class):
+        """Test that resume() doesn't restart if no agents."""
+        mock_live = MagicMock()
+        mock_live_class.return_value = mock_live
+
+        manager = SubAgentConsoleManager(console=Mock(spec=Console))
+        manager.pause()
+        manager.resume()
+
+        # Should not have started (no agents)
+        mock_live.start.assert_not_called()
+
+    @patch.object(SubAgentConsoleManager, "_start_display")
+    def test_pause_is_thread_safe(self, mock_start):
+        """Test that pause/resume are thread-safe."""
+        manager = SubAgentConsoleManager(console=Mock(spec=Console))
+        errors = []
+
+        def toggle_pause():
+            try:
+                for _ in range(50):
+                    manager.pause()
+                    manager.resume()
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=toggle_pause) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0
+
+
+# =============================================================================
+# Pause Coordination Tests
+# =============================================================================
+
+
+class TestPauseCoordination:
+    """Test pause coordination with PauseManager."""
+
+    def setup_method(self):
+        SubAgentConsoleManager.reset_instance()
+
+    def teardown_method(self):
+        SubAgentConsoleManager.reset_instance()
+        # Clean up coordination
+
+        teardown_subagent_pause_coordination()
+
+    @patch.object(SubAgentConsoleManager, "pause")
+    def test_setup_registers_callback(self, mock_pause):
+        """Test that setup_subagent_pause_coordination registers callback."""
+        from code_puppy.pause_manager import get_pause_manager
+
+        setup_subagent_pause_coordination()
+        pm = get_pause_manager()
+        pm.register("test-agent", "Test")
+
+        # Request pause should trigger callback
+        pm.request_pause()
+        mock_pause.assert_called()
+
+        # Cleanup
+        pm.reset()
+
+    @patch.object(SubAgentConsoleManager, "resume")
+    def test_callback_resumes_on_resume(self, mock_resume):
+        """Test that callback resumes manager on resume request."""
+        from code_puppy.pause_manager import get_pause_manager
+
+        setup_subagent_pause_coordination()
+        pm = get_pause_manager()
+        pm.register("test-agent", "Test")
+
+        pm.request_pause()
+        pm.request_resume()
+        mock_resume.assert_called()
+
+        # Cleanup
+        pm.reset()
+
+    def test_setup_is_idempotent(self):
+        """Test that setup can be called multiple times safely."""
+
+        # Should not raise
+        setup_subagent_pause_coordination()
+        setup_subagent_pause_coordination()
+        setup_subagent_pause_coordination()

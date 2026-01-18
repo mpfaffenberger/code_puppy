@@ -20,6 +20,7 @@ from rich.text import Text
 
 from code_puppy.config import get_banner_color, get_subagent_verbose
 from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
+from code_puppy.pause_manager import get_output_quiescence_tracker
 from code_puppy.tools.subagent_context import is_subagent
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,10 @@ async def event_stream_handler(
         async for _ in events:
             pass  # Just consume events without rendering
         return
+
+    # Track output stream start for quiescence tracking
+    quiescence_tracker = get_output_quiescence_tracker()
+    quiescence_tracker.start_stream()
 
     import time
 
@@ -346,5 +351,8 @@ async def event_stream_handler(
                 next_kind = getattr(event, "next_part_kind", None)
                 if next_kind not in ("text", "thinking", "tool-call"):
                     resume_all_spinners()
+
+    # Signal stream end for quiescence tracking
+    quiescence_tracker.end_stream()
 
     # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)

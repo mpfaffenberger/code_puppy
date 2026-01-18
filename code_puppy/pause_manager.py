@@ -1,4 +1,7 @@
-"""PauseManager: registry, steering queues, and pause barrier for pause+steer."""
+"""PauseManager: registry, steering queues, and pause barrier for pause+steer.
+
+Also includes OutputQuiescenceTracker for tracking active output streams.
+"""
 
 import asyncio
 import logging
@@ -12,6 +15,230 @@ from code_puppy.config import get_use_dbos
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Output Quiescence Tracker
+# =============================================================================
+
+
+class OutputQuiescenceTracker:
+    """Tracks active output streams to determine when output is quiescent.
+
+    This is used to coordinate pause operations - we want to wait until
+    all active output streams are complete before displaying pause UI.
+
+    Thread-safe: All operations are protected by locks.
+
+    Usage:
+        tracker = get_output_quiescence_tracker()
+        tracker.start_stream()  # Called when streaming begins
+        # ... stream content ...
+        tracker.end_stream()    # Called when streaming ends
+
+        # Check if quiescent:
+        if tracker.is_quiescent():
+            # Safe to show pause menu
+
+        # Wait for quiescence:
+        await tracker.wait_for_quiescence(timeout=5.0)
+    """
+
+    _instance: Optional["OutputQuiescenceTracker"] = None
+    _lock = threading.Lock()
+
+    def __new__(cls) -> "OutputQuiescenceTracker":
+        """Singleton pattern - ensure only one instance exists."""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        """Initialize the tracker (only runs once due to singleton)."""
+        if getattr(self, "_initialized", False):
+            return
+
+        # Counter for active streams
+        self._active_count = 0
+        self._count_lock = threading.Lock()
+
+        # Event for quiescence signaling (sync)
+        self._quiescent_event = threading.Event()
+        self._quiescent_event.set()  # Initially quiescent (no streams)
+
+        # Async event for async waiters
+        self._async_quiescent_event: Optional[asyncio.Event] = None
+
+        # Callbacks for quiescence state changes
+        self._callbacks: List[Callable[[bool], None]] = []
+
+        self._initialized = True
+        logger.debug("OutputQuiescenceTracker initialized")
+
+    def start_stream(self) -> None:
+        """Signal that an output stream has started.
+
+        Increments the active stream counter and clears the quiescent event.
+        """
+        with self._count_lock:
+            self._active_count += 1
+            if self._active_count == 1:
+                # Transitioning from quiescent to active
+                self._quiescent_event.clear()
+                self._notify_callbacks(is_quiescent=False)
+            logger.debug(f"Stream started, active count: {self._active_count}")
+
+    def end_stream(self) -> None:
+        """Signal that an output stream has ended.
+
+        Decrements the active stream counter. Sets quiescent event if count hits 0.
+        """
+        with self._count_lock:
+            if self._active_count > 0:
+                self._active_count -= 1
+            else:
+                logger.warning("end_stream called with no active streams")
+
+            if self._active_count == 0:
+                # Transitioning to quiescent state
+                self._quiescent_event.set()
+                self._notify_callbacks(is_quiescent=True)
+                # Also set async event if it exists
+                if self._async_quiescent_event is not None:
+                    try:
+                        self._async_quiescent_event.set()
+                    except Exception:
+                        pass  # Event might be from different loop
+
+            logger.debug(f"Stream ended, active count: {self._active_count}")
+
+    def is_quiescent(self) -> bool:
+        """Check if output is currently quiescent (no active streams).
+
+        Returns:
+            True if no streams are active, False otherwise.
+        """
+        with self._count_lock:
+            return self._active_count == 0
+
+    def active_stream_count(self) -> int:
+        """Get the current number of active streams.
+
+        Returns:
+            Number of active output streams.
+        """
+        with self._count_lock:
+            return self._active_count
+
+    def wait_for_quiescence(self, timeout: Optional[float] = None) -> bool:
+        """Block until output becomes quiescent or timeout.
+
+        Args:
+            timeout: Maximum time to wait in seconds. None = wait forever.
+
+        Returns:
+            True if quiescent, False if timeout occurred.
+        """
+        return self._quiescent_event.wait(timeout=timeout)
+
+    async def async_wait_for_quiescence(self, timeout: Optional[float] = None) -> bool:
+        """Async version of wait_for_quiescence.
+
+        Args:
+            timeout: Maximum time to wait in seconds. None = wait forever.
+
+        Returns:
+            True if quiescent, False if timeout occurred.
+        """
+        # Fast path: already quiescent
+        if self.is_quiescent():
+            return True
+
+        # Create or get async event
+        if self._async_quiescent_event is None:
+            self._async_quiescent_event = asyncio.Event()
+            if self.is_quiescent():
+                self._async_quiescent_event.set()
+
+        try:
+            if timeout is not None:
+                await asyncio.wait_for(
+                    self._async_quiescent_event.wait(), timeout=timeout
+                )
+            else:
+                await self._async_quiescent_event.wait()
+            return True
+        except asyncio.TimeoutError:
+            return False
+
+    def add_callback(self, callback: Callable[[bool], None]) -> None:
+        """Add a callback for quiescence state changes.
+
+        Args:
+            callback: Function taking bool (True = quiescent, False = active)
+        """
+        self._callbacks.append(callback)
+
+    def remove_callback(self, callback: Callable[[bool], None]) -> bool:
+        """Remove a quiescence callback.
+
+        Args:
+            callback: The callback to remove
+
+        Returns:
+            True if callback was found and removed
+        """
+        try:
+            self._callbacks.remove(callback)
+            return True
+        except ValueError:
+            return False
+
+    def _notify_callbacks(self, is_quiescent: bool) -> None:
+        """Notify all callbacks of state change."""
+        for callback in self._callbacks:
+            try:
+                callback(is_quiescent)
+            except Exception as e:
+                logger.error(f"Quiescence callback error: {e}")
+
+    def reset(self) -> None:
+        """Reset the tracker state (for testing)."""
+        with self._count_lock:
+            self._active_count = 0
+            self._quiescent_event.set()
+            self._async_quiescent_event = None
+            self._callbacks.clear()
+            logger.debug("OutputQuiescenceTracker reset")
+
+
+# Module-level singleton accessor for quiescence tracker
+_quiescence_tracker: Optional[OutputQuiescenceTracker] = None
+_quiescence_lock = threading.Lock()
+
+
+def get_output_quiescence_tracker() -> OutputQuiescenceTracker:
+    """Get the singleton OutputQuiescenceTracker instance.
+
+    Returns:
+        The global OutputQuiescenceTracker instance
+    """
+    global _quiescence_tracker
+    if _quiescence_tracker is None:
+        with _quiescence_lock:
+            if _quiescence_tracker is None:
+                _quiescence_tracker = OutputQuiescenceTracker()
+    return _quiescence_tracker
+
+
+def reset_output_quiescence_tracker() -> None:
+    """Reset the global OutputQuiescenceTracker (for testing)."""
+    global _quiescence_tracker
+    if _quiescence_tracker is not None:
+        _quiescence_tracker.reset()
 
 
 class AgentStatus(Enum):
