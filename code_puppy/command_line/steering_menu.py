@@ -63,11 +63,25 @@ def _sanitize_display_text(text: str) -> str:
     for char in text:
         cat = unicodedata.category(char)
         safe_categories = (
-            "Lu", "Ll", "Lt", "Lm", "Lo",  # Letters
-            "Nd", "Nl", "No",  # Numbers
-            "Pc", "Pd", "Ps", "Pe", "Pi", "Pf", "Po",  # Punctuation
+            "Lu",
+            "Ll",
+            "Lt",
+            "Lm",
+            "Lo",  # Letters
+            "Nd",
+            "Nl",
+            "No",  # Numbers
+            "Pc",
+            "Pd",
+            "Ps",
+            "Pe",
+            "Pi",
+            "Pf",
+            "Po",  # Punctuation
             "Zs",  # Space
-            "Sm", "Sc", "Sk",  # Safe symbols
+            "Sm",
+            "Sc",
+            "Sk",  # Safe symbols
         )
         if cat in safe_categories:
             result.append(char)
@@ -114,17 +128,19 @@ def _get_agent_entries() -> List[Dict[str, Any]]:
         # Merge with SubAgentConsoleManager data if available
         extra = subagent_states.get(session_id, {})
 
-        entries.append({
-            "session_id": session_id,
-            "agent_name": agent.get("agent_name", "Unknown"),
-            "model_name": agent.get("model_name", "Unknown"),
-            "status": extra.get("status", "registered"),
-            "tool_call_count": extra.get("tool_call_count", 0),
-            "token_count": extra.get("token_count", 0),
-            "current_tool": extra.get("current_tool"),
-            "elapsed_seconds": extra.get("elapsed_seconds", 0),
-            "is_main": session_id == MAIN_AGENT_SESSION_ID,
-        })
+        entries.append(
+            {
+                "session_id": session_id,
+                "agent_name": agent.get("agent_name", "Unknown"),
+                "model_name": agent.get("model_name", "Unknown"),
+                "status": extra.get("status", "registered"),
+                "tool_call_count": extra.get("tool_call_count", 0),
+                "token_count": extra.get("token_count", 0),
+                "current_tool": extra.get("current_tool"),
+                "elapsed_seconds": extra.get("elapsed_seconds", 0),
+                "is_main": session_id == MAIN_AGENT_SESSION_ID,
+            }
+        )
 
     # Add any agents only in SubAgentConsoleManager
     for session_id, state_data in subagent_states.items():
@@ -134,22 +150,26 @@ def _get_agent_entries() -> List[Dict[str, Any]]:
                     console_manager = SubAgentConsoleManager.get_instance()
                     agent_state = console_manager.get_agent_state(session_id)
                     if agent_state:
-                        entries.append({
-                            "session_id": session_id,
-                            "agent_name": agent_state.agent_name,
-                            "model_name": agent_state.model_name,
-                            "status": agent_state.status,
-                            "tool_call_count": agent_state.tool_call_count,
-                            "token_count": agent_state.token_count,
-                            "current_tool": agent_state.current_tool,
-                            "elapsed_seconds": agent_state.elapsed_seconds(),
-                            "is_main": session_id == MAIN_AGENT_SESSION_ID,
-                        })
+                        entries.append(
+                            {
+                                "session_id": session_id,
+                                "agent_name": agent_state.agent_name,
+                                "model_name": agent_state.model_name,
+                                "status": agent_state.status,
+                                "tool_call_count": agent_state.tool_call_count,
+                                "token_count": agent_state.token_count,
+                                "current_tool": agent_state.current_tool,
+                                "elapsed_seconds": agent_state.elapsed_seconds(),
+                                "is_main": session_id == MAIN_AGENT_SESSION_ID,
+                            }
+                        )
                 except Exception:
                     pass
 
     # Sort: main agent first, then by agent name
-    entries.sort(key=lambda x: (not x.get("is_main", False), x.get("agent_name", "").lower()))
+    entries.sort(
+        key=lambda x: (not x.get("is_main", False), x.get("agent_name", "").lower())
+    )
 
     return entries
 
@@ -472,7 +492,9 @@ async def run_steering_menu() -> None:
         """Update all display panels."""
         refresh_entries()
         current_entries = entries[0]
-        agent_list_control.text = _render_agent_list_panel(current_entries, selected_idx[0])
+        agent_list_control.text = _render_agent_list_panel(
+            current_entries, selected_idx[0]
+        )
         details_control.text = _render_agent_details_panel(get_current_agent())
         status_control.text = _render_status_bar(status_message[0])
 
@@ -523,19 +545,25 @@ async def run_steering_menu() -> None:
     )
 
     # Input row
-    input_row = HSplit([
-        Window(height=1, char="─", style="fg:ansiyellow"),
-        HSplit([
-            VSplit([input_prompt_window, input_window]),
-            status_window,
-        ]),
-    ])
+    input_row = HSplit(
+        [
+            Window(height=1, char="─", style="fg:ansiyellow"),
+            HSplit(
+                [
+                    VSplit([input_prompt_window, input_window]),
+                    status_window,
+                ]
+            ),
+        ]
+    )
 
     # Main layout: VSplit for left/right, HSplit to add input at bottom
-    root_container = HSplit([
-        VSplit([agent_list_frame, details_frame]),
-        input_row,
-    ])
+    root_container = HSplit(
+        [
+            VSplit([agent_list_frame, details_frame]),
+            input_row,
+        ]
+    )
 
     # Key bindings
     kb = KeyBindings()
@@ -594,6 +622,12 @@ async def run_steering_menu() -> None:
         """Also allow Ctrl+C to exit."""
         event.app.exit()
 
+    # Suppress CPR (cursor position request) warning by using input without CPR
+    import os
+
+    # Disable CPR queries which cause warnings on some terminals
+    os.environ.setdefault("PROMPT_TOOLKIT_NO_CPR", "1")
+
     # Create application
     layout = Layout(root_container, focused_element=input_window)
     app = Application(
@@ -606,6 +640,14 @@ async def run_steering_menu() -> None:
     # === LAUNCH SEQUENCE ===
     set_awaiting_user_input(True)
     steering_manager.pause_all()
+
+    # CRITICAL: Stop the dashboard display loop to prevent conflicts
+    if _SUBAGENT_CONSOLE_AVAILABLE and SubAgentConsoleManager is not None:
+        try:
+            console_manager = SubAgentConsoleManager.get_instance()
+            console_manager._stop_display()  # Stop the Live display AND update thread
+        except Exception:
+            pass  # Gracefully handle if not available
 
     # Enter alternate screen buffer
     sys.stdout.write("\033[?1049h")  # Enter alternate buffer
@@ -630,8 +672,18 @@ async def run_steering_menu() -> None:
         sys.stdout.write("\033[?1049l")
         sys.stdout.flush()
 
-        # Resume all agents
+        # Resume all agents FIRST (so dashboard has something to show)
         steering_manager.resume_all()
+
+        # CRITICAL: Restart the dashboard display if there are agents
+        if _SUBAGENT_CONSOLE_AVAILABLE and SubAgentConsoleManager is not None:
+            try:
+                console_manager = SubAgentConsoleManager.get_instance()
+                # Check if there are still agents before restarting
+                if console_manager.get_all_agents():
+                    console_manager._start_display()
+            except Exception:
+                pass  # Gracefully handle if not available
 
         # Reset input flag
         set_awaiting_user_input(False)
@@ -639,6 +691,7 @@ async def run_steering_menu() -> None:
         # Emit info message
         try:
             from code_puppy.messaging import emit_info
+
             emit_info("✓ Steering menu closed - agents resumed")
         except ImportError:
             pass  # Gracefully handle if messaging not available
