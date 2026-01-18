@@ -156,6 +156,59 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
             }
             modified = True
 
+        # When `store=false` (Codex requirement), the backend does NOT persist input items.
+        # That means any later request that tries to reference a previous item by id will 404.
+        # We defensively strip reference-style items (especially reasoning_content) to avoid:
+        #   "Item with id 'rs_...' not found. Items are not persisted when store is false."
+        input_items = data.get("input")
+        if data.get("store") is False and isinstance(input_items, list):
+            original_len = len(input_items)
+
+            def _looks_like_unpersisted_reference(it: dict) -> bool:
+                it_id = it.get("id")
+                if it_id in {"reasoning_content", "rs_reasoning_content"}:
+                    return True
+
+                # Common reference-ish shapes: {"type": "input_item_reference", "id": "..."}
+                it_type = it.get("type")
+                if it_type in {"input_item_reference", "item_reference", "reference"}:
+                    return True
+
+                # Ultra-conservative: if it's basically just an id (no actual content), drop it.
+                # A legit content item will typically have fields like `content`, `text`, `role`, etc.
+                non_id_keys = {k for k in it.keys() if k not in {"id", "type"}}
+                if not non_id_keys and isinstance(it_id, str) and it_id:
+                    return True
+
+                return False
+
+            filtered: list[object] = []
+            for item in input_items:
+                if isinstance(item, dict) and _looks_like_unpersisted_reference(item):
+                    modified = True
+                    continue
+                filtered.append(item)
+
+            if len(filtered) != original_len:
+                data["input"] = filtered
+
+        # Normalize invalid input IDs (Codex expects reasoning ids to start with "rs_")
+        # Note: this is only safe for actual content items, NOT references.
+        input_items = data.get("input")
+        if isinstance(input_items, list):
+            for item in input_items:
+                if not isinstance(item, dict):
+                    continue
+                item_id = item.get("id")
+                if (
+                    isinstance(item_id, str)
+                    and item_id
+                    and "reasoning" in item_id
+                    and not item_id.startswith("rs_")
+                ):
+                    item["id"] = f"rs_{item_id}"
+                    modified = True
+
         # Remove unsupported parameters
         # Note: verbosity should be under "text" object, not top-level
         unsupported_params = ["max_output_tokens", "max_tokens", "verbosity"]

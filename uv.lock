@@ -202,7 +202,7 @@ dependencies = [
     { name = "playwright" },
     { name = "prompt-toolkit" },
     { name = "pydantic" },
-    { name = "pydantic-ai-slim", extra = ["anthropic", "openai"] },
+    { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
     { name = "pyfiglet" },
     { name = "python-dotenv" },
     { name = "rapidfuzz" },
@@ -237,7 +237,7 @@ requires-dist = [
     { name = "playwright", specifier = ">=1.40.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pydantic", specifier = ">=2.4.0" },
-    { name = "pydantic-ai-slim", extras = ["openai", "anthropic"], specifier = "==1.26.0" },
+    { name = "pydantic-ai-slim", extras = ["openai", "anthropic", "mcp"], specifier = "==1.26.0" },
     { name = "pyfiglet", specifier = ">=0.8.post1" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rapidfuzz", specifier = ">=3.13.0" },
@@ -1047,6 +1047,9 @@ wheels = [
 [package.optional-dependencies]
 anthropic = [
     { name = "anthropic" },
+]
+mcp = [
+    { name = "mcp" },
 ]
 openai = [
     { name = "openai" },
