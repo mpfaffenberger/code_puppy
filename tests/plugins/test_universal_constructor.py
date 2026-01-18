@@ -1806,3 +1806,18 @@ class TestGeneratePreview:
         assert "line4" in result
         assert "line5" not in result
         assert "... (truncated)" in result
+
+    def test_preview_included_in_call_output(self):
+        """Test that UCCallOutput can include source_preview."""
+        from code_puppy.plugins.universal_constructor.models import UCCallOutput
+
+        output = UCCallOutput(
+            success=True,
+            tool_name="test_tool",
+            result="hello",
+            execution_time=0.1,
+            source_preview="def test():\n    return 'hello'",
+        )
+
+        assert output.source_preview is not None
+        assert "def test" in output.source_preview
