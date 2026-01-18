@@ -5,7 +5,6 @@ for representing tool metadata, tool information, and operation responses.
 """
 
 from datetime import datetime
-from pathlib import Path
 from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
@@ -42,7 +41,7 @@ class UCToolInfo(BaseModel):
 
     meta: ToolMeta = Field(..., description="Tool metadata")
     signature: str = Field(..., description="Function signature string")
-    source_path: Path = Field(..., description="Path to the tool source file")
+    source_path: str = Field(..., description="Path to the tool source file")
     function_name: str = Field(default="", description="Name of the callable function")
     docstring: Optional[str] = Field(default=None, description="Function docstring")
 
@@ -89,7 +88,7 @@ class UCCreateOutput(BaseModel):
 
     success: bool = Field(..., description="Whether creation succeeded")
     tool_name: str = Field(default="", description="Name of the created tool")
-    source_path: Optional[Path] = Field(
+    source_path: Optional[str] = Field(
         default=None, description="Path where tool was saved"
     )
     error: Optional[str] = Field(default=None, description="Error message if failed")
@@ -105,7 +104,7 @@ class UCUpdateOutput(BaseModel):
 
     success: bool = Field(..., description="Whether update succeeded")
     tool_name: str = Field(default="", description="Name of the updated tool")
-    source_path: Optional[Path] = Field(
+    source_path: Optional[str] = Field(
         default=None, description="Path to the updated tool"
     )
     error: Optional[str] = Field(default=None, description="Error message if failed")

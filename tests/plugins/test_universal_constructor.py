@@ -130,25 +130,23 @@ class TestUCToolInfo:
         info = UCToolInfo(
             meta=meta,
             signature="greet(name: str) -> str",
-            source_path=Path("/tmp/greet.py"),
+            source_path="/tmp/greet.py",
         )
         assert info.meta.name == "greet"
         assert info.signature == "greet(name: str) -> str"
-        assert info.source_path == Path("/tmp/greet.py")
+        assert info.source_path == "/tmp/greet.py"
 
     def test_full_name_without_namespace(self):
         """Test full_name property without namespace."""
         meta = ToolMeta(name="tool", description="Test")
-        info = UCToolInfo(
-            meta=meta, signature="tool()", source_path=Path("/tmp/tool.py")
-        )
+        info = UCToolInfo(meta=meta, signature="tool()", source_path="/tmp/tool.py")
         assert info.full_name == "tool"
 
     def test_full_name_with_namespace(self):
         """Test full_name property with namespace."""
         meta = ToolMeta(name="weather", namespace="api", description="Weather API")
         info = UCToolInfo(
-            meta=meta, signature="weather()", source_path=Path("/tmp/api/weather.py")
+            meta=meta, signature="weather()", source_path="/tmp/api/weather.py"
         )
         assert info.full_name == "api.weather"
 
@@ -158,7 +156,7 @@ class TestUCToolInfo:
         info = UCToolInfo(
             meta=meta,
             signature="doc_tool(x: int)",
-            source_path=Path("/tmp/doc.py"),
+            source_path="/tmp/doc.py",
             function_name="doc_tool",
             docstring="This is the docstring.",
         )
@@ -206,7 +204,7 @@ class TestResponseModels:
         output = UCCreateOutput(
             success=True,
             tool_name="new_tool",
-            source_path=Path("/tmp/new_tool.py"),
+            source_path="/tmp/new_tool.py",
             validation_warnings=["Uses subprocess"],
         )
         assert output.success is True
@@ -227,7 +225,7 @@ class TestResponseModels:
         """Test UCInfoOutput model."""
         meta = ToolMeta(name="info_test", description="Test")
         tool = UCToolInfo(
-            meta=meta, signature="info_test()", source_path=Path("/tmp/test.py")
+            meta=meta, signature="info_test()", source_path="/tmp/test.py"
         )
         output = UCInfoOutput(
             success=True, tool=tool, source_code="def info_test(): pass"
@@ -1177,7 +1175,7 @@ def greet(name: str = "World") -> str:
             tool_info = UCToolInfo(
                 meta=meta,
                 signature="greet(name: str = 'World') -> str",
-                source_path=tool_file,
+                source_path=str(tool_file),
                 function_name="greet",
                 docstring="Generate a greeting.",
             )
@@ -1210,7 +1208,7 @@ def greet(name: str = "World") -> str:
         tool_info = UCToolInfo(
             meta=meta,
             signature="missing()",
-            source_path=Path("/nonexistent/path/missing.py"),
+            source_path="/nonexistent/path/missing.py",
         )
 
         context = Mock()
@@ -1295,7 +1293,7 @@ def test_tool(): pass
             tool_info = UCToolInfo(
                 meta=meta,
                 signature="test_tool()",
-                source_path=tool_file,
+                source_path=str(tool_file),
             )
 
             context = Mock()
@@ -1336,7 +1334,7 @@ def test_tool(): pass
             tool_info = UCToolInfo(
                 meta=meta,
                 signature="test_tool()",
-                source_path=tool_file,
+                source_path=str(tool_file),
             )
 
             context = Mock()
@@ -1377,7 +1375,7 @@ def updatable(): return "original"
             tool_info = UCToolInfo(
                 meta=meta,
                 signature="updatable()",
-                source_path=tool_file,
+                source_path=str(tool_file),
             )
 
             context = Mock()
@@ -1427,7 +1425,7 @@ def updatable(): return "updated"
         tool_info = UCToolInfo(
             meta=meta,
             signature="no_path()",
-            source_path=Path("/nonexistent/path.py"),
+            source_path="/nonexistent/path.py",
         )
 
         context = Mock()

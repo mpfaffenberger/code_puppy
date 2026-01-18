@@ -7,7 +7,6 @@ Tests cover:
 - Edge cases
 """
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -33,7 +32,7 @@ def mock_tool_enabled():
             author="Test Author",
         ),
         signature="weather_api(location: str) -> dict",
-        source_path=Path("/fake/path/weather_api.py"),
+        source_path="/fake/path/weather_api.py",
         function_name="weather_api",
         docstring="Fetch weather data for a given location.",
     )
@@ -51,7 +50,7 @@ def mock_tool_disabled():
             version="0.1.0",
         ),
         signature="deprecated_tool() -> None",
-        source_path=Path("/fake/path/deprecated_tool.py"),
+        source_path="/fake/path/deprecated_tool.py",
         function_name="deprecated_tool",
         docstring=None,
     )

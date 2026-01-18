@@ -412,7 +412,7 @@ def _handle_create_action(
         create_result=UCCreateOutput(
             success=True,
             tool_name=full_name,
-            source_path=file_path,
+            source_path=str(file_path),
             validation_warnings=validation_warnings,
         ),
     )
@@ -442,6 +442,8 @@ def _handle_update_action(
     Returns:
         UniversalConstructorOutput with update_result on success
     """
+    from pathlib import Path
+
     from code_puppy.plugins.universal_constructor.registry import get_registry
     from code_puppy.plugins.universal_constructor.sandbox import (
         _extract_tool_meta,
@@ -474,7 +476,8 @@ def _handle_update_action(
         )
 
     source_path = tool.source_path
-    if not source_path or not source_path.exists():
+    source_path_obj = Path(source_path) if source_path else None
+    if not source_path_obj or not source_path_obj.exists():
         return UniversalConstructorOutput(
             action="update",
             success=False,
@@ -502,7 +505,7 @@ def _handle_update_action(
             )
 
         # Write updated code
-        source_path.write_text(python_code, encoding="utf-8")
+        source_path_obj.write_text(python_code, encoding="utf-8")
 
         # Reload registry to pick up changes
         registry.reload()
@@ -542,6 +545,8 @@ def _handle_info_action(
     Returns:
         UniversalConstructorOutput with info_result containing tool details
     """
+    from pathlib import Path
+
     from code_puppy.plugins.universal_constructor.registry import get_registry
 
     if not tool_name:
@@ -564,9 +569,10 @@ def _handle_info_action(
     # Read source code from file
     source_code = ""
     source_path = tool.source_path
-    if source_path and source_path.exists():
+    source_path_obj = Path(source_path) if source_path else None
+    if source_path_obj and source_path_obj.exists():
         try:
-            source_code = source_path.read_text(encoding="utf-8")
+            source_code = source_path_obj.read_text(encoding="utf-8")
         except Exception:
             source_code = "[Could not read source]"
     else:

@@ -146,7 +146,7 @@ class UCRegistry:
         return UCToolInfo(
             meta=meta,
             signature=signature_str,
-            source_path=file_path,
+            source_path=str(file_path),
             function_name=func_name,
             docstring=docstring,
         )
