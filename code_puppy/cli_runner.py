@@ -37,7 +37,9 @@ from code_puppy.http_utils import find_available_port
 from code_puppy.keymap import (
     KeymapError,
     get_cancel_agent_display_name,
+    get_pause_agent_display_name,
     validate_cancel_agent_key,
+    validate_pause_agent_key,
 )
 from code_puppy.messaging import emit_info
 from code_puppy.terminal_utils import (
@@ -166,6 +168,15 @@ async def main():
     # Validate cancel_agent_key configuration early
     try:
         validate_cancel_agent_key()
+    except KeymapError as e:
+        from code_puppy.messaging import emit_error
+
+        emit_error(str(e))
+        sys.exit(1)
+
+    # Validate pause_agent_key configuration early
+    try:
+        validate_pause_agent_key()
     except KeymapError as e:
         from code_puppy.messaging import emit_error
 
@@ -365,6 +376,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     cancel_key = get_cancel_agent_display_name()
     emit_system_message(
         f"Press {cancel_key} during processing to cancel the current task or inference. Use Ctrl+X to interrupt running shell commands."
+    )
+    pause_key = get_pause_agent_display_name()
+    emit_system_message(
+        f"Press {pause_key} during processing to pause/resume the agent."
     )
     emit_system_message(
         "Use /autosave_load to manually load a previous autosave session."

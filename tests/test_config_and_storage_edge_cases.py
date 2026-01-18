@@ -270,6 +270,7 @@ class TestConfigKeys:
             "auto_save_session",
             "enable_dbos",
             "cancel_agent_key",
+            "pause_agent_key",
         ]
         for key in expected_keys:
             assert key in result, f"Expected key '{key}' not in config keys"
