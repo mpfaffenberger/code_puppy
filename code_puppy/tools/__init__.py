@@ -174,11 +174,17 @@ def register_tools_for_agent(agent, tool_names: list[str]):
 
     Args:
         agent: The agent to register tools to.
-        tool_names: List of tool names to register.
+        tool_names: List of tool names to register. UC tools are prefixed with "uc:".
     """
     from code_puppy.config import get_universal_constructor_enabled
 
     for tool_name in tool_names:
+        # Handle UC tools (prefixed with "uc:")
+        if tool_name.startswith("uc:"):
+            uc_tool_name = tool_name[3:]  # Remove "uc:" prefix
+            _register_uc_tool_wrapper(agent, uc_tool_name)
+            continue
+
         if tool_name not in TOOL_REGISTRY:
             # Skip unknown tools with a warning instead of failing
             emit_warning(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
@@ -194,6 +200,73 @@ def register_tools_for_agent(agent, tool_names: list[str]):
         # Register the individual tool
         register_func = TOOL_REGISTRY[tool_name]
         register_func(agent)
+
+
+def _register_uc_tool_wrapper(agent, uc_tool_name: str):
+    """Register a wrapper for a UC tool that calls it via the UC registry.
+
+    This creates a dynamic tool that wraps the UC tool, allowing it to be
+    called directly by the agent without going through universal_constructor.
+
+    Args:
+        agent: The agent to register the tool wrapper to.
+        uc_tool_name: The full name of the UC tool (e.g., "api.weather").
+    """
+    from typing import Any
+
+    from pydantic_ai import RunContext
+
+    # Get tool info for description and signature
+    try:
+        from code_puppy.plugins.universal_constructor.registry import get_registry
+
+        registry = get_registry()
+        tool_info = registry.get_tool(uc_tool_name)
+        if not tool_info:
+            emit_warning(f"Warning: UC tool '{uc_tool_name}' not found, skipping...")
+            return
+
+        description = tool_info.meta.description
+        docstring = tool_info.docstring or description
+    except Exception as e:
+        emit_warning(f"Warning: Failed to get UC tool '{uc_tool_name}' info: {e}")
+        return
+
+    # Create the wrapper function dynamically
+    # We use a closure to capture the tool name
+    def make_uc_wrapper(tool_name: str, tool_desc: str):
+        async def uc_tool_wrapper(
+            context: RunContext,
+            **kwargs: Any,
+        ) -> Any:
+            """Dynamically generated wrapper for a UC tool."""
+            from code_puppy.plugins.universal_constructor.registry import get_registry
+
+            registry = get_registry()
+            func = registry.get_tool_function(tool_name)
+            if not func:
+                return {"error": f"UC tool '{tool_name}' function not found"}
+
+            try:
+                result = func(**kwargs)
+                return result
+            except Exception as e:
+                return {"error": f"UC tool '{tool_name}' failed: {e}"}
+
+        # Set metadata for the tool
+        uc_tool_wrapper.__name__ = tool_name.replace(".", "_")
+        uc_tool_wrapper.__doc__ = (
+            f"{tool_desc}\n\nThis is a Universal Constructor tool."
+        )
+        return uc_tool_wrapper
+
+    wrapper = make_uc_wrapper(uc_tool_name, docstring)
+
+    # Register the wrapper as a tool
+    try:
+        agent.tool(wrapper)
+    except Exception as e:
+        emit_warning(f"Warning: Failed to register UC tool '{uc_tool_name}': {e}")
 
 
 def register_all_tools(agent):
