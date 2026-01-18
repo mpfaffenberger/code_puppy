@@ -10,8 +10,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from code_puppy.callbacks import register_callback
-from code_puppy.config import set_model_name
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+from code_puppy.model_switching import set_model_and_reload_agent
 
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
 from .accounts import AccountManager
@@ -165,8 +165,16 @@ def _await_callback(context: Any) -> Optional[Tuple[str, str, str]]:
     return result.code, result.state, redirect_uri
 
 
-def _perform_authentication(add_account: bool = False) -> bool:
-    """Run the OAuth authentication flow."""
+def _perform_authentication(
+    add_account: bool = False,
+    reload_agent: bool = True,
+) -> bool:
+    """Run the OAuth authentication flow.
+
+    Args:
+        add_account: Whether to add a new account to the pool.
+        reload_agent: Whether to reload the current agent after auth.
+    """
     context = prepare_oauth_context()
     callback_result = _await_callback(context)
 
@@ -226,8 +234,8 @@ def _perform_authentication(add_account: bool = False) -> bool:
     else:
         emit_warning("Failed to configure models. Try running /antigravity-auth again.")
 
-    # Reload agent
-    reload_current_agent()
+    if reload_agent:
+        reload_current_agent()
     return True
 
 
@@ -378,9 +386,8 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 "Existing tokens found. This will refresh your authentication."
             )
 
-        if _perform_authentication():
-            # Set a default model
-            set_model_name("antigravity-gemini-3-pro-high")
+        if _perform_authentication(reload_agent=False):
+            set_model_and_reload_agent("antigravity-gemini-3-pro-high")
         return True
 
     if name == "antigravity-add":

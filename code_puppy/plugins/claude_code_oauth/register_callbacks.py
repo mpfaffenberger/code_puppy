@@ -12,8 +12,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from code_puppy.callbacks import register_callback
-from code_puppy.config import set_model_name
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+from code_puppy.model_switching import set_model_and_reload_agent
 
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
 from .config import CLAUDE_CODE_OAUTH_CONFIG, get_token_storage_path
@@ -181,31 +181,6 @@ def _custom_help() -> List[Tuple[str, str]]:
     ]
 
 
-def _reload_current_agent() -> None:
-    """Reload the current agent so new auth tokens are picked up immediately."""
-    try:
-        from code_puppy.agents import get_current_agent
-
-        current_agent = get_current_agent()
-        if current_agent is None:
-            logger.debug("No current agent to reload")
-            return
-
-        # JSON agents may need to refresh their config before reload
-        if hasattr(current_agent, "refresh_config"):
-            try:
-                current_agent.refresh_config()
-            except Exception:
-                # Non-fatal, continue to reload
-                pass
-
-        current_agent.reload_code_generation_agent()
-        emit_info("Active agent reloaded with new authentication")
-    except Exception as e:
-        emit_warning(f"Authentication succeeded but agent reload failed: {e}")
-        logger.exception("Failed to reload agent after authentication")
-
-
 def _perform_authentication() -> None:
     context = prepare_oauth_context()
     code = _await_callback(context)
@@ -245,9 +220,6 @@ def _perform_authentication() -> None:
             "Claude Code models added to your configuration. Use the `claude-code-` prefix!"
         )
 
-    # Reload the current agent so the new auth token is picked up immediately
-    _reload_current_agent()
-
 
 def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if not name:
@@ -261,7 +233,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 "Existing Claude Code tokens found. Continuing will overwrite them."
             )
         _perform_authentication()
-        set_model_name("claude-code-claude-opus-4-5-20251101")
+        set_model_and_reload_agent("claude-code-claude-opus-4-5-20251101")
         return True
 
     if name == "claude-code-status":

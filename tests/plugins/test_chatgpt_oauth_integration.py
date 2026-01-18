@@ -258,14 +258,16 @@ class TestCustomCommands:
         mock_success.assert_called()
 
     @patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.run_oauth_flow")
-    @patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.set_model_name")
+    @patch(
+        "code_puppy.plugins.chatgpt_oauth.register_callbacks.set_model_and_reload_agent"
+    )
     def test_handle_custom_command_auth(self, mock_set_model, mock_oauth):
         """Test chatgpt-auth command triggers OAuth flow."""
         result = _handle_custom_command("custom_command", "chatgpt-auth")
 
         assert result is True
         mock_oauth.assert_called_once()
-        mock_set_model.assert_called_once()
+        mock_set_model.assert_called_once_with("chatgpt-gpt-5.2-codex")
 
     @patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.load_stored_tokens")
     def test_handle_custom_command_status(self, mock_load):

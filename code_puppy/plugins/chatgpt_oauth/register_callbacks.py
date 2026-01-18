@@ -6,8 +6,8 @@ import os
 from typing import List, Optional, Tuple
 
 from code_puppy.callbacks import register_callback
-from code_puppy.config import set_model_name
 from code_puppy.messaging import emit_info, emit_success, emit_warning
+from code_puppy.model_switching import set_model_and_reload_agent
 
 from .config import CHATGPT_OAUTH_CONFIG, get_token_storage_path
 from .oauth_flow import run_oauth_flow
@@ -76,7 +76,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
     if name == "chatgpt-auth":
         run_oauth_flow()
-        set_model_name("chatgpt-gpt-5.2-codex")
+        set_model_and_reload_agent("chatgpt-gpt-5.2-codex")
         return True
 
     if name == "chatgpt-status":

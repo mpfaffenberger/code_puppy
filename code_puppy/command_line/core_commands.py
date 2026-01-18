@@ -169,7 +169,7 @@ def handle_tutorial_command(command: str) -> bool:
         reset_onboarding,
         run_onboarding_wizard,
     )
-    from code_puppy.config import set_model_name
+    from code_puppy.model_switching import set_model_and_reload_agent
 
     # Always reset so user can re-run the tutorial anytime
     reset_onboarding()
@@ -184,7 +184,7 @@ def handle_tutorial_command(command: str) -> bool:
         from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
 
         run_oauth_flow()
-        set_model_name("chatgpt-gpt-5.2-codex")
+        set_model_and_reload_agent("chatgpt-gpt-5.2-codex")
     elif result == "claude":
         emit_info("🔐 Starting Claude Code OAuth flow...")
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (
@@ -192,7 +192,7 @@ def handle_tutorial_command(command: str) -> bool:
         )
 
         _perform_authentication()
-        set_model_name("claude-code-claude-opus-4-5-20251101")
+        set_model_and_reload_agent("claude-code-claude-opus-4-5-20251101")
     elif result == "completed":
         emit_info("🎉 Tutorial complete! Happy coding!")
     elif result == "skipped":

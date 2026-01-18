@@ -66,6 +66,8 @@ def isolate_config_between_tests(tmp_path_factory):
 
     # Clear model cache to ensure fresh state
     cp_config.clear_model_cache()
+    # Clear session-local model cache (required for /model session sticky behavior)
+    cp_config.reset_session_model()
 
     yield
 
@@ -75,6 +77,8 @@ def isolate_config_between_tests(tmp_path_factory):
 
     # Clear cache again after test
     cp_config.clear_model_cache()
+    # Clear session-local model cache
+    cp_config.reset_session_model()
 
     # Clean up the temp directory
     try:
