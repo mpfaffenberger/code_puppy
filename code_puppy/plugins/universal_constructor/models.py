@@ -43,12 +43,8 @@ class UCToolInfo(BaseModel):
     meta: ToolMeta = Field(..., description="Tool metadata")
     signature: str = Field(..., description="Function signature string")
     source_path: Path = Field(..., description="Path to the tool source file")
-    function_name: str = Field(
-        default="", description="Name of the callable function"
-    )
-    docstring: Optional[str] = Field(
-        default=None, description="Function docstring"
-    )
+    function_name: str = Field(default="", description="Name of the callable function")
+    docstring: Optional[str] = Field(default=None, description="Function docstring")
 
     model_config = {"arbitrary_types_allowed": True}
 

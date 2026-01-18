@@ -25,26 +25,17 @@ def _on_startup() -> None:
     registry = get_registry()
     logger.debug(f"UC registry initialized, tools dir: {registry._tools_dir}")
 
-
-def _uc_plugin_info() -> dict:
-    """Return plugin information for status displays."""
-    registry = get_registry()
+    # Log plugin info at startup
     tools = registry.list_tools(include_disabled=True)
     enabled = [t for t in tools if t.meta.enabled]
-
-    return {
-        "name": "Universal Constructor",
-        "version": "1.0.0",
-        "tools_dir": str(USER_UC_DIR),
-        "total_tools": len(tools),
-        "enabled_tools": len(enabled),
-    }
+    logger.debug(
+        f"UC plugin loaded: {len(enabled)}/{len(tools)} tools enabled "
+        f"from {USER_UC_DIR}"
+    )
 
 
-# Register callbacks
-# The startup callback ensures the directory exists when the app starts
+# Register startup callback
 register_callback("startup", _on_startup)
-register_callback("plugin_info", _uc_plugin_info)
 
 # Run startup initialization when this module loads
 _on_startup()
