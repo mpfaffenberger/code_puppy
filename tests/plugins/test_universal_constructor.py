@@ -1111,425 +1111,335 @@ class TestToolFileValidationResult:
 
 
 # =============================================================================
-# Test Universal Constructor _handle_call_action
+# Test Universal Constructor Tool Handlers
 # =============================================================================
 
 
-class TestHandleCallAction:
-    """Test the _handle_call_action function."""
+class TestHandleInfoAction:
+    """Test _handle_info_action function."""
 
-    def test_call_requires_tool_name(self):
-        """Test that call action requires tool_name."""
-        from unittest.mock import MagicMock
+    def test_info_requires_tool_name(self):
+        """Test that info action requires tool_name."""
+        from unittest.mock import Mock
 
-        from code_puppy.tools.universal_constructor import _handle_call_action
+        from code_puppy.tools.universal_constructor import _handle_info_action
 
-        mock_context = MagicMock()
-        result = _handle_call_action(mock_context, None, None)
-
+        context = Mock()
+        result = _handle_info_action(context, None)
         assert result.success is False
-        assert result.action == "call"
+        assert result.action == "info"
         assert "tool_name is required" in result.error
 
-    def test_call_tool_not_found(self):
-        """Test error when tool is not found."""
-        from unittest.mock import MagicMock, patch
+    def test_info_tool_not_found(self):
+        """Test info action with nonexistent tool."""
+        from unittest.mock import Mock, patch
 
-        from code_puppy.tools.universal_constructor import _handle_call_action
+        from code_puppy.tools.universal_constructor import _handle_info_action
 
-        mock_registry = MagicMock()
-        mock_registry.get_tool.return_value = None
-
-        mock_context = MagicMock()
-
+        context = Mock()
         with patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry",
-            return_value=mock_registry,
-        ):
-            result = _handle_call_action(mock_context, "nonexistent", {})
+            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        ) as mock_get_registry:
+            mock_registry = Mock()
+            mock_registry.get_tool.return_value = None
+            mock_get_registry.return_value = mock_registry
 
-        assert result.success is False
-        assert "'nonexistent' not found" in result.error
+            result = _handle_info_action(context, "nonexistent")
+            assert result.success is False
+            assert "not found" in result.error
 
-    def test_call_tool_disabled(self):
-        """Test error when tool is disabled."""
-        from unittest.mock import MagicMock, patch
-
-        from code_puppy.tools.universal_constructor import _handle_call_action
-
-        mock_tool = MagicMock()
-        mock_tool.meta.enabled = False
-
-        mock_registry = MagicMock()
-        mock_registry.get_tool.return_value = mock_tool
-
-        mock_context = MagicMock()
-
-        with patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry",
-            return_value=mock_registry,
-        ):
-            result = _handle_call_action(mock_context, "disabled_tool", {})
-
-        assert result.success is False
-        assert "'disabled_tool' is disabled" in result.error
-
-    def test_call_function_not_loadable(self):
-        """Test error when function cannot be loaded."""
-        from unittest.mock import MagicMock, patch
-
-        from code_puppy.tools.universal_constructor import _handle_call_action
-
-        mock_tool = MagicMock()
-        mock_tool.meta.enabled = True
-
-        mock_registry = MagicMock()
-        mock_registry.get_tool.return_value = mock_tool
-        mock_registry.get_tool_function.return_value = None
-
-        mock_context = MagicMock()
-
-        with patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry",
-            return_value=mock_registry,
-        ):
-            result = _handle_call_action(mock_context, "broken_tool", {})
-
-        assert result.success is False
-        assert "Could not load function" in result.error
-
-    def test_call_successful_execution(self):
-        """Test successful tool execution."""
-        from unittest.mock import MagicMock, patch
-
-        from code_puppy.tools.universal_constructor import _handle_call_action
-
-        def mock_func(a, b):
-            return a + b
-
-        mock_tool = MagicMock()
-        mock_tool.meta.enabled = True
-
-        mock_registry = MagicMock()
-        mock_registry.get_tool.return_value = mock_tool
-        mock_registry.get_tool_function.return_value = mock_func
-
-        mock_context = MagicMock()
-
-        with patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry",
-            return_value=mock_registry,
-        ):
-            result = _handle_call_action(mock_context, "add", {"a": 2, "b": 3})
-
-        assert result.success is True
-        assert result.call_result is not None
-        assert result.call_result.success is True
-        assert result.call_result.tool_name == "add"
-        assert result.call_result.result == 5
-        assert result.call_result.execution_time is not None
-        assert result.call_result.execution_time >= 0
-
-    def test_call_with_no_args(self):
-        """Test tool call with no arguments."""
-        from unittest.mock import MagicMock, patch
-
-        from code_puppy.tools.universal_constructor import _handle_call_action
-
-        def mock_func():
-            return "hello"
-
-        mock_tool = MagicMock()
-        mock_tool.meta.enabled = True
-
-        mock_registry = MagicMock()
-        mock_registry.get_tool.return_value = mock_tool
-        mock_registry.get_tool_function.return_value = mock_func
-
-        mock_context = MagicMock()
-
-        with patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry",
-            return_value=mock_registry,
-        ):
-            result = _handle_call_action(mock_context, "greeter", None)
-
-        assert result.success is True
-        assert result.call_result.result == "hello"
-
-    def test_call_invalid_arguments(self):
-        """Test error when passing invalid arguments."""
-        from unittest.mock import MagicMock, patch
-
-        from code_puppy.tools.universal_constructor import _handle_call_action
-
-        def mock_func(a: int, b: int) -> int:
-            return a + b
-
-        mock_tool = MagicMock()
-        mock_tool.meta.enabled = True
-
-        mock_registry = MagicMock()
-        mock_registry.get_tool.return_value = mock_tool
-        mock_registry.get_tool_function.return_value = mock_func
-
-        mock_context = MagicMock()
-
-        with patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry",
-            return_value=mock_registry,
-        ):
-            # Missing required arguments
-            result = _handle_call_action(mock_context, "add", {"a": 1})
-
-        assert result.success is False
-        assert "Invalid arguments" in result.error
-
-    def test_call_tool_raises_exception(self):
-        """Test error when tool raises an exception."""
-        from unittest.mock import MagicMock, patch
-
-        from code_puppy.tools.universal_constructor import _handle_call_action
-
-        def mock_func():
-            raise ValueError("Something went wrong")
-
-        mock_tool = MagicMock()
-        mock_tool.meta.enabled = True
-
-        mock_registry = MagicMock()
-        mock_registry.get_tool.return_value = mock_tool
-        mock_registry.get_tool_function.return_value = mock_func
-
-        mock_context = MagicMock()
-
-        with patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry",
-            return_value=mock_registry,
-        ):
-            result = _handle_call_action(mock_context, "broken", {})
-
-        assert result.success is False
-        assert "Tool execution failed" in result.error
-        assert "Something went wrong" in result.error
-
-    def test_call_with_real_registry(self):
-        """Test call with real registry and temp tool file."""
+    def test_info_success(self):
+        """Test successful info action."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tools_dir = Path(tmpdir)
             tool_code = '''
 TOOL_META = {
-    "name": "multiply",
-    "description": "Multiply two numbers",
-    "enabled": True,
+    "name": "greet",
+    "description": "A greeting tool",
 }
 
-def multiply(x: int, y: int) -> int:
-    """Multiply x and y."""
-    return x * y
-'''
-            (tools_dir / "multiply.py").write_text(tool_code)
-
-            # Create a registry pointing to our temp dir
-            registry = UCRegistry(tools_dir)
-            registry.scan()
-
-            from unittest.mock import MagicMock, patch
-
-            from code_puppy.tools.universal_constructor import _handle_call_action
-
-            mock_context = MagicMock()
-
-            with patch(
-                "code_puppy.plugins.universal_constructor.registry.get_registry",
-                return_value=registry,
-            ):
-                result = _handle_call_action(mock_context, "multiply", {"x": 6, "y": 7})
-
-            assert result.success is True
-            assert result.call_result.result == 42
-            assert result.call_result.tool_name == "multiply"
-
-    def test_call_execution_time_is_measured(self):
-        """Test that execution time is properly measured."""
-        import time as time_module
-        from unittest.mock import MagicMock, patch
-
-        from code_puppy.tools.universal_constructor import _handle_call_action
-
-        def slow_func():
-            time_module.sleep(0.1)
-            return "done"
-
-        mock_tool = MagicMock()
-        mock_tool.meta.enabled = True
-
-        mock_registry = MagicMock()
-        mock_registry.get_tool.return_value = mock_tool
-        mock_registry.get_tool_function.return_value = slow_func
-
-        mock_context = MagicMock()
-
-        with patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry",
-            return_value=mock_registry,
-        ):
-            result = _handle_call_action(mock_context, "slow", {})
-
-        assert result.success is True
-        assert result.call_result.execution_time >= 0.1
-
-
-# Test Universal Constructor Tool Actions
-# =============================================================================
-
-
-class TestHandleListAction:
-    """Test _handle_list_action function."""
-
-    def test_list_action_empty_registry(self, monkeypatch):
-        """Test list action with no tools."""
-
-        # Create a mock registry that returns empty list
-        class MockRegistry:
-            def list_tools(self, include_disabled=False):
-                return []
-
-        def mock_get_registry():
-            return MockRegistry()
-
-        # Patch at the source where it's imported from
-        monkeypatch.setattr(
-            "code_puppy.plugins.universal_constructor.registry.get_registry",
-            mock_get_registry,
-        )
-
-        from code_puppy.tools.universal_constructor import _handle_list_action
-
-        result = _handle_list_action(None)  # context not used for list
-
-        assert result.success is True
-        assert result.action == "list"
-        assert result.list_result is not None
-        assert result.list_result.tools == []
-        assert result.list_result.total_count == 0
-        assert result.list_result.enabled_count == 0
-
-    def test_list_action_with_tools(self, monkeypatch):
-        """Test list action with some tools in a temporary directory."""
-        from code_puppy.plugins.universal_constructor.registry import UCRegistry
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tools_dir = Path(tmpdir)
-
-            # Create a valid tool file
-            tool_code = '''
-TOOL_META = {
-    "name": "test_tool",
-    "description": "A test tool",
-    "version": "1.0.0",
-    "enabled": True,
-}
-
-def test_tool(name: str = "World") -> str:
-    """Say hello."""
+def greet(name: str = "World") -> str:
+    """Generate a greeting."""
     return f"Hello, {name}!"
 '''
-            (tools_dir / "test_tool.py").write_text(tool_code)
+            tool_file = tools_dir / "greet.py"
+            tool_file.write_text(tool_code)
 
-            # Create registry with this directory
-            registry = UCRegistry(tools_dir)
-            registry.scan()
+            from unittest.mock import Mock, patch
 
-            # Patch get_registry to return our test registry
-            monkeypatch.setattr(
-                "code_puppy.plugins.universal_constructor.registry.get_registry",
-                lambda: registry,
+            from code_puppy.plugins.universal_constructor.models import (
+                ToolMeta,
+                UCToolInfo,
+            )
+            from code_puppy.tools.universal_constructor import _handle_info_action
+
+            meta = ToolMeta(name="greet", description="A greeting tool")
+            tool_info = UCToolInfo(
+                meta=meta,
+                signature="greet(name: str = 'World') -> str",
+                source_path=tool_file,
+                function_name="greet",
+                docstring="Generate a greeting.",
             )
 
-            from code_puppy.tools.universal_constructor import _handle_list_action
+            context = Mock()
+            with patch(
+                "code_puppy.plugins.universal_constructor.registry.get_registry"
+            ) as mock_get_registry:
+                mock_registry = Mock()
+                mock_registry.get_tool.return_value = tool_info
+                mock_get_registry.return_value = mock_registry
 
-            result = _handle_list_action(None)
+                result = _handle_info_action(context, "greet")
+                assert result.success is True
+                assert result.action == "info"
+                assert result.info_result is not None
+                assert result.info_result.success is True
+                assert result.info_result.tool.meta.name == "greet"
+                assert "TOOL_META" in result.info_result.source_code
+                assert "def greet" in result.info_result.source_code
 
-            assert result.success is True
-            assert result.action == "list"
-            assert result.list_result is not None
-            assert len(result.list_result.tools) == 1
-            assert result.list_result.total_count == 1
-            assert result.list_result.enabled_count == 1
+    def test_info_source_file_not_found(self):
+        """Test info when source file doesn't exist."""
+        from unittest.mock import Mock, patch
 
-            # Check tool info
-            tool_info = result.list_result.tools[0]
-            assert tool_info.meta.name == "test_tool"
-            assert tool_info.meta.description == "A test tool"
+        from code_puppy.plugins.universal_constructor.models import ToolMeta, UCToolInfo
+        from code_puppy.tools.universal_constructor import _handle_info_action
 
-    def test_list_action_filters_disabled_tools(self, monkeypatch):
-        """Test that list action only returns enabled tools by default."""
-        from code_puppy.plugins.universal_constructor.registry import UCRegistry
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tools_dir = Path(tmpdir)
-
-            # Create enabled tool
-            enabled_code = """
-TOOL_META = {
-    "name": "enabled_tool",
-    "description": "An enabled tool",
-    "enabled": True,
-}
-def enabled_tool(): pass
-"""
-            (tools_dir / "enabled_tool.py").write_text(enabled_code)
-
-            # Create disabled tool
-            disabled_code = """
-TOOL_META = {
-    "name": "disabled_tool",
-    "description": "A disabled tool",
-    "enabled": False,
-}
-def disabled_tool(): pass
-"""
-            (tools_dir / "disabled_tool.py").write_text(disabled_code)
-
-            registry = UCRegistry(tools_dir)
-            registry.scan()
-
-            monkeypatch.setattr(
-                "code_puppy.plugins.universal_constructor.registry.get_registry",
-                lambda: registry,
-            )
-
-            from code_puppy.tools.universal_constructor import _handle_list_action
-
-            result = _handle_list_action(None)
-
-            assert result.success is True
-            # Only enabled tool should be in the tools list
-            assert len(result.list_result.tools) == 1
-            assert result.list_result.tools[0].meta.name == "enabled_tool"
-            # But counts should reflect both
-            assert result.list_result.total_count == 2
-            assert result.list_result.enabled_count == 1
-
-    def test_list_action_handles_exception(self, monkeypatch):
-        """Test that list action handles exceptions gracefully."""
-
-        def mock_get_registry():
-            raise RuntimeError("Registry error")
-
-        # Patch at the source where it's imported from
-        monkeypatch.setattr(
-            "code_puppy.plugins.universal_constructor.registry.get_registry",
-            mock_get_registry,
+        meta = ToolMeta(name="missing", description="Missing source")
+        tool_info = UCToolInfo(
+            meta=meta,
+            signature="missing()",
+            source_path=Path("/nonexistent/path/missing.py"),
         )
 
-        from code_puppy.tools.universal_constructor import _handle_list_action
+        context = Mock()
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        ) as mock_get_registry:
+            mock_registry = Mock()
+            mock_registry.get_tool.return_value = tool_info
+            mock_get_registry.return_value = mock_registry
 
-        result = _handle_list_action(None)
+            result = _handle_info_action(context, "missing")
+            assert result.success is True
+            assert result.info_result.source_code == "[Source file not found]"
 
+
+class TestHandleUpdateAction:
+    """Test _handle_update_action function."""
+
+    def test_update_requires_tool_name(self):
+        """Test that update action requires tool_name."""
+        from unittest.mock import Mock
+
+        from code_puppy.tools.universal_constructor import _handle_update_action
+
+        context = Mock()
+        result = _handle_update_action(context, None, None, None)
         assert result.success is False
-        assert result.action == "list"
-        assert "Registry error" in result.error
-        assert result.list_result is not None
-        assert result.list_result.tools == []
+        assert result.action == "update"
+        assert "tool_name is required" in result.error
+
+    def test_update_requires_python_code(self):
+        """Test that update requires python_code."""
+        from unittest.mock import Mock
+
+        from code_puppy.tools.universal_constructor import _handle_update_action
+
+        context = Mock()
+        result = _handle_update_action(context, "some_tool", None, None)
+        assert result.success is False
+        assert "python_code is required" in result.error
+
+    def test_update_tool_not_found(self):
+        """Test update action with nonexistent tool."""
+        from unittest.mock import Mock, patch
+
+        from code_puppy.tools.universal_constructor import _handle_update_action
+
+        context = Mock()
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        ) as mock_get_registry:
+            mock_registry = Mock()
+            mock_registry.get_tool.return_value = None
+            mock_get_registry.return_value = mock_registry
+
+            result = _handle_update_action(
+                context, "nonexistent", "def foo(): pass", None
+            )
+            assert result.success is False
+            assert "not found" in result.error
+
+    def test_update_invalid_syntax(self):
+        """Test update with invalid syntax code."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+            tool_file = tools_dir / "test_tool.py"
+            original_code = """
+TOOL_META = {"name": "test_tool", "description": "Test"}
+def test_tool(): pass
+"""
+            tool_file.write_text(original_code)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.plugins.universal_constructor.models import (
+                ToolMeta,
+                UCToolInfo,
+            )
+            from code_puppy.tools.universal_constructor import _handle_update_action
+
+            meta = ToolMeta(name="test_tool", description="Test")
+            tool_info = UCToolInfo(
+                meta=meta,
+                signature="test_tool()",
+                source_path=tool_file,
+            )
+
+            context = Mock()
+            with patch(
+                "code_puppy.plugins.universal_constructor.registry.get_registry"
+            ) as mock_get_registry:
+                mock_registry = Mock()
+                mock_registry.get_tool.return_value = tool_info
+                mock_get_registry.return_value = mock_registry
+
+                # Try to update with invalid syntax
+                result = _handle_update_action(
+                    context, "test_tool", "def broken(", None
+                )
+                assert result.success is False
+                assert "Syntax error" in result.error
+
+    def test_update_missing_tool_meta(self):
+        """Test update with code missing TOOL_META."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+            tool_file = tools_dir / "test_tool.py"
+            original_code = """
+TOOL_META = {"name": "test_tool", "description": "Test"}
+def test_tool(): pass
+"""
+            tool_file.write_text(original_code)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.plugins.universal_constructor.models import (
+                ToolMeta,
+                UCToolInfo,
+            )
+            from code_puppy.tools.universal_constructor import _handle_update_action
+
+            meta = ToolMeta(name="test_tool", description="Test")
+            tool_info = UCToolInfo(
+                meta=meta,
+                signature="test_tool()",
+                source_path=tool_file,
+            )
+
+            context = Mock()
+            with patch(
+                "code_puppy.plugins.universal_constructor.registry.get_registry"
+            ) as mock_get_registry:
+                mock_registry = Mock()
+                mock_registry.get_tool.return_value = tool_info
+                mock_get_registry.return_value = mock_registry
+
+                # Try to update with code that has no TOOL_META
+                result = _handle_update_action(
+                    context, "test_tool", "def foo(): pass", None
+                )
+                assert result.success is False
+                assert "TOOL_META" in result.error
+
+    def test_update_code_success(self):
+        """Test successful code update."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+            tool_file = tools_dir / "updatable.py"
+            original_code = """
+TOOL_META = {"name": "updatable", "description": "Original"}
+def updatable(): return "original"
+"""
+            tool_file.write_text(original_code)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.plugins.universal_constructor.models import (
+                ToolMeta,
+                UCToolInfo,
+            )
+            from code_puppy.tools.universal_constructor import _handle_update_action
+
+            meta = ToolMeta(name="updatable", description="Original")
+            tool_info = UCToolInfo(
+                meta=meta,
+                signature="updatable()",
+                source_path=tool_file,
+            )
+
+            context = Mock()
+            with patch(
+                "code_puppy.plugins.universal_constructor.registry.get_registry"
+            ) as mock_get_registry:
+                mock_registry = Mock()
+                mock_registry.get_tool.return_value = tool_info
+                mock_get_registry.return_value = mock_registry
+
+                new_code = """
+TOOL_META = {"name": "updatable", "description": "Updated"}
+def updatable(): return "updated"
+"""
+                result = _handle_update_action(context, "updatable", new_code, None)
+                assert result.success is True
+                assert result.update_result is not None
+                assert result.update_result.success is True
+                assert result.update_result.tool_name == "updatable"
+                assert "Replaced source code" in result.update_result.changes_applied
+
+                # Verify file was updated
+                updated_content = tool_file.read_text()
+                assert 'return "updated"' in updated_content
+                mock_registry.reload.assert_called_once()
+
+    def test_update_description_only_fails(self):
+        """Test that description-only update fails (requires python_code)."""
+        from unittest.mock import Mock
+
+        from code_puppy.tools.universal_constructor import _handle_update_action
+
+        context = Mock()
+        # Try to update with only description, no python_code
+        result = _handle_update_action(context, "some_tool", None, "New description")
+        assert result.success is False
+        assert "python_code is required" in result.error
+
+    def test_update_no_source_path(self):
+        """Test update when tool has no source path."""
+        from unittest.mock import Mock, patch
+
+        from code_puppy.plugins.universal_constructor.models import ToolMeta, UCToolInfo
+        from code_puppy.tools.universal_constructor import _handle_update_action
+
+        meta = ToolMeta(name="no_path", description="No path")
+        tool_info = UCToolInfo(
+            meta=meta,
+            signature="no_path()",
+            source_path=Path("/nonexistent/path.py"),
+        )
+
+        context = Mock()
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        ) as mock_get_registry:
+            mock_registry = Mock()
+            mock_registry.get_tool.return_value = tool_info
+            mock_get_registry.return_value = mock_registry
+
+            result = _handle_update_action(
+                context, "no_path", "TOOL_META = {}\ndef foo(): pass", None
+            )
+            assert result.success is False
+            assert "does not exist" in result.error.lower()

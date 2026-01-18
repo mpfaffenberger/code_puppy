@@ -271,15 +271,104 @@ def _handle_update_action(
 ) -> UniversalConstructorOutput:
     """Handle the 'update' action - modify an existing UC tool.
 
-    Stub implementation - returns "Not implemented yet".
+    Replaces an existing tool's code with new Python source code.
+    The new code must contain a valid TOOL_META dictionary.
+
+    Note: To update description or other metadata, include the changes
+    in the TOOL_META of the python_code. The description parameter is
+    reserved for future use but currently ignored.
+
+    Args:
+        context: The run context from pydantic-ai
+        tool_name: Name of the tool to update (required)
+        python_code: New Python source code (required)
+        description: Reserved for future use (currently ignored)
+
+    Returns:
+        UniversalConstructorOutput with update_result on success
     """
+    from code_puppy.plugins.universal_constructor.registry import get_registry
+    from code_puppy.plugins.universal_constructor.sandbox import (
+        _extract_tool_meta,
+        validate_syntax,
+    )
+
     if not tool_name:
         return UniversalConstructorOutput(
             action="update",
             success=False,
             error="tool_name is required for update action",
         )
-    return _stub_not_implemented("update")
+
+    # python_code is required for updates
+    if not python_code:
+        return UniversalConstructorOutput(
+            action="update",
+            success=False,
+            error="python_code is required for update action",
+        )
+
+    registry = get_registry()
+    tool = registry.get_tool(tool_name)
+
+    if not tool:
+        return UniversalConstructorOutput(
+            action="update",
+            success=False,
+            error=f"Tool '{tool_name}' not found",
+        )
+
+    source_path = tool.source_path
+    if not source_path or not source_path.exists():
+        return UniversalConstructorOutput(
+            action="update",
+            success=False,
+            error="Tool has no source path or file does not exist",
+        )
+
+    try:
+        # Validate new code syntax
+        syntax_result = validate_syntax(python_code)
+        if not syntax_result.valid:
+            error_msg = "; ".join(syntax_result.errors)
+            return UniversalConstructorOutput(
+                action="update",
+                success=False,
+                error=f"Syntax error in new code: {error_msg}",
+            )
+
+        # Validate TOOL_META exists in new code
+        new_meta = _extract_tool_meta(python_code)
+        if new_meta is None:
+            return UniversalConstructorOutput(
+                action="update",
+                success=False,
+                error="New code must contain a valid TOOL_META dictionary",
+            )
+
+        # Write updated code
+        source_path.write_text(python_code, encoding="utf-8")
+
+        # Reload registry to pick up changes
+        registry.reload()
+
+        return UniversalConstructorOutput(
+            action="update",
+            success=True,
+            update_result=UCUpdateOutput(
+                success=True,
+                tool_name=tool_name,
+                source_path=source_path,
+                changes_applied=["Replaced source code"],
+            ),
+        )
+
+    except Exception as e:
+        return UniversalConstructorOutput(
+            action="update",
+            success=False,
+            error=f"Failed to update tool: {e}",
+        )
 
 
 def _handle_info_action(
@@ -288,15 +377,55 @@ def _handle_info_action(
 ) -> UniversalConstructorOutput:
     """Handle the 'info' action - get detailed tool information.
 
-    Stub implementation - returns "Not implemented yet".
+    Retrieves comprehensive information about a UC tool including its
+    metadata, source code, and function signature.
+
+    Args:
+        context: The run context from pydantic-ai
+        tool_name: Full name of the tool (including namespace)
+
+    Returns:
+        UniversalConstructorOutput with info_result containing tool details
     """
+    from code_puppy.plugins.universal_constructor.registry import get_registry
+
     if not tool_name:
         return UniversalConstructorOutput(
             action="info",
             success=False,
             error="tool_name is required for info action",
         )
-    return _stub_not_implemented("info")
+
+    registry = get_registry()
+    tool = registry.get_tool(tool_name)
+
+    if not tool:
+        return UniversalConstructorOutput(
+            action="info",
+            success=False,
+            error=f"Tool '{tool_name}' not found",
+        )
+
+    # Read source code from file
+    source_code = ""
+    source_path = tool.source_path
+    if source_path and source_path.exists():
+        try:
+            source_code = source_path.read_text(encoding="utf-8")
+        except Exception:
+            source_code = "[Could not read source]"
+    else:
+        source_code = "[Source file not found]"
+
+    return UniversalConstructorOutput(
+        action="info",
+        success=True,
+        info_result=UCInfoOutput(
+            success=True,
+            tool=tool,
+            source_code=source_code,
+        ),
+    )
 
 
 def register_universal_constructor(agent):
