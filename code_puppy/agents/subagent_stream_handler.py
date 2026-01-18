@@ -26,7 +26,7 @@ from pydantic_ai.messages import (
     ToolCallPartDelta,
 )
 
-from code_puppy.pause_manager import get_output_quiescence_tracker
+from code_puppy.output_quiescence import get_output_quiescence_tracker
 
 logger = logging.getLogger(__name__)
 

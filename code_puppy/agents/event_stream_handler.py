@@ -20,7 +20,7 @@ from rich.text import Text
 
 from code_puppy.config import get_banner_color, get_subagent_verbose
 from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
-from code_puppy.pause_manager import get_output_quiescence_tracker
+from code_puppy.output_quiescence import get_output_quiescence_tracker
 from code_puppy.tools.subagent_context import is_subagent
 
 logger = logging.getLogger(__name__)
