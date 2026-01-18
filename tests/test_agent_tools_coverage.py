@@ -610,6 +610,8 @@ class TestRunAgentWithPauseCheckpoints:
 
         # Create a mock agent with a mock iter context manager
         mock_agent = MagicMock()
+        mock_agent.is_model_request_node.return_value = False
+        mock_agent.is_call_tools_node.return_value = False
         mock_agent_run = AsyncMock()
         mock_agent_run.result = MagicMock()
         mock_agent_run.result.output = "Test response"
@@ -679,6 +681,8 @@ class TestRunAgentWithPauseCheckpoints:
 
         # Create a mock agent with a single node
         mock_agent = MagicMock()
+        mock_agent.is_model_request_node.return_value = False
+        mock_agent.is_call_tools_node.return_value = False
         mock_agent_run = AsyncMock()
         mock_agent_run.result = MagicMock()
         mock_agent_run.result.output = "Test response"
@@ -738,6 +742,8 @@ class TestRunAgentWithPauseCheckpoints:
         from code_puppy.tools.agent_tools import _run_agent_with_pause_checkpoints
 
         mock_agent = MagicMock()
+        mock_agent.is_model_request_node.return_value = False
+        mock_agent.is_call_tools_node.return_value = False
         mock_agent_run = AsyncMock()
         mock_agent_run.result = MagicMock()
         mock_agent_run.result.output = "Test response"
@@ -797,13 +803,6 @@ class TestInvokeAgentPauseIntegration:
 
         pm = get_pause_manager()
         assert pm is not None
-
-    def test_imports_quiescence_tracker(self):
-        """Test that the output quiescence tracker import exists."""
-        from code_puppy.tools.agent_tools import get_output_quiescence_tracker
-
-        tracker = get_output_quiescence_tracker()
-        assert tracker is not None
 
 
 class TestSessionIdValidationInInvokeAgent:

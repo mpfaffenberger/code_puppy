@@ -34,7 +34,6 @@ from code_puppy.messaging import (
     get_session_context,
     set_session_context,
 )
-from code_puppy.output_quiescence import get_output_quiescence_tracker
 from code_puppy.pause_manager import get_pause_manager
 from code_puppy.tools.common import generate_group_id
 from code_puppy.tools.subagent_context import subagent_context
@@ -222,8 +221,8 @@ async def _run_agent_with_pause_checkpoints(
     checking for pause checkpoints between each iteration. This allows
     subagents to properly participate in the pause barrier.
 
-    The stream_handler is called for each streaming event via the
-    event_stream_handler parameter when creating the agent iterator.
+    The stream_handler is invoked for model request and tool-call nodes
+    (mirroring Agent.run) to process streaming events.
 
     Args:
         agent: The pydantic_ai Agent to run
@@ -238,6 +237,8 @@ async def _run_agent_with_pause_checkpoints(
     """
     usage_limits = UsageLimits(request_limit=get_message_limit())
 
+    from pydantic_ai import _agent_graph
+
     async with agent.iter(
         prompt,
         message_history=message_history,
@@ -245,16 +246,17 @@ async def _run_agent_with_pause_checkpoints(
     ) as agent_run:
         # Iterate over nodes with pause checkpoints between each
         async for node in agent_run:
-            # The node processing happens automatically via the iterator.
-            # We intercept between nodes to check for pause checkpoints.
-            # Streaming events are handled by the model internally -
-            # for iter() we don't pass event_stream_handler directly,
-            # instead we can process events from nodes if needed.
+            if stream_handler is not None and (
+                agent.is_model_request_node(node) or agent.is_call_tools_node(node)
+            ):
+                async with node.stream(agent_run.ctx) as stream:
+                    await stream_handler(
+                        _agent_graph.build_run_context(agent_run.ctx),
+                        stream,
+                    )
 
-            # Check pause checkpoint after each node
             should_pause = await pause_manager.async_pause_checkpoint(subagent_id)
             if should_pause:
-                # Wait for resume before continuing
                 await pause_manager.async_wait_for_resume(subagent_id)
 
         # Return the final result from the agent run
@@ -627,10 +629,6 @@ def register_invoke_agent(agent):
             subagent_id = f"subagent-{session_id}"
             pause_manager.register(subagent_id, f"Subagent: {agent_name}")
 
-            # Track quiescence for the overall subagent execution
-            quiescence_tracker = get_output_quiescence_tracker()
-            quiescence_tracker.start_stream()
-
             # Wrap the agent run in subagent context for tracking
             with subagent_context(agent_name):
                 try:
@@ -664,9 +662,8 @@ def register_invoke_agent(agent):
                             subagent_id,
                         )
                 finally:
-                    # Always unregister from PauseManager and end quiescence tracking
+                    # Always unregister from PauseManager
                     pause_manager.unregister(subagent_id)
-                    quiescence_tracker.end_stream()
                     if workflow_id and get_use_dbos():
                         # Check if we were cancelled
                         try:
