@@ -1564,7 +1564,8 @@ def weather(city: str) -> str:
                     tool_file = tools_dir / "api" / "weather.py"
                     assert tool_file.exists()
                     content = tool_file.read_text()
-                    assert "'namespace': 'api'" in content
+                    # ruff format may use double quotes
+                    assert "namespace" in content and "api" in content
 
     def test_create_with_existing_tool_meta(self):
         """Test creating a tool that already has TOOL_META in code."""

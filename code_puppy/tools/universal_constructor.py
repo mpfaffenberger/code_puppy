@@ -4,6 +4,7 @@ This module provides the universal_constructor tool that enables users
 to create, manage, and call custom tools dynamically during a session.
 """
 
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
@@ -60,6 +61,33 @@ def _stub_not_implemented(action: str) -> UniversalConstructorOutput:
         success=False,
         error="Not implemented yet",
     )
+
+
+def _run_ruff_format(file_path) -> Optional[str]:
+    """Run ruff format on a file.
+
+    Args:
+        file_path: Path to the file to format (str or Path)
+
+    Returns:
+        Warning message if formatting failed, None on success
+    """
+    try:
+        result = subprocess.run(
+            ["ruff", "format", str(file_path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return f"ruff format failed: {result.stderr.strip()}"
+        return None
+    except FileNotFoundError:
+        return "ruff not found - code not formatted"
+    except subprocess.TimeoutExpired:
+        return "ruff format timed out"
+    except Exception as e:
+        return f"ruff format error: {e}"
 
 
 def _emit_uc_message(
@@ -463,6 +491,11 @@ def _handle_create_action(
             error=f"Failed to write tool file: {e}",
         )
 
+    # Run ruff format on the new file
+    format_warning = _run_ruff_format(file_path)
+    if format_warning:
+        validation_warnings.append(format_warning)
+
     # Reload registry to pick up the new tool
     try:
         registry = get_registry()
@@ -575,6 +608,14 @@ def _handle_update_action(
         # Write updated code
         source_path_obj.write_text(python_code, encoding="utf-8")
 
+        # Run ruff format on the updated file
+        format_warning = _run_ruff_format(source_path_obj)
+        changes = ["Replaced source code"]
+        if format_warning:
+            changes.append(f"Format warning: {format_warning}")
+        else:
+            changes.append("Formatted with ruff")
+
         # Reload registry to pick up changes
         registry.reload()
 
@@ -585,7 +626,7 @@ def _handle_update_action(
                 success=True,
                 tool_name=tool_name,
                 source_path=source_path,
-                changes_applied=["Replaced source code"],
+                changes_applied=changes,
             ),
         )
 
