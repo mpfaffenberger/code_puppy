@@ -1758,3 +1758,51 @@ class TestUniversalConstructorConfig:
         with patch("code_puppy.config.set_value") as mock_set:
             set_universal_constructor_enabled(False)
             mock_set.assert_called_once_with("enable_universal_constructor", "false")
+
+
+class TestGeneratePreview:
+    """Tests for the _generate_preview helper function."""
+
+    def test_short_code_returns_full(self):
+        """Test that code shorter than max_lines is returned unchanged."""
+        from code_puppy.tools.universal_constructor import _generate_preview
+
+        code = "line1\nline2\nline3"
+        result = _generate_preview(code, max_lines=10)
+        assert result == code
+
+    def test_long_code_is_truncated(self):
+        """Test that code longer than max_lines is truncated with ellipsis."""
+        from code_puppy.tools.universal_constructor import _generate_preview
+
+        lines = [f"line{i}" for i in range(20)]
+        code = "\n".join(lines)
+        result = _generate_preview(code, max_lines=10)
+
+        assert "line0" in result
+        assert "line9" in result
+        assert "line10" not in result
+        assert "... (truncated)" in result
+
+    def test_exact_max_lines_not_truncated(self):
+        """Test that exactly max_lines is not truncated."""
+        from code_puppy.tools.universal_constructor import _generate_preview
+
+        lines = [f"line{i}" for i in range(10)]
+        code = "\n".join(lines)
+        result = _generate_preview(code, max_lines=10)
+
+        assert result == code
+        assert "truncated" not in result
+
+    def test_custom_max_lines(self):
+        """Test custom max_lines parameter."""
+        from code_puppy.tools.universal_constructor import _generate_preview
+
+        lines = [f"line{i}" for i in range(10)]
+        code = "\n".join(lines)
+        result = _generate_preview(code, max_lines=5)
+
+        assert "line4" in result
+        assert "line5" not in result
+        assert "... (truncated)" in result
