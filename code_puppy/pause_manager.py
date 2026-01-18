@@ -1,16 +1,4 @@
-"""PauseManager: Core registry, steering queues, and pause barrier for pause+steer feature.
-
-This module provides the infrastructure to:
-- Track running agents in a registry
-- Request pause with DBOS guard (warn/no-op if DBOS enabled)
-- Provide steering queues for each agent to receive user input during pause
-- Implement pause checkpoint/barrier for agents to acknowledge pause requests
-
-Design Notes:
-- Thread-safe singleton pattern for global access
-- asyncio.Queue per agent for steering input
-- DBOS conflicts with pause (durability requires deterministic execution)
-"""
+"""PauseManager: registry, steering queues, and pause barrier for pause+steer."""
 
 import asyncio
 import logging
