@@ -1108,3 +1108,159 @@ class TestToolFileValidationResult:
         """Test that it inherits from ValidationResult."""
         result = ToolFileValidationResult(valid=True)
         assert isinstance(result, ValidationResult)
+
+
+# =============================================================================
+# Test Universal Constructor Tool Actions
+# =============================================================================
+
+
+class TestHandleListAction:
+    """Test _handle_list_action function."""
+
+    def test_list_action_empty_registry(self, monkeypatch):
+        """Test list action with no tools."""
+
+        # Create a mock registry that returns empty list
+        class MockRegistry:
+            def list_tools(self, include_disabled=False):
+                return []
+
+        def mock_get_registry():
+            return MockRegistry()
+
+        # Patch at the source where it's imported from
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.registry.get_registry",
+            mock_get_registry,
+        )
+
+        from code_puppy.tools.universal_constructor import _handle_list_action
+
+        result = _handle_list_action(None)  # context not used for list
+
+        assert result.success is True
+        assert result.action == "list"
+        assert result.list_result is not None
+        assert result.list_result.tools == []
+        assert result.list_result.total_count == 0
+        assert result.list_result.enabled_count == 0
+
+    def test_list_action_with_tools(self, monkeypatch):
+        """Test list action with some tools in a temporary directory."""
+        from code_puppy.plugins.universal_constructor.registry import UCRegistry
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+
+            # Create a valid tool file
+            tool_code = '''
+TOOL_META = {
+    "name": "test_tool",
+    "description": "A test tool",
+    "version": "1.0.0",
+    "enabled": True,
+}
+
+def test_tool(name: str = "World") -> str:
+    """Say hello."""
+    return f"Hello, {name}!"
+'''
+            (tools_dir / "test_tool.py").write_text(tool_code)
+
+            # Create registry with this directory
+            registry = UCRegistry(tools_dir)
+            registry.scan()
+
+            # Patch get_registry to return our test registry
+            monkeypatch.setattr(
+                "code_puppy.plugins.universal_constructor.registry.get_registry",
+                lambda: registry,
+            )
+
+            from code_puppy.tools.universal_constructor import _handle_list_action
+
+            result = _handle_list_action(None)
+
+            assert result.success is True
+            assert result.action == "list"
+            assert result.list_result is not None
+            assert len(result.list_result.tools) == 1
+            assert result.list_result.total_count == 1
+            assert result.list_result.enabled_count == 1
+
+            # Check tool info
+            tool_info = result.list_result.tools[0]
+            assert tool_info.meta.name == "test_tool"
+            assert tool_info.meta.description == "A test tool"
+
+    def test_list_action_filters_disabled_tools(self, monkeypatch):
+        """Test that list action only returns enabled tools by default."""
+        from code_puppy.plugins.universal_constructor.registry import UCRegistry
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+
+            # Create enabled tool
+            enabled_code = """
+TOOL_META = {
+    "name": "enabled_tool",
+    "description": "An enabled tool",
+    "enabled": True,
+}
+def enabled_tool(): pass
+"""
+            (tools_dir / "enabled_tool.py").write_text(enabled_code)
+
+            # Create disabled tool
+            disabled_code = """
+TOOL_META = {
+    "name": "disabled_tool",
+    "description": "A disabled tool",
+    "enabled": False,
+}
+def disabled_tool(): pass
+"""
+            (tools_dir / "disabled_tool.py").write_text(disabled_code)
+
+            registry = UCRegistry(tools_dir)
+            registry.scan()
+
+            monkeypatch.setattr(
+                "code_puppy.plugins.universal_constructor.registry.get_registry",
+                lambda: registry,
+            )
+
+            from code_puppy.tools.universal_constructor import _handle_list_action
+
+            result = _handle_list_action(None)
+
+            assert result.success is True
+            # Only enabled tool should be in the tools list
+            assert len(result.list_result.tools) == 1
+            assert result.list_result.tools[0].meta.name == "enabled_tool"
+            # But counts should reflect both
+            assert result.list_result.total_count == 2
+            assert result.list_result.enabled_count == 1
+
+    def test_list_action_handles_exception(self, monkeypatch):
+        """Test that list action handles exceptions gracefully."""
+
+        def mock_get_registry():
+            raise RuntimeError("Registry error")
+
+        # Patch at the source where it's imported from
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.registry.get_registry",
+            mock_get_registry,
+        )
+
+        from code_puppy.tools.universal_constructor import _handle_list_action
+
+        result = _handle_list_action(None)
+
+        assert result.success is False
+        assert result.action == "list"
+        assert "Registry error" in result.error
+        assert result.list_result is not None
+        assert result.list_result.tools == []

@@ -108,9 +108,44 @@ async def universal_constructor_impl(
 def _handle_list_action(context: RunContext) -> UniversalConstructorOutput:
     """Handle the 'list' action - list all available UC tools.
 
-    Stub implementation - returns "Not implemented yet".
+    Lists all enabled tools from the UC registry, returning their
+    metadata, signatures, and source paths.
+
+    Args:
+        context: The run context from pydantic-ai (unused for list action)
+
+    Returns:
+        UniversalConstructorOutput with list_result containing all enabled tools.
     """
-    return _stub_not_implemented("list")
+    from code_puppy.plugins.universal_constructor.registry import get_registry
+
+    try:
+        registry = get_registry()
+        # Get all tools (including disabled for count)
+        all_tools = registry.list_tools(include_disabled=True)
+        enabled_tools = [t for t in all_tools if t.meta.enabled]
+
+        return UniversalConstructorOutput(
+            action="list",
+            success=True,
+            list_result=UCListOutput(
+                tools=enabled_tools,
+                total_count=len(all_tools),
+                enabled_count=len(enabled_tools),
+            ),
+        )
+    except Exception as e:
+        return UniversalConstructorOutput(
+            action="list",
+            success=False,
+            error=f"Failed to list tools: {e}",
+            list_result=UCListOutput(
+                tools=[],
+                total_count=0,
+                enabled_count=0,
+                error=str(e),
+            ),
+        )
 
 
 def _handle_call_action(
