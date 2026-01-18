@@ -8,3 +8,21 @@ try:
 except Exception:
     # Fallback for dev environments where metadata might not be available
     __version__ = "0.0.0-dev"
+
+# Pause Manager exports
+from code_puppy.pause_manager import (
+    AgentEntry,
+    AgentStatus,
+    PauseManager,
+    get_pause_manager,
+    reset_pause_manager,
+)
+
+__all__ = [
+    "__version__",
+    "AgentEntry",
+    "AgentStatus",
+    "PauseManager",
+    "get_pause_manager",
+    "reset_pause_manager",
+]
