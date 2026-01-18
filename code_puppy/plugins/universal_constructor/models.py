@@ -90,6 +90,9 @@ class UCCreateOutput(BaseModel):
     source_path: Optional[str] = Field(
         default=None, description="Path where tool was saved"
     )
+    preview: Optional[str] = Field(
+        default=None, description="Preview of the first 10 lines of source code"
+    )
     error: Optional[str] = Field(default=None, description="Error message if failed")
     validation_warnings: List[str] = Field(
         default_factory=list, description="Non-fatal validation warnings"
@@ -105,6 +108,9 @@ class UCUpdateOutput(BaseModel):
     tool_name: str = Field(default="", description="Name of the updated tool")
     source_path: Optional[str] = Field(
         default=None, description="Path to the updated tool"
+    )
+    preview: Optional[str] = Field(
+        default=None, description="Preview of the first 10 lines of updated source code"
     )
     error: Optional[str] = Field(default=None, description="Error message if failed")
     changes_applied: List[str] = Field(
