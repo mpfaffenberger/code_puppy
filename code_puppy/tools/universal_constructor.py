@@ -12,6 +12,8 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext
 
+from code_puppy.messaging import get_message_bus
+from code_puppy.messaging.messages import UniversalConstructorMessage
 from code_puppy.plugins.universal_constructor.models import (
     UCCallOutput,
     UCCreateOutput,
@@ -60,6 +62,33 @@ def _stub_not_implemented(action: str) -> UniversalConstructorOutput:
     )
 
 
+def _emit_uc_message(
+    action: str,
+    success: bool,
+    summary: str,
+    tool_name: Optional[str] = None,
+    details: Optional[str] = None,
+) -> None:
+    """Emit a UniversalConstructorMessage to the message bus.
+
+    Args:
+        action: The UC action performed (list/call/create/update/info)
+        success: Whether the operation succeeded
+        summary: Brief summary of the result
+        tool_name: Tool name if applicable
+        details: Additional details (optional)
+    """
+    bus = get_message_bus()
+    msg = UniversalConstructorMessage(
+        action=action,
+        tool_name=tool_name,
+        success=success,
+        summary=summary,
+        details=details,
+    )
+    bus.emit(msg)
+
+
 async def universal_constructor_impl(
     context: RunContext,
     action: Literal["list", "call", "create", "update", "info"],
@@ -89,23 +118,62 @@ async def universal_constructor_impl(
     Returns:
         UniversalConstructorOutput with action-specific results
     """
-    # Route to appropriate action handler (all stubbed for now)
+    # Route to appropriate action handler
     if action == "list":
-        return _handle_list_action(context)
+        result = _handle_list_action(context)
     elif action == "call":
-        return _handle_call_action(context, tool_name, tool_args)
+        result = _handle_call_action(context, tool_name, tool_args)
     elif action == "create":
-        return _handle_create_action(context, tool_name, python_code, description)
+        result = _handle_create_action(context, tool_name, python_code, description)
     elif action == "update":
-        return _handle_update_action(context, tool_name, python_code, description)
+        result = _handle_update_action(context, tool_name, python_code, description)
     elif action == "info":
-        return _handle_info_action(context, tool_name)
+        result = _handle_info_action(context, tool_name)
     else:
-        return UniversalConstructorOutput(
+        result = UniversalConstructorOutput(
             action=action,
             success=False,
             error=f"Unknown action: {action}",
         )
+
+    # Emit the banner message after the action completes
+    summary = _build_summary(result)
+    _emit_uc_message(
+        action=action,
+        success=result.success,
+        summary=summary,
+        tool_name=tool_name,
+        details=result.error if not result.success else None,
+    )
+
+    return result
+
+
+def _build_summary(result: UniversalConstructorOutput) -> str:
+    """Build a brief summary string from a UC result.
+
+    Args:
+        result: The UniversalConstructorOutput to summarize
+
+    Returns:
+        A brief human-readable summary string
+    """
+    if not result.success:
+        return result.error or "Operation failed"
+
+    if result.list_result:
+        return f"Found {result.list_result.enabled_count} enabled tools (of {result.list_result.total_count} total)"
+    elif result.call_result:
+        exec_time = result.call_result.execution_time or 0
+        return f"Executed in {exec_time:.2f}s"
+    elif result.create_result:
+        return f"Created {result.create_result.tool_name}"
+    elif result.update_result:
+        return f"Updated {result.update_result.tool_name}"
+    elif result.info_result and result.info_result.tool:
+        return f"Info for {result.info_result.tool.full_name}"
+    else:
+        return "Operation completed"
 
 
 def _handle_list_action(context: RunContext) -> UniversalConstructorOutput:

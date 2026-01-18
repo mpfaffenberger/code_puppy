@@ -4,7 +4,6 @@ This module defines the data structures used throughout the UC plugin
 for representing tool metadata, tool information, and operation responses.
 """
 
-from datetime import datetime
 from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
@@ -25,8 +24,8 @@ class ToolMeta(BaseModel):
     enabled: bool = Field(default=True, description="Whether the tool is active")
     version: str = Field(default="1.0.0", description="Semantic version of the tool")
     author: str = Field(default="", description="Tool author or creator")
-    created_at: Optional[datetime] = Field(
-        default=None, description="When the tool was created"
+    created_at: Optional[str] = Field(
+        default=None, description="When the tool was created (ISO format string)"
     )
 
     model_config = {"extra": "allow"}  # Allow additional metadata fields

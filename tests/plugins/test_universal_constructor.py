@@ -81,7 +81,7 @@ class TestToolMeta:
 
     def test_full_meta(self):
         """Test creating ToolMeta with all fields."""
-        now = datetime.now()
+        now_iso = datetime.now().isoformat()
         meta = ToolMeta(
             name="full_tool",
             namespace="utils",
@@ -89,14 +89,14 @@ class TestToolMeta:
             enabled=False,
             version="2.3.1",
             author="Test Author",
-            created_at=now,
+            created_at=now_iso,
         )
         assert meta.name == "full_tool"
         assert meta.namespace == "utils"
         assert meta.enabled is False
         assert meta.version == "2.3.1"
         assert meta.author == "Test Author"
-        assert meta.created_at == now
+        assert meta.created_at == now_iso
 
     def test_meta_allows_extra_fields(self):
         """Test that ToolMeta allows extra fields."""
