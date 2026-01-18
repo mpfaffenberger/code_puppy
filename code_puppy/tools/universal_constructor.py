@@ -158,15 +158,136 @@ def _handle_update_action(
 ) -> UniversalConstructorOutput:
     """Handle the 'update' action - modify an existing UC tool.
 
-    Stub implementation - returns "Not implemented yet".
+    Updates an existing tool's code and/or metadata. At least one of
+    python_code or description must be provided.
+
+    Args:
+        context: The run context from pydantic-ai
+        tool_name: Name of the tool to update (required)
+        python_code: New Python source code (optional)
+        description: New description to update in TOOL_META (optional)
+
+    Returns:
+        UniversalConstructorOutput with update_result on success
     """
+
+    from code_puppy.plugins.universal_constructor.registry import get_registry
+    from code_puppy.plugins.universal_constructor.sandbox import (
+        _extract_tool_meta,
+        validate_syntax,
+    )
+
     if not tool_name:
         return UniversalConstructorOutput(
             action="update",
             success=False,
             error="tool_name is required for update action",
         )
-    return _stub_not_implemented("update")
+
+    # Check that at least one update field is provided
+    if not python_code and not description:
+        return UniversalConstructorOutput(
+            action="update",
+            success=False,
+            error="At least one of python_code or description must be provided",
+        )
+
+    registry = get_registry()
+    tool = registry.get_tool(tool_name)
+
+    if not tool:
+        return UniversalConstructorOutput(
+            action="update",
+            success=False,
+            error=f"Tool '{tool_name}' not found",
+        )
+
+    source_path = tool.source_path
+    if not source_path or not source_path.exists():
+        return UniversalConstructorOutput(
+            action="update",
+            success=False,
+            error="Tool has no source path or file does not exist",
+        )
+
+    changes_applied = []
+
+    try:
+        # Read existing code
+        existing_code = source_path.read_text(encoding="utf-8")
+        new_code = existing_code
+
+        if python_code:
+            # Validate new code syntax
+            syntax_result = validate_syntax(python_code)
+            if not syntax_result.valid:
+                error_msg = "; ".join(syntax_result.errors)
+                return UniversalConstructorOutput(
+                    action="update",
+                    success=False,
+                    error=f"Syntax error in new code: {error_msg}",
+                )
+
+            # Validate TOOL_META exists in new code
+            new_meta = _extract_tool_meta(python_code)
+            if new_meta is None:
+                return UniversalConstructorOutput(
+                    action="update",
+                    success=False,
+                    error="New code must contain a valid TOOL_META dictionary",
+                )
+
+            new_code = python_code
+            changes_applied.append("Replaced source code")
+
+        if description:
+            # Update description in the code's TOOL_META
+            # Parse existing meta and update description
+            current_meta = _extract_tool_meta(new_code)
+            if current_meta is None:
+                return UniversalConstructorOutput(
+                    action="update",
+                    success=False,
+                    error="Could not parse TOOL_META from code",
+                )
+
+            # Simple string replacement for description
+            old_desc = current_meta.get("description", "")
+            if old_desc:
+                # Try to replace the old description with new one
+                new_code = new_code.replace(
+                    f'"description": "{old_desc}"',
+                    f'"description": "{description}"',
+                ).replace(
+                    f"'description': '{old_desc}'",
+                    f"'description': '{description}'",
+                )
+                if f'"description": "{description}"' in new_code or f"'description': '{description}'" in new_code:
+                    changes_applied.append(f"Updated description to: {description}")
+
+        # Write updated code
+        source_path.write_text(new_code, encoding="utf-8")
+
+        # Reload registry to pick up changes
+        registry.reload()
+
+        return UniversalConstructorOutput(
+            action="update",
+            success=True,
+            update_result=UCUpdateOutput(
+                success=True,
+                tool_name=tool_name,
+                source_path=source_path,
+                changes_applied=changes_applied,
+            ),
+        )
+
+    except Exception as e:
+        return UniversalConstructorOutput(
+            action="update",
+            success=False,
+            error=f"Failed to update tool: {e}",
+        )
 
 
 def _handle_info_action(
@@ -175,15 +296,55 @@ def _handle_info_action(
 ) -> UniversalConstructorOutput:
     """Handle the 'info' action - get detailed tool information.
 
-    Stub implementation - returns "Not implemented yet".
+    Retrieves comprehensive information about a UC tool including its
+    metadata, source code, and function signature.
+
+    Args:
+        context: The run context from pydantic-ai
+        tool_name: Full name of the tool (including namespace)
+
+    Returns:
+        UniversalConstructorOutput with info_result containing tool details
     """
+    from code_puppy.plugins.universal_constructor.registry import get_registry
+
     if not tool_name:
         return UniversalConstructorOutput(
             action="info",
             success=False,
             error="tool_name is required for info action",
         )
-    return _stub_not_implemented("info")
+
+    registry = get_registry()
+    tool = registry.get_tool(tool_name)
+
+    if not tool:
+        return UniversalConstructorOutput(
+            action="info",
+            success=False,
+            error=f"Tool '{tool_name}' not found",
+        )
+
+    # Read source code from file
+    source_code = ""
+    source_path = tool.source_path
+    if source_path and source_path.exists():
+        try:
+            source_code = source_path.read_text(encoding="utf-8")
+        except Exception:
+            source_code = "[Could not read source]"
+    else:
+        source_code = "[Source file not found]"
+
+    return UniversalConstructorOutput(
+        action="info",
+        success=True,
+        info_result=UCInfoOutput(
+            success=True,
+            tool=tool,
+            source_code=source_code,
+        ),
+    )
 
 
 def register_universal_constructor(agent):

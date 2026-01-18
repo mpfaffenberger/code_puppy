@@ -1108,3 +1108,371 @@ class TestToolFileValidationResult:
         """Test that it inherits from ValidationResult."""
         result = ToolFileValidationResult(valid=True)
         assert isinstance(result, ValidationResult)
+
+
+# =============================================================================
+# Test Universal Constructor Tool Handlers
+# =============================================================================
+
+
+class TestHandleInfoAction:
+    """Test _handle_info_action function."""
+
+    def test_info_requires_tool_name(self):
+        """Test that info action requires tool_name."""
+        from unittest.mock import Mock
+
+        from code_puppy.tools.universal_constructor import _handle_info_action
+
+        context = Mock()
+        result = _handle_info_action(context, None)
+        assert result.success is False
+        assert result.action == "info"
+        assert "tool_name is required" in result.error
+
+    def test_info_tool_not_found(self):
+        """Test info action with nonexistent tool."""
+        from unittest.mock import Mock, patch
+
+        from code_puppy.tools.universal_constructor import _handle_info_action
+
+        context = Mock()
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        ) as mock_get_registry:
+            mock_registry = Mock()
+            mock_registry.get_tool.return_value = None
+            mock_get_registry.return_value = mock_registry
+
+            result = _handle_info_action(context, "nonexistent")
+            assert result.success is False
+            assert "not found" in result.error
+
+    def test_info_success(self):
+        """Test successful info action."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+            tool_code = '''
+TOOL_META = {
+    "name": "greet",
+    "description": "A greeting tool",
+}
+
+def greet(name: str = "World") -> str:
+    """Generate a greeting."""
+    return f"Hello, {name}!"
+'''
+            tool_file = tools_dir / "greet.py"
+            tool_file.write_text(tool_code)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.plugins.universal_constructor.models import (
+                ToolMeta,
+                UCToolInfo,
+            )
+            from code_puppy.tools.universal_constructor import _handle_info_action
+
+            meta = ToolMeta(name="greet", description="A greeting tool")
+            tool_info = UCToolInfo(
+                meta=meta,
+                signature="greet(name: str = 'World') -> str",
+                source_path=tool_file,
+                function_name="greet",
+                docstring="Generate a greeting.",
+            )
+
+            context = Mock()
+            with patch(
+                "code_puppy.plugins.universal_constructor.registry.get_registry"
+            ) as mock_get_registry:
+                mock_registry = Mock()
+                mock_registry.get_tool.return_value = tool_info
+                mock_get_registry.return_value = mock_registry
+
+                result = _handle_info_action(context, "greet")
+                assert result.success is True
+                assert result.action == "info"
+                assert result.info_result is not None
+                assert result.info_result.success is True
+                assert result.info_result.tool.meta.name == "greet"
+                assert "TOOL_META" in result.info_result.source_code
+                assert "def greet" in result.info_result.source_code
+
+    def test_info_source_file_not_found(self):
+        """Test info when source file doesn't exist."""
+        from unittest.mock import Mock, patch
+
+        from code_puppy.plugins.universal_constructor.models import ToolMeta, UCToolInfo
+        from code_puppy.tools.universal_constructor import _handle_info_action
+
+        meta = ToolMeta(name="missing", description="Missing source")
+        tool_info = UCToolInfo(
+            meta=meta,
+            signature="missing()",
+            source_path=Path("/nonexistent/path/missing.py"),
+        )
+
+        context = Mock()
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        ) as mock_get_registry:
+            mock_registry = Mock()
+            mock_registry.get_tool.return_value = tool_info
+            mock_get_registry.return_value = mock_registry
+
+            result = _handle_info_action(context, "missing")
+            assert result.success is True
+            assert result.info_result.source_code == "[Source file not found]"
+
+
+class TestHandleUpdateAction:
+    """Test _handle_update_action function."""
+
+    def test_update_requires_tool_name(self):
+        """Test that update action requires tool_name."""
+        from unittest.mock import Mock
+
+        from code_puppy.tools.universal_constructor import _handle_update_action
+
+        context = Mock()
+        result = _handle_update_action(context, None, None, None)
+        assert result.success is False
+        assert result.action == "update"
+        assert "tool_name is required" in result.error
+
+    def test_update_requires_code_or_description(self):
+        """Test that update requires at least code or description."""
+        from unittest.mock import Mock
+
+        from code_puppy.tools.universal_constructor import _handle_update_action
+
+        context = Mock()
+        result = _handle_update_action(context, "some_tool", None, None)
+        assert result.success is False
+        assert "At least one of" in result.error
+
+    def test_update_tool_not_found(self):
+        """Test update action with nonexistent tool."""
+        from unittest.mock import Mock, patch
+
+        from code_puppy.tools.universal_constructor import _handle_update_action
+
+        context = Mock()
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        ) as mock_get_registry:
+            mock_registry = Mock()
+            mock_registry.get_tool.return_value = None
+            mock_get_registry.return_value = mock_registry
+
+            result = _handle_update_action(
+                context, "nonexistent", "def foo(): pass", None
+            )
+            assert result.success is False
+            assert "not found" in result.error
+
+    def test_update_invalid_syntax(self):
+        """Test update with invalid syntax code."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+            tool_file = tools_dir / "test_tool.py"
+            original_code = '''
+TOOL_META = {"name": "test_tool", "description": "Test"}
+def test_tool(): pass
+'''
+            tool_file.write_text(original_code)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.plugins.universal_constructor.models import (
+                ToolMeta,
+                UCToolInfo,
+            )
+            from code_puppy.tools.universal_constructor import _handle_update_action
+
+            meta = ToolMeta(name="test_tool", description="Test")
+            tool_info = UCToolInfo(
+                meta=meta,
+                signature="test_tool()",
+                source_path=tool_file,
+            )
+
+            context = Mock()
+            with patch(
+                "code_puppy.plugins.universal_constructor.registry.get_registry"
+            ) as mock_get_registry:
+                mock_registry = Mock()
+                mock_registry.get_tool.return_value = tool_info
+                mock_get_registry.return_value = mock_registry
+
+                # Try to update with invalid syntax
+                result = _handle_update_action(
+                    context, "test_tool", "def broken(", None
+                )
+                assert result.success is False
+                assert "Syntax error" in result.error
+
+    def test_update_missing_tool_meta(self):
+        """Test update with code missing TOOL_META."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+            tool_file = tools_dir / "test_tool.py"
+            original_code = '''
+TOOL_META = {"name": "test_tool", "description": "Test"}
+def test_tool(): pass
+'''
+            tool_file.write_text(original_code)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.plugins.universal_constructor.models import (
+                ToolMeta,
+                UCToolInfo,
+            )
+            from code_puppy.tools.universal_constructor import _handle_update_action
+
+            meta = ToolMeta(name="test_tool", description="Test")
+            tool_info = UCToolInfo(
+                meta=meta,
+                signature="test_tool()",
+                source_path=tool_file,
+            )
+
+            context = Mock()
+            with patch(
+                "code_puppy.plugins.universal_constructor.registry.get_registry"
+            ) as mock_get_registry:
+                mock_registry = Mock()
+                mock_registry.get_tool.return_value = tool_info
+                mock_get_registry.return_value = mock_registry
+
+                # Try to update with code that has no TOOL_META
+                result = _handle_update_action(
+                    context, "test_tool", "def foo(): pass", None
+                )
+                assert result.success is False
+                assert "TOOL_META" in result.error
+
+    def test_update_code_success(self):
+        """Test successful code update."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+            tool_file = tools_dir / "updatable.py"
+            original_code = '''
+TOOL_META = {"name": "updatable", "description": "Original"}
+def updatable(): return "original"
+'''
+            tool_file.write_text(original_code)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.plugins.universal_constructor.models import (
+                ToolMeta,
+                UCToolInfo,
+            )
+            from code_puppy.tools.universal_constructor import _handle_update_action
+
+            meta = ToolMeta(name="updatable", description="Original")
+            tool_info = UCToolInfo(
+                meta=meta,
+                signature="updatable()",
+                source_path=tool_file,
+            )
+
+            context = Mock()
+            with patch(
+                "code_puppy.plugins.universal_constructor.registry.get_registry"
+            ) as mock_get_registry:
+                mock_registry = Mock()
+                mock_registry.get_tool.return_value = tool_info
+                mock_get_registry.return_value = mock_registry
+
+                new_code = '''
+TOOL_META = {"name": "updatable", "description": "Updated"}
+def updatable(): return "updated"
+'''
+                result = _handle_update_action(context, "updatable", new_code, None)
+                assert result.success is True
+                assert result.update_result is not None
+                assert result.update_result.success is True
+                assert result.update_result.tool_name == "updatable"
+                assert "Replaced source code" in result.update_result.changes_applied
+
+                # Verify file was updated
+                updated_content = tool_file.read_text()
+                assert 'return "updated"' in updated_content
+                mock_registry.reload.assert_called_once()
+
+    def test_update_description_success(self):
+        """Test successful description update."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+            tool_file = tools_dir / "describable.py"
+            original_code = '''
+TOOL_META = {"name": "describable", "description": "Original description"}
+def describable(): pass
+'''
+            tool_file.write_text(original_code)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.plugins.universal_constructor.models import (
+                ToolMeta,
+                UCToolInfo,
+            )
+            from code_puppy.tools.universal_constructor import _handle_update_action
+
+            meta = ToolMeta(name="describable", description="Original description")
+            tool_info = UCToolInfo(
+                meta=meta,
+                signature="describable()",
+                source_path=tool_file,
+            )
+
+            context = Mock()
+            with patch(
+                "code_puppy.plugins.universal_constructor.registry.get_registry"
+            ) as mock_get_registry:
+                mock_registry = Mock()
+                mock_registry.get_tool.return_value = tool_info
+                mock_get_registry.return_value = mock_registry
+
+                result = _handle_update_action(
+                    context, "describable", None, "New description"
+                )
+                assert result.success is True
+                assert result.update_result is not None
+
+                # Verify file was updated with new description
+                updated_content = tool_file.read_text()
+                assert "New description" in updated_content
+                mock_registry.reload.assert_called_once()
+
+    def test_update_no_source_path(self):
+        """Test update when tool has no source path."""
+        from unittest.mock import Mock, patch
+
+        from code_puppy.plugins.universal_constructor.models import ToolMeta, UCToolInfo
+        from code_puppy.tools.universal_constructor import _handle_update_action
+
+        meta = ToolMeta(name="no_path", description="No path")
+        tool_info = UCToolInfo(
+            meta=meta,
+            signature="no_path()",
+            source_path=Path("/nonexistent/path.py"),
+        )
+
+        context = Mock()
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        ) as mock_get_registry:
+            mock_registry = Mock()
+            mock_registry.get_tool.return_value = tool_info
+            mock_get_registry.return_value = mock_registry
+
+            result = _handle_update_action(
+                context, "no_path", "TOOL_META = {}\ndef foo(): pass", None
+            )
+            assert result.success is False
+            assert "does not exist" in result.error.lower()
