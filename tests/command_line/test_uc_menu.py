@@ -422,6 +422,125 @@ class TestCommandRegistration:
         assert cmd_info.handler == handle_uc_command
 
 
+class TestLoadSourceCode:
+    """Tests for the _load_source_code function."""
+
+    def test_loads_source_successfully(self):
+        """Test loading source code from a file."""
+        from code_puppy.command_line.uc_menu import _load_source_code
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write('def test():\n    return "hello"\n')
+            temp_path = f.name
+
+        try:
+            tool = UCToolInfo(
+                meta=ToolMeta(
+                    name="test",
+                    namespace="",
+                    description="Test",
+                    enabled=True,
+                ),
+                signature="test() -> str",
+                source_path=temp_path,
+                function_name="test",
+            )
+
+            lines, error = _load_source_code(tool)
+
+            assert error is None
+            assert len(lines) == 2
+            assert "def test():" in lines[0]
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+    def test_handles_missing_file(self, mock_tool_enabled):
+        """Test graceful handling of missing file."""
+        from code_puppy.command_line.uc_menu import _load_source_code
+
+        mock_tool_enabled.source_path = "/nonexistent/path.py"
+
+        lines, error = _load_source_code(mock_tool_enabled)
+
+        assert lines == []
+        assert error is not None
+        assert "Could not read source" in error
+
+
+class TestRenderSourcePanel:
+    """Tests for the _render_source_panel function."""
+
+    def test_renders_source_with_line_numbers(self, mock_tool_enabled):
+        """Test that source code is rendered with line numbers."""
+        from code_puppy.command_line.uc_menu import _render_source_panel
+
+        source_lines = ["def test():", '    return "hello"']
+
+        result = _render_source_panel(mock_tool_enabled, source_lines, scroll_offset=0)
+
+        text_content = "".join(str(t[1]) for t in result)
+        assert "1" in text_content  # Line number
+        assert "def" in text_content
+
+    def test_renders_error_message(self, mock_tool_enabled):
+        """Test that error message is displayed when source can't be loaded."""
+        from code_puppy.command_line.uc_menu import _render_source_panel
+
+        result = _render_source_panel(
+            mock_tool_enabled, [], scroll_offset=0, error="File not found"
+        )
+
+        text_content = "".join(str(t[1]) for t in result)
+        assert "Error" in text_content
+        assert "File not found" in text_content
+
+    def test_shows_navigation_hints(self, mock_tool_enabled):
+        """Test that navigation hints are shown."""
+        from code_puppy.command_line.uc_menu import _render_source_panel
+
+        source_lines = ["line 1", "line 2"]
+
+        result = _render_source_panel(mock_tool_enabled, source_lines, scroll_offset=0)
+
+        text_content = "".join(str(t[1]) for t in result)
+        assert "Esc" in text_content or "Q" in text_content
+        assert "Back" in text_content
+
+
+class TestHighlightPythonLine:
+    """Tests for the _highlight_python_line function."""
+
+    def test_highlights_keywords(self):
+        """Test that Python keywords are highlighted."""
+        from code_puppy.command_line.uc_menu import _highlight_python_line
+
+        result = _highlight_python_line("def my_function():")
+
+        # Should have some styled output
+        assert len(result) > 0
+        # Check that 'def' gets special styling
+        styles = [t[0] for t in result if "def" in t[1]]
+        assert any("magenta" in s or "bold" in s for s in styles)
+
+    def test_highlights_comments(self):
+        """Test that comments are highlighted."""
+        from code_puppy.command_line.uc_menu import _highlight_python_line
+
+        result = _highlight_python_line("# This is a comment")
+
+        # Should have dim/italic styling
+        assert len(result) > 0
+        assert any("italic" in t[0] or "bright" in t[0] for t in result)
+
+    def test_handles_empty_line(self):
+        """Test that empty lines are handled."""
+        from code_puppy.command_line.uc_menu import _highlight_python_line
+
+        result = _highlight_python_line("")
+
+        assert len(result) >= 1
+
+
 class TestPageSize:
     """Tests for pagination constants."""
 
@@ -429,3 +548,10 @@ class TestPageSize:
         """Test that PAGE_SIZE is a reasonable number."""
         assert PAGE_SIZE > 0
         assert PAGE_SIZE <= 20  # Don't show too many at once
+
+    def test_source_page_size_exists(self):
+        """Test that SOURCE_PAGE_SIZE constant exists."""
+        from code_puppy.command_line.uc_menu import SOURCE_PAGE_SIZE
+
+        assert SOURCE_PAGE_SIZE > 0
+        assert SOURCE_PAGE_SIZE <= 50  # Reasonable amount of source lines
