@@ -34,6 +34,7 @@ from code_puppy.messaging import (
     get_session_context,
     set_session_context,
 )
+from code_puppy.pause_manager import get_pause_manager
 from code_puppy.tools.common import generate_group_id
 from code_puppy.tools.subagent_context import subagent_context
 
@@ -204,6 +205,63 @@ def _load_session_history(session_id: str) -> List[ModelMessage]:
     except Exception:
         # If pickle is corrupted or incompatible, return empty history
         return []
+
+
+async def _run_agent_with_pause_checkpoints(
+    agent: Agent,
+    prompt: str,
+    message_history: List[ModelMessage],
+    stream_handler,
+    pause_manager,
+    subagent_id: str,
+):
+    """Run an agent using Agent.iter() with pause checkpoint support.
+
+    This function uses the Agent.iter() API to iterate over agent nodes,
+    checking for pause checkpoints between each iteration. This allows
+    subagents to properly participate in the pause barrier.
+
+    The stream_handler is invoked for model request and tool-call nodes
+    (mirroring Agent.run) to process streaming events.
+
+    Args:
+        agent: The pydantic_ai Agent to run
+        prompt: The user prompt to send to the agent
+        message_history: Previous conversation history
+        stream_handler: Event stream handler for processing streaming events
+        pause_manager: PauseManager instance for checkpoint calls
+        subagent_id: ID of this subagent in the pause registry
+
+    Returns:
+        AgentRunResult with .output and .all_messages() accessible
+    """
+    usage_limits = UsageLimits(request_limit=get_message_limit())
+
+    from pydantic_ai import _agent_graph
+
+    async with agent.iter(
+        prompt,
+        message_history=message_history,
+        usage_limits=usage_limits,
+    ) as agent_run:
+        # Iterate over nodes with pause checkpoints between each
+        async for node in agent_run:
+            if stream_handler is not None and (
+                agent.is_model_request_node(node) or agent.is_call_tools_node(node)
+            ):
+                async with node.stream(agent_run.ctx) as stream:
+                    await stream_handler(
+                        _agent_graph.build_run_context(agent_run.ctx),
+                        stream,
+                    )
+
+            should_pause = await pause_manager.async_pause_checkpoint(subagent_id)
+            if should_pause:
+                await pause_manager.async_wait_for_resume(subagent_id)
+
+        # Return the final result from the agent run
+        # agent_run.result is an AgentRunResult with .output and .all_messages()
+        return agent_run.result
 
 
 class AgentInfo(BaseModel):
@@ -558,57 +616,60 @@ def register_invoke_agent(agent):
 
                 subagent_mcp_servers = None
 
-            # Run the temporary agent with the provided prompt as an asyncio task
-            # Pass the message_history from the session to continue the conversation
+            # Run the temporary agent using Agent.iter() for pause checkpoint support
+            # This allows subagents to participate in the pause barrier
             workflow_id = None  # Track for potential cancellation
 
             # Always use subagent_stream_handler to silence output and update console manager
             # This ensures all sub-agent output goes through the aggregated dashboard
             stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
+            # Register with PauseManager for pause barrier participation
+            pause_manager = get_pause_manager()
+            subagent_id = f"subagent-{session_id}"
+            pause_manager.register(subagent_id, f"Subagent: {agent_name}")
+
             # Wrap the agent run in subagent context for tracking
             with subagent_context(agent_name):
-                if get_use_dbos():
-                    # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
-                    workflow_id = _generate_dbos_workflow_id(group_id)
-
-                    # Add MCP servers to the DBOS agent's toolsets
-                    # (temp_agent is discarded after this invocation, so no need to restore)
-                    if subagent_mcp_servers:
-                        temp_agent._toolsets = (
-                            temp_agent._toolsets + subagent_mcp_servers
-                        )
-
-                    with SetWorkflowID(workflow_id):
-                        task = asyncio.create_task(
-                            temp_agent.run(
-                                prompt,
-                                message_history=message_history,
-                                usage_limits=UsageLimits(
-                                    request_limit=get_message_limit()
-                                ),
-                                event_stream_handler=stream_handler,
-                            )
-                        )
-                        _active_subagent_tasks.add(task)
-                else:
-                    task = asyncio.create_task(
-                        temp_agent.run(
-                            prompt,
-                            message_history=message_history,
-                            usage_limits=UsageLimits(request_limit=get_message_limit()),
-                            event_stream_handler=stream_handler,
-                        )
-                    )
-                    _active_subagent_tasks.add(task)
-
                 try:
-                    result = await task
+                    if get_use_dbos():
+                        # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
+                        workflow_id = _generate_dbos_workflow_id(group_id)
+
+                        # Add MCP servers to the DBOS agent's toolsets
+                        # (temp_agent is discarded after this invocation, so no need to restore)
+                        if subagent_mcp_servers:
+                            temp_agent._toolsets = (
+                                temp_agent._toolsets + subagent_mcp_servers
+                            )
+
+                        with SetWorkflowID(workflow_id):
+                            result = await _run_agent_with_pause_checkpoints(
+                                temp_agent,
+                                prompt,
+                                message_history,
+                                stream_handler,
+                                pause_manager,
+                                subagent_id,
+                            )
+                    else:
+                        result = await _run_agent_with_pause_checkpoints(
+                            temp_agent,
+                            prompt,
+                            message_history,
+                            stream_handler,
+                            pause_manager,
+                            subagent_id,
+                        )
                 finally:
-                    _active_subagent_tasks.discard(task)
-                    if task.cancelled():
-                        if get_use_dbos() and workflow_id:
+                    # Always unregister from PauseManager
+                    pause_manager.unregister(subagent_id)
+                    if workflow_id and get_use_dbos():
+                        # Check if we were cancelled
+                        try:
                             DBOS.cancel_workflow(workflow_id)
+                        except Exception:
+                            pass  # Workflow may not exist or already completed
 
             # Extract the response from the result
             response = result.output
