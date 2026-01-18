@@ -837,3 +837,69 @@ class TestSubAgentSuppression:
         assert events_consumed == 10
         # But nothing was printed
         console.print.assert_not_called()
+
+
+class TestPauseCheckpoint:
+    """Test pause checkpoint integration in event stream handler."""
+
+    @pytest.fixture
+    def mock_ctx(self):
+        """Create a mock RunContext."""
+        return MagicMock(spec=RunContext)
+
+    @pytest.mark.asyncio
+    async def test_pause_checkpoint_called_during_stream(self, mock_ctx):
+        """Verify wait_for_resume is called during event stream processing."""
+        from unittest.mock import AsyncMock
+
+        # Create mock events
+        async def mock_events():
+            for i in range(3):
+                yield MagicMock(spec=object)  # Yield mock event objects
+
+        # Mock the SteeringManager
+        mock_steering_instance = MagicMock()
+        mock_steering_instance.wait_for_resume = AsyncMock()
+
+        with patch(
+            "code_puppy.steering.SteeringManager"
+        ) as mock_steering_class:
+            mock_steering_class.get_instance.return_value = mock_steering_instance
+
+            # Create mock context
+            mock_ctx = MagicMock()
+
+            # Run the handler (it will process events and call wait_for_resume for each)
+            await event_stream_handler(mock_ctx, mock_events())
+
+            # Verify wait_for_resume was called for each event
+            assert mock_steering_instance.wait_for_resume.call_count >= 1, \
+                "wait_for_resume should be called at least once per event"
+
+    @pytest.mark.asyncio
+    async def test_pause_checkpoint_graceful_when_steering_unavailable(self, mock_ctx):
+        """Verify streaming continues if SteeringManager import fails."""
+
+        # Create mock events that would fail if processing stops
+        events_processed = []
+
+        async def mock_events():
+            for i in range(3):
+                event = MagicMock()
+                events_processed.append(i)
+                yield event
+
+        # Make SteeringManager.get_instance() raise an exception
+        with patch(
+            "code_puppy.steering.SteeringManager"
+        ) as mock_steering_class:
+            mock_steering_class.get_instance.side_effect = RuntimeError("Steering unavailable")
+
+            mock_ctx = MagicMock()
+
+            # Should not raise - the exception should be caught
+            await event_stream_handler(mock_ctx, mock_events())
+
+            # Verify all events were processed despite the error
+            assert len(events_processed) == 3, \
+                "All events should be processed even when SteeringManager fails"

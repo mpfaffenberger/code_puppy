@@ -164,6 +164,17 @@ async def event_stream_handler(
         did_stream_anything = True
 
     async for event in events:
+        # === PAUSE CHECKPOINT ===
+        # Check if we should pause (Ctrl+G pressed)
+        # This is non-blocking when not paused, blocks until resumed when paused
+        try:
+            from code_puppy.steering import SteeringManager
+
+            await SteeringManager.get_instance().wait_for_resume()
+        except Exception:
+            pass  # Don't break streaming if steering unavailable
+        # === END PAUSE CHECKPOINT ===
+
         # PartStartEvent - register the part but defer banner until content arrives
         if isinstance(event, PartStartEvent):
             # Fire stream event callback for part_start
