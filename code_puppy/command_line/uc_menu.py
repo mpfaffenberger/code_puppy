@@ -247,7 +247,7 @@ def _render_menu_panel(
     lines.append(("", "Toggle enabled\n"))
     lines.append(("fg:ansired", "  D "))
     lines.append(("", "Delete tool\n"))
-    lines.append(("fg:ansibrightred", "  Ctrl+C "))
+    lines.append(("fg:ansibrightblack", "  Esc "))
     lines.append(("", "Exit"))
 
     return lines
@@ -705,6 +705,12 @@ async def interactive_uc_picker() -> Optional[str]:
         if get_current_tool():
             pending_action[0] = "delete"
             event.app.exit()
+
+    @list_kb.add("escape")
+    def _list_escape(event):
+        result[0] = None
+        pending_action[0] = "exit"
+        event.app.exit()
 
     @list_kb.add("enter")
     def _list_enter(event):
