@@ -46,7 +46,10 @@ def handle_show_command(command: str) -> bool:
         get_use_dbos,
         get_yolo_mode,
     )
-    from code_puppy.keymap import get_cancel_agent_display_name
+    from code_puppy.keymap import (
+        get_cancel_agent_display_name,
+        get_pause_agent_display_name,
+    )
     from code_puppy.messaging import emit_info
 
     puppy_name = get_puppy_name()
@@ -81,6 +84,7 @@ def handle_show_command(command: str) -> bool:
 [bold]verbosity:[/bold]             [cyan]{get_openai_verbosity()}[/cyan]
 [bold]temperature:[/bold]           [cyan]{effective_temperature if effective_temperature is not None else "(model default)"}[/cyan]{" (per-model)" if effective_temperature != global_temperature and effective_temperature is not None else ""}
 [bold]cancel_agent_key:[/bold]      [cyan]{get_cancel_agent_display_name()}[/cyan] (options: ctrl+c, ctrl+k, ctrl+q)
+[bold]pause_agent_key:[/bold]       [cyan]{get_pause_agent_display_name()}[/cyan] (options: ctrl+g, ctrl+p, ctrl+z)
 
 """
     emit_info(Text.from_markup(status_msg))
@@ -205,6 +209,7 @@ def handle_set_command(command: str) -> bool:
         keymap_help = (
             "\n[yellow]Keyboard Shortcuts[/yellow]"
             "\n  [cyan]cancel_agent_key[/cyan]     Key to cancel agent tasks (ctrl+c, ctrl+k, or ctrl+q)"
+            "\n  [cyan]pause_agent_key[/cyan]      Key to pause/resume agent (ctrl+g, ctrl+p, or ctrl+z)"
         )
         emit_warning(
             Text.from_markup(
@@ -235,6 +240,23 @@ def handle_set_command(command: str) -> bool:
             emit_info(
                 Text.from_markup(
                     "[yellow]⚠️ cancel_agent_key changed. Please restart Code Puppy for this change to take effect.[/yellow]"
+                )
+            )
+
+        # Validate pause_agent_key before setting
+        if key == "pause_agent_key":
+            from code_puppy.keymap import VALID_PAUSE_KEYS
+
+            normalized_value = value.strip().lower()
+            if normalized_value not in VALID_PAUSE_KEYS:
+                emit_error(
+                    f"Invalid pause_agent_key '{value}'. Valid options: {', '.join(sorted(VALID_PAUSE_KEYS))}"
+                )
+                return True
+            value = normalized_value  # Use normalized value
+            emit_info(
+                Text.from_markup(
+                    "[yellow]⚠️ pause_agent_key changed. Please restart Code Puppy for this change to take effect.[/yellow]"
                 )
             )
 

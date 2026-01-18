@@ -262,6 +262,8 @@ def get_config_keys():
     default_keys.append("enable_pack_agents")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
+    # Add pause agent key configuration
+    default_keys.append("pause_agent_key")
     # Add banner color keys
     for banner_name in DEFAULT_BANNER_COLORS:
         default_keys.append(f"banner_color_{banner_name}")
