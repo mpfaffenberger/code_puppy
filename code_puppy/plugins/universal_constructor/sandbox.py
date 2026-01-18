@@ -8,12 +8,17 @@ and dangerous pattern detection.
 import ast
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional, Set
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
+# Required fields for TOOL_META
+TOOL_META_REQUIRED_FIELDS = {"name", "description"}
+
 # Imports that might indicate dangerous operations
 DANGEROUS_IMPORTS: Set[str] = {
+    # Execution/code generation
     "subprocess",
     "os.system",
     "shutil.rmtree",
@@ -22,19 +27,28 @@ DANGEROUS_IMPORTS: Set[str] = {
     "compile",
     "__import__",
     "importlib",
-    "ctypes",
     "multiprocessing",
     "pickle",
     "marshal",
+    # Network access
+    "socket",
+    "urllib",
+    "http.client",
+    "requests",
+    # System access
+    "platform",
+    "ctypes",
 }
 
 # Dangerous function calls
 DANGEROUS_CALLS: Set[str] = {
+    # Code execution
     "eval",
     "exec",
     "compile",
     "__import__",
-    "open",  # Could be dangerous depending on mode
+    "import_module",
+    # Process creation
     "system",
     "popen",
     "spawn",
@@ -45,7 +59,13 @@ DANGEROUS_CALLS: Set[str] = {
     "execl",
     "execle",
     "execlp",
+    # Scope manipulation
+    "globals",
+    "locals",
 }
+
+# open() calls with write modes are dangerous
+DANGEROUS_OPEN_MODES = {"w", "a", "x", "wb", "ab", "xb", "w+", "a+", "r+", "rb+", "wb+"}
 
 
 @dataclass
@@ -222,6 +242,11 @@ def check_dangerous_patterns(code: str) -> ValidationResult:
             if func_name in DANGEROUS_CALLS:
                 line = getattr(node, "lineno", "?")
                 dangerous_found.append(f"{func_name}() call at line {line}")
+            # Special handling for open() - check if write mode is used
+            elif func_name == "open":
+                if _is_dangerous_open_call(node):
+                    line = getattr(node, "lineno", "?")
+                    dangerous_found.append(f"open() with write mode at line {line}")
 
     # Add warnings for dangerous patterns
     if dangerous_found:
@@ -239,6 +264,31 @@ def _get_call_name(node: ast.Call) -> str:
     elif isinstance(node.func, ast.Attribute):
         return node.func.attr
     return ""
+
+
+def _is_dangerous_open_call(node: ast.Call) -> bool:
+    """Check if an open() call uses a dangerous (write) mode.
+
+    Args:
+        node: AST Call node for open()
+
+    Returns:
+        True if the open call uses a write mode, False otherwise.
+    """
+    # Check positional args - mode is typically the second argument
+    if len(node.args) >= 2:
+        mode_arg = node.args[1]
+        if isinstance(mode_arg, ast.Constant) and isinstance(mode_arg.value, str):
+            return mode_arg.value in DANGEROUS_OPEN_MODES
+
+    # Check keyword arguments
+    for kw in node.keywords:
+        if kw.arg == "mode":
+            if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                return kw.value.value in DANGEROUS_OPEN_MODES
+
+    # If no mode specified, open() defaults to "r" which is safe
+    return False
 
 
 def full_validation(code: str) -> ValidationResult:
@@ -266,5 +316,237 @@ def full_validation(code: str) -> ValidationResult:
     # Additional validation: ensure there's at least one function
     if not result.functions:
         result.warnings.append("No functions found in code - tool may not be callable")
+
+    return result
+
+
+@dataclass
+class ToolFileValidationResult(ValidationResult):
+    """Extended validation result for tool files.
+
+    Includes TOOL_META extraction and main function validation.
+    """
+
+    tool_meta: Optional[Dict[str, Any]] = None
+    main_function: Optional[FunctionInfo] = None
+    file_path: Optional[Path] = None
+
+
+def _extract_tool_meta(code: str) -> Optional[Dict[str, Any]]:
+    """Extract TOOL_META dictionary from code.
+
+    Args:
+        code: Python source code containing TOOL_META.
+
+    Returns:
+        The TOOL_META dict if found and valid, None otherwise.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "TOOL_META":
+                    # Try to evaluate the dict literal
+                    if isinstance(node.value, ast.Dict):
+                        try:
+                            # Safely evaluate the dict using ast.literal_eval
+                            meta_str = ast.unparse(node.value)
+                            return ast.literal_eval(meta_str)
+                        except (ValueError, SyntaxError):
+                            return None
+    return None
+
+
+def _validate_tool_meta(meta: Dict[str, Any]) -> List[str]:
+    """Validate that TOOL_META has required fields.
+
+    Args:
+        meta: The TOOL_META dictionary to validate.
+
+    Returns:
+        List of error messages (empty if valid).
+    """
+    errors = []
+    for field_name in TOOL_META_REQUIRED_FIELDS:
+        if field_name not in meta:
+            errors.append(f"TOOL_META missing required field: '{field_name}'")
+        elif not meta[field_name]:
+            errors.append(f"TOOL_META field '{field_name}' cannot be empty")
+    return errors
+
+
+def _find_main_function(
+    functions: List[FunctionInfo], tool_name: str
+) -> Optional[FunctionInfo]:
+    """Find the main function for a tool.
+
+    The main function is expected to have the same name as the tool.
+
+    Args:
+        functions: List of functions found in the code.
+        tool_name: Expected name of the main function.
+
+    Returns:
+        The main FunctionInfo if found, None otherwise.
+    """
+    for func in functions:
+        if func.name == tool_name:
+            return func
+    return None
+
+
+def validate_tool_file(file_path: Path) -> ToolFileValidationResult:
+    """Validate a tool file including TOOL_META and main function.
+
+    This function performs comprehensive validation:
+    1. Reads the file content
+    2. Validates Python syntax
+    3. Extracts and validates TOOL_META dict
+    4. Extracts and validates the main function
+    5. Checks for dangerous patterns
+
+    Args:
+        file_path: Path to the tool file to validate.
+
+    Returns:
+        ToolFileValidationResult with all validation details.
+    """
+    result = ToolFileValidationResult(valid=True, file_path=file_path)
+
+    # Check file exists
+    if not file_path.exists():
+        result.valid = False
+        result.errors.append(f"File not found: {file_path}")
+        return result
+
+    if not file_path.is_file():
+        result.valid = False
+        result.errors.append(f"Path is not a file: {file_path}")
+        return result
+
+    # Read file content
+    try:
+        code = file_path.read_text(encoding="utf-8")
+    except Exception as e:
+        result.valid = False
+        result.errors.append(f"Failed to read file: {e}")
+        return result
+
+    # Validate syntax
+    syntax_result = validate_syntax(code)
+    if not syntax_result.valid:
+        result.valid = False
+        result.errors.extend(syntax_result.errors)
+        return result
+
+    # Extract TOOL_META
+    meta = _extract_tool_meta(code)
+    if meta is None:
+        result.valid = False
+        result.errors.append("TOOL_META not found or invalid in file")
+        return result
+
+    result.tool_meta = meta
+
+    # Validate TOOL_META has required fields
+    meta_errors = _validate_tool_meta(meta)
+    if meta_errors:
+        result.valid = False
+        result.errors.extend(meta_errors)
+        return result
+
+    # Extract functions
+    func_result = extract_function_info(code)
+    result.functions = func_result.functions
+
+    # Find main function (should match tool name)
+    tool_name = meta.get("name", "")
+    main_func = _find_main_function(result.functions, tool_name)
+    if main_func is None:
+        result.warnings.append(
+            f"No function named '{tool_name}' found - "
+            f"tool may not be callable as expected"
+        )
+    else:
+        result.main_function = main_func
+
+    # Check dangerous patterns
+    safety_result = check_dangerous_patterns(code)
+    result.warnings.extend(safety_result.warnings)
+
+    return result
+
+
+def validate_and_write_tool(code: str, file_path: Path) -> ToolFileValidationResult:
+    """Validate code and write to file only if valid.
+
+    This function performs full validation before writing,
+    ensuring only valid tool code is persisted to disk.
+
+    Args:
+        code: Python source code for the tool.
+        file_path: Path where the tool file should be written.
+
+    Returns:
+        ToolFileValidationResult indicating success/failure.
+        If valid, the file will be written to file_path.
+    """
+    result = ToolFileValidationResult(valid=True, file_path=file_path)
+
+    # Validate syntax first
+    syntax_result = validate_syntax(code)
+    if not syntax_result.valid:
+        result.valid = False
+        result.errors.extend(syntax_result.errors)
+        return result
+
+    # Extract and validate TOOL_META
+    meta = _extract_tool_meta(code)
+    if meta is None:
+        result.valid = False
+        result.errors.append("TOOL_META not found or invalid in code")
+        return result
+
+    result.tool_meta = meta
+
+    # Validate TOOL_META has required fields
+    meta_errors = _validate_tool_meta(meta)
+    if meta_errors:
+        result.valid = False
+        result.errors.extend(meta_errors)
+        return result
+
+    # Extract functions
+    func_result = extract_function_info(code)
+    result.functions = func_result.functions
+
+    # Find main function
+    tool_name = meta.get("name", "")
+    main_func = _find_main_function(result.functions, tool_name)
+    if main_func is None:
+        result.warnings.append(
+            f"No function named '{tool_name}' found - "
+            f"tool may not be callable as expected"
+        )
+    else:
+        result.main_function = main_func
+
+    # Check dangerous patterns (warnings only, don't fail)
+    safety_result = check_dangerous_patterns(code)
+    result.warnings.extend(safety_result.warnings)
+
+    # If we got here, validation passed - write the file
+    try:
+        # Ensure parent directory exists
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(code, encoding="utf-8")
+    except Exception as e:
+        result.valid = False
+        result.errors.append(f"Failed to write file: {e}")
+        return result
 
     return result

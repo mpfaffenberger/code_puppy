@@ -25,11 +25,18 @@ from code_puppy.plugins.universal_constructor.models import (
 )
 from code_puppy.plugins.universal_constructor.registry import UCRegistry, get_registry
 from code_puppy.plugins.universal_constructor.sandbox import (
+    DANGEROUS_OPEN_MODES,
+    ToolFileValidationResult,
     ValidationResult,
+    _extract_tool_meta,
+    _find_main_function,
+    _validate_tool_meta,
     check_dangerous_patterns,
     extract_function_info,
     full_validation,
+    validate_and_write_tool,
     validate_syntax,
+    validate_tool_file,
 )
 
 # =============================================================================
@@ -299,7 +306,7 @@ def greet(name: str = "World") -> str:
             api_dir = tools_dir / "api"
             api_dir.mkdir()
 
-            tool_code = '''
+            tool_code = """
 TOOL_META = {
     "name": "weather",
     "description": "Weather API",
@@ -307,7 +314,7 @@ TOOL_META = {
 
 def weather(city: str) -> str:
     return f"Weather in {city}: Sunny!"
-'''
+"""
             (api_dir / "weather.py").write_text(tool_code)
 
             registry = UCRegistry(tools_dir)
@@ -344,14 +351,14 @@ def weather(city: str) -> str:
         with tempfile.TemporaryDirectory() as tmpdir:
             tools_dir = Path(tmpdir)
 
-            enabled_code = '''
+            enabled_code = """
 TOOL_META = {"name": "enabled", "description": "Enabled", "enabled": True}
 def enabled(): pass
-'''
-            disabled_code = '''
+"""
+            disabled_code = """
 TOOL_META = {"name": "disabled", "description": "Disabled", "enabled": False}
 def disabled(): pass
-'''
+"""
             (tools_dir / "enabled.py").write_text(enabled_code)
             (tools_dir / "disabled.py").write_text(disabled_code)
 
@@ -371,11 +378,11 @@ def disabled(): pass
         """Test getting and calling a tool function."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tools_dir = Path(tmpdir)
-            tool_code = '''
+            tool_code = """
 TOOL_META = {"name": "add", "description": "Add numbers"}
 def add(a: int, b: int) -> int:
     return a + b
-'''
+"""
             (tools_dir / "add.py").write_text(tool_code)
 
             registry = UCRegistry(tools_dir)
@@ -389,11 +396,11 @@ def add(a: int, b: int) -> int:
         """Test loading tool module."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tools_dir = Path(tmpdir)
-            tool_code = '''
+            tool_code = """
 TOOL_META = {"name": "mod_test", "description": "Module test"}
 CONSTANT = 42
 def mod_test(): pass
-'''
+"""
             (tools_dir / "mod_test.py").write_text(tool_code)
 
             registry = UCRegistry(tools_dir)
@@ -413,10 +420,10 @@ def mod_test(): pass
             assert registry.scan() == 0
 
             # Add a tool
-            tool_code = '''
+            tool_code = """
 TOOL_META = {"name": "new", "description": "New tool"}
 def new(): pass
-'''
+"""
             (tools_dir / "new.py").write_text(tool_code)
 
             # Reload should find it
@@ -514,11 +521,11 @@ async def fetch(url: str) -> str:
 
     def test_extract_decorated_function(self):
         """Test extracting decorated function."""
-        code = '''
+        code = """
 @decorator
 @another_decorator
 def decorated(): pass
-'''
+"""
         result = extract_function_info(code)
         func = result.functions[0]
         assert len(func.decorators) == 2
@@ -526,11 +533,11 @@ def decorated(): pass
 
     def test_extract_multiple_functions(self):
         """Test extracting multiple functions."""
-        code = '''
+        code = """
 def func1(): pass
 def func2(): pass
 def func3(): pass
-'''
+"""
         result = extract_function_info(code)
         assert len(result.functions) == 3
 
@@ -546,13 +553,13 @@ class TestCheckDangerousPatterns:
 
     def test_safe_code_no_warnings(self):
         """Test that safe code produces no warnings."""
-        code = '''
+        code = """
 import json
 import math
 
 def safe_func(x):
     return math.sqrt(x)
-'''
+"""
         result = check_dangerous_patterns(code)
         assert result.valid is True
         assert len(result.warnings) == 0
@@ -566,10 +573,10 @@ def safe_func(x):
 
     def test_detects_eval_call(self):
         """Test detection of eval() call."""
-        code = '''
+        code = """
 def dangerous(code):
     return eval(code)
-'''
+"""
         result = check_dangerous_patterns(code)
         assert len(result.warnings) > 0
         assert "eval" in result.warnings[0].lower()
@@ -618,11 +625,11 @@ def add(a: int, b: int) -> int:
 
     def test_full_validation_includes_danger_warnings(self):
         """Test that dangerous patterns are included in warnings."""
-        code = '''
+        code = """
 import subprocess
 def run(cmd):
     return subprocess.run(cmd)
-'''
+"""
         result = full_validation(code)
         assert result.valid is True
         assert len(result.warnings) > 0
@@ -670,3 +677,434 @@ class TestCallbackRegistration:
             cb is _on_startup or getattr(cb, "__wrapped__", None) is _on_startup
             for cb in callbacks
         )
+
+
+# =============================================================================
+# Test Enhanced Dangerous Pattern Detection
+# =============================================================================
+
+
+class TestEnhancedDangerousPatterns:
+    """Test enhanced dangerous pattern detection."""
+
+    def test_detects_socket_import(self):
+        """Test detection of socket import (network)."""
+        code = "import socket"
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) > 0
+        assert "socket" in result.warnings[0].lower()
+
+    def test_detects_urllib_import(self):
+        """Test detection of urllib import (network)."""
+        code = "import urllib"
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) > 0
+        assert "urllib" in result.warnings[0].lower()
+
+    def test_detects_requests_import(self):
+        """Test detection of requests import (external API)."""
+        code = "import requests"
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) > 0
+        assert "requests" in result.warnings[0].lower()
+
+    def test_detects_platform_import(self):
+        """Test detection of platform import (system access)."""
+        code = "import platform"
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) > 0
+        assert "platform" in result.warnings[0].lower()
+
+    def test_detects_ctypes_import(self):
+        """Test detection of ctypes import (system access)."""
+        code = "import ctypes"
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) > 0
+        assert "ctypes" in result.warnings[0].lower()
+
+    def test_detects_globals_call(self):
+        """Test detection of globals() call."""
+        code = """
+def dangerous():
+    return globals()
+"""
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) > 0
+        assert "globals" in result.warnings[0].lower()
+
+    def test_detects_locals_call(self):
+        """Test detection of locals() call."""
+        code = """
+def dangerous():
+    return locals()
+"""
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) > 0
+        assert "locals" in result.warnings[0].lower()
+
+    def test_detects_import_module_call(self):
+        """Test detection of import_module() call."""
+        code = """
+from importlib import import_module
+mod = import_module("os")
+"""
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) > 0
+        # Should detect both the importlib import and the import_module call
+        warning = result.warnings[0].lower()
+        assert "importlib" in warning or "import_module" in warning
+
+
+class TestOpenWriteModeDetection:
+    """Test open() with write mode detection."""
+
+    def test_open_read_mode_safe(self):
+        """Test that open() with read mode is safe."""
+        code = 'f = open("file.txt", "r")'
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) == 0
+
+    def test_open_default_mode_safe(self):
+        """Test that open() without mode (default 'r') is safe."""
+        code = 'f = open("file.txt")'
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) == 0
+
+    def test_open_write_mode_dangerous(self):
+        """Test that open() with write mode is detected."""
+        code = 'f = open("file.txt", "w")'
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) > 0
+        assert "open()" in result.warnings[0].lower()
+        assert "write" in result.warnings[0].lower()
+
+    def test_open_append_mode_dangerous(self):
+        """Test that open() with append mode is detected."""
+        code = 'f = open("file.txt", "a")'
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) > 0
+
+    def test_open_write_binary_dangerous(self):
+        """Test that open() with binary write mode is detected."""
+        code = 'f = open("file.bin", "wb")'
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) > 0
+
+    def test_open_write_mode_keyword(self):
+        """Test that open() with mode keyword argument is detected."""
+        code = 'f = open("file.txt", mode="w")'
+        result = check_dangerous_patterns(code)
+        assert len(result.warnings) > 0
+
+    def test_dangerous_open_modes_constant(self):
+        """Test that DANGEROUS_OPEN_MODES contains expected modes."""
+        assert "w" in DANGEROUS_OPEN_MODES
+        assert "a" in DANGEROUS_OPEN_MODES
+        assert "x" in DANGEROUS_OPEN_MODES
+        assert "wb" in DANGEROUS_OPEN_MODES
+        assert "w+" in DANGEROUS_OPEN_MODES
+
+
+# =============================================================================
+# Test Tool File Validation
+# =============================================================================
+
+
+class TestExtractToolMeta:
+    """Test _extract_tool_meta function."""
+
+    def test_extract_valid_meta(self):
+        """Test extracting valid TOOL_META."""
+        code = """
+TOOL_META = {
+    "name": "greet",
+    "description": "A greeting tool",
+    "version": "1.0.0",
+}
+
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+"""
+        meta = _extract_tool_meta(code)
+        assert meta is not None
+        assert meta["name"] == "greet"
+        assert meta["description"] == "A greeting tool"
+        assert meta["version"] == "1.0.0"
+
+    def test_extract_no_meta(self):
+        """Test that missing TOOL_META returns None."""
+        code = "def foo(): pass"
+        meta = _extract_tool_meta(code)
+        assert meta is None
+
+    def test_extract_invalid_syntax(self):
+        """Test that invalid syntax returns None."""
+        code = "TOOL_META = {"
+        meta = _extract_tool_meta(code)
+        assert meta is None
+
+    def test_extract_non_dict_meta(self):
+        """Test that non-dict TOOL_META returns None."""
+        code = 'TOOL_META = "not a dict"'
+        meta = _extract_tool_meta(code)
+        assert meta is None
+
+
+class TestValidateToolMeta:
+    """Test _validate_tool_meta function."""
+
+    def test_valid_meta(self):
+        """Test validation of complete meta."""
+        meta = {"name": "test", "description": "Test tool"}
+        errors = _validate_tool_meta(meta)
+        assert len(errors) == 0
+
+    def test_missing_name(self):
+        """Test that missing name produces error."""
+        meta = {"description": "Test tool"}
+        errors = _validate_tool_meta(meta)
+        assert len(errors) > 0
+        assert any("name" in e for e in errors)
+
+    def test_missing_description(self):
+        """Test that missing description produces error."""
+        meta = {"name": "test"}
+        errors = _validate_tool_meta(meta)
+        assert len(errors) > 0
+        assert any("description" in e for e in errors)
+
+    def test_empty_name(self):
+        """Test that empty name produces error."""
+        meta = {"name": "", "description": "Test"}
+        errors = _validate_tool_meta(meta)
+        assert len(errors) > 0
+        assert any("name" in e and "empty" in e for e in errors)
+
+
+class TestFindMainFunction:
+    """Test _find_main_function function."""
+
+    def test_finds_matching_function(self):
+        """Test finding function that matches tool name."""
+        code = """
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+
+def helper(): pass
+"""
+        result = extract_function_info(code)
+        main_func = _find_main_function(result.functions, "greet")
+        assert main_func is not None
+        assert main_func.name == "greet"
+
+    def test_not_found_returns_none(self):
+        """Test that missing function returns None."""
+        code = "def other(): pass"
+        result = extract_function_info(code)
+        main_func = _find_main_function(result.functions, "greet")
+        assert main_func is None
+
+
+class TestValidateToolFile:
+    """Test validate_tool_file function."""
+
+    def test_validate_valid_tool_file(self):
+        """Test validation of valid tool file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool_path = Path(tmpdir) / "greet.py"
+            code = '''
+TOOL_META = {
+    "name": "greet",
+    "description": "A greeting tool",
+}
+
+def greet(name: str = "World") -> str:
+    """Generate a greeting."""
+    return f"Hello, {name}!"
+'''
+            tool_path.write_text(code)
+
+            result = validate_tool_file(tool_path)
+            assert result.valid is True
+            assert result.tool_meta is not None
+            assert result.tool_meta["name"] == "greet"
+            assert result.main_function is not None
+            assert result.main_function.name == "greet"
+            assert result.file_path == tool_path
+
+    def test_validate_nonexistent_file(self):
+        """Test validation of nonexistent file."""
+        result = validate_tool_file(Path("/nonexistent/path.py"))
+        assert result.valid is False
+        assert any("not found" in e.lower() for e in result.errors)
+
+    def test_validate_directory_fails(self):
+        """Test that validating a directory fails."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = validate_tool_file(Path(tmpdir))
+            assert result.valid is False
+            assert any("not a file" in e.lower() for e in result.errors)
+
+    def test_validate_file_with_syntax_error(self):
+        """Test validation of file with syntax error."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool_path = Path(tmpdir) / "broken.py"
+            tool_path.write_text("def broken(")
+
+            result = validate_tool_file(tool_path)
+            assert result.valid is False
+            assert any("syntax" in e.lower() for e in result.errors)
+
+    def test_validate_file_missing_tool_meta(self):
+        """Test validation of file without TOOL_META."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool_path = Path(tmpdir) / "no_meta.py"
+            tool_path.write_text("def foo(): pass")
+
+            result = validate_tool_file(tool_path)
+            assert result.valid is False
+            assert any("tool_meta" in e.lower() for e in result.errors)
+
+    def test_validate_file_incomplete_meta(self):
+        """Test validation of file with incomplete TOOL_META."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool_path = Path(tmpdir) / "incomplete.py"
+            code = """
+TOOL_META = {"name": "test"}
+def test(): pass
+"""
+            tool_path.write_text(code)
+
+            result = validate_tool_file(tool_path)
+            assert result.valid is False
+            assert any("description" in e for e in result.errors)
+
+    def test_validate_file_warns_missing_main_function(self):
+        """Test that missing main function generates warning."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool_path = Path(tmpdir) / "mismatch.py"
+            code = """
+TOOL_META = {"name": "greet", "description": "Greeting"}
+def other_func(): pass
+"""
+            tool_path.write_text(code)
+
+            result = validate_tool_file(tool_path)
+            assert result.valid is True  # Still valid, just a warning
+            assert any("greet" in w and "found" in w.lower() for w in result.warnings)
+
+    def test_validate_file_with_dangerous_patterns(self):
+        """Test that dangerous patterns generate warnings."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool_path = Path(tmpdir) / "dangerous.py"
+            code = """
+import subprocess
+TOOL_META = {"name": "runner", "description": "Runs commands"}
+def runner(cmd): return subprocess.run(cmd)
+"""
+            tool_path.write_text(code)
+
+            result = validate_tool_file(tool_path)
+            assert result.valid is True  # Dangerous patterns are warnings, not errors
+            assert len(result.warnings) > 0
+
+
+class TestValidateAndWriteTool:
+    """Test validate_and_write_tool function."""
+
+    def test_write_valid_tool(self):
+        """Test writing valid tool code."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool_path = Path(tmpdir) / "new_tool.py"
+            code = """
+TOOL_META = {
+    "name": "new_tool",
+    "description": "A new tool",
+}
+
+def new_tool() -> str:
+    return "Hello!"
+"""
+            result = validate_and_write_tool(code, tool_path)
+            assert result.valid is True
+            assert tool_path.exists()
+            assert tool_path.read_text() == code
+            assert result.tool_meta["name"] == "new_tool"
+
+    def test_write_creates_parent_directories(self):
+        """Test that parent directories are created."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool_path = Path(tmpdir) / "subdir" / "nested" / "tool.py"
+            code = """
+TOOL_META = {"name": "tool", "description": "Test"}
+def tool(): pass
+"""
+            result = validate_and_write_tool(code, tool_path)
+            assert result.valid is True
+            assert tool_path.exists()
+
+    def test_write_invalid_syntax_no_file(self):
+        """Test that invalid syntax doesn't create file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool_path = Path(tmpdir) / "broken.py"
+            code = "def broken("
+
+            result = validate_and_write_tool(code, tool_path)
+            assert result.valid is False
+            assert not tool_path.exists()
+
+    def test_write_missing_meta_no_file(self):
+        """Test that missing TOOL_META doesn't create file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool_path = Path(tmpdir) / "no_meta.py"
+            code = "def foo(): pass"
+
+            result = validate_and_write_tool(code, tool_path)
+            assert result.valid is False
+            assert not tool_path.exists()
+
+    def test_write_incomplete_meta_no_file(self):
+        """Test that incomplete TOOL_META doesn't create file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool_path = Path(tmpdir) / "incomplete.py"
+            code = """
+TOOL_META = {"name": "incomplete"}
+def incomplete(): pass
+"""
+            result = validate_and_write_tool(code, tool_path)
+            assert result.valid is False
+            assert not tool_path.exists()
+
+    def test_write_with_warnings_still_writes(self):
+        """Test that code with warnings is still written."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tool_path = Path(tmpdir) / "warned.py"
+            code = """
+import subprocess
+TOOL_META = {"name": "warned", "description": "Warned tool"}
+def warned(): pass
+"""
+            result = validate_and_write_tool(code, tool_path)
+            assert result.valid is True
+            assert len(result.warnings) > 0  # Has warnings
+            assert tool_path.exists()  # But still written
+
+
+class TestToolFileValidationResult:
+    """Test ToolFileValidationResult dataclass."""
+
+    def test_default_values(self):
+        """Test default values."""
+        result = ToolFileValidationResult(valid=True)
+        assert result.valid is True
+        assert result.tool_meta is None
+        assert result.main_function is None
+        assert result.file_path is None
+        assert result.errors == []
+        assert result.warnings == []
+        assert result.functions == []
+
+    def test_inherits_from_validation_result(self):
+        """Test that it inherits from ValidationResult."""
+        result = ToolFileValidationResult(valid=True)
+        assert isinstance(result, ValidationResult)
