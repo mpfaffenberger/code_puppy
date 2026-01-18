@@ -158,19 +158,22 @@ def _handle_update_action(
 ) -> UniversalConstructorOutput:
     """Handle the 'update' action - modify an existing UC tool.
 
-    Updates an existing tool's code and/or metadata. At least one of
-    python_code or description must be provided.
+    Replaces an existing tool's code with new Python source code.
+    The new code must contain a valid TOOL_META dictionary.
+
+    Note: To update description or other metadata, include the changes
+    in the TOOL_META of the python_code. The description parameter is
+    reserved for future use but currently ignored.
 
     Args:
         context: The run context from pydantic-ai
         tool_name: Name of the tool to update (required)
-        python_code: New Python source code (optional)
-        description: New description to update in TOOL_META (optional)
+        python_code: New Python source code (required)
+        description: Reserved for future use (currently ignored)
 
     Returns:
         UniversalConstructorOutput with update_result on success
     """
-
     from code_puppy.plugins.universal_constructor.registry import get_registry
     from code_puppy.plugins.universal_constructor.sandbox import (
         _extract_tool_meta,
@@ -184,12 +187,12 @@ def _handle_update_action(
             error="tool_name is required for update action",
         )
 
-    # Check that at least one update field is provided
-    if not python_code and not description:
+    # python_code is required for updates
+    if not python_code:
         return UniversalConstructorOutput(
             action="update",
             success=False,
-            error="At least one of python_code or description must be provided",
+            error="python_code is required for update action",
         )
 
     registry = get_registry()
@@ -210,63 +213,28 @@ def _handle_update_action(
             error="Tool has no source path or file does not exist",
         )
 
-    changes_applied = []
-
     try:
-        # Read existing code
-        existing_code = source_path.read_text(encoding="utf-8")
-        new_code = existing_code
+        # Validate new code syntax
+        syntax_result = validate_syntax(python_code)
+        if not syntax_result.valid:
+            error_msg = "; ".join(syntax_result.errors)
+            return UniversalConstructorOutput(
+                action="update",
+                success=False,
+                error=f"Syntax error in new code: {error_msg}",
+            )
 
-        if python_code:
-            # Validate new code syntax
-            syntax_result = validate_syntax(python_code)
-            if not syntax_result.valid:
-                error_msg = "; ".join(syntax_result.errors)
-                return UniversalConstructorOutput(
-                    action="update",
-                    success=False,
-                    error=f"Syntax error in new code: {error_msg}",
-                )
-
-            # Validate TOOL_META exists in new code
-            new_meta = _extract_tool_meta(python_code)
-            if new_meta is None:
-                return UniversalConstructorOutput(
-                    action="update",
-                    success=False,
-                    error="New code must contain a valid TOOL_META dictionary",
-                )
-
-            new_code = python_code
-            changes_applied.append("Replaced source code")
-
-        if description:
-            # Update description in the code's TOOL_META
-            # Parse existing meta and update description
-            current_meta = _extract_tool_meta(new_code)
-            if current_meta is None:
-                return UniversalConstructorOutput(
-                    action="update",
-                    success=False,
-                    error="Could not parse TOOL_META from code",
-                )
-
-            # Simple string replacement for description
-            old_desc = current_meta.get("description", "")
-            if old_desc:
-                # Try to replace the old description with new one
-                new_code = new_code.replace(
-                    f'"description": "{old_desc}"',
-                    f'"description": "{description}"',
-                ).replace(
-                    f"'description': '{old_desc}'",
-                    f"'description': '{description}'",
-                )
-                if f'"description": "{description}"' in new_code or f"'description': '{description}'" in new_code:
-                    changes_applied.append(f"Updated description to: {description}")
+        # Validate TOOL_META exists in new code
+        new_meta = _extract_tool_meta(python_code)
+        if new_meta is None:
+            return UniversalConstructorOutput(
+                action="update",
+                success=False,
+                error="New code must contain a valid TOOL_META dictionary",
+            )
 
         # Write updated code
-        source_path.write_text(new_code, encoding="utf-8")
+        source_path.write_text(python_code, encoding="utf-8")
 
         # Reload registry to pick up changes
         registry.reload()
@@ -278,7 +246,7 @@ def _handle_update_action(
                 success=True,
                 tool_name=tool_name,
                 source_path=source_path,
-                changes_applied=changes_applied,
+                changes_applied=["Replaced source code"],
             ),
         )
 

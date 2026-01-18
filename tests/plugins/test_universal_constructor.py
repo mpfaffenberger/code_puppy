@@ -1241,8 +1241,8 @@ class TestHandleUpdateAction:
         assert result.action == "update"
         assert "tool_name is required" in result.error
 
-    def test_update_requires_code_or_description(self):
-        """Test that update requires at least code or description."""
+    def test_update_requires_python_code(self):
+        """Test that update requires python_code."""
         from unittest.mock import Mock
 
         from code_puppy.tools.universal_constructor import _handle_update_action
@@ -1250,7 +1250,7 @@ class TestHandleUpdateAction:
         context = Mock()
         result = _handle_update_action(context, "some_tool", None, None)
         assert result.success is False
-        assert "At least one of" in result.error
+        assert "python_code is required" in result.error
 
     def test_update_tool_not_found(self):
         """Test update action with nonexistent tool."""
@@ -1277,10 +1277,10 @@ class TestHandleUpdateAction:
         with tempfile.TemporaryDirectory() as tmpdir:
             tools_dir = Path(tmpdir)
             tool_file = tools_dir / "test_tool.py"
-            original_code = '''
+            original_code = """
 TOOL_META = {"name": "test_tool", "description": "Test"}
 def test_tool(): pass
-'''
+"""
             tool_file.write_text(original_code)
 
             from unittest.mock import Mock, patch
@@ -1318,10 +1318,10 @@ def test_tool(): pass
         with tempfile.TemporaryDirectory() as tmpdir:
             tools_dir = Path(tmpdir)
             tool_file = tools_dir / "test_tool.py"
-            original_code = '''
+            original_code = """
 TOOL_META = {"name": "test_tool", "description": "Test"}
 def test_tool(): pass
-'''
+"""
             tool_file.write_text(original_code)
 
             from unittest.mock import Mock, patch
@@ -1359,10 +1359,10 @@ def test_tool(): pass
         with tempfile.TemporaryDirectory() as tmpdir:
             tools_dir = Path(tmpdir)
             tool_file = tools_dir / "updatable.py"
-            original_code = '''
+            original_code = """
 TOOL_META = {"name": "updatable", "description": "Original"}
 def updatable(): return "original"
-'''
+"""
             tool_file.write_text(original_code)
 
             from unittest.mock import Mock, patch
@@ -1388,10 +1388,10 @@ def updatable(): return "original"
                 mock_registry.get_tool.return_value = tool_info
                 mock_get_registry.return_value = mock_registry
 
-                new_code = '''
+                new_code = """
 TOOL_META = {"name": "updatable", "description": "Updated"}
 def updatable(): return "updated"
-'''
+"""
                 result = _handle_update_action(context, "updatable", new_code, None)
                 assert result.success is True
                 assert result.update_result is not None
@@ -1404,50 +1404,17 @@ def updatable(): return "updated"
                 assert 'return "updated"' in updated_content
                 mock_registry.reload.assert_called_once()
 
-    def test_update_description_success(self):
-        """Test successful description update."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tools_dir = Path(tmpdir)
-            tool_file = tools_dir / "describable.py"
-            original_code = '''
-TOOL_META = {"name": "describable", "description": "Original description"}
-def describable(): pass
-'''
-            tool_file.write_text(original_code)
+    def test_update_description_only_fails(self):
+        """Test that description-only update fails (requires python_code)."""
+        from unittest.mock import Mock
 
-            from unittest.mock import Mock, patch
+        from code_puppy.tools.universal_constructor import _handle_update_action
 
-            from code_puppy.plugins.universal_constructor.models import (
-                ToolMeta,
-                UCToolInfo,
-            )
-            from code_puppy.tools.universal_constructor import _handle_update_action
-
-            meta = ToolMeta(name="describable", description="Original description")
-            tool_info = UCToolInfo(
-                meta=meta,
-                signature="describable()",
-                source_path=tool_file,
-            )
-
-            context = Mock()
-            with patch(
-                "code_puppy.plugins.universal_constructor.registry.get_registry"
-            ) as mock_get_registry:
-                mock_registry = Mock()
-                mock_registry.get_tool.return_value = tool_info
-                mock_get_registry.return_value = mock_registry
-
-                result = _handle_update_action(
-                    context, "describable", None, "New description"
-                )
-                assert result.success is True
-                assert result.update_result is not None
-
-                # Verify file was updated with new description
-                updated_content = tool_file.read_text()
-                assert "New description" in updated_content
-                mock_registry.reload.assert_called_once()
+        context = Mock()
+        # Try to update with only description, no python_code
+        result = _handle_update_action(context, "some_tool", None, "New description")
+        assert result.success is False
+        assert "python_code is required" in result.error
 
     def test_update_no_source_path(self):
         """Test update when tool has no source path."""
