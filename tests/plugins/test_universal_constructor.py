@@ -1108,3 +1108,273 @@ class TestToolFileValidationResult:
         """Test that it inherits from ValidationResult."""
         result = ToolFileValidationResult(valid=True)
         assert isinstance(result, ValidationResult)
+
+
+# =============================================================================
+# Test Universal Constructor _handle_call_action
+# =============================================================================
+
+
+class TestHandleCallAction:
+    """Test the _handle_call_action function."""
+
+    def test_call_requires_tool_name(self):
+        """Test that call action requires tool_name."""
+        from unittest.mock import MagicMock
+
+        from code_puppy.tools.universal_constructor import _handle_call_action
+
+        mock_context = MagicMock()
+        result = _handle_call_action(mock_context, None, None)
+
+        assert result.success is False
+        assert result.action == "call"
+        assert "tool_name is required" in result.error
+
+    def test_call_tool_not_found(self):
+        """Test error when tool is not found."""
+        from unittest.mock import MagicMock, patch
+
+        from code_puppy.tools.universal_constructor import _handle_call_action
+
+        mock_registry = MagicMock()
+        mock_registry.get_tool.return_value = None
+
+        mock_context = MagicMock()
+
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry",
+            return_value=mock_registry,
+        ):
+            result = _handle_call_action(mock_context, "nonexistent", {})
+
+        assert result.success is False
+        assert "'nonexistent' not found" in result.error
+
+    def test_call_tool_disabled(self):
+        """Test error when tool is disabled."""
+        from unittest.mock import MagicMock, patch
+
+        from code_puppy.tools.universal_constructor import _handle_call_action
+
+        mock_tool = MagicMock()
+        mock_tool.meta.enabled = False
+
+        mock_registry = MagicMock()
+        mock_registry.get_tool.return_value = mock_tool
+
+        mock_context = MagicMock()
+
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry",
+            return_value=mock_registry,
+        ):
+            result = _handle_call_action(mock_context, "disabled_tool", {})
+
+        assert result.success is False
+        assert "'disabled_tool' is disabled" in result.error
+
+    def test_call_function_not_loadable(self):
+        """Test error when function cannot be loaded."""
+        from unittest.mock import MagicMock, patch
+
+        from code_puppy.tools.universal_constructor import _handle_call_action
+
+        mock_tool = MagicMock()
+        mock_tool.meta.enabled = True
+
+        mock_registry = MagicMock()
+        mock_registry.get_tool.return_value = mock_tool
+        mock_registry.get_tool_function.return_value = None
+
+        mock_context = MagicMock()
+
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry",
+            return_value=mock_registry,
+        ):
+            result = _handle_call_action(mock_context, "broken_tool", {})
+
+        assert result.success is False
+        assert "Could not load function" in result.error
+
+    def test_call_successful_execution(self):
+        """Test successful tool execution."""
+        from unittest.mock import MagicMock, patch
+
+        from code_puppy.tools.universal_constructor import _handle_call_action
+
+        def mock_func(a, b):
+            return a + b
+
+        mock_tool = MagicMock()
+        mock_tool.meta.enabled = True
+
+        mock_registry = MagicMock()
+        mock_registry.get_tool.return_value = mock_tool
+        mock_registry.get_tool_function.return_value = mock_func
+
+        mock_context = MagicMock()
+
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry",
+            return_value=mock_registry,
+        ):
+            result = _handle_call_action(mock_context, "add", {"a": 2, "b": 3})
+
+        assert result.success is True
+        assert result.call_result is not None
+        assert result.call_result.success is True
+        assert result.call_result.tool_name == "add"
+        assert result.call_result.result == 5
+        assert result.call_result.execution_time is not None
+        assert result.call_result.execution_time >= 0
+
+    def test_call_with_no_args(self):
+        """Test tool call with no arguments."""
+        from unittest.mock import MagicMock, patch
+
+        from code_puppy.tools.universal_constructor import _handle_call_action
+
+        def mock_func():
+            return "hello"
+
+        mock_tool = MagicMock()
+        mock_tool.meta.enabled = True
+
+        mock_registry = MagicMock()
+        mock_registry.get_tool.return_value = mock_tool
+        mock_registry.get_tool_function.return_value = mock_func
+
+        mock_context = MagicMock()
+
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry",
+            return_value=mock_registry,
+        ):
+            result = _handle_call_action(mock_context, "greeter", None)
+
+        assert result.success is True
+        assert result.call_result.result == "hello"
+
+    def test_call_invalid_arguments(self):
+        """Test error when passing invalid arguments."""
+        from unittest.mock import MagicMock, patch
+
+        from code_puppy.tools.universal_constructor import _handle_call_action
+
+        def mock_func(a: int, b: int) -> int:
+            return a + b
+
+        mock_tool = MagicMock()
+        mock_tool.meta.enabled = True
+
+        mock_registry = MagicMock()
+        mock_registry.get_tool.return_value = mock_tool
+        mock_registry.get_tool_function.return_value = mock_func
+
+        mock_context = MagicMock()
+
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry",
+            return_value=mock_registry,
+        ):
+            # Missing required arguments
+            result = _handle_call_action(mock_context, "add", {"a": 1})
+
+        assert result.success is False
+        assert "Invalid arguments" in result.error
+
+    def test_call_tool_raises_exception(self):
+        """Test error when tool raises an exception."""
+        from unittest.mock import MagicMock, patch
+
+        from code_puppy.tools.universal_constructor import _handle_call_action
+
+        def mock_func():
+            raise ValueError("Something went wrong")
+
+        mock_tool = MagicMock()
+        mock_tool.meta.enabled = True
+
+        mock_registry = MagicMock()
+        mock_registry.get_tool.return_value = mock_tool
+        mock_registry.get_tool_function.return_value = mock_func
+
+        mock_context = MagicMock()
+
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry",
+            return_value=mock_registry,
+        ):
+            result = _handle_call_action(mock_context, "broken", {})
+
+        assert result.success is False
+        assert "Tool execution failed" in result.error
+        assert "Something went wrong" in result.error
+
+    def test_call_with_real_registry(self):
+        """Test call with real registry and temp tool file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+            tool_code = '''
+TOOL_META = {
+    "name": "multiply",
+    "description": "Multiply two numbers",
+    "enabled": True,
+}
+
+def multiply(x: int, y: int) -> int:
+    """Multiply x and y."""
+    return x * y
+'''
+            (tools_dir / "multiply.py").write_text(tool_code)
+
+            # Create a registry pointing to our temp dir
+            registry = UCRegistry(tools_dir)
+            registry.scan()
+
+            from unittest.mock import MagicMock, patch
+
+            from code_puppy.tools.universal_constructor import _handle_call_action
+
+            mock_context = MagicMock()
+
+            with patch(
+                "code_puppy.plugins.universal_constructor.registry.get_registry",
+                return_value=registry,
+            ):
+                result = _handle_call_action(mock_context, "multiply", {"x": 6, "y": 7})
+
+            assert result.success is True
+            assert result.call_result.result == 42
+            assert result.call_result.tool_name == "multiply"
+
+    def test_call_execution_time_is_measured(self):
+        """Test that execution time is properly measured."""
+        import time as time_module
+        from unittest.mock import MagicMock, patch
+
+        from code_puppy.tools.universal_constructor import _handle_call_action
+
+        def slow_func():
+            time_module.sleep(0.1)
+            return "done"
+
+        mock_tool = MagicMock()
+        mock_tool.meta.enabled = True
+
+        mock_registry = MagicMock()
+        mock_registry.get_tool.return_value = mock_tool
+        mock_registry.get_tool_function.return_value = slow_func
+
+        mock_context = MagicMock()
+
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry",
+            return_value=mock_registry,
+        ):
+            result = _handle_call_action(mock_context, "slow", {})
+
+        assert result.success is True
+        assert result.call_result.execution_time >= 0.1
