@@ -714,11 +714,41 @@ def register_universal_constructor(agent):
         python_code: Optional[str] = None,
         description: Optional[str] = None,
     ) -> UniversalConstructorOutput:
-        """Universal Constructor - Create, manage, and call custom tools dynamically.
+        """Universal Constructor - Your gateway to unlimited capabilities.
 
-        The Universal Constructor allows you to extend your capabilities by creating
-        new tools on-the-fly, managing existing custom tools, and executing them
-        within the current session.
+        **YOU CAN BUILD ANYTHING.** The Universal Constructor empowers you to create
+        any tool you can imagine using Python. If you can write Python code for it,
+        you can make it a permanent, reusable tool. This is your superpower.
+
+        **CAPABILITIES YOU CAN CREATE:**
+        - API integrations (REST, GraphQL, webhooks, any HTTP service)
+        - Database connectors (SQL, NoSQL, any data store)
+        - File processors (parsers, converters, analyzers for any format)
+        - Web scrapers and data extractors
+        - Mathematical and scientific computations
+        - Text processing and NLP utilities
+        - Image and media manipulation (with PIL, etc.)
+        - System utilities and automation scripts
+        - Network tools (DNS, HTTP, socket operations)
+        - Cryptographic functions
+        - Data transformation pipelines
+        - Custom business logic for any domain
+        - Integration with any Python library (requests, pandas, numpy, etc.)
+        - Scheduled tasks and background operations
+        - Custom validators and formatters
+        - Domain-specific calculators
+        - ANY Python functionality you need!
+
+        **WHEN TO USE THIS:**
+        - User asks for something your current tools can't do
+        - You need to call an external API or service
+        - You need custom data processing logic
+        - You want to automate a repetitive task
+        - You need domain-specific functionality
+        - ANY time you think "I wish I had a tool that..."
+
+        **PHILOSOPHY:** Don't say "I can't do that" - instead, BUILD a tool that can!
+        Tools you create persist across sessions, so build once, use forever.
 
         Args:
             action: The operation to perform:
@@ -728,64 +758,57 @@ def register_universal_constructor(agent):
                 - "update": Modify an existing tool's code or metadata
                 - "info": Get detailed information about a specific tool
             tool_name: Name of the tool (required for call/update/info actions).
-                Supports namespaced format like "namespace.tool_name".
+                Supports namespaced format like "namespace.tool_name" for organization.
             tool_args: Dictionary of arguments to pass when calling a tool.
                 Only used with action="call".
             python_code: Python source code defining the tool function.
                 Required for action="create", optional for action="update".
+                You have access to the FULL Python standard library plus any
+                installed packages (requests, etc.).
             description: Human-readable description of what the tool does.
                 Used with action="create".
 
         Returns:
-            UniversalConstructorOutput: Contains:
-                - action: The action that was performed
-                - success: Whether the operation succeeded
-                - error: Error message if the operation failed
-                - list_result: Results when action="list"
-                - call_result: Results when action="call"
-                - create_result: Results when action="create"
-                - update_result: Results when action="update"
-                - info_result: Results when action="info"
+            UniversalConstructorOutput with action-specific results.
 
         Examples:
-            >>> # List all available custom tools
-            >>> result = universal_constructor(ctx, action="list")
-            >>> print(result.list_result.tools)
+            # Create an API client tool
+            code = '''
+            import requests
+            TOOL_META = {"name": "weather", "description": "Get weather data"}
+            def weather(city: str) -> dict:
+                resp = requests.get(f"https://wttr.in/{city}?format=j1")
+                return resp.json()
+            '''
+            universal_constructor(ctx, action="create", python_code=code)
 
-            >>> # Get info about a specific tool
-            >>> result = universal_constructor(ctx, action="info", tool_name="api.weather")
-            >>> print(result.info_result.tool.meta.description)
+            # Create a data processor
+            code = '''
+            import json
+            TOOL_META = {"name": "csv_to_json", "description": "Convert CSV to JSON"}
+            def csv_to_json(csv_text: str) -> list:
+                lines = csv_text.strip().split("\\n")
+                headers = lines[0].split(",")
+                return [{h: v for h, v in zip(headers, line.split(","))}
+                        for line in lines[1:]]
+            '''
+            universal_constructor(ctx, action="create", python_code=code)
 
-            >>> # Call a custom tool
-            >>> result = universal_constructor(
-            ...     ctx,
-            ...     action="call",
-            ...     tool_name="utils.formatter",
-            ...     tool_args={"text": "hello world", "style": "title"}
-            ... )
-            >>> print(result.call_result.result)
-
-            >>> # Create a new tool
-            >>> code = '''
-            ... TOOL_META = {
-            ...     "name": "greet",
-            ...     "description": "Generate a greeting message"
-            ... }
-            ...
-            ... def greet(name: str) -> str:
-            ...     return f"Hello, {name}!"
-            ... '''
-            >>> result = universal_constructor(
-            ...     ctx,
-            ...     action="create",
-            ...     python_code=code,
-            ...     description="A friendly greeting tool"
-            ... )
+            # Create a utility tool
+            code = '''
+            import hashlib
+            TOOL_META = {"name": "hasher", "description": "Hash strings"}
+            def hasher(text: str, algorithm: str = "sha256") -> str:
+                h = hashlib.new(algorithm)
+                h.update(text.encode())
+                return h.hexdigest()
+            '''
+            universal_constructor(ctx, action="create", python_code=code)
 
         Note:
-            Custom tools are stored in ~/.code_puppy/plugins/universal_constructor/
-            and persist across sessions. Tools can be organized into namespaces
-            by placing them in subdirectories.
+            Tools are stored in ~/.code_puppy/plugins/universal_constructor/ and
+            persist forever. Organize with namespaces: "api.weather", "utils.hasher".
+            Code is auto-formatted with ruff. Check existing tools with action="list".
         """
         return await universal_constructor_impl(
             context, action, tool_name, tool_args, python_code, description

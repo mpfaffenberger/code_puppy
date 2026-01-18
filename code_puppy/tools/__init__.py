@@ -176,11 +176,20 @@ def register_tools_for_agent(agent, tool_names: list[str]):
         agent: The agent to register tools to.
         tool_names: List of tool names to register.
     """
+    from code_puppy.config import get_universal_constructor_enabled
+
     for tool_name in tool_names:
         if tool_name not in TOOL_REGISTRY:
             # Skip unknown tools with a warning instead of failing
             emit_warning(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
             continue
+
+        # Check if Universal Constructor is disabled
+        if (
+            tool_name == "universal_constructor"
+            and not get_universal_constructor_enabled()
+        ):
+            continue  # Skip UC if disabled in config
 
         # Register the individual tool
         register_func = TOOL_REGISTRY[tool_name]

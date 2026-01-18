@@ -1705,3 +1705,56 @@ def stocks(symbol: str) -> str:
                     # Verify deeply nested path
                     tool_file = tools_dir / "api" / "finance" / "stocks.py"
                     assert tool_file.exists()
+
+
+class TestUniversalConstructorConfig:
+    """Tests for the Universal Constructor config toggle."""
+
+    def test_get_uc_enabled_defaults_to_true(self):
+        """Test get_universal_constructor_enabled returns True by default."""
+        from unittest.mock import patch
+
+        from code_puppy.config import get_universal_constructor_enabled
+
+        # When no config value is set (None), should default to True
+        with patch("code_puppy.config.get_value", return_value=None):
+            result = get_universal_constructor_enabled()
+            assert result is True
+
+    def test_get_uc_enabled_returns_true_for_truthy_values(self):
+        """Test get_universal_constructor_enabled returns True for various truthy values."""
+        from unittest.mock import patch
+
+        from code_puppy.config import get_universal_constructor_enabled
+
+        truthy_values = ["1", "true", "True", "TRUE", "yes", "Yes", "on", "ON"]
+        for val in truthy_values:
+            with patch("code_puppy.config.get_value", return_value=val):
+                result = get_universal_constructor_enabled()
+                assert result is True, f"Expected True for '{val}'"
+
+    def test_get_uc_enabled_returns_false_for_falsy_values(self):
+        """Test get_universal_constructor_enabled returns False for various falsy values."""
+        from unittest.mock import patch
+
+        from code_puppy.config import get_universal_constructor_enabled
+
+        falsy_values = ["0", "false", "False", "no", "off", "disabled", ""]
+        for val in falsy_values:
+            with patch("code_puppy.config.get_value", return_value=val):
+                result = get_universal_constructor_enabled()
+                assert result is False, f"Expected False for '{val}'"
+
+    def test_set_uc_enabled(self):
+        """Test set_universal_constructor_enabled calls set_value correctly."""
+        from unittest.mock import patch
+
+        from code_puppy.config import set_universal_constructor_enabled
+
+        with patch("code_puppy.config.set_value") as mock_set:
+            set_universal_constructor_enabled(True)
+            mock_set.assert_called_once_with("enable_universal_constructor", "true")
+
+        with patch("code_puppy.config.set_value") as mock_set:
+            set_universal_constructor_enabled(False)
+            mock_set.assert_called_once_with("enable_universal_constructor", "false")
