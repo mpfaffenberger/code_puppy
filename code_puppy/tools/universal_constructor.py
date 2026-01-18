@@ -90,6 +90,23 @@ def _run_ruff_format(file_path) -> Optional[str]:
         return f"ruff format error: {e}"
 
 
+def _generate_preview(code: str, max_lines: int = 10) -> str:
+    """Generate a preview of the first N lines of code.
+
+    Args:
+        code: The source code to preview
+        max_lines: Maximum number of lines to include (default 10)
+
+    Returns:
+        A string with the first N lines, with "..." appended if truncated
+    """
+    lines = code.splitlines()
+    if len(lines) <= max_lines:
+        return code
+    preview_lines = lines[:max_lines]
+    return "\n".join(preview_lines) + "\n... (truncated)"
+
+
 def _emit_uc_message(
     action: str,
     success: bool,
@@ -496,6 +513,9 @@ def _handle_create_action(
     if format_warning:
         validation_warnings.append(format_warning)
 
+    # Read formatted code for preview
+    formatted_code = file_path.read_text(encoding="utf-8")
+
     # Reload registry to pick up the new tool
     try:
         registry = get_registry()
@@ -514,6 +534,7 @@ def _handle_create_action(
             success=True,
             tool_name=full_name,
             source_path=str(file_path),
+            preview=_generate_preview(formatted_code),
             validation_warnings=validation_warnings,
         ),
     )
@@ -616,6 +637,9 @@ def _handle_update_action(
         else:
             changes.append("Formatted with ruff")
 
+        # Read formatted code for preview
+        formatted_code = source_path_obj.read_text(encoding="utf-8")
+
         # Reload registry to pick up changes
         registry.reload()
 
@@ -626,6 +650,7 @@ def _handle_update_action(
                 success=True,
                 tool_name=tool_name,
                 source_path=source_path,
+                preview=_generate_preview(formatted_code),
                 changes_applied=changes,
             ),
         )
