@@ -1443,3 +1443,266 @@ def updatable(): return "updated"
             )
             assert result.success is False
             assert "does not exist" in result.error.lower()
+
+
+class TestHandleCreateAction:
+    """Test _handle_create_action function."""
+
+    def test_create_simple_tool_auto_generated_meta(self):
+        """Test creating a simple tool with auto-generated TOOL_META."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.tools.universal_constructor import _handle_create_action
+
+            context = Mock()
+
+            code = '''
+def greet(name: str = "World") -> str:
+    """Generate a greeting."""
+    return f"Hello, {name}!"
+'''
+            with patch(
+                "code_puppy.plugins.universal_constructor.USER_UC_DIR", tools_dir
+            ):
+                with patch(
+                    "code_puppy.plugins.universal_constructor.registry.get_registry"
+                ) as mock_get_registry:
+                    mock_registry = Mock()
+                    mock_get_registry.return_value = mock_registry
+
+                    result = _handle_create_action(
+                        context, None, code, "A greeting tool"
+                    )
+
+                    assert result.success is True
+                    assert result.action == "create"
+                    assert result.create_result is not None
+                    assert result.create_result.success is True
+                    # Should use function name as tool name
+                    assert result.create_result.tool_name == "greet"
+                    assert (
+                        "TOOL_META was auto-generated"
+                        in result.create_result.validation_warnings
+                    )
+
+                    # Verify file was written
+                    tool_file = tools_dir / "greet.py"
+                    assert tool_file.exists()
+                    content = tool_file.read_text()
+                    assert "TOOL_META" in content
+                    assert "def greet" in content
+                    mock_registry.reload.assert_called_once()
+
+    def test_create_with_explicit_tool_name(self):
+        """Test creating a tool with explicit tool_name parameter."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.tools.universal_constructor import _handle_create_action
+
+            context = Mock()
+
+            code = """
+def my_func() -> str:
+    return "result"
+"""
+            with patch(
+                "code_puppy.plugins.universal_constructor.USER_UC_DIR", tools_dir
+            ):
+                with patch(
+                    "code_puppy.plugins.universal_constructor.registry.get_registry"
+                ) as mock_get_registry:
+                    mock_registry = Mock()
+                    mock_get_registry.return_value = mock_registry
+
+                    result = _handle_create_action(
+                        context, "custom_name", code, "Custom description"
+                    )
+
+                    assert result.success is True
+                    assert result.create_result.tool_name == "custom_name"
+
+                    # Verify file was written with custom name
+                    tool_file = tools_dir / "custom_name.py"
+                    assert tool_file.exists()
+
+    def test_create_namespaced_tool(self):
+        """Test creating a namespaced tool (api.weather)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.tools.universal_constructor import _handle_create_action
+
+            context = Mock()
+
+            code = """
+def weather(city: str) -> str:
+    return f"Weather for {city}"
+"""
+            with patch(
+                "code_puppy.plugins.universal_constructor.USER_UC_DIR", tools_dir
+            ):
+                with patch(
+                    "code_puppy.plugins.universal_constructor.registry.get_registry"
+                ) as mock_get_registry:
+                    mock_registry = Mock()
+                    mock_get_registry.return_value = mock_registry
+
+                    result = _handle_create_action(
+                        context, "api.weather", code, "Weather API tool"
+                    )
+
+                    assert result.success is True
+                    assert result.create_result.tool_name == "api.weather"
+
+                    # Verify file was written in namespace directory
+                    tool_file = tools_dir / "api" / "weather.py"
+                    assert tool_file.exists()
+                    content = tool_file.read_text()
+                    assert "'namespace': 'api'" in content
+
+    def test_create_with_existing_tool_meta(self):
+        """Test creating a tool that already has TOOL_META in code."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.tools.universal_constructor import _handle_create_action
+
+            context = Mock()
+
+            code = """
+TOOL_META = {
+    "name": "calculator",
+    "description": "A math calculator",
+    "version": "2.0.0",
+}
+
+def calculator(a: int, b: int) -> int:
+    return a + b
+"""
+            with patch(
+                "code_puppy.plugins.universal_constructor.USER_UC_DIR", tools_dir
+            ):
+                with patch(
+                    "code_puppy.plugins.universal_constructor.registry.get_registry"
+                ) as mock_get_registry:
+                    mock_registry = Mock()
+                    mock_get_registry.return_value = mock_registry
+
+                    result = _handle_create_action(context, None, code, None)
+
+                    assert result.success is True
+                    assert result.create_result.tool_name == "calculator"
+                    # Should NOT have auto-generated warning since TOOL_META existed
+                    assert (
+                        "TOOL_META was auto-generated"
+                        not in result.create_result.validation_warnings
+                    )
+
+                    # Verify file contains original TOOL_META (not modified)
+                    tool_file = tools_dir / "calculator.py"
+                    assert tool_file.exists()
+                    content = tool_file.read_text()
+                    assert '"version": "2.0.0"' in content
+
+    def test_create_error_missing_python_code(self):
+        """Test error when python_code is missing."""
+        from unittest.mock import Mock
+
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        context = Mock()
+
+        result = _handle_create_action(context, "test", None, "description")
+        assert result.success is False
+        assert result.action == "create"
+        assert "python_code is required" in result.error
+
+        # Also test empty string
+        result = _handle_create_action(context, "test", "", "description")
+        assert result.success is False
+        assert "python_code is required" in result.error
+
+        # Also test whitespace only
+        result = _handle_create_action(context, "test", "   ", "description")
+        assert result.success is False
+        assert "python_code is required" in result.error
+
+    def test_create_error_invalid_syntax(self):
+        """Test error when code has invalid syntax."""
+        from unittest.mock import Mock
+
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        context = Mock()
+
+        invalid_code = "def broken("
+        result = _handle_create_action(context, "test", invalid_code, "description")
+        assert result.success is False
+        assert "Syntax error" in result.error
+
+    def test_create_error_no_functions(self):
+        """Test error when code has no functions."""
+        from unittest.mock import Mock
+
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        context = Mock()
+
+        code_no_funcs = """
+TOOL_META = {
+    "name": "no_funcs",
+    "description": "No functions",
+}
+
+# Just some variables, no functions
+x = 1
+y = 2
+"""
+        result = _handle_create_action(context, "test", code_no_funcs, "description")
+        assert result.success is False
+        assert "No functions found" in result.error
+
+    def test_create_deeply_namespaced_tool(self):
+        """Test creating a deeply namespaced tool (api.finance.stocks)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tools_dir = Path(tmpdir)
+
+            from unittest.mock import Mock, patch
+
+            from code_puppy.tools.universal_constructor import _handle_create_action
+
+            context = Mock()
+
+            code = """
+def stocks(symbol: str) -> str:
+    return f"Stock: {symbol}"
+"""
+            with patch(
+                "code_puppy.plugins.universal_constructor.USER_UC_DIR", tools_dir
+            ):
+                with patch(
+                    "code_puppy.plugins.universal_constructor.registry.get_registry"
+                ) as mock_get_registry:
+                    mock_registry = Mock()
+                    mock_get_registry.return_value = mock_registry
+
+                    result = _handle_create_action(
+                        context, "api.finance.stocks", code, "Stock API"
+                    )
+
+                    assert result.success is True
+                    assert result.create_result.tool_name == "api.finance.stocks"
+
+                    # Verify deeply nested path
+                    tool_file = tools_dir / "api" / "finance" / "stocks.py"
+                    assert tool_file.exists()

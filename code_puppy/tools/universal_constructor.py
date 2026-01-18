@@ -252,15 +252,170 @@ def _handle_create_action(
 ) -> UniversalConstructorOutput:
     """Handle the 'create' action - create a new UC tool.
 
-    Stub implementation - returns "Not implemented yet".
+    Creates a new tool from Python source code. The code can either include
+    a TOOL_META dictionary, or one will be generated from the provided
+    tool_name and description parameters.
+
+    Supports namespacing via dot notation in tool_name:
+    - "weather" → weather.py
+    - "api.weather" → api/weather.py
+    - "api.finance.stocks" → api/finance/stocks.py
+
+    Args:
+        context: The run context from pydantic-ai
+        tool_name: Name of the tool (with optional namespace). Required if
+            code doesn't contain TOOL_META.
+        python_code: Python source code defining the tool function (required)
+        description: Description of what the tool does. Used if no TOOL_META
+            in code.
+
+    Returns:
+        UniversalConstructorOutput with create_result on success
     """
-    if not python_code:
+    from datetime import datetime
+    from pathlib import Path
+
+    from code_puppy.plugins.universal_constructor import USER_UC_DIR
+    from code_puppy.plugins.universal_constructor.registry import get_registry
+    from code_puppy.plugins.universal_constructor.sandbox import (
+        _extract_tool_meta,
+        check_dangerous_patterns,
+        extract_function_info,
+        validate_syntax,
+    )
+
+    # Validate python_code is provided
+    if not python_code or not python_code.strip():
         return UniversalConstructorOutput(
             action="create",
             success=False,
             error="python_code is required for create action",
         )
-    return _stub_not_implemented("create")
+
+    # Validate syntax
+    syntax_result = validate_syntax(python_code)
+    if not syntax_result.valid:
+        error_msg = "; ".join(syntax_result.errors)
+        return UniversalConstructorOutput(
+            action="create",
+            success=False,
+            error=f"Syntax error in code: {error_msg}",
+        )
+
+    # Extract function info
+    func_result = extract_function_info(python_code)
+    if not func_result.functions:
+        return UniversalConstructorOutput(
+            action="create",
+            success=False,
+            error="No functions found in code - tool must have at least one function",
+        )
+
+    # Get the first function as the main tool function
+    main_func = func_result.functions[0]
+
+    # Try to extract TOOL_META from code
+    existing_meta = _extract_tool_meta(python_code)
+
+    # Determine final tool name and namespace
+    if existing_meta and "name" in existing_meta:
+        # Use name from TOOL_META
+        final_name = existing_meta["name"]
+        final_namespace = existing_meta.get("namespace", "")
+    elif tool_name:
+        # Parse namespace from tool_name (e.g., "api.weather" → namespace="api", name="weather")
+        parts = tool_name.rsplit(".", 1)
+        if len(parts) == 2:
+            final_namespace, final_name = parts[0], parts[1]
+        else:
+            final_namespace, final_name = "", parts[0]
+    else:
+        # Use function name as tool name
+        final_name = main_func.name
+        final_namespace = ""
+
+    # Validate we have a name
+    if not final_name:
+        return UniversalConstructorOutput(
+            action="create",
+            success=False,
+            error="Could not determine tool name - provide tool_name or include TOOL_META in code",
+        )
+
+    # Build file path based on namespace
+    if final_namespace:
+        # Convert dot notation to path (api.finance → api/finance/)
+        namespace_path = Path(*final_namespace.split("."))
+        file_dir = USER_UC_DIR / namespace_path
+    else:
+        file_dir = USER_UC_DIR
+
+    file_path = file_dir / f"{final_name}.py"
+
+    # Build the final code to write
+    validation_warnings = []
+
+    if existing_meta:
+        # Code already has TOOL_META, use as-is
+        final_code = python_code
+        # Collect any validation warnings
+        validation_warnings.extend(func_result.warnings)
+    else:
+        # Generate TOOL_META and prepend to code
+        final_description = description or main_func.docstring or f"Tool: {final_name}"
+
+        generated_meta = {
+            "name": final_name,
+            "namespace": final_namespace,
+            "description": final_description,
+            "enabled": True,
+            "version": "1.0.0",
+            "author": "user",
+            "created_at": datetime.now().isoformat(),
+        }
+
+        # Format TOOL_META as a dict literal
+        meta_str = f"TOOL_META = {repr(generated_meta)}\n\n"
+        final_code = meta_str + python_code
+        validation_warnings.append("TOOL_META was auto-generated")
+        validation_warnings.extend(func_result.warnings)
+
+    # Check for dangerous patterns (warning only, don't block)
+    safety_result = check_dangerous_patterns(python_code)
+    validation_warnings.extend(safety_result.warnings)
+
+    # Ensure directory exists and write file
+    try:
+        file_dir.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(final_code, encoding="utf-8")
+    except Exception as e:
+        return UniversalConstructorOutput(
+            action="create",
+            success=False,
+            error=f"Failed to write tool file: {e}",
+        )
+
+    # Reload registry to pick up the new tool
+    try:
+        registry = get_registry()
+        registry.reload()
+    except Exception as e:
+        # Tool was written but registry reload failed - still a partial success
+        validation_warnings.append(f"Tool created but registry reload failed: {e}")
+
+    # Build full name for response
+    full_name = f"{final_namespace}.{final_name}" if final_namespace else final_name
+
+    return UniversalConstructorOutput(
+        action="create",
+        success=True,
+        create_result=UCCreateOutput(
+            success=True,
+            tool_name=full_name,
+            source_path=file_path,
+            validation_warnings=validation_warnings,
+        ),
+    )
 
 
 def _handle_update_action(
