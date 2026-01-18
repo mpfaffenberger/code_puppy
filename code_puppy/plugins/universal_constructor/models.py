@@ -80,6 +80,9 @@ class UCCallOutput(BaseModel):
     execution_time: Optional[float] = Field(
         default=None, description="Execution time in seconds"
     )
+    source_preview: Optional[str] = Field(
+        default=None, description="Preview of the tool's source code that was executed"
+    )
 
 
 class UCCreateOutput(BaseModel):

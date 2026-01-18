@@ -307,6 +307,17 @@ def _handle_call_action(
             error=f"Tool '{tool_name}' is disabled",
         )
 
+    # Read source for preview
+    source_preview = None
+    if tool.source_path:
+        try:
+            from pathlib import Path
+
+            source_code = Path(tool.source_path).read_text(encoding="utf-8")
+            source_preview = _generate_preview(source_code)
+        except Exception:
+            pass  # Preview is optional, don't fail on read errors
+
     func = registry.get_tool_function(tool_name)
     if not func:
         return UniversalConstructorOutput(
@@ -334,6 +345,7 @@ def _handle_call_action(
                 tool_name=tool_name,
                 result=result,
                 execution_time=execution_time,
+                source_preview=source_preview,
             ),
         )
     except FuturesTimeoutError:
