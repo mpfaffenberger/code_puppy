@@ -123,6 +123,46 @@ def _toggle_tool_enabled(tool: UCToolInfo) -> bool:
         return False
 
 
+def _delete_tool(tool: UCToolInfo) -> bool:
+    """Delete a UC tool by removing its source file.
+
+    Args:
+        tool: The tool to delete.
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    try:
+        source_path = Path(tool.source_path)
+        if not source_path.exists():
+            emit_error(f"Tool file not found: {source_path}")
+            return False
+
+        # Delete the file
+        source_path.unlink()
+
+        # Try to clean up empty parent directories (namespace folders)
+        parent = source_path.parent
+        from code_puppy.plugins.universal_constructor import USER_UC_DIR
+
+        while parent != USER_UC_DIR and parent.exists():
+            try:
+                if not any(parent.iterdir()):
+                    parent.rmdir()
+                    parent = parent.parent
+                else:
+                    break
+            except OSError:
+                break
+
+        emit_success(f"Deleted tool '{tool.full_name}'")
+        return True
+
+    except Exception as e:
+        emit_error(f"Failed to delete tool: {e}")
+        return False
+
+
 def _load_source_code(tool: UCToolInfo) -> Tuple[List[str], Optional[str]]:
     """Load source code lines from a tool's file.
 
@@ -205,6 +245,8 @@ def _render_menu_panel(
     lines.append(("", "View source\n"))
     lines.append(("fg:ansiyellow", "  E "))
     lines.append(("", "Toggle enabled\n"))
+    lines.append(("fg:ansired", "  D "))
+    lines.append(("", "Delete tool\n"))
     lines.append(("fg:ansibrightred", "  Ctrl+C "))
     lines.append(("", "Exit"))
 
@@ -658,6 +700,12 @@ async def interactive_uc_picker() -> Optional[str]:
             pending_action[0] = "toggle"
             event.app.exit()
 
+    @list_kb.add("d")
+    def _list_delete(event):
+        if get_current_tool():
+            pending_action[0] = "delete"
+            event.app.exit()
+
     @list_kb.add("enter")
     def _list_enter(event):
         tool = get_current_tool()
@@ -764,6 +812,14 @@ async def interactive_uc_picker() -> Optional[str]:
                     selected_name = tool.full_name
                     _toggle_tool_enabled(tool)
                     refresh_tools(selected_name=selected_name)
+                pending_action[0] = None
+                continue
+
+            if pending_action[0] == "delete":
+                tool = get_current_tool()
+                if tool:
+                    _delete_tool(tool)
+                    refresh_tools()  # Don't try to keep selection on deleted tool
                 pending_action[0] = None
                 continue
 

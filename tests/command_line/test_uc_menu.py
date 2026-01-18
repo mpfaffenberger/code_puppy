@@ -422,6 +422,52 @@ class TestCommandRegistration:
         assert cmd_info.handler == handle_uc_command
 
 
+class TestDeleteTool:
+    """Tests for the _delete_tool function."""
+
+    def test_delete_tool_successfully(self):
+        """Test deleting a tool removes the file."""
+        from code_puppy.command_line.uc_menu import _delete_tool
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write('TOOL_META = {"name": "test"}\n\ndef run():\n    pass')
+            temp_path = f.name
+
+        try:
+            tool = UCToolInfo(
+                meta=ToolMeta(
+                    name="test",
+                    namespace="",
+                    description="Test",
+                    enabled=True,
+                ),
+                signature="run() -> None",
+                source_path=temp_path,
+                function_name="run",
+            )
+
+            assert Path(temp_path).exists()
+
+            with patch("code_puppy.command_line.uc_menu.emit_success"):
+                result = _delete_tool(tool)
+
+            assert result is True
+            assert not Path(temp_path).exists()
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+    def test_delete_handles_missing_file(self, mock_tool_enabled):
+        """Test graceful handling of missing file."""
+        from code_puppy.command_line.uc_menu import _delete_tool
+
+        mock_tool_enabled.source_path = "/nonexistent/path.py"
+
+        with patch("code_puppy.command_line.uc_menu.emit_error"):
+            result = _delete_tool(mock_tool_enabled)
+
+        assert result is False
+
+
 class TestLoadSourceCode:
     """Tests for the _load_source_code function."""
 
