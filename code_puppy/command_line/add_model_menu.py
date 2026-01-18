@@ -626,12 +626,21 @@ class AddModelMenu:
         elif model_type == "openai" and "gpt-5" in model.model_id:
             # GPT-5 models have special settings
             if "codex" in model.model_id:
-                config["supported_settings"] = ["reasoning_effort"]
+                config["supported_settings"] = [
+                    "temperature",
+                    "top_p",
+                    "reasoning_effort",
+                ]
             else:
-                config["supported_settings"] = ["reasoning_effort", "verbosity"]
+                config["supported_settings"] = [
+                    "temperature",
+                    "top_p",
+                    "reasoning_effort",
+                    "verbosity",
+                ]
         else:
-            # Default settings for most models (no top_p)
-            config["supported_settings"] = ["temperature", "seed"]
+            # Default settings for most models
+            config["supported_settings"] = ["temperature", "seed", "top_p"]
 
         return config
 

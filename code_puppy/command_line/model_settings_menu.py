@@ -39,10 +39,10 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "description": "Controls randomness. Lower = more deterministic, higher = more creative.",
         "type": "numeric",
         "min": 0.0,
-        "max": 1.0,  # Clamped to 0-1 per user request
-        "step": 0.1,
+        "max": 1.0,
+        "step": 0.05,
         "default": None,  # None means use model default
-        "format": "{:.1f}",
+        "format": "{:.2f}",
     },
     "seed": {
         "name": "Seed",
@@ -53,6 +53,16 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "step": 1,
         "default": None,
         "format": "{:.0f}",
+    },
+    "top_p": {
+        "name": "Top-P (Nucleus Sampling)",
+        "description": "Controls token diversity. 0.0 = least random (only most likely tokens), 1.0 = most random (sample from all tokens).",
+        "type": "numeric",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.05,
+        "default": None,
+        "format": "{:.2f}",
     },
     "reasoning_effort": {
         "name": "Reasoning Effort",
@@ -575,6 +585,8 @@ class ModelSettingsMenu:
             # Default to a sensible starting point for numeric
             if setting_key == "temperature":
                 self.edit_value = 0.7
+            elif setting_key == "top_p":
+                self.edit_value = 0.9  # Common default for top_p
             elif setting_key == "seed":
                 self.edit_value = 42
             elif setting_key == "budget_tokens":
