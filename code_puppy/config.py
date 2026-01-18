@@ -123,6 +123,9 @@ REQUIRED_KEYS = ["puppy_name", "owner_name"]
 # Runtime-only autosave session ID (per-process)
 _CURRENT_AUTOSAVE_ID: Optional[str] = None
 
+# Session-local model name (initialized from file on first access, then cached)
+_SESSION_MODEL: Optional[str] = None
+
 # Cache containers for model validation and defaults
 _model_validation_cache = {}
 _default_model_cache = None
@@ -419,6 +422,16 @@ def clear_model_cache():
     _default_vision_model_cache = None
 
 
+def reset_session_model():
+    """Reset the session-local model cache.
+
+    This is primarily for testing purposes. In normal operation, the session
+    model is set once at startup and only changes via set_model_name().
+    """
+    global _SESSION_MODEL
+    _SESSION_MODEL = None
+
+
 def model_supports_setting(model_name: str, setting: str) -> bool:
     """Check if a model supports a particular setting (e.g., 'temperature', 'seed').
 
@@ -459,26 +472,49 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
 def get_global_model_name():
     """Return a valid model name for Code Puppy to use.
 
-    1. Look at ``model`` in *puppy.cfg*.
-    2. If that value exists **and** is present in *models.json*, use it.
-    3. Otherwise return the first model listed in *models.json*.
-    4. As a last resort (e.g.
-       *models.json* unreadable) fall back to ``claude-4-0-sonnet``.
-    """
+    Uses session-local caching so that model changes in other terminals
+    don't affect this running instance. The file is only read once at startup.
 
+    1. If _SESSION_MODEL is set, return it (session cache)
+    2. Otherwise, look at ``model`` in *puppy.cfg*
+    3. If that value exists **and** is present in *models.json*, use it
+    4. Otherwise return the first model listed in *models.json*
+    5. As a last resort fall back to ``claude-4-0-sonnet``
+
+    The result is cached in _SESSION_MODEL for subsequent calls.
+    """
+    global _SESSION_MODEL
+
+    # Return cached session model if already initialized
+    if _SESSION_MODEL is not None:
+        return _SESSION_MODEL
+
+    # First access - initialize from file
     stored_model = get_value("model")
 
     if stored_model:
         # Use cached validation to avoid hitting ModelFactory every time
         if _validate_model_exists(stored_model):
-            return stored_model
+            _SESSION_MODEL = stored_model
+            return _SESSION_MODEL
 
     # Either no stored model or it's not valid – choose default from models.json
-    return _default_model_from_models_json()
+    _SESSION_MODEL = _default_model_from_models_json()
+    return _SESSION_MODEL
 
 
 def set_model_name(model: str):
-    """Sets the model name in the persistent config file."""
+    """Sets the model name in both the session cache and persistent config file.
+
+    Updates _SESSION_MODEL immediately for this process, and writes to the
+    config file so new terminals will pick up this model as their default.
+    """
+    global _SESSION_MODEL
+
+    # Update session cache immediately
+    _SESSION_MODEL = model
+
+    # Also persist to file for new terminal sessions
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     if DEFAULT_SECTION not in config:
