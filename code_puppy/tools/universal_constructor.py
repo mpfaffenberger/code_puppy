@@ -139,15 +139,132 @@ def _handle_create_action(
 ) -> UniversalConstructorOutput:
     """Handle the 'create' action - create a new UC tool.
 
-    Stub implementation - returns "Not implemented yet".
+    Creates a new tool from provided Python code. The code is validated,
+    function info is extracted, and TOOL_META is generated automatically.
+
+    Supports namespaced tools via dot notation (e.g., "api.weather" creates
+    the file at {UC_DIR}/api/weather.py).
+
+    Args:
+        context: The run context from pydantic-ai
+        tool_name: Optional name for the tool. Supports "namespace.name" format.
+            If not provided, uses the function name from the code.
+        python_code: Python source code containing the tool function. Required.
+        description: Optional description. If not provided, uses the function's
+            docstring or a default.
+
+    Returns:
+        UniversalConstructorOutput with create_result containing the tool name
+        and file path on success, or an error message on failure.
     """
+    from datetime import datetime
+
+    from code_puppy.plugins.universal_constructor import USER_UC_DIR
+    from code_puppy.plugins.universal_constructor.sandbox import (
+        check_dangerous_patterns,
+        extract_function_info,
+        validate_syntax,
+    )
+
+    # Validate python_code is provided
     if not python_code:
         return UniversalConstructorOutput(
             action="create",
             success=False,
             error="python_code is required for create action",
         )
-    return _stub_not_implemented("create")
+
+    # Validate syntax
+    syntax_result = validate_syntax(python_code)
+    if not syntax_result.valid:
+        error_msg = (
+            "; ".join(syntax_result.errors)
+            if syntax_result.errors
+            else "Invalid syntax"
+        )
+        return UniversalConstructorOutput(
+            action="create",
+            success=False,
+            error=f"Syntax error: {error_msg}",
+        )
+
+    # Extract function info
+    func_result = extract_function_info(python_code)
+    if not func_result.functions:
+        return UniversalConstructorOutput(
+            action="create",
+            success=False,
+            error="No function found in code",
+        )
+
+    # Use the first function found as the main function
+    main_func = func_result.functions[0]
+
+    # Determine name and namespace
+    if tool_name:
+        parts = tool_name.rsplit(".", 1)
+        if len(parts) == 2:
+            namespace, name = parts[0], parts[1]
+        else:
+            namespace, name = None, parts[0]
+    else:
+        namespace, name = None, main_func.name
+
+    # Build file path with namespace support
+    if namespace:
+        # Convert dot notation to path: "api.v1" -> "api/v1"
+        file_dir = USER_UC_DIR / namespace.replace(".", "/")
+    else:
+        file_dir = USER_UC_DIR
+
+    # Ensure directory exists
+    file_dir.mkdir(parents=True, exist_ok=True)
+    file_path = file_dir / f"{name}.py"
+
+    # Generate TOOL_META
+    tool_meta = {
+        "name": name,
+        "namespace": namespace or "",
+        "description": description or main_func.docstring or "No description",
+        "enabled": True,
+        "version": "1.0.0",
+        "author": "user",
+        "created_at": datetime.now().isoformat(),
+    }
+
+    # Build file content with TOOL_META prepended
+    meta_str = f"TOOL_META = {repr(tool_meta)}\n\n"
+    file_content = meta_str + python_code
+
+    # Check for dangerous patterns (warnings only, don't fail)
+    safety_result = check_dangerous_patterns(python_code)
+    validation_warnings = (
+        safety_result.warnings.copy() if safety_result.warnings else []
+    )
+
+    # Write file
+    try:
+        file_path.write_text(file_content, encoding="utf-8")
+    except OSError as e:
+        return UniversalConstructorOutput(
+            action="create",
+            success=False,
+            error=f"Failed to write file: {e}",
+        )
+
+    # Construct full name for return
+    full_name = f"{namespace}.{name}" if namespace else name
+
+    return UniversalConstructorOutput(
+        action="create",
+        success=True,
+        create_result=UCCreateOutput(
+            success=True,
+            tool_name=full_name,
+            source_path=file_path,
+            validation_warnings=validation_warnings,
+        ),
+    )
 
 
 def _handle_update_action(

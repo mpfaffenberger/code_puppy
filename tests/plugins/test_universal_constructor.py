@@ -1108,3 +1108,337 @@ class TestToolFileValidationResult:
         """Test that it inherits from ValidationResult."""
         result = ToolFileValidationResult(valid=True)
         assert isinstance(result, ValidationResult)
+
+
+# =============================================================================
+# Test Universal Constructor Tool - Create Action
+# =============================================================================
+
+
+class TestHandleCreateAction:
+    """Test the _handle_create_action function."""
+
+    def test_create_simple_tool(self, tmp_path, monkeypatch):
+        """Test creating a simple tool without namespace."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        # Patch USER_UC_DIR to use temp directory
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.USER_UC_DIR", tmp_path
+        )
+
+        code = '''
+def greet(name: str) -> str:
+    """Say hello to someone."""
+    return f"Hello, {name}!"
+'''
+        result = _handle_create_action(
+            context=None,
+            tool_name=None,
+            python_code=code,
+            description=None,
+        )
+
+        assert result.success is True
+        assert result.action == "create"
+        assert result.error is None
+        assert result.create_result is not None
+        assert result.create_result.tool_name == "greet"
+        assert result.create_result.source_path.exists()
+        assert result.create_result.source_path.name == "greet.py"
+
+        # Verify file content
+        content = result.create_result.source_path.read_text()
+        assert "TOOL_META" in content
+        assert "def greet" in content
+        assert '"name": "greet"' in content or "'name': 'greet'" in content
+
+    def test_create_tool_with_explicit_name(self, tmp_path, monkeypatch):
+        """Test creating a tool with explicit tool_name."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.USER_UC_DIR", tmp_path
+        )
+
+        code = """
+def some_func() -> str:
+    return "hello"
+"""
+        result = _handle_create_action(
+            context=None,
+            tool_name="my_custom_tool",
+            python_code=code,
+            description="A custom tool",
+        )
+
+        assert result.success is True
+        assert result.create_result.tool_name == "my_custom_tool"
+        assert result.create_result.source_path.name == "my_custom_tool.py"
+
+        # Verify description is used
+        content = result.create_result.source_path.read_text()
+        assert "A custom tool" in content
+
+    def test_create_namespaced_tool(self, tmp_path, monkeypatch):
+        """Test creating a namespaced tool (e.g., api.weather)."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.USER_UC_DIR", tmp_path
+        )
+
+        code = '''
+def weather(city: str) -> str:
+    """Get weather for a city."""
+    return f"Weather in {city}: Sunny!"
+'''
+        result = _handle_create_action(
+            context=None,
+            tool_name="api.weather",
+            python_code=code,
+            description="Weather API tool",
+        )
+
+        assert result.success is True
+        assert result.create_result.tool_name == "api.weather"
+        # File should be at tmp_path/api/weather.py
+        expected_path = tmp_path / "api" / "weather.py"
+        assert result.create_result.source_path == expected_path
+        assert expected_path.exists()
+
+        # Verify namespace is in TOOL_META
+        content = expected_path.read_text()
+        assert "'namespace': 'api'" in content or '"namespace": "api"' in content
+
+    def test_create_deeply_namespaced_tool(self, tmp_path, monkeypatch):
+        """Test creating a deeply namespaced tool (e.g., api.v1.weather)."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.USER_UC_DIR", tmp_path
+        )
+
+        code = "def deep_func(): return 42"
+        result = _handle_create_action(
+            context=None,
+            tool_name="api.v1.internal.tool",
+            python_code=code,
+            description="Deeply nested tool",
+        )
+
+        assert result.success is True
+        assert result.create_result.tool_name == "api.v1.internal.tool"
+        # Namespace is everything before the last dot
+        expected_path = tmp_path / "api" / "v1" / "internal" / "tool.py"
+        assert result.create_result.source_path == expected_path
+        assert expected_path.exists()
+
+    def test_create_fails_without_python_code(self):
+        """Test that create fails when python_code is not provided."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        result = _handle_create_action(
+            context=None,
+            tool_name="test",
+            python_code=None,
+            description="Test",
+        )
+
+        assert result.success is False
+        assert result.action == "create"
+        assert "python_code is required" in result.error
+
+    def test_create_fails_with_empty_python_code(self):
+        """Test that create fails when python_code is empty."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        result = _handle_create_action(
+            context=None,
+            tool_name="test",
+            python_code="",
+            description="Test",
+        )
+
+        assert result.success is False
+        assert "python_code is required" in result.error
+
+    def test_create_fails_with_syntax_error(self, tmp_path, monkeypatch):
+        """Test that create fails when code has syntax errors."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.USER_UC_DIR", tmp_path
+        )
+
+        code = "def broken(\n    return 'oops'"
+        result = _handle_create_action(
+            context=None,
+            tool_name="broken",
+            python_code=code,
+            description="Broken tool",
+        )
+
+        assert result.success is False
+        assert "Syntax error" in result.error
+
+    def test_create_fails_without_function(self, tmp_path, monkeypatch):
+        """Test that create fails when code has no function."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.USER_UC_DIR", tmp_path
+        )
+
+        code = "x = 1\ny = 2\nresult = x + y"
+        result = _handle_create_action(
+            context=None,
+            tool_name="no_func",
+            python_code=code,
+            description="No function",
+        )
+
+        assert result.success is False
+        assert "No function found" in result.error
+
+    def test_create_captures_dangerous_pattern_warnings(self, tmp_path, monkeypatch):
+        """Test that dangerous patterns are captured as warnings."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.USER_UC_DIR", tmp_path
+        )
+
+        code = '''
+import subprocess
+
+def run_command(cmd: str) -> str:
+    """Run a shell command."""
+    return subprocess.run(cmd, shell=True)
+'''
+        result = _handle_create_action(
+            context=None,
+            tool_name="runner",
+            python_code=code,
+            description="Command runner",
+        )
+
+        # Should still succeed but with warnings
+        assert result.success is True
+        assert result.create_result.validation_warnings
+        assert any(
+            "subprocess" in w.lower() for w in result.create_result.validation_warnings
+        )
+
+    def test_create_uses_docstring_as_description(self, tmp_path, monkeypatch):
+        """Test that function docstring is used when no description provided."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.USER_UC_DIR", tmp_path
+        )
+
+        code = '''
+def add(a: int, b: int) -> int:
+    """Add two numbers together."""
+    return a + b
+'''
+        result = _handle_create_action(
+            context=None,
+            tool_name=None,
+            python_code=code,
+            description=None,
+        )
+
+        assert result.success is True
+        content = result.create_result.source_path.read_text()
+        assert "Add two numbers together" in content
+
+    def test_create_generates_tool_meta_fields(self, tmp_path, monkeypatch):
+        """Test that TOOL_META contains all expected fields."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.USER_UC_DIR", tmp_path
+        )
+
+        code = "def test_tool(): return 'test'"
+        result = _handle_create_action(
+            context=None,
+            tool_name="my_tool",
+            python_code=code,
+            description="My test tool",
+        )
+
+        assert result.success is True
+        content = result.create_result.source_path.read_text()
+
+        # Check all expected TOOL_META fields are present
+        assert "'name':" in content or '"name":' in content
+        assert "'description':" in content or '"description":' in content
+        assert "'enabled':" in content or '"enabled":' in content
+        assert "'version':" in content or '"version":' in content
+        assert "'author':" in content or '"author":' in content
+        assert "'created_at':" in content or '"created_at":' in content
+        assert "'namespace':" in content or '"namespace":' in content
+
+    def test_create_tool_uses_first_function(self, tmp_path, monkeypatch):
+        """Test that first function is used when multiple functions exist."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.USER_UC_DIR", tmp_path
+        )
+
+        code = '''
+def first_func():
+    """This is the first function."""
+    return 1
+
+def second_func():
+    """This is the second function."""
+    return 2
+'''
+        result = _handle_create_action(
+            context=None,
+            tool_name=None,  # Should auto-detect from first function
+            python_code=code,
+            description=None,
+        )
+
+        assert result.success is True
+        assert result.create_result.tool_name == "first_func"
+        assert result.create_result.source_path.name == "first_func.py"
+
+    def test_create_overwrites_existing_file(self, tmp_path, monkeypatch):
+        """Test that creating a tool overwrites existing file."""
+        from code_puppy.tools.universal_constructor import _handle_create_action
+
+        monkeypatch.setattr(
+            "code_puppy.plugins.universal_constructor.USER_UC_DIR", tmp_path
+        )
+
+        # Create initial file
+        code1 = "def my_tool(): return 'version 1'"
+        result1 = _handle_create_action(
+            context=None,
+            tool_name="my_tool",
+            python_code=code1,
+            description="Version 1",
+        )
+        assert result1.success is True
+
+        # Overwrite with new code
+        code2 = "def my_tool(): return 'version 2'"
+        result2 = _handle_create_action(
+            context=None,
+            tool_name="my_tool",
+            python_code=code2,
+            description="Version 2",
+        )
+        assert result2.success is True
+
+        # Verify new content
+        content = result2.create_result.source_path.read_text()
+        assert "version 2" in content
+        assert "Version 2" in content
