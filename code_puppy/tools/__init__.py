@@ -181,6 +181,9 @@ def register_tools_for_agent(agent, tool_names: list[str]):
     for tool_name in tool_names:
         # Handle UC tools (prefixed with "uc:")
         if tool_name.startswith("uc:"):
+            # Skip UC tools if UC is disabled
+            if not get_universal_constructor_enabled():
+                continue
             uc_tool_name = tool_name[3:]  # Remove "uc:" prefix
             _register_uc_tool_wrapper(agent, uc_tool_name)
             continue

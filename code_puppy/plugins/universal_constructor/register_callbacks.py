@@ -16,6 +16,13 @@ logger = logging.getLogger(__name__)
 
 def _on_startup() -> None:
     """Initialize UC plugin on application startup."""
+    from code_puppy.config import get_universal_constructor_enabled
+
+    # Skip initialization if UC is disabled
+    if not get_universal_constructor_enabled():
+        logger.debug("Universal Constructor is disabled, skipping initialization")
+        return
+
     logger.debug("Universal Constructor plugin initializing...")
 
     # Ensure the user tools directory exists

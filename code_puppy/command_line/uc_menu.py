@@ -108,9 +108,12 @@ def _toggle_tool_enabled(tool: UCToolInfo) -> bool:
             # No explicit enabled field - add it to TOOL_META
             # Find TOOL_META = { and add enabled after the opening brace
             meta_pattern = r"(TOOL_META\s*=\s*\{)"
-            new_content = re.sub(
+            new_content, meta_count = re.subn(
                 meta_pattern, f'\\1\n    "enabled": {new_enabled},', content
             )
+            if meta_count == 0:
+                emit_error("TOOL_META not found; cannot toggle enabled flag.")
+                return False
 
         source_path.write_text(new_content)
 

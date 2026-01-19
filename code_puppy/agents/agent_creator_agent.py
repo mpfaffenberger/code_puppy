@@ -36,7 +36,7 @@ class AgentCreatorAgent(BaseAgent):
             from code_puppy.plugins.universal_constructor.registry import get_registry
 
             registry = get_registry()
-            uc_tools = registry.list_tools()
+            uc_tools = registry.list_tools(include_disabled=True)
             for tool in uc_tools:
                 status = "✅" if tool.meta.enabled else "❌"
                 uc_tools_info.append(

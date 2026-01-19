@@ -481,7 +481,30 @@ def validate_tool_file(file_path: Path) -> ToolFileValidationResult:
     return result
 
 
-def validate_and_write_tool(code: str, file_path: Path) -> ToolFileValidationResult:
+def _validate_safe_path(file_path: Path, safe_root: Path) -> bool:
+    """Validate that file_path is contained within safe_root.
+
+    Args:
+        file_path: The path to validate.
+        safe_root: The root directory that file_path must be within.
+
+    Returns:
+        True if file_path is safely within safe_root, False otherwise.
+    """
+    try:
+        # Resolve both paths to absolute paths
+        resolved_path = file_path.resolve()
+        resolved_root = safe_root.resolve()
+        # Check if the resolved path is relative to the root
+        resolved_path.relative_to(resolved_root)
+        return True
+    except ValueError:
+        return False
+
+
+def validate_and_write_tool(
+    code: str, file_path: Path, safe_root: Optional[Path] = None
+) -> ToolFileValidationResult:
     """Validate code and write to file only if valid.
 
     This function performs full validation before writing,
@@ -490,14 +513,23 @@ def validate_and_write_tool(code: str, file_path: Path) -> ToolFileValidationRes
     Args:
         code: Python source code for the tool.
         file_path: Path where the tool file should be written.
+        safe_root: Optional root directory to validate against. Defaults to USER_UC_DIR.
+            Pass the parent directory of file_path to skip validation (for testing).
 
     Returns:
         ToolFileValidationResult indicating success/failure.
         If valid, the file will be written to file_path.
     """
+    from . import USER_UC_DIR
+
     result = ToolFileValidationResult(valid=True, file_path=file_path)
 
-    # Validate syntax first
+    # Validate path is within safe root directory (prevent path traversal)
+    root_to_check = safe_root if safe_root is not None else USER_UC_DIR
+    if not _validate_safe_path(file_path, root_to_check):
+        result.valid = False
+        result.errors.append(f"Unsafe file path: must be within {root_to_check}")
+        return result
     syntax_result = validate_syntax(code)
     if not syntax_result.valid:
         result.valid = False

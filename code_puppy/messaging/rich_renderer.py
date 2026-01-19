@@ -788,20 +788,24 @@ class RichConsoleRenderer:
         banner = self._format_banner("universal_constructor", "UNIVERSAL CONSTRUCTOR")
 
         # Build the header line with action and optional tool name
+        # Escape user-controlled strings to prevent Rich markup injection
         header_parts = [f"\n{banner} 🔧 [bold cyan]{msg.action.upper()}[/bold cyan]"]
         if msg.tool_name:
-            header_parts.append(f" [dim]tool=[/dim][bold]{msg.tool_name}[/bold]")
+            safe_tool_name = escape_rich_markup(msg.tool_name)
+            header_parts.append(f" [dim]tool=[/dim][bold]{safe_tool_name}[/bold]")
         self._console.print("".join(header_parts))
 
         # Status indicator
+        safe_summary = escape_rich_markup(msg.summary) if msg.summary else ""
         if msg.success:
-            self._console.print(f"[green]✓[/green] {msg.summary}")
+            self._console.print(f"[green]✓[/green] {safe_summary}")
         else:
-            self._console.print(f"[red]✗[/red] {msg.summary}")
+            self._console.print(f"[red]✗[/red] {safe_summary}")
 
         # Show details if present
         if msg.details:
-            self._console.print(f"[dim]{msg.details}[/dim]")
+            safe_details = escape_rich_markup(msg.details)
+            self._console.print(f"[dim]{safe_details}[/dim]")
 
         # Trailing newline for spinner separation
         self._console.print()

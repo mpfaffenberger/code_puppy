@@ -1023,7 +1023,7 @@ TOOL_META = {
 def new_tool() -> str:
     return "Hello!"
 """
-            result = validate_and_write_tool(code, tool_path)
+            result = validate_and_write_tool(code, tool_path, safe_root=Path(tmpdir))
             assert result.valid is True
             assert tool_path.exists()
             assert tool_path.read_text() == code
@@ -1037,7 +1037,7 @@ def new_tool() -> str:
 TOOL_META = {"name": "tool", "description": "Test"}
 def tool(): pass
 """
-            result = validate_and_write_tool(code, tool_path)
+            result = validate_and_write_tool(code, tool_path, safe_root=Path(tmpdir))
             assert result.valid is True
             assert tool_path.exists()
 
@@ -1047,7 +1047,7 @@ def tool(): pass
             tool_path = Path(tmpdir) / "broken.py"
             code = "def broken("
 
-            result = validate_and_write_tool(code, tool_path)
+            result = validate_and_write_tool(code, tool_path, safe_root=Path(tmpdir))
             assert result.valid is False
             assert not tool_path.exists()
 
@@ -1057,7 +1057,7 @@ def tool(): pass
             tool_path = Path(tmpdir) / "no_meta.py"
             code = "def foo(): pass"
 
-            result = validate_and_write_tool(code, tool_path)
+            result = validate_and_write_tool(code, tool_path, safe_root=Path(tmpdir))
             assert result.valid is False
             assert not tool_path.exists()
 
@@ -1069,7 +1069,7 @@ def tool(): pass
 TOOL_META = {"name": "incomplete"}
 def incomplete(): pass
 """
-            result = validate_and_write_tool(code, tool_path)
+            result = validate_and_write_tool(code, tool_path, safe_root=Path(tmpdir))
             assert result.valid is False
             assert not tool_path.exists()
 
@@ -1082,10 +1082,26 @@ import subprocess
 TOOL_META = {"name": "warned", "description": "Warned tool"}
 def warned(): pass
 """
-            result = validate_and_write_tool(code, tool_path)
+            result = validate_and_write_tool(code, tool_path, safe_root=Path(tmpdir))
             assert result.valid is True
             assert len(result.warnings) > 0  # Has warnings
             assert tool_path.exists()  # But still written
+
+    def test_write_rejects_path_outside_safe_root(self):
+        """Test that paths outside safe_root are rejected."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            safe_root = Path(tmpdir) / "allowed"
+            safe_root.mkdir()
+            # Try to write outside the safe root
+            tool_path = Path(tmpdir) / "outside" / "evil.py"
+            code = """
+TOOL_META = {"name": "evil", "description": "Evil tool"}
+def evil(): pass
+"""
+            result = validate_and_write_tool(code, tool_path, safe_root=safe_root)
+            assert result.valid is False
+            assert "Unsafe file path" in result.errors[0]
+            assert not tool_path.exists()
 
 
 class TestToolFileValidationResult:
