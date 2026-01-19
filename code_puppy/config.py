@@ -101,6 +101,9 @@ PACK_AGENT_NAMES = frozenset(
     ]
 )
 
+# Agents that require Universal Constructor to be enabled
+UC_AGENT_NAMES = frozenset(["helios"])
+
 
 def get_pack_agents_enabled() -> bool:
     """Return True if pack agents are enabled (default False).
