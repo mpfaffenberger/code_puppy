@@ -205,18 +205,19 @@ def register_tools_for_agent(agent, tool_names: list[str]):
 def _register_uc_tool_wrapper(agent, uc_tool_name: str):
     """Register a wrapper for a UC tool that calls it via the UC registry.
 
-    This creates a dynamic tool that wraps the UC tool, allowing it to be
-    called directly by the agent without going through universal_constructor.
+    This creates a dynamic tool that wraps the UC tool, preserving its
+    parameter signature so pydantic-ai can generate proper JSON schema.
 
     Args:
         agent: The agent to register the tool wrapper to.
         uc_tool_name: The full name of the UC tool (e.g., "api.weather").
     """
+    import inspect
     from typing import Any
 
     from pydantic_ai import RunContext
 
-    # Get tool info for description and signature
+    # Get tool info and function from registry
     try:
         from code_puppy.plugins.universal_constructor.registry import get_registry
 
@@ -226,41 +227,86 @@ def _register_uc_tool_wrapper(agent, uc_tool_name: str):
             emit_warning(f"Warning: UC tool '{uc_tool_name}' not found, skipping...")
             return
 
+        func = registry.get_tool_function(uc_tool_name)
+        if not func:
+            emit_warning(
+                f"Warning: UC tool '{uc_tool_name}' function not found, skipping..."
+            )
+            return
+
         description = tool_info.meta.description
         docstring = tool_info.docstring or description
     except Exception as e:
         emit_warning(f"Warning: Failed to get UC tool '{uc_tool_name}' info: {e}")
         return
 
-    # Create the wrapper function dynamically
-    # We use a closure to capture the tool name
-    def make_uc_wrapper(tool_name: str, tool_desc: str):
-        async def uc_tool_wrapper(
-            context: RunContext,
-            **kwargs: Any,
-        ) -> Any:
+    # Get the original function's signature
+    try:
+        sig = inspect.signature(func)
+        # Get annotations from the original function
+        annotations = getattr(func, "__annotations__", {}).copy()
+    except (ValueError, TypeError):
+        sig = None
+        annotations = {}
+
+    # Create wrapper that preserves the signature
+    def make_uc_wrapper(
+        tool_name: str, original_func, original_sig, original_annotations
+    ):
+        # Build the wrapper function
+        async def uc_tool_wrapper(context: RunContext, **kwargs: Any) -> Any:
             """Dynamically generated wrapper for a UC tool."""
-            from code_puppy.plugins.universal_constructor.registry import get_registry
-
-            registry = get_registry()
-            func = registry.get_tool_function(tool_name)
-            if not func:
-                return {"error": f"UC tool '{tool_name}' function not found"}
-
             try:
-                result = func(**kwargs)
+                result = original_func(**kwargs)
                 return result
             except Exception as e:
                 return {"error": f"UC tool '{tool_name}' failed: {e}"}
 
-        # Set metadata for the tool
+        # Copy signature info from original function
         uc_tool_wrapper.__name__ = tool_name.replace(".", "_")
         uc_tool_wrapper.__doc__ = (
-            f"{tool_desc}\n\nThis is a Universal Constructor tool."
+            f"{docstring}\n\nThis is a Universal Constructor tool."
         )
+
+        # Preserve annotations for pydantic-ai schema generation
+        if original_annotations:
+            # Add 'context' param and copy original params (excluding 'return')
+            new_annotations = {"context": RunContext}
+            for param_name, param_type in original_annotations.items():
+                if param_name != "return":
+                    new_annotations[param_name] = param_type
+            if "return" in original_annotations:
+                new_annotations["return"] = original_annotations["return"]
+            else:
+                new_annotations["return"] = Any
+            uc_tool_wrapper.__annotations__ = new_annotations
+
+        # Try to set __signature__ for better introspection
+        if original_sig:
+            try:
+                # Build new parameters list: context first, then original params
+                new_params = [
+                    inspect.Parameter(
+                        "context",
+                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                        annotation=RunContext,
+                    )
+                ]
+                for param in original_sig.parameters.values():
+                    new_params.append(param)
+
+                # Create new signature with return annotation
+                return_annotation = original_annotations.get("return", Any)
+                new_sig = original_sig.replace(
+                    parameters=new_params, return_annotation=return_annotation
+                )
+                uc_tool_wrapper.__signature__ = new_sig
+            except (ValueError, TypeError):
+                pass  # Signature manipulation failed, continue without it
+
         return uc_tool_wrapper
 
-    wrapper = make_uc_wrapper(uc_tool_name, docstring)
+    wrapper = make_uc_wrapper(uc_tool_name, func, sig, annotations)
 
     # Register the wrapper as a tool
     try:
