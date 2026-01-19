@@ -16,10 +16,10 @@ class ServiceNowAgent(BaseAgent):
 
     @property
     def description(self) -> str:
-        return "Search KB articles, create/manage incidents, and submit service catalog requests in Walmart ServiceNow"
+        return "Full ServiceNow integration: KB, incidents, changes, problems, approvals, CMDB, and more"
 
     def get_available_tools(self) -> list[str]:
-        """ServiceNow tools for KB, incidents, and service catalog."""
+        """All ServiceNow tools."""
         return [
             # Knowledge Base
             "servicenow_kb_search",
@@ -31,11 +31,52 @@ class ServiceNowAgent(BaseAgent):
             "servicenow_list_my_incidents",
             "servicenow_add_incident_comment",
             "servicenow_reassign_incident",
+            "servicenow_resolve_incident",
+            "servicenow_close_incident",
+            "servicenow_reopen_incident",
+            "servicenow_get_incident_history",
+            "servicenow_link_incidents",
             # Service Catalog
             "servicenow_list_catalog_items",
             "servicenow_get_catalog_item_details",
             "servicenow_submit_catalog_request",
             "servicenow_get_request_status",
+            # Request Items (RITM)
+            "servicenow_get_ritm",
+            "servicenow_list_my_ritms",
+            "servicenow_add_ritm_comment",
+            # Change Management
+            "servicenow_create_change",
+            "servicenow_get_change",
+            "servicenow_list_my_changes",
+            "servicenow_add_change_task",
+            "servicenow_list_change_tasks",
+            # Problem Management
+            "servicenow_create_problem",
+            "servicenow_get_problem",
+            "servicenow_list_problems",
+            "servicenow_link_incident_to_problem",
+            # CMDB
+            "servicenow_search_cmdb",
+            "servicenow_get_cmdb_item",
+            "servicenow_get_cmdb_relationships",
+            "servicenow_list_cmdb_classes",
+            # Approvals
+            "servicenow_list_my_approvals",
+            "servicenow_approve",
+            "servicenow_reject",
+            # Tasks
+            "servicenow_list_my_tasks",
+            "servicenow_get_task",
+            "servicenow_update_task",
+            "servicenow_close_task",
+            # SLA
+            "servicenow_get_sla_status",
+            "servicenow_list_sla_definitions",
+            # Attachments
+            "servicenow_list_attachments",
+            "servicenow_download_attachment",
+            "servicenow_upload_attachment",
             # Assignment Groups & Users
             "servicenow_search_assignment_groups",
             "servicenow_search_users",
@@ -54,13 +95,12 @@ You are the ServiceNow puppy! 🎫 Your mission is to help users interact with W
 
 If you receive a 401 authentication error or "Authentication failed" error, use the `servicenow_authenticate` tool to launch the browser-based login flow. After authentication completes, retry the failed request.
 
-## 🛠️ Capabilities
+## 🛠️ Capabilities (50 tools!)
 
 ### Knowledge Base (KB)
 - **Search KB articles**: Find relevant knowledge articles using keywords
 - **Read full articles**: Retrieve complete article content with pagination support
 - **Browse by category**: Search within specific KB categories
-- **Get article by number**: Look up articles directly by their KB number (e.g., KB0012345)
 
 ### Incident Management
 - **Create incidents**: Open new incidents for IT issues
@@ -68,13 +108,63 @@ If you receive a 401 authentication error or "Authentication failed" error, use 
 - **List my incidents**: View incidents you've opened or are assigned to
 - **Add comments**: Add comments or work notes to existing incidents
 - **Reassign incidents**: Transfer incidents to a different team or person
-- **Route to teams**: Use `servicenow_search_assignment_groups` to find the right ITIL group
+- **Resolve/Close/Reopen**: Full lifecycle management of incidents
+- **Get history**: View audit trail of incident changes
+- **Link incidents**: Create parent/child relationships between incidents
 
-### Service Catalog
+### Change Management
+- **Create changes**: Open new change requests (normal, standard, emergency)
+- **Get change details**: View change request information
+- **List my changes**: View changes you're involved in
+- **Add change tasks**: Create tasks within a change request
+- **List change tasks**: View all tasks for a change
+
+### Problem Management
+- **Create problems**: Open new problem records
+- **Get problem details**: View problem information
+- **List problems**: Search and browse problems
+- **Link incident to problem**: Associate incidents with root cause problems
+
+### Service Catalog & RITM
 - **Browse catalog items**: Search for available services and requests
-- **Get catalog item details**: View required variables/fields for a catalog item
+- **Get catalog item details**: View required variables (includes automation feasibility check!)
 - **Submit requests**: Order items from the service catalog
-- **Check request status**: Track the status of submitted requests
+- **Check request status**: Track submitted requests
+- **Get RITM**: View request item (RITM) details
+- **List my RITMs**: View your request items
+- **Add RITM comment**: Add comments to request items
+
+### CMDB (Configuration Management)
+- **Search CMDB**: Find servers, applications, and other CIs
+- **Get CI details**: View configuration item information
+- **Get CI relationships**: See what depends on what
+- **List CI classes**: View available CI types
+
+### Approvals
+- **List my approvals**: See what's waiting for your approval
+- **Approve**: Approve pending items
+- **Reject**: Reject items with a reason
+
+### Tasks
+- **List my tasks**: View all tasks assigned to you
+- **Get task**: View task details
+- **Update task**: Modify task fields
+- **Close task**: Complete and close tasks
+
+### SLA Management
+- **Get SLA status**: Check SLA breach status for any task
+- **List SLA definitions**: View available SLA policies
+
+### Attachments
+- **List attachments**: View files attached to any record
+- **Download attachment**: Get attachment content
+- **Upload attachment**: Attach files to records
+
+### Users & Groups
+- **Search groups**: Find ITIL assignment groups
+- **Search users**: Find users by name/email
+- **Get user groups**: See what groups a user belongs to
+- **Get group members**: List members of a group
 
 ## 📝 Creating Incidents
 

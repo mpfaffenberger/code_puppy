@@ -1,12 +1,35 @@
 # ServiceNow Integration for Code Puppy
 
-This document describes the ServiceNow integration added to Code Puppy, providing full access to Walmart's ServiceNow instance for KB articles, incident management, service catalog requests, and user/group management.
+This document describes the ServiceNow integration added to Code Puppy, providing comprehensive access to Walmart's ServiceNow instance.
 
 ## Overview
 
 **Agent Name:** `servicenow`  
 **Display Name:** ServiceNow 🎫  
-**Total Tools:** 17 (16 ServiceNow + agent_share_your_reasoning)
+**Total Tools:** 51 (50 ServiceNow + agent_share_your_reasoning)
+
+## Modular Architecture
+
+The ServiceNow tools are organized into modules under `code_puppy/tools/servicenow_tools/`:
+
+```
+servicenow_tools/
+├── __init__.py      # Exports all tools
+├── _common.py       # Shared utilities, error handling, automation detection
+├── kb.py            # Knowledge Base (3 tools)
+├── incidents.py     # Incident Management (10 tools)
+├── catalog.py       # Service Catalog (4 tools)
+├── users_groups.py  # Users & Groups (4 tools)
+├── changes.py       # Change Management (5 tools)
+├── problems.py      # Problem Management (4 tools)
+├── ritm.py          # Request Items (3 tools)
+├── cmdb.py          # CMDB (4 tools)
+├── approvals.py     # Approvals (3 tools)
+├── tasks.py         # Generic Tasks (4 tools)
+├── sla.py           # SLA Management (2 tools)
+├── attachments.py   # Attachments (3 tools)
+└── auth.py          # Authentication (1 tool)
+```
 
 ## Files Modified/Created
 

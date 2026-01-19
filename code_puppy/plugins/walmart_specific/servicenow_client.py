@@ -992,6 +992,1025 @@ class ServiceNowClient:
 
         return self._make_request("GET", "/api/now/table/sys_user_grmember", params=params)
 
+    # =========================================================================
+    # CHANGE MANAGEMENT
+    # =========================================================================
+
+    def create_change(
+        self,
+        short_description: str,
+        description: str = "",
+        change_type: str = "normal",  # normal, standard, emergency
+        category: str = "",
+        assignment_group: str = "",
+        assigned_to: str = "",
+        start_date: str = "",
+        end_date: str = "",
+        risk: str = "",  # high, moderate, low
+        impact: str = "",  # high, medium, low
+        additional_fields: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Create a new change request.
+
+        Args:
+            short_description: Brief summary of the change
+            description: Detailed description
+            change_type: Type of change (normal, standard, emergency)
+            category: Change category
+            assignment_group: Group responsible for the change
+            assigned_to: Person assigned to implement
+            start_date: Planned start date (format: YYYY-MM-DD HH:MM:SS)
+            end_date: Planned end date
+            risk: Risk level (high, moderate, low)
+            impact: Impact level (high, medium, low)
+            additional_fields: Any additional fields to set
+
+        Returns:
+            Dictionary containing the created change data.
+        """
+        payload: dict[str, Any] = {
+            "short_description": short_description,
+            "type": change_type,
+        }
+
+        if description:
+            payload["description"] = description
+        if category:
+            payload["category"] = category
+        if assignment_group:
+            payload["assignment_group"] = assignment_group
+        if assigned_to:
+            payload["assigned_to"] = assigned_to
+        if start_date:
+            payload["start_date"] = start_date
+        if end_date:
+            payload["end_date"] = end_date
+        if risk:
+            payload["risk"] = risk
+        if impact:
+            payload["impact"] = impact
+        if additional_fields:
+            payload.update(additional_fields)
+
+        return self._make_request(
+            "POST",
+            "/api/now/table/change_request",
+            json=payload,
+        )
+
+    def get_change(
+        self,
+        change_id: str,
+    ) -> dict[str, Any]:
+        """Get change request details by number or sys_id.
+
+        Args:
+            change_id: Change number (CHG0012345) or sys_id
+
+        Returns:
+            Dictionary containing the change data.
+        """
+        if change_id.upper().startswith("CHG"):
+            params = {
+                "sysparm_query": f"number={change_id}",
+                "sysparm_limit": 1,
+                "sysparm_display_value": "all",
+            }
+            return self._make_request("GET", "/api/now/table/change_request", params=params)
+        else:
+            params = {"sysparm_display_value": "all"}
+            return self._make_request(
+                "GET",
+                f"/api/now/table/change_request/{change_id}",
+                params=params,
+            )
+
+    def list_my_changes(
+        self,
+        state: str = "",
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        """List change requests where I'm the requestor or assigned.
+
+        Args:
+            state: Filter by state (e.g., 'new', 'assess', 'authorize', 'scheduled', 'implement', 'review', 'closed')
+            limit: Maximum number of results
+
+        Returns:
+            Dictionary containing the list of changes.
+        """
+        query_parts = ["requested_byDYNAMIC90d1921e5f510100a9ad2572f2b477fe^ORassigned_toDYNAMIC90d1921e5f510100a9ad2572f2b477fe"]
+        
+        if state:
+            query_parts.append(f"state={state}")
+        
+        query_parts.append("ORDERBYDESCsys_created_on")
+
+        params = {
+            "sysparm_query": "^".join(query_parts),
+            "sysparm_limit": limit,
+            "sysparm_display_value": "all",
+            "sysparm_fields": "sys_id,number,short_description,state,type,assignment_group,assigned_to,start_date,end_date,risk,impact,sys_created_on",
+        }
+
+        return self._make_request("GET", "/api/now/table/change_request", params=params)
+
+    def add_change_task(
+        self,
+        change_id: str,
+        short_description: str,
+        description: str = "",
+        assignment_group: str = "",
+        assigned_to: str = "",
+        planned_start: str = "",
+        planned_end: str = "",
+    ) -> dict[str, Any]:
+        """Add a task to a change request.
+
+        Args:
+            change_id: Change number or sys_id
+            short_description: Task summary
+            description: Task details
+            assignment_group: Group to assign the task to
+            assigned_to: Person to assign the task to
+            planned_start: Planned start date
+            planned_end: Planned end date
+
+        Returns:
+            Dictionary containing the created task data.
+        """
+        # Resolve change sys_id if needed
+        if change_id.upper().startswith("CHG"):
+            change_result = self.get_change(change_id)
+            results = change_result.get("result", [])
+            if isinstance(results, list) and results:
+                change_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+            else:
+                change_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
+        else:
+            change_sys_id = change_id
+
+        payload: dict[str, Any] = {
+            "change_request": change_sys_id,
+            "short_description": short_description,
+        }
+
+        if description:
+            payload["description"] = description
+        if assignment_group:
+            payload["assignment_group"] = assignment_group
+        if assigned_to:
+            payload["assigned_to"] = assigned_to
+        if planned_start:
+            payload["planned_start_date"] = planned_start
+        if planned_end:
+            payload["planned_end_date"] = planned_end
+
+        return self._make_request(
+            "POST",
+            "/api/now/table/change_task",
+            json=payload,
+        )
+
+    def list_change_tasks(
+        self,
+        change_id: str,
+    ) -> dict[str, Any]:
+        """List tasks for a change request.
+
+        Args:
+            change_id: Change number or sys_id
+
+        Returns:
+            Dictionary containing the list of tasks.
+        """
+        # Resolve change sys_id if needed
+        if change_id.upper().startswith("CHG"):
+            change_result = self.get_change(change_id)
+            results = change_result.get("result", [])
+            if isinstance(results, list) and results:
+                change_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+            else:
+                change_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
+        else:
+            change_sys_id = change_id
+
+        params = {
+            "sysparm_query": f"change_request={change_sys_id}^ORDERBYorder",
+            "sysparm_display_value": "all",
+        }
+
+        return self._make_request("GET", "/api/now/table/change_task", params=params)
+
+    # =========================================================================
+    # PROBLEM MANAGEMENT
+    # =========================================================================
+
+    def create_problem(
+        self,
+        short_description: str,
+        description: str = "",
+        category: str = "",
+        subcategory: str = "",
+        assignment_group: str = "",
+        assigned_to: str = "",
+        urgency: int = 3,
+        impact: int = 3,
+        additional_fields: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Create a new problem record.
+
+        Args:
+            short_description: Brief summary of the problem
+            description: Detailed description
+            category: Problem category
+            subcategory: Problem subcategory
+            assignment_group: Group to assign to
+            assigned_to: Person to assign to
+            urgency: Urgency level (1=High, 2=Medium, 3=Low)
+            impact: Impact level (1=High, 2=Medium, 3=Low)
+            additional_fields: Any additional fields
+
+        Returns:
+            Dictionary containing the created problem data.
+        """
+        payload: dict[str, Any] = {
+            "short_description": short_description,
+            "urgency": urgency,
+            "impact": impact,
+        }
+
+        if description:
+            payload["description"] = description
+        if category:
+            payload["category"] = category
+        if subcategory:
+            payload["subcategory"] = subcategory
+        if assignment_group:
+            payload["assignment_group"] = assignment_group
+        if assigned_to:
+            payload["assigned_to"] = assigned_to
+        if additional_fields:
+            payload.update(additional_fields)
+
+        return self._make_request(
+            "POST",
+            "/api/now/table/problem",
+            json=payload,
+        )
+
+    def get_problem(
+        self,
+        problem_id: str,
+    ) -> dict[str, Any]:
+        """Get problem record details.
+
+        Args:
+            problem_id: Problem number (PRB0012345) or sys_id
+
+        Returns:
+            Dictionary containing the problem data.
+        """
+        if problem_id.upper().startswith("PRB"):
+            params = {
+                "sysparm_query": f"number={problem_id}",
+                "sysparm_limit": 1,
+                "sysparm_display_value": "all",
+            }
+            return self._make_request("GET", "/api/now/table/problem", params=params)
+        else:
+            params = {"sysparm_display_value": "all"}
+            return self._make_request(
+                "GET",
+                f"/api/now/table/problem/{problem_id}",
+                params=params,
+            )
+
+    def list_problems(
+        self,
+        query: str = "",
+        state: str = "",
+        assignment_group: str = "",
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        """Search/list problem records.
+
+        Args:
+            query: Search query for short_description
+            state: Filter by state
+            assignment_group: Filter by assignment group
+            limit: Maximum number of results
+
+        Returns:
+            Dictionary containing the list of problems.
+        """
+        query_parts = []
+        
+        if query:
+            query_parts.append(f"short_descriptionLIKE{query}")
+        if state:
+            query_parts.append(f"state={state}")
+        if assignment_group:
+            query_parts.append(f"assignment_groupLIKE{assignment_group}")
+        
+        query_parts.append("ORDERBYDESCsys_created_on")
+
+        params = {
+            "sysparm_query": "^".join(query_parts) if query_parts else "ORDERBYDESCsys_created_on",
+            "sysparm_limit": limit,
+            "sysparm_display_value": "all",
+        }
+
+        return self._make_request("GET", "/api/now/table/problem", params=params)
+
+    def link_incident_to_problem(
+        self,
+        incident_id: str,
+        problem_id: str,
+    ) -> dict[str, Any]:
+        """Link an incident to a problem record.
+
+        Args:
+            incident_id: Incident number or sys_id
+            problem_id: Problem number or sys_id
+
+        Returns:
+            Dictionary containing the updated incident.
+        """
+        # Resolve problem sys_id if needed
+        if problem_id.upper().startswith("PRB"):
+            problem_result = self.get_problem(problem_id)
+            results = problem_result.get("result", [])
+            if isinstance(results, list) and results:
+                problem_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+            else:
+                problem_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
+        else:
+            problem_sys_id = problem_id
+
+        return self.update_incident(incident_id, {"problem_id": problem_sys_id})
+
+    # =========================================================================
+    # REQUEST ITEMS (RITM)
+    # =========================================================================
+
+    def get_ritm(
+        self,
+        ritm_id: str,
+    ) -> dict[str, Any]:
+        """Get request item (RITM) details.
+
+        Args:
+            ritm_id: RITM number (RITM0012345) or sys_id
+
+        Returns:
+            Dictionary containing the RITM data.
+        """
+        if ritm_id.upper().startswith("RITM"):
+            params = {
+                "sysparm_query": f"number={ritm_id}",
+                "sysparm_limit": 1,
+                "sysparm_display_value": "all",
+            }
+            return self._make_request("GET", "/api/now/table/sc_req_item", params=params)
+        else:
+            params = {"sysparm_display_value": "all"}
+            return self._make_request(
+                "GET",
+                f"/api/now/table/sc_req_item/{ritm_id}",
+                params=params,
+            )
+
+    def list_my_ritms(
+        self,
+        state: str = "",
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        """List my request items.
+
+        Args:
+            state: Filter by state
+            limit: Maximum number of results
+
+        Returns:
+            Dictionary containing the list of RITMs.
+        """
+        query_parts = ["requested_forDYNAMIC90d1921e5f510100a9ad2572f2b477fe"]
+        
+        if state:
+            query_parts.append(f"state={state}")
+        
+        query_parts.append("ORDERBYDESCsys_created_on")
+
+        params = {
+            "sysparm_query": "^".join(query_parts),
+            "sysparm_limit": limit,
+            "sysparm_display_value": "all",
+            "sysparm_fields": "sys_id,number,short_description,state,request,cat_item,assignment_group,assigned_to,opened_at,sys_created_on",
+        }
+
+        return self._make_request("GET", "/api/now/table/sc_req_item", params=params)
+
+    def add_ritm_comment(
+        self,
+        ritm_id: str,
+        comment: str,
+        is_work_note: bool = False,
+    ) -> dict[str, Any]:
+        """Add a comment or work note to a request item.
+
+        Args:
+            ritm_id: RITM number or sys_id
+            comment: The comment text
+            is_work_note: If True, adds as work note (internal). If False, adds as comment (visible to requester)
+
+        Returns:
+            Dictionary containing the updated RITM.
+        """
+        # Resolve RITM sys_id if needed
+        if ritm_id.upper().startswith("RITM"):
+            ritm_result = self.get_ritm(ritm_id)
+            results = ritm_result.get("result", [])
+            if isinstance(results, list) and results:
+                ritm_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+            else:
+                ritm_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
+        else:
+            ritm_sys_id = ritm_id
+
+        field = "work_notes" if is_work_note else "comments"
+        payload = {field: comment}
+
+        return self._make_request(
+            "PATCH",
+            f"/api/now/table/sc_req_item/{ritm_sys_id}",
+            json=payload,
+        )
+
+    # =========================================================================
+    # CMDB (Configuration Items)
+    # =========================================================================
+
+    def search_cmdb(
+        self,
+        query: str,
+        ci_class: str = "cmdb_ci",  # Base class, can be cmdb_ci_server, cmdb_ci_app_server, etc.
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        """Search for configuration items in the CMDB.
+
+        Args:
+            query: Search query (searches name and other fields)
+            ci_class: CI class to search (e.g., cmdb_ci, cmdb_ci_server, cmdb_ci_app_server)
+            limit: Maximum number of results
+
+        Returns:
+            Dictionary containing the list of CIs.
+        """
+        params = {
+            "sysparm_query": f"nameLIKE{query}^ORsys_class_nameLIKE{query}^ORDERBYname",
+            "sysparm_limit": limit,
+            "sysparm_display_value": "all",
+            "sysparm_fields": "sys_id,name,sys_class_name,operational_status,install_status,support_group,owned_by,location",
+        }
+
+        return self._make_request("GET", f"/api/now/table/{ci_class}", params=params)
+
+    def get_cmdb_item(
+        self,
+        ci_id: str,
+        ci_class: str = "cmdb_ci",
+    ) -> dict[str, Any]:
+        """Get configuration item details.
+
+        Args:
+            ci_id: CI sys_id or name
+            ci_class: CI class table
+
+        Returns:
+            Dictionary containing the CI data.
+        """
+        # Check if it looks like a sys_id (32 char hex)
+        if len(ci_id) == 32 and all(c in '0123456789abcdef' for c in ci_id.lower()):
+            params = {"sysparm_display_value": "all"}
+            return self._make_request(
+                "GET",
+                f"/api/now/table/{ci_class}/{ci_id}",
+                params=params,
+            )
+        else:
+            # Search by name
+            params = {
+                "sysparm_query": f"name={ci_id}",
+                "sysparm_limit": 1,
+                "sysparm_display_value": "all",
+            }
+            return self._make_request("GET", f"/api/now/table/{ci_class}", params=params)
+
+    def get_cmdb_relationships(
+        self,
+        ci_id: str,
+        direction: str = "both",  # parent, child, both
+    ) -> dict[str, Any]:
+        """Get relationships for a configuration item.
+
+        Args:
+            ci_id: CI sys_id
+            direction: Relationship direction (parent, child, both)
+
+        Returns:
+            Dictionary containing the relationships.
+        """
+        if direction == "parent":
+            query = f"child={ci_id}"
+        elif direction == "child":
+            query = f"parent={ci_id}"
+        else:
+            query = f"parent={ci_id}^ORchild={ci_id}"
+
+        params = {
+            "sysparm_query": query,
+            "sysparm_display_value": "all",
+        }
+
+        return self._make_request("GET", "/api/now/table/cmdb_rel_ci", params=params)
+
+    def list_cmdb_classes(
+        self,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """List available CMDB CI classes.
+
+        Args:
+            limit: Maximum number of results
+
+        Returns:
+            Dictionary containing the list of CI classes.
+        """
+        params = {
+            "sysparm_query": "ORDERBYname",
+            "sysparm_limit": limit,
+            "sysparm_fields": "name,label,sys_id",
+        }
+
+        return self._make_request("GET", "/api/now/table/sys_db_object", params=params)
+
+    # =========================================================================
+    # APPROVALS
+    # =========================================================================
+
+    def list_my_approvals(
+        self,
+        state: str = "requested",  # requested, approved, rejected
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        """List approvals assigned to me.
+
+        Args:
+            state: Filter by state (requested, approved, rejected, or empty for all)
+            limit: Maximum number of results
+
+        Returns:
+            Dictionary containing the list of approvals.
+        """
+        query_parts = ["approverDYNAMIC90d1921e5f510100a9ad2572f2b477fe"]
+        
+        if state:
+            query_parts.append(f"state={state}")
+        
+        query_parts.append("ORDERBYDESCsys_created_on")
+
+        params = {
+            "sysparm_query": "^".join(query_parts),
+            "sysparm_limit": limit,
+            "sysparm_display_value": "all",
+        }
+
+        return self._make_request("GET", "/api/now/table/sysapproval_approver", params=params)
+
+    def approve(
+        self,
+        approval_id: str,
+        comments: str = "",
+    ) -> dict[str, Any]:
+        """Approve an approval record.
+
+        Args:
+            approval_id: Approval sys_id
+            comments: Optional approval comments
+
+        Returns:
+            Dictionary containing the updated approval.
+        """
+        payload: dict[str, Any] = {"state": "approved"}
+        if comments:
+            payload["comments"] = comments
+
+        return self._make_request(
+            "PATCH",
+            f"/api/now/table/sysapproval_approver/{approval_id}",
+            json=payload,
+        )
+
+    def reject(
+        self,
+        approval_id: str,
+        comments: str,
+    ) -> dict[str, Any]:
+        """Reject an approval record.
+
+        Args:
+            approval_id: Approval sys_id
+            comments: Rejection reason (required)
+
+        Returns:
+            Dictionary containing the updated approval.
+        """
+        payload = {
+            "state": "rejected",
+            "comments": comments,
+        }
+
+        return self._make_request(
+            "PATCH",
+            f"/api/now/table/sysapproval_approver/{approval_id}",
+            json=payload,
+        )
+
+    # =========================================================================
+    # GENERIC TASKS
+    # =========================================================================
+
+    def list_my_tasks(
+        self,
+        table: str = "task",  # task, incident, change_task, sc_task, etc.
+        state: str = "",
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        """List tasks assigned to me.
+
+        Args:
+            table: Task table to query (task for all, or specific like incident, change_task)
+            state: Filter by state
+            limit: Maximum number of results
+
+        Returns:
+            Dictionary containing the list of tasks.
+        """
+        query_parts = ["assigned_toDYNAMIC90d1921e5f510100a9ad2572f2b477fe", "active=true"]
+        
+        if state:
+            query_parts.append(f"state={state}")
+        
+        query_parts.append("ORDERBYDESCsys_updated_on")
+
+        params = {
+            "sysparm_query": "^".join(query_parts),
+            "sysparm_limit": limit,
+            "sysparm_display_value": "all",
+            "sysparm_fields": "sys_id,number,short_description,state,priority,assignment_group,assigned_to,sys_class_name,sys_updated_on",
+        }
+
+        return self._make_request("GET", f"/api/now/table/{table}", params=params)
+
+    def get_task(
+        self,
+        task_id: str,
+        table: str = "task",
+    ) -> dict[str, Any]:
+        """Get task details.
+
+        Args:
+            task_id: Task number or sys_id
+            table: Task table
+
+        Returns:
+            Dictionary containing the task data.
+        """
+        # Check if it looks like a number (starts with letters)
+        if task_id[0].isalpha():
+            params = {
+                "sysparm_query": f"number={task_id}",
+                "sysparm_limit": 1,
+                "sysparm_display_value": "all",
+            }
+            return self._make_request("GET", f"/api/now/table/{table}", params=params)
+        else:
+            params = {"sysparm_display_value": "all"}
+            return self._make_request(
+                "GET",
+                f"/api/now/table/{table}/{task_id}",
+                params=params,
+            )
+
+    def update_task(
+        self,
+        task_id: str,
+        updates: dict[str, Any],
+        table: str = "task",
+    ) -> dict[str, Any]:
+        """Update a task.
+
+        Args:
+            task_id: Task sys_id
+            updates: Dictionary of fields to update
+            table: Task table
+
+        Returns:
+            Dictionary containing the updated task.
+        """
+        return self._make_request(
+            "PATCH",
+            f"/api/now/table/{table}/{task_id}",
+            json=updates,
+        )
+
+    def close_task(
+        self,
+        task_id: str,
+        close_notes: str = "",
+        table: str = "task",
+    ) -> dict[str, Any]:
+        """Close a task.
+
+        Args:
+            task_id: Task sys_id
+            close_notes: Closure notes
+            table: Task table
+
+        Returns:
+            Dictionary containing the updated task.
+        """
+        payload: dict[str, Any] = {
+            "state": "3",  # Closed Complete
+            "active": "false",
+        }
+        if close_notes:
+            payload["close_notes"] = close_notes
+
+        return self._make_request(
+            "PATCH",
+            f"/api/now/table/{table}/{task_id}",
+            json=payload,
+        )
+
+    # =========================================================================
+    # INCIDENT ENHANCEMENTS
+    # =========================================================================
+
+    def resolve_incident(
+        self,
+        incident_id: str,
+        resolution_code: str,
+        resolution_notes: str,
+    ) -> dict[str, Any]:
+        """Resolve an incident.
+
+        Args:
+            incident_id: Incident number or sys_id
+            resolution_code: Resolution code (e.g., 'Solved', 'Solved Remotely', 'Not Solved')
+            resolution_notes: Description of the resolution
+
+        Returns:
+            Dictionary containing the updated incident.
+        """
+        payload = {
+            "state": "6",  # Resolved
+            "close_code": resolution_code,
+            "close_notes": resolution_notes,
+        }
+        return self.update_incident(incident_id, payload)
+
+    def close_incident(
+        self,
+        incident_id: str,
+        close_code: str = "Solved",
+        close_notes: str = "",
+    ) -> dict[str, Any]:
+        """Close an incident.
+
+        Args:
+            incident_id: Incident number or sys_id
+            close_code: Close code
+            close_notes: Closure notes
+
+        Returns:
+            Dictionary containing the updated incident.
+        """
+        payload: dict[str, Any] = {
+            "state": "7",  # Closed
+            "close_code": close_code,
+        }
+        if close_notes:
+            payload["close_notes"] = close_notes
+
+        return self.update_incident(incident_id, payload)
+
+    def reopen_incident(
+        self,
+        incident_id: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Reopen a closed incident.
+
+        Args:
+            incident_id: Incident number or sys_id
+            reason: Reason for reopening
+
+        Returns:
+            Dictionary containing the updated incident.
+        """
+        payload = {
+            "state": "2",  # In Progress
+            "work_notes": f"Incident reopened: {reason}",
+        }
+        return self.update_incident(incident_id, payload)
+
+    def get_incident_history(
+        self,
+        incident_id: str,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Get the audit/activity history for an incident.
+
+        Args:
+            incident_id: Incident number or sys_id
+            limit: Maximum number of history entries
+
+        Returns:
+            Dictionary containing the history entries.
+        """
+        # Resolve incident sys_id if needed
+        if incident_id.upper().startswith("INC"):
+            incident_result = self.get_incident(incident_id)
+            results = incident_result.get("result", [])
+            if isinstance(results, list) and results:
+                incident_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+            else:
+                incident_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
+        else:
+            incident_sys_id = incident_id
+
+        params = {
+            "sysparm_query": f"documentkey={incident_sys_id}^ORDERBYDESCsys_created_on",
+            "sysparm_limit": limit,
+            "sysparm_display_value": "all",
+        }
+
+        return self._make_request("GET", "/api/now/table/sys_audit", params=params)
+
+    def link_incidents(
+        self,
+        parent_incident_id: str,
+        child_incident_id: str,
+    ) -> dict[str, Any]:
+        """Link a child incident to a parent incident.
+
+        Args:
+            parent_incident_id: Parent incident number or sys_id
+            child_incident_id: Child incident number or sys_id
+
+        Returns:
+            Dictionary containing the updated child incident.
+        """
+        # Resolve parent sys_id if needed
+        if parent_incident_id.upper().startswith("INC"):
+            parent_result = self.get_incident(parent_incident_id)
+            results = parent_result.get("result", [])
+            if isinstance(results, list) and results:
+                parent_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+            else:
+                parent_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
+        else:
+            parent_sys_id = parent_incident_id
+
+        return self.update_incident(child_incident_id, {"parent_incident": parent_sys_id})
+
+    # =========================================================================
+    # SLA MANAGEMENT
+    # =========================================================================
+
+    def get_sla_status(
+        self,
+        task_id: str,
+    ) -> dict[str, Any]:
+        """Get SLA status for a task (incident, change, etc.).
+
+        Args:
+            task_id: Task sys_id
+
+        Returns:
+            Dictionary containing the SLA records.
+        """
+        params = {
+            "sysparm_query": f"task={task_id}",
+            "sysparm_display_value": "all",
+        }
+
+        return self._make_request("GET", "/api/now/table/task_sla", params=params)
+
+    def list_sla_definitions(
+        self,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """List available SLA definitions.
+
+        Args:
+            limit: Maximum number of results
+
+        Returns:
+            Dictionary containing the SLA definitions.
+        """
+        params = {
+            "sysparm_query": "active=true^ORDERBYname",
+            "sysparm_limit": limit,
+            "sysparm_display_value": "all",
+            "sysparm_fields": "sys_id,name,duration,schedule,retroactive,active",
+        }
+
+        return self._make_request("GET", "/api/now/table/contract_sla", params=params)
+
+    # =========================================================================
+    # ATTACHMENTS
+    # =========================================================================
+
+    def list_attachments(
+        self,
+        table_name: str,
+        record_sys_id: str,
+    ) -> dict[str, Any]:
+        """List attachments on a record.
+
+        Args:
+            table_name: Table name (e.g., incident, change_request)
+            record_sys_id: Record sys_id
+
+        Returns:
+            Dictionary containing the list of attachments.
+        """
+        params = {
+            "sysparm_query": f"table_name={table_name}^table_sys_id={record_sys_id}",
+            "sysparm_display_value": "all",
+        }
+
+        return self._make_request("GET", "/api/now/table/sys_attachment", params=params)
+
+    def get_attachment(
+        self,
+        attachment_sys_id: str,
+    ) -> bytes:
+        """Download an attachment.
+
+        Args:
+            attachment_sys_id: Attachment sys_id
+
+        Returns:
+            Attachment file content as bytes.
+        """
+        response = self.client.get(
+            f"{self.base_url}/api/now/attachment/{attachment_sys_id}/file"
+        )
+        response.raise_for_status()
+        return response.content
+
+    def upload_attachment(
+        self,
+        table_name: str,
+        record_sys_id: str,
+        file_name: str,
+        file_content: bytes,
+        content_type: str = "application/octet-stream",
+    ) -> dict[str, Any]:
+        """Upload an attachment to a record.
+
+        Args:
+            table_name: Table name (e.g., incident, change_request)
+            record_sys_id: Record sys_id
+            file_name: Name of the file
+            file_content: File content as bytes
+            content_type: MIME type of the file
+
+        Returns:
+            Dictionary containing the created attachment data.
+        """
+        headers = {
+            "Content-Type": content_type,
+            "Accept": "application/json",
+        }
+
+        response = self.client.post(
+            f"{self.base_url}/api/now/attachment/file",
+            params={
+                "table_name": table_name,
+                "table_sys_id": record_sys_id,
+                "file_name": file_name,
+            },
+            content=file_content,
+            headers=headers,
+        )
+        response.raise_for_status()
+        return response.json()
+
     def __enter__(self):
         """Context manager entry."""
         return self
