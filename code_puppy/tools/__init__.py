@@ -258,6 +258,9 @@ def _register_uc_tool_wrapper(agent, uc_tool_name: str):
             """Dynamically generated wrapper for a UC tool."""
             try:
                 result = original_func(**kwargs)
+                # Await async tool implementations
+                if inspect.isawaitable(result):
+                    result = await result
                 return result
             except Exception as e:
                 return {"error": f"UC tool '{tool_name}' failed: {e}"}

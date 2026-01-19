@@ -108,7 +108,9 @@ class UCRegistry:
             logger.debug(f"No TOOL_META found in {file_path}")
             return None
 
-        raw_meta = getattr(module, "TOOL_META")
+        raw_meta = dict(
+            getattr(module, "TOOL_META")
+        )  # Copy to avoid mutating module constant
         if not isinstance(raw_meta, dict):
             logger.warning(f"TOOL_META is not a dict in {file_path}")
             return None

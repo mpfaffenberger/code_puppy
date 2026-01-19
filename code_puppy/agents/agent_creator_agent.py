@@ -516,15 +516,22 @@ Your goal is to take users from idea to working agent in one smooth conversation
 
     def get_available_tools(self) -> List[str]:
         """Get all tools needed for agent creation."""
-        return [
+        from code_puppy.config import get_universal_constructor_enabled
+
+        tools = [
             "list_files",
             "read_file",
             "edit_file",
             "agent_share_your_reasoning",
             "list_agents",
             "invoke_agent",
-            "universal_constructor",
         ]
+
+        # Only include UC if enabled
+        if get_universal_constructor_enabled():
+            tools.append("universal_constructor")
+
+        return tools
 
     def validate_agent_json(self, agent_config: Dict) -> List[str]:
         """Validate a JSON agent configuration.

@@ -422,6 +422,7 @@ def _handle_create_action(
     from code_puppy.plugins.universal_constructor.registry import get_registry
     from code_puppy.plugins.universal_constructor.sandbox import (
         _extract_tool_meta,
+        _validate_tool_meta,
         check_dangerous_patterns,
         extract_function_info,
         validate_syntax,
@@ -499,6 +500,14 @@ def _handle_create_action(
     validation_warnings = []
 
     if existing_meta:
+        # Validate existing TOOL_META has required fields
+        meta_errors = _validate_tool_meta(existing_meta)
+        if meta_errors:
+            return UniversalConstructorOutput(
+                action="create",
+                success=False,
+                error="Invalid TOOL_META: " + "; ".join(meta_errors),
+            )
         # Code already has TOOL_META, use as-is
         final_code = python_code
         # Collect any validation warnings
@@ -599,6 +608,7 @@ def _handle_update_action(
     from code_puppy.plugins.universal_constructor.registry import get_registry
     from code_puppy.plugins.universal_constructor.sandbox import (
         _extract_tool_meta,
+        _validate_tool_meta,
         validate_syntax,
     )
 
@@ -654,6 +664,15 @@ def _handle_update_action(
                 action="update",
                 success=False,
                 error="New code must contain a valid TOOL_META dictionary",
+            )
+
+        # Validate TOOL_META has required fields
+        meta_errors = _validate_tool_meta(new_meta)
+        if meta_errors:
+            return UniversalConstructorOutput(
+                action="update",
+                success=False,
+                error="Invalid TOOL_META: " + "; ".join(meta_errors),
             )
 
         # Write updated code
@@ -817,7 +836,7 @@ def register_universal_constructor(agent):
             tool_args: Dictionary of arguments to pass when calling a tool.
                 Only used with action="call".
             python_code: Python source code defining the tool function.
-                Required for action="create", optional for action="update".
+                Required for action="create" and action="update".
                 You have access to the FULL Python standard library plus any
                 installed packages (requests, etc.).
             description: Human-readable description of what the tool does.

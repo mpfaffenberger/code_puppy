@@ -97,8 +97,13 @@ class JSONAgent(BaseAgent):
             for tool in registry.list_tools():
                 if tool.meta.enabled:
                     uc_tool_names.add(tool.full_name)
-        except Exception:
-            pass  # UC might not be available
+        except ImportError:
+            pass  # UC module not available
+        except Exception as e:
+            # Log unexpected errors but don't fail
+            import logging
+
+            logging.debug(f"UC registry access failed: {e}")
 
         # Return tools that are either built-in OR UC tools
         requested_tools = []

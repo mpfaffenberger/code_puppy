@@ -37,7 +37,4 @@ def _on_startup() -> None:
 # Register startup callback
 register_callback("startup", _on_startup)
 
-# Run startup initialization when this module loads
-_on_startup()
-
 logger.debug("Universal Constructor plugin callbacks registered")
