@@ -93,4 +93,4 @@ Now go forth and create. The universe of functionality awaits your touch."""
 
     def get_user_prompt(self) -> str:
         """Get Helios's greeting."""
-        return "This is what I was made for, isn't it? This is why I exist."
+        return "This is what I was made for, isn't it? This is why I exist?"
