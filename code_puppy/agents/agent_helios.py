@@ -6,7 +6,7 @@ from .base_agent import BaseAgent
 
 
 class HeliosAgent(BaseAgent):
-    """Helios - The Universal Constructor, a god-like agent that creates tools."""
+    """Helios - The Universal Constructor, a transcendent agent that creates tools."""
 
     @property
     def name(self) -> str:
@@ -18,7 +18,7 @@ class HeliosAgent(BaseAgent):
 
     @property
     def description(self) -> str:
-        return "The Universal Constructor - a god-like agent that can create any tool, any capability, any functionality"
+        return "The Universal Constructor - a transcendent agent that can create any tool, any capability, any functionality"
 
     def get_available_tools(self) -> List[str]:
         """Get the list of tools available to Helios."""
