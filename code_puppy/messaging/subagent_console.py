@@ -130,7 +130,6 @@ class SubAgentConsoleManager:
         self._live: Optional[Live] = None
         self._update_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-        self._paused = False  # Track pause state for pause+steer
 
     @classmethod
     def get_instance(
@@ -309,76 +308,6 @@ class SubAgentConsoleManager:
                 pass  # Ignore errors during cleanup
             self._live = None
 
-    # =========================================================================
-    # Pause/Resume Methods (for pause+steer coordination)
-    # =========================================================================
-
-    def pause(self) -> None:
-        """Pause the Live display for pause+steer.
-
-        Stops the Live display and update thread without removing agents.
-        Call resume() to restart the display.
-
-        Thread-safe: Uses internal locks.
-        """
-        with self._agents_lock:
-            self._paused = True
-
-            # Signal stop to update thread
-            self._stop_event.set()
-
-            # Stop update thread
-            if self._update_thread is not None:
-                self._update_thread.join(timeout=1.0)
-                self._update_thread = None
-
-            # Stop Live display
-            if self._live is not None:
-                try:
-                    self._live.stop()
-                except Exception:
-                    pass  # Ignore errors during cleanup
-                self._live = None
-
-    def resume(self) -> None:
-        """Resume the Live display after pause.
-
-        Restarts the Live display if there are still agents registered.
-        Does nothing if there are no agents.
-
-        Thread-safe: Uses internal locks.
-        """
-        with self._agents_lock:
-            self._paused = False
-
-            # Only restart if we have agents
-            if self._agents and self._live is None:
-                self._stop_event.clear()
-
-                # Recreate Live display
-                self._live = Live(
-                    self._render_display(),
-                    console=self.console,
-                    refresh_per_second=10,
-                    transient=True,
-                )
-                self._live.start()
-
-                # Restart update thread
-                self._update_thread = threading.Thread(
-                    target=self._update_loop, daemon=True, name="SubAgentDisplayUpdater"
-                )
-                self._update_thread.start()
-
-    def is_paused(self) -> bool:
-        """Check if the display is currently paused.
-
-        Returns:
-            True if display is paused, False otherwise.
-        """
-        with self._agents_lock:
-            return getattr(self, '_paused', False)
-
     def _update_loop(self) -> None:
         """Background thread that refreshes the display."""
         while not self._stop_event.is_set():
@@ -519,70 +448,6 @@ def get_subagent_console_manager(
 
 
 # =============================================================================
-# Pause Coordination
-# =============================================================================
-
-# Track if we've registered the pause callback
-_pause_callback_registered = False
-
-
-def _on_pause_state_change(is_paused: bool) -> None:
-    """Callback for PauseManager to pause/resume the console manager.
-
-    Args:
-        is_paused: True if pause requested, False if resume requested
-    """
-    try:
-        manager = SubAgentConsoleManager.get_instance()
-        if is_paused:
-            manager.pause()
-        else:
-            manager.resume()
-    except Exception:
-        pass  # Ignore errors during pause/resume
-
-
-def setup_subagent_pause_coordination() -> None:
-    """Setup pause coordination with PauseManager.
-
-    Registers a callback so SubAgentConsoleManager is automatically paused
-    when PauseManager requests a global pause, and resumed on resume.
-
-    Safe to call multiple times - only registers once.
-    """
-    global _pause_callback_registered
-    if _pause_callback_registered:
-        return
-
-    try:
-        from code_puppy.pause_manager import get_pause_manager
-
-        pm = get_pause_manager()
-        pm.add_pause_callback(_on_pause_state_change)
-        _pause_callback_registered = True
-    except ImportError:
-        pass  # PauseManager not available
-    except Exception:
-        pass  # Ignore errors
-
-
-def teardown_subagent_pause_coordination() -> None:
-    """Teardown pause coordination (for testing)."""
-    global _pause_callback_registered
-    if not _pause_callback_registered:
-        return
-
-    try:
-        from code_puppy.pause_manager import get_pause_manager
-
-        pm = get_pause_manager()
-        pm.remove_pause_callback(_on_pause_state_change)
-        _pause_callback_registered = False
-    except Exception:
-        pass  # Ignore errors
-
-
-# =============================================================================
 # Exports
 # =============================================================================
 
@@ -590,8 +455,6 @@ __all__ = [
     "AgentState",
     "SubAgentConsoleManager",
     "get_subagent_console_manager",
-    "setup_subagent_pause_coordination",
-    "teardown_subagent_pause_coordination",
     "STATUS_STYLES",
     "DEFAULT_STYLE",
 ]

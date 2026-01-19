@@ -26,8 +26,6 @@ from pydantic_ai.messages import (
     ToolCallPartDelta,
 )
 
-from code_puppy.output_quiescence import get_output_quiescence_tracker
-
 logger = logging.getLogger(__name__)
 
 
@@ -119,50 +117,42 @@ async def subagent_stream_handler(
     # Resolve session_id, falling back to context if not provided
     effective_session_id = session_id or get_session_context()
 
-    # Track output stream start for quiescence tracking
-    quiescence_tracker = get_output_quiescence_tracker()
-    quiescence_tracker.start_stream()
-
     # Metrics tracking
     token_count = 0
     tool_call_count = 0
     active_tool_parts: set[int] = set()  # Track active tool call indices
 
-    try:
-        async for event in events:
-            try:
-                await _handle_event(
-                    event=event,
-                    manager=manager,
-                    session_id=effective_session_id,
-                    token_count=token_count,
-                    tool_call_count=tool_call_count,
-                    active_tool_parts=active_tool_parts,
-                )
+    async for event in events:
+        try:
+            await _handle_event(
+                event=event,
+                manager=manager,
+                session_id=effective_session_id,
+                token_count=token_count,
+                tool_call_count=tool_call_count,
+                active_tool_parts=active_tool_parts,
+            )
 
-                # Update metrics from returned values
-                # (we need to track these at this level since they're modified in _handle_event)
-                if isinstance(event, PartStartEvent):
-                    if isinstance(event.part, ToolCallPart):
-                        tool_call_count += 1
-                        active_tool_parts.add(event.index)
+            # Update metrics from returned values
+            # (we need to track these at this level since they're modified in _handle_event)
+            if isinstance(event, PartStartEvent):
+                if isinstance(event.part, ToolCallPart):
+                    tool_call_count += 1
+                    active_tool_parts.add(event.index)
 
-                elif isinstance(event, PartDeltaEvent):
-                    delta = event.delta
-                    if isinstance(delta, (TextPartDelta, ThinkingPartDelta)):
-                        if delta.content_delta:
-                            token_count += _estimate_tokens(delta.content_delta)
+            elif isinstance(event, PartDeltaEvent):
+                delta = event.delta
+                if isinstance(delta, (TextPartDelta, ThinkingPartDelta)):
+                    if delta.content_delta:
+                        token_count += _estimate_tokens(delta.content_delta)
 
-                elif isinstance(event, PartEndEvent):
-                    active_tool_parts.discard(event.index)
+            elif isinstance(event, PartEndEvent):
+                active_tool_parts.discard(event.index)
 
-            except Exception as e:
-                # Log but don't crash on event handling errors
-                logger.debug(f"Error handling stream event: {e}")
-                continue
-    finally:
-        # Always signal stream end for quiescence tracking
-        quiescence_tracker.end_stream()
+        except Exception as e:
+            # Log but don't crash on event handling errors
+            logger.debug(f"Error handling stream event: {e}")
+            continue
 
 
 async def _handle_event(

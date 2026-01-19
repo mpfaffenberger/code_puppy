@@ -2,21 +2,13 @@
 Shared spinner implementation for CLI mode.
 
 This module provides consistent spinner animations across different UI modes.
-Also provides pause coordination with PauseManager for pause+steer feature.
 """
-
-import logging
 
 from .console_spinner import ConsoleSpinner
 from .spinner_base import SpinnerBase
 
-logger = logging.getLogger(__name__)
-
 # Keep track of all active spinners to manage them globally
 _active_spinners = []
-
-# Track if we've registered the pause callback
-_pause_callback_registered = False
 
 
 def register_spinner(spinner):
@@ -79,60 +71,6 @@ def clear_spinner_context() -> None:
     SpinnerBase.clear_context_info()
 
 
-def _on_pause_state_change(is_paused: bool) -> None:
-    """Callback for PauseManager to pause/resume spinners.
-
-    Args:
-        is_paused: True if pause requested, False if resume requested
-    """
-    if is_paused:
-        pause_all_spinners()
-    else:
-        resume_all_spinners()
-
-
-def setup_pause_coordination() -> None:
-    """Setup pause coordination with PauseManager.
-
-    Registers a callback so spinners are automatically paused when
-    the PauseManager requests a global pause, and resumed on resume.
-
-    Safe to call multiple times - only registers once.
-    """
-    global _pause_callback_registered
-    if _pause_callback_registered:
-        return
-
-    try:
-        from code_puppy.pause_manager import get_pause_manager
-
-        pm = get_pause_manager()
-        pm.add_pause_callback(_on_pause_state_change)
-        _pause_callback_registered = True
-        logger.debug("Spinner pause coordination registered with PauseManager")
-    except ImportError:
-        logger.debug("PauseManager not available, skipping pause coordination")
-    except Exception as e:
-        logger.debug(f"Error setting up pause coordination: {e}")
-
-
-def teardown_pause_coordination() -> None:
-    """Teardown pause coordination (for testing)."""
-    global _pause_callback_registered
-    if not _pause_callback_registered:
-        return
-
-    try:
-        from code_puppy.pause_manager import get_pause_manager
-
-        pm = get_pause_manager()
-        pm.remove_pause_callback(_on_pause_state_change)
-        _pause_callback_registered = False
-        logger.debug("Spinner pause coordination unregistered")
-    except Exception as e:
-        logger.debug(f"Error tearing down pause coordination: {e}")
-
-
 __all__ = [
     "SpinnerBase",
     "ConsoleSpinner",
@@ -142,6 +80,4 @@ __all__ = [
     "resume_all_spinners",
     "update_spinner_context",
     "clear_spinner_context",
-    "setup_pause_coordination",
-    "teardown_pause_coordination",
 ]
