@@ -172,7 +172,7 @@ class UCRegistry:
             spec.loader.exec_module(module)
             return module
         except Exception as e:
-            logger.warning(f"Failed to load module from {file_path}: {e}")
+            logger.debug(f"Failed to load module from {file_path}: {e}")
             return None
 
     def _find_tool_function(
