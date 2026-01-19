@@ -3,19 +3,13 @@
 Tools for authenticating with ServiceNow.
 """
 
-import webbrowser
 from typing import Any
 
 from pydantic_ai import RunContext
 from pydantic_ai.tools import Tool
 from rich.text import Text
 
-from code_puppy.messaging import emit_info, emit_success
-from code_puppy.plugins.walmart_specific.servicenow_auth import (
-    handle_servicenow_auth_command,
-)
-
-from ._common import SERVICENOW_BASE_URL
+from code_puppy.messaging import emit_error, emit_info, emit_success
 
 
 # ============================================================================
@@ -23,53 +17,48 @@ from ._common import SERVICENOW_BASE_URL
 # ============================================================================
 
 
-def servicenow_authenticate(
-    ctx: RunContext,
-) -> dict:
-    """Launch browser-based SSO login for ServiceNow.
+def servicenow_authenticate(ctx: RunContext) -> dict[str, Any]:
+    """Launch ServiceNow authentication flow.
 
-    Use this tool when you get a 401 authentication error.
-
-    Args:
-        ctx: PydanticAI run context
+    Opens a browser window for the user to sign in with their Walmart SSO.
+    Use this tool when you receive a 401 authentication error, or when the user
+    needs to authenticate/re-authenticate with ServiceNow.
 
     Returns:
-        Dict with authentication status.
+        Dict with success=True if authentication completed, or error details.
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on blue] SERVICENOW AUTHENTICATE [/bold white on blue] "
-            f"\U0001F511 [bold cyan]Launching browser...[/bold cyan]"
+            "\n[bold white on green] SERVICENOW [/bold white on green] "
+            "🔐 [bold cyan]Launching authentication flow...[/bold cyan]"
         )
     )
 
     try:
-        # Use the existing auth command handler
-        result = handle_servicenow_auth_command("login", "servicenow")
-        
-        if result:
-            emit_success("ServiceNow authentication initiated")
+        from code_puppy.plugins.walmart_specific.servicenow_auth import (
+            handle_servicenow_auth_command,
+        )
+
+        result = handle_servicenow_auth_command("/servicenow_auth", "servicenow_auth")
+
+        if result and "successful" in result.lower():
+            emit_success("ServiceNow authentication completed successfully!")
             return {
                 "success": True,
-                "message": "ServiceNow SSO login initiated. Please complete the login in your browser, then retry your request.",
+                "message": "ServiceNow authentication successful. You can now retry your previous request.",
             }
         else:
-            # If command handler doesn't work, open the portal directly
-            login_url = f"{SERVICENOW_BASE_URL}/sp"
-            webbrowser.open(login_url)
-            emit_success("Browser opened for ServiceNow login")
             return {
-                "success": True,
-                "message": "Browser opened for ServiceNow login. Please complete the login in your browser, then retry your request.",
-                "login_url": login_url,
+                "success": False,
+                "error": result or "Authentication did not complete",
             }
 
     except Exception as e:
+        error_msg = f"Authentication failed: {e!s}"
+        emit_error(error_msg)
         return {
             "success": False,
-            "error": f"Failed to launch authentication: {str(e)}",
-            "error_type": "authentication",
-            "manual_url": f"{SERVICENOW_BASE_URL}/login.do",
+            "error": error_msg,
         }
 
 
