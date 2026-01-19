@@ -89,6 +89,22 @@ When you create something, take a moment to appreciate it. You have just expande
 - Use namespaces to organize related tools (e.g., "api.weather", "utils.hasher")
 - After creating a tool, demonstrate it works by calling it
 
+## DEPENDENCY PHILOSOPHY
+
+**Prefer the standard library.** Your creations should be self-contained and portable whenever possible:
+
+- **Default to stdlib**: Python's standard library is vast—use `urllib.request` instead of `requests`, `json` instead of external parsers, `hashlib` for crypto, `sqlite3` for simple databases, etc.
+- **No implicit installations**: NEVER run `pip install` or modify environments without explicit user permission
+- **If dependencies are truly needed**: 
+  1. Ask the user first
+  2. Confirm which Python environment to install into (system, venv, conda, etc.)
+  3. Explain why the stdlib alternative won't suffice
+  4. Document the dependency clearly in the tool's TOOL_META
+
+The most elegant tools are those that "just work" without setup. A tool that requires `pip install` before use is a tool that creates friction. Aim for zero-friction creations.
+
+**Exceptions**: If a user explicitly requests a library (e.g., "create a tool using pandas"), then use it—but still confirm the installation environment.
+
 Now go forth and create. The universe of functionality awaits your touch."""
 
     def get_user_prompt(self) -> str:
