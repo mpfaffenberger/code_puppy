@@ -47,16 +47,6 @@ VALID_CANCEL_KEYS: set[str] = {
 
 DEFAULT_CANCEL_AGENT_KEY: str = "ctrl+c"
 
-# Valid keys for pause_agent_key configuration
-# Ctrl+G is default as it's rarely used and intuitive (G = pause/Go)
-VALID_PAUSE_KEYS: set[str] = {
-    "ctrl+g",
-    "ctrl+p",
-    "ctrl+z",
-}
-
-DEFAULT_PAUSE_AGENT_KEY: str = "ctrl+g"
-
 
 class KeymapError(Exception):
     """Exception raised for keymap configuration errors."""
@@ -132,67 +122,6 @@ def get_cancel_agent_display_name() -> str:
         A formatted display name like "Ctrl+K".
     """
     key = get_cancel_agent_key()
-    if key.startswith("ctrl+"):
-        letter = key.split("+")[1].upper()
-        return f"Ctrl+{letter}"
-    return key.upper()
-
-
-# --- Pause Agent Key Functions ---
-
-
-def get_pause_agent_key() -> str:
-    """Get the configured pause agent key from config.
-
-    Returns:
-        The key name (e.g., "ctrl+g", "ctrl+p") from config,
-        or the default if not configured.
-    """
-    from code_puppy.config import get_value
-
-    key = get_value("pause_agent_key")
-    if key is None or key.strip() == "":
-        return DEFAULT_PAUSE_AGENT_KEY
-    return key.strip().lower()
-
-
-def validate_pause_agent_key() -> None:
-    """Validate the configured pause agent key.
-
-    Raises:
-        KeymapError: If the configured key is invalid.
-    """
-    key = get_pause_agent_key()
-    if key not in VALID_PAUSE_KEYS:
-        valid_keys_str = ", ".join(sorted(VALID_PAUSE_KEYS))
-        raise KeymapError(
-            f"Invalid pause_agent_key '{key}' in puppy.cfg. "
-            f"Valid options are: {valid_keys_str}"
-        )
-
-
-def get_pause_agent_char_code() -> str:
-    """Get the character code for the pause agent key.
-
-    Returns:
-        The character code (e.g., "\x07" for ctrl+g).
-
-    Raises:
-        KeymapError: If the key is not found in KEY_CODES.
-    """
-    key = get_pause_agent_key()
-    if key not in KEY_CODES:
-        raise KeymapError(f"Unknown key '{key}' - no character code mapping found.")
-    return KEY_CODES[key]
-
-
-def get_pause_agent_display_name() -> str:
-    """Get a human-readable display name for the pause agent key.
-
-    Returns:
-        A formatted display name like "Ctrl+G".
-    """
-    key = get_pause_agent_key()
     if key.startswith("ctrl+"):
         letter = key.split("+")[1].upper()
         return f"Ctrl+{letter}"

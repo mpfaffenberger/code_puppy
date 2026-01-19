@@ -13,20 +13,14 @@ import pytest
 
 from code_puppy.keymap import (
     DEFAULT_CANCEL_AGENT_KEY,
-    DEFAULT_PAUSE_AGENT_KEY,
     KEY_CODES,
     VALID_CANCEL_KEYS,
-    VALID_PAUSE_KEYS,
     KeymapError,
     cancel_agent_uses_signal,
     get_cancel_agent_char_code,
     get_cancel_agent_display_name,
     get_cancel_agent_key,
-    get_pause_agent_char_code,
-    get_pause_agent_display_name,
-    get_pause_agent_key,
     validate_cancel_agent_key,
-    validate_pause_agent_key,
 )
 
 
@@ -54,19 +48,6 @@ class TestKeymapConstants:
     def test_default_cancel_agent_key_is_valid(self):
         """Default cancel key should be in valid keys."""
         assert DEFAULT_CANCEL_AGENT_KEY in VALID_CANCEL_KEYS
-
-    def test_valid_pause_keys_is_subset_of_key_codes(self):
-        """All valid pause keys should exist in KEY_CODES."""
-        for key in VALID_PAUSE_KEYS:
-            assert key in KEY_CODES
-
-    def test_default_pause_agent_key_is_valid(self):
-        """Default pause key should be in valid keys."""
-        assert DEFAULT_PAUSE_AGENT_KEY in VALID_PAUSE_KEYS
-
-    def test_default_pause_agent_key_is_ctrl_g(self):
-        """Default pause key should be ctrl+g."""
-        assert DEFAULT_PAUSE_AGENT_KEY == "ctrl+g"
 
 
 class TestKeymapError:
@@ -278,135 +259,5 @@ class TestGetCancelAgentDisplayName:
         mock_get_key.return_value = "somekey"
 
         result = get_cancel_agent_display_name()
-
-        assert result == "SOMEKEY"
-
-
-class TestGetPauseAgentKey:
-    """Test get_pause_agent_key function."""
-
-    @patch("code_puppy.config.get_value")
-    def test_returns_default_when_config_is_none(self, mock_get_value):
-        """Should return default when config value is None."""
-        mock_get_value.return_value = None
-
-        result = get_pause_agent_key()
-
-        assert result == DEFAULT_PAUSE_AGENT_KEY
-
-    @patch("code_puppy.config.get_value")
-    def test_returns_default_when_config_is_empty(self, mock_get_value):
-        """Should return default when config value is empty string."""
-        mock_get_value.return_value = "   "  # Whitespace only
-
-        result = get_pause_agent_key()
-
-        assert result == DEFAULT_PAUSE_AGENT_KEY
-
-    @patch("code_puppy.config.get_value")
-    def test_returns_configured_key_normalized(self, mock_get_value):
-        """Should return configured key, stripped and lowercased."""
-        mock_get_value.return_value = "  CTRL+P  "  # With whitespace and uppercase
-
-        result = get_pause_agent_key()
-
-        assert result == "ctrl+p"
-
-
-class TestValidatePauseAgentKey:
-    """Test validate_pause_agent_key function."""
-
-    @patch("code_puppy.keymap.get_pause_agent_key")
-    def test_valid_key_does_not_raise(self, mock_get_key):
-        """Should not raise for valid keys."""
-        for key in VALID_PAUSE_KEYS:
-            mock_get_key.return_value = key
-            # Should not raise
-            validate_pause_agent_key()
-
-    @patch("code_puppy.keymap.get_pause_agent_key")
-    def test_invalid_key_raises_keymap_error(self, mock_get_key):
-        """Should raise KeymapError for invalid keys."""
-        mock_get_key.return_value = "ctrl+x"  # Not in VALID_PAUSE_KEYS
-
-        with pytest.raises(KeymapError) as exc_info:
-            validate_pause_agent_key()
-
-        assert "ctrl+x" in str(exc_info.value)
-        assert "Invalid pause_agent_key" in str(exc_info.value)
-
-    @patch("code_puppy.keymap.get_pause_agent_key")
-    def test_error_message_lists_valid_options(self, mock_get_key):
-        """Error message should list valid key options."""
-        mock_get_key.return_value = "invalid"
-
-        with pytest.raises(KeymapError) as exc_info:
-            validate_pause_agent_key()
-
-        error_msg = str(exc_info.value)
-        # Check that at least some valid keys are mentioned
-        assert "ctrl+g" in error_msg or "ctrl+p" in error_msg
-
-
-class TestGetPauseAgentCharCode:
-    """Test get_pause_agent_char_code function."""
-
-    @patch("code_puppy.keymap.get_pause_agent_key")
-    def test_returns_correct_char_code_for_ctrl_g(self, mock_get_key):
-        """Should return correct character code for ctrl+g."""
-        mock_get_key.return_value = "ctrl+g"
-
-        result = get_pause_agent_char_code()
-
-        assert result == "\x07"
-
-    @patch("code_puppy.keymap.get_pause_agent_key")
-    def test_returns_correct_char_code_for_ctrl_p(self, mock_get_key):
-        """Should return correct character code for ctrl+p."""
-        mock_get_key.return_value = "ctrl+p"
-
-        result = get_pause_agent_char_code()
-
-        assert result == "\x10"
-
-    @patch("code_puppy.keymap.get_pause_agent_key")
-    def test_raises_for_unknown_key(self, mock_get_key):
-        """Should raise KeymapError for unknown key."""
-        mock_get_key.return_value = "unknown_key"
-
-        with pytest.raises(KeymapError) as exc_info:
-            get_pause_agent_char_code()
-
-        assert "unknown_key" in str(exc_info.value)
-        assert "no character code mapping" in str(exc_info.value)
-
-
-class TestGetPauseAgentDisplayName:
-    """Test get_pause_agent_display_name function."""
-
-    @patch("code_puppy.keymap.get_pause_agent_key")
-    def test_formats_ctrl_g_correctly(self, mock_get_key):
-        """Should format ctrl+g as Ctrl+G."""
-        mock_get_key.return_value = "ctrl+g"
-
-        result = get_pause_agent_display_name()
-
-        assert result == "Ctrl+G"
-
-    @patch("code_puppy.keymap.get_pause_agent_key")
-    def test_formats_ctrl_p_correctly(self, mock_get_key):
-        """Should format ctrl+p as Ctrl+P."""
-        mock_get_key.return_value = "ctrl+p"
-
-        result = get_pause_agent_display_name()
-
-        assert result == "Ctrl+P"
-
-    @patch("code_puppy.keymap.get_pause_agent_key")
-    def test_formats_other_keys_uppercase(self, mock_get_key):
-        """Should uppercase non-ctrl keys."""
-        mock_get_key.return_value = "somekey"
-
-        result = get_pause_agent_display_name()
 
         assert result == "SOMEKEY"
