@@ -326,7 +326,25 @@ def _handle_call_action(
             error=f"Could not load function for '{tool_name}'",
         )
 
+    # Handle tool_args being passed as a JSON string (XML marshaling issue)
     args = tool_args or {}
+    if isinstance(args, str):
+        try:
+            import json
+
+            args = json.loads(args)
+        except json.JSONDecodeError:
+            return UniversalConstructorOutput(
+                action="call",
+                success=False,
+                error=f"Invalid tool_args: expected dict or JSON string, got: {args[:100]}",
+            )
+    if not isinstance(args, dict):
+        return UniversalConstructorOutput(
+            action="call",
+            success=False,
+            error=f"tool_args must be a dict, got {type(args).__name__}",
+        )
     start_time = time.time()
 
     try:
