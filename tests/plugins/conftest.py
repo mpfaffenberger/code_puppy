@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic_ai.models import ModelRequestParameters
@@ -24,25 +24,49 @@ def pytest_configure(config):
         sys.modules["mcp.client.session"] = MagicMock()
 
 
+class ClientShim:
+    """A shim that makes client._api_client._async_httpx_client point to model._http_client."""
+
+    def __init__(self, model):
+        self._model = model
+        self._api_client = ApiClientShim(model)
+
+
+class ApiClientShim:
+    """Inner shim for _api_client."""
+
+    def __init__(self, model):
+        self._model = model
+
+    @property
+    def _async_httpx_client(self):
+        return self._model._http_client
+
+    @_async_httpx_client.setter
+    def _async_httpx_client(self, value):
+        self._model._http_client = value
+
+
 @pytest.fixture
 def mock_google_model():
     """Create a mock AntigravityModel instance for testing."""
     # Lazy import to avoid pydantic/MCP conflicts during conftest load
     from code_puppy.plugins.antigravity_oauth.antigravity_model import AntigravityModel
 
-    with patch(
-        "code_puppy.plugins.antigravity_oauth.antigravity_model.GoogleModel.__init__",
-        return_value=None,
-    ):
-        model = AntigravityModel("gemini-1.5-pro")
-        model._model_name = "gemini-1.5-pro"
-        # Mock the _provider attribute which is accessed by the system property
-        provider_mock = MagicMock()
-        provider_mock.name = "google"
-        model._provider = provider_mock
-        model.client = MagicMock()
-        model._get_instructions = MagicMock(return_value=None)
-        return model
+    # Create the model with required api_key
+    model = AntigravityModel(
+        model_name="gemini-1.5-pro",
+        api_key="test-api-key",
+        base_url="https://generativelanguage.googleapis.com/v1beta",
+    )
+
+    # Set up an initial mock HTTP client
+    model._http_client = AsyncMock()
+
+    # Create a shim that keeps client._api_client._async_httpx_client in sync with _http_client
+    model.client = ClientShim(model)
+
+    return model
 
 
 @pytest.fixture

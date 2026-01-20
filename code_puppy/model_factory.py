@@ -7,7 +7,6 @@ from typing import Any, Dict
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
-from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import (
     OpenAIChatModel,
     OpenAIChatModelSettings,
@@ -16,11 +15,11 @@ from pydantic_ai.models.openai import (
 from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
-from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
 
+from code_puppy.gemini_model import GeminiModel
 from code_puppy.messaging import emit_warning
 
 from . import callbacks
@@ -28,6 +27,8 @@ from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_
 from .config import EXTRA_MODELS_FILE, get_value
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .round_robin_model import RoundRobinModel
+
+logger = logging.getLogger(__name__)
 
 
 def get_api_key(env_var_name: str) -> str | None:
@@ -93,6 +94,14 @@ def make_model_settings(
     model_settings_dict["max_tokens"] = max_tokens
     effective_settings = get_effective_model_settings(model_name)
     model_settings_dict.update(effective_settings)
+
+    # Default to clear_thinking=False for GLM-4.7 models (preserved thinking)
+    if "glm-4.7" in model_name.lower():
+        clear_thinking = effective_settings.get("clear_thinking", False)
+        model_settings_dict["thinking"] = {
+            "type": "enabled",
+            "clear_thinking": clear_thinking,
+        }
 
     model_settings: ModelSettings = ModelSettings(**model_settings_dict)
 
@@ -299,9 +308,7 @@ class ModelFactory:
                 )
                 return None
 
-            provider = GoogleProvider(api_key=api_key)
-            model = GoogleModel(model_name=model_config["name"], provider=provider)
-            setattr(model, "provider", provider)
+            model = GeminiModel(model_name=model_config["name"], api_key=api_key)
             return model
 
         elif model_type == "openai":
@@ -585,11 +592,12 @@ class ModelFactory:
                 return None
             os.environ["GEMINI_API_KEY"] = api_key
             client = create_async_client(verify=verify, headers=headers)
-
-            provider = GoogleProvider(
-                base_url=url, api_key=api_key, http_client=client, vertexai=True
+            model = GeminiModel(
+                model_name=model_config["name"],
+                api_key=api_key,
+                base_url=url,
+                http_client=client,
             )
-            model = GoogleModel(model_name=model_config["name"], provider=provider)
             return model
         elif model_type == "cerebras":
 

@@ -33,4 +33,9 @@ pytest-reports/
 .env
 .serena/
 .beads/
+main.dist/
+nuitka-crash-report.xml
+*.backup
+main.bin
 .agents/
+

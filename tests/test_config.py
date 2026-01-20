@@ -304,6 +304,7 @@ class TestGetConfigKeys:
                 "diff_context_lines",
                 "enable_streaming",
                 "enable_dbos",
+                "enable_pack_agents",
                 "frontend_emitter_enabled",
                 "frontend_emitter_max_recent_events",
                 "frontend_emitter_queue_size",
@@ -353,6 +354,7 @@ class TestGetConfigKeys:
                 "default_agent",
                 "diff_context_lines",
                 "enable_dbos",
+                "enable_pack_agents",
                 "frontend_emitter_enabled",
                 "frontend_emitter_max_recent_events",
                 "frontend_emitter_queue_size",
@@ -449,6 +451,11 @@ class TestSetConfigValue:
 
 
 class TestModelName:
+    def setup_method(self):
+        # Reset session model before each test to avoid cross-test pollution
+        cp_config.reset_session_model()
+        cp_config.clear_model_cache()
+
     @patch("code_puppy.config.get_value")
     @patch("code_puppy.config._validate_model_exists")
     def test_get_model_name_exists(self, mock_validate_model_exists, mock_get_value):
@@ -699,6 +706,8 @@ class TestDefaultModelSelection:
     def setup_method(self):
         # Clear the cache before each test to ensure consistent behavior
         cp_config.clear_model_cache()
+        # Also reset the session-local model cache so tests start fresh
+        cp_config.reset_session_model()
 
     @patch("code_puppy.config.get_value")
     @patch("code_puppy.config._validate_model_exists")

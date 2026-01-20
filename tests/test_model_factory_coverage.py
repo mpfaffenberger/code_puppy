@@ -753,10 +753,9 @@ class TestCustomGeminiModel:
         }
 
         with patch("code_puppy.model_factory.create_async_client"):
-            with patch("code_puppy.model_factory.GoogleProvider"):
-                with patch("code_puppy.model_factory.GoogleModel") as mock_model:
-                    ModelFactory.get_model("custom-gemini", config)
-                    mock_model.assert_called_once()
+            with patch("code_puppy.model_factory.GeminiModel") as mock_model:
+                ModelFactory.get_model("custom-gemini", config)
+                mock_model.assert_called_once()
 
     def test_custom_gemini_missing_api_key(self):
         """Test custom_gemini with missing API key."""

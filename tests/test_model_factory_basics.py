@@ -209,8 +209,8 @@ class TestModelFactoryBasics:
         model = ModelFactory.get_model("gemini-pro", config)
 
         assert model is not None
-        assert hasattr(model, "provider")
         assert model.model_name == "gemini-pro"
+        assert model.system == "google"
 
     def test_get_model_missing_api_key(self):
         """Test getting a model when API key is missing."""

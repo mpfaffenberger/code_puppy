@@ -52,15 +52,19 @@ def sample_token_response():
 
 @pytest.fixture
 def sample_token_data():
-    """Sample stored token data."""
+    """Sample stored token data.
+
+    Uses 7200 seconds (2 hours) for expires_at to be safely outside
+    the 1-hour proactive refresh buffer (TOKEN_REFRESH_BUFFER_SECONDS=3600).
+    """
     now = time.time()
     return {
         "access_token": "claude_access_token_test_12345",
         "refresh_token": "claude_refresh_token_test_67890",
         "token_type": "Bearer",
         "scope": "org:create_api_key user:profile user:inference",
-        "expires_in": 3600,
-        "expires_at": now + 3600,
+        "expires_in": 7200,
+        "expires_at": now + 7200,  # 2 hours, safely outside 1-hour refresh buffer
     }
 
 

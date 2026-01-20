@@ -12,10 +12,9 @@ class TestAntigravityModelInitialization:
 
     def test_model_initialization(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that model initializes with correct attributes."""
-        monkeypatch.setenv("GOOGLE_API_KEY", "test-key-for-ci")
-        model = AntigravityModel("gemini-1.5-pro")
+        model = AntigravityModel("gemini-1.5-pro", api_key="test-key-for-ci")
         assert model._model_name == "gemini-1.5-pro"
-        assert model.system == "google-gla"
+        assert model.system == "google"
 
     @pytest.mark.parametrize(
         "model_name", ["gemini-1.5-pro", "claude-3-5-sonnet", "custom-model"]
@@ -24,6 +23,5 @@ class TestAntigravityModelInitialization:
         self, model_name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test model initialization with various model names."""
-        monkeypatch.setenv("GOOGLE_API_KEY", "test-key-for-ci")
-        model = AntigravityModel(model_name)
+        model = AntigravityModel(model_name, api_key="test-key-for-ci")
         assert model._model_name == model_name

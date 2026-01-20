@@ -23,17 +23,23 @@ from code_puppy.plugins.antigravity_oauth.antigravity_model import (
     _antigravity_content_model_response,
     _antigravity_process_response_from_parts,
     _backfill_thought_signatures,
+    _is_signature_error,
 )
 
 
 class TestAntigravityContentModelResponse:
     """Test _antigravity_content_model_response function."""
 
-    def test_claude_signature_on_thinking_block(self) -> None:
-        """Test that Claude puts signature on thinking block."""
+    def test_claude_uses_original_signature_first(self) -> None:
+        """Test that Claude tries original signature first (bypass happens on error).
+
+        Claude gets the original signature on first attempt. If the API rejects it
+        with a "thinking.signature" error, the retry logic backfills with bypass
+        signatures. This test verifies the initial serialization behavior.
+        """
         model_response = ModelResponse(
             parts=[
-                ThinkingPart(content="thinking...", signature="sig123"),
+                ThinkingPart(content="thinking...", signature="original_sig_123"),
                 TextPart(content="Hello"),
             ]
         )
@@ -44,9 +50,15 @@ class TestAntigravityContentModelResponse:
 
         assert result is not None
         assert result["role"] == "model"
+        # Should have both parts
+        assert len(result["parts"]) == 2
+        # Thinking part should have the ORIGINAL signature (bypass only on error retry)
         thinking_part = result["parts"][0]
+        assert thinking_part["text"] == "thinking..."
         assert thinking_part["thought"] is True
-        assert thinking_part["thoughtSignature"] == "sig123"
+        assert thinking_part["thoughtSignature"] == "original_sig_123"
+        # Text part should be normal
+        assert result["parts"][1]["text"] == "Hello"
 
     def test_gemini_signature_on_next_part(self) -> None:
         """Test that Gemini puts signature on next part after thinking."""
@@ -326,3 +338,28 @@ class TestBackfillThoughtSignatures:
         _backfill_thought_signatures(messages)
 
         assert thinking_part.signature == BYPASS_THOUGHT_SIGNATURE
+
+
+class TestIsSignatureError:
+    """Test _is_signature_error helper function."""
+
+    def test_detects_gemini_corrupted_signature_error(self) -> None:
+        """Test detection of Gemini's corrupted signature error."""
+        error_text = 'Corrupted thought signature: expected "abc" got "xyz"'
+        assert _is_signature_error(error_text) is True
+
+    def test_detects_claude_thinking_signature_error(self) -> None:
+        """Test detection of Claude's thinking.signature error."""
+        error_text = '{"type":"error","error":{"type":"invalid_request_error","message":"messages.1.content.0.thinking.signature: Field required"}}'
+        assert _is_signature_error(error_text) is True
+
+    def test_does_not_match_unrelated_errors(self) -> None:
+        """Test that unrelated errors are not matched."""
+        error_text = "Invalid API key"
+        assert _is_signature_error(error_text) is False
+
+        error_text = "Rate limit exceeded"
+        assert _is_signature_error(error_text) is False
+
+        error_text = "Model not found"
+        assert _is_signature_error(error_text) is False

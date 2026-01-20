@@ -96,10 +96,15 @@ class TestIntegrationScenarios:
         assert response.provider_response_id == "req-123"
 
     def test_claude_vs_gemini_signature_protocols(self) -> None:
-        """Test difference between Claude and Gemini signature protocols."""
+        """Test difference between Claude and Gemini signature protocols.
+
+        Both try original signatures first. Bypass only happens on error retry.
+        - Claude: signature goes ON the thinking block
+        - Gemini: signature goes on the NEXT part after thinking
+        """
         model_response = ModelResponse(
             parts=[
-                ThinkingPart(content="thinking", signature="sig123"),
+                ThinkingPart(content="thinking", signature="original_sig_123"),
                 ToolCallPart(tool_name="tool", args={}),
             ]
         )
@@ -112,8 +117,12 @@ class TestIntegrationScenarios:
             model_response, provider_name="google", model_name="gemini-1.5-pro"
         )
 
-        assert "thoughtSignature" in claude_result["parts"][0]
-        assert claude_result["parts"][0]["thoughtSignature"] == "sig123"
+        # Claude: signature ON the thinking block (original, bypass only on error)
+        assert len(claude_result["parts"]) == 2
+        assert claude_result["parts"][0]["thought"] is True
+        assert claude_result["parts"][0]["thoughtSignature"] == "original_sig_123"
+        assert "function_call" in claude_result["parts"][1]
 
+        # Gemini: signature on NEXT part (function call)
         assert "thoughtSignature" not in gemini_result["parts"][0]
-        assert gemini_result["parts"][1]["thoughtSignature"] == "sig123"
+        assert gemini_result["parts"][1]["thoughtSignature"] == "original_sig_123"
