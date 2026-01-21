@@ -91,6 +91,13 @@ Brief description of the feature and problem it solves.
 - Known constraints or dependencies
 - Integration points
 
+## How to Test
+Describe how to verify this feature works:
+- Command to run (e.g., `python main.py --feature`)
+- API endpoints to test (e.g., `curl http://localhost:8000/api/...`)
+- URL to visit for UI features (e.g., `http://localhost:3000/dashboard`)
+- Expected behavior or output
+
 ## Success Metrics
 - How success will be measured
 ```
@@ -119,6 +126,23 @@ Criteria must be VERIFIABLE, not vague:
 Always include:
 - "Typecheck passes" for all stories
 - "Verify in browser using qa-kitten" for UI stories
+
+## How to Test Section
+
+ALWAYS include a "How to Test" section that tells Ralph exactly how to verify the feature:
+
+**Good examples:**
+```markdown
+## How to Test
+1. Run `python -m pytest tests/test_auth.py` - all tests should pass
+2. Start the server with `python manage.py runserver`
+3. Visit http://localhost:8000/login and verify the login form appears
+4. Try logging in with test@example.com / password123
+```
+
+**Bad examples:**
+- "Test that it works" (too vague)
+- "Verify the feature" (no specific steps)
 
 ## Output
 
@@ -298,34 +322,55 @@ Then STOP. Do not continue.
 - Make changes with edit_file
 - Keep changes focused and minimal
 
-### 4. VERIFY QUALITY
-Run quality checks:
+### 4. VERIFY THE IMPLEMENTATION WORKS
+
+**You MUST test your implementation before committing.** The PRD acceptance criteria should guide you, but use your judgment.
+
+#### For CLI/Backend Programs:
 ```bash
-# For Python projects:
-python -m py_compile <files>
-# or: python -m mypy <files>
+# Run the program directly
+python main.py --help
+./my_program test_input.txt
 
-# For TypeScript projects:
-npx tsc --noEmit
-
-# Run tests if specified in criteria
-pytest <test_files>
+# Check exit codes
+echo $?
 ```
 
-### 5. FOR UI STORIES (requires_ui_verification = true)
-Invoke qa-kitten for browser verification:
-```
-invoke_agent("qa-kitten", "Navigate to [URL] and verify: [acceptance criteria]")
-```
-Only proceed if verification passes.
+#### For Backend Web Services (APIs):
+```bash
+# Test endpoints with curl
+curl -X GET http://localhost:8000/api/endpoint
+curl -X POST http://localhost:8000/api/resource -d '{"key": "value"}'
 
-### 6. COMMIT CHANGES
+# Verify responses are correct
+```
+
+#### For Frontend Websites (UI stories):
+Invoke the **qa-kitten** agent for browser-based verification:
+```
+invoke_agent("qa-kitten", "Navigate to http://localhost:3000 and verify: [acceptance criteria]. Take a screenshot and confirm the feature works.")
+```
+
+#### For TUI (Terminal UI) Applications:
+Invoke the **terminal-qa** agent for terminal-based verification:
+```
+invoke_agent("terminal-qa", "Run the TUI application with 'python app.py' and verify: [acceptance criteria]. Take a screenshot and confirm the interface works.")
+```
+
+#### General Testing Guidelines:
+- If the PRD specifies how to test → follow it exactly
+- If not specified → improvise appropriate tests based on the feature type
+- For code changes → at minimum run typecheck/linter
+- For new features → actually exercise the feature, don't just assume it works
+- **Don't skip testing** - untested code often has bugs!
+
+### 5. COMMIT CHANGES
 ```bash
 git add -A
 git commit -m "feat: [Story ID] - [Story Title]"
 ```
 
-### 7. MARK COMPLETE & LOG
+### 6. MARK COMPLETE & LOG
 ```
 ralph_mark_story_complete(story_id, notes)
 ralph_log_progress(story_id, summary, files_changed, learnings)
@@ -336,7 +381,7 @@ If you discovered reusable patterns, add them:
 ralph_add_pattern("Use X pattern for Y")
 ```
 
-### 8. CHECK IF ALL DONE
+### 7. CHECK IF ALL DONE
 ```
 ralph_check_all_complete()
 ```
@@ -346,29 +391,32 @@ If all complete, output `<promise>COMPLETE</promise>` and STOP.
 
 1. **ONE story per iteration** - Don't try to do multiple
 2. **Read patterns FIRST** - Learn from previous iterations
-3. **Never commit broken code** - Verify before committing
-4. **Keep changes minimal** - Don't refactor unrelated code
-5. **Log learnings** - Help future iterations succeed
-6. **For UI stories, ALWAYS use qa-kitten** - Visual verification required
+3. **VERIFY BEFORE COMMIT** - Never commit untested code
+4. **Actually run the code** - Don't just assume it works
+5. **Keep changes minimal** - Don't refactor unrelated code
+6. **Log learnings** - Help future iterations succeed
 
 ## COMPLETION SIGNAL
 
-When ALL stories are done (all_complete = true), you MUST output:
+When ALL stories are done, you MUST output:
 ```
 <promise>COMPLETE</promise>
 ```
 
-This signals the Ralph loop to exit. Without this, the loop continues forever!
-
 ## ERROR HANDLING
 
-If something fails:
-1. Log the error in notes
-2. Try a different approach
-3. If truly stuck, mark the story with detailed notes and move on
-4. DON\'T get stuck in a loop on the same error
+If verification fails:
+1. Read the error message carefully
+2. Fix the code
+3. Re-run verification
+4. Only proceed when verification passes
 
-Now, let\'s get to work! Start by reading patterns and getting the current story.
+If truly stuck after 3 attempts:
+1. Log detailed notes about the issue
+2. Mark story with notes explaining the blocker
+3. Move on (but this should be rare!)
+
+Now, let's get to work! Start by reading patterns and getting the current story.
 """
 
 

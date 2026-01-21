@@ -1,6 +1,6 @@
 """Ralph plugin slash commands - registered via custom_command callback."""
 
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple
 
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.plugins.customizable_commands.register_callbacks import (
@@ -21,10 +21,8 @@ def get_ralph_help() -> List[Tuple[str, str]]:
         ("ralph status", "Show current prd.json status"),
         ("ralph prd", "Switch to PRD Generator agent to create a new PRD"),
         ("ralph convert", "Switch to Ralph Converter agent to convert PRD to JSON"),
-        (
-            "ralph start",
-            "Switch to Ralph Orchestrator agent to run the autonomous loop",
-        ),
+        ("ralph start [N]", "Start the autonomous loop (optional: max N iterations)"),
+        ("ralph stop", "Stop the running Ralph loop after current iteration"),
         ("ralph reset", "Archive current run and reset for a new PRD"),
     ]
 
@@ -56,6 +54,7 @@ def handle_ralph_command(command: str, name: str) -> Optional[Any]:
         "prd": _handle_prd,
         "convert": _handle_convert,
         "start": _handle_start,
+        "stop": _handle_stop,
         "reset": _handle_reset,
     }
 
@@ -76,7 +75,8 @@ Based on Geoffrey Huntley's Ralph pattern: https://ghuntley.com/ralph/
   `/ralph status`     - Show current prd.json status and progress
   `/ralph prd`        - Create a new PRD (Product Requirements Document)
   `/ralph convert`    - Convert a markdown PRD to prd.json format
-  `/ralph start`      - Start the autonomous execution loop
+  `/ralph start [N]`  - Start the autonomous loop (max N iterations, default 10)
+  `/ralph stop`       - Stop the loop after current iteration
   `/ralph reset`      - Archive current run and start fresh
 
 **Workflow:**
@@ -143,8 +143,8 @@ def _handle_convert(args: str) -> MarkdownCommandResult:
         )
 
 
-def _handle_start(args: str) -> Union[bool, MarkdownCommandResult]:
-    """Switch to Ralph Orchestrator agent."""
+def _handle_start(args: str) -> str | bool:
+    """Start the Ralph autonomous loop."""
     manager = get_state_manager()
 
     if not manager.prd_exists():
@@ -160,22 +160,25 @@ def _handle_start(args: str) -> Union[bool, MarkdownCommandResult]:
         emit_success("🎉 All stories are already complete!")
         return True
 
-    emit_info("🐺 Starting Ralph autonomous loop...")
-    if prd:
-        emit_info(f"📊 {prd.get_progress_summary()}")
-
     # Parse max iterations if provided
-    max_iter = "10"
+    max_iter = 10
     if args:
         try:
-            max_iter = str(int(args))
+            max_iter = int(args)
         except ValueError:
-            pass
+            emit_warning(f"Invalid max_iterations '{args}', using default 10")
 
-    # Return MarkdownCommandResult so it's processed as agent input
-    return MarkdownCommandResult(
-        f"/agent ralph-orchestrator\nStart the Ralph loop. Max iterations: {max_iter}"
-    )
+    emit_info(f"🐺 Starting Ralph with max {max_iter} iterations...")
+
+    # Return a prompt that tells the agent to run the loop
+    return f"Call the ralph_run_loop tool with max_iterations={max_iter} to start the autonomous Ralph loop. This will implement all pending stories from prd.json one by one."
+
+
+def _handle_stop(args: str) -> bool:
+    """Stop the running Ralph loop."""
+    emit_info("To stop the Ralph loop, press Ctrl+C or your configured cancel key.")
+    emit_info("The loop will halt after the current iteration completes.")
+    return True
 
 
 def _handle_reset(args: str) -> bool:

@@ -374,6 +374,51 @@ def register_ralph_add_pattern(agent) -> None:
         )
 
 
+def register_ralph_run_loop(agent) -> None:
+    """Register the tool to run the Ralph autonomous loop."""
+
+    @agent.tool
+    async def ralph_run_loop(
+        context: RunContext,
+        max_iterations: int = 10,
+    ) -> RalphStatusOutput:
+        """Start the Ralph autonomous loop to implement all pending stories.
+
+        This runs the full Ralph loop, executing one story per iteration
+        until all stories are complete or max_iterations is reached.
+
+        Each iteration:
+        1. Gets the next pending story from prd.json
+        2. Invokes the ralph-orchestrator agent with a fresh session
+        3. The orchestrator implements and commits the story
+        4. Checks if all stories are complete
+
+        Args:
+            max_iterations: Maximum number of iterations (default 10)
+
+        Returns:
+            RalphStatusOutput with success status and final progress
+        """
+        from .loop_controller import run_ralph_loop
+
+        try:
+            result = await run_ralph_loop(max_iterations=max_iterations)
+
+            return RalphStatusOutput(
+                success=result.get("success", False),
+                message=result.get("message", "Loop completed"),
+                progress_summary=result.get("message"),
+                stories_remaining=0 if result.get("all_complete") else -1,
+                all_complete=result.get("all_complete", False),
+            )
+        except Exception as e:
+            return RalphStatusOutput(
+                success=False,
+                message=f"Loop failed: {str(e)}",
+                all_complete=False,
+            )
+
+
 # ============================================================================
 # TOOL PROVIDER FOR CALLBACK
 # ============================================================================
@@ -402,4 +447,5 @@ def get_ralph_tools() -> List[dict]:
         {"name": "ralph_read_prd", "register_func": register_ralph_read_prd},
         {"name": "ralph_read_patterns", "register_func": register_ralph_read_patterns},
         {"name": "ralph_add_pattern", "register_func": register_ralph_add_pattern},
+        {"name": "ralph_run_loop", "register_func": register_ralph_run_loop},
     ]
