@@ -15,6 +15,8 @@ Targets the 206 uncovered lines including:
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestGetApiKey:
     """Test the get_api_key() function."""
@@ -1150,7 +1152,7 @@ class TestChatGPTOAuthErrorPaths:
     """Test error paths for chatgpt_oauth model type."""
 
     def test_chatgpt_oauth_plugin_not_available(self):
-        """Test chatgpt_oauth when plugin is not available."""
+        """Test chatgpt_oauth when plugin is not available (no handler registered)."""
         from code_puppy.model_factory import ModelFactory
 
         config = {
@@ -1160,26 +1162,23 @@ class TestChatGPTOAuthErrorPaths:
             }
         }
 
-        import sys
-
-        # Temporarily remove chatgpt_oauth modules
-        original_modules = {}
-        for mod_name in list(sys.modules.keys()):
-            if "chatgpt_oauth" in mod_name:
-                original_modules[mod_name] = sys.modules.pop(mod_name)
-
-        try:
-            with patch("code_puppy.model_factory.emit_warning"):
-                try:
-                    ModelFactory.get_model("chatgpt-oauth", config)
-                except ImportError:
-                    pass
-        finally:
-            sys.modules.update(original_modules)
+        # Mock callbacks to return empty list (no handlers registered)
+        # This simulates the plugin not being loaded
+        with patch(
+            "code_puppy.model_factory.callbacks.on_register_model_types",
+            return_value=[],
+        ):
+            with pytest.raises(
+                ValueError, match="Unsupported model type: chatgpt_oauth"
+            ):
+                ModelFactory.get_model("chatgpt-oauth", config)
 
     def test_chatgpt_oauth_missing_token(self):
         """Test chatgpt_oauth when token is missing."""
         from code_puppy.model_factory import ModelFactory
+        from code_puppy.plugins.chatgpt_oauth.register_callbacks import (
+            _create_chatgpt_oauth_model,
+        )
 
         config = {
             "chatgpt-oauth": {
@@ -1188,15 +1187,22 @@ class TestChatGPTOAuthErrorPaths:
             }
         }
 
+        # Mock callbacks to return the chatgpt_oauth handler
+        mock_handlers = [
+            {"type": "chatgpt_oauth", "handler": _create_chatgpt_oauth_model}
+        ]
+
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.utils.get_valid_access_token",
-            return_value=None,
+            "code_puppy.model_factory.callbacks.on_register_model_types",
+            return_value=[mock_handlers],
         ):
             with patch(
-                "code_puppy.plugins.chatgpt_oauth.config.CHATGPT_OAUTH_CONFIG",
-                {"api_base_url": "https://test.com"},
+                "code_puppy.plugins.chatgpt_oauth.register_callbacks.get_valid_access_token",
+                return_value=None,
             ):
-                with patch("code_puppy.model_factory.emit_warning") as mock_warn:
+                with patch(
+                    "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_warning"
+                ) as mock_warn:
                     model = ModelFactory.get_model("chatgpt-oauth", config)
                     assert model is None
                     mock_warn.assert_called()
@@ -1204,6 +1210,9 @@ class TestChatGPTOAuthErrorPaths:
     def test_chatgpt_oauth_missing_account_id(self):
         """Test chatgpt_oauth when account_id is missing."""
         from code_puppy.model_factory import ModelFactory
+        from code_puppy.plugins.chatgpt_oauth.register_callbacks import (
+            _create_chatgpt_oauth_model,
+        )
 
         config = {
             "chatgpt-oauth": {
@@ -1212,19 +1221,26 @@ class TestChatGPTOAuthErrorPaths:
             }
         }
 
+        # Mock callbacks to return the chatgpt_oauth handler
+        mock_handlers = [
+            {"type": "chatgpt_oauth", "handler": _create_chatgpt_oauth_model}
+        ]
+
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.utils.get_valid_access_token",
-            return_value="valid-token",
+            "code_puppy.model_factory.callbacks.on_register_model_types",
+            return_value=[mock_handlers],
         ):
             with patch(
-                "code_puppy.plugins.chatgpt_oauth.utils.load_stored_tokens",
-                return_value={},  # No account_id
+                "code_puppy.plugins.chatgpt_oauth.register_callbacks.get_valid_access_token",
+                return_value="valid-token",
             ):
                 with patch(
-                    "code_puppy.plugins.chatgpt_oauth.config.CHATGPT_OAUTH_CONFIG",
-                    {"api_base_url": "https://test.com"},
+                    "code_puppy.plugins.chatgpt_oauth.register_callbacks.load_stored_tokens",
+                    return_value={},  # No account_id
                 ):
-                    with patch("code_puppy.model_factory.emit_warning") as mock_warn:
+                    with patch(
+                        "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_warning"
+                    ) as mock_warn:
                         model = ModelFactory.get_model("chatgpt-oauth", config)
                         assert model is None
                         mock_warn.assert_called()
