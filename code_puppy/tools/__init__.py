@@ -1,3 +1,4 @@
+from code_puppy.callbacks import on_register_tools
 from code_puppy.messaging import emit_warning
 from code_puppy.tools.agent_tools import register_invoke_agent, register_list_agents
 
@@ -169,6 +170,34 @@ TOOL_REGISTRY = {
 }
 
 
+def _load_plugin_tools() -> None:
+    """Load tools registered by plugins via the register_tools callback.
+
+    This merges plugin-provided tools into the TOOL_REGISTRY.
+    Called lazily when tools are first accessed.
+    """
+    try:
+        results = on_register_tools()
+        for result in results:
+            if result is None:
+                continue
+            # Each result should be a list of tool definitions
+            tools_list = result if isinstance(result, list) else [result]
+            for tool_def in tools_list:
+                if (
+                    isinstance(tool_def, dict)
+                    and "name" in tool_def
+                    and "register_func" in tool_def
+                ):
+                    tool_name = tool_def["name"]
+                    register_func = tool_def["register_func"]
+                    if callable(register_func):
+                        TOOL_REGISTRY[tool_name] = register_func
+    except Exception:
+        # Don't let plugin failures break core functionality
+        pass
+
+
 def register_tools_for_agent(agent, tool_names: list[str]):
     """Register specific tools for an agent based on tool names.
 
@@ -178,6 +207,7 @@ def register_tools_for_agent(agent, tool_names: list[str]):
     """
     from code_puppy.config import get_universal_constructor_enabled
 
+    _load_plugin_tools()
     for tool_name in tool_names:
         # Handle UC tools (prefixed with "uc:")
         if tool_name.startswith("uc:"):
@@ -337,4 +367,5 @@ def get_available_tool_names() -> list[str]:
     Returns:
         List of all tool names that can be registered.
     """
+    _load_plugin_tools()
     return list(TOOL_REGISTRY.keys())

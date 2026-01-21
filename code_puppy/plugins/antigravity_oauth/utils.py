@@ -77,9 +77,9 @@ def add_models_to_config(access_token: str, project_id: str = "") -> bool:
             # Build custom headers
             headers = dict(ANTIGRAVITY_HEADERS)
 
-            # Use custom_gemini type with Antigravity transport
+            # Use antigravity type - handled by the plugin's register_model_type callback
             models_config[prefixed_name] = {
-                "type": "custom_gemini",
+                "type": "antigravity",
                 "name": model_id,
                 "custom_endpoint": {
                     "url": ANTIGRAVITY_ENDPOINT,
@@ -90,7 +90,6 @@ def add_models_to_config(access_token: str, project_id: str = "") -> bool:
                 "context_length": model_info.get("context_length", 200000),
                 "family": model_info.get("family", "other"),
                 "oauth_source": "antigravity-plugin",
-                "antigravity": True,  # Flag to use Antigravity transport
             }
 
             # Add thinking budget if present

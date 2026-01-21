@@ -2,6 +2,9 @@
 
 This module centralizes logic for handling model-specific behaviors,
 particularly for claude-code and antigravity models which require special prompt handling.
+
+Plugins can register custom system prompt handlers via the 'get_model_system_prompt'
+callback to extend support for additional model types.
 """
 
 import pathlib
@@ -68,7 +71,36 @@ def prepare_prompt_for_model(
     user_prompt: str,
     prepend_system_to_user: bool = True,
 ) -> PreparedPrompt:
-    """Prepare instructions and prompt for a specific model."""
+    """Prepare instructions and prompt for a specific model.
+
+    This function handles model-specific system prompt requirements. Plugins can
+    register custom handlers via the 'get_model_system_prompt' callback to extend
+    support for additional model types.
+
+    Args:
+        model_name: The name of the model being used
+        system_prompt: The default system prompt from the agent
+        user_prompt: The user's prompt/message
+        prepend_system_to_user: Whether to prepend system prompt to user prompt
+            for models that require it (default: True)
+
+    Returns:
+        PreparedPrompt with instructions and user_prompt ready for the model.
+    """
+    # Check for plugin-registered system prompt handlers first
+    from code_puppy import callbacks
+
+    results = callbacks.on_get_model_system_prompt(
+        model_name, system_prompt, user_prompt
+    )
+    for result in results:
+        if result and isinstance(result, dict) and result.get("handled"):
+            return PreparedPrompt(
+                instructions=result.get("instructions", system_prompt),
+                user_prompt=result.get("user_prompt", user_prompt),
+                is_claude_code=result.get("is_claude_code", False),
+            )
+
     # Handle Claude Code models
     if is_claude_code_model(model_name):
         modified_prompt = user_prompt

@@ -21,6 +21,11 @@ PhaseType = Literal[
     "pre_tool_call",
     "post_tool_call",
     "stream_event",
+    "register_tools",
+    "register_agents",
+    "register_model_type",
+    "get_model_system_prompt",
+    "agent_response_complete",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -42,6 +47,11 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "pre_tool_call": [],
     "post_tool_call": [],
     "stream_event": [],
+    "register_tools": [],
+    "register_agents": [],
+    "register_model_type": [],
+    "get_model_system_prompt": [],
+    "agent_response_complete": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -343,4 +353,119 @@ async def on_stream_event(
     """
     return await _trigger_callbacks(
         "stream_event", event_type, event_data, agent_session_id
+    )
+
+
+def on_register_tools() -> List[Dict[str, Any]]:
+    """Collect custom tool registrations from plugins.
+
+    Each callback should return a list of dicts with:
+    - "name": str - the tool name
+    - "register_func": callable - function that takes an agent and registers the tool
+
+    Example return: [{"name": "my_tool", "register_func": register_my_tool}]
+    """
+    return _trigger_callbacks_sync("register_tools")
+
+
+def on_register_agents() -> List[Dict[str, Any]]:
+    """Collect custom agent registrations from plugins.
+
+    Each callback should return a list of dicts with either:
+    - "name": str, "class": Type[BaseAgent] - for Python agent classes
+    - "name": str, "json_path": str - for JSON agent files
+
+    Example return: [{"name": "my-agent", "class": MyAgentClass}]
+    """
+    return _trigger_callbacks_sync("register_agents")
+
+
+def on_register_model_types() -> List[Dict[str, Any]]:
+    """Collect custom model type registrations from plugins.
+
+    This hook allows plugins to register custom model types that can be used
+    in model configurations. Each callback should return a list of dicts with:
+    - "type": str - the model type name (e.g., "antigravity", "claude_code")
+    - "handler": callable - function(model_name, model_config, config) -> model instance
+
+    The handler function receives:
+    - model_name: str - the name of the model being created
+    - model_config: dict - the model's configuration from models.json
+    - config: dict - the full models configuration
+
+    The handler should return a model instance or None if creation fails.
+
+    Example callback:
+        def register_my_model_types():
+            return [{
+                "type": "my_custom_type",
+                "handler": create_my_custom_model,
+            }]
+
+    Example return: [{"type": "antigravity", "handler": create_antigravity_model}]
+    """
+    return _trigger_callbacks_sync("register_model_type")
+
+
+def on_get_model_system_prompt(
+    model_name: str, default_system_prompt: str, user_prompt: str
+) -> List[Dict[str, Any]]:
+    """Allow plugins to provide custom system prompts for specific model types.
+
+    This hook allows plugins to override the system prompt handling for custom
+    model types (like claude_code or antigravity models). Each callback receives
+    the model name and should return a dict if it handles that model type, or None.
+
+    Args:
+        model_name: The name of the model being used (e.g., "claude-code-sonnet")
+        default_system_prompt: The default system prompt from the agent
+        user_prompt: The user's prompt/message
+
+    Each callback should return a dict with:
+    - "instructions": str - the system prompt/instructions to use
+    - "user_prompt": str - the (possibly modified) user prompt
+    - "handled": bool - True if this callback handled the model
+
+    Or return None if the callback doesn't handle this model type.
+
+    Example callback:
+        def get_my_model_system_prompt(model_name, default_system_prompt, user_prompt):
+            if model_name.startswith("my-custom-"):
+                return {
+                    "instructions": "You are MyCustomBot.",
+                    "user_prompt": f"{default_system_prompt}\n\n{user_prompt}",
+                    "handled": True,
+                }
+            return None  # Not handled by this callback
+
+    Returns:
+        List of results from registered callbacks (dicts or None values).
+    """
+    return _trigger_callbacks_sync(
+        "get_model_system_prompt", model_name, default_system_prompt, user_prompt
+    )
+
+
+async def on_agent_response_complete(
+    agent_name: str,
+    response_text: str,
+    session_id: str | None = None,
+    metadata: dict | None = None,
+) -> List[Any]:
+    """Trigger callbacks after an agent completes its full response.
+
+    This fires after all tool calls are resolved and the agent has finished.
+    Useful for:
+    - Workflow orchestration (like Ralph's autonomous loop)
+    - Logging/analytics
+    - Detecting completion signals in responses
+
+    Args:
+        agent_name: Name of the agent that completed
+        response_text: The final text response from the agent
+        session_id: Optional session identifier
+        metadata: Optional dict with additional context (tokens used, etc.)
+    """
+    return await _trigger_callbacks(
+        "agent_response_complete", agent_name, response_text, session_id, metadata
     )

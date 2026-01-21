@@ -47,6 +47,7 @@ from pydantic_ai.messages import (
 from rich.text import Text
 
 from code_puppy.agents.event_stream_handler import event_stream_handler
+from code_puppy.callbacks import on_agent_response_complete
 
 # Consolidated relative imports
 from code_puppy.config import (
@@ -1799,6 +1800,31 @@ class BaseAgent(ABC):
                     await self._update_mcp_tool_cache()
                 except Exception:
                     pass  # Don't fail the run if cache update fails
+
+            # Trigger agent_response_complete callback for workflow orchestration
+            try:
+                # Extract the response text from the result
+                response_text = ""
+                if result is not None:
+                    if hasattr(result, "data"):
+                        response_text = str(result.data) if result.data else ""
+                    elif hasattr(result, "output"):
+                        response_text = str(result.output) if result.output else ""
+                    else:
+                        response_text = str(result)
+
+                # Fire the callback - don't await to avoid blocking return
+                # Use asyncio.create_task to run it in background
+                asyncio.create_task(
+                    on_agent_response_complete(
+                        agent_name=self.name,
+                        response_text=response_text,
+                        session_id=group_id,
+                        metadata={"model": self.get_model_name()},
+                    )
+                )
+            except Exception:
+                pass  # Don't fail the run if callback fails
 
             return result
         except asyncio.CancelledError:

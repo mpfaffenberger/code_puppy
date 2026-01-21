@@ -13,7 +13,7 @@ from pydantic_ai.messages import ModelMessage
 
 from code_puppy.agents.base_agent import BaseAgent
 from code_puppy.agents.json_agent import JSONAgent, discover_json_agents
-from code_puppy.callbacks import on_agent_reload
+from code_puppy.callbacks import on_agent_reload, on_register_agents
 from code_puppy.messaging import emit_success, emit_warning
 
 # Registry of available agents (Python classes and JSON file paths)
@@ -286,6 +286,38 @@ def _discover_agents(message_group_id: Optional[str] = None):
     except Exception as e:
         emit_warning(
             f"Warning: Could not discover JSON agents: {e}",
+            message_group=message_group_id,
+        )
+
+    # 3. Discover agents registered by plugins
+    try:
+        results = on_register_agents()
+        for result in results:
+            if result is None:
+                continue
+            # Each result should be a list of agent definitions
+            agents_list = result if isinstance(result, list) else [result]
+            for agent_def in agents_list:
+                if not isinstance(agent_def, dict) or "name" not in agent_def:
+                    continue
+
+                agent_name = agent_def["name"]
+
+                # Support both class-based and JSON path-based registration
+                if "class" in agent_def:
+                    agent_class = agent_def["class"]
+                    if isinstance(agent_class, type) and issubclass(
+                        agent_class, BaseAgent
+                    ):
+                        _AGENT_REGISTRY[agent_name] = agent_class
+                elif "json_path" in agent_def:
+                    json_path = agent_def["json_path"]
+                    if isinstance(json_path, str):
+                        _AGENT_REGISTRY[agent_name] = json_path
+
+    except Exception as e:
+        emit_warning(
+            f"Warning: Could not load plugin agents: {e}",
             message_group=message_group_id,
         )
 

@@ -1,4 +1,8 @@
-"""Antigravity OAuth Plugin callbacks for Code Puppy CLI."""
+"""Antigravity OAuth Plugin callbacks for Code Puppy CLI.
+
+Provides OAuth authentication for Antigravity models and registers
+the 'antigravity' model type handler.
+"""
 
 from __future__ import annotations
 
@@ -30,6 +34,8 @@ from .oauth import (
     prepare_oauth_context,
 )
 from .storage import clear_accounts
+from .token import is_token_expired, refresh_access_token
+from .transport import create_antigravity_client
 from .utils import (
     add_models_to_config,
     load_antigravity_models,
@@ -408,6 +414,105 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     return None
 
 
+def _create_antigravity_model(model_name: str, model_config: Dict, config: Dict) -> Any:
+    """Create an Antigravity model instance.
+
+    This handler is registered via the 'register_model_type' callback to handle
+    models with type='antigravity'.
+    """
+    from code_puppy.gemini_model import GeminiModel
+    from code_puppy.model_factory import get_custom_config
+
+    # Try to import custom model for thinking signatures
+    try:
+        from .antigravity_model import AntigravityModel
+    except ImportError:
+        AntigravityModel = None  # type: ignore
+
+    url, headers, verify, api_key = get_custom_config(model_config)
+    if not api_key:
+        emit_warning(
+            f"API key is not set for Antigravity endpoint; skipping model '{model_config.get('name')}'."
+        )
+        return None
+
+    # Get fresh access token (refresh if needed)
+    tokens = load_stored_tokens()
+    if not tokens:
+        emit_warning("Antigravity tokens not found; run /antigravity-auth first.")
+        return None
+
+    access_token = tokens.get("access_token", "")
+    refresh_token = tokens.get("refresh_token", "")
+    expires_at = tokens.get("expires_at")
+
+    # Refresh if expired or about to expire (initial check)
+    if is_token_expired(expires_at):
+        new_tokens = refresh_access_token(refresh_token)
+        if new_tokens:
+            access_token = new_tokens.access_token
+            refresh_token = new_tokens.refresh_token
+            expires_at = new_tokens.expires_at
+            tokens["access_token"] = new_tokens.access_token
+            tokens["refresh_token"] = new_tokens.refresh_token
+            tokens["expires_at"] = new_tokens.expires_at
+            save_tokens(tokens)
+        else:
+            emit_warning(
+                "Failed to refresh Antigravity token; run /antigravity-auth again."
+            )
+            return None
+
+    # Callback to persist tokens when proactively refreshed during session
+    def on_token_refreshed(new_tokens: Any) -> None:
+        """Persist new tokens when proactively refreshed."""
+        try:
+            updated_tokens = load_stored_tokens() or {}
+            updated_tokens["access_token"] = new_tokens.access_token
+            updated_tokens["refresh_token"] = new_tokens.refresh_token
+            updated_tokens["expires_at"] = new_tokens.expires_at
+            save_tokens(updated_tokens)
+            logger.debug("Persisted proactively refreshed Antigravity tokens")
+        except Exception as e:
+            logger.warning("Failed to persist refreshed tokens: %s", e)
+
+    project_id = tokens.get("project_id", model_config.get("project_id", ""))
+    client = create_antigravity_client(
+        access_token=access_token,
+        project_id=project_id,
+        model_name=model_config["name"],
+        base_url=url,
+        headers=headers,
+        refresh_token=refresh_token,
+        expires_at=expires_at,
+        on_token_refreshed=on_token_refreshed,
+    )
+
+    # Use custom model with direct httpx client
+    if AntigravityModel:
+        model = AntigravityModel(
+            model_name=model_config["name"],
+            api_key=api_key or "",  # Antigravity uses OAuth, key may be empty
+            base_url=url,
+            http_client=client,
+        )
+    else:
+        model = GeminiModel(
+            model_name=model_config["name"],
+            api_key=api_key or "",
+            base_url=url,
+            http_client=client,
+        )
+
+    return model
+
+
+def _register_model_types() -> List[Dict[str, Any]]:
+    """Register the antigravity model type handler."""
+    return [{"type": "antigravity", "handler": _create_antigravity_model}]
+
+
 # Register callbacks
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
+register_callback("register_model_type", _register_model_types)

@@ -1,5 +1,8 @@
 """
 Claude Code OAuth Plugin for Code Puppy.
+
+Provides OAuth authentication for Claude Code models and registers
+the 'claude_code' model type handler.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from .utils import (
     build_authorization_url,
     exchange_code_for_tokens,
     fetch_claude_code_models,
+    get_valid_access_token,
     load_claude_models_filtered,
     load_stored_tokens,
     prepare_oauth_context,
@@ -276,5 +280,89 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     return None
 
 
+def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict) -> Any:
+    """Create a Claude Code model instance.
+
+    This handler is registered via the 'register_model_type' callback to handle
+    models with type='claude_code'.
+    """
+    from anthropic import AsyncAnthropic
+    from pydantic_ai.models.anthropic import AnthropicModel
+    from pydantic_ai.providers.anthropic import AnthropicProvider
+
+    from code_puppy.claude_cache_client import (
+        ClaudeCacheAsyncClient,
+        patch_anthropic_client_messages,
+    )
+    from code_puppy.config import get_effective_model_settings
+    from code_puppy.http_utils import get_cert_bundle_path, get_http2
+    from code_puppy.model_factory import get_custom_config
+
+    url, headers, verify, api_key = get_custom_config(model_config)
+
+    # Refresh token if this is from the plugin
+    if model_config.get("oauth_source") == "claude-code-plugin":
+        refreshed_token = get_valid_access_token()
+        if refreshed_token:
+            api_key = refreshed_token
+            custom_endpoint = model_config.get("custom_endpoint")
+            if isinstance(custom_endpoint, dict):
+                custom_endpoint["api_key"] = refreshed_token
+
+    if not api_key:
+        emit_warning(
+            f"API key is not set for Claude Code endpoint; skipping model '{model_config.get('name')}'."
+        )
+        return None
+
+    # Check if interleaved thinking is enabled (defaults to True for OAuth models)
+    effective_settings = get_effective_model_settings(model_name)
+    interleaved_thinking = effective_settings.get("interleaved_thinking", True)
+
+    # Handle anthropic-beta header based on interleaved_thinking setting
+    if "anthropic-beta" in headers:
+        beta_parts = [p.strip() for p in headers["anthropic-beta"].split(",")]
+        if interleaved_thinking:
+            if "interleaved-thinking-2025-05-14" not in beta_parts:
+                beta_parts.append("interleaved-thinking-2025-05-14")
+        else:
+            beta_parts = [p for p in beta_parts if "interleaved-thinking" not in p]
+        headers["anthropic-beta"] = ",".join(beta_parts) if beta_parts else None
+        if headers.get("anthropic-beta") is None:
+            del headers["anthropic-beta"]
+    elif interleaved_thinking:
+        headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+
+    # Use a dedicated client wrapper that injects cache_control on /v1/messages
+    if verify is None:
+        verify = get_cert_bundle_path()
+
+    http2_enabled = get_http2()
+
+    client = ClaudeCacheAsyncClient(
+        headers=headers,
+        verify=verify,
+        timeout=180,
+        http2=http2_enabled,
+    )
+
+    anthropic_client = AsyncAnthropic(
+        base_url=url,
+        http_client=client,
+        auth_token=api_key,
+    )
+    patch_anthropic_client_messages(anthropic_client)
+    anthropic_client.api_key = None
+    anthropic_client.auth_token = api_key
+    provider = AnthropicProvider(anthropic_client=anthropic_client)
+    return AnthropicModel(model_name=model_config["name"], provider=provider)
+
+
+def _register_model_types() -> List[Dict[str, Any]]:
+    """Register the claude_code model type handler."""
+    return [{"type": "claude_code", "handler": _create_claude_code_model}]
+
+
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
+register_callback("register_model_type", _register_model_types)

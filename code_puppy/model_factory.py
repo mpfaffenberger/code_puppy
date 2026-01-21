@@ -393,78 +393,9 @@ class ModelFactory:
 
             provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
-        elif model_type == "claude_code":
-            url, headers, verify, api_key = get_custom_config(model_config)
-            if model_config.get("oauth_source") == "claude-code-plugin":
-                try:
-                    from code_puppy.plugins.claude_code_oauth.utils import (
-                        get_valid_access_token,
-                    )
+        # NOTE: 'claude_code' model type is now handled by the claude_code_oauth plugin
+        # via the register_model_type callback. See plugins/claude_code_oauth/register_callbacks.py
 
-                    refreshed_token = get_valid_access_token()
-                    if refreshed_token:
-                        api_key = refreshed_token
-                        custom_endpoint = model_config.get("custom_endpoint")
-                        if isinstance(custom_endpoint, dict):
-                            custom_endpoint["api_key"] = refreshed_token
-                except ImportError:
-                    pass
-            if not api_key:
-                emit_warning(
-                    f"API key is not set for Claude Code endpoint; skipping model '{model_config.get('name')}'."
-                )
-                return None
-
-            # Check if interleaved thinking is enabled (defaults to True for OAuth models)
-            from code_puppy.config import get_effective_model_settings
-
-            effective_settings = get_effective_model_settings(model_name)
-            interleaved_thinking = effective_settings.get("interleaved_thinking", True)
-
-            # Handle anthropic-beta header based on interleaved_thinking setting
-            if "anthropic-beta" in headers:
-                beta_parts = [p.strip() for p in headers["anthropic-beta"].split(",")]
-                if interleaved_thinking:
-                    # Ensure interleaved-thinking is in the header
-                    if "interleaved-thinking-2025-05-14" not in beta_parts:
-                        beta_parts.append("interleaved-thinking-2025-05-14")
-                else:
-                    # Remove interleaved-thinking from the header
-                    beta_parts = [
-                        p for p in beta_parts if "interleaved-thinking" not in p
-                    ]
-                headers["anthropic-beta"] = ",".join(beta_parts) if beta_parts else None
-                if headers.get("anthropic-beta") is None:
-                    del headers["anthropic-beta"]
-            elif interleaved_thinking:
-                # No existing beta header, add one for interleaved thinking
-                headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
-
-            # Use a dedicated client wrapper that injects cache_control on /v1/messages
-            if verify is None:
-                verify = get_cert_bundle_path()
-
-            http2_enabled = get_http2()
-
-            client = ClaudeCacheAsyncClient(
-                headers=headers,
-                verify=verify,
-                timeout=180,
-                http2=http2_enabled,
-            )
-
-            anthropic_client = AsyncAnthropic(
-                base_url=url,
-                http_client=client,
-                auth_token=api_key,
-            )
-            # Ensure cache_control is injected at the Anthropic SDK layer too
-            # so we don't depend solely on httpx internals.
-            patch_anthropic_client_messages(anthropic_client)
-            anthropic_client.api_key = None
-            anthropic_client.auth_token = api_key
-            provider = AnthropicProvider(anthropic_client=anthropic_client)
-            return AnthropicModel(model_name=model_config["name"], provider=provider)
         elif model_type == "azure_openai":
             azure_endpoint_config = model_config.get("azure_endpoint")
             if not azure_endpoint_config:
@@ -571,7 +502,42 @@ class ModelFactory:
             )
             setattr(zai_model, "provider", provider)
             return zai_model
+        # NOTE: 'antigravity' model type is now handled by the antigravity_oauth plugin
+        # via the register_model_type callback. See plugins/antigravity_oauth/register_callbacks.py
+
         elif model_type == "custom_gemini":
+            # Backwards compatibility: delegate to antigravity plugin if antigravity flag is set
+            # New configs use type="antigravity" directly, but old configs may have
+            # type="custom_gemini" with antigravity=True
+            if model_config.get("antigravity"):
+                # Find and call the antigravity handler from the plugin
+                registered_handlers = callbacks.on_register_model_types()
+                for handler_info in registered_handlers:
+                    handlers = (
+                        handler_info
+                        if isinstance(handler_info, list)
+                        else [handler_info]
+                        if handler_info
+                        else []
+                    )
+                    for handler_entry in handlers:
+                        if (
+                            isinstance(handler_entry, dict)
+                            and handler_entry.get("type") == "antigravity"
+                        ):
+                            handler = handler_entry.get("handler")
+                            if callable(handler):
+                                try:
+                                    return handler(model_name, model_config, config)
+                                except Exception as e:
+                                    logger.error(f"Antigravity handler failed: {e}")
+                                    return None
+                # If no antigravity handler found, warn and fall through
+                emit_warning(
+                    f"Model '{model_config.get('name')}' has antigravity=True but antigravity plugin not loaded."
+                )
+                return None
+
             url, headers, verify, api_key = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
@@ -579,114 +545,7 @@ class ModelFactory:
                 )
                 return None
 
-            # Check if this is an Antigravity model
-            if model_config.get("antigravity"):
-                try:
-                    from code_puppy.plugins.antigravity_oauth.token import (
-                        is_token_expired,
-                        refresh_access_token,
-                    )
-                    from code_puppy.plugins.antigravity_oauth.transport import (
-                        create_antigravity_client,
-                    )
-                    from code_puppy.plugins.antigravity_oauth.utils import (
-                        load_stored_tokens,
-                        save_tokens,
-                    )
-
-                    # Try to import custom model for thinking signatures
-                    try:
-                        from code_puppy.plugins.antigravity_oauth.antigravity_model import (
-                            AntigravityModel,
-                        )
-                    except ImportError:
-                        AntigravityModel = None
-
-                    # Get fresh access token (refresh if needed)
-                    tokens = load_stored_tokens()
-                    if not tokens:
-                        emit_warning(
-                            "Antigravity tokens not found; run /antigravity-auth first."
-                        )
-                        return None
-
-                    access_token = tokens.get("access_token", "")
-                    refresh_token = tokens.get("refresh_token", "")
-                    expires_at = tokens.get("expires_at")
-
-                    # Refresh if expired or about to expire (initial check)
-                    if is_token_expired(expires_at):
-                        new_tokens = refresh_access_token(refresh_token)
-                        if new_tokens:
-                            access_token = new_tokens.access_token
-                            refresh_token = new_tokens.refresh_token
-                            expires_at = new_tokens.expires_at
-                            tokens["access_token"] = new_tokens.access_token
-                            tokens["refresh_token"] = new_tokens.refresh_token
-                            tokens["expires_at"] = new_tokens.expires_at
-                            save_tokens(tokens)
-                        else:
-                            emit_warning(
-                                "Failed to refresh Antigravity token; run /antigravity-auth again."
-                            )
-                            return None
-
-                    # Callback to persist tokens when proactively refreshed during session
-                    def on_token_refreshed(new_tokens):
-                        """Persist new tokens when proactively refreshed."""
-                        try:
-                            updated_tokens = load_stored_tokens() or {}
-                            updated_tokens["access_token"] = new_tokens.access_token
-                            updated_tokens["refresh_token"] = new_tokens.refresh_token
-                            updated_tokens["expires_at"] = new_tokens.expires_at
-                            save_tokens(updated_tokens)
-                            logger.debug(
-                                "Persisted proactively refreshed Antigravity tokens"
-                            )
-                        except Exception as e:
-                            logger.warning("Failed to persist refreshed tokens: %s", e)
-
-                    project_id = tokens.get(
-                        "project_id", model_config.get("project_id", "")
-                    )
-                    client = create_antigravity_client(
-                        access_token=access_token,
-                        project_id=project_id,
-                        model_name=model_config["name"],
-                        base_url=url,
-                        headers=headers,
-                        refresh_token=refresh_token,
-                        expires_at=expires_at,
-                        on_token_refreshed=on_token_refreshed,
-                    )
-
-                    # Use custom model with direct httpx client
-                    if AntigravityModel:
-                        model = AntigravityModel(
-                            model_name=model_config["name"],
-                            api_key=api_key
-                            or "",  # Antigravity uses OAuth, key may be empty
-                            base_url=url,
-                            http_client=client,
-                        )
-                    else:
-                        model = GeminiModel(
-                            model_name=model_config["name"],
-                            api_key=api_key or "",
-                            base_url=url,
-                            http_client=client,
-                        )
-
-                    return model
-
-                except ImportError:
-                    emit_warning(
-                        f"Antigravity transport not available; skipping model '{model_config.get('name')}'."
-                    )
-                    return None
-            else:
-                client = create_async_client(headers=headers, verify=verify)
-
+            client = create_async_client(headers=headers, verify=verify)
             model = GeminiModel(
                 model_name=model_config["name"],
                 api_key=api_key,
@@ -814,85 +673,8 @@ class ModelFactory:
             )
             return model
 
-        elif model_type == "chatgpt_oauth":
-            # ChatGPT OAuth models use the Codex API at chatgpt.com
-            try:
-                try:
-                    from chatgpt_oauth.config import CHATGPT_OAUTH_CONFIG
-                    from chatgpt_oauth.utils import (
-                        get_valid_access_token,
-                        load_stored_tokens,
-                    )
-                except ImportError:
-                    from code_puppy.plugins.chatgpt_oauth.config import (
-                        CHATGPT_OAUTH_CONFIG,
-                    )
-                    from code_puppy.plugins.chatgpt_oauth.utils import (
-                        get_valid_access_token,
-                        load_stored_tokens,
-                    )
-            except ImportError as exc:
-                emit_warning(
-                    f"ChatGPT OAuth plugin not available; skipping model '{model_config.get('name')}'. "
-                    f"Error: {exc}"
-                )
-                return None
-
-            # Get a valid access token (refreshing if needed)
-            access_token = get_valid_access_token()
-            if not access_token:
-                emit_warning(
-                    f"Failed to get valid ChatGPT OAuth token; skipping model '{model_config.get('name')}'. "
-                    "Run /chatgpt-auth to authenticate."
-                )
-                return None
-
-            # Get account_id from stored tokens (required for ChatGPT-Account-Id header)
-            tokens = load_stored_tokens()
-            account_id = tokens.get("account_id", "") if tokens else ""
-            if not account_id:
-                emit_warning(
-                    f"No account_id found in ChatGPT OAuth tokens; skipping model '{model_config.get('name')}'. "
-                    "Run /chatgpt-auth to re-authenticate."
-                )
-                return None
-
-            # Build headers for ChatGPT Codex API
-            originator = CHATGPT_OAUTH_CONFIG.get("originator", "codex_cli_rs")
-            client_version = CHATGPT_OAUTH_CONFIG.get("client_version", "0.72.0")
-
-            headers = {
-                "ChatGPT-Account-Id": account_id,
-                "originator": originator,
-                "User-Agent": f"{originator}/{client_version}",
-            }
-            # Merge with any headers from model config
-            config_headers = model_config.get("custom_endpoint", {}).get("headers", {})
-            headers.update(config_headers)
-
-            # Get base URL - Codex API uses chatgpt.com, not api.openai.com
-            base_url = model_config.get("custom_endpoint", {}).get(
-                "url", CHATGPT_OAUTH_CONFIG["api_base_url"]
-            )
-
-            # Create HTTP client with Codex interceptor for store=false injection
-            from code_puppy.chatgpt_codex_client import create_codex_async_client
-
-            verify = get_cert_bundle_path()
-            client = create_codex_async_client(headers=headers, verify=verify)
-
-            provider = OpenAIProvider(
-                api_key=access_token,
-                base_url=base_url,
-                http_client=client,
-            )
-
-            # ChatGPT Codex API only supports Responses format
-            model = OpenAIResponsesModel(
-                model_name=model_config["name"], provider=provider
-            )
-            setattr(model, "provider", provider)
-            return model
+        # NOTE: 'chatgpt_oauth' model type is now handled by the chatgpt_oauth plugin
+        # via the register_model_type callback. See plugins/chatgpt_oauth/register_callbacks.py
 
         elif model_type == "round_robin":
             # Get the list of model names to use in the round-robin
@@ -916,4 +698,27 @@ class ModelFactory:
             return RoundRobinModel(*models, rotate_every=rotate_every)
 
         else:
+            # Check for plugin-registered model type handlers
+            registered_handlers = callbacks.on_register_model_types()
+            for handler_info in registered_handlers:
+                # Handler info can be a list of dicts or a single dict
+                if isinstance(handler_info, list):
+                    handlers = handler_info
+                else:
+                    handlers = [handler_info] if handler_info else []
+
+                for handler_entry in handlers:
+                    if not isinstance(handler_entry, dict):
+                        continue
+                    if handler_entry.get("type") == model_type:
+                        handler = handler_entry.get("handler")
+                        if callable(handler):
+                            try:
+                                return handler(model_name, model_config, config)
+                            except Exception as e:
+                                logger.error(
+                                    f"Plugin handler for model type '{model_type}' failed: {e}"
+                                )
+                                return None
+
             raise ValueError(f"Unsupported model type: {model_type}")
