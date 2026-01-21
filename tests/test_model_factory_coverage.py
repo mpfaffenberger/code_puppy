@@ -439,11 +439,18 @@ class TestLoadConfigExtended:
 
 
 class TestClaudeCodeModel:
-    """Test claude_code model type."""
+    """Test claude_code model type.
+
+    Note: claude_code is now a plugin-based model type. Tests must mock
+    callbacks.on_register_model_types to return the handler.
+    """
 
     def test_claude_code_model_basic(self):
         """Test basic claude_code model creation."""
         from code_puppy.model_factory import ModelFactory
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _create_claude_code_model,
+        )
 
         config = {
             "claude-code-test": {
@@ -456,29 +463,43 @@ class TestClaudeCodeModel:
             }
         }
 
-        with patch("code_puppy.model_factory.get_cert_bundle_path", return_value=None):
-            with patch("code_puppy.model_factory.get_http2", return_value=True):
-                with patch("code_puppy.model_factory.ClaudeCacheAsyncClient"):
-                    with patch("code_puppy.model_factory.AsyncAnthropic"):
-                        with patch(
-                            "code_puppy.model_factory.patch_anthropic_client_messages"
-                        ):
-                            with patch("code_puppy.model_factory.AnthropicProvider"):
+        # Mock the plugin callback to return the handler
+        mock_handler_return = [
+            {"type": "claude_code", "handler": _create_claude_code_model}
+        ]
+        with patch(
+            "code_puppy.model_factory.callbacks.on_register_model_types",
+            return_value=mock_handler_return,
+        ):
+            # Patch at source modules where the plugin handler imports from
+            with patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None):
+                with patch("code_puppy.http_utils.get_http2", return_value=True):
+                    with patch("code_puppy.claude_cache_client.ClaudeCacheAsyncClient"):
+                        with patch("anthropic.AsyncAnthropic"):
+                            with patch(
+                                "code_puppy.claude_cache_client.patch_anthropic_client_messages"
+                            ):
                                 with patch(
-                                    "code_puppy.model_factory.AnthropicModel"
-                                ) as mock_model:
+                                    "pydantic_ai.providers.anthropic.AnthropicProvider"
+                                ):
                                     with patch(
-                                        "code_puppy.config.get_effective_model_settings",
-                                        return_value={"interleaved_thinking": True},
-                                    ):
-                                        ModelFactory.get_model(
-                                            "claude-code-test", config
-                                        )
-                                        mock_model.assert_called_once()
+                                        "pydantic_ai.models.anthropic.AnthropicModel"
+                                    ) as mock_model:
+                                        with patch(
+                                            "code_puppy.config.get_effective_model_settings",
+                                            return_value={"interleaved_thinking": True},
+                                        ):
+                                            ModelFactory.get_model(
+                                                "claude-code-test", config
+                                            )
+                                            mock_model.assert_called_once()
 
     def test_claude_code_model_interleaved_thinking_header(self):
         """Test interleaved thinking header handling."""
         from code_puppy.model_factory import ModelFactory
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _create_claude_code_model,
+        )
 
         config = {
             "claude-code-test": {
@@ -492,35 +513,50 @@ class TestClaudeCodeModel:
             }
         }
 
-        with patch("code_puppy.model_factory.get_cert_bundle_path", return_value=None):
-            with patch("code_puppy.model_factory.get_http2", return_value=True):
-                with patch(
-                    "code_puppy.model_factory.ClaudeCacheAsyncClient"
-                ) as mock_client:
-                    with patch("code_puppy.model_factory.AsyncAnthropic"):
-                        with patch(
-                            "code_puppy.model_factory.patch_anthropic_client_messages"
-                        ):
-                            with patch("code_puppy.model_factory.AnthropicProvider"):
-                                with patch("code_puppy.model_factory.AnthropicModel"):
+        # Mock the plugin callback to return the handler
+        mock_handler_return = [
+            {"type": "claude_code", "handler": _create_claude_code_model}
+        ]
+        with patch(
+            "code_puppy.model_factory.callbacks.on_register_model_types",
+            return_value=mock_handler_return,
+        ):
+            with patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None):
+                with patch("code_puppy.http_utils.get_http2", return_value=True):
+                    with patch(
+                        "code_puppy.claude_cache_client.ClaudeCacheAsyncClient"
+                    ) as mock_client:
+                        with patch("anthropic.AsyncAnthropic"):
+                            with patch(
+                                "code_puppy.claude_cache_client.patch_anthropic_client_messages"
+                            ):
+                                with patch(
+                                    "pydantic_ai.providers.anthropic.AnthropicProvider"
+                                ):
                                     with patch(
-                                        "code_puppy.config.get_effective_model_settings",
-                                        return_value={"interleaved_thinking": True},
+                                        "pydantic_ai.models.anthropic.AnthropicModel"
                                     ):
-                                        ModelFactory.get_model(
-                                            "claude-code-test", config
-                                        )
-                                        # Check that headers were passed with interleaved thinking
-                                        call_args = mock_client.call_args
-                                        headers = call_args[1]["headers"]
-                                        assert (
-                                            "interleaved-thinking-2025-05-14"
-                                            in headers.get("anthropic-beta", "")
-                                        )
+                                        with patch(
+                                            "code_puppy.config.get_effective_model_settings",
+                                            return_value={"interleaved_thinking": True},
+                                        ):
+                                            ModelFactory.get_model(
+                                                "claude-code-test", config
+                                            )
+                                            # Check that headers were passed with interleaved thinking
+                                            call_args = mock_client.call_args
+                                            headers = call_args[1]["headers"]
+                                            assert (
+                                                "interleaved-thinking-2025-05-14"
+                                                in headers.get("anthropic-beta", "")
+                                            )
 
     def test_claude_code_model_disable_interleaved_thinking(self):
         """Test disabling interleaved thinking removes header."""
         from code_puppy.model_factory import ModelFactory
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _create_claude_code_model,
+        )
 
         config = {
             "claude-code-test": {
@@ -536,33 +572,50 @@ class TestClaudeCodeModel:
             }
         }
 
-        with patch("code_puppy.model_factory.get_cert_bundle_path", return_value=None):
-            with patch("code_puppy.model_factory.get_http2", return_value=True):
-                with patch(
-                    "code_puppy.model_factory.ClaudeCacheAsyncClient"
-                ) as mock_client:
-                    with patch("code_puppy.model_factory.AsyncAnthropic"):
-                        with patch(
-                            "code_puppy.model_factory.patch_anthropic_client_messages"
-                        ):
-                            with patch("code_puppy.model_factory.AnthropicProvider"):
-                                with patch("code_puppy.model_factory.AnthropicModel"):
+        # Mock the plugin callback to return the handler
+        mock_handler_return = [
+            {"type": "claude_code", "handler": _create_claude_code_model}
+        ]
+        with patch(
+            "code_puppy.model_factory.callbacks.on_register_model_types",
+            return_value=mock_handler_return,
+        ):
+            with patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None):
+                with patch("code_puppy.http_utils.get_http2", return_value=True):
+                    with patch(
+                        "code_puppy.claude_cache_client.ClaudeCacheAsyncClient"
+                    ) as mock_client:
+                        with patch("anthropic.AsyncAnthropic"):
+                            with patch(
+                                "code_puppy.claude_cache_client.patch_anthropic_client_messages"
+                            ):
+                                with patch(
+                                    "pydantic_ai.providers.anthropic.AnthropicProvider"
+                                ):
                                     with patch(
-                                        "code_puppy.config.get_effective_model_settings",
-                                        return_value={"interleaved_thinking": False},
+                                        "pydantic_ai.models.anthropic.AnthropicModel"
                                     ):
-                                        ModelFactory.get_model(
-                                            "claude-code-test", config
-                                        )
-                                        call_args = mock_client.call_args
-                                        headers = call_args[1]["headers"]
-                                        # interleaved-thinking should be removed
-                                        beta = headers.get("anthropic-beta", "")
-                                        assert "interleaved-thinking" not in beta
+                                        with patch(
+                                            "code_puppy.config.get_effective_model_settings",
+                                            return_value={
+                                                "interleaved_thinking": False
+                                            },
+                                        ):
+                                            ModelFactory.get_model(
+                                                "claude-code-test", config
+                                            )
+                                            call_args = mock_client.call_args
+                                            headers = call_args[1]["headers"]
+                                            # interleaved-thinking should be removed
+                                            beta = headers.get("anthropic-beta", "")
+                                            assert "interleaved-thinking" not in beta
 
     def test_claude_code_oauth_refresh(self):
         """Test OAuth token refresh for claude_code models."""
         from code_puppy.model_factory import ModelFactory
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _create_claude_code_model,
+        )
 
         config = {
             "claude-oauth": {
@@ -576,44 +629,55 @@ class TestClaudeCodeModel:
             }
         }
 
+        # Mock the plugin callback to return the handler
+        mock_handler_return = [
+            {"type": "claude_code", "handler": _create_claude_code_model}
+        ]
         with patch(
-            "code_puppy.plugins.claude_code_oauth.utils.get_valid_access_token",
-            return_value="new-refreshed-token",
+            "code_puppy.model_factory.callbacks.on_register_model_types",
+            return_value=mock_handler_return,
         ):
             with patch(
-                "code_puppy.model_factory.get_cert_bundle_path", return_value=None
+                "code_puppy.plugins.claude_code_oauth.register_callbacks.get_valid_access_token",
+                return_value="new-refreshed-token",
             ):
-                with patch("code_puppy.model_factory.get_http2", return_value=True):
-                    with patch("code_puppy.model_factory.ClaudeCacheAsyncClient"):
+                with patch(
+                    "code_puppy.http_utils.get_cert_bundle_path", return_value=None
+                ):
+                    with patch("code_puppy.http_utils.get_http2", return_value=True):
                         with patch(
-                            "code_puppy.model_factory.AsyncAnthropic"
-                        ) as mock_anthropic:
-                            with patch(
-                                "code_puppy.model_factory.patch_anthropic_client_messages"
-                            ):
+                            "code_puppy.claude_cache_client.ClaudeCacheAsyncClient"
+                        ):
+                            with patch("anthropic.AsyncAnthropic") as mock_anthropic:
                                 with patch(
-                                    "code_puppy.model_factory.AnthropicProvider"
+                                    "code_puppy.claude_cache_client.patch_anthropic_client_messages"
                                 ):
                                     with patch(
-                                        "code_puppy.model_factory.AnthropicModel"
+                                        "pydantic_ai.providers.anthropic.AnthropicProvider"
                                     ):
                                         with patch(
-                                            "code_puppy.config.get_effective_model_settings",
-                                            return_value={},
+                                            "pydantic_ai.models.anthropic.AnthropicModel"
                                         ):
-                                            ModelFactory.get_model(
-                                                "claude-oauth", config
-                                            )
-                                            # Token should be refreshed
-                                            call_args = mock_anthropic.call_args
-                                            assert (
-                                                call_args[1]["auth_token"]
-                                                == "new-refreshed-token"
-                                            )
+                                            with patch(
+                                                "code_puppy.config.get_effective_model_settings",
+                                                return_value={},
+                                            ):
+                                                ModelFactory.get_model(
+                                                    "claude-oauth", config
+                                                )
+                                                # Token should be refreshed
+                                                call_args = mock_anthropic.call_args
+                                                assert (
+                                                    call_args[1]["auth_token"]
+                                                    == "new-refreshed-token"
+                                                )
 
     def test_claude_code_missing_api_key(self):
         """Test claude_code model with missing API key."""
         from code_puppy.model_factory import ModelFactory
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _create_claude_code_model,
+        )
 
         config = {
             "claude-code-test": {
@@ -625,13 +689,24 @@ class TestClaudeCodeModel:
             }
         }
 
-        with patch("code_puppy.model_factory.emit_warning") as mock_warn:
+        # Mock the plugin callback to return the handler
+        mock_handler_return = [
+            {"type": "claude_code", "handler": _create_claude_code_model}
+        ]
+        with patch(
+            "code_puppy.model_factory.callbacks.on_register_model_types",
+            return_value=mock_handler_return,
+        ):
+            # Patch emit_warning where it's imported in the plugin module
             with patch(
-                "code_puppy.config.get_effective_model_settings", return_value={}
-            ):
-                model = ModelFactory.get_model("claude-code-test", config)
-                assert model is None
-                mock_warn.assert_called()
+                "code_puppy.plugins.claude_code_oauth.register_callbacks.emit_warning"
+            ) as mock_warn:
+                with patch(
+                    "code_puppy.config.get_effective_model_settings", return_value={}
+                ):
+                    model = ModelFactory.get_model("claude-code-test", config)
+                    assert model is None
+                    mock_warn.assert_called()
 
 
 class TestCustomAnthropicModel:
