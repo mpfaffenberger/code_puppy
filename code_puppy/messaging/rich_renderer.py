@@ -48,6 +48,7 @@ from .messages import (
     SubAgentInvocationMessage,
     SubAgentResponseMessage,
     TextMessage,
+    UniversalConstructorMessage,
     UserInputRequest,
     VersionCheckMessage,
 )
@@ -287,6 +288,8 @@ class RichConsoleRenderer:
         elif isinstance(message, SubAgentResponseMessage):
             # Skip rendering - we now display sub-agent responses via display_non_streamed_result
             pass
+        elif isinstance(message, UniversalConstructorMessage):
+            self._render_universal_constructor(message)
         elif isinstance(message, UserInputRequest):
             # Can't handle async user input in sync context - skip
             self._console.print("[dim]User input requested (requires async)[/dim]")
@@ -774,6 +777,38 @@ class RichConsoleRenderer:
             f"\n[dim]Session [bold]{msg.session_id}[/bold] saved "
             f"({msg.message_count} messages)[/dim]"
         )
+
+    def _render_universal_constructor(self, msg: UniversalConstructorMessage) -> None:
+        """Render universal_constructor tool output with banner."""
+        # Skip for sub-agents unless verbose mode
+        if self._should_suppress_subagent_output():
+            return
+
+        # Format banner
+        banner = self._format_banner("universal_constructor", "UNIVERSAL CONSTRUCTOR")
+
+        # Build the header line with action and optional tool name
+        # Escape user-controlled strings to prevent Rich markup injection
+        header_parts = [f"\n{banner} 🔧 [bold cyan]{msg.action.upper()}[/bold cyan]"]
+        if msg.tool_name:
+            safe_tool_name = escape_rich_markup(msg.tool_name)
+            header_parts.append(f" [dim]tool=[/dim][bold]{safe_tool_name}[/bold]")
+        self._console.print("".join(header_parts))
+
+        # Status indicator
+        safe_summary = escape_rich_markup(msg.summary) if msg.summary else ""
+        if msg.success:
+            self._console.print(f"[green]✓[/green] {safe_summary}")
+        else:
+            self._console.print(f"[red]✗[/red] {safe_summary}")
+
+        # Show details if present
+        if msg.details:
+            safe_details = escape_rich_markup(msg.details)
+            self._console.print(f"[dim]{safe_details}[/dim]")
+
+        # Trailing newline for spinner separation
+        self._console.print()
 
     # =========================================================================
     # User Interaction

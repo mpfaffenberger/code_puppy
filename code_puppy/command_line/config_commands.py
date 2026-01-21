@@ -46,7 +46,9 @@ def handle_show_command(command: str) -> bool:
         get_use_dbos,
         get_yolo_mode,
     )
-    from code_puppy.keymap import get_cancel_agent_display_name
+    from code_puppy.keymap import (
+        get_cancel_agent_display_name,
+    )
     from code_puppy.messaging import emit_info
 
     puppy_name = get_puppy_name()

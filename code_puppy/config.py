@@ -101,6 +101,9 @@ PACK_AGENT_NAMES = frozenset(
     ]
 )
 
+# Agents that require Universal Constructor to be enabled
+UC_AGENT_NAMES = frozenset(["helios"])
+
 
 def get_pack_agents_enabled() -> bool:
     """Return True if pack agents are enabled (default False).
@@ -115,6 +118,30 @@ def get_pack_agents_enabled() -> bool:
     if cfg_val is None:
         return False
     return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def get_universal_constructor_enabled() -> bool:
+    """Return True if the Universal Constructor is enabled (default True).
+
+    The Universal Constructor allows agents to dynamically create, manage,
+    and execute custom tools at runtime. When enabled, agents can extend
+    their capabilities by writing Python code that becomes callable tools.
+
+    When False, the universal_constructor tool is not registered with agents.
+    """
+    cfg_val = get_value("enable_universal_constructor")
+    if cfg_val is None:
+        return True  # Enabled by default
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def set_universal_constructor_enabled(enabled: bool) -> None:
+    """Enable or disable the Universal Constructor.
+
+    Args:
+        enabled: True to enable, False to disable
+    """
+    set_value("enable_universal_constructor", "true" if enabled else "false")
 
 
 DEFAULT_SECTION = "puppy"
@@ -260,6 +287,8 @@ def get_config_keys():
     default_keys.append("enable_dbos")
     # Add pack agents control key
     default_keys.append("enable_pack_agents")
+    # Add universal constructor control key
+    default_keys.append("enable_universal_constructor")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
     # Add banner color keys
