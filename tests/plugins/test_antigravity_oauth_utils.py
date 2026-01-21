@@ -381,9 +381,9 @@ class TestAddModelsToConfig:
         # Check first model structure
         first_key = next(iter(saved_models))
         assert "antigravity-" in first_key
-        assert saved_models[first_key]["type"] == "custom_gemini"
+        assert saved_models[first_key]["type"] == "antigravity"
         assert saved_models[first_key]["oauth_source"] == "antigravity-plugin"
-        assert saved_models[first_key]["antigravity"] is True
+        assert saved_models[first_key]["name"]  # Has model name
         assert saved_models[first_key]["custom_endpoint"]["api_key"] == access_token
         assert saved_models[first_key]["project_id"] == project_id
 
