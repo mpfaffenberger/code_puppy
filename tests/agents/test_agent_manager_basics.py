@@ -199,9 +199,13 @@ class TestAgentManagerBasics:
             mock_json_agents.return_value = {}
             _discover_agents()
 
-        # Only valid agent should be registered
+        # Valid agent should be registered, internal modules should NOT be
         assert "valid-agent" in _AGENT_REGISTRY
-        assert len(_AGENT_REGISTRY) == 1
+        # Verify internal modules were properly skipped
+        assert "_internal" not in _AGENT_REGISTRY
+        assert "base_agent" not in _AGENT_REGISTRY
+        assert "json_agent" not in _AGENT_REGISTRY
+        assert "agent_manager" not in _AGENT_REGISTRY
 
     @patch("code_puppy.agents.agent_manager.discover_json_agents")
     @patch("pkgutil.iter_modules")

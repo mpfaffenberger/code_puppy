@@ -20,6 +20,14 @@ except ImportError:
     HAS_BASE_AGENT = False
     BaseAgent = None  # type: ignore
 
+# Check if ralph_test plugin exists
+try:
+    from code_puppy.plugins import ralph_test  # noqa: F401
+
+    HAS_RALPH_TEST_PLUGIN = True
+except ImportError:
+    HAS_RALPH_TEST_PLUGIN = False
+
 
 class TestRegisterToolsCallback:
     """Tests for the register_tools callback hook."""
@@ -241,7 +249,10 @@ class TestAgentResponseCompleteCallback:
         assert detected_complete[0] == "agent2"
 
 
-@pytest.mark.skipif(not HAS_BASE_AGENT, reason="Plugin requires BaseAgent (MCP)")
+@pytest.mark.skipif(
+    not HAS_BASE_AGENT or not HAS_RALPH_TEST_PLUGIN,
+    reason="Plugin requires BaseAgent and ralph_test plugin to be installed",
+)
 class TestRalphTestPluginIntegration:
     """Integration tests for the ralph_test plugin."""
 

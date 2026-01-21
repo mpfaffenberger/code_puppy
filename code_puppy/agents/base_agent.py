@@ -102,6 +102,37 @@ class BaseAgent(ABC):
         # This is populated after the first successful run when MCP tools are retrieved
         self._mcp_tool_definitions_cache: List[Dict[str, Any]] = []
 
+    def get_identity(self) -> str:
+        """Get a unique identity for this agent instance.
+
+        Returns:
+            A string like 'python-programmer-a3f2b1' combining name + short UUID.
+        """
+        return f"{self.name}-{self.id[:6]}"
+
+    def get_identity_prompt(self) -> str:
+        """Get the identity prompt suffix to embed in system prompts.
+
+        Returns:
+            A string instructing the agent about its identity for task ownership.
+        """
+        return (
+            f"\n\nYour ID is `{self.get_identity()}`. "
+            "Use this for any tasks which require identifying yourself "
+            "such as claiming task ownership or coordination with other agents."
+        )
+
+    def get_full_system_prompt(self) -> str:
+        """Get the complete system prompt with identity automatically appended.
+
+        This wraps get_system_prompt() and appends the agent's identity,
+        so subclasses don't need to worry about it.
+
+        Returns:
+            The full system prompt including identity information.
+        """
+        return self.get_system_prompt() + self.get_identity_prompt()
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -399,7 +430,7 @@ class BaseAgent(ABC):
                 total_tokens += self.estimate_token_count(instructions)
             else:
                 # For other models, count the full system prompt
-                system_prompt = self.get_system_prompt()
+                system_prompt = self.get_full_system_prompt()
                 if system_prompt:
                     total_tokens += self.estimate_token_count(system_prompt)
         except Exception:
@@ -1123,7 +1154,7 @@ class BaseAgent(ABC):
             message_group,
         )
 
-        instructions = self.get_system_prompt()
+        instructions = self.get_full_system_prompt()
         puppy_rules = self.load_puppy_rules()
         if puppy_rules:
             instructions += f"\n{puppy_rules}"
@@ -1287,7 +1318,7 @@ class BaseAgent(ABC):
             model_name, models_config, str(uuid.uuid4())
         )
 
-        instructions = self.get_system_prompt()
+        instructions = self.get_full_system_prompt()
         puppy_rules = self.load_puppy_rules()
         if puppy_rules:
             instructions += f"\n{puppy_rules}"
@@ -1569,7 +1600,7 @@ class BaseAgent(ABC):
             self.get_model_name()
         ):
             if len(self.get_message_history()) == 0:
-                system_prompt = self.get_system_prompt()
+                system_prompt = self.get_full_system_prompt()
                 puppy_rules = self.load_puppy_rules()
                 if puppy_rules:
                     system_prompt += f"\n{puppy_rules}"

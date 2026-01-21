@@ -469,7 +469,7 @@ def register_invoke_agent(agent):
             model = ModelFactory.get_model(model_name, models_config)
 
             # Create a temporary agent instance to avoid interfering with current agent state
-            instructions = agent_config.get_system_prompt()
+            instructions = agent_config.get_full_system_prompt()
 
             # Add AGENTS.md content to subagents
             puppy_rules = agent_config.load_puppy_rules()

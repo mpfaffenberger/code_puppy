@@ -644,7 +644,7 @@ def clone_agent(agent_name: str) -> Optional[str]:
                     agent_instance.display_name, clone_index
                 ),
                 "description": agent_instance.description,
-                "system_prompt": agent_instance.get_system_prompt(),
+                "system_prompt": agent_instance.get_full_system_prompt(),
                 "tools": _filter_available_tools(agent_instance.get_available_tools()),
             }
 
