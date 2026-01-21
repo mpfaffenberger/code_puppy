@@ -13,7 +13,7 @@ from pydantic_ai.messages import ModelMessage
 
 from code_puppy.agents.base_agent import BaseAgent
 from code_puppy.agents.json_agent import JSONAgent, discover_json_agents
-from code_puppy.callbacks import on_agent_reload
+from code_puppy.callbacks import on_agent_reload, on_register_agents
 from code_puppy.messaging import emit_success, emit_warning
 
 # Registry of available agents (Python classes and JSON file paths)
@@ -315,6 +315,38 @@ def _discover_agents(message_group_id: Optional[str] = None):
             message_group=message_group_id,
         )
 
+    # 3. Discover agents registered by plugins
+    try:
+        results = on_register_agents()
+        for result in results:
+            if result is None:
+                continue
+            # Each result should be a list of agent definitions
+            agents_list = result if isinstance(result, list) else [result]
+            for agent_def in agents_list:
+                if not isinstance(agent_def, dict) or "name" not in agent_def:
+                    continue
+
+                agent_name = agent_def["name"]
+
+                # Support both class-based and JSON path-based registration
+                if "class" in agent_def:
+                    agent_class = agent_def["class"]
+                    if isinstance(agent_class, type) and issubclass(
+                        agent_class, BaseAgent
+                    ):
+                        _AGENT_REGISTRY[agent_name] = agent_class
+                elif "json_path" in agent_def:
+                    json_path = agent_def["json_path"]
+                    if isinstance(json_path, str):
+                        _AGENT_REGISTRY[agent_name] = json_path
+
+    except Exception as e:
+        emit_warning(
+            f"Warning: Could not load plugin agents: {e}",
+            message_group=message_group_id,
+        )
+
 
 def get_available_agents() -> Dict[str, str]:
     """Get a dictionary of available agents with their display names.
@@ -322,7 +354,12 @@ def get_available_agents() -> Dict[str, str]:
     Returns:
         Dict mapping agent names to display names.
     """
-    from ..config import PACK_AGENT_NAMES, get_pack_agents_enabled
+    from ..config import (
+        PACK_AGENT_NAMES,
+        UC_AGENT_NAMES,
+        get_pack_agents_enabled,
+        get_universal_constructor_enabled,
+    )
 
     # Generate a message group ID for this operation
     message_group_id = str(uuid.uuid4())
@@ -331,10 +368,17 @@ def get_available_agents() -> Dict[str, str]:
     # Check if pack agents are enabled
     pack_agents_enabled = get_pack_agents_enabled()
 
+    # Check if UC is enabled
+    uc_enabled = get_universal_constructor_enabled()
+
     agents = {}
     for name, agent_ref in _AGENT_REGISTRY.items():
         # Filter out pack agents if disabled
         if not pack_agents_enabled and name in PACK_AGENT_NAMES:
+            continue
+
+        # Filter out UC-dependent agents if UC is disabled
+        if not uc_enabled and name in UC_AGENT_NAMES:
             continue
 
         try:
@@ -459,7 +503,12 @@ def get_agent_descriptions() -> Dict[str, str]:
     Returns:
         Dict mapping agent names to their descriptions.
     """
-    from ..config import PACK_AGENT_NAMES, get_pack_agents_enabled
+    from ..config import (
+        PACK_AGENT_NAMES,
+        UC_AGENT_NAMES,
+        get_pack_agents_enabled,
+        get_universal_constructor_enabled,
+    )
 
     # Generate a message group ID for this operation
     message_group_id = str(uuid.uuid4())
@@ -468,10 +517,17 @@ def get_agent_descriptions() -> Dict[str, str]:
     # Check if pack agents are enabled
     pack_agents_enabled = get_pack_agents_enabled()
 
+    # Check if UC is enabled
+    uc_enabled = get_universal_constructor_enabled()
+
     descriptions = {}
     for name, agent_ref in _AGENT_REGISTRY.items():
         # Filter out pack agents if disabled
         if not pack_agents_enabled and name in PACK_AGENT_NAMES:
+            continue
+
+        # Filter out UC-dependent agents if UC is disabled
+        if not uc_enabled and name in UC_AGENT_NAMES:
             continue
 
         try:
@@ -614,7 +670,7 @@ def clone_agent(agent_name: str) -> Optional[str]:
                     agent_instance.display_name, clone_index
                 ),
                 "description": agent_instance.description,
-                "system_prompt": agent_instance.get_system_prompt(),
+                "system_prompt": agent_instance.get_full_system_prompt(),
                 "tools": _filter_available_tools(agent_instance.get_available_tools()),
             }
 

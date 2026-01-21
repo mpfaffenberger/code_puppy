@@ -51,6 +51,7 @@ from pydantic_ai.messages import (
 from rich.text import Text
 
 from code_puppy.agents.event_stream_handler import event_stream_handler
+from code_puppy.callbacks import on_agent_response_complete
 
 # Consolidated relative imports
 from code_puppy.config import (
@@ -148,6 +149,37 @@ class BaseAgent(ABC):
         # Cache for MCP tool definitions (for token estimation)
         # This is populated after the first successful run when MCP tools are retrieved
         self._mcp_tool_definitions_cache: List[Dict[str, Any]] = []
+
+    def get_identity(self) -> str:
+        """Get a unique identity for this agent instance.
+
+        Returns:
+            A string like 'python-programmer-a3f2b1' combining name + short UUID.
+        """
+        return f"{self.name}-{self.id[:6]}"
+
+    def get_identity_prompt(self) -> str:
+        """Get the identity prompt suffix to embed in system prompts.
+
+        Returns:
+            A string instructing the agent about its identity for task ownership.
+        """
+        return (
+            f"\n\nYour ID is `{self.get_identity()}`. "
+            "Use this for any tasks which require identifying yourself "
+            "such as claiming task ownership or coordination with other agents."
+        )
+
+    def get_full_system_prompt(self) -> str:
+        """Get the complete system prompt with identity automatically appended.
+
+        This wraps get_system_prompt() and appends the agent's identity,
+        so subclasses don't need to worry about it.
+
+        Returns:
+            The full system prompt including identity information.
+        """
+        return self.get_system_prompt() + self.get_identity_prompt()
 
     @property
     @abstractmethod
@@ -474,9 +506,12 @@ class BaseAgent(ABC):
         # 1. Estimate tokens for system prompt / instructions
         # Count the system prompt tokens
         try:
-            system_prompt = self.get_system_prompt()
-            if system_prompt:
-                total_tokens += self.estimate_token_count(system_prompt)
+            model_name = (
+                self.get_model_name() if hasattr(self, "get_model_name") else ""
+            )
+                system_prompt = self.get_full_system_prompt()
+                if system_prompt:
+                    total_tokens += self.estimate_token_count(system_prompt)
         except Exception:
             pass  # If we can't get system prompt, skip it
 
@@ -1198,7 +1233,7 @@ class BaseAgent(ABC):
             message_group,
         )
 
-        instructions = self.get_system_prompt()
+        instructions = self.get_full_system_prompt()
         puppy_rules = self.load_puppy_rules()
         if puppy_rules:
             instructions += f"\n{puppy_rules}"
@@ -1362,7 +1397,7 @@ class BaseAgent(ABC):
             model_name, models_config, str(uuid.uuid4())
         )
 
-        instructions = self.get_system_prompt()
+        instructions = self.get_full_system_prompt()
         puppy_rules = self.load_puppy_rules()
         if puppy_rules:
             instructions += f"\n{puppy_rules}"
@@ -1713,7 +1748,12 @@ class BaseAgent(ABC):
         if output_type is not None:
             pydantic_agent = self._create_agent_with_output_type(output_type)
 
-        from code_puppy.model_utils import is_gemini_model
+        # Handle claude-code, chatgpt-codex, and antigravity models: prepend system prompt to first user message
+        from code_puppy.model_utils import (
+            is_antigravity_model,
+            is_chatgpt_codex_model,
+            is_claude_code_model,
+        )
 
         # Build combined prompt payload when attachments are provided.
         attachment_parts: List[Any] = []
@@ -2059,6 +2099,31 @@ class BaseAgent(ABC):
                     await self._update_mcp_tool_cache()
                 except Exception:
                     pass  # Don't fail the run if cache update fails
+
+            # Trigger agent_response_complete callback for workflow orchestration
+            try:
+                # Extract the response text from the result
+                response_text = ""
+                if result is not None:
+                    if hasattr(result, "data"):
+                        response_text = str(result.data) if result.data else ""
+                    elif hasattr(result, "output"):
+                        response_text = str(result.output) if result.output else ""
+                    else:
+                        response_text = str(result)
+
+                # Fire the callback - don't await to avoid blocking return
+                # Use asyncio.create_task to run it in background
+                asyncio.create_task(
+                    on_agent_response_complete(
+                        agent_name=self.name,
+                        response_text=response_text,
+                        session_id=group_id,
+                        metadata={"model": self.get_model_name()},
+                    )
+                )
+            except Exception:
+                pass  # Don't fail the run if callback fails
 
             return result
         except asyncio.CancelledError:

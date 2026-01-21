@@ -7,7 +7,6 @@ from typing import Any, Dict
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
-from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import (
     OpenAIChatModel,
     OpenAIChatModelSettings,
@@ -16,7 +15,6 @@ from pydantic_ai.models.openai import (
 from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
-from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
@@ -409,76 +407,9 @@ class ModelFactory:
 
             provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
-        elif model_type == "claude_code":
-            url, headers, verify, api_key = get_custom_config(model_config)
-            if model_config.get("oauth_source") == "claude-code-plugin":
-                try:
-                    from code_puppy.plugins.claude_code_oauth.utils import (
-                        get_valid_access_token,
-                    )
+        # NOTE: 'claude_code' model type is now handled by the claude_code_oauth plugin
+        # via the register_model_type callback. See plugins/claude_code_oauth/register_callbacks.py
 
-                    refreshed_token = get_valid_access_token()
-                    if refreshed_token:
-                        api_key = refreshed_token
-                        custom_endpoint = model_config.get("custom_endpoint")
-                        if isinstance(custom_endpoint, dict):
-                            custom_endpoint["api_key"] = refreshed_token
-                except ImportError:
-                    pass
-            if not api_key:
-                emit_warning(
-                    f"API key is not set for Claude Code endpoint; skipping model '{model_config.get('name')}'."
-                )
-                return None
-
-            # ALWAYS enable interleaved thinking for Claude Code (OAuth) models
-            # This is forced on and cannot be overridden via /model_settings
-            interleaved_thinking = True
-
-            # Handle anthropic-beta header based on interleaved_thinking setting
-            if "anthropic-beta" in headers:
-                beta_parts = [p.strip() for p in headers["anthropic-beta"].split(",")]
-                if interleaved_thinking:
-                    # Ensure interleaved-thinking is in the header
-                    if "interleaved-thinking-2025-05-14" not in beta_parts:
-                        beta_parts.append("interleaved-thinking-2025-05-14")
-                else:
-                    # Remove interleaved-thinking from the header
-                    beta_parts = [
-                        p for p in beta_parts if "interleaved-thinking" not in p
-                    ]
-                headers["anthropic-beta"] = ",".join(beta_parts) if beta_parts else None
-                if headers.get("anthropic-beta") is None:
-                    del headers["anthropic-beta"]
-            elif interleaved_thinking:
-                # No existing beta header, add one for interleaved thinking
-                headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
-
-            # Use a dedicated client wrapper that injects cache_control on /v1/messages
-            if verify is None:
-                verify = get_cert_bundle_path()
-
-            http2_enabled = get_http2()
-
-            client = ClaudeCacheAsyncClient(
-                headers=headers,
-                verify=verify,
-                timeout=180,
-                http2=http2_enabled,
-            )
-
-            anthropic_client = AsyncAnthropic(
-                base_url=url,
-                http_client=client,
-                auth_token=api_key,
-            )
-            # Ensure cache_control is injected at the Anthropic SDK layer too
-            # so we don't depend solely on httpx internals.
-            patch_anthropic_client_messages(anthropic_client)
-            anthropic_client.api_key = None
-            anthropic_client.auth_token = api_key
-            provider = AnthropicProvider(anthropic_client=anthropic_client)
-            return AnthropicModel(model_name=model_config["name"], provider=provider)
         elif model_type == "azure_openai":
             azure_endpoint_config = model_config.get("azure_endpoint")
             if not azure_endpoint_config:
@@ -585,7 +516,42 @@ class ModelFactory:
             )
             setattr(zai_model, "provider", provider)
             return zai_model
+        # NOTE: 'antigravity' model type is now handled by the antigravity_oauth plugin
+        # via the register_model_type callback. See plugins/antigravity_oauth/register_callbacks.py
+
         elif model_type == "custom_gemini":
+            # Backwards compatibility: delegate to antigravity plugin if antigravity flag is set
+            # New configs use type="antigravity" directly, but old configs may have
+            # type="custom_gemini" with antigravity=True
+            if model_config.get("antigravity"):
+                # Find and call the antigravity handler from the plugin
+                registered_handlers = callbacks.on_register_model_types()
+                for handler_info in registered_handlers:
+                    handlers = (
+                        handler_info
+                        if isinstance(handler_info, list)
+                        else [handler_info]
+                        if handler_info
+                        else []
+                    )
+                    for handler_entry in handlers:
+                        if (
+                            isinstance(handler_entry, dict)
+                            and handler_entry.get("type") == "antigravity"
+                        ):
+                            handler = handler_entry.get("handler")
+                            if callable(handler):
+                                try:
+                                    return handler(model_name, model_config, config)
+                                except Exception as e:
+                                    logger.error(f"Antigravity handler failed: {e}")
+                                    return None
+                # If no antigravity handler found, warn and fall through
+                emit_warning(
+                    f"Model '{model_config.get('name')}' has antigravity=True but antigravity plugin not loaded."
+                )
+                return None
+
             url, headers, verify, api_key = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
@@ -595,10 +561,13 @@ class ModelFactory:
             os.environ["GEMINI_API_KEY"] = api_key
             client = create_async_client(verify=verify, headers=headers)
 
-            provider = GoogleProvider(
-                base_url=url, api_key=api_key, http_client=client, vertexai=True
+            client = create_async_client(headers=headers, verify=verify)
+            model = GeminiModel(
+                model_name=model_config["name"],
+                api_key=api_key,
+                base_url=url,
+                http_client=client,
             )
-            model = GoogleModel(model_name=model_config["name"], provider=provider)
             return model
         elif model_type == "cerebras":
 
@@ -742,4 +711,27 @@ class ModelFactory:
             return RoundRobinModel(*models, rotate_every=rotate_every)
 
         else:
+            # Check for plugin-registered model type handlers
+            registered_handlers = callbacks.on_register_model_types()
+            for handler_info in registered_handlers:
+                # Handler info can be a list of dicts or a single dict
+                if isinstance(handler_info, list):
+                    handlers = handler_info
+                else:
+                    handlers = [handler_info] if handler_info else []
+
+                for handler_entry in handlers:
+                    if not isinstance(handler_entry, dict):
+                        continue
+                    if handler_entry.get("type") == model_type:
+                        handler = handler_entry.get("handler")
+                        if callable(handler):
+                            try:
+                                return handler(model_name, model_config, config)
+                            except Exception as e:
+                                logger.error(
+                                    f"Plugin handler for model type '{model_type}' failed: {e}"
+                                )
+                                return None
+
             raise ValueError(f"Unsupported model type: {model_type}")
