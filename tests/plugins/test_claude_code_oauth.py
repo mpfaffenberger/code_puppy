@@ -15,6 +15,7 @@ from code_puppy.plugins.claude_code_oauth.config import (
     CLAUDE_CODE_OAUTH_CONFIG,
 )
 from code_puppy.plugins.claude_code_oauth.utils import (
+    TOKEN_REFRESH_BUFFER_SECONDS,
     OAuthContext,
     _calculate_expires_at,
     _compute_code_challenge,
@@ -55,7 +56,7 @@ def sample_token_data():
     """Sample stored token data.
 
     Uses 7200 seconds (2 hours) for expires_at to be safely outside
-    the 1-hour proactive refresh buffer (TOKEN_REFRESH_BUFFER_SECONDS=3600).
+    the proactive refresh buffer.
     """
     now = time.time()
     return {
@@ -64,7 +65,7 @@ def sample_token_data():
         "token_type": "Bearer",
         "scope": "org:create_api_key user:profile user:inference",
         "expires_in": 7200,
-        "expires_at": now + 7200,  # 2 hours, safely outside 1-hour refresh buffer
+        "expires_at": now + 7200,  # 2 hours, safely outside refresh buffer
     }
 
 
@@ -365,6 +366,15 @@ class TestTokenExpiry:
         result = _calculate_expires_at("not_a_number")
         assert result is None
 
+    def test_is_token_expired_at_buffer_boundary(self):
+        """Test that token outside the refresh buffer is not expired."""
+        now = time.time()
+        distant_token = {
+            "access_token": "test_token",
+            "expires_at": now + TOKEN_REFRESH_BUFFER_SECONDS * 2,
+        }
+        assert is_token_expired(distant_token) is False
+
 
 # ============================================================================
 # TOKEN EXCHANGE
@@ -543,6 +553,51 @@ class TestTokenRefresh:
                 # Verify post was called even though token not expired
                 mock_post.assert_called_once()
 
+    @patch("code_puppy.plugins.claude_code_oauth.utils.requests.post")
+    @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")
+    @patch("code_puppy.plugins.claude_code_oauth.utils.save_tokens")
+    def test_refresh_access_token_missing_expires_in_reuses_existing(
+        self, mock_save, mock_load, mock_post
+    ):
+        """Test that refresh handles missing expires_in by reusing existing value.
+
+        Some refresh responses may not include expires_in. In this case, we should
+        reuse the existing expires_in value from the stored tokens to calculate
+        the new expires_at.
+        """
+        now = time.time()
+        existing_tokens = {
+            "access_token": "old_token",
+            "refresh_token": "refresh_token",
+            "expires_in": 7200,  # 2 hours
+            "expires_at": now - 100,  # Expired 100 seconds ago
+        }
+        mock_load.return_value = existing_tokens
+
+        # Mock refresh response without expires_in
+        new_token = "new_token_without_expires_in"
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "access_token": new_token,
+            "refresh_token": "new_refresh_token",
+            # Note: no expires_in field
+        }
+        mock_post.return_value = mock_response
+        mock_save.return_value = True
+
+        result = refresh_access_token()
+
+        assert result == new_token
+        # Verify save_tokens was called with updated data
+        mock_save.assert_called_once()
+        saved_data = mock_save.call_args[0][0]
+
+        # Should reuse existing expires_in (7200) and calculate new expires_at
+        assert saved_data["expires_in"] == 7200  # Reused from existing tokens
+        assert saved_data["expires_at"] > now  # New expires_at should be in future
+        assert saved_data["access_token"] == new_token
+
 
 # ============================================================================
 # VALID ACCESS TOKEN RETRIEVAL
@@ -571,6 +626,38 @@ class TestValidAccessToken:
         result = get_valid_access_token()
 
         assert result is None
+
+    @patch("code_puppy.plugins.claude_code_oauth.utils.refresh_access_token")
+    @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")
+    def test_get_valid_access_token_refresh_fails_but_token_still_valid(
+        self, mock_load, mock_refresh
+    ):
+        """Test that existing access_token is returned when refresh fails but token is still valid.
+
+        This tests graceful degradation: even if the refresh attempt fails (network error, etc.),
+        if the current token is still actually valid (expires_at in future, beyond the 300s buffer),
+        we should return it instead of None.
+        """
+        # Token that is expired according to buffer logic (expires in 299s < 300s buffer)
+        # but still actually valid (expires in future)
+        now = time.time()
+        token_expires_soon = {
+            "access_token": "still_valid_token",
+            "refresh_token": "refresh_token",
+            "expires_at": now
+            + 299,  # Expires in 299 seconds (just under 5 minute buffer)
+        }
+        mock_load.return_value = token_expires_soon
+
+        # Refresh fails
+        mock_refresh.return_value = None
+
+        result = get_valid_access_token()
+
+        # Should return the existing token since it's still actually valid
+        assert result == "still_valid_token"
+        # Verify refresh was attempted
+        mock_refresh.assert_called_once()
 
     @patch("code_puppy.plugins.claude_code_oauth.utils.refresh_access_token")
     @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")

@@ -21,10 +21,10 @@ from .config import (
     get_token_storage_path,
 )
 
-# Proactive refresh buffer: refresh tokens 1 hour before expiration
-# This ensures smooth operation by refreshing during model requests,
-# well before the token actually expires
-TOKEN_REFRESH_BUFFER_SECONDS = 3600  # 1 hour
+# Proactive refresh buffer default (seconds). Actual buffer is dynamic
+# based on expires_in to avoid overly aggressive refreshes.
+TOKEN_REFRESH_BUFFER_SECONDS = 300
+MIN_REFRESH_BUFFER_SECONDS = 30
 
 logger = logging.getLogger(__name__)
 
@@ -146,15 +146,40 @@ def _calculate_expires_at(expires_in: Optional[float]) -> Optional[float]:
         return None
 
 
-def is_token_expired(tokens: Dict[str, Any]) -> bool:
+def _calculate_refresh_buffer(expires_in: Optional[float]) -> float:
+    default_buffer = float(TOKEN_REFRESH_BUFFER_SECONDS)
+    if expires_in is None:
+        return default_buffer
+    try:
+        expires_value = float(expires_in)
+    except (TypeError, ValueError):
+        return default_buffer
+    return min(default_buffer, max(MIN_REFRESH_BUFFER_SECONDS, expires_value * 0.1))
+
+
+def _get_expires_at_value(tokens: Dict[str, Any]) -> Optional[float]:
     expires_at = tokens.get("expires_at")
     if expires_at is None:
-        return False
+        return None
     try:
-        expires_at_value = float(expires_at)
+        return float(expires_at)
     except (TypeError, ValueError):
+        return None
+
+
+def _is_token_actually_expired(tokens: Dict[str, Any]) -> bool:
+    expires_at_value = _get_expires_at_value(tokens)
+    if expires_at_value is None:
         return False
-    return time.time() >= expires_at_value - TOKEN_REFRESH_BUFFER_SECONDS
+    return time.time() >= expires_at_value
+
+
+def is_token_expired(tokens: Dict[str, Any]) -> bool:
+    expires_at_value = _get_expires_at_value(tokens)
+    if expires_at_value is None:
+        return False
+    buffer_seconds = _calculate_refresh_buffer(tokens.get("expires_in"))
+    return time.time() >= expires_at_value - buffer_seconds
 
 
 def update_claude_code_model_tokens(access_token: str) -> bool:
@@ -216,11 +241,12 @@ def refresh_access_token(force: bool = False) -> Optional[str]:
             new_tokens = response.json()
             tokens["access_token"] = new_tokens.get("access_token")
             tokens["refresh_token"] = new_tokens.get("refresh_token", refresh_token)
-            if "expires_in" in new_tokens:
-                tokens["expires_in"] = new_tokens["expires_in"]
-                tokens["expires_at"] = _calculate_expires_at(
-                    new_tokens.get("expires_in")
-                )
+            expires_in_value = new_tokens.get("expires_in")
+            if expires_in_value is None:
+                expires_in_value = tokens.get("expires_in")
+            if expires_in_value is not None:
+                tokens["expires_in"] = expires_in_value
+                tokens["expires_at"] = _calculate_expires_at(expires_in_value)
             if save_tokens(tokens):
                 update_claude_code_model_tokens(tokens["access_token"])
                 return tokens["access_token"]
@@ -249,6 +275,11 @@ def get_valid_access_token() -> Optional[str]:
         refreshed = refresh_access_token()
         if refreshed:
             return refreshed
+        if not _is_token_actually_expired(tokens):
+            logger.warning(
+                "Claude Code token refresh failed; using existing access token until expiry"
+            )
+            return access_token
         logger.warning("Claude Code token refresh failed")
         return None
 
