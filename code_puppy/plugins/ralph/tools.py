@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List
 
+from pydantic_ai import RunContext
+
 from .models import ProgressEntry
 from .state_manager import get_state_manager
 
@@ -67,7 +69,7 @@ def register_ralph_get_current_story(agent) -> None:
     """Register the tool to get the current story to work on."""
 
     @agent.tool
-    def cp_ralph_get_current_story() -> RalphStoryOutput:
+    def ralph_get_current_story(context: RunContext) -> RalphStoryOutput:
         """Get the next user story to work on from prd.json.
 
         This tool reads the prd.json file and returns the highest-priority
@@ -139,9 +141,10 @@ def register_ralph_mark_story_complete(agent) -> None:
     """Register the tool to mark a story as complete."""
 
     @agent.tool
-    def cp_ralph_mark_story_complete(
+    def ralph_mark_story_complete(
+        context: RunContext,
         story_id: str,
-        notes: str = "",
+        notes: str | None = None,
     ) -> RalphStatusOutput:
         """Mark a user story as complete (passes=true) in prd.json.
 
@@ -162,7 +165,7 @@ def register_ralph_mark_story_complete(agent) -> None:
         """
         manager = get_state_manager()
 
-        success, message = manager.mark_story_complete(story_id, notes)
+        success, message = manager.mark_story_complete(story_id, notes or "")
 
         prd = manager.read_prd()
         remaining = 0
@@ -187,7 +190,8 @@ def register_ralph_log_progress(agent) -> None:
     """Register the tool to log progress to progress.txt."""
 
     @agent.tool
-    def cp_ralph_log_progress(
+    def ralph_log_progress(
+        context: RunContext,
         story_id: str,
         summary: str,
         files_changed: List[str] | None = None,
@@ -236,7 +240,7 @@ def register_ralph_check_all_complete(agent) -> None:
     """Register the tool to check if all stories are complete."""
 
     @agent.tool
-    def cp_ralph_check_all_complete() -> RalphStatusOutput:
+    def ralph_check_all_complete(context: RunContext) -> RalphStatusOutput:
         """Check if all user stories in prd.json are complete.
 
         Use this to determine if the Ralph loop should exit.
@@ -281,7 +285,7 @@ def register_ralph_read_prd(agent) -> None:
     """Register the tool to read the full PRD."""
 
     @agent.tool
-    def cp_ralph_read_prd() -> RalphPRDOutput:
+    def ralph_read_prd(context: RunContext) -> RalphPRDOutput:
         """Read the full prd.json file and return its contents.
 
         Use this to understand the overall project and see all stories.
@@ -318,7 +322,7 @@ def register_ralph_read_patterns(agent) -> None:
     """Register the tool to read codebase patterns from progress.txt."""
 
     @agent.tool
-    def cp_ralph_read_patterns() -> RalphPatternsOutput:
+    def ralph_read_patterns(context: RunContext) -> RalphPatternsOutput:
         """Read the Codebase Patterns section from progress.txt.
 
         These patterns were discovered by previous iterations and contain
@@ -341,7 +345,7 @@ def register_ralph_add_pattern(agent) -> None:
     """Register the tool to add a codebase pattern."""
 
     @agent.tool
-    def cp_ralph_add_pattern(pattern: str) -> RalphStatusOutput:
+    def ralph_add_pattern(context: RunContext, pattern: str) -> RalphStatusOutput:
         """Add a reusable pattern to the Codebase Patterns section.
 
         Only add patterns that are GENERAL and REUSABLE, not story-specific.

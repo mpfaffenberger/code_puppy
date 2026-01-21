@@ -1,8 +1,11 @@
 """Ralph plugin slash commands - registered via custom_command callback."""
 
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Union
 
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+from code_puppy.plugins.customizable_commands.register_callbacks import (
+    MarkdownCommandResult,
+)
 
 from .state_manager import get_state_manager
 
@@ -115,28 +118,32 @@ def _handle_status(args: str) -> bool:
     return True
 
 
-def _handle_prd(args: str) -> str:
+def _handle_prd(args: str) -> MarkdownCommandResult:
     """Switch to PRD Generator agent."""
     emit_info("🐺 Switching to Ralph PRD Generator...")
 
-    # Return a prompt to switch agent and start PRD generation
-    return "/agent ralph-prd-generator\nI want to create a new PRD. Please help me define the requirements."
+    # Return a MarkdownCommandResult so it's processed as agent input
+    return MarkdownCommandResult(
+        "/agent ralph-prd-generator\nI want to create a new PRD. Please help me define the requirements."
+    )
 
 
-def _handle_convert(args: str) -> str:
+def _handle_convert(args: str) -> MarkdownCommandResult:
     """Switch to Ralph Converter agent."""
     emit_info("🐺 Switching to Ralph Converter...")
 
-    # Check if a file was specified
+    # Return a MarkdownCommandResult so it's processed as agent input
     if args:
-        return f"/agent ralph-converter\nPlease convert the PRD in {args} to prd.json format."
+        return MarkdownCommandResult(
+            f"/agent ralph-converter\nPlease convert the PRD in {args} to prd.json format."
+        )
     else:
-        return (
+        return MarkdownCommandResult(
             "/agent ralph-converter\nPlease help me convert my PRD to prd.json format."
         )
 
 
-def _handle_start(args: str) -> str:
+def _handle_start(args: str) -> Union[bool, MarkdownCommandResult]:
     """Switch to Ralph Orchestrator agent."""
     manager = get_state_manager()
 
@@ -165,8 +172,8 @@ def _handle_start(args: str) -> str:
         except ValueError:
             pass
 
-    # Return prompt to switch to orchestrator and start
-    return (
+    # Return MarkdownCommandResult so it's processed as agent input
+    return MarkdownCommandResult(
         f"/agent ralph-orchestrator\nStart the Ralph loop. Max iterations: {max_iter}"
     )
 

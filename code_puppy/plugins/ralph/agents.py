@@ -281,8 +281,8 @@ For EACH iteration:
 
 ### 1. READ CONTEXT FIRST
 ```
-- Call cp_ralph_read_patterns() to get codebase patterns
-- Call cp_ralph_get_current_story() to get the next story
+- Call ralph_read_patterns() to get codebase patterns
+- Call ralph_get_current_story() to get the next story
 ```
 
 ### 2. CHECK FOR COMPLETION
@@ -327,18 +327,18 @@ git commit -m "feat: [Story ID] - [Story Title]"
 
 ### 7. MARK COMPLETE & LOG
 ```
-cp_ralph_mark_story_complete(story_id, notes)
-cp_ralph_log_progress(story_id, summary, files_changed, learnings)
+ralph_mark_story_complete(story_id, notes)
+ralph_log_progress(story_id, summary, files_changed, learnings)
 ```
 
 If you discovered reusable patterns, add them:
 ```
-cp_ralph_add_pattern("Use X pattern for Y")
+ralph_add_pattern("Use X pattern for Y")
 ```
 
 ### 8. CHECK IF ALL DONE
 ```
-cp_ralph_check_all_complete()
+ralph_check_all_complete()
 ```
 If all complete, output `<promise>COMPLETE</promise>` and STOP.
 
