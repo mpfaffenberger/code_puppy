@@ -40,6 +40,11 @@ from pydantic_ai.usage import RequestUsage
 
 logger = logging.getLogger(__name__)
 
+# Bypass signature for Gemini thinking mode when no real signature is available.
+# This allows function calls to proceed without a valid thought signature.
+# The API requires a signature but will accept this bypass value.
+BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
+
 
 def generate_tool_call_id() -> str:
     """Generate a unique tool call ID."""
@@ -410,28 +415,43 @@ class GeminiModel(Model):
         return system_instruction, contents
 
     def _map_model_response(self, m: ModelResponse) -> dict[str, Any] | None:
-        """Map a ModelResponse to Gemini content format."""
+        """Map a ModelResponse to Gemini content format.
+
+        For Gemini with thinking enabled, the thoughtSignature must be placed
+        on the NEXT part after the thinking part, not on the thinking part itself.
+        This is how Gemini maintains the chain of reasoning for function calls.
+        """
         parts: list[dict[str, Any]] = []
+        pending_signature: str | None = None
 
         for item in m.parts:
             if isinstance(item, ToolCallPart):
-                parts.append(
-                    {
-                        "function_call": {
-                            "name": item.tool_name,
-                            "args": item.args_as_dict(),
-                            "id": item.tool_call_id,
-                        }
+                part_dict: dict[str, Any] = {
+                    "function_call": {
+                        "name": item.tool_name,
+                        "args": item.args_as_dict(),
+                        "id": item.tool_call_id,
                     }
-                )
+                }
+                # Apply pending thought signature from preceding ThinkingPart
+                if pending_signature is not None:
+                    part_dict["thoughtSignature"] = pending_signature
+                    pending_signature = None
+                parts.append(part_dict)
             elif isinstance(item, TextPart):
-                parts.append({"text": item.content})
+                part_dict = {"text": item.content}
+                # Apply pending thought signature from preceding ThinkingPart
+                if pending_signature is not None:
+                    part_dict["thoughtSignature"] = pending_signature
+                    pending_signature = None
+                parts.append(part_dict)
             elif isinstance(item, ThinkingPart):
                 if item.content:
-                    part_dict: dict[str, Any] = {"text": item.content, "thought": True}
-                    if item.signature:
-                        part_dict["thoughtSignature"] = item.signature
-                    parts.append(part_dict)
+                    # For Gemini, don't put signature on thinking part itself
+                    # Instead, capture it to apply to the NEXT part
+                    parts.append({"text": item.content, "thought": True})
+                    # Use bypass signature if none provided
+                    pending_signature = item.signature or BYPASS_THOUGHT_SIGNATURE
 
         if not parts:
             return None
@@ -517,7 +537,11 @@ class GeminiModel(Model):
         return self._parse_response(data)
 
     def _parse_response(self, data: dict[str, Any]) -> ModelResponse:
-        """Parse the Gemini API response."""
+        """Parse the Gemini API response.
+
+        For Gemini with thinking enabled, the thoughtSignature is on the NEXT
+        part after the thinking part. We need to look ahead to extract it.
+        """
         candidates = data.get("candidates", [])
         if not candidates:
             return ModelResponse(
@@ -532,10 +556,13 @@ class GeminiModel(Model):
 
         response_parts: list[ModelResponsePart] = []
 
-        for part in parts:
+        for i, part in enumerate(parts):
             if part.get("thought") and part.get("text") is not None:
-                # Thinking part
-                signature = part.get("thoughtSignature")
+                # Thinking part - look ahead for signature on next part
+                signature = None
+                if i + 1 < len(parts):
+                    next_part = parts[i + 1]
+                    signature = next_part.get("thoughtSignature")
                 response_parts.append(
                     ThinkingPart(content=part["text"], signature=signature)
                 )

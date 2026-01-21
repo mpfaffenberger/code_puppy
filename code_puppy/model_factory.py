@@ -7,6 +7,7 @@ from typing import Any, Dict
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
+from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import (
     OpenAIChatModel,
     OpenAIChatModelSettings,
@@ -15,6 +16,7 @@ from pydantic_ai.models.openai import (
 from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
+from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
@@ -592,12 +594,11 @@ class ModelFactory:
                 return None
             os.environ["GEMINI_API_KEY"] = api_key
             client = create_async_client(verify=verify, headers=headers)
-            model = GeminiModel(
-                model_name=model_config["name"],
-                api_key=api_key,
-                base_url=url,
-                http_client=client,
+
+            provider = GoogleProvider(
+                base_url=url, api_key=api_key, http_client=client, vertexai=True
             )
+            model = GoogleModel(model_name=model_config["name"], provider=provider)
             return model
         elif model_type == "cerebras":
 
