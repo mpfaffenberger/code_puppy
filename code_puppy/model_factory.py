@@ -19,7 +19,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
 
-from code_puppy.gemini_model import GeminiModel
+from code_puppy.gemini_model import GeminiModel, WalmartGeminiModel
 from code_puppy.messaging import emit_warning
 
 from . import callbacks
@@ -132,12 +132,12 @@ def make_model_settings(
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
     elif model_config.get("type") == "custom_gemini":
-        # Enable thinking for custom Gemini models with includeThoughts=True
-        # so we can see the actual thinking content, not just the signature
-        from pydantic_ai.models.google import GoogleModelSettings
-
-        # Get settings with defaults (handle case-insensitivity of configparser)
-        # configparser lowercases keys, so we check for both just in case
+        # For WalmartGeminiModel (custom_gemini type), we use plain ModelSettings
+        # since our custom implementation doesn't use GoogleModelSettings.
+        # We don't import pydantic_ai.models.google to avoid requiring google-genai.
+        #
+        # Thinking settings for Gemini are passed through the generation config
+        # in our WalmartGeminiModel implementation.
         thinking_enabled = effective_settings.get(
             "thinkingenabled", effective_settings.get("thinkingEnabled", True)
         )
@@ -145,12 +145,13 @@ def make_model_settings(
             "thinkinglevel", effective_settings.get("thinkingLevel", "low")
         )
 
+        # Store thinking settings for use by WalmartGeminiModel
         if thinking_enabled:
-            model_settings_dict["google_thinking_config"] = {
-                "includeThoughts": True,
-                "thinkingLevel": thinking_level,
+            model_settings_dict["thinking"] = {
+                "type": "enabled",
+                "thinking_level": thinking_level,
             }
-        model_settings = GoogleModelSettings(**model_settings_dict)
+        model_settings = ModelSettings(**model_settings_dict)
 
     return model_settings
 
@@ -559,10 +560,10 @@ class ModelFactory:
                 )
                 return None
             os.environ["GEMINI_API_KEY"] = api_key
-            client = create_async_client(verify=verify, headers=headers)
 
             client = create_async_client(headers=headers, verify=verify)
-            model = GeminiModel(
+            # Use WalmartGeminiModel for custom endpoints - uses header auth only
+            model = WalmartGeminiModel(
                 model_name=model_config["name"],
                 api_key=api_key,
                 base_url=url,

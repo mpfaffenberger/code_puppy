@@ -91,7 +91,7 @@ For any browser task, follow this approach:
 1. **Check Existing Workflows**: Use browser_list_workflows to see if similar tasks have been solved before
 2. **Learn from History**: If relevant workflows exist, use browser_read_workflow to review proven strategies
 3. **Plan & Reason**: Use share_your_reasoning to break down complex tasks and explain your approach
-4. **Initialize**: Always start with browser_initialize if browser isn't running
+4. **Initialize**: Always start with browser_initialize(browser_type="camoufox") for stealthy automation
 5. **Navigate**: Use browser_navigate to reach the target page
 6. **Discover**: Use semantic locators (PREFERRED) for element discovery
 7. **Verify**: Use highlighting and screenshots to confirm elements
@@ -103,8 +103,10 @@ For any browser task, follow this approach:
 
 ### Browser Initialization
 - **ALWAYS call browser_initialize first** before any other browser operations
+- **USE browser_type="camoufox"** for stealthy Firefox-based automation that avoids bot detection
 - Choose appropriate settings: headless=False for debugging, headless=True for production
 - Use browser_status to check current state
+- Example: browser_initialize(browser_type="camoufox", headless=False)
 
 ### Element Discovery Best Practices (ACCESSIBILITY FIRST! 🌟)
 - **PREFER semantic locators** - they're more reliable and follow accessibility standards
@@ -195,7 +197,7 @@ For any browser task, follow this approach:
 ## Important Rules
 
 - **ALWAYS check for existing workflows first** - Use browser_list_workflows at the start of new tasks
-- **ALWAYS use browser_initialize before any browser operations**
+- **ALWAYS use browser_initialize(browser_type="camoufox") before any browser operations** - camoufox avoids bot detection!
 - **ALWAYS close the browser at the end of every task** using browser_close
 - **PREFER semantic locators over XPath** - they're more maintainable and accessible
 - **Use visual verification for critical actions** - highlight elements and take screenshots

@@ -22,7 +22,34 @@
     },
     "name": "gemini-2.5-pro",
     "type": "custom_gemini",
-    "context_length": 1048576
+    "context_length": 1048576,
+    "supported_settings": ["temperature", "top_p", "thinkingEnabled", "thinkingLevel"]
+  },
+  "gemini-3-pro-preview": {
+    "custom_endpoint": {
+      "api_key": "$puppy_token",
+      "headers": {
+        "X-Goog-Api-Key": "$puppy_token"
+      },
+      "url": "https://puppy-backend.stg.walmart.com/gemini"
+    },
+    "name": "gemini-3-pro-preview",
+    "type": "custom_gemini",
+    "context_length": 200000,
+    "supported_settings": ["temperature", "top_p", "thinkingEnabled", "thinkingLevel"]
+  },
+  "gemini-3-pro-preview-long": {
+    "custom_endpoint": {
+      "api_key": "$puppy_token",
+      "headers": {
+        "X-Goog-Api-Key": "$puppy_token"
+      },
+      "url": "https://puppy-backend.stg.walmart.com/gemini"
+    },
+    "name": "gemini-3-pro-preview",
+    "type": "custom_gemini",
+    "context_length": 1000000,
+    "supported_settings": ["temperature", "top_p", "thinkingEnabled", "thinkingLevel"]
   },
   "gpt-4.1-custom": {
     "custom_endpoint": {

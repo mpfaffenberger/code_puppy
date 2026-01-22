@@ -433,10 +433,11 @@ class GeminiModel(Model):
                         "id": item.tool_call_id,
                     }
                 }
-                # Apply pending thought signature from preceding ThinkingPart
-                if pending_signature is not None:
-                    part_dict["thoughtSignature"] = pending_signature
-                    pending_signature = None
+                # Apply pending thought signature from preceding ThinkingPart,
+                # or use bypass signature if none available (Gemini requires it)
+                signature_to_use = pending_signature or BYPASS_THOUGHT_SIGNATURE
+                part_dict["thoughtSignature"] = signature_to_use
+                pending_signature = None
                 parts.append(part_dict)
             elif isinstance(item, TextPart):
                 part_dict = {"text": item.content}
@@ -482,18 +483,34 @@ class GeminiModel(Model):
         config: dict[str, Any] = {}
 
         if model_settings:
-            if (
-                hasattr(model_settings, "temperature")
-                and model_settings.temperature is not None
-            ):
-                config["temperature"] = model_settings.temperature
-            if hasattr(model_settings, "top_p") and model_settings.top_p is not None:
-                config["topP"] = model_settings.top_p
-            if (
-                hasattr(model_settings, "max_tokens")
-                and model_settings.max_tokens is not None
-            ):
-                config["maxOutputTokens"] = model_settings.max_tokens
+            # Handle both dict (TypedDict) and object access
+            def get_setting(key: str) -> Any | None:
+                if isinstance(model_settings, dict):
+                    return model_settings.get(key)
+                return getattr(model_settings, key, None)
+
+            temp = get_setting("temperature")
+            if temp is not None:
+                config["temperature"] = temp
+
+            top_p = get_setting("top_p")
+            if top_p is not None:
+                config["topP"] = top_p
+
+            max_tokens = get_setting("max_tokens")
+            if max_tokens is not None:
+                config["maxOutputTokens"] = max_tokens
+
+            # Handle thinking config (custom extension for Gemini)
+            thinking = get_setting("thinking")
+            if thinking and isinstance(thinking, dict) and thinking.get("type") == "enabled":
+                thinking_config = {"includeThoughts": True}
+                
+                # Check for thinking_level (from our model_factory)
+                if "thinking_level" in thinking:
+                    thinking_config["thinkingLevel"] = thinking["thinking_level"]
+                
+                config["thinkingConfig"] = thinking_config
 
         return config
 
@@ -731,3 +748,129 @@ class GeminiStreamingResponse(StreamedResponse):
     @property
     def timestamp(self) -> datetime:
         return self._timestamp_val
+
+
+class WalmartGeminiModel(GeminiModel):
+    """Gemini Model for Walmart's internal proxy backend.
+
+    This subclass uses the Vertex AI compatible URL format that Walmart's
+    backend expects:
+      {base_url}/v1beta1/publishers/google/models/{model}:generateContent
+
+    Authentication is via the X-Goog-Api-Key header (set on http_client),
+    NOT via URL parameter.
+    """
+
+    def _build_url(self, action: str, streaming: bool = False) -> str:
+        """Build the URL for Walmart's Vertex AI compatible endpoint.
+
+        Args:
+            action: The API action (e.g., 'generateContent', 'streamGenerateContent')
+            streaming: Whether this is a streaming request (adds alt=sse)
+
+        Returns:
+            The full URL for the request.
+        """
+        base = f"{self._base_url}/v1beta1/publishers/google/models/{self._model_name}:{action}"
+        if streaming:
+            base += "?alt=sse"
+        return base
+
+    async def request(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+    ) -> ModelResponse:
+        """Make a non-streaming request to the Gemini API (header auth only)."""
+        system_instruction, contents = await self._map_messages(
+            messages, model_request_parameters
+        )
+
+        # Build request body
+        body: dict[str, Any] = {"contents": contents}
+
+        gen_config = self._build_generation_config(model_settings)
+        if gen_config:
+            body["generationConfig"] = gen_config
+        if system_instruction:
+            body["systemInstruction"] = system_instruction
+
+        # Add tools
+        if model_request_parameters.function_tools:
+            body["tools"] = self._build_tools(model_request_parameters.function_tools)
+
+        # Make request using Walmart's Vertex AI compatible URL format
+        client = await self._get_client()
+        url = self._build_url("generateContent")
+        headers = self._get_headers()
+
+        response = await client.post(url, json=body, headers=headers)
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Gemini API error {response.status_code}: {response.text}"
+            )
+
+        data = response.json()
+        return self._parse_response(data)
+
+    @asynccontextmanager
+    async def request_stream(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+        run_context: RunContext[Any] | None = None,
+    ) -> AsyncIterator[StreamedResponse]:
+        """Make a streaming request to the Gemini API (header auth only)."""
+        system_instruction, contents = await self._map_messages(
+            messages, model_request_parameters
+        )
+
+        # Build request body
+        body: dict[str, Any] = {"contents": contents}
+
+        gen_config = self._build_generation_config(model_settings)
+        if gen_config:
+            body["generationConfig"] = gen_config
+        if system_instruction:
+            body["systemInstruction"] = system_instruction
+
+        # Add tools
+        if model_request_parameters.function_tools:
+            body["tools"] = self._build_tools(model_request_parameters.function_tools)
+
+        # Make streaming request using Walmart's Vertex AI compatible URL format
+        client = await self._get_client()
+        url = self._build_url("streamGenerateContent", streaming=True)
+        headers = self._get_headers()
+
+        async def stream_chunks() -> AsyncIterator[dict[str, Any]]:
+            async with client.stream(
+                "POST", url, json=body, headers=headers
+            ) as response:
+                if response.status_code != 200:
+                    text = await response.aread()
+                    raise RuntimeError(
+                        f"Gemini API error {response.status_code}: {text.decode()}"
+                    )
+
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith("data: "):
+                        json_str = line[6:]
+                        if json_str:
+                            try:
+                                yield json.loads(json_str)
+                            except json.JSONDecodeError:
+                                continue
+
+        yield GeminiStreamingResponse(
+            model_request_parameters=model_request_parameters,
+            _chunks=stream_chunks(),
+            _model_name_str=self._model_name,
+            _provider_name_str=self.system,
+        )

@@ -8,6 +8,7 @@ import threading
 import time
 import traceback
 import uuid
+import pathlib
 from abc import ABC, abstractmethod
 from typing import (
     Any,
@@ -100,7 +101,7 @@ def _log_error_to_file(exc: Exception) -> Optional[str]:
         The path to the log file if successful, None otherwise.
     """
     try:
-        error_logs_dir = Path.home() / ".code_puppy" / "error_logs"
+        error_logs_dir = pathlib.Path.home() / ".code_puppy" / "error_logs"
         error_logs_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -506,12 +507,9 @@ class BaseAgent(ABC):
         # 1. Estimate tokens for system prompt / instructions
         # Count the system prompt tokens
         try:
-            model_name = (
-                self.get_model_name() if hasattr(self, "get_model_name") else ""
-            )
-                system_prompt = self.get_full_system_prompt()
-                if system_prompt:
-                    total_tokens += self.estimate_token_count(system_prompt)
+            system_prompt = self.get_full_system_prompt()
+            if system_prompt:
+                total_tokens += self.estimate_token_count(system_prompt)
         except Exception:
             pass  # If we can't get system prompt, skip it
 
@@ -1749,11 +1747,7 @@ class BaseAgent(ABC):
             pydantic_agent = self._create_agent_with_output_type(output_type)
 
         # Handle claude-code, chatgpt-codex, and antigravity models: prepend system prompt to first user message
-        from code_puppy.model_utils import (
-            is_antigravity_model,
-            is_chatgpt_codex_model,
-            is_claude_code_model,
-        )
+        from code_puppy.model_utils import is_gemini_model
 
         # Build combined prompt payload when attachments are provided.
         attachment_parts: List[Any] = []

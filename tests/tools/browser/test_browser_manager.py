@@ -545,3 +545,74 @@ class TestCleanupAllBrowsers(TestBrowserManagerBase):
 
         with patch("asyncio.new_event_loop", side_effect=RuntimeError("No loop!")):
             _sync_cleanup_browsers()
+
+
+class TestSystemChromePath:
+    """Tests for the _get_system_chrome_path method."""
+
+    def test_get_system_chrome_path_macos_found(self):
+        """Test that macOS Chrome path is found when it exists."""
+        manager = BrowserManager("chrome-test")
+        
+        with patch("platform.system", return_value="Darwin"):
+            with patch("os.path.exists") as mock_exists:
+                mock_exists.side_effect = lambda p: p == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+                result = manager._get_system_chrome_path()
+                assert result == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+    def test_get_system_chrome_path_macos_not_found(self):
+        """Test that None is returned when Chrome is not found on macOS."""
+        manager = BrowserManager("chrome-test")
+        
+        with patch("platform.system", return_value="Darwin"):
+            with patch("os.path.exists", return_value=False):
+                result = manager._get_system_chrome_path()
+                assert result is None
+
+    def test_get_system_chrome_path_windows_found(self):
+        """Test that Windows Chrome path is found when it exists."""
+        manager = BrowserManager("chrome-test")
+        
+        with patch("platform.system", return_value="Windows"):
+            with patch("os.path.exists") as mock_exists:
+                # Check if any of the expanded Windows paths contain chrome.exe
+                mock_exists.side_effect = lambda p: "chrome.exe" in p.lower()
+                result = manager._get_system_chrome_path()
+                assert result is not None
+                assert "chrome.exe" in result.lower()
+
+    def test_get_system_chrome_path_windows_not_found(self):
+        """Test that None is returned when Chrome is not found on Windows."""
+        manager = BrowserManager("chrome-test")
+        
+        with patch("platform.system", return_value="Windows"):
+            with patch("os.path.exists", return_value=False):
+                result = manager._get_system_chrome_path()
+                assert result is None
+
+    def test_get_system_chrome_path_linux_found(self):
+        """Test that Linux Chrome path is found via shutil.which."""
+        manager = BrowserManager("chrome-test")
+        
+        with patch("platform.system", return_value="Linux"):
+            with patch("shutil.which") as mock_which:
+                mock_which.side_effect = lambda n: "/usr/bin/google-chrome" if n == "google-chrome" else None
+                result = manager._get_system_chrome_path()
+                assert result == "/usr/bin/google-chrome"
+
+    def test_get_system_chrome_path_linux_not_found(self):
+        """Test that None is returned when Chrome is not found on Linux."""
+        manager = BrowserManager("chrome-test")
+        
+        with patch("platform.system", return_value="Linux"):
+            with patch("shutil.which", return_value=None):
+                result = manager._get_system_chrome_path()
+                assert result is None
+
+    def test_get_system_chrome_path_unknown_os(self):
+        """Test that None is returned for unknown OS."""
+        manager = BrowserManager("chrome-test")
+        
+        with patch("platform.system", return_value="FreeBSD"):
+            result = manager._get_system_chrome_path()
+            assert result is None

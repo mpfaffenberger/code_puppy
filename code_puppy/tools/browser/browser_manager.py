@@ -93,49 +93,159 @@ class BrowserManager:
         # Override with BROWSER_HEADLESS=false to see the browser
         self.headless = os.getenv("BROWSER_HEADLESS", "true").lower() != "false"
         self.homepage = "https://www.google.com"
+        
+        # Browser type: 'chromium', 'firefox', 'webkit', or 'camoufox'
+        # Default to chromium for maximum compatibility
+        self.browser_type = os.getenv("BROWSER_TYPE", "chromium").lower()
 
         # Unique profile directory per session for browser state
         self.profile_dir = self._get_profile_directory()
+        
+        # Camoufox-specific: store the context manager for proper cleanup
+        self._camoufox_cm = None
+        
+        # Playwright instance (for standard browsers)
+        self._playwright = None
 
-    def _get_profile_directory(self) -> Path:
-        """Get or create the profile directory for this session.
+    def _get_profile_directory(self, browser_type: Optional[str] = None) -> Path:
+        """Get or create the profile directory.
 
-        Each session gets its own profile directory under:
+        For Camoufox: Always uses a single shared profile at:
+        XDG_CACHE_HOME/code_puppy/browser_profiles/camoufox/
+        
+        For other browsers: Each session gets its own profile directory under:
         XDG_CACHE_HOME/code_puppy/browser_profiles/<session_id>/
 
-        This allows multiple instances to run simultaneously.
+        This allows Camoufox to maintain persistent state (cookies, fingerprint)
+        across all sessions, while other browsers can run multiple instances.
+        
+        Args:
+            browser_type: Optional browser type override. If None, uses self.browser_type.
         """
+        effective_browser_type = browser_type or self.browser_type
         cache_dir = Path(config.CACHE_DIR)
         profiles_base = cache_dir / "browser_profiles"
-        profile_path = profiles_base / self.session_id
+        
+        # Camoufox always uses a fixed profile for consistent fingerprinting
+        if effective_browser_type == "camoufox":
+            profile_path = profiles_base / "camoufox"
+        else:
+            profile_path = profiles_base / self.session_id
+            
         profile_path.mkdir(parents=True, exist_ok=True, mode=0o700)
         return profile_path
 
     async def async_initialize(self) -> None:
-        """Initialize Chromium browser via Playwright."""
+        """Initialize browser based on browser_type setting.
+        
+        Supported browser types:
+        - 'chromium': Standard Playwright Chromium (default)
+        - 'firefox': Standard Playwright Firefox
+        - 'webkit': Standard Playwright WebKit
+        - 'camoufox': Camoufox (stealthy Firefox-based browser)
+        """
         if self._initialized:
             return
 
         try:
-            emit_info(f"Initializing Chromium browser (session: {self.session_id})...")
-            await self._initialize_browser()
+            if self.browser_type == "camoufox":
+                emit_info(f"Initializing Camoufox browser (session: {self.session_id})...")
+                await self._initialize_camoufox()
+            else:
+                emit_info(f"Initializing {self.browser_type} browser (session: {self.session_id})...")
+                await self._initialize_browser()
             self._initialized = True
 
         except Exception:
             await self._cleanup()
             raise
 
+    def _get_system_chrome_path(self) -> Optional[str]:
+        """Find the system Chrome/Chromium executable path.
+        
+        Returns the path to the user's installed Chrome browser,
+        or None if not found.
+        """
+        import platform
+        import shutil
+        
+        system = platform.system()
+        
+        if system == "Darwin":  # macOS
+            # Check common macOS Chrome locations
+            chrome_paths = [
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                "/Applications/Chromium.app/Contents/MacOS/Chromium",
+                "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+                os.path.expanduser("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            ]
+            for path in chrome_paths:
+                if os.path.exists(path):
+                    return path
+                    
+        elif system == "Windows":
+            # Check common Windows Chrome locations
+            chrome_paths = [
+                os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+                os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+                os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+            ]
+            for path in chrome_paths:
+                if os.path.exists(path):
+                    return path
+                    
+        elif system == "Linux":
+            # Check common Linux Chrome locations
+            chrome_names = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]
+            for name in chrome_names:
+                path = shutil.which(name)
+                if path:
+                    return path
+        
+        return None
+
     async def _initialize_browser(self) -> None:
-        """Initialize Playwright Chromium browser with persistent context."""
+        """Initialize Playwright browser with persistent context.
+        
+        Supports chromium, firefox, and webkit browser types.
+        For chromium, uses the system's installed Chrome browser if available.
+        """
         from playwright.async_api import async_playwright
 
         emit_info(f"Using persistent profile: {self.profile_dir}")
 
-        pw = await async_playwright().start()
-        # Use persistent context directory for Chromium to preserve browser state
-        context = await pw.chromium.launch_persistent_context(
-            user_data_dir=str(self.profile_dir), headless=self.headless
-        )
+        self._playwright = await async_playwright().start()
+        
+        # Select the appropriate browser engine
+        if self.browser_type == "firefox":
+            browser_engine = self._playwright.firefox
+        elif self.browser_type == "webkit":
+            browser_engine = self._playwright.webkit
+        else:
+            # Default to chromium
+            browser_engine = self._playwright.chromium
+        
+        # Build launch options
+        launch_options = {
+            "user_data_dir": str(self.profile_dir),
+            "headless": self.headless,
+        }
+        
+        # For chromium, try to use the system Chrome browser
+        if self.browser_type in ("chromium", "chrome"):
+            system_chrome = self._get_system_chrome_path()
+            if system_chrome:
+                emit_info(f"Using system Chrome: {system_chrome}")
+                launch_options["executable_path"] = system_chrome
+                # Use channel="chrome" style args for better compatibility
+                launch_options["args"] = [
+                    "--disable-blink-features=AutomationControlled",
+                ]
+            else:
+                emit_warning("System Chrome not found, using bundled Chromium")
+        
+        # Use persistent context directory to preserve browser state
+        context = await browser_engine.launch_persistent_context(**launch_options)
         self._context = context
         self._browser = context.browser
         self._initialized = True
@@ -196,6 +306,49 @@ class BrowserManager:
 
         emit_info("Camoufox dependencies ready")
 
+    async def _initialize_camoufox(self) -> None:
+        """Initialize Camoufox browser.
+        
+        Camoufox is a stealthy Firefox-based browser that helps avoid
+        bot detection. It uses playwright under the hood but with
+        special fingerprinting evasion.
+        
+        Always uses a fixed profile directory for consistent fingerprinting.
+        """
+        # Ensure Camoufox binary is installed
+        await self._prefetch_camoufox()
+        
+        # Lazy import to ensure monkey patches are applied first
+        from playwright.async_api import async_playwright
+        from camoufox.async_api import AsyncNewBrowser
+        from camoufox.addons import DefaultAddons
+        
+        # Start playwright instance (required by camoufox 0.4.11+)
+        self._playwright = await async_playwright().start()
+        
+        # Get the Camoufox-specific profile (always the same path)
+        camoufox_profile = self._get_profile_directory(browser_type="camoufox")
+        emit_info(f"Using Camoufox profile: {camoufox_profile}")
+        
+        # Camoufox 0.4.11+ uses a direct async function (not context manager)
+        # It returns a BrowserContext when persistent_context=True
+        # Note: playwright instance is required as first arg since camoufox 0.4.11
+        self._context = await AsyncNewBrowser(
+            self._playwright,
+            headless=self.headless,
+            # Use persistent data directory for state - always the same for Camoufox
+            persistent_context=True,
+            user_data_dir=str(camoufox_profile),
+            # Exclude default addons that might cause issues
+            exclude_addons=list(DefaultAddons),
+        )
+        self._browser = self._context.browser
+        # Clear the old context manager reference (no longer used)
+        self._camoufox_cm = None
+        self._initialized = True
+        
+        emit_success("Camoufox browser initialized successfully")
+
     def _get_default_addons_to_exclude(self) -> list:
         """Get default addons to exclude - imports only when camoufox starts.
 
@@ -235,6 +388,8 @@ class BrowserManager:
                     if not silent:
                         emit_warning(f"Could not save storage state: {e}")
 
+            # Close the browser context (works for both standard Playwright and Camoufox)
+            if self._context:
                 try:
                     await self._context.close()
                 except Exception:
@@ -247,6 +402,14 @@ class BrowserManager:
                 except Exception:
                     pass  # Ignore errors during browser close
                 self._browser = None
+            
+            # Clean up playwright instance if we created one
+            if hasattr(self, '_playwright') and self._playwright:
+                try:
+                    await self._playwright.stop()
+                except Exception:
+                    pass
+                self._playwright = None
 
             self._initialized = False
 

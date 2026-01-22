@@ -98,7 +98,7 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "name": "Interleaved Thinking",
         "description": "Enable thinking between tool calls (Claude 4 only: Opus 4.5, Opus 4.1, Opus 4, Sonnet 4). Adds beta header. WARNING: On Vertex/Bedrock, this FAILS for non-Claude 4 models!",
         "type": "boolean",
-        "default": False,
+        "default": True,
     },
     "clear_thinking": {
         "name": "Clear Thinking",

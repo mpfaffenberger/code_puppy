@@ -32,9 +32,12 @@ def test_gemini_streaming():
     token = load_puppy_token()
 
     # Gemini streaming uses streamGenerateContent in the URL
+    # Format: {base_url}/v1beta1/publishers/google/models/{model}:streamGenerateContent?alt=sse
     model = "gemini-3-pro-preview"
-    # Note: pydantic-ai adds ?alt=sse, but let's test with what our backend returns
-    url = f"http://localhost:8080/gemini/v1beta1/publishers/google/models/{model}:streamGenerateContent?alt=sse"
+    # Use production backend (localhost:8080 for local dev)
+    base_url = "https://puppy-backend.stg.walmart.com/gemini"
+    # For local testing, uncomment: base_url = "http://localhost:8080/gemini"
+    url = f"{base_url}/v1beta1/publishers/google/models/{model}:streamGenerateContent?alt=sse"
 
     # Gemini native API format
     payload = {
