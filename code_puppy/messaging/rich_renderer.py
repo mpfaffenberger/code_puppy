@@ -675,15 +675,21 @@ class RichConsoleRenderer:
             self._console.print(f"[dim]⏱ Timeout: {msg.timeout}s[/dim]")
 
     def _render_shell_line(self, msg: ShellLineMessage) -> None:
-        """Render shell output line preserving ANSI codes."""
+        """Render shell output line preserving ANSI codes and carriage returns."""
+        import sys
+
         from rich.text import Text
 
-        # Use Text.from_ansi() to parse ANSI codes into Rich styling
-        # This preserves colors while still being safe
-        text = Text.from_ansi(msg.line)
-
-        # Make all shell output dim to reduce visual noise
-        self._console.print(text, style="dim")
+        # Check if line contains carriage return (progress bar style output)
+        if "\r" in msg.line:
+            # Bypass Rich entirely - write directly to stdout so terminal interprets \r
+            # Apply dim styling manually via ANSI codes
+            sys.stdout.write(f"\033[2m{msg.line}\033[0m")
+            sys.stdout.flush()
+        else:
+            # Normal line: use Rich for nice formatting
+            text = Text.from_ansi(msg.line)
+            self._console.print(text, style="dim")
 
     def _render_shell_output(self, msg: ShellOutputMessage) -> None:
         """Render shell command output - just a trailing newline for spinner separation.
