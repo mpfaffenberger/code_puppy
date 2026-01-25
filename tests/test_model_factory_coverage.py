@@ -792,8 +792,12 @@ class TestAnthropicInterleaved:
                                                 in headers["anthropic-beta"]
                                             )
 
-    def test_anthropic_no_interleaved_thinking(self):
-        """Test that no header is added when interleaved thinking is disabled."""
+    def test_anthropic_interleaved_thinking_disabled(self):
+        """Test that interleaved thinking can be disabled via config.
+
+        Interleaved thinking defaults to True but can be disabled via
+        /model_settings interleaved_thinking=false.
+        """
         from code_puppy.model_factory import ModelFactory
 
         config = {
@@ -821,6 +825,8 @@ class TestAnthropicInterleaved:
                                     with patch(
                                         "code_puppy.model_factory.AnthropicModel"
                                     ):
+                                        # When interleaved_thinking is explicitly False,
+                                        # the header should NOT be present
                                         with patch(
                                             "code_puppy.config.get_effective_model_settings",
                                             return_value={
@@ -831,11 +837,11 @@ class TestAnthropicInterleaved:
                                                 "claude-test", config
                                             )
                                             call_args = mock_anthropic.call_args
-                                            # default_headers should be None or empty
                                             headers = call_args[1].get(
                                                 "default_headers"
                                             )
-                                            assert headers is None
+                                            # Header should be None or empty when disabled
+                                            assert headers is None or headers == {}
 
 
 class TestOpenRouterEnvVarMissing:

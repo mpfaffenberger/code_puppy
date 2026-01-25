@@ -123,7 +123,9 @@ def make_model_settings(
         if model_settings_dict.get("temperature") is None:
             model_settings_dict["temperature"] = 1.0
 
-        extended_thinking = effective_settings.get("extended_thinking", False)
+        # ALWAYS enable extended thinking for Claude models by default
+        # Users can still disable via /model_settings extended_thinking=false
+        extended_thinking = effective_settings.get("extended_thinking", True)
         budget_tokens = effective_settings.get("budget_tokens", 10000)
         if extended_thinking and budget_tokens:
             model_settings_dict["anthropic_thinking"] = {
@@ -338,9 +340,12 @@ class ModelFactory:
                 http2=http2_enabled,
             )
 
-            # ALWAYS enable interleaved thinking for Claude models
-            # This is forced on and cannot be overridden via /model_settings
-            interleaved_thinking = True
+            # Enable interleaved thinking by default for Claude models
+            # Users can disable via /model_settings interleaved_thinking=false
+            from code_puppy.config import get_effective_model_settings
+
+            effective_settings = get_effective_model_settings(model_name)
+            interleaved_thinking = effective_settings.get("interleaved_thinking", True)
 
             default_headers = {}
             if interleaved_thinking:
@@ -379,9 +384,12 @@ class ModelFactory:
                 http2=http2_enabled,
             )
 
-            # ALWAYS enable interleaved thinking for Claude models
-            # This is forced on and cannot be overridden via /model_settings
-            interleaved_thinking = True
+            # Enable interleaved thinking by default for Claude models
+            # Users can disable via /model_settings interleaved_thinking=false
+            from code_puppy.config import get_effective_model_settings
+
+            effective_settings = get_effective_model_settings(model_name)
+            interleaved_thinking = effective_settings.get("interleaved_thinking", True)
 
             default_headers = {}
             if interleaved_thinking:
