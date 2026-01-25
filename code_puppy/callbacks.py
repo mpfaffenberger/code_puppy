@@ -25,7 +25,8 @@ PhaseType = Literal[
     "register_agents",
     "register_model_type",
     "get_model_system_prompt",
-    "agent_response_complete",
+    "agent_run_start",
+    "agent_run_end",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -51,7 +52,8 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_agents": [],
     "register_model_type": [],
     "get_model_system_prompt": [],
-    "agent_response_complete": [],
+    "agent_run_start": [],
+    "agent_run_end": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -446,26 +448,72 @@ def on_get_model_system_prompt(
     )
 
 
-async def on_agent_response_complete(
+async def on_agent_run_start(
     agent_name: str,
-    response_text: str,
+    model_name: str,
     session_id: str | None = None,
+) -> List[Any]:
+    """Trigger callbacks when an agent run starts.
+
+    This fires at the beginning of run_with_mcp, before the agent task is created.
+    Useful for:
+    - Starting background tasks (like token refresh heartbeats)
+    - Logging/analytics
+    - Resource allocation
+
+    Args:
+        agent_name: Name of the agent starting
+        model_name: Name of the model being used
+        session_id: Optional session identifier
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return await _trigger_callbacks(
+        "agent_run_start", agent_name, model_name, session_id
+    )
+
+
+async def on_agent_run_end(
+    agent_name: str,
+    model_name: str,
+    session_id: str | None = None,
+    success: bool = True,
+    error: Exception | None = None,
+    response_text: str | None = None,
     metadata: dict | None = None,
 ) -> List[Any]:
-    """Trigger callbacks after an agent completes its full response.
+    """Trigger callbacks when an agent run ends.
 
-    This fires after all tool calls are resolved and the agent has finished.
+    This fires at the end of run_with_mcp, in the finally block.
+    Always fires regardless of success/failure/cancellation.
+
     Useful for:
+    - Stopping background tasks (like token refresh heartbeats)
     - Workflow orchestration (like Ralph's autonomous loop)
     - Logging/analytics
+    - Resource cleanup
     - Detecting completion signals in responses
 
     Args:
-        agent_name: Name of the agent that completed
-        response_text: The final text response from the agent
+        agent_name: Name of the agent that finished
+        model_name: Name of the model that was used
         session_id: Optional session identifier
+        success: Whether the run completed successfully
+        error: Exception if the run failed, None otherwise
+        response_text: The final text response from the agent (if successful)
         metadata: Optional dict with additional context (tokens used, etc.)
+
+    Returns:
+        List of results from registered callbacks.
     """
     return await _trigger_callbacks(
-        "agent_response_complete", agent_name, response_text, session_id, metadata
+        "agent_run_end",
+        agent_name,
+        model_name,
+        session_id,
+        success,
+        error,
+        response_text,
+        metadata,
     )

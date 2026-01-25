@@ -363,6 +363,78 @@ def _register_model_types() -> List[Dict[str, Any]]:
     return [{"type": "claude_code", "handler": _create_claude_code_model}]
 
 
+# Global storage for the token refresh heartbeat
+# Using a dict to allow multiple concurrent agent runs (keyed by session_id)
+_active_heartbeats: Dict[str, Any] = {}
+
+
+async def _on_agent_run_start(
+    agent_name: str,
+    model_name: str,
+    session_id: Optional[str] = None,
+) -> None:
+    """Start token refresh heartbeat for Claude Code OAuth models.
+
+    This callback is triggered when an agent run starts. If the model is a
+    Claude Code OAuth model, we start a background heartbeat to keep the
+    token fresh during long-running operations.
+    """
+    # Only start heartbeat for Claude Code models
+    if not model_name.startswith("claude-code"):
+        return
+
+    try:
+        from .token_refresh_heartbeat import TokenRefreshHeartbeat
+
+        heartbeat = TokenRefreshHeartbeat()
+        await heartbeat.start()
+
+        # Store heartbeat for cleanup, keyed by session_id
+        key = session_id or "default"
+        _active_heartbeats[key] = heartbeat
+        logger.debug(
+            "Started token refresh heartbeat for session %s (model: %s)",
+            key,
+            model_name,
+        )
+    except ImportError:
+        logger.debug("Token refresh heartbeat module not available")
+    except Exception as exc:
+        logger.debug("Failed to start token refresh heartbeat: %s", exc)
+
+
+async def _on_agent_run_end(
+    agent_name: str,
+    model_name: str,
+    session_id: Optional[str] = None,
+    success: bool = True,
+    error: Optional[Exception] = None,
+    response_text: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Stop token refresh heartbeat when agent run ends.
+
+    This callback is triggered when an agent run completes (success or failure).
+    We stop any heartbeat that was started for this session.
+    """
+    # We don't use response_text or metadata, just cleanup the heartbeat
+    key = session_id or "default"
+    heartbeat = _active_heartbeats.pop(key, None)
+
+    if heartbeat is not None:
+        try:
+            await heartbeat.stop()
+            logger.debug(
+                "Stopped token refresh heartbeat for session %s (refreshed %d times)",
+                key,
+                heartbeat.refresh_count,
+            )
+        except Exception as exc:
+            logger.debug("Error stopping token refresh heartbeat: %s", exc)
+
+
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
 register_callback("register_model_type", _register_model_types)
+register_callback("agent_run_start", _on_agent_run_start)
+register_callback("agent_run_end", _on_agent_run_end)

@@ -213,3 +213,106 @@ class TestConstants:
     def test_min_refresh_less_than_heartbeat(self):
         """Min refresh interval should be less than heartbeat interval."""
         assert MIN_REFRESH_INTERVAL_SECONDS < HEARTBEAT_INTERVAL_SECONDS
+
+
+class TestCallbackIntegration:
+    """Tests for the agent_run_start/agent_run_end callback integration."""
+
+    @pytest.mark.asyncio
+    async def test_agent_run_start_starts_heartbeat_for_claude_code(self):
+        """agent_run_start should start heartbeat for claude-code models."""
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _active_heartbeats,
+            _on_agent_run_start,
+        )
+
+        # Clear any existing heartbeats
+        _active_heartbeats.clear()
+
+        await _on_agent_run_start(
+            agent_name="test-agent",
+            model_name="claude-code-sonnet-4",
+            session_id="test-session-123",
+        )
+
+        # Heartbeat should be stored
+        assert "test-session-123" in _active_heartbeats
+        heartbeat = _active_heartbeats["test-session-123"]
+        assert heartbeat.is_running
+
+        # Cleanup
+        await heartbeat.stop()
+        _active_heartbeats.clear()
+
+    @pytest.mark.asyncio
+    async def test_agent_run_start_ignores_non_claude_code_models(self):
+        """agent_run_start should not start heartbeat for non-claude-code models."""
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _active_heartbeats,
+            _on_agent_run_start,
+        )
+
+        _active_heartbeats.clear()
+
+        await _on_agent_run_start(
+            agent_name="test-agent",
+            model_name="gpt-4o",
+            session_id="test-session-456",
+        )
+
+        # No heartbeat should be stored
+        assert "test-session-456" not in _active_heartbeats
+
+    @pytest.mark.asyncio
+    async def test_agent_run_end_stops_heartbeat(self):
+        """agent_run_end should stop the heartbeat."""
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _active_heartbeats,
+            _on_agent_run_end,
+            _on_agent_run_start,
+        )
+
+        _active_heartbeats.clear()
+
+        # Start heartbeat
+        await _on_agent_run_start(
+            agent_name="test-agent",
+            model_name="claude-code-opus-4",
+            session_id="test-session-789",
+        )
+        assert "test-session-789" in _active_heartbeats
+
+        # End run (with new consolidated signature)
+        await _on_agent_run_end(
+            agent_name="test-agent",
+            model_name="claude-code-opus-4",
+            session_id="test-session-789",
+            success=True,
+            error=None,
+            response_text="test response",
+            metadata={},
+        )
+
+        # Heartbeat should be removed
+        assert "test-session-789" not in _active_heartbeats
+
+    @pytest.mark.asyncio
+    async def test_agent_run_end_handles_missing_heartbeat_gracefully(self):
+        """agent_run_end should not error if no heartbeat exists."""
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _active_heartbeats,
+            _on_agent_run_end,
+        )
+
+        _active_heartbeats.clear()
+
+        # This should not raise (with new consolidated signature)
+        await _on_agent_run_end(
+            agent_name="test-agent",
+            model_name="claude-code-haiku",
+            session_id="nonexistent-session",
+            success=True,
+            error=None,
+            response_text=None,
+            metadata=None,
+        )

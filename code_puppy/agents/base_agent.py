@@ -47,7 +47,10 @@ from pydantic_ai.messages import (
 from rich.text import Text
 
 from code_puppy.agents.event_stream_handler import event_stream_handler
-from code_puppy.callbacks import on_agent_response_complete
+from code_puppy.callbacks import (
+    on_agent_run_end,
+    on_agent_run_start,
+)
 
 # Consolidated relative imports
 from code_puppy.config import (
@@ -73,7 +76,6 @@ from code_puppy.messaging.spinner import (
     update_spinner_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
-from code_puppy.model_utils import is_claude_code_model
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
@@ -405,35 +407,27 @@ class BaseAgent(ABC):
         total_tokens = 0
 
         # 1. Estimate tokens for system prompt / instructions
-        # For Claude Code models, the full system prompt is prepended to the first
-        # user message (already in message history), so we only count the short
-        # fixed instructions. For other models, count the full system prompt.
+        # Use prepare_prompt_for_model() to get the correct instructions for token counting.
+        # For models that prepend system prompt to user message (claude-code, antigravity),
+        # this returns the short fixed instructions. For other models, returns full prompt.
         try:
-            from code_puppy.model_utils import (
-                get_antigravity_instructions,
-                get_claude_code_instructions,
-                is_antigravity_model,
-                is_claude_code_model,
-            )
+            from code_puppy.model_utils import prepare_prompt_for_model
 
             model_name = (
                 self.get_model_name() if hasattr(self, "get_model_name") else ""
             )
-            if is_claude_code_model(model_name):
-                # For Claude Code models, only count the short fixed instructions
-                # The full system prompt is already in the message history
-                instructions = get_claude_code_instructions()
-                total_tokens += self.estimate_token_count(instructions)
-            elif is_antigravity_model(model_name):
-                # For Antigravity models, only count the short fixed instructions
-                # The full system prompt is already in the message history
-                instructions = get_antigravity_instructions()
-                total_tokens += self.estimate_token_count(instructions)
-            else:
-                # For other models, count the full system prompt
-                system_prompt = self.get_full_system_prompt()
-                if system_prompt:
-                    total_tokens += self.estimate_token_count(system_prompt)
+            system_prompt = self.get_full_system_prompt()
+
+            # Get the instructions that will be used (handles model-specific logic via hooks)
+            prepared = prepare_prompt_for_model(
+                model_name=model_name,
+                system_prompt=system_prompt,
+                user_prompt="",  # Empty - we just need the instructions
+                prepend_system_to_user=False,  # Don't modify prompt, just get instructions
+            )
+
+            if prepared.instructions:
+                total_tokens += self.estimate_token_count(prepared.instructions)
         except Exception:
             pass  # If we can't get system prompt, skip it
 
@@ -1591,20 +1585,25 @@ class BaseAgent(ABC):
         if output_type is not None:
             pydantic_agent = self._create_agent_with_output_type(output_type)
 
-        # Handle claude-code, chatgpt-codex, and antigravity models: prepend system prompt to first user message
-        from code_puppy.model_utils import (
-            is_antigravity_model,
-        )
+        # Handle model-specific prompt transformations via prepare_prompt_for_model()
+        # This uses the get_model_system_prompt hook, so plugins can register their own handlers
+        from code_puppy.model_utils import prepare_prompt_for_model
 
-        if is_claude_code_model(self.get_model_name()) or is_antigravity_model(
-            self.get_model_name()
-        ):
-            if len(self.get_message_history()) == 0:
-                system_prompt = self.get_full_system_prompt()
-                puppy_rules = self.load_puppy_rules()
-                if puppy_rules:
-                    system_prompt += f"\n{puppy_rules}"
-                prompt = system_prompt + "\n\n" + prompt
+        # Only prepend system prompt on first message (empty history)
+        should_prepend = len(self.get_message_history()) == 0
+        if should_prepend:
+            system_prompt = self.get_full_system_prompt()
+            puppy_rules = self.load_puppy_rules()
+            if puppy_rules:
+                system_prompt += f"\n{puppy_rules}"
+
+            prepared = prepare_prompt_for_model(
+                model_name=self.get_model_name(),
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                prepend_system_to_user=True,
+            )
+            prompt = prepared.user_prompt
 
         # Build combined prompt payload when attachments are provided.
         attachment_parts: List[Any] = []
@@ -1751,22 +1750,16 @@ class BaseAgent(ABC):
         # Create the task FIRST
         agent_task = asyncio.create_task(run_agent_task())
 
-        # Start token refresh heartbeat for Claude Code OAuth models
-        # This ensures tokens stay fresh during long-running agentic operations
-        if is_claude_code_model(self.get_model_name()):
-            try:
-                from code_puppy.plugins.claude_code_oauth.token_refresh_heartbeat import (
-                    TokenRefreshHeartbeat,
-                )
-
-                heartbeat = TokenRefreshHeartbeat()
-                asyncio.create_task(heartbeat.start())
-                # Store heartbeat for cleanup
-                self._token_refresh_heartbeat = heartbeat
-            except ImportError:
-                pass  # Claude Code OAuth plugin not available
-            except Exception:
-                pass  # Don't fail agent run if heartbeat fails to start
+        # Fire agent_run_start hook - plugins can use this to start background tasks
+        # (e.g., token refresh heartbeats for OAuth models)
+        try:
+            await on_agent_run_start(
+                agent_name=self.name,
+                model_name=self.get_model_name(),
+                session_id=group_id,
+            )
+        except Exception:
+            pass  # Don't fail agent run if hook fails
 
         # Import shell process status helper
 
@@ -1849,50 +1842,52 @@ class BaseAgent(ABC):
                 except Exception:
                     pass  # Don't fail the run if cache update fails
 
-            # Trigger agent_response_complete callback for workflow orchestration
-            try:
-                # Extract the response text from the result
-                response_text = ""
-                if result is not None:
-                    if hasattr(result, "data"):
-                        response_text = str(result.data) if result.data else ""
-                    elif hasattr(result, "output"):
-                        response_text = str(result.output) if result.output else ""
-                    else:
-                        response_text = str(result)
+            # Extract response text for the callback
+            _run_response_text = ""
+            if result is not None:
+                if hasattr(result, "data"):
+                    _run_response_text = str(result.data) if result.data else ""
+                elif hasattr(result, "output"):
+                    _run_response_text = str(result.output) if result.output else ""
+                else:
+                    _run_response_text = str(result)
 
-                # Fire the callback - don't await to avoid blocking return
-                # Use asyncio.create_task to run it in background
-                asyncio.create_task(
-                    on_agent_response_complete(
-                        agent_name=self.name,
-                        response_text=response_text,
-                        session_id=group_id,
-                        metadata={"model": self.get_model_name()},
-                    )
-                )
-            except Exception:
-                pass  # Don't fail the run if callback fails
-
+            _run_success = True
+            _run_error = None
             return result
         except asyncio.CancelledError:
+            _run_success = False
+            _run_error = None  # Cancellation is not an error
+            _run_response_text = ""
             agent_task.cancel()
         except KeyboardInterrupt:
-            # Handle direct keyboard interrupt during await
+            _run_success = False
+            _run_error = None  # User interrupt is not an error
+            _run_response_text = ""
             if not agent_task.done():
                 agent_task.cancel()
+        except Exception as e:
+            _run_success = False
+            _run_error = e
+            _run_response_text = ""
+            raise
         finally:
-            # Stop token refresh heartbeat if it was started
-            if (
-                hasattr(self, "_token_refresh_heartbeat")
-                and self._token_refresh_heartbeat
-            ):
-                try:
-                    await self._token_refresh_heartbeat.stop()
-                except Exception:
-                    pass  # Don't fail cleanup if heartbeat stop fails
-                finally:
-                    self._token_refresh_heartbeat = None
+            # Fire agent_run_end hook - plugins can use this for:
+            # - Stopping background tasks (token refresh heartbeats)
+            # - Workflow orchestration (Ralph's autonomous loop)
+            # - Logging/analytics
+            try:
+                await on_agent_run_end(
+                    agent_name=self.name,
+                    model_name=self.get_model_name(),
+                    session_id=group_id,
+                    success=_run_success,
+                    error=_run_error,
+                    response_text=_run_response_text,
+                    metadata={"model": self.get_model_name()},
+                )
+            except Exception:
+                pass  # Don't fail cleanup if hook fails
 
             # Stop keyboard listener if it was started
             if key_listener_stop_event is not None:
