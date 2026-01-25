@@ -574,8 +574,6 @@ class TestSafetyPermissionLevel:
         assert cp_config.get_safety_permission_level() == "medium"
 
 
-
-
 class TestCommandHistory:
     @patch("os.path.isfile")
     @patch("pathlib.Path.touch")

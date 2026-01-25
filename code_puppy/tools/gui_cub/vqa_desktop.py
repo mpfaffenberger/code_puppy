@@ -91,9 +91,7 @@ def run_desktop_vqa_analysis(
     if not is_format_accepted(media_type):
         try:
             image_bytes, media_type = normalize_image_for_vqa(image_bytes, media_type)
-            emit_rich(
-                f"[dim]📐 Converted {original_media_type} → {media_type}[/dim]"
-            )
+            emit_rich(f"[dim]📐 Converted {original_media_type} → {media_type}[/dim]")
         except ValueError as e:
             emit_warning(f"Image conversion failed: {e}")
             # Continue with original format - API may reject it

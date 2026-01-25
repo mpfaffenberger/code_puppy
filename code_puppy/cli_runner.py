@@ -103,7 +103,6 @@ def is_user_in_dbos_sample() -> bool:
         return False
 
 
-
 def _ensure_safe_windows_workspace():
     """
     On Windows, if the current working directory is System32 or the user's home directory,

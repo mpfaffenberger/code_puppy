@@ -1,6 +1,5 @@
 """Tests for markdown_to_html conversion in msgraph tools."""
 
-import pytest
 
 from code_puppy.tools.msgraph.common import markdown_to_html
 

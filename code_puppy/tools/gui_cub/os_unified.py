@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_info, emit_warning
+from code_puppy.messaging import emit_warning
 from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 from code_puppy.tools.gui_cub.result_types import (

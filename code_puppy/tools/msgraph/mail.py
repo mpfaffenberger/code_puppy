@@ -440,10 +440,10 @@ def msgraph_reply_to_message(
         # Step 1: Create a draft reply
         create_action = "createReplyAll" if reply_all else "createReply"
         create_endpoint = f"/me/messages/{message_id}/{create_action}"
-        
+
         draft_response = client.post(create_endpoint, json={})
         draft_id = draft_response.get("id")
-        
+
         if not draft_id:
             return {
                 "success": False,
@@ -454,14 +454,14 @@ def msgraph_reply_to_message(
         # Step 2: Update the draft with HTML body
         html_body = markdown_to_html(body)
         update_endpoint = f"/me/messages/{draft_id}"
-        
+
         update_payload = {
             "body": {
                 "contentType": "HTML",
                 "content": html_body,
             }
         }
-        
+
         client.patch(update_endpoint, json=update_payload)
 
         # Step 3: Send the draft

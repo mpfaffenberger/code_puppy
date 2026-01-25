@@ -149,7 +149,7 @@ def marketplace_search_agents(
         # API returns: {data: [...agents], pagination: {total, has_more, ...}}
         # Or older format: {data: {agents: [...], total: ...}}
         raw_data = response.get("data", {})
-        
+
         # Handle both formats
         if isinstance(raw_data, list):
             # New format: data is the agents array directly
@@ -498,41 +498,43 @@ def marketplace_check_update(
 
 def _filter_latest_versions(agents: List[dict]) -> List[dict]:
     """Filter agents to only show the most recent version of each agent.
-    
+
     Args:
         agents: List of agent dictionaries from marketplace API
-        
+
     Returns:
         List of agents with only the latest version of each agent name
     """
     if not agents:
         return agents
-    
+
     # Group agents by name and track the latest version
     latest_by_name = {}
-    
+
     for agent in agents:
         name = agent.get("name")
         if not name:
             continue
-            
+
         version = agent.get("version", 1)
-        
+
         # If we haven't seen this agent, or this is a newer version, keep it
-        if name not in latest_by_name or version > latest_by_name[name].get("version", 1):
+        if name not in latest_by_name or version > latest_by_name[name].get(
+            "version", 1
+        ):
             latest_by_name[name] = agent
-    
+
     # Return the filtered list, preserving the original order where possible
     # by keeping the first occurrence of each agent name
     seen_names = set()
     result = []
-    
+
     for agent in agents:
         name = agent.get("name")
         if name and name not in seen_names:
             seen_names.add(name)
             result.append(latest_by_name[name])
-    
+
     return result
 
 
@@ -630,7 +632,9 @@ def register_marketplace_upload_agent(agent):
         Returns:
             MarketplaceUploadOutput with upload result or error
         """
-        return marketplace_upload_agent(file_path, category, tags, access_level, ad_group)
+        return marketplace_upload_agent(
+            file_path, category, tags, access_level, ad_group
+        )
 
 
 def register_marketplace_check_update(agent):
@@ -703,27 +707,31 @@ def marketplace_authenticate() -> MarketplaceAuthOutput:
     try:
         # Trigger the /puppy_auth command handler
         result = handle_puppy_auth_command("/puppy_auth", "puppy_auth")
-        
+
         if result:
             # Check if token was saved
             try:
                 from code_puppy.config import get_value
+
                 token = get_value("marketplace_token")
-                
+
                 if token:
                     # Try to get user email from saved token data
                     user_email = None
                     try:
                         import json
                         from pathlib import Path
-                        token_file = Path.home() / ".code_puppy" / "marketplace_token.json"
+
+                        token_file = (
+                            Path.home() / ".code_puppy" / "marketplace_token.json"
+                        )
                         if token_file.exists():
                             with open(token_file) as f:
                                 token_data = json.load(f)
                                 user_email = token_data.get("user", {}).get("email")
                     except Exception:
                         pass
-                    
+
                     return MarketplaceAuthOutput(
                         success=True,
                         message="Authentication successful! You can now use marketplace features.",

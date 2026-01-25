@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from code_puppy.messaging import emit_info, emit_warning
+from code_puppy.messaging import emit_warning
 from code_puppy.tools.common import generate_group_id
 from .rich_emit import emit_rich
 
@@ -163,9 +163,7 @@ def load_config() -> Optional[Dict[str, Any]]:
             if save_config(config):
                 _emit_debug("[dim]   ✅ Config migration saved successfully[/dim]")
             else:
-                emit_rich(
-                    "[yellow]⚠️  Config migration failed to save![/yellow]"
-                )
+                emit_rich("[yellow]⚠️  Config migration failed to save![/yellow]")
         else:
             _emit_debug("[dim]   No migrations needed[/dim]")
 
@@ -174,9 +172,7 @@ def load_config() -> Optional[Dict[str, Any]]:
         if stored_hash:
             computed_hash = _compute_config_hash(config)
             if stored_hash != computed_hash:
-                emit_rich(
-                    "[yellow]Config hash mismatch, may be corrupted[/yellow]"
-                )
+                emit_rich("[yellow]Config hash mismatch, may be corrupted[/yellow]")
 
         return config
 
@@ -241,9 +237,7 @@ def set_debug_screenshots_enabled(enabled: bool):
     current_value = config.get("debug", {}).get("copy_screenshots_to_cwd", False)
     if current_value == enabled:
         status = "enabled" if enabled else "disabled"
-        emit_rich(
-            f"[green]✓ Debug screenshot copying already {status}[/green]"
-        )
+        emit_rich(f"[green]✓ Debug screenshot copying already {status}[/green]")
         return
 
     if "debug" not in config:

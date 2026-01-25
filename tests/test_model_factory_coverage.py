@@ -15,7 +15,6 @@ Targets the 206 uncovered lines including:
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 
 class TestGetApiKey:
@@ -340,7 +339,6 @@ class TestLoadConfigExtended:
                     mock_logger.return_value.warning.assert_called_once()
                     warning_msg = mock_logger.return_value.warning.call_args[0][0]
                     assert "Multiple load_model_config callbacks" in warning_msg
-
 
 
 class TestCustomAnthropicModel:
@@ -742,8 +740,6 @@ class TestRoundRobinExtended:
                 call_args = mock_rr.call_args
                 # rotate_every should be passed
                 assert call_args[1]["rotate_every"] == 3
-
-
 
 
 class TestAnthropicInterleaved:

@@ -6,10 +6,7 @@ This module provides functions for creating properly configured HTTP clients.
 
 import os
 import socket
-import time
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, Optional, Union
-from typing import Dict, Optional, Union
+from typing import TYPE_CHECKING, Dict, Optional, Union
 
 import httpx
 

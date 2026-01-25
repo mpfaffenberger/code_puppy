@@ -5,7 +5,6 @@ hash-based update detection and caching.
 """
 
 import argparse
-import asyncio
 import hashlib
 import json
 import shlex
@@ -397,6 +396,7 @@ def _handle_check_command(name: str) -> bool:
 
     try:
         from code_puppy.plugins.agent_marketplace.api_client import run_async
+
         update_info = run_async(_check_update_async(name, local_hash))
 
         if update_info.get("update_available", False):
@@ -445,7 +445,7 @@ def _prompt_for_update(name: str, local_version: str, latest_version: str) -> bo
     Returns:
         True if user wants to update.
     """
-    console.print(f"\n[yellow]⚠️  Update available![/yellow]")
+    console.print("\n[yellow]⚠️  Update available![/yellow]")
     console.print(f"  [dim]Local version:[/dim]  {local_version}")
     console.print(f"  [dim]Latest version:[/dim] {latest_version}\n")
 
@@ -470,16 +470,16 @@ async def _download_agent_async(name: str) -> dict:
         Exception: If download fails.
     """
     response = await api_client.download_agent(name)
-    
+
     # Check for success
     if not response.get("success"):
         error_msg = response.get("error", "Download failed")
         raise Exception(error_msg)
-    
+
     # Extract the agent data from the response
     # API returns: {success: true, data: {agent: {...}, version: ..., content_hash: ...}}
     data = response.get("data", {})
-    
+
     # Handle nested structure from API
     if isinstance(data, dict):
         # If data has an "agent" key, return just the agent
@@ -498,7 +498,7 @@ async def _download_agent_async(name: str) -> dict:
                 agent["_content_hash"] = inner.get("content_hash")
                 return agent
             return inner
-    
+
     return data
 
 
@@ -604,11 +604,11 @@ def handle_download_agent(command: str) -> bool:
     # Check for existing agent and updates
     local_info = _get_local_hash(agent_name)
     force_download = args.force
-    
+
     # Also verify the actual agent file exists (not just the hash cache)
     agent_file_path = _get_agent_path(agent_name)
     agent_file_exists = agent_file_path.exists()
-    
+
     if local_info and agent_file_exists and not force_download:
         # Agent exists locally - check for updates
         local_hash = local_info.get("hash", "")
@@ -618,6 +618,7 @@ def handle_download_agent(command: str) -> bool:
 
         try:
             from code_puppy.plugins.agent_marketplace.api_client import run_async
+
             update_info = run_async(_check_update_async(agent_name, local_hash))
 
             if update_info.get("update_available", False):
@@ -646,6 +647,7 @@ def handle_download_agent(command: str) -> bool:
 
     try:
         from code_puppy.plugins.agent_marketplace.api_client import run_async
+
         agent_data = run_async(_download_agent_async(agent_name))
 
         # Extract version info from response

@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Any
 
 from code_puppy.config import CONFIG_DIR
-from code_puppy.messaging import emit_info
 
 
 # =============================================================================

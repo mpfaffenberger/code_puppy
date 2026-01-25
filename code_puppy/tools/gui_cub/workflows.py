@@ -5,7 +5,6 @@ from typing import Any, Dict
 
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_info
 from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 

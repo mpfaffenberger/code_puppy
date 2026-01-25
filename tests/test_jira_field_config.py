@@ -2,7 +2,6 @@
 
 import json
 
-import pytest
 
 from code_puppy.plugins.walmart_specific.jira_field_config import (
     DEFAULT_FIELD_MAPPINGS,

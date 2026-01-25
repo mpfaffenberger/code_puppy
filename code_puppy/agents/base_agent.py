@@ -36,7 +36,6 @@ from pydantic_ai import (
     UsageLimitExceeded,
     UsageLimits,
 )
-from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.durable_exec.dbos import DBOSAgent
 from pydantic_ai.messages import (
     ModelMessage,

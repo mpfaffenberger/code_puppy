@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from code_puppy.messaging import emit_error, emit_info, emit_success
+from code_puppy.messaging import emit_info
 
 # Required fields for a valid agent JSON
 REQUIRED_FIELDS = ["name", "description", "system_prompt", "tools"]
@@ -182,5 +182,7 @@ def handle_upload_agent(command: str) -> bool:
     Returns:
         bool: True to indicate the command was handled.
     """
-    emit_info("Use the /upload-agent command with a file path, or use the agent-creator's marketplace tools.")
+    emit_info(
+        "Use the /upload-agent command with a file path, or use the agent-creator's marketplace tools."
+    )
     return True
