@@ -743,6 +743,7 @@ class ModelSettingsMenu:
         kb = KeyBindings()
 
         @kb.add("up")
+        @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
         def _(event):
             if self.view_mode == "models":
                 if self.model_index > 0:
@@ -755,6 +756,7 @@ class ModelSettingsMenu:
                     self.update_display()
 
         @kb.add("down")
+        @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
         def _(event):
             if self.view_mode == "models":
                 if self.model_index < len(self.all_models) - 1:

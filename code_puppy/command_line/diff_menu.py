@@ -533,6 +533,7 @@ async def _split_panel_selector(
     kb = KeyBindings()
 
     @kb.add("up")
+    @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
     def move_up(event):
         if choices:
             selected_index[0] = (selected_index[0] - 1) % len(choices)
@@ -540,6 +541,7 @@ async def _split_panel_selector(
         event.app.invalidate()
 
     @kb.add("down")
+    @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
     def move_down(event):
         if choices:
             selected_index[0] = (selected_index[0] + 1) % len(choices)
