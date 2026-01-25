@@ -585,7 +585,12 @@ class ModelFactory:
                 return None
             # Add Cerebras 3rd party integration header
             headers["X-Cerebras-3rd-Party-Integration"] = "code-puppy"
-            client = create_async_client(headers=headers, verify=verify)
+            # Pass "cerebras" so RetryingAsyncClient knows to ignore Cerebras's
+            # absurdly aggressive Retry-After headers (they send 60s!)
+            # Note: model_config["name"] is "zai-glm-4.7", not "cerebras"
+            client = create_async_client(
+                headers=headers, verify=verify, model_name="cerebras"
+            )
             provider_args = dict(
                 api_key=api_key,
                 http_client=client,
