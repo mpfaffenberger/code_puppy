@@ -447,7 +447,9 @@ class TestMSGraphMailTools:
             "code_puppy.tools.msgraph.mail.get_msgraph_client"
         ) as mock_get_client:
             mock_client = Mock()
-            mock_client.post.return_value = None
+            # First post (createReply) returns draft with id, second post (send) returns None
+            mock_client.post.side_effect = [{"id": "draft-123"}, None]
+            mock_client.patch.return_value = None
             mock_get_client.return_value = mock_client
 
             result = msgraph_reply_to_message(
@@ -461,11 +463,12 @@ class TestMSGraphMailTools:
             assert result["message_id"] == "msg-123-abc"
             assert result["reply_all"] is False
 
-            # Verify API call uses reply endpoint
-            mock_client.post.assert_called_once()
-            call_args = mock_client.post.call_args
-            assert call_args[0][0] == "/me/messages/msg-123-abc/reply"
-            assert call_args[1]["json"]["comment"] == "Thanks for the update!"
+            # Verify createReply was called first
+            first_call = mock_client.post.call_args_list[0]
+            assert first_call[0][0] == "/me/messages/msg-123-abc/createReply"
+            # Verify send was called with the draft id
+            second_call = mock_client.post.call_args_list[1]
+            assert second_call[0][0] == "/me/messages/draft-123/send"
 
     def test_msgraph_reply_all(self, mock_context):
         """Test replying all to a message."""
@@ -473,7 +476,9 @@ class TestMSGraphMailTools:
             "code_puppy.tools.msgraph.mail.get_msgraph_client"
         ) as mock_get_client:
             mock_client = Mock()
-            mock_client.post.return_value = None
+            # First post (createReplyAll) returns draft with id, second post (send) returns None
+            mock_client.post.side_effect = [{"id": "draft-456"}, None]
+            mock_client.patch.return_value = None
             mock_get_client.return_value = mock_client
 
             result = msgraph_reply_to_message(
@@ -488,9 +493,9 @@ class TestMSGraphMailTools:
             assert result["message_id"] == "msg-456-def"
             assert result["reply_all"] is True
 
-            # Verify API call uses replyAll endpoint
-            call_args = mock_client.post.call_args
-            assert call_args[0][0] == "/me/messages/msg-456-def/replyAll"
+            # Verify createReplyAll was called
+            first_call = mock_client.post.call_args_list[0]
+            assert first_call[0][0] == "/me/messages/msg-456-def/createReplyAll"
 
     def test_msgraph_reply_to_message_not_found(self, mock_context):
         """Test replying to a non-existent message."""
