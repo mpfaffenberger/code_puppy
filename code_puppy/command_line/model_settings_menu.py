@@ -106,6 +106,19 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "type": "boolean",
         "default": False,
     },
+    "thinking_enabled": {
+        "name": "Thinking Enabled",
+        "description": "Enable thinking mode for Gemini 3 Pro models. When enabled, the model will show its reasoning process.",
+        "type": "boolean",
+        "default": True,
+    },
+    "thinking_level": {
+        "name": "Thinking Level",
+        "description": "Controls the depth of thinking for Gemini 3 Pro models. Low = faster responses, High = more thorough reasoning.",
+        "type": "choice",
+        "choices": ["low", "high"],
+        "default": "low",
+    },
 }
 
 

@@ -40,6 +40,10 @@ from pydantic_ai.usage import RequestUsage
 
 logger = logging.getLogger(__name__)
 
+# Bypass thought signature for Gemini when no pending signature is available
+# This allows function calls to work with thinking models
+BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
+
 
 def generate_tool_call_id() -> str:
     """Generate a unique tool call ID."""
@@ -410,27 +414,48 @@ class GeminiModel(Model):
         return system_instruction, contents
 
     def _map_model_response(self, m: ModelResponse) -> dict[str, Any] | None:
-        """Map a ModelResponse to Gemini content format."""
+        """Map a ModelResponse to Gemini content format.
+
+        For Gemini thinking models, we need to track thought signatures from
+        ThinkingParts and apply them to subsequent function_call parts.
+        """
         parts: list[dict[str, Any]] = []
+        pending_signature: str | None = None
 
         for item in m.parts:
             if isinstance(item, ToolCallPart):
-                parts.append(
-                    {
-                        "function_call": {
-                            "name": item.tool_name,
-                            "args": item.args_as_dict(),
-                            "id": item.tool_call_id,
-                        }
+                part_dict: dict[str, Any] = {
+                    "function_call": {
+                        "name": item.tool_name,
+                        "args": item.args_as_dict(),
+                        "id": item.tool_call_id,
                     }
+                }
+                # Gemini thinking models REQUIRE thoughtSignature on function calls
+                # Use pending signature from thinking or bypass signature
+                part_dict["thoughtSignature"] = (
+                    pending_signature
+                    if pending_signature is not None
+                    else BYPASS_THOUGHT_SIGNATURE
                 )
+                parts.append(part_dict)
             elif isinstance(item, TextPart):
-                parts.append({"text": item.content})
+                part_dict = {"text": item.content}
+                # Apply pending signature to text parts too if present
+                if pending_signature is not None:
+                    part_dict["thoughtSignature"] = pending_signature
+                    pending_signature = None
+                parts.append(part_dict)
             elif isinstance(item, ThinkingPart):
                 if item.content:
-                    part_dict: dict[str, Any] = {"text": item.content, "thought": True}
+                    part_dict = {"text": item.content, "thought": True}
                     if item.signature:
                         part_dict["thoughtSignature"] = item.signature
+                        # Store signature for subsequent parts
+                        pending_signature = item.signature
+                    else:
+                        # No signature on thinking part, use bypass
+                        pending_signature = BYPASS_THOUGHT_SIGNATURE
                     parts.append(part_dict)
 
         if not parts:
@@ -462,18 +487,34 @@ class GeminiModel(Model):
         config: dict[str, Any] = {}
 
         if model_settings:
-            if (
-                hasattr(model_settings, "temperature")
-                and model_settings.temperature is not None
-            ):
-                config["temperature"] = model_settings.temperature
-            if hasattr(model_settings, "top_p") and model_settings.top_p is not None:
-                config["topP"] = model_settings.top_p
-            if (
-                hasattr(model_settings, "max_tokens")
-                and model_settings.max_tokens is not None
-            ):
-                config["maxOutputTokens"] = model_settings.max_tokens
+            # ModelSettings is a TypedDict, so use .get() for all access
+            temperature = model_settings.get("temperature")
+            if temperature is not None:
+                config["temperature"] = temperature
+
+            top_p = model_settings.get("top_p")
+            if top_p is not None:
+                config["topP"] = top_p
+
+            max_tokens = model_settings.get("max_tokens")
+            if max_tokens is not None:
+                config["maxOutputTokens"] = max_tokens
+
+            # Handle Gemini 3 Pro thinking settings
+            thinking_enabled = model_settings.get("thinking_enabled")
+            thinking_level = model_settings.get("thinking_level")
+
+            # Build thinkingConfig if thinking settings are present
+            if thinking_enabled is False:
+                # Disable thinking by not including thinkingConfig
+                pass
+            elif thinking_level is not None:
+                # Gemini 3 Pro uses thinkingLevel with values "low" or "high"
+                # includeThoughts=True is required to surface the thinking in the response
+                config["thinkingConfig"] = {
+                    "thinkingLevel": thinking_level,
+                    "includeThoughts": True,
+                }
 
         return config
 

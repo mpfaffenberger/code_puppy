@@ -33,13 +33,13 @@
     "type": "gemini",
     "name": "gemini-3-pro-preview",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature", "top_p", "thinking_enabled", "thinking_level"]
   },
   "Gemini-3-Long-Context": {
     "type": "gemini",
     "name": "gemini-3-pro-preview",
     "context_length": 1000000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature", "top_p", "thinking_enabled", "thinking_level"]
   },
   "gpt-5.1": {
     "type": "openai",

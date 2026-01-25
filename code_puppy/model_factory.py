@@ -74,6 +74,7 @@ def make_model_settings(
         get_effective_model_settings,
         get_openai_reasoning_effort,
         get_openai_verbosity,
+        model_supports_setting,
     )
 
     model_settings_dict: dict = {}
@@ -130,6 +131,18 @@ def make_model_settings(
                 "budget_tokens": budget_tokens,
             }
         model_settings = AnthropicModelSettings(**model_settings_dict)
+
+    # Handle Gemini thinking models (Gemini-3)
+    # Check if model supports thinking settings and apply defaults
+    if model_supports_setting(model_name, "thinking_level"):
+        # Apply defaults if not explicitly set by user
+        # Default: thinking_enabled=True, thinking_level="low"
+        if "thinking_enabled" not in model_settings_dict:
+            model_settings_dict["thinking_enabled"] = True
+        if "thinking_level" not in model_settings_dict:
+            model_settings_dict["thinking_level"] = "low"
+        # Recreate settings with Gemini thinking config
+        model_settings = ModelSettings(**model_settings_dict)
 
     return model_settings
 
