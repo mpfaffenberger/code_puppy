@@ -73,6 +73,7 @@ from code_puppy.messaging.spinner import (
     update_spinner_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
+from code_puppy.model_utils import is_claude_code_model
 from code_puppy.summarization_agent import run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
@@ -1593,7 +1594,6 @@ class BaseAgent(ABC):
         # Handle claude-code, chatgpt-codex, and antigravity models: prepend system prompt to first user message
         from code_puppy.model_utils import (
             is_antigravity_model,
-            is_claude_code_model,
         )
 
         if is_claude_code_model(self.get_model_name()) or is_antigravity_model(
@@ -1751,6 +1751,23 @@ class BaseAgent(ABC):
         # Create the task FIRST
         agent_task = asyncio.create_task(run_agent_task())
 
+        # Start token refresh heartbeat for Claude Code OAuth models
+        # This ensures tokens stay fresh during long-running agentic operations
+        if is_claude_code_model(self.get_model_name()):
+            try:
+                from code_puppy.plugins.claude_code_oauth.token_refresh_heartbeat import (
+                    TokenRefreshHeartbeat,
+                )
+
+                heartbeat = TokenRefreshHeartbeat()
+                asyncio.create_task(heartbeat.start())
+                # Store heartbeat for cleanup
+                self._token_refresh_heartbeat = heartbeat
+            except ImportError:
+                pass  # Claude Code OAuth plugin not available
+            except Exception:
+                pass  # Don't fail agent run if heartbeat fails to start
+
         # Import shell process status helper
 
         loop = asyncio.get_running_loop()
@@ -1865,6 +1882,18 @@ class BaseAgent(ABC):
             if not agent_task.done():
                 agent_task.cancel()
         finally:
+            # Stop token refresh heartbeat if it was started
+            if (
+                hasattr(self, "_token_refresh_heartbeat")
+                and self._token_refresh_heartbeat
+            ):
+                try:
+                    await self._token_refresh_heartbeat.stop()
+                except Exception:
+                    pass  # Don't fail cleanup if heartbeat stop fails
+                finally:
+                    self._token_refresh_heartbeat = None
+
             # Stop keyboard listener if it was started
             if key_listener_stop_event is not None:
                 key_listener_stop_event.set()
