@@ -5,7 +5,7 @@ This module registers all Ralph callbacks:
 - register_agents: PRD Generator, Converter, and Orchestrator agents
 - custom_command: /ralph slash commands
 - custom_command_help: Help entries for Ralph commands
-- agent_response_complete: Detect completion signal for loop termination
+- agent_run_end: Detect completion signal for loop termination
 """
 
 import logging
@@ -83,13 +83,16 @@ def reset_ralph_completion() -> None:
     _ralph_last_session_id = None
 
 
-async def _on_agent_complete(
+async def _on_agent_run_end(
     agent_name: str,
-    response_text: str,
+    model_name: str,
     session_id: Optional[str] = None,
+    success: bool = True,
+    error: Optional[Exception] = None,
+    response_text: Optional[str] = None,
     metadata: Optional[dict] = None,
 ) -> None:
-    """Handle agent response completion.
+    """Handle agent run completion.
 
     This detects the <promise>COMPLETE</promise> signal from the
     Ralph Orchestrator and sets the completion flag.
@@ -100,10 +103,14 @@ async def _on_agent_complete(
     if agent_name != "ralph-orchestrator":
         return
 
+    # Only process successful runs with response text
+    if not success or not response_text:
+        return
+
     logger.debug(f"Ralph plugin: orchestrator completed (session={session_id})")
 
     # Check for completion signal
-    if response_text and "<promise>COMPLETE</promise>" in response_text:
+    if "<promise>COMPLETE</promise>" in response_text:
         _ralph_completion_detected = True
         _ralph_last_session_id = session_id
 
@@ -127,7 +134,7 @@ register_callback("custom_command", _handle_command)
 register_callback("custom_command_help", _provide_command_help)
 
 # Completion detection
-register_callback("agent_response_complete", _on_agent_complete)
+register_callback("agent_run_end", _on_agent_run_end)
 
 
 logger.info("Ralph plugin: all callbacks registered successfully")

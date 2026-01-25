@@ -893,6 +893,7 @@ class AddModelMenu:
         kb = KeyBindings()
 
         @kb.add("up")
+        @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
         def _(event):
             if self.view_mode == "providers":
                 if self.selected_provider_idx > 0:
@@ -905,6 +906,7 @@ class AddModelMenu:
             self.update_display()
 
         @kb.add("down")
+        @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
         def _(event):
             if self.view_mode == "providers":
                 if self.selected_provider_idx < len(self.providers) - 1:

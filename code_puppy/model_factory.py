@@ -74,6 +74,7 @@ def make_model_settings(
         get_effective_model_settings,
         get_openai_reasoning_effort,
         get_openai_verbosity,
+        model_supports_setting,
     )
 
     model_settings_dict: dict = {}
@@ -131,26 +132,16 @@ def make_model_settings(
             }
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
-    elif model_config.get("type") == "custom_gemini":
-        # For WalmartGeminiModel (custom_gemini type), we use plain ModelSettings
-        # since our custom implementation doesn't use GoogleModelSettings.
-        # We don't import pydantic_ai.models.google to avoid requiring google-genai.
-        #
-        # Thinking settings for Gemini are passed through the generation config
-        # in our WalmartGeminiModel implementation.
-        thinking_enabled = effective_settings.get(
-            "thinkingenabled", effective_settings.get("thinkingEnabled", True)
-        )
-        thinking_level = effective_settings.get(
-            "thinkinglevel", effective_settings.get("thinkingLevel", "low")
-        )
-
-        # Store thinking settings for use by WalmartGeminiModel
-        if thinking_enabled:
-            model_settings_dict["thinking"] = {
-                "type": "enabled",
-                "thinking_level": thinking_level,
-            }
+    # Handle Gemini thinking models (Gemini-3)
+    # Check if model supports thinking settings and apply defaults
+    if model_supports_setting(model_name, "thinking_level"):
+        # Apply defaults if not explicitly set by user
+        # Default: thinking_enabled=True, thinking_level="low"
+        if "thinking_enabled" not in model_settings_dict:
+            model_settings_dict["thinking_enabled"] = True
+        if "thinking_level" not in model_settings_dict:
+            model_settings_dict["thinking_level"] = "low"
+        # Recreate settings with Gemini thinking config
         model_settings = ModelSettings(**model_settings_dict)
 
     return model_settings
@@ -589,7 +580,12 @@ class ModelFactory:
                 return None
             # Add Cerebras 3rd party integration header
             headers["X-Cerebras-3rd-Party-Integration"] = "code-puppy"
-            client = create_async_client(headers=headers, verify=verify)
+            # Pass "cerebras" so RetryingAsyncClient knows to ignore Cerebras's
+            # absurdly aggressive Retry-After headers (they send 60s!)
+            # Note: model_config["name"] is "zai-glm-4.7", not "cerebras"
+            client = create_async_client(
+                headers=headers, verify=verify, model_name="cerebras"
+            )
             provider_args = dict(
                 api_key=api_key,
                 http_client=client,

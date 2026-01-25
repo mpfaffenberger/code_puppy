@@ -165,6 +165,7 @@ def create_reopenable_async_client(
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
     retry_status_codes: tuple = (429, 502, 503, 504),
+    model_name: str = "",
 ) -> Union[ReopenableAsyncClient, httpx.AsyncClient]:
     if verify is None:
         verify = get_cert_bundle_path()

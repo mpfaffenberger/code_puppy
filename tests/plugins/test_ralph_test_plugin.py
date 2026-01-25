@@ -5,7 +5,7 @@ import pytest
 from code_puppy.callbacks import (
     clear_callbacks,
     get_callbacks,
-    on_agent_response_complete,
+    on_agent_run_end,
     on_register_agents,
     on_register_tools,
     register_callback,
@@ -152,68 +152,88 @@ class TestRegisterAgentsCallback:
         assert results[0][0]["json_path"] == "/path/to/agent.json"
 
 
-class TestAgentResponseCompleteCallback:
-    """Tests for the agent_response_complete callback hook."""
+class TestAgentRunEndCallback:
+    """Tests for the agent_run_end callback hook (consolidated from agent_response_complete)."""
 
     def setup_method(self):
         """Clear callbacks before each test."""
-        clear_callbacks("agent_response_complete")
+        clear_callbacks("agent_run_end")
 
     def teardown_method(self):
         """Clear callbacks after each test."""
-        clear_callbacks("agent_response_complete")
+        clear_callbacks("agent_run_end")
 
     @pytest.mark.asyncio
-    async def test_agent_response_complete_returns_empty_when_no_callbacks(self):
-        """Test that on_agent_response_complete returns empty list when no callbacks."""
-        results = await on_agent_response_complete(
+    async def test_agent_run_end_returns_empty_when_no_callbacks(self):
+        """Test that on_agent_run_end returns empty list when no callbacks."""
+        results = await on_agent_run_end(
             agent_name="test-agent",
+            model_name="gpt-4",
             response_text="Hello world",
         )
         assert results == []
 
     @pytest.mark.asyncio
-    async def test_agent_response_complete_triggers_async_callbacks(self):
+    async def test_agent_run_end_triggers_async_callbacks(self):
         """Test that async callbacks are properly awaited."""
         callback_data = {}
 
         async def capture_completion(
-            agent_name, response_text, session_id=None, metadata=None
+            agent_name,
+            model_name,
+            session_id=None,
+            success=True,
+            error=None,
+            response_text=None,
+            metadata=None,
         ):
             callback_data["agent_name"] = agent_name
+            callback_data["model_name"] = model_name
             callback_data["response_text"] = response_text
             callback_data["session_id"] = session_id
+            callback_data["success"] = success
             callback_data["metadata"] = metadata
 
-        register_callback("agent_response_complete", capture_completion)
+        register_callback("agent_run_end", capture_completion)
 
-        await on_agent_response_complete(
+        await on_agent_run_end(
             agent_name="my-agent",
-            response_text="Task completed",
+            model_name="gpt-4",
             session_id="session-123",
+            success=True,
+            response_text="Task completed",
             metadata={"model": "gpt-4"},
         )
 
         assert callback_data["agent_name"] == "my-agent"
+        assert callback_data["model_name"] == "gpt-4"
         assert callback_data["response_text"] == "Task completed"
         assert callback_data["session_id"] == "session-123"
+        assert callback_data["success"] is True
         assert callback_data["metadata"] == {"model": "gpt-4"}
 
     @pytest.mark.asyncio
-    async def test_agent_response_complete_triggers_sync_callbacks(self):
+    async def test_agent_run_end_triggers_sync_callbacks(self):
         """Test that sync callbacks also work."""
         callback_data = {}
 
         def capture_completion(
-            agent_name, response_text, session_id=None, metadata=None
+            agent_name,
+            model_name,
+            session_id=None,
+            success=True,
+            error=None,
+            response_text=None,
+            metadata=None,
         ):
             callback_data["agent_name"] = agent_name
             callback_data["response_text"] = response_text
 
-        register_callback("agent_response_complete", capture_completion)
+        register_callback("agent_run_end", capture_completion)
 
-        await on_agent_response_complete(
+        await on_agent_run_end(
             agent_name="sync-agent",
+            model_name="gpt-4",
             response_text="Sync response",
         )
 
@@ -221,28 +241,36 @@ class TestAgentResponseCompleteCallback:
         assert callback_data["response_text"] == "Sync response"
 
     @pytest.mark.asyncio
-    async def test_agent_response_complete_detects_completion_signal(self):
+    async def test_agent_run_end_detects_completion_signal(self):
         """Test detecting Ralph's COMPLETE signal in response."""
         detected_complete = []
 
         async def check_for_complete(
-            agent_name, response_text, session_id=None, metadata=None
+            agent_name,
+            model_name,
+            session_id=None,
+            success=True,
+            error=None,
+            response_text=None,
+            metadata=None,
         ):
             if response_text and "<promise>COMPLETE</promise>" in response_text:
                 detected_complete.append(agent_name)
 
-        register_callback("agent_response_complete", check_for_complete)
+        register_callback("agent_run_end", check_for_complete)
 
         # Response without completion signal
-        await on_agent_response_complete(
+        await on_agent_run_end(
             agent_name="agent1",
+            model_name="gpt-4",
             response_text="Still working...",
         )
         assert len(detected_complete) == 0
 
         # Response WITH completion signal
-        await on_agent_response_complete(
+        await on_agent_run_end(
             agent_name="agent2",
+            model_name="gpt-4",
             response_text="All done! <promise>COMPLETE</promise>",
         )
         assert len(detected_complete) == 1

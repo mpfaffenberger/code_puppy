@@ -52,7 +52,10 @@ from pydantic_ai.messages import (
 from rich.text import Text
 
 from code_puppy.agents.event_stream_handler import event_stream_handler
-from code_puppy.callbacks import on_agent_response_complete
+from code_puppy.callbacks import (
+    on_agent_run_end,
+    on_agent_run_start,
+)
 
 # Consolidated relative imports
 from code_puppy.config import (
@@ -2009,6 +2012,17 @@ class BaseAgent(ABC):
         # Create the task FIRST
         agent_task = asyncio.create_task(run_agent_task())
 
+        # Fire agent_run_start hook - plugins can use this to start background tasks
+        # (e.g., token refresh heartbeats for OAuth models)
+        try:
+            await on_agent_run_start(
+                agent_name=self.name,
+                model_name=self.get_model_name(),
+                session_id=group_id,
+            )
+        except Exception:
+            pass  # Don't fail agent run if hook fails
+
         # Import shell process status helper
 
         loop = asyncio.get_running_loop()
@@ -2094,39 +2108,53 @@ class BaseAgent(ABC):
                 except Exception:
                     pass  # Don't fail the run if cache update fails
 
-            # Trigger agent_response_complete callback for workflow orchestration
-            try:
-                # Extract the response text from the result
-                response_text = ""
-                if result is not None:
-                    if hasattr(result, "data"):
-                        response_text = str(result.data) if result.data else ""
-                    elif hasattr(result, "output"):
-                        response_text = str(result.output) if result.output else ""
-                    else:
-                        response_text = str(result)
+            # Extract response text for the callback
+            _run_response_text = ""
+            if result is not None:
+                if hasattr(result, "data"):
+                    _run_response_text = str(result.data) if result.data else ""
+                elif hasattr(result, "output"):
+                    _run_response_text = str(result.output) if result.output else ""
+                else:
+                    _run_response_text = str(result)
 
-                # Fire the callback - don't await to avoid blocking return
-                # Use asyncio.create_task to run it in background
-                asyncio.create_task(
-                    on_agent_response_complete(
-                        agent_name=self.name,
-                        response_text=response_text,
-                        session_id=group_id,
-                        metadata={"model": self.get_model_name()},
-                    )
-                )
-            except Exception:
-                pass  # Don't fail the run if callback fails
-
+            _run_success = True
+            _run_error = None
             return result
         except asyncio.CancelledError:
+            _run_success = False
+            _run_error = None  # Cancellation is not an error
+            _run_response_text = ""
             agent_task.cancel()
         except KeyboardInterrupt:
-            # Handle direct keyboard interrupt during await
+            _run_success = False
+            _run_error = None  # User interrupt is not an error
+            _run_response_text = ""
             if not agent_task.done():
                 agent_task.cancel()
+        except Exception as e:
+            _run_success = False
+            _run_error = e
+            _run_response_text = ""
+            raise
         finally:
+            # Fire agent_run_end hook - plugins can use this for:
+            # - Stopping background tasks (token refresh heartbeats)
+            # - Workflow orchestration (Ralph's autonomous loop)
+            # - Logging/analytics
+            try:
+                await on_agent_run_end(
+                    agent_name=self.name,
+                    model_name=self.get_model_name(),
+                    session_id=group_id,
+                    success=_run_success,
+                    error=_run_error,
+                    response_text=_run_response_text,
+                    metadata={"model": self.get_model_name()},
+                )
+            except Exception:
+                pass  # Don't fail cleanup if hook fails
+
             # Stop keyboard listener if it was started
             if key_listener_stop_event is not None:
                 key_listener_stop_event.set()
