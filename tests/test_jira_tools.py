@@ -599,6 +599,61 @@ class TestJiraCreateIssueWithApplicationService:
         create_call = mock_client.create_issue.call_args
         assert create_call[1]["customfield_20400"] == ["2125770"]
 
+    def test_create_story_without_app_service_fails(self, mock_context):
+        """Test that creating a Story without application_service fails validation."""
+        result = jira_create_issue(
+            mock_context,
+            project_key="PROJ",
+            issue_type="Story",
+            summary="Test Story",
+            # No application_service provided
+        )
+
+        assert result["success"] is False
+        assert result["error_type"] == "validation"
+        assert "application_service field is required" in result["error"]
+        assert "Story" in result["error"]
+
+    def test_create_bug_without_app_service_fails(self, mock_context):
+        """Test that creating a Bug without application_service fails validation."""
+        result = jira_create_issue(
+            mock_context,
+            project_key="PROJ",
+            issue_type="Bug",
+            summary="Test Bug",
+            # No application_service provided
+        )
+
+        assert result["success"] is False
+        assert result["error_type"] == "validation"
+        assert "application_service field is required" in result["error"]
+        assert "Bug" in result["error"]
+
+    def test_create_task_without_app_service_succeeds(self, mock_context):
+        """Test that creating a Task without application_service succeeds."""
+        mock_client = MagicMock()
+        mock_client.create_issue.return_value = {"id": "12345", "key": "PROJ-456"}
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ):
+            result = jira_create_issue(
+                mock_context,
+                project_key="PROJ",
+                issue_type="Task",
+                summary="Test Task",
+                # No application_service provided - this is OK for Tasks
+            )
+
+        assert result["success"] is True
+        assert result["issue_key"] == "PROJ-456"
+        # Verify create_issue was called without application_service field
+        create_call = mock_client.create_issue.call_args
+        # Should not have the application_service custom field
+        assert "customfield_20400" not in create_call[1]
+
 
 class TestJiraUpdateIssueWithApplicationService:
     """Test suite for jira_update_issue with application_service."""
@@ -1174,6 +1229,61 @@ class TestJiraCreateIssueWithApplicationService:
         # Should still work, just without issue context in nFeed call
         create_call = mock_client.create_issue.call_args
         assert create_call[1]["customfield_20400"] == ["2125770"]
+
+    def test_create_story_without_app_service_fails(self, mock_context):
+        """Test that creating a Story without application_service fails validation."""
+        result = jira_create_issue(
+            mock_context,
+            project_key="PROJ",
+            issue_type="Story",
+            summary="Test Story",
+            # No application_service provided
+        )
+
+        assert result["success"] is False
+        assert result["error_type"] == "validation"
+        assert "application_service field is required" in result["error"]
+        assert "Story" in result["error"]
+
+    def test_create_bug_without_app_service_fails(self, mock_context):
+        """Test that creating a Bug without application_service fails validation."""
+        result = jira_create_issue(
+            mock_context,
+            project_key="PROJ",
+            issue_type="Bug",
+            summary="Test Bug",
+            # No application_service provided
+        )
+
+        assert result["success"] is False
+        assert result["error_type"] == "validation"
+        assert "application_service field is required" in result["error"]
+        assert "Bug" in result["error"]
+
+    def test_create_task_without_app_service_succeeds(self, mock_context):
+        """Test that creating a Task without application_service succeeds."""
+        mock_client = MagicMock()
+        mock_client.create_issue.return_value = {"id": "12345", "key": "PROJ-456"}
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ):
+            result = jira_create_issue(
+                mock_context,
+                project_key="PROJ",
+                issue_type="Task",
+                summary="Test Task",
+                # No application_service provided - this is OK for Tasks
+            )
+
+        assert result["success"] is True
+        assert result["issue_key"] == "PROJ-456"
+        # Verify create_issue was called without application_service field
+        create_call = mock_client.create_issue.call_args
+        # Should not have the application_service custom field
+        assert "customfield_20400" not in create_call[1]
 
 
 class TestJiraUpdateIssueWithApplicationService:
@@ -2249,6 +2359,61 @@ class TestJiraCreateIssueWithApplicationService:
         # Should still work, just without issue context in nFeed call
         create_call = mock_client.create_issue.call_args
         assert create_call[1]["customfield_20400"] == ["2125770"]
+
+    def test_create_story_without_app_service_fails(self, mock_context):
+        """Test that creating a Story without application_service fails validation."""
+        result = jira_create_issue(
+            mock_context,
+            project_key="PROJ",
+            issue_type="Story",
+            summary="Test Story",
+            # No application_service provided
+        )
+
+        assert result["success"] is False
+        assert result["error_type"] == "validation"
+        assert "application_service field is required" in result["error"]
+        assert "Story" in result["error"]
+
+    def test_create_bug_without_app_service_fails(self, mock_context):
+        """Test that creating a Bug without application_service fails validation."""
+        result = jira_create_issue(
+            mock_context,
+            project_key="PROJ",
+            issue_type="Bug",
+            summary="Test Bug",
+            # No application_service provided
+        )
+
+        assert result["success"] is False
+        assert result["error_type"] == "validation"
+        assert "application_service field is required" in result["error"]
+        assert "Bug" in result["error"]
+
+    def test_create_task_without_app_service_succeeds(self, mock_context):
+        """Test that creating a Task without application_service succeeds."""
+        mock_client = MagicMock()
+        mock_client.create_issue.return_value = {"id": "12345", "key": "PROJ-456"}
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ):
+            result = jira_create_issue(
+                mock_context,
+                project_key="PROJ",
+                issue_type="Task",
+                summary="Test Task",
+                # No application_service provided - this is OK for Tasks
+            )
+
+        assert result["success"] is True
+        assert result["issue_key"] == "PROJ-456"
+        # Verify create_issue was called without application_service field
+        create_call = mock_client.create_issue.call_args
+        # Should not have the application_service custom field
+        assert "customfield_20400" not in create_call[1]
 
 
 class TestJiraUpdateIssueWithApplicationService:
