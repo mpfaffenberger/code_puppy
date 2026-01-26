@@ -3,8 +3,11 @@
 import asyncio
 import json
 import math
+import pathlib
 import signal
 import threading
+import time
+import traceback
 import uuid
 from abc import ABC, abstractmethod
 from typing import (
@@ -37,6 +40,7 @@ from pydantic_ai.durable_exec.dbos import DBOSAgent
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
+    ModelResponse,
     TextPart,
     ThinkingPart,
     ToolCallPart,
@@ -86,6 +90,49 @@ from code_puppy.tools.command_runner import (
 _delayed_compaction_requested = False
 
 _reload_count = 0
+
+
+def _log_error_to_file(exc: Exception) -> Optional[str]:
+    """Log detailed error information to ~/.code_puppy/error_logs/log_{timestamp}.txt.
+
+    Args:
+        exc: The exception to log.
+
+    Returns:
+        The path to the log file if successful, None otherwise.
+    """
+    try:
+        error_logs_dir = pathlib.Path.home() / ".code_puppy" / "error_logs"
+        error_logs_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        log_file = error_logs_dir / f"log_{timestamp}.txt"
+
+        with open(log_file, "w", encoding="utf-8") as f:
+            f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Exception Type: {type(exc).__name__}\n")
+            f.write(f"Exception Message: {str(exc)}\n")
+            f.write(f"Exception Args: {exc.args}\n")
+            f.write("\n--- Full Traceback ---\n")
+            f.write(traceback.format_exc())
+            f.write("\n--- Exception Chain ---\n")
+            # Walk the exception chain for chained exceptions
+            current = exc
+            chain_depth = 0
+            while current is not None and chain_depth < 10:
+                f.write(
+                    f"\n[Cause {chain_depth}] {type(current).__name__}: {current}\n"
+                )
+                f.write("".join(traceback.format_tb(current.__traceback__)))
+                current = (
+                    current.__cause__ if current.__cause__ else current.__context__
+                )
+                chain_depth += 1
+
+        return str(log_file)
+    except Exception:
+        # Don't let logging errors break the main flow
+        return None
 
 
 class BaseAgent(ABC):
@@ -264,6 +311,33 @@ class BaseAgent(ABC):
             cleaned.append(message)
         return cleaned
 
+    def ensure_history_ends_with_request(
+        self, messages: List[ModelMessage]
+    ) -> List[ModelMessage]:
+        """Ensure message history ends with a ModelRequest.
+
+        pydantic_ai requires that processed message history ends with a ModelRequest.
+        This can fail when swapping models mid-conversation if the history ends with
+        a ModelResponse from the previous model.
+
+        This method trims trailing ModelResponse messages to ensure compatibility.
+
+        Args:
+            messages: List of messages to validate/fix.
+
+        Returns:
+            List of messages guaranteed to end with ModelRequest, or empty list
+            if no ModelRequest is found.
+        """
+        if not messages:
+            return messages
+
+        # Trim trailing ModelResponse messages
+        while messages and isinstance(messages[-1], ModelResponse):
+            messages = messages[:-1]
+
+        return messages
+
     # Message history processing methods (moved from state_management.py and message_history_processor.py)
     def _stringify_part(self, part: Any) -> str:
         """Create a stable string representation for a message part.
@@ -372,10 +446,10 @@ class BaseAgent(ABC):
 
     def estimate_token_count(self, text: str) -> int:
         """
-        Simple token estimation using len(message) / 3.
+        Simple token estimation using len(message) / 2.5.
         This replaces tiktoken with a much simpler approach.
         """
-        return max(1, math.floor((len(text) / 3)))
+        return max(1, math.floor((len(text) / 2.5)))
 
     def estimate_tokens_for_message(self, message: ModelMessage) -> int:
         """
