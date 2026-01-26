@@ -144,6 +144,19 @@ def set_universal_constructor_enabled(enabled: bool) -> None:
     set_value("enable_universal_constructor", "true" if enabled else "false")
 
 
+def get_enable_streaming() -> bool:
+    """
+    Get the enable_streaming configuration value.
+    Controls whether streaming (SSE) is used for model responses.
+    Returns True if streaming is enabled, False otherwise.
+    Defaults to True.
+    """
+    val = get_value("enable_streaming")
+    if val is None:
+        return True  # Default to True for better UX
+    return str(val).lower() in ("1", "true", "yes", "on")
+
+
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
 
@@ -289,6 +302,8 @@ def get_config_keys():
     default_keys.append("enable_pack_agents")
     # Add universal constructor control key
     default_keys.append("enable_universal_constructor")
+    # Add streaming control key
+    default_keys.append("enable_streaming")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
     # Add banner color keys
