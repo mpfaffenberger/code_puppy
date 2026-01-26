@@ -8,12 +8,40 @@ import atexit
 import contextvars
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Dict, Optional
 
 from playwright.async_api import Browser, BrowserContext, Page
 
 from code_puppy import config
 from code_puppy.messaging import emit_info, emit_success, emit_warning
+
+# Registry for custom browser types from plugins (e.g., Camoufox for stealth browsing)
+_CUSTOM_BROWSER_TYPES: Dict[str, Callable] = {}
+_BROWSER_TYPES_LOADED: bool = False
+
+
+def _load_plugin_browser_types() -> None:
+    """Load custom browser types from plugins.
+
+    This is called lazily on first browser initialization to allow plugins
+    to register custom browser providers (like Camoufox for stealth browsing).
+    """
+    global _CUSTOM_BROWSER_TYPES, _BROWSER_TYPES_LOADED
+
+    if _BROWSER_TYPES_LOADED:
+        return
+
+    _BROWSER_TYPES_LOADED = True
+
+    try:
+        from code_puppy.callbacks import on_register_browser_types
+
+        results = on_register_browser_types()
+        for result in results:
+            if isinstance(result, dict):
+                _CUSTOM_BROWSER_TYPES.update(result)
+    except Exception:
+        pass  # Don't break if plugins fail to load
 
 # Store active manager instances by session ID
 _active_managers: dict[str, "BrowserManager"] = {}
@@ -78,14 +106,19 @@ class BrowserManager:
     _context: Optional[BrowserContext] = None
     _initialized: bool = False
 
-    def __init__(self, session_id: Optional[str] = None):
+    def __init__(
+        self, session_id: Optional[str] = None, browser_type: Optional[str] = None
+    ):
         """Initialize manager settings.
 
         Args:
             session_id: Optional session ID for this instance.
                 If None, uses 'default' as the session ID.
+            browser_type: Optional browser type to use. If None, uses Chromium.
+                Custom types can be registered via the register_browser_types hook.
         """
         self.session_id = session_id or "default"
+        self.browser_type = browser_type  # None means default Chromium
 
         # Default to headless=True (no browser spam during tests)
         # Override with BROWSER_HEADLESS=false to see the browser
@@ -124,7 +157,27 @@ class BrowserManager:
             raise
 
     async def _initialize_browser(self) -> None:
-        """Initialize Playwright Chromium browser with persistent context."""
+        """Initialize browser with persistent context.
+
+        Checks for custom browser types registered via plugins first,
+        then falls back to default Playwright Chromium.
+        """
+        # Load plugin browser types on first initialization
+        _load_plugin_browser_types()
+
+        # Check if a custom browser type was requested and is available
+        if self.browser_type and self.browser_type in _CUSTOM_BROWSER_TYPES:
+            emit_info(
+                f"Using custom browser type '{self.browser_type}' "
+                f"(session: {self.session_id})"
+            )
+            init_func = _CUSTOM_BROWSER_TYPES[self.browser_type]
+            # Custom init functions should set self._context and self._browser
+            await init_func(self)
+            self._initialized = True
+            return
+
+        # Default: use Playwright Chromium
         from playwright.async_api import async_playwright
 
         emit_info(f"Using persistent profile: {self.profile_dir}")
@@ -220,13 +273,18 @@ class BrowserManager:
         emit_info(f"Browser closed (session: {self.session_id})")
 
 
-def get_browser_manager(session_id: Optional[str] = None) -> BrowserManager:
+def get_browser_manager(
+    session_id: Optional[str] = None, browser_type: Optional[str] = None
+) -> BrowserManager:
     """Get or create a BrowserManager instance.
 
     Args:
         session_id: Optional session ID. If provided and a manager with this
             session exists, returns that manager. Otherwise creates a new one.
             If None, uses 'default' as the session ID.
+        browser_type: Optional browser type to use for new managers.
+            Ignored if a manager for this session already exists.
+            Custom types can be registered via the register_browser_types hook.
 
     Returns:
         A BrowserManager instance.
@@ -237,11 +295,14 @@ def get_browser_manager(session_id: Optional[str] = None) -> BrowserManager:
 
         # Named session (for multi-agent use)
         manager = get_browser_manager("qa-agent-1")
+
+        # Custom browser type (e.g., stealth browser from plugin)
+        manager = get_browser_manager("stealth-session", browser_type="camoufox")
     """
     session_id = session_id or "default"
 
     if session_id not in _active_managers:
-        _active_managers[session_id] = BrowserManager(session_id)
+        _active_managers[session_id] = BrowserManager(session_id, browser_type)
 
     return _active_managers[session_id]
 
