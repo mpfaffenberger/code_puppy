@@ -769,6 +769,177 @@ def register_jira_list_projects(agent: Any) -> Tool:
 
 
 # =============================================================================
+# JIRA LIST APPLICATION/SERVICE OPTIONS TOOL
+# =============================================================================
+
+
+def jira_list_application_services(
+    ctx: RunContext,
+    project_key: str | None = None,
+    search_query: str | None = None,
+    max_results: int = 50,
+) -> dict[str, Any]:
+    """List available Application/Service field options.
+
+    This tool helps discover valid Application/Service hierarchies required
+    when creating Stories and Bugs. Each option represents a 3-level hierarchy
+    (e.g., "EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan").
+
+    Use this tool to:
+    - Find valid Application/Service paths for a project
+    - Search for specific services by keyword
+    - Recover from validation errors by finding similar options
+    - Help users discover available services
+
+    Args:
+        ctx: PydanticAI run context.
+        project_key: Optional project key to use as context for fetching options.
+            Providing a project key may return more relevant results.
+        search_query: Optional search string to filter results. Searches across
+            all three levels of the hierarchy (case-insensitive).
+        max_results: Maximum number of results to return. Defaults to 50.
+            Values above 100 are capped to 100.
+
+    Returns:
+        dict[str, Any]: Application/Service options containing:
+            - success (bool): Whether the request succeeded.
+            - options (list[dict]): List of available options, each containing:
+                - id (str): The unique identifier to use when setting the field.
+                - path (str): Formatted path "Level1 -> Level2 -> Level3".
+                - levels (list[str]): Individual hierarchy levels [L1, L2, L3].
+            - total (int): Total number of options (before filtering).
+            - returned (int): Number of options returned (after filtering).
+            - filtered (bool): Whether results were filtered by search_query.
+            - error (str, optional): Error message if request failed.
+
+    Example:
+        # List all available Application/Service options
+        jira_list_application_services()
+
+        # Search for payment-related services
+        jira_list_application_services(search_query="payment")
+
+        # Get options with project context
+        jira_list_application_services(project_key="PROJ")
+    """
+    action_parts = []
+    if search_query:
+        action_parts.append(f"searching for '{search_query}'")
+    if project_key:
+        action_parts.append(f"in project {project_key}")
+    action = " ".join(action_parts) if action_parts else "listing all options"
+
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] JIRA APP/SERVICE [/bold white on blue] "
+            f"🔍 [bold cyan]{action}[/bold cyan]"
+        )
+    )
+
+    try:
+        with JiraClient() as client:
+            # Build the nFeed API request payload
+            app_service_field = get_application_service_field()
+            payload = {
+                "customFieldId": app_service_field,
+                "userInput": "",
+                "view": "EDIT",
+                "startIndex": 0,
+            }
+
+            # Add project context if provided
+            issue_id = None
+            if project_key:
+                try:
+                    # Find a recent issue in the project to use as context
+                    search_results = client.search_issues(
+                        jql=f"project = {project_key} ORDER BY created DESC",
+                        max_results=1,
+                        fields=["key"],
+                    )
+                    if search_results.get("issues"):
+                        issue_id = search_results["issues"][0]["id"]
+                        payload["fieldContext"] = {"issueKeyOrId": issue_id}
+                except Exception:
+                    # If we can't find a project issue, continue without context
+                    pass
+
+            # Fetch options from nFeed API
+            try:
+                response = client._make_request(
+                    "POST",
+                    "/rest/nfeed/3.0/nFeed/field/input/options",
+                    json=payload,
+                )
+            except Exception as e:
+                raise ValueError(f"Failed to fetch Application/Service options: {e}")
+
+            # Parse the response
+            raw_options = response.get("options", [])
+
+            # Format options for easy consumption
+            formatted_options = []
+            for option in raw_options:
+                option_id = option.get("id")
+                values = option.get("values", [])
+
+                # Each option should have exactly 3 levels
+                if len(values) == 3:
+                    path = " -> ".join(values)
+                    formatted_options.append({
+                        "id": option_id,
+                        "path": path,
+                        "levels": values,
+                    })
+
+            # Apply search filter if provided
+            filtered = False
+            if search_query:
+                filtered = True
+                search_lower = search_query.lower()
+                formatted_options = [
+                    opt for opt in formatted_options
+                    if search_lower in opt["path"].lower()
+                ]
+
+            # Apply max_results limit
+            effective_max = min(max_results, 100)
+            total_before_limit = len(formatted_options)
+            formatted_options = formatted_options[:effective_max]
+
+            emit_success(
+                f"Found {total_before_limit} option(s), returning {len(formatted_options)}"
+            )
+
+            return {
+                "success": True,
+                "options": formatted_options,
+                "total": len(raw_options),
+                "returned": len(formatted_options),
+                "filtered": filtered,
+                "hint": (
+                    "Use the 'path' value when setting application_service. "
+                    "Example: application_service='EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan'"
+                ),
+            }
+
+    except Exception as e:
+        return _handle_jira_error(e)
+
+
+def register_jira_list_application_services(agent: Any) -> Tool:
+    """Register the jira_list_application_services tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance to register the tool with.
+
+    Returns:
+        Tool: The registered Tool instance.
+    """
+    return agent.tool(jira_list_application_services)
+
+
+# =============================================================================
 # JIRA GET ISSUE TOOL
 # =============================================================================
 
