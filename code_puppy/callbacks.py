@@ -29,6 +29,7 @@ PhaseType = Literal[
     "agent_run_start",
     "agent_run_end",
     "register_mcp_catalog_servers",
+    "register_browser_types",
     "get_motd",
     "register_model_providers",
 ]
@@ -60,6 +61,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "agent_run_start": [],
     "agent_run_end": [],
     "register_mcp_catalog_servers": [],
+    "register_browser_types": [],
     "get_motd": [],
     "register_model_providers": [],
 }
