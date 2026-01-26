@@ -28,6 +28,7 @@ PhaseType = Literal[
     "get_model_system_prompt",
     "agent_run_start",
     "agent_run_end",
+    "register_mcp_catalog_servers",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -56,6 +57,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "get_model_system_prompt": [],
     "agent_run_start": [],
     "agent_run_end": [],
+    "register_mcp_catalog_servers": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -523,3 +525,15 @@ async def on_agent_run_end(
         response_text,
         metadata,
     )
+
+
+def on_register_mcp_catalog_servers() -> List[Any]:
+    """Trigger callbacks to register additional MCP catalog servers.
+
+    Plugins can register callbacks that return List[MCPServerTemplate] to add
+    servers to the MCP catalog/marketplace.
+
+    Returns:
+        List of results from all registered callbacks (each should be a list of MCPServerTemplate).
+    """
+    return _trigger_callbacks_sync("register_mcp_catalog_servers")

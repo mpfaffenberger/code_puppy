@@ -306,6 +306,7 @@ class TestGetConfigKeys:
                 "enable_streaming",
                 "enable_dbos",
                 "enable_pack_agents",
+                "enable_streaming",
                 "enable_universal_constructor",
                 "frontend_emitter_enabled",
                 "frontend_emitter_max_recent_events",

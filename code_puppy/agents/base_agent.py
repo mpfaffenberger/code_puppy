@@ -3,6 +3,7 @@
 import asyncio
 import json
 import math
+import pathlib
 import signal
 import threading
 import time
@@ -364,6 +365,33 @@ class BaseAgent(ABC):
             cleaned.append(message)
         return cleaned
 
+    def ensure_history_ends_with_request(
+        self, messages: List[ModelMessage]
+    ) -> List[ModelMessage]:
+        """Ensure message history ends with a ModelRequest.
+
+        pydantic_ai requires that processed message history ends with a ModelRequest.
+        This can fail when swapping models mid-conversation if the history ends with
+        a ModelResponse from the previous model.
+
+        This method trims trailing ModelResponse messages to ensure compatibility.
+
+        Args:
+            messages: List of messages to validate/fix.
+
+        Returns:
+            List of messages guaranteed to end with ModelRequest, or empty list
+            if no ModelRequest is found.
+        """
+        if not messages:
+            return messages
+
+        # Trim trailing ModelResponse messages
+        while messages and isinstance(messages[-1], ModelResponse):
+            messages = messages[:-1]
+
+        return messages
+
     # Message history processing methods (moved from state_management.py and message_history_processor.py)
     def _stringify_part(self, part: Any) -> str:
         """Create a stable string representation for a message part.
@@ -472,7 +500,7 @@ class BaseAgent(ABC):
 
     def estimate_token_count(self, text: str) -> int:
         """
-        Simple token estimation using len(message) / 3.
+        Simple token estimation using len(message) / 2.5.
         This replaces tiktoken with a much simpler approach.
         """
         return max(1, math.floor((len(text) / 2.5)))

@@ -26,12 +26,12 @@ class TestTokenEstimation:
         """Test token estimation for simple text."""
         text = "Hello, world!"
         token_count = agent.estimate_token_count(text)
-        # Formula: max(1, floor(len(text) / 3))
+        # Formula: max(1, floor(len(text) / 2.5))
         # len("Hello, world!") = 13
-        # floor(13 / 3) = 4
-        expected = max(1, math.floor(len(text) / 3))
+        # floor(13 / 2.5) = 5
+        expected = max(1, math.floor(len(text) / 2.5))
         assert token_count == expected
-        assert token_count == 4
+        assert token_count == 5
 
     def test_estimate_token_count_empty_string(self, agent):
         """Test token estimation for empty string returns minimum of 1."""
@@ -44,7 +44,7 @@ class TestTokenEstimation:
         """Test token estimation for single character."""
         text = "a"
         token_count = agent.estimate_token_count(text)
-        # floor(1 / 3) = 0, but max(1, 0) = 1
+        # floor(1 / 2.5) = 0, but max(1, 0) = 1
         assert token_count == 1
 
     def test_estimate_token_count_large_text(self, agent):
@@ -52,46 +52,46 @@ class TestTokenEstimation:
         # Create a large text string
         text = "x" * 3000  # 3000 characters
         token_count = agent.estimate_token_count(text)
-        # floor(3000 / 3) = 1000
-        expected = max(1, math.floor(3000 / 3))
+        # floor(3000 / 2.5) = 1200
+        expected = max(1, math.floor(3000 / 2.5))
         assert token_count == expected
-        assert token_count == 1000
+        assert token_count == 1200
 
     def test_estimate_token_count_medium_text(self, agent):
         """Test token estimation for medium-sized text."""
         text = "a" * 100
         token_count = agent.estimate_token_count(text)
-        # floor(100 / 3) = 33
-        expected = max(1, math.floor(100 / 3))
+        # floor(100 / 2.5) = 40
+        expected = max(1, math.floor(100 / 2.5))
         assert token_count == expected
-        assert token_count == 33
+        assert token_count == 40
 
     def test_estimate_token_count_two_chars(self, agent):
         """Test token estimation for two characters."""
         text = "ab"
         token_count = agent.estimate_token_count(text)
-        # floor(2 / 3) = 0, but max(1, 0) = 1
+        # floor(2 / 2.5) = 0, but max(1, 0) = 1
         assert token_count == 1
 
     def test_estimate_token_count_three_chars(self, agent):
         """Test token estimation for exactly three characters."""
         text = "abc"
         token_count = agent.estimate_token_count(text)
-        # floor(3 / 3) = 1
+        # floor(3 / 2.5) = 1
         assert token_count == 1
 
     def test_estimate_token_count_four_chars(self, agent):
         """Test token estimation for four characters."""
         text = "abcd"
         token_count = agent.estimate_token_count(text)
-        # floor(4 / 3) = 1
+        # floor(4 / 2.5) = 1
         assert token_count == 1
 
     def test_estimate_token_count_six_chars(self, agent):
         """Test token estimation for six characters."""
         text = "abcdef"
         token_count = agent.estimate_token_count(text)
-        # floor(6 / 3) = 2
+        # floor(6 / 2.5) = 2
         assert token_count == 2
 
     # Tests for estimate_tokens_for_message
@@ -103,7 +103,7 @@ class TestTokenEstimation:
         message = ModelRequest(parts=[TextPart(content=text_content)])
         token_count = agent.estimate_tokens_for_message(message)
         # Should call estimate_token_count on the text
-        expected = max(1, math.floor(len(text_content) / 3))
+        expected = max(1, math.floor(len(text_content) / 2.5))
         assert token_count == expected
 
     def test_estimate_tokens_for_message_multiple_parts(self, agent):
@@ -138,10 +138,10 @@ class TestTokenEstimation:
         large_text = "x" * 9000
         message = ModelRequest(parts=[TextPart(content=large_text)])
         token_count = agent.estimate_tokens_for_message(message)
-        # floor(9000 / 3) = 3000
-        expected = max(1, math.floor(9000 / 3))
+        # floor(9000 / 2.5) = 3600
+        expected = max(1, math.floor(9000 / 2.5))
         assert token_count == expected
-        assert token_count == 3000
+        assert token_count == 3600
 
     # Tests for filter_huge_messages
 
@@ -193,13 +193,13 @@ class TestTokenEstimation:
     def test_filter_huge_messages_boundary_at_50000(self, agent):
         """Test filter_huge_messages behavior at 50000 token boundary."""
         # Create a message with approximately 50000 tokens
-        # 50000 tokens = 150000 characters (using 3 chars per token)
-        boundary_text = "x" * (50000 * 3)  # Exactly at boundary
+        # 50000 tokens = 125000 characters (using 2.5 chars per token)
+        boundary_text = "x" * int(50000 * 2.5)  # Exactly at boundary
         boundary_message = ModelRequest(parts=[TextPart(content=boundary_text)])
 
         # Create a message with exactly one character below the boundary
         # (so it has 49999 tokens)
-        just_under_text = "x" * (49999 * 3 + 2)  # Just under boundary
+        just_under_text = "x" * int(49999 * 2.5 + 1)  # Just under boundary
         just_under_message = ModelRequest(parts=[TextPart(content=just_under_text)])
 
         # Test at boundary - 50000 tokens should be filtered out
@@ -378,15 +378,16 @@ class TestTokenEstimationIntegration:
 
     def test_token_count_formula_precision(self, agent):
         """Test token count formula precision with various text lengths."""
+        # Formula: max(1, floor(len/2.5))
         test_cases = [
             (0, 1),  # Empty string returns 1
-            (1, 1),  # 1 char -> floor(1/3) = 0 -> max(1, 0) = 1
-            (2, 1),  # 2 chars -> floor(2/3) = 0 -> max(1, 0) = 1
-            (3, 1),  # 3 chars -> floor(3/3) = 1
-            (6, 2),  # 6 chars -> floor(6/3) = 2
-            (9, 3),  # 9 chars -> floor(9/3) = 3
-            (100, 33),  # 100 chars -> floor(100/3) = 33
-            (300, 100),  # 300 chars -> floor(300/3) = 100
+            (1, 1),  # 1 char -> floor(1/2.5) = 0 -> max(1, 0) = 1
+            (2, 1),  # 2 chars -> floor(2/2.5) = 0 -> max(1, 0) = 1
+            (3, 1),  # 3 chars -> floor(3/2.5) = 1
+            (6, 2),  # 6 chars -> floor(6/2.5) = 2
+            (9, 3),  # 9 chars -> floor(9/2.5) = 3
+            (100, 40),  # 100 chars -> floor(100/2.5) = 40
+            (300, 120),  # 300 chars -> floor(300/2.5) = 120
         ]
 
         for length, expected in test_cases:
