@@ -14,6 +14,7 @@ PhaseType = Literal[
     "run_shell_command",
     "run_shell_command_output",
     "load_model_config",
+    "load_models_config",
     "load_prompt",
     "agent_reload",
     "custom_command",
@@ -29,6 +30,9 @@ PhaseType = Literal[
     "agent_run_start",
     "agent_run_end",
     "register_mcp_catalog_servers",
+    "register_browser_types",
+    "get_motd",
+    "register_model_providers",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -43,6 +47,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "run_shell_command": [],
     "run_shell_command_output": [],
     "load_model_config": [],
+    "load_models_config": [],
     "load_prompt": [],
     "agent_reload": [],
     "custom_command": [],
@@ -58,6 +63,9 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "agent_run_start": [],
     "agent_run_end": [],
     "register_mcp_catalog_servers": [],
+    "register_browser_types": [],
+    "get_motd": [],
+    "register_model_providers": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -206,6 +214,19 @@ async def on_version_check(*args, **kwargs) -> List[Any]:
 
 def on_load_model_config(*args, **kwargs) -> List[Any]:
     return _trigger_callbacks_sync("load_model_config", *args, **kwargs)
+
+
+def on_load_models_config() -> List[Any]:
+    """Trigger callbacks to load additional model configurations.
+
+    Plugins can register callbacks that return a dict of model configurations
+    to be merged with the built-in models.json. Plugin models override built-in
+    models with the same name.
+
+    Returns:
+        List of model config dicts from all registered callbacks.
+    """
+    return _trigger_callbacks_sync("load_models_config")
 
 
 def on_edit_file(*args, **kwargs) -> Any:
@@ -537,3 +558,52 @@ def on_register_mcp_catalog_servers() -> List[Any]:
         List of results from all registered callbacks (each should be a list of MCPServerTemplate).
     """
     return _trigger_callbacks_sync("register_mcp_catalog_servers")
+
+
+def on_register_browser_types() -> List[Any]:
+    """Trigger callbacks to register custom browser types/providers.
+
+    Plugins can register callbacks that return a dict mapping browser type names
+    to initialization functions. This allows plugins to provide custom browser
+    implementations (like Camoufox for stealth browsing).
+
+    Each callback should return a dict with:
+    - key: str - the browser type name (e.g., "camoufox", "firefox-stealth")
+    - value: callable - async initialization function that takes (manager, **kwargs)
+                        and sets up the browser on the manager instance
+
+    Example callback:
+        def register_my_browser_types():
+            return {
+                "camoufox": initialize_camoufox,
+                "my-stealth-browser": initialize_my_stealth,
+            }
+
+    Returns:
+        List of dicts from all registered callbacks.
+    """
+    return _trigger_callbacks_sync("register_browser_types")
+
+
+def on_get_motd() -> List[Any]:
+    """Trigger callbacks to get custom MOTD content.
+
+    Plugins can register callbacks that return a tuple of (message, version).
+    The last non-None result will be used as the MOTD.
+
+    Returns:
+        List of (message, version) tuples from registered callbacks.
+    """
+    return _trigger_callbacks_sync("get_motd")
+
+
+def on_register_model_providers() -> List[Any]:
+    """Trigger callbacks to register custom model provider classes.
+
+    Plugins can register callbacks that return a dict mapping provider names
+    to model classes. Example: {"walmart_gemini": WalmartGeminiModel}
+
+    Returns:
+        List of dicts from all registered callbacks.
+    """
+    return _trigger_callbacks_sync("register_model_providers")

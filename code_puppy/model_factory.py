@@ -30,6 +30,26 @@ from .round_robin_model import RoundRobinModel
 
 logger = logging.getLogger(__name__)
 
+# Registry for custom model provider classes from plugins
+_CUSTOM_MODEL_PROVIDERS: Dict[str, type] = {}
+
+
+def _load_plugin_model_providers():
+    """Load custom model providers from plugins."""
+    global _CUSTOM_MODEL_PROVIDERS
+    try:
+        from code_puppy.callbacks import on_register_model_providers
+        results = on_register_model_providers()
+        for result in results:
+            if isinstance(result, dict):
+                _CUSTOM_MODEL_PROVIDERS.update(result)
+    except Exception:
+        pass  # Don't break if plugins fail
+
+
+# Load plugin model providers at module initialization
+_load_plugin_model_providers()
+
 
 def get_api_key(env_var_name: str) -> str | None:
     """Get an API key from config first, then fall back to environment variable.
@@ -279,6 +299,20 @@ class ModelFactory:
                 logging.getLogger(__name__).warning(
                     f"Failed to load {label} config from {source_path}: {exc}"
                 )
+
+        # Let plugins add/override models via load_models_config hook
+        try:
+            from code_puppy.callbacks import on_load_models_config
+
+            results = on_load_models_config()
+            for result in results:
+                if isinstance(result, dict):
+                    config.update(result)  # Plugin models override built-in
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                f"Failed to load plugin models config: {exc}"
+            )
+
         return config
 
     @staticmethod
@@ -293,6 +327,15 @@ class ModelFactory:
             raise ValueError(f"Model '{model_name}' not found in configuration.")
 
         model_type = model_config.get("type")
+
+        # Check for plugin-registered model provider classes first
+        if model_type in _CUSTOM_MODEL_PROVIDERS:
+            provider_class = _CUSTOM_MODEL_PROVIDERS[model_type]
+            try:
+                return provider_class(model_name=model_name, model_config=model_config, config=config)
+            except Exception as e:
+                logger.error(f"Custom model provider '{model_type}' failed: {e}")
+                return None
 
         if model_type == "gemini":
             api_key = get_api_key("GEMINI_API_KEY")
