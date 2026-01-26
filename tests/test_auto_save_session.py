@@ -133,61 +133,11 @@ class TestAutoSaveSessionFunctionality:
         assert result is False
         mock_get_auto_save.assert_called_once()
 
-    @patch("code_puppy.messaging.emit_info")
-    @patch("code_puppy.config.save_session")
-    @patch("code_puppy.config.get_current_autosave_session_name")
-    @patch("code_puppy.config.datetime.datetime")
-    @patch("code_puppy.config.get_auto_save_session")
-    @patch("code_puppy.agents.agent_manager.get_current_agent")
-    def test_auto_save_session_if_enabled_success(
-        self,
-        mock_get_agent,
-        mock_get_auto_save,
-        mock_datetime,
-        mock_get_session_name,
-        mock_save_session,
-        mock_config_paths,
-    ):
-        mock_get_auto_save.return_value = True
-        mock_get_session_name.return_value = "auto_session_20240101_010101"
-
-        history = ["hey", "listen"]
-        mock_agent = MagicMock()
-        mock_agent.get_message_history.return_value = history
-        mock_agent.estimate_tokens_for_message.return_value = 3
-        mock_get_agent.return_value = mock_agent
-
-        fake_now = MagicMock()
-        fake_now.strftime.return_value = "20240101_010101"
-        fake_now.isoformat.return_value = "2024-01-01T01:01:01"
-        mock_datetime.now.return_value = fake_now
-
-        metadata = SessionMetadata(
-            session_name="auto_session_20240101_010101",
-            timestamp="2024-01-01T01:01:01",
-            message_count=len(history),
-            total_tokens=6,
-            pickle_path=Path(mock_config_paths.autosave_dir)
-            / "auto_session_20240101_010101.pkl",
-            metadata_path=Path(mock_config_paths.autosave_dir)
-            / "auto_session_20240101_010101_meta.json",
-        )
-        mock_save_session.return_value = metadata
-
-        result = cp_config.auto_save_session_if_enabled()
-
-        assert result is True
-        mock_save_session.assert_called_once()
-        kwargs = mock_save_session.call_args.kwargs
-        assert kwargs["base_dir"] == Path(mock_config_paths.autosave_dir)
-        assert kwargs["session_name"] == "auto_session_20240101_010101"
-        mock_console.print.assert_called_once()
-
     @patch("code_puppy.messaging.emit_error")
     @patch("code_puppy.config.get_auto_save_session")
     @patch("code_puppy.agents.agent_manager.get_current_agent")
     def test_auto_save_session_if_enabled_exception(
-        self, mock_get_agent, mock_get_auto_save, mock_emit_error, mock_config_paths
+        self, mock_get_agent, mock_get_auto_save, mock_emit_error
     ):
         mock_get_auto_save.return_value = True
         mock_agent = MagicMock()

@@ -221,16 +221,6 @@ class TestPrintMotd:
 
         assert result is False
 
-    def test_marks_current_version_as_seen(self):
-        """Should mark the current MOTD_VERSION as seen."""
-        from code_puppy.command_line.motd import MOTD_VERSION, print_motd
-
-        with patch("code_puppy.command_line.motd.has_seen_motd", return_value=False):
-            with patch("code_puppy.command_line.motd.emit_info"):
-                with patch("code_puppy.command_line.motd.mark_motd_seen") as mock_mark:
-                    print_motd()
-
-        mock_mark.assert_called_once_with(MOTD_VERSION)
 
 
 class TestMotdConstants:

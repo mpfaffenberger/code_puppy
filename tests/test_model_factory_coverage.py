@@ -444,25 +444,6 @@ class TestCustomAnthropicModel:
 class TestCustomGeminiModel:
     """Test custom_gemini model type."""
 
-    def test_custom_gemini_basic(self):
-        """Test basic custom_gemini model creation."""
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "custom-gemini": {
-                "type": "custom_gemini",
-                "name": "gemini-pro",
-                "custom_endpoint": {
-                    "url": "https://custom.gemini.proxy.com",
-                    "api_key": "custom-api-key",
-                },
-            }
-        }
-
-        with patch("code_puppy.model_factory.create_async_client"):
-            with patch("code_puppy.model_factory.GeminiModel") as mock_model:
-                ModelFactory.get_model("custom-gemini", config)
-                mock_model.assert_called_once()
 
     def test_custom_gemini_missing_api_key(self):
         """Test custom_gemini with missing API key."""

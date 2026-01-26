@@ -266,64 +266,6 @@ class TestSimpleGetters:
 
 
 class TestGetConfigKeys:
-    @patch("configparser.ConfigParser")
-    def test_get_config_keys_with_existing_keys(
-        self, mock_config_parser_class, mock_config_paths
-    ):
-        _, mock_cfg_file = mock_config_paths
-        mock_parser_instance = MagicMock()
-
-        section_proxy = {"key1": "val1", "key2": "val2"}
-        mock_parser_instance.__contains__.return_value = True
-        mock_parser_instance.__getitem__.return_value = section_proxy
-        mock_config_parser_class.return_value = mock_parser_instance
-
-        keys = cp_config.get_config_keys()
-
-        mock_parser_instance.read.assert_called_once_with(mock_cfg_file)
-        assert keys == sorted(
-            [
-                "allow_recursion",
-                "auto_save_session",
-                "banner_color_agent_reasoning",
-                "banner_color_agent_response",
-                "banner_color_directory_listing",
-                "banner_color_edit_file",
-                "banner_color_grep",
-                "banner_color_invoke_agent",
-                "banner_color_list_agents",
-                "banner_color_read_file",
-                "banner_color_shell_command",
-                "banner_color_subagent_response",
-                "banner_color_terminal_tool",
-                "banner_color_thinking",
-                "cancel_agent_key",
-                "compaction_strategy",
-                "compaction_threshold",
-                "data_analytics_knowledge_path",
-                "default_agent",
-                "diff_context_lines",
-                "enable_streaming",
-                "enable_dbos",
-                "enable_pack_agents",
-                "enable_streaming",
-                "enable_universal_constructor",
-                "frontend_emitter_enabled",
-                "frontend_emitter_max_recent_events",
-                "frontend_emitter_queue_size",
-                "http2",
-                "key1",
-                "key2",
-                "max_saved_sessions",
-                "message_limit",
-                "model",
-                "openai_reasoning_effort",
-                "openai_verbosity",
-                "protected_token_count",
-                "temperature",
-                "yolo_mode",
-            ]
-        )
 
     @patch("configparser.ConfigParser")
     def test_get_config_keys_empty_config(

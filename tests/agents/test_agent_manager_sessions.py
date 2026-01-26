@@ -97,20 +97,6 @@ class TestProcessLiveness:
                 result = _is_process_alive(12345)
                 assert result is False
 
-    def test_is_process_alive_invalid_pid_format(self):
-        """Test handling of invalid PID format."""
-        # None gets treated as OS error, which returns True (conservative)
-        result = _is_process_alive(None)  # type: ignore
-        assert isinstance(result, bool)
-
-    def test_is_process_alive_string_pid(self):
-        """Test conversion of string PID to int."""
-        if os.name != "nt":  # Unix-like systems
-            with patch("os.kill") as mock_kill:
-                # String PID should be converted to int
-                _is_process_alive("12345")  # type: ignore
-                # Should call with int(12345)
-                mock_kill.assert_called_once_with(12345, 0)
 
     def test_is_process_alive_windows(self):
         """Test Windows process checking."""

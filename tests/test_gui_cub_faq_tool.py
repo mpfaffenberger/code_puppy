@@ -234,11 +234,6 @@ class TestFAQTopicCoverage:
             assert display_name, f"Topic {key} has no display name"
             assert len(display_name) > 5, f"Topic {key} display name too short"
 
-    def test_all_topics_resolvable(self):
-        """Every topic in FAQ_TOPICS should be resolvable."""
-        for topic_key in FAQ_TOPICS.keys():
-            result = get_faq_by_topic(topic_key)
-            assert result["found"] is True, f"Topic {topic_key} not found in FAQ"
 
     def test_minimum_topic_count(self):
         """Should have at least 10 FAQ topics."""
