@@ -960,6 +960,21 @@ def jira_create_issue(
             - error (str, optional): Error message if creation failed.
             - error_type (str, optional): Error category if creation failed.
     """
+    # Validate that Story and Bug issue types have application_service
+    if issue_type in ["Story", "Bug"] and not application_service:
+        error_msg = (
+            f"The application_service field is required when creating a {issue_type}. "
+            f"Please provide it as either a list: "
+            f"['Level1', 'Level2', 'Level3'] or a delimited string: "
+            f"'Level1 -> Level2 -> Level3' (also supports '.', '/', '|', '>')."
+        )
+        emit_error(error_msg)
+        return {
+            "success": False,
+            "error": error_msg,
+            "error_type": "validation",
+        }
+
     # Build info message with optional fields
     info_parts = [f"➕ [bold cyan]{project_key}[/bold cyan] - {issue_type}"]
     if labels:
