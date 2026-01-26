@@ -1847,7 +1847,9 @@ class BaseAgent(ABC):
                         emit_info(f"Unexpected error: {str(exc)}", group_id=group_id)
                         if log_file_path:
                             emit_info(
-                                f"[dim]Error details logged to: {log_file_path}[/dim]",
+                                Text.from_markup(
+                                    f"[dim]Error details logged to: {log_file_path}[/dim]"
+                                ),
                                 group_id=group_id,
                             )
 
@@ -1857,22 +1859,30 @@ class BaseAgent(ABC):
                             from code_puppy.error_logging import get_log_file_path
 
                             emit_info(
-                                "[yellow]Output validation retry error detected. Debug info:[/yellow]",
+                                Text.from_markup(
+                                    "[yellow]Output validation retry error detected. Debug info:[/yellow]"
+                                ),
                                 group_id=group_id,
                             )
                             # Log exception type and full repr
                             emit_info(
-                                f"[dim]  Exception type: {type(exc).__name__}[/dim]",
+                                Text.from_markup(
+                                    f"[dim]  Exception type: {type(exc).__name__}[/dim]"
+                                ),
                                 group_id=group_id,
                             )
                             emit_info(
-                                f"[dim]  Exception repr: {repr(exc)}[/dim]",
+                                Text.from_markup(
+                                    f"[dim]  Exception repr: {repr(exc)}[/dim]"
+                                ),
                                 group_id=group_id,
                             )
                             # Check for __cause__ (chained exception)
                             if exc.__cause__:
                                 emit_info(
-                                    f"[yellow]  Caused by: {type(exc.__cause__).__name__}: {exc.__cause__}[/yellow]",
+                                    Text.from_markup(
+                                        f"[yellow]  Caused by: {type(exc.__cause__).__name__}: {exc.__cause__}[/yellow]"
+                                    ),
                                     group_id=group_id,
                                 )
                                 # Try to extract more from the cause
@@ -1888,13 +1898,17 @@ class BaseAgent(ABC):
                                         val = getattr(cause, attr)
                                         if val:
                                             emit_info(
-                                                f"[dim]    cause.{attr}: {val}[/dim]",
+                                                Text.from_markup(
+                                                    f"[dim]    cause.{attr}: {val}[/dim]"
+                                                ),
                                                 group_id=group_id,
                                             )
                             # Check for __context__ (implicit chaining)
                             if exc.__context__ and exc.__context__ != exc.__cause__:
                                 emit_info(
-                                    f"[dim]  Context: {type(exc.__context__).__name__}: {exc.__context__}[/dim]",
+                                    Text.from_markup(
+                                        f"[dim]  Context: {type(exc.__context__).__name__}: {exc.__context__}[/dim]"
+                                    ),
                                     group_id=group_id,
                                 )
                                 # Dig into ExceptionGroup contexts
@@ -1903,7 +1917,9 @@ class BaseAgent(ABC):
                                         exc.__context__.exceptions
                                     ):
                                         emit_info(
-                                            f"[yellow]    Sub-exception {i + 1}: {type(sub_exc).__name__}: {sub_exc}[/yellow]",
+                                            Text.from_markup(
+                                                f"[yellow]    Sub-exception {i + 1}: {type(sub_exc).__name__}: {sub_exc}[/yellow]"
+                                            ),
                                             group_id=group_id,
                                         )
                                         # Log sub-exception attributes
@@ -1917,18 +1933,24 @@ class BaseAgent(ABC):
                                                 val = getattr(sub_exc, attr)
                                                 if val:
                                                     emit_info(
-                                                        f"[dim]      {attr}: {val}[/dim]",
+                                                        Text.from_markup(
+                                                            f"[dim]      {attr}: {val}[/dim]"
+                                                        ),
                                                         group_id=group_id,
                                                     )
                                         # Check sub-exception's cause
                                         if sub_exc.__cause__:
                                             emit_info(
-                                                f"[yellow]      __cause__: {type(sub_exc.__cause__).__name__}: {sub_exc.__cause__}[/yellow]",
+                                                Text.from_markup(
+                                                    f"[yellow]      __cause__: {type(sub_exc.__cause__).__name__}: {sub_exc.__cause__}[/yellow]"
+                                                ),
                                                 group_id=group_id,
                                             )
                                         if sub_exc.__context__:
                                             emit_info(
-                                                f"[dim]      __context__: {type(sub_exc.__context__).__name__}: {sub_exc.__context__}[/dim]",
+                                                Text.from_markup(
+                                                    f"[dim]      __context__: {type(sub_exc.__context__).__name__}: {sub_exc.__context__}[/dim]"
+                                                ),
                                                 group_id=group_id,
                                             )
                             # Log any pydantic-ai specific attributes
@@ -1943,12 +1965,16 @@ class BaseAgent(ABC):
                                     val = getattr(exc, attr)
                                     if val:
                                         emit_info(
-                                            f"[dim]  {attr}: {val}[/dim]",
+                                            Text.from_markup(
+                                                f"[dim]  {attr}: {val}[/dim]"
+                                            ),
                                             group_id=group_id,
                                         )
                             # Tell user where to find full logs
                             emit_info(
-                                f"[dim]  Full traceback logged to: {get_log_file_path()}[/dim]",
+                                Text.from_markup(
+                                    f"[dim]  Full traceback logged to: {get_log_file_path()}[/dim]"
+                                ),
                                 group_id=group_id,
                             )
 

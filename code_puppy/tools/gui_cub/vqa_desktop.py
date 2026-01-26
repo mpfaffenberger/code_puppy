@@ -7,7 +7,6 @@ from functools import lru_cache
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent
 
-from code_puppy.model_factory import ModelFactory
 from .image_conversion import normalize_image_for_vqa, is_format_accepted
 
 
@@ -24,6 +23,10 @@ def _load_desktop_vqa_agent(
     model_name: str,
 ) -> Agent[None, DesktopVisualAnalysisResult]:
     """Create a cached agent instance for desktop visual analysis."""
+    # Import lazily to avoid circular import:
+    # model_factory -> messaging -> rich_renderer -> tools -> gui_cub -> vqa_desktop -> model_factory
+    from code_puppy.model_factory import ModelFactory
+
     models_config = ModelFactory.load_config()
     model = ModelFactory.get_model(model_name, models_config)
 

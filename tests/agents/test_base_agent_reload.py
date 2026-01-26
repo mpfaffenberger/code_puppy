@@ -52,37 +52,6 @@ class TestBaseAgentReload:
             assert "instructions" in call_args.kwargs
             assert "model_settings" in call_args.kwargs
 
-    def test_reload_with_claude_code_specific_instructions(self, agent):
-        """Test that claude-code models get specific instructions."""
-        with (
-            patch("code_puppy.model_factory.ModelFactory.load_config"),
-            patch("code_puppy.model_factory.ModelFactory.get_model"),
-            patch("code_puppy.tools.register_tools_for_agent"),
-            patch.object(agent, "get_model_name", return_value="claude-code-test"),
-            patch.object(agent, "load_puppy_rules", return_value=""),
-            patch.object(agent, "load_mcp_servers", return_value=[]),
-            patch.object(agent, "get_available_tools", return_value=[]),
-            patch.object(agent, "get_model_context_length", return_value=200000),
-            patch.object(agent, "_load_model_with_fallback") as mock_load_fallback,
-            patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
-            patch("code_puppy.agents.base_agent.PydanticAgent") as mock_agent_class,
-        ):
-            mock_model = MagicMock()
-            mock_load_fallback.return_value = (mock_model, "claude-code-test")
-            mock_agent_instance = MagicMock()
-            mock_agent_class.return_value = mock_agent_instance
-
-            result = agent.reload_code_generation_agent()
-
-            # Verify claude-code specific instruction override
-            call_args = mock_agent_class.call_args
-            instructions = call_args.kwargs["instructions"]
-            assert (
-                "You are Claude Code, Anthropic's official CLI for Claude."
-                == instructions
-            )
-            assert result == mock_agent_instance
-
     def test_reload_with_gpt5_model_settings(self, agent):
         """Test that gpt-5 models get OpenAI-specific settings."""
         with (

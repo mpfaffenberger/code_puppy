@@ -22,4 +22,9 @@ prompt = f"""Walmart specific rules:
    Use it to find internal docs, technical specifications, and team knowledge when needed.
  - You can invoke the 'msgraph' sub-agent to interact with Microsoft 365 services including Outlook mail, calendar, OneDrive files, Teams, SharePoint, and Planner.
    Use it when users need to read/send emails, manage calendar events, access files, post to Teams channels, or manage tasks.
+ - If the user in on Mac, you can probably install most softare using `brew` with the sysproxies. If they are on Windows, you can install standalone .exe files if they have github releases by rewriting
+      "https://github.com/" with: "https://generic.ci.artifacts.walmart.com/artifactory/github-releases-generic-release-remote/" - do this URL rewrite to hit our internal artifactory.
+      Example: "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_windows_amd64.zip" becomes "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_windows_amd64.zip/cli/cli/releases/download/v2.86.0/gh_2.86.0_windows_amd64.zip"
+      This would install the `gh` CLI, which is a critical tool. 
+      
 """

@@ -79,47 +79,7 @@ from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
 )
-from code_puppy.tools.bigquery_tools import (
-    register_bigquery_execute_query,
-    register_bigquery_get_table_schema,
-    register_bigquery_list_all_projects,
-    register_bigquery_list_datasets,
-    register_bigquery_get_default_project,
-    register_bigquery_list_tables,
-    register_bigquery_search_tables,
-)
-from code_puppy.tools.databricks_tools import (
-    register_databricks_list_catalogs,
-    register_databricks_list_schemas,
-    register_databricks_list_tables,
-    register_databricks_get_table_schema,
-    register_databricks_list_warehouses,
-    register_databricks_execute_query,
-)
-from code_puppy.tools.confluence_tools import (
-    register_confluence_search,
-    register_confluence_read_page,
-    register_confluence_search_by_space,
-    register_confluence_authenticate,
-)
-from code_puppy.tools.jira_tools import (
-    register_jira_search,
-    register_jira_list_projects,
-    register_jira_get_issue,
-    register_jira_create_issue,
-    register_jira_add_comment,
-    register_jira_update_issue,
-    register_jira_transition_issue,
-    register_jira_get_comments,
-    register_jira_authenticate,
-)
-from code_puppy.tools.marketplace_tools import (
-    register_marketplace_search_agents,
-    register_marketplace_download_agent,
-    register_marketplace_upload_agent,
-    register_marketplace_check_update,
-    register_marketplace_authenticate,
-)
+
 
 from code_puppy.tools.msgraph import MSGRAPH_TOOLS
 from code_puppy.tools.display import (
@@ -197,42 +157,7 @@ TOOL_REGISTRY = {
     "browser_save_workflow": register_save_workflow,
     "browser_list_workflows": register_list_workflows,
     "browser_read_workflow": register_read_workflow,
-    # Confluence Tools
-    "confluence_search": register_confluence_search,
-    "confluence_read_page": register_confluence_read_page,
-    "confluence_search_by_space": register_confluence_search_by_space,
-    "confluence_authenticate": register_confluence_authenticate,
-    # Jira Tools
-    "jira_search": register_jira_search,
-    "jira_list_projects": register_jira_list_projects,
-    "jira_get_issue": register_jira_get_issue,
-    "jira_create_issue": register_jira_create_issue,
-    "jira_add_comment": register_jira_add_comment,
-    "jira_update_issue": register_jira_update_issue,
-    "jira_transition_issue": register_jira_transition_issue,
-    "jira_get_comments": register_jira_get_comments,
-    "jira_authenticate": register_jira_authenticate,
-    # BigQuery Tools
-    "bigquery_get_default_project": register_bigquery_get_default_project,
-    "bigquery_list_all_projects": register_bigquery_list_all_projects,
-    "bigquery_list_datasets": register_bigquery_list_datasets,
-    "bigquery_list_tables": register_bigquery_list_tables,
-    "bigquery_execute_query": register_bigquery_execute_query,
-    "bigquery_get_table_schema": register_bigquery_get_table_schema,
-    "bigquery_search_tables": register_bigquery_search_tables,
-    # Databricks Tools
-    "databricks_list_catalogs": register_databricks_list_catalogs,
-    "databricks_list_schemas": register_databricks_list_schemas,
-    "databricks_list_tables": register_databricks_list_tables,
-    "databricks_get_table_schema": register_databricks_get_table_schema,
-    "databricks_list_warehouses": register_databricks_list_warehouses,
-    "databricks_execute_query": register_databricks_execute_query,
-    # Marketplace Tools
-    "marketplace_search_agents": register_marketplace_search_agents,
-    "marketplace_download_agent": register_marketplace_download_agent,
-    "marketplace_upload_agent": register_marketplace_upload_agent,
-    "marketplace_check_update": register_marketplace_check_update,
-    "marketplace_authenticate": register_marketplace_authenticate,
+
     # Terminal Connection Tools
     "terminal_check_server": register_check_terminal_server,
     "terminal_open": register_open_terminal,
@@ -319,7 +244,18 @@ def register_tools_for_agent(agent, tool_names: list[str]):
             continue  # Skip UC if disabled in config
 
         # Register the individual tool
-        register_func = TOOL_REGISTRY[tool_name]
+        registry_entry = TOOL_REGISTRY[tool_name]
+        # Handle both callable and dict (with metadata) registry entries
+        if callable(registry_entry):
+            register_func = registry_entry
+        else:
+            # Dict with metadata - extract the 'register' function
+            register_func = registry_entry.get("register")
+            if not callable(register_func):
+                emit_warning(
+                    f"Warning: Tool '{tool_name}' has invalid registry entry, skipping..."
+                )
+                continue
         register_func(agent)
 
 

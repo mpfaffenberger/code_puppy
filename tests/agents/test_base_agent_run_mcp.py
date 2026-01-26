@@ -237,25 +237,6 @@ class TestBaseAgentRunMCP:
             assert agent.get_message_history() == original_messages
 
     @pytest.mark.asyncio
-    @patch.object(CodePuppyAgent, "get_model_name", return_value="claude-code-3.5")
-    async def test_run_with_mcp_claude_code_system_prompt(self, mock_get_model, agent):
-        """Test run_with_mcp prepends system prompt for claude-code models."""
-        # Clear message history to trigger system prompt prepend
-        agent.set_message_history([])
-
-        with patch.object(agent, "_code_generation_agent") as mock_agent:
-            mock_run = AsyncMock(return_value=MagicMock(data="claude response"))
-            mock_agent.run = mock_run
-
-            await agent.run_with_mcp("User prompt")
-
-            assert mock_run.called
-            # Verify system prompt was prepended
-            call_args = mock_run.call_args[0][0]
-            assert call_args.startswith(agent.get_system_prompt())
-            assert "User prompt" in call_args
-
-    @pytest.mark.asyncio
     async def test_run_with_mcp_with_additional_kwargs(self, agent):
         """Test run_with_mcp forwards additional kwargs to agent.run."""
         with patch.object(agent, "_code_generation_agent") as mock_agent:

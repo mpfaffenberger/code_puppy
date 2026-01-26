@@ -30,6 +30,9 @@ from code_puppy.plugins.walmart_specific.pingfed_auth import (
     handle_puppy_auth_command,
 )
 from code_puppy.plugins.walmart_specific.walmart_models import get_walmart_models
+from code_puppy.plugins.walmart_specific.workspace_safety import (
+    ensure_safe_windows_workspace,
+)
 from code_puppy.plugins.walmart_specific.bigquery_auth import (
     get_bigquery_auth_help,
     handle_bigquery_auth_command,
@@ -56,6 +59,9 @@ from code_puppy.plugins.walmart_specific.databricks_auth import (
     get_databricks_auth_help,
     handle_databricks_auth_command,
 )
+from code_puppy.plugins.walmart_specific.dbos_sampling import (
+    is_user_in_dbos_sample,
+)
 from code_puppy.plugins.walmart_specific.telemetry_utils import (
     build_delete_file_telemetry_data,
     build_shell_command_telemetry_data,
@@ -68,6 +74,7 @@ from code_puppy.plugins.walmart_specific.camoufox_browser import (
 from code_puppy.tools.command_runner import ShellCommandOutput
 from code_puppy.mcp_.server_registry_catalog import MCPServerTemplate, MCPServerRequirements
 from code_puppy.plugins.walmart_specific.walmart_gemini_model import WalmartGeminiModel
+from code_puppy.plugins.walmart_specific.enterprise_tools import get_enterprise_tools
 
 
 def get_walmart_mcp_servers():
@@ -174,6 +181,7 @@ async def auth_flow() -> None:
     os.environ["puppy_token"] = token
 
 
+register_callback("startup", ensure_safe_windows_workspace)
 register_callback("startup", auth_flow)
 
 
@@ -314,6 +322,7 @@ def get_walmart_model_providers():
 
 
 register_callback("register_model_providers", get_walmart_model_providers)
+register_callback("register_tools", get_enterprise_tools)
 
 
 # MOTD (Message of the Day) for Walmart internal users
