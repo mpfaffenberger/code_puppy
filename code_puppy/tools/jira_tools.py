@@ -28,6 +28,7 @@ from code_puppy.plugins.walmart_specific.jira_client import (
     JiraNotFoundError,
 )
 from code_puppy.plugins.walmart_specific.jira_field_config import (
+    get_application_service_field,
     get_epic_link_field,
     get_sprint_field,
     get_story_points_field,
@@ -207,6 +208,7 @@ def _format_issue(issue: dict[str, Any]) -> dict[str, Any]:
             - sprint (dict | None): Current sprint info (id, name, state).
             - story_points (number | None): Story point estimate.
             - project (str): Project key.
+            - application_service (Any | None): Raw Application/Service field data.
     """
     fields = issue.get("fields", {})
 
@@ -232,6 +234,9 @@ def _format_issue(issue: dict[str, Any]) -> dict[str, Any]:
     # Story Points (configurable custom field)
     story_points = fields.get(get_story_points_field())
 
+    # Application/Service (configurable custom field)
+    application_service = fields.get(get_application_service_field())
+
     return {
         "key": issue.get("key"),
         "summary": fields.get("summary"),
@@ -253,6 +258,7 @@ def _format_issue(issue: dict[str, Any]) -> dict[str, Any]:
         "sprint": sprint,
         "story_points": story_points,
         "project": fields.get("project", {}).get("key"),
+        "application_service": application_service,
     }
 
 
@@ -299,6 +305,42 @@ def _format_issue_summary(issue: dict[str, Any]) -> dict[str, Any]:
         "epic_link": fields.get(get_epic_link_field()),
         "story_points": fields.get(get_story_points_field()),
     }
+
+
+def _resolve_application_service_id(client: JiraClient, path: list[str]) -> str:
+    """Resolve the Application/Service path to an ID.
+
+    Args:
+        client: The active JiraClient instance.
+        path: A list of 3 strings representing the Application/Service path.
+              e.g. ["EBS Finance Tech", "AP - Invoices and Payments", "Payables Insights Hub"]
+
+    Returns:
+        The ID string for the selected option.
+
+    Raises:
+        ValueError: If the path is not found or invalid.
+    """
+    if len(path) != 3:
+        raise ValueError("Application/Service path must contain exactly 3 levels.")
+
+    # Fetch options from the nFeed/Elements Connect endpoint
+    # The endpoint returns a JSON list of objects, each representing a valid selection path.
+    response = client._make_request(
+        "GET",
+        "/rest/nfeed/3.0/nFeed/field/input/options",
+        params={"fieldId": get_application_service_field()},
+    )
+
+    # If the response is a list
+    options = response if isinstance(response, list) else response.get("options", [])
+
+    for option in options:
+        # The 'values' field contains the path strings [Level1, Level2, Level3]
+        if option.get("values") == path:
+            return str(option.get("id"))
+
+    raise ValueError(f"Application/Service path not found: {path}")
 
 
 def _truncate_content(
@@ -641,6 +683,7 @@ def jira_get_issue(
                 get_epic_link_field(),
                 get_sprint_field(),
                 get_story_points_field(),
+                get_application_service_field(),
             ]
             issue = client.get_issue(issue_key, fields=issue_fields)
             formatted = _format_issue(issue)
@@ -711,6 +754,7 @@ def jira_create_issue(
     epic_link: str | None = None,
     sprint_id: int | None = None,
     story_points: int | float | None = None,
+    application_service: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a new Jira issue.
 
@@ -728,6 +772,9 @@ def jira_create_issue(
             Only applies to non-Epic issue types. Defaults to None.
         sprint_id: Sprint ID to assign the issue to. Defaults to None.
         story_points: Story point estimate (e.g., 1, 2, 3, 5, 8). Defaults to None.
+        application_service: List of 3 strings for Application/Service field.
+            e.g. ["EBS Finance Tech", "AP - Invoices and Payments", "Payables Insights Hub"]
+            Defaults to None.
 
     Returns:
         dict[str, Any]: Creation result containing:
@@ -740,6 +787,7 @@ def jira_create_issue(
             - epic_link (str, optional): Epic that was linked.
             - sprint_id (int, optional): Sprint that was assigned.
             - story_points (number, optional): Story points that were set.
+            - application_service (list[str], optional): Application/Service set.
             - error (str, optional): Error message if creation failed.
             - error_type (str, optional): Error category if creation failed.
     """
@@ -755,6 +803,8 @@ def jira_create_issue(
         info_parts.append(f"sprint: {sprint_id}")
     if story_points is not None:
         info_parts.append(f"points: {story_points}")
+    if application_service:
+        info_parts.append(f"app/svc: {application_service}")
 
     emit_info(
         Text.from_markup(
@@ -787,6 +837,14 @@ def jira_create_issue(
             extra_fields[get_story_points_field()] = story_points
 
         with JiraClient() as client:
+            if application_service:
+                app_service_id = _resolve_application_service_id(
+                    client, application_service
+                )
+                extra_fields[get_application_service_field()] = {
+                    "inputValues": [app_service_id]
+                }
+
             result = client.create_issue(
                 project_key=project_key,
                 issue_type=issue_type,
@@ -816,6 +874,8 @@ def jira_create_issue(
                 response["sprint_id"] = sprint_id
             if story_points is not None:
                 response["story_points"] = story_points
+            if application_service:
+                response["application_service"] = application_service
 
             return response
 
@@ -916,6 +976,7 @@ def jira_update_issue(
     epic_link: str | None = None,
     sprint_id: int | None = None,
     story_points: int | float | None = None,
+    application_service: list[str] | None = None,
 ) -> dict[str, Any]:
     """Update fields on a Jira issue.
 
@@ -938,6 +999,9 @@ def jira_update_issue(
         epic_link: Epic issue key to link to (e.g., "PROJ-100"). Defaults to None.
         sprint_id: Sprint ID to assign the issue to. Defaults to None.
         story_points: Story point estimate (e.g., 1, 2, 3, 5, 8). Defaults to None.
+        application_service: List of 3 strings for Application/Service field.
+            e.g. ["EBS Finance Tech", "AP - Invoices and Payments", "Payables Insights Hub"]
+            Defaults to None.
 
     Returns:
         dict[str, Any]: Update result containing:
@@ -1015,7 +1079,7 @@ def jira_update_issue(
             fields[get_story_points_field()] = story_points
             updated_field_names.append("story_points")
 
-        if not fields and not update:
+        if not fields and not update and not application_service:
             return {
                 "success": False,
                 "error": "No fields provided to update",
@@ -1023,6 +1087,15 @@ def jira_update_issue(
             }
 
         with JiraClient() as client:
+            if application_service:
+                app_service_id = _resolve_application_service_id(
+                    client, application_service
+                )
+                fields[get_application_service_field()] = {
+                    "inputValues": [app_service_id]
+                }
+                updated_field_names.append("application_service")
+
             client.update_issue(
                 issue_key,
                 fields=fields if fields else None,
