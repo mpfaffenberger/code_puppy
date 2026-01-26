@@ -126,44 +126,28 @@ class BrowserManager:
         self.headless = os.getenv("BROWSER_HEADLESS", "true").lower() != "false"
         self.homepage = "https://www.google.com"
 
-        # Browser type: 'chromium', 'firefox', 'webkit', or 'camoufox'
+        # Browser type: 'chromium', 'firefox', 'webkit', or custom types via plugins
         # Default to chromium for maximum compatibility
         self.browser_type = os.getenv("BROWSER_TYPE", "chromium").lower()
 
         # Unique profile directory per session for browser state
         self.profile_dir = self._get_profile_directory()
 
-        # Camoufox-specific: store the context manager for proper cleanup
-        self._camoufox_cm = None
-
         # Playwright instance (for standard browsers)
         self._playwright = None
 
-    def _get_profile_directory(self, browser_type: Optional[str] = None) -> Path:
+    def _get_profile_directory(self) -> Path:
         """Get or create the profile directory.
 
-        For Camoufox: Always uses a single shared profile at:
-        XDG_CACHE_HOME/code_puppy/browser_profiles/camoufox/
-
-        For other browsers: Each session gets its own profile directory under:
+        Each session gets its own profile directory under:
         XDG_CACHE_HOME/code_puppy/browser_profiles/<session_id>/
 
-        This allows Camoufox to maintain persistent state (cookies, fingerprint)
-        across all sessions, while other browsers can run multiple instances.
-
-        Args:
-            browser_type: Optional browser type override. If None, uses self.browser_type.
+        Custom browser types (like Camoufox) may use their own profile
+        management via the plugin system.
         """
-        effective_browser_type = browser_type or self.browser_type
         cache_dir = Path(config.CACHE_DIR)
         profiles_base = cache_dir / "browser_profiles"
-
-        # Camoufox always uses a fixed profile for consistent fingerprinting
-        if effective_browser_type == "camoufox":
-            profile_path = profiles_base / "camoufox"
-        else:
-            profile_path = profiles_base / self.session_id
-
+        profile_path = profiles_base / self.session_id
         profile_path.mkdir(parents=True, exist_ok=True, mode=0o700)
         return profile_path
 
@@ -174,23 +158,17 @@ class BrowserManager:
         - 'chromium': Standard Playwright Chromium (default)
         - 'firefox': Standard Playwright Firefox
         - 'webkit': Standard Playwright WebKit
-        - 'camoufox': Camoufox (stealthy Firefox-based browser)
+        - Custom types registered via the register_browser_types plugin hook
+          (e.g., 'camoufox' for stealthy browsing)
         """
         if self._initialized:
             return
 
         try:
-            if self.browser_type == "camoufox":
-                emit_info(
-                    f"Initializing Camoufox browser (session: {self.session_id})..."
-                )
-                await self._initialize_camoufox()
-            else:
-                emit_info(
-                    f"Initializing {self.browser_type} browser (session: {self.session_id})..."
-                )
-                await self._initialize_browser()
-            self._initialized = True
+            emit_info(
+                f"Initializing {self.browser_type} browser (session: {self.session_id})..."
+            )
+            await self._initialize_browser()
 
         except Exception:
             await self._cleanup()
@@ -339,91 +317,6 @@ class BrowserManager:
         if url:
             await page.goto(url)
         return page
-
-    async def _prefetch_camoufox(self) -> None:
-        """Prefetch Camoufox binary and dependencies."""
-        # Lazy imports to ensure monkey patches are applied BEFORE downloading
-        from camoufox.exceptions import CamoufoxNotInstalled, UnsupportedVersion
-        from camoufox.locale import ALLOW_GEOIP, download_mmdb
-        from camoufox.pkgman import CamoufoxFetcher, camoufox_path
-
-        emit_info(
-            "[cyan]🔍 Ensuring Camoufox binary and dependencies are up-to-date...[/cyan]"
-        )
-
-        needs_install = False
-        try:
-            camoufox_path(download_if_missing=False)
-            emit_info("Using cached Camoufox installation")
-        except (CamoufoxNotInstalled, FileNotFoundError):
-            emit_info("Camoufox not found, installing fresh copy")
-            needs_install = True
-        except UnsupportedVersion:
-            emit_info("Camoufox update required, reinstalling")
-            needs_install = True
-
-        if needs_install:
-            CamoufoxFetcher().install()
-
-        # Fetch GeoIP database if enabled
-        if ALLOW_GEOIP:
-            download_mmdb()
-
-        emit_info("Camoufox dependencies ready")
-
-    async def _initialize_camoufox(self) -> None:
-        """Initialize Camoufox browser.
-
-        Camoufox is a stealthy Firefox-based browser that helps avoid
-        bot detection. It uses playwright under the hood but with
-        special fingerprinting evasion.
-
-        Always uses a fixed profile directory for consistent fingerprinting.
-        """
-        # Ensure Camoufox binary is installed
-        await self._prefetch_camoufox()
-
-        # Lazy import to ensure monkey patches are applied first
-        from playwright.async_api import async_playwright
-        from camoufox.async_api import AsyncNewBrowser
-        from camoufox.addons import DefaultAddons
-
-        # Start playwright instance (required by camoufox 0.4.11+)
-        self._playwright = await async_playwright().start()
-
-        # Get the Camoufox-specific profile (always the same path)
-        camoufox_profile = self._get_profile_directory(browser_type="camoufox")
-        emit_info(f"Using Camoufox profile: {camoufox_profile}")
-
-        # Camoufox 0.4.11+ uses a direct async function (not context manager)
-        # It returns a BrowserContext when persistent_context=True
-        # Note: playwright instance is required as first arg since camoufox 0.4.11
-        self._context = await AsyncNewBrowser(
-            self._playwright,
-            headless=self.headless,
-            # Use persistent data directory for state - always the same for Camoufox
-            persistent_context=True,
-            user_data_dir=str(camoufox_profile),
-            # Exclude default addons that might cause issues
-            exclude_addons=list(DefaultAddons),
-        )
-        self._browser = self._context.browser
-        # Clear the old context manager reference (no longer used)
-        self._camoufox_cm = None
-        self._initialized = True
-
-        emit_success("Camoufox browser initialized successfully")
-
-    def _get_default_addons_to_exclude(self) -> list:
-        """Get default addons to exclude - imports only when camoufox starts.
-
-        Note: This method is kept for backwards compatibility but is no longer used.
-        DefaultAddons is now imported lazily in _initialize_camoufox().
-        """
-        # Lazy import to ensure monkey patches are applied first
-        from camoufox.addons import DefaultAddons
-
-        return list(DefaultAddons)
 
     async def close_page(self, page: Page) -> None:
         """Close a specific page."""

@@ -19,7 +19,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
 
-from code_puppy.gemini_model import GeminiModel, WalmartGeminiModel
+from code_puppy.gemini_model import GeminiModel
 from code_puppy.messaging import emit_warning
 
 from . import callbacks
@@ -605,6 +605,11 @@ class ModelFactory:
 
             client = create_async_client(headers=headers, verify=verify)
             # Use WalmartGeminiModel for custom endpoints - uses header auth only
+            # Import from plugin to avoid circular dependency
+            from code_puppy.plugins.walmart_specific.walmart_gemini_model import (
+                WalmartGeminiModel,
+            )
+
             model = WalmartGeminiModel(
                 model_name=model_config["name"],
                 api_key=api_key,

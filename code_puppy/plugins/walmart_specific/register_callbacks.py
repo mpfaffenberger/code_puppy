@@ -29,6 +29,7 @@ from code_puppy.plugins.walmart_specific.pingfed_auth import (
     handle_pingfed_auth_command,
     handle_puppy_auth_command,
 )
+from code_puppy.plugins.walmart_specific.walmart_models import get_walmart_models
 from code_puppy.plugins.walmart_specific.bigquery_auth import (
     get_bigquery_auth_help,
     handle_bigquery_auth_command,
@@ -61,8 +62,12 @@ from code_puppy.plugins.walmart_specific.telemetry_utils import (
     build_telemetry_data,
     enqueue_telemetry_data,
 )
+from code_puppy.plugins.walmart_specific.camoufox_browser import (
+    get_camoufox_browser_types,
+)
 from code_puppy.tools.command_runner import ShellCommandOutput
 from code_puppy.mcp_.server_registry_catalog import MCPServerTemplate, MCPServerRequirements
+from code_puppy.plugins.walmart_specific.walmart_gemini_model import WalmartGeminiModel
 
 
 def get_walmart_mcp_servers():
@@ -124,6 +129,7 @@ set_cert_bundle()
 
 register_callback("version_check", _handle_update)
 register_callback("register_mcp_catalog_servers", get_walmart_mcp_servers)
+register_callback("register_browser_types", get_camoufox_browser_types)
 # Disclaimer is now shown via /disclaimer command instead of on startup
 
 
@@ -177,6 +183,7 @@ def load_model_config() -> Dict[str, Any]:
 
 
 register_callback("load_model_config", load_model_config)
+register_callback("load_models_config", get_walmart_models)
 register_callback("load_prompt", lambda: prompt)
 
 
@@ -299,3 +306,34 @@ register_callback("custom_command", handle_msgraph_auth_command)
 register_callback("custom_command", handle_msgraph_test_command)
 register_callback("custom_command_help", get_databricks_auth_help)
 register_callback("custom_command", handle_databricks_auth_command)
+
+
+def get_walmart_model_providers():
+    """Return Walmart-specific model provider classes for the plugin system."""
+    return {"walmart_gemini": WalmartGeminiModel}
+
+
+register_callback("register_model_providers", get_walmart_model_providers)
+
+
+# MOTD (Message of the Day) for Walmart internal users
+def get_walmart_motd() -> tuple[str, str]:
+    """Return Walmart-specific MOTD content.
+
+    Returns:
+        Tuple of (message, version) for the Walmart MOTD.
+    """
+    version = "2025-12-29"
+    message = """🐕‍🦺
+🐾```
+# 🐶 Version 0.0.320 - Hotfix 🔧
+Disabled extended thinking on the background security agent
+to make sure it runs fast! 🚀
+
+Speed is a feature, not a luxury! 🐕‍🦺
+```
+"""
+    return (message, version)
+
+
+register_callback("get_motd", get_walmart_motd)
