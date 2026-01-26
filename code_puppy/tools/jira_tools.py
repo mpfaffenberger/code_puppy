@@ -208,7 +208,9 @@ def _format_issue(issue: dict[str, Any]) -> dict[str, Any]:
             - sprint (dict | None): Current sprint info (id, name, state).
             - story_points (number | None): Story point estimate.
             - project (str): Project key.
-            - application_service (Any | None): Raw Application/Service field data.
+            - application_service (str | None): Application/Service formatted as
+                "Level1 -> Level2 -> Level3" (e.g., "EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan").
+                Falls back to the numeric ID if resolution fails.
     """
     fields = issue.get("fields", {})
 
@@ -235,7 +237,19 @@ def _format_issue(issue: dict[str, Any]) -> dict[str, Any]:
     story_points = fields.get(get_story_points_field())
 
     # Application/Service (configurable custom field)
-    application_service = fields.get(get_application_service_field())
+    # Jira always returns either None (not set) or a list with either:
+    # - 3 elements: resolved human-readable path ['Level1', 'Level2', 'Level3']
+    # - 1 element: raw ID ['2125770'] (if resolution failed)
+    application_service_raw = fields.get(get_application_service_field())
+    application_service = None
+    
+    if application_service_raw and isinstance(application_service_raw, list):
+        if len(application_service_raw) == 3:
+            # Resolved path - format as "Level1 -> Level2 -> Level3"
+            application_service = " -> ".join(application_service_raw)
+        elif len(application_service_raw) == 1:
+            # Raw ID - resolution failed, show the ID
+            application_service = str(application_service_raw[0])
 
     return {
         "key": issue.get("key"),
@@ -307,13 +321,55 @@ def _format_issue_summary(issue: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _resolve_application_service_id(client: JiraClient, path: list[str]) -> str:
+def _parse_application_service_input(value: str | list[str]) -> list[str]:
+    """Parse application_service input into a 3-element list.
+    
+    Args:
+        value: Either a list of 3 strings or a delimited string.
+               Supported delimiters: ' -> ', '.', '/', '|', '>'
+               e.g. "Level1 -> Level2 -> Level3" or ["Level1", "Level2", "Level3"]
+    
+    Returns:
+        A list of exactly 3 strings.
+    
+    Raises:
+        ValueError: If the input cannot be parsed into exactly 3 elements.
+    """
+    if isinstance(value, list):
+        if len(value) != 3:
+            raise ValueError(
+                f"Application/Service must have exactly 3 levels, got {len(value)}"
+            )
+        return value
+    
+    if isinstance(value, str):
+        # Try different delimiters in order of likelihood
+        delimiters = [' -> ', '.', '/', '|', '>']
+        for delimiter in delimiters:
+            if delimiter in value:
+                parts = [part.strip() for part in value.split(delimiter)]
+                if len(parts) == 3:
+                    return parts
+        
+        raise ValueError(
+            f"Application/Service string must contain exactly 3 levels separated by "
+            f"' -> ', '.', '/', '|', or '>'. Got: {value}"
+        )
+    
+    raise ValueError(
+        f"Application/Service must be a list or string, got {type(value).__name__}"
+    )
+
+
+def _resolve_application_service_id(client: JiraClient, path: list[str], issue_id: str | None = None) -> str:
     """Resolve the Application/Service path to an ID.
 
     Args:
         client: The active JiraClient instance.
         path: A list of 3 strings representing the Application/Service path.
               e.g. ["EBS Finance Tech", "AP - Invoices and Payments", "Payables Insights Hub"]
+        issue_id: Optional issue ID or key to use as context for fetching options.
+                  If not provided, tries to fetch all options (may fail).
 
     Returns:
         The ID string for the selected option.
@@ -325,15 +381,30 @@ def _resolve_application_service_id(client: JiraClient, path: list[str]) -> str:
         raise ValueError("Application/Service path must contain exactly 3 levels.")
 
     # Fetch options from the nFeed/Elements Connect endpoint
-    # The endpoint returns a JSON list of objects, each representing a valid selection path.
-    response = client._make_request(
-        "GET",
-        "/rest/nfeed/3.0/nFeed/field/input/options",
-        params={"fieldId": get_application_service_field()},
-    )
+    # If we have an issue_id, use it to get the full options list
+    app_service_field = get_application_service_field()
+    payload = {
+        "customFieldId": app_service_field,
+        "userInput": "",
+        "view": "EDIT",
+        "startIndex": 0,
+    }
+    
+    # Add issue context if available (helps the API return complete results)
+    if issue_id:
+        payload["fieldContext"] = {"issueKeyOrId": issue_id}
+    
+    try:
+        response = client._make_request(
+            "POST",
+            "/rest/nfeed/3.0/nFeed/field/input/options",
+            json=payload,
+        )
+    except Exception as e:
+        raise ValueError(f"Failed to fetch Application/Service options: {e}") from e
 
-    # If the response is a list
-    options = response if isinstance(response, list) else response.get("options", [])
+    # Extract options from the response
+    options = response.get("options", [])
 
     for option in options:
         # The 'values' field contains the path strings [Level1, Level2, Level3]
@@ -341,6 +412,83 @@ def _resolve_application_service_id(client: JiraClient, path: list[str]) -> str:
             return str(option.get("id"))
 
     raise ValueError(f"Application/Service path not found: {path}")
+
+
+def _resolve_application_service_name(
+    client: JiraClient, issue_id: str, field_value: Any
+) -> list[str] | None:
+    """Resolve the Application/Service ID back to human-readable path.
+
+    Args:
+        client: The active JiraClient instance.
+        issue_id: The Jira numeric issue ID (e.g., "28750593").
+        field_value: The raw field value from Jira API.
+                     Could be a dict like {"inputValues": ["20908383"]}
+                     or a list like ["20908383"].
+
+    Returns:
+        A list of 3 strings representing the path, or None if not found/invalid.
+    """
+    if not field_value:
+        return None
+
+    # Extract the ID from various possible formats
+    app_service_id = None
+    if isinstance(field_value, dict):
+        # Handle {"inputValues": ["20908383"]} format
+        input_values = field_value.get("inputValues", [])
+        if input_values and len(input_values) > 0:
+            app_service_id = str(input_values[0])
+    elif isinstance(field_value, list):
+        # Handle direct list format ["20908383"]
+        if field_value and len(field_value) > 0:
+            app_service_id = str(field_value[0])
+    elif isinstance(field_value, str):
+        # Handle direct ID string
+        app_service_id = field_value
+    elif isinstance(field_value, (int, float)):
+        # Handle numeric ID
+        app_service_id = str(field_value)
+
+    if not app_service_id:
+        return None
+
+    try:
+        # Call the nFeed endpoint to get the human-readable name
+        app_service_field = get_application_service_field()
+        payload = {
+            "customFieldId": app_service_field,
+            "userInput": "",
+            "view": "EDIT",
+            "fieldContext": {"issueKeyOrId": issue_id},
+            "startIndex": 0,
+        }
+
+        response = client._make_request(
+            "POST",
+            "/rest/nfeed/3.0/nFeed/field/input/options",
+            json=payload,
+        )
+
+        # Extract the selected option from the response
+        selected_options = response.get("selectedOptions", [])
+        if selected_options and len(selected_options) > 0:
+            values = selected_options[0].get("values")
+            if values and len(values) == 3:
+                return values
+
+        # Fallback: search through all options if selectedOptions is empty
+        options = response.get("options", [])
+        for option in options:
+            if str(option.get("id")) == app_service_id:
+                values = option.get("values")
+                if values and len(values) == 3:
+                    return values
+
+        return None
+    except Exception:
+        # If the lookup fails, return None instead of crashing
+        return None
 
 
 def _truncate_content(
@@ -686,6 +834,24 @@ def jira_get_issue(
                 get_application_service_field(),
             ]
             issue = client.get_issue(issue_key, fields=issue_fields)
+            
+            # Resolve Application/Service ID to human-readable path
+            app_service_field = get_application_service_field()
+            raw_app_service = issue.get("fields", {}).get(app_service_field)
+            if raw_app_service:
+                try:
+                    # Use the numeric issue ID (not the key) for the nFeed API
+                    issue_id = issue.get("id")
+                    resolved_path = _resolve_application_service_name(
+                        client, issue_id, raw_app_service
+                    )
+                    if resolved_path:
+                        # Replace raw value with human-readable path
+                        issue["fields"][app_service_field] = resolved_path
+                except Exception:
+                    # If resolution fails, keep the raw value
+                    pass
+            
             formatted = _format_issue(issue)
 
             # Apply truncation guardrails to description
@@ -754,7 +920,7 @@ def jira_create_issue(
     epic_link: str | None = None,
     sprint_id: int | None = None,
     story_points: int | float | None = None,
-    application_service: list[str] | None = None,
+    application_service: str | list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a new Jira issue.
 
@@ -772,8 +938,11 @@ def jira_create_issue(
             Only applies to non-Epic issue types. Defaults to None.
         sprint_id: Sprint ID to assign the issue to. Defaults to None.
         story_points: Story point estimate (e.g., 1, 2, 3, 5, 8). Defaults to None.
-        application_service: List of 3 strings for Application/Service field.
-            e.g. ["EBS Finance Tech", "AP - Invoices and Payments", "Payables Insights Hub"]
+        application_service: Application/Service field value. Can be either:
+            - A list of 3 strings: ["Level1", "Level2", "Level3"]
+            - A delimited string: "Level1 -> Level2 -> Level3" (also supports '.', '/', '|', '>')
+            e.g. ["EBS Finance Tech", "AP - Invoices and Payments", "Pay from Scan"]
+            or "EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan"
             Defaults to None.
 
     Returns:
@@ -838,13 +1007,31 @@ def jira_create_issue(
 
         with JiraClient() as client:
             if application_service:
+                # Parse and normalize the input (handles both string and list formats)
+                app_service_path = _parse_application_service_input(application_service)
+                
+                # To resolve the ID, we need an existing issue as context
+                # Search for any recent issue in this project to use as template
+                template_issue_id = None
+                try:
+                    search_results = client.search_issues(
+                        jql=f"project = {project_key} ORDER BY created DESC",
+                        max_results=1,
+                        fields=["key"],
+                    )
+                    if search_results.get("issues"):
+                        template_issue_id = search_results["issues"][0]["id"]
+                except Exception:
+                    # If we can't find a template issue, try without context
+                    pass
+                
+                # Resolve the path to the numeric ID
                 app_service_id = _resolve_application_service_id(
-                    client, application_service
+                    client, app_service_path, issue_id=template_issue_id
                 )
-                extra_fields[get_application_service_field()] = {
-                    "inputValues": [app_service_id]
-                }
-
+                # Jira REST API expects just a list with the ID
+                extra_fields[get_application_service_field()] = [app_service_id]
+            
             result = client.create_issue(
                 project_key=project_key,
                 issue_type=issue_type,
@@ -976,7 +1163,7 @@ def jira_update_issue(
     epic_link: str | None = None,
     sprint_id: int | None = None,
     story_points: int | float | None = None,
-    application_service: list[str] | None = None,
+    application_service: str | list[str] | None = None,
 ) -> dict[str, Any]:
     """Update fields on a Jira issue.
 
@@ -999,8 +1186,11 @@ def jira_update_issue(
         epic_link: Epic issue key to link to (e.g., "PROJ-100"). Defaults to None.
         sprint_id: Sprint ID to assign the issue to. Defaults to None.
         story_points: Story point estimate (e.g., 1, 2, 3, 5, 8). Defaults to None.
-        application_service: List of 3 strings for Application/Service field.
-            e.g. ["EBS Finance Tech", "AP - Invoices and Payments", "Payables Insights Hub"]
+        application_service: Application/Service field value. Can be either:
+            - A list of 3 strings: ["Level1", "Level2", "Level3"]
+            - A delimited string: "Level1 -> Level2 -> Level3" (also supports '.', '/', '|', '>')
+            e.g. ["EBS Finance Tech", "AP - Invoices and Payments", "Pay from Scan"]
+            or "EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan"
             Defaults to None.
 
     Returns:
@@ -1088,12 +1278,14 @@ def jira_update_issue(
 
         with JiraClient() as client:
             if application_service:
+                # Parse and normalize the input (handles both string and list formats)
+                app_service_path = _parse_application_service_input(application_service)
+                # Resolve the path to the numeric ID
                 app_service_id = _resolve_application_service_id(
-                    client, application_service
+                    client, app_service_path
                 )
-                fields[get_application_service_field()] = {
-                    "inputValues": [app_service_id]
-                }
+                # Jira REST API expects just a list with the ID
+                fields[get_application_service_field()] = [app_service_id]
                 updated_field_names.append("application_service")
 
             client.update_issue(

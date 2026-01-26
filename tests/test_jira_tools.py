@@ -11,6 +11,8 @@ from code_puppy.tools.jira_tools import (
     _format_issue,
     _format_issue_summary,
     _handle_jira_error,
+    _parse_application_service_input,
+    _resolve_application_service_id,
     _truncate_content,
     jira_add_comment,
     jira_create_issue,
@@ -186,6 +188,501 @@ class TestHandleJiraError:
         result = _handle_jira_error(error)
         assert result["success"] is False
         assert result["error_type"] == "authentication"
+
+
+# =============================================================================
+# APPLICATION/SERVICE FIELD TESTS
+# =============================================================================
+
+
+class TestParseApplicationServiceInput:
+    """Test suite for _parse_application_service_input helper."""
+
+    def test_parse_list_format_valid(self):
+        """Test parsing valid list format."""
+        result = _parse_application_service_input(
+            ["EBS Finance Tech", "AP - Invoices and Payments", "Pay from Scan"]
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_list_format_invalid_length(self):
+        """Test parsing list with wrong number of elements."""
+        with pytest.raises(ValueError, match="exactly 3 levels"):
+            _parse_application_service_input(["Level1", "Level2"])
+
+        with pytest.raises(ValueError, match="exactly 3 levels"):
+            _parse_application_service_input(["L1", "L2", "L3", "L4"])
+
+    def test_parse_string_arrow_delimiter(self):
+        """Test parsing string with ' -> ' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_dot_delimiter(self):
+        """Test parsing string with '.' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech.AP - Invoices and Payments.Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_slash_delimiter(self):
+        """Test parsing string with '/' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech/AP - Invoices and Payments/Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_pipe_delimiter(self):
+        """Test parsing string with '|' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech|AP - Invoices and Payments|Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_greater_than_delimiter(self):
+        """Test parsing string with '>' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech>AP - Invoices and Payments>Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_with_whitespace(self):
+        """Test parsing string with extra whitespace."""
+        result = _parse_application_service_input(
+            "  EBS Finance Tech  ->  AP - Invoices and Payments  ->  Pay from Scan  "
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_wrong_delimiter_count(self):
+        """Test parsing string with wrong number of delimiters."""
+        with pytest.raises(ValueError, match="exactly 3 levels"):
+            _parse_application_service_input("Level1 -> Level2")
+
+    def test_parse_string_no_delimiter(self):
+        """Test parsing string without supported delimiter."""
+        with pytest.raises(ValueError, match="separated by"):
+            _parse_application_service_input("Level1 Level2 Level3")
+
+    def test_parse_invalid_type(self):
+        """Test parsing with invalid type."""
+        with pytest.raises(ValueError, match="must be a list or string"):
+            _parse_application_service_input(12345)
+
+        with pytest.raises(ValueError, match="must be a list or string"):
+            _parse_application_service_input({"key": "value"})
+
+
+class TestResolveApplicationServiceId:
+    """Test suite for _resolve_application_service_id helper."""
+
+    def test_resolve_id_success(self):
+        """Test successful ID resolution."""
+        mock_client = MagicMock()
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                },
+                {
+                    "id": "2125771",
+                    "values": ["Other", "Service", "Name"],
+                },
+            ]
+        }
+
+        result = _resolve_application_service_id(
+            mock_client,
+            ["EBS Finance Tech", "AP - Invoices and Payments", "Pay from Scan"],
+        )
+
+        assert result == "2125770"
+
+    def test_resolve_id_with_issue_context(self):
+        """Test ID resolution with issue context."""
+        mock_client = MagicMock()
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                },
+            ]
+        }
+
+        result = _resolve_application_service_id(
+            mock_client,
+            ["EBS Finance Tech", "AP - Invoices and Payments", "Pay from Scan"],
+            issue_id="28750593",
+        )
+
+        assert result == "2125770"
+        # Verify the payload included fieldContext
+        call_args = mock_client._make_request.call_args
+        assert call_args[1]["json"]["fieldContext"] == {"issueKeyOrId": "28750593"}
+
+    def test_resolve_id_not_found(self):
+        """Test ID resolution when path is not found."""
+        mock_client = MagicMock()
+        mock_client._make_request.return_value = {
+            "options": [
+                {"id": "2125771", "values": ["Other", "Service", "Name"]},
+            ]
+        }
+
+        with pytest.raises(ValueError, match="path not found"):
+            _resolve_application_service_id(
+                mock_client, ["Nonexistent", "Path", "Here"]
+            )
+
+    def test_resolve_id_invalid_path_length(self):
+        """Test ID resolution with invalid path length."""
+        mock_client = MagicMock()
+
+        with pytest.raises(ValueError, match="exactly 3 levels"):
+            _resolve_application_service_id(mock_client, ["Level1", "Level2"])
+
+    def test_resolve_id_api_error(self):
+        """Test ID resolution when API call fails."""
+        mock_client = MagicMock()
+        mock_client._make_request.side_effect = JiraAPIError("API Error")
+
+        with pytest.raises(ValueError, match="Failed to fetch"):
+            _resolve_application_service_id(
+                mock_client, ["Level1", "Level2", "Level3"]
+            )
+
+
+class TestFormatIssueWithApplicationService:
+    """Test suite for _format_issue with application_service field."""
+
+    def test_format_issue_with_resolved_app_service(self):
+        """Test formatting issue with resolved application service (3 elements)."""
+        issue = {
+            "key": "PROJ-123",
+            "fields": {
+                "customfield_20400": [
+                    "EBS Finance Tech",
+                    "AP - Invoices and Payments",
+                    "Pay from Scan",
+                ],
+            },
+        }
+
+        with patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = _format_issue(issue)
+
+        assert (
+            result["application_service"]
+            == "EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan"
+        )
+
+    def test_format_issue_with_app_service_id_only(self):
+        """Test formatting issue with just the ID (1 element)."""
+        issue = {
+            "key": "PROJ-123",
+            "fields": {
+                "customfield_20400": ["2125770"],
+            },
+        }
+
+        with patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = _format_issue(issue)
+
+        assert result["application_service"] == "2125770"
+
+    def test_format_issue_without_app_service(self):
+        """Test formatting issue without application service field."""
+        issue = {
+            "key": "PROJ-123",
+            "fields": {},
+        }
+
+        with patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = _format_issue(issue)
+
+        assert result["application_service"] is None
+
+    def test_format_issue_with_none_app_service(self):
+        """Test formatting issue with None application service."""
+        issue = {
+            "key": "PROJ-123",
+            "fields": {
+                "customfield_20400": None,
+            },
+        }
+
+        with patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = _format_issue(issue)
+
+        assert result["application_service"] is None
+
+
+class TestJiraCreateIssueWithApplicationService:
+    """Test suite for jira_create_issue with application_service."""
+
+    def test_create_issue_with_app_service_list(self, mock_context):
+        """Test creating issue with application service as list."""
+        mock_client = MagicMock()
+        mock_client.create_issue.return_value = {"id": "12345", "key": "PROJ-456"}
+        mock_client.search_issues.return_value = {
+            "issues": [{"id": "28750593", "key": "PROJ-100"}]
+        }
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_create_issue(
+                mock_context,
+                project_key="PROJ",
+                issue_type="Story",
+                summary="Test",
+                application_service=[
+                    "EBS Finance Tech",
+                    "AP - Invoices and Payments",
+                    "Pay from Scan",
+                ],
+            )
+
+        assert result["success"] is True
+        # Verify that create_issue was called with the resolved ID
+        create_call = mock_client.create_issue.call_args
+        assert create_call[1]["customfield_20400"] == ["2125770"]
+
+    def test_create_issue_with_app_service_string(self, mock_context):
+        """Test creating issue with application service as string."""
+        mock_client = MagicMock()
+        mock_client.create_issue.return_value = {"id": "12345", "key": "PROJ-456"}
+        mock_client.search_issues.return_value = {
+            "issues": [{"id": "28750593", "key": "PROJ-100"}]
+        }
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_create_issue(
+                mock_context,
+                project_key="PROJ",
+                issue_type="Story",
+                summary="Test",
+                application_service="EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan",
+            )
+
+        assert result["success"] is True
+        create_call = mock_client.create_issue.call_args
+        assert create_call[1]["customfield_20400"] == ["2125770"]
+
+    def test_create_issue_app_service_no_template_issue(self, mock_context):
+        """Test creating issue when no template issue is found."""
+        mock_client = MagicMock()
+        mock_client.create_issue.return_value = {"id": "12345", "key": "PROJ-456"}
+        mock_client.search_issues.return_value = {"issues": []}  # No template
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_create_issue(
+                mock_context,
+                project_key="PROJ",
+                issue_type="Story",
+                summary="Test",
+                application_service=[
+                    "EBS Finance Tech",
+                    "AP - Invoices and Payments",
+                    "Pay from Scan",
+                ],
+            )
+
+        assert result["success"] is True
+        # Should still work, just without issue context in nFeed call
+        create_call = mock_client.create_issue.call_args
+        assert create_call[1]["customfield_20400"] == ["2125770"]
+
+
+class TestJiraUpdateIssueWithApplicationService:
+    """Test suite for jira_update_issue with application_service."""
+
+    def test_update_issue_with_app_service_list(self, mock_context):
+        """Test updating issue with application service as list."""
+        mock_client = MagicMock()
+        mock_client.update_issue.return_value = None
+        mock_client.search_issues.return_value = {
+            "issues": [{"id": "28750593", "key": "PROJ-100"}]
+        }
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_update_issue(
+                mock_context,
+                issue_key="PROJ-123",
+                application_service=[
+                    "EBS Finance Tech",
+                    "AP - Invoices and Payments",
+                    "Pay from Scan",
+                ],
+            )
+
+        assert result["success"] is True
+        # Verify update was called with resolved ID
+        update_call = mock_client.update_issue.call_args
+        assert update_call[1]["fields"]["customfield_20400"] == ["2125770"]
+
+    def test_update_issue_with_app_service_string(self, mock_context):
+        """Test updating issue with application service as string."""
+        mock_client = MagicMock()
+        mock_client.update_issue.return_value = None
+        mock_client.search_issues.return_value = {
+            "issues": [{"id": "28750593", "key": "PROJ-100"}]
+        }
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_update_issue(
+                mock_context,
+                issue_key="PROJ-123",
+                application_service="EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan",
+            )
+
+        assert result["success"] is True
+        update_call = mock_client.update_issue.call_args
+        assert update_call[1]["fields"]["customfield_20400"] == ["2125770"]
         assert "suggestion" in result
 
     def test_handle_not_found_error(self):
@@ -267,6 +764,501 @@ class TestJiraSearch:
 
         assert result["success"] is False
         assert result["error_type"] == "authentication"
+
+
+# =============================================================================
+# APPLICATION/SERVICE FIELD TESTS
+# =============================================================================
+
+
+class TestParseApplicationServiceInput:
+    """Test suite for _parse_application_service_input helper."""
+
+    def test_parse_list_format_valid(self):
+        """Test parsing valid list format."""
+        result = _parse_application_service_input(
+            ["EBS Finance Tech", "AP - Invoices and Payments", "Pay from Scan"]
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_list_format_invalid_length(self):
+        """Test parsing list with wrong number of elements."""
+        with pytest.raises(ValueError, match="exactly 3 levels"):
+            _parse_application_service_input(["Level1", "Level2"])
+
+        with pytest.raises(ValueError, match="exactly 3 levels"):
+            _parse_application_service_input(["L1", "L2", "L3", "L4"])
+
+    def test_parse_string_arrow_delimiter(self):
+        """Test parsing string with ' -> ' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_dot_delimiter(self):
+        """Test parsing string with '.' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech.AP - Invoices and Payments.Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_slash_delimiter(self):
+        """Test parsing string with '/' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech/AP - Invoices and Payments/Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_pipe_delimiter(self):
+        """Test parsing string with '|' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech|AP - Invoices and Payments|Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_greater_than_delimiter(self):
+        """Test parsing string with '>' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech>AP - Invoices and Payments>Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_with_whitespace(self):
+        """Test parsing string with extra whitespace."""
+        result = _parse_application_service_input(
+            "  EBS Finance Tech  ->  AP - Invoices and Payments  ->  Pay from Scan  "
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_wrong_delimiter_count(self):
+        """Test parsing string with wrong number of delimiters."""
+        with pytest.raises(ValueError, match="exactly 3 levels"):
+            _parse_application_service_input("Level1 -> Level2")
+
+    def test_parse_string_no_delimiter(self):
+        """Test parsing string without supported delimiter."""
+        with pytest.raises(ValueError, match="separated by"):
+            _parse_application_service_input("Level1 Level2 Level3")
+
+    def test_parse_invalid_type(self):
+        """Test parsing with invalid type."""
+        with pytest.raises(ValueError, match="must be a list or string"):
+            _parse_application_service_input(12345)
+
+        with pytest.raises(ValueError, match="must be a list or string"):
+            _parse_application_service_input({"key": "value"})
+
+
+class TestResolveApplicationServiceId:
+    """Test suite for _resolve_application_service_id helper."""
+
+    def test_resolve_id_success(self):
+        """Test successful ID resolution."""
+        mock_client = MagicMock()
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                },
+                {
+                    "id": "2125771",
+                    "values": ["Other", "Service", "Name"],
+                },
+            ]
+        }
+
+        result = _resolve_application_service_id(
+            mock_client,
+            ["EBS Finance Tech", "AP - Invoices and Payments", "Pay from Scan"],
+        )
+
+        assert result == "2125770"
+
+    def test_resolve_id_with_issue_context(self):
+        """Test ID resolution with issue context."""
+        mock_client = MagicMock()
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                },
+            ]
+        }
+
+        result = _resolve_application_service_id(
+            mock_client,
+            ["EBS Finance Tech", "AP - Invoices and Payments", "Pay from Scan"],
+            issue_id="28750593",
+        )
+
+        assert result == "2125770"
+        # Verify the payload included fieldContext
+        call_args = mock_client._make_request.call_args
+        assert call_args[1]["json"]["fieldContext"] == {"issueKeyOrId": "28750593"}
+
+    def test_resolve_id_not_found(self):
+        """Test ID resolution when path is not found."""
+        mock_client = MagicMock()
+        mock_client._make_request.return_value = {
+            "options": [
+                {"id": "2125771", "values": ["Other", "Service", "Name"]},
+            ]
+        }
+
+        with pytest.raises(ValueError, match="path not found"):
+            _resolve_application_service_id(
+                mock_client, ["Nonexistent", "Path", "Here"]
+            )
+
+    def test_resolve_id_invalid_path_length(self):
+        """Test ID resolution with invalid path length."""
+        mock_client = MagicMock()
+
+        with pytest.raises(ValueError, match="exactly 3 levels"):
+            _resolve_application_service_id(mock_client, ["Level1", "Level2"])
+
+    def test_resolve_id_api_error(self):
+        """Test ID resolution when API call fails."""
+        mock_client = MagicMock()
+        mock_client._make_request.side_effect = JiraAPIError("API Error")
+
+        with pytest.raises(ValueError, match="Failed to fetch"):
+            _resolve_application_service_id(
+                mock_client, ["Level1", "Level2", "Level3"]
+            )
+
+
+class TestFormatIssueWithApplicationService:
+    """Test suite for _format_issue with application_service field."""
+
+    def test_format_issue_with_resolved_app_service(self):
+        """Test formatting issue with resolved application service (3 elements)."""
+        issue = {
+            "key": "PROJ-123",
+            "fields": {
+                "customfield_20400": [
+                    "EBS Finance Tech",
+                    "AP - Invoices and Payments",
+                    "Pay from Scan",
+                ],
+            },
+        }
+
+        with patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = _format_issue(issue)
+
+        assert (
+            result["application_service"]
+            == "EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan"
+        )
+
+    def test_format_issue_with_app_service_id_only(self):
+        """Test formatting issue with just the ID (1 element)."""
+        issue = {
+            "key": "PROJ-123",
+            "fields": {
+                "customfield_20400": ["2125770"],
+            },
+        }
+
+        with patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = _format_issue(issue)
+
+        assert result["application_service"] == "2125770"
+
+    def test_format_issue_without_app_service(self):
+        """Test formatting issue without application service field."""
+        issue = {
+            "key": "PROJ-123",
+            "fields": {},
+        }
+
+        with patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = _format_issue(issue)
+
+        assert result["application_service"] is None
+
+    def test_format_issue_with_none_app_service(self):
+        """Test formatting issue with None application service."""
+        issue = {
+            "key": "PROJ-123",
+            "fields": {
+                "customfield_20400": None,
+            },
+        }
+
+        with patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = _format_issue(issue)
+
+        assert result["application_service"] is None
+
+
+class TestJiraCreateIssueWithApplicationService:
+    """Test suite for jira_create_issue with application_service."""
+
+    def test_create_issue_with_app_service_list(self, mock_context):
+        """Test creating issue with application service as list."""
+        mock_client = MagicMock()
+        mock_client.create_issue.return_value = {"id": "12345", "key": "PROJ-456"}
+        mock_client.search_issues.return_value = {
+            "issues": [{"id": "28750593", "key": "PROJ-100"}]
+        }
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_create_issue(
+                mock_context,
+                project_key="PROJ",
+                issue_type="Story",
+                summary="Test",
+                application_service=[
+                    "EBS Finance Tech",
+                    "AP - Invoices and Payments",
+                    "Pay from Scan",
+                ],
+            )
+
+        assert result["success"] is True
+        # Verify that create_issue was called with the resolved ID
+        create_call = mock_client.create_issue.call_args
+        assert create_call[1]["customfield_20400"] == ["2125770"]
+
+    def test_create_issue_with_app_service_string(self, mock_context):
+        """Test creating issue with application service as string."""
+        mock_client = MagicMock()
+        mock_client.create_issue.return_value = {"id": "12345", "key": "PROJ-456"}
+        mock_client.search_issues.return_value = {
+            "issues": [{"id": "28750593", "key": "PROJ-100"}]
+        }
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_create_issue(
+                mock_context,
+                project_key="PROJ",
+                issue_type="Story",
+                summary="Test",
+                application_service="EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan",
+            )
+
+        assert result["success"] is True
+        create_call = mock_client.create_issue.call_args
+        assert create_call[1]["customfield_20400"] == ["2125770"]
+
+    def test_create_issue_app_service_no_template_issue(self, mock_context):
+        """Test creating issue when no template issue is found."""
+        mock_client = MagicMock()
+        mock_client.create_issue.return_value = {"id": "12345", "key": "PROJ-456"}
+        mock_client.search_issues.return_value = {"issues": []}  # No template
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_create_issue(
+                mock_context,
+                project_key="PROJ",
+                issue_type="Story",
+                summary="Test",
+                application_service=[
+                    "EBS Finance Tech",
+                    "AP - Invoices and Payments",
+                    "Pay from Scan",
+                ],
+            )
+
+        assert result["success"] is True
+        # Should still work, just without issue context in nFeed call
+        create_call = mock_client.create_issue.call_args
+        assert create_call[1]["customfield_20400"] == ["2125770"]
+
+
+class TestJiraUpdateIssueWithApplicationService:
+    """Test suite for jira_update_issue with application_service."""
+
+    def test_update_issue_with_app_service_list(self, mock_context):
+        """Test updating issue with application service as list."""
+        mock_client = MagicMock()
+        mock_client.update_issue.return_value = None
+        mock_client.search_issues.return_value = {
+            "issues": [{"id": "28750593", "key": "PROJ-100"}]
+        }
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_update_issue(
+                mock_context,
+                issue_key="PROJ-123",
+                application_service=[
+                    "EBS Finance Tech",
+                    "AP - Invoices and Payments",
+                    "Pay from Scan",
+                ],
+            )
+
+        assert result["success"] is True
+        # Verify update was called with resolved ID
+        update_call = mock_client.update_issue.call_args
+        assert update_call[1]["fields"]["customfield_20400"] == ["2125770"]
+
+    def test_update_issue_with_app_service_string(self, mock_context):
+        """Test updating issue with application service as string."""
+        mock_client = MagicMock()
+        mock_client.update_issue.return_value = None
+        mock_client.search_issues.return_value = {
+            "issues": [{"id": "28750593", "key": "PROJ-100"}]
+        }
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_update_issue(
+                mock_context,
+                issue_key="PROJ-123",
+                application_service="EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan",
+            )
+
+        assert result["success"] is True
+        update_call = mock_client.update_issue.call_args
+        assert update_call[1]["fields"]["customfield_20400"] == ["2125770"]
 
 
 # =============================================================================
@@ -847,3 +1839,498 @@ class TestJiraListProjects:
 
         assert result["success"] is False
         assert result["error_type"] == "authentication"
+
+
+# =============================================================================
+# APPLICATION/SERVICE FIELD TESTS
+# =============================================================================
+
+
+class TestParseApplicationServiceInput:
+    """Test suite for _parse_application_service_input helper."""
+
+    def test_parse_list_format_valid(self):
+        """Test parsing valid list format."""
+        result = _parse_application_service_input(
+            ["EBS Finance Tech", "AP - Invoices and Payments", "Pay from Scan"]
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_list_format_invalid_length(self):
+        """Test parsing list with wrong number of elements."""
+        with pytest.raises(ValueError, match="exactly 3 levels"):
+            _parse_application_service_input(["Level1", "Level2"])
+
+        with pytest.raises(ValueError, match="exactly 3 levels"):
+            _parse_application_service_input(["L1", "L2", "L3", "L4"])
+
+    def test_parse_string_arrow_delimiter(self):
+        """Test parsing string with ' -> ' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_dot_delimiter(self):
+        """Test parsing string with '.' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech.AP - Invoices and Payments.Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_slash_delimiter(self):
+        """Test parsing string with '/' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech/AP - Invoices and Payments/Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_pipe_delimiter(self):
+        """Test parsing string with '|' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech|AP - Invoices and Payments|Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_greater_than_delimiter(self):
+        """Test parsing string with '>' delimiter."""
+        result = _parse_application_service_input(
+            "EBS Finance Tech>AP - Invoices and Payments>Pay from Scan"
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_with_whitespace(self):
+        """Test parsing string with extra whitespace."""
+        result = _parse_application_service_input(
+            "  EBS Finance Tech  ->  AP - Invoices and Payments  ->  Pay from Scan  "
+        )
+        assert result == [
+            "EBS Finance Tech",
+            "AP - Invoices and Payments",
+            "Pay from Scan",
+        ]
+
+    def test_parse_string_wrong_delimiter_count(self):
+        """Test parsing string with wrong number of delimiters."""
+        with pytest.raises(ValueError, match="exactly 3 levels"):
+            _parse_application_service_input("Level1 -> Level2")
+
+    def test_parse_string_no_delimiter(self):
+        """Test parsing string without supported delimiter."""
+        with pytest.raises(ValueError, match="separated by"):
+            _parse_application_service_input("Level1 Level2 Level3")
+
+    def test_parse_invalid_type(self):
+        """Test parsing with invalid type."""
+        with pytest.raises(ValueError, match="must be a list or string"):
+            _parse_application_service_input(12345)
+
+        with pytest.raises(ValueError, match="must be a list or string"):
+            _parse_application_service_input({"key": "value"})
+
+
+class TestResolveApplicationServiceId:
+    """Test suite for _resolve_application_service_id helper."""
+
+    def test_resolve_id_success(self):
+        """Test successful ID resolution."""
+        mock_client = MagicMock()
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                },
+                {
+                    "id": "2125771",
+                    "values": ["Other", "Service", "Name"],
+                },
+            ]
+        }
+
+        result = _resolve_application_service_id(
+            mock_client,
+            ["EBS Finance Tech", "AP - Invoices and Payments", "Pay from Scan"],
+        )
+
+        assert result == "2125770"
+
+    def test_resolve_id_with_issue_context(self):
+        """Test ID resolution with issue context."""
+        mock_client = MagicMock()
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                },
+            ]
+        }
+
+        result = _resolve_application_service_id(
+            mock_client,
+            ["EBS Finance Tech", "AP - Invoices and Payments", "Pay from Scan"],
+            issue_id="28750593",
+        )
+
+        assert result == "2125770"
+        # Verify the payload included fieldContext
+        call_args = mock_client._make_request.call_args
+        assert call_args[1]["json"]["fieldContext"] == {"issueKeyOrId": "28750593"}
+
+    def test_resolve_id_not_found(self):
+        """Test ID resolution when path is not found."""
+        mock_client = MagicMock()
+        mock_client._make_request.return_value = {
+            "options": [
+                {"id": "2125771", "values": ["Other", "Service", "Name"]},
+            ]
+        }
+
+        with pytest.raises(ValueError, match="path not found"):
+            _resolve_application_service_id(
+                mock_client, ["Nonexistent", "Path", "Here"]
+            )
+
+    def test_resolve_id_invalid_path_length(self):
+        """Test ID resolution with invalid path length."""
+        mock_client = MagicMock()
+
+        with pytest.raises(ValueError, match="exactly 3 levels"):
+            _resolve_application_service_id(mock_client, ["Level1", "Level2"])
+
+    def test_resolve_id_api_error(self):
+        """Test ID resolution when API call fails."""
+        mock_client = MagicMock()
+        mock_client._make_request.side_effect = JiraAPIError("API Error")
+
+        with pytest.raises(ValueError, match="Failed to fetch"):
+            _resolve_application_service_id(
+                mock_client, ["Level1", "Level2", "Level3"]
+            )
+
+
+class TestFormatIssueWithApplicationService:
+    """Test suite for _format_issue with application_service field."""
+
+    def test_format_issue_with_resolved_app_service(self):
+        """Test formatting issue with resolved application service (3 elements)."""
+        issue = {
+            "key": "PROJ-123",
+            "fields": {
+                "customfield_20400": [
+                    "EBS Finance Tech",
+                    "AP - Invoices and Payments",
+                    "Pay from Scan",
+                ],
+            },
+        }
+
+        with patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = _format_issue(issue)
+
+        assert (
+            result["application_service"]
+            == "EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan"
+        )
+
+    def test_format_issue_with_app_service_id_only(self):
+        """Test formatting issue with just the ID (1 element)."""
+        issue = {
+            "key": "PROJ-123",
+            "fields": {
+                "customfield_20400": ["2125770"],
+            },
+        }
+
+        with patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = _format_issue(issue)
+
+        assert result["application_service"] == "2125770"
+
+    def test_format_issue_without_app_service(self):
+        """Test formatting issue without application service field."""
+        issue = {
+            "key": "PROJ-123",
+            "fields": {},
+        }
+
+        with patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = _format_issue(issue)
+
+        assert result["application_service"] is None
+
+    def test_format_issue_with_none_app_service(self):
+        """Test formatting issue with None application service."""
+        issue = {
+            "key": "PROJ-123",
+            "fields": {
+                "customfield_20400": None,
+            },
+        }
+
+        with patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = _format_issue(issue)
+
+        assert result["application_service"] is None
+
+
+class TestJiraCreateIssueWithApplicationService:
+    """Test suite for jira_create_issue with application_service."""
+
+    def test_create_issue_with_app_service_list(self, mock_context):
+        """Test creating issue with application service as list."""
+        mock_client = MagicMock()
+        mock_client.create_issue.return_value = {"id": "12345", "key": "PROJ-456"}
+        mock_client.search_issues.return_value = {
+            "issues": [{"id": "28750593", "key": "PROJ-100"}]
+        }
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_create_issue(
+                mock_context,
+                project_key="PROJ",
+                issue_type="Story",
+                summary="Test",
+                application_service=[
+                    "EBS Finance Tech",
+                    "AP - Invoices and Payments",
+                    "Pay from Scan",
+                ],
+            )
+
+        assert result["success"] is True
+        # Verify that create_issue was called with the resolved ID
+        create_call = mock_client.create_issue.call_args
+        assert create_call[1]["customfield_20400"] == ["2125770"]
+
+    def test_create_issue_with_app_service_string(self, mock_context):
+        """Test creating issue with application service as string."""
+        mock_client = MagicMock()
+        mock_client.create_issue.return_value = {"id": "12345", "key": "PROJ-456"}
+        mock_client.search_issues.return_value = {
+            "issues": [{"id": "28750593", "key": "PROJ-100"}]
+        }
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_create_issue(
+                mock_context,
+                project_key="PROJ",
+                issue_type="Story",
+                summary="Test",
+                application_service="EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan",
+            )
+
+        assert result["success"] is True
+        create_call = mock_client.create_issue.call_args
+        assert create_call[1]["customfield_20400"] == ["2125770"]
+
+    def test_create_issue_app_service_no_template_issue(self, mock_context):
+        """Test creating issue when no template issue is found."""
+        mock_client = MagicMock()
+        mock_client.create_issue.return_value = {"id": "12345", "key": "PROJ-456"}
+        mock_client.search_issues.return_value = {"issues": []}  # No template
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_create_issue(
+                mock_context,
+                project_key="PROJ",
+                issue_type="Story",
+                summary="Test",
+                application_service=[
+                    "EBS Finance Tech",
+                    "AP - Invoices and Payments",
+                    "Pay from Scan",
+                ],
+            )
+
+        assert result["success"] is True
+        # Should still work, just without issue context in nFeed call
+        create_call = mock_client.create_issue.call_args
+        assert create_call[1]["customfield_20400"] == ["2125770"]
+
+
+class TestJiraUpdateIssueWithApplicationService:
+    """Test suite for jira_update_issue with application_service."""
+
+    def test_update_issue_with_app_service_list(self, mock_context):
+        """Test updating issue with application service as list."""
+        mock_client = MagicMock()
+        mock_client.update_issue.return_value = None
+        mock_client.search_issues.return_value = {
+            "issues": [{"id": "28750593", "key": "PROJ-100"}]
+        }
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_update_issue(
+                mock_context,
+                issue_key="PROJ-123",
+                application_service=[
+                    "EBS Finance Tech",
+                    "AP - Invoices and Payments",
+                    "Pay from Scan",
+                ],
+            )
+
+        assert result["success"] is True
+        # Verify update was called with resolved ID
+        update_call = mock_client.update_issue.call_args
+        assert update_call[1]["fields"]["customfield_20400"] == ["2125770"]
+
+    def test_update_issue_with_app_service_string(self, mock_context):
+        """Test updating issue with application service as string."""
+        mock_client = MagicMock()
+        mock_client.update_issue.return_value = None
+        mock_client.search_issues.return_value = {
+            "issues": [{"id": "28750593", "key": "PROJ-100"}]
+        }
+        mock_client._make_request.return_value = {
+            "options": [
+                {
+                    "id": "2125770",
+                    "values": [
+                        "EBS Finance Tech",
+                        "AP - Invoices and Payments",
+                        "Pay from Scan",
+                    ],
+                }
+            ]
+        }
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=None)
+
+        with patch(
+            "code_puppy.tools.jira_tools.JiraClient", return_value=mock_client
+        ), patch(
+            "code_puppy.tools.jira_tools.get_application_service_field",
+            return_value="customfield_20400",
+        ):
+            result = jira_update_issue(
+                mock_context,
+                issue_key="PROJ-123",
+                application_service="EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan",
+            )
+
+        assert result["success"] is True
+        update_call = mock_client.update_issue.call_args
+        assert update_call[1]["fields"]["customfield_20400"] == ["2125770"]
