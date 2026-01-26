@@ -510,7 +510,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         try:
             # Check if any tool is waiting for user input before showing spinner
             try:
-                from code_puppy.tools.command_runner import is_ppppping_user_input
+                from code_puppy.tools.command_runner import is_awaiting_user_input
 
                 awaiting_input = is_awaiting_user_input()
             except ImportError:

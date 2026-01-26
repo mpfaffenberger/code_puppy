@@ -249,8 +249,6 @@ async def double_click_element(
             return {"success": False, "error": "No active browser page available"}
 
         element = page.locator(selector).first
-        await element.wait_for(state="visible", timeout=timeout)
-        await element.dblclick(force=force, timeout=timeout)
 
         # Pre-flight check
         count = await element.count()
@@ -384,8 +382,6 @@ async def hover_element(
             return {"success": False, "error": "No active browser page available"}
 
         element = page.locator(selector).first
-        await element.wait_for(state="visible", timeout=timeout)
-        await element.hover(force=force, timeout=timeout)
 
         # Pre-flight check
         count = await element.count()

@@ -57,12 +57,15 @@ def _is_process_alive(pid: int) -> bool:
     On POSIX: use os.kill(pid, 0) and errno checks.
     On Windows: use kernel32 OpenProcess + GetExitCodeProcess.
 
+    Args:
+        pid: The process ID to check.
+
+    Returns:
+        bool: True if process likely exists, False otherwise.
+    """
     if pid <= 0:
         return False
 
-    Returns:
-        bool: True if process likely exists, False otherwise
-    """
     try:
         if os.name == "nt":
             # Windows: use OpenProcess to probe liveness safely

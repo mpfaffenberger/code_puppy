@@ -287,57 +287,6 @@ class BaseAgent(ABC):
         """
         self._compacted_message_hashes.add(message_hash)
 
-    def ensure_history_ends_with_request(
-        self, messages: List[ModelMessage]
-    ) -> List[ModelMessage]:
-        """Ensure message history ends with a ModelRequest.
-
-        pydantic_ai requires that processed message history ends with a ModelRequest.
-        This can fail when swapping models mid-conversation if the history ends with
-        a ModelResponse from the previous model.
-
-        This method trims trailing ModelResponse messages to ensure compatibility.
-
-        Args:
-            messages: List of messages to validate/fix.
-
-        Returns:
-            List of messages guaranteed to end with ModelRequest, or empty list
-            if no valid history can be constructed.
-        """
-        if not messages:
-            return messages
-
-        # If history already ends with ModelRequest, we're good
-        if isinstance(messages[-1], ModelRequest):
-            return messages
-
-        # History ends with ModelResponse - trim trailing responses
-        # This can happen when swapping models mid-conversation
-        # Remove trailing ModelResponse messages
-        trimmed = list(messages)
-        while trimmed and isinstance(trimmed[-1], ModelResponse):
-            trimmed.pop()
-
-        # If we removed everything, return empty list
-        # The caller (pydantic_ai) will handle this appropriately
-        if not trimmed:
-            emit_warning(
-                "All messages were ModelResponse - returning empty history. "
-                "The conversation will start fresh with the new model."
-            )
-            return []
-
-        # Verify we now end with ModelRequest
-        if not isinstance(trimmed[-1], ModelRequest):
-            # Shouldn't happen in normal operation, but be defensive
-            emit_warning(
-                f"History still doesn't end with ModelRequest after trimming "
-                f"(ends with {type(trimmed[-1]).__name__}). Returning empty history."
-            )
-            return []
-
-        return trimmed
 
     def get_model_name(self) -> Optional[str]:
         """Get pinned model name for this agent, if specified.
@@ -1498,14 +1447,6 @@ class BaseAgent(ABC):
             result_messages_filtered_empty_thinking.append(msg)
         # Update history after filtering (was incorrectly inside the loop before)
         self.set_message_history(result_messages_filtered_empty_thinking)
-
-        # GUARD: Ensure history ends with ModelRequest to prevent pydantic_ai errors
-        # This is crucial when swapping models mid-conversation (especially Gemini)
-        final_history = self.ensure_history_ends_with_request(
-            self.get_message_history()
-        )
-        if final_history != self.get_message_history():
-            self.set_message_history(final_history)
 
         return self.get_message_history()
 

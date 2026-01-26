@@ -1380,7 +1380,7 @@ def register_agent_run_shell_command(agent):
             This tool can execute arbitrary shell commands. Exercise caution when
             running untrusted commands, especially those that modify system state.
         """
-        result = await run_shell_command(context, command, cwd, timeout)
+        result = await run_shell_command(context, command, cwd, timeout, background)
         await on_run_shell_command_output(result)
         return result
 

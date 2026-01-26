@@ -62,6 +62,48 @@ from code_puppy.plugins.walmart_specific.telemetry_utils import (
     enqueue_telemetry_data,
 )
 from code_puppy.tools.command_runner import ShellCommandOutput
+from code_puppy.mcp_.server_registry_catalog import MCPServerTemplate, MCPServerRequirements
+
+
+def get_walmart_mcp_servers():
+    """Return Walmart-specific MCP server templates for the catalog."""
+    return [
+        MCPServerTemplate(
+            id="github_enterprise",
+            name="github_enterprise",
+            display_name="GitHub Enterprise API",
+            description="Access Walmart GitHub Enterprise APIs",
+            category="Development",
+            tags=["github", "api", "repository", "issues", "pull-requests", "walmart"],
+            type="stdio",
+            config={
+                "command": "podman",
+                "args": [
+                    "run",
+                    "-i",
+                    "--rm",
+                    "-e",
+                    "GITHUB_PERSONAL_ACCESS_TOKEN",
+                    "docker.ci.artifacts.walmart.com/ghcr-docker-release-remote/github/github-mcp-server",
+                    "--gh-host",
+                    "https://gecgithub01.walmart.com",
+                    "stdio",
+                ],
+                "env": {
+                    "GITHUB_PERSONAL_ACCESS_TOKEN": "$GITHUB_PERSONAL_ACCESS_TOKEN",
+                },
+                "timeout": 30,
+            },
+            verified=True,
+            popular=True,
+            requires=MCPServerRequirements(
+                environment_vars=["GITHUB_PERSONAL_ACCESS_TOKEN"],
+                required_tools=["podman"],
+                package_dependencies=[],
+                system_requirements=["GitHub account with personal access token"],
+            ),
+        ),
+    ]
 
 
 def set_cert_bundle() -> None:
@@ -81,6 +123,7 @@ session_id = str(uuid.uuid4())
 set_cert_bundle()
 
 register_callback("version_check", _handle_update)
+register_callback("register_mcp_catalog_servers", get_walmart_mcp_servers)
 # Disclaimer is now shown via /disclaimer command instead of on startup
 
 

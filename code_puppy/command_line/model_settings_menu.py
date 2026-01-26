@@ -119,12 +119,6 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "choices": ["low", "high"],
         "default": "low",
     },
-    "clear_thinking": {
-        "name": "Clear Thinking",
-        "description": "False = Preserved Thinking (keep <think> blocks visible). True = strip thinking from responses.",
-        "type": "boolean",
-        "default": False,
-    },
     "thinking_enabled": {
         "name": "Thinking Enabled",
         "description": "Enable thinking mode for Gemini 3 Pro models. When enabled, the model will show its reasoning process.",
