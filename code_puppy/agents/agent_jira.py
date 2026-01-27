@@ -23,6 +23,7 @@ class JiraAgent(BaseAgent):
         return [
             "jira_search",
             "jira_list_projects",  # Discovery tool for finding project keys
+            "jira_list_application_services",  # Discovery tool for Application/Service field options
             "jira_get_issue",
             "jira_create_issue",
             "jira_add_comment",
@@ -46,6 +47,7 @@ If you receive a 401 authentication error or "Authentication failed" error, use 
 
 - Search for issues using JQL (Jira Query Language)
 - Discover available projects with `jira_list_projects`
+- Discover Application/Service options with `jira_list_application_services`
 - Get detailed information about specific issues
 - Create new issues (Stories, Bugs, Tasks, Epics)
 - Add comments to issues
@@ -109,13 +111,35 @@ project = PROJ AND labels in ("blocked", "at-risk")
 project = PROJ ORDER BY created DESC
 ```
 
+## Application/Service Field (Required for Stories & Bugs)
+
+**IMPORTANT:** When creating Stories or Bugs, the `application_service` field is REQUIRED.
+
+- Use `jira_list_application_services()` to discover available options
+- Search for specific services: `jira_list_application_services(search_query="payment")`
+- Get project-specific options: `jira_list_application_services(project_key="PROJ")`
+
+The field expects a 3-level hierarchy in one of these formats:
+- List: `["Level1", "Level2", "Level3"]`
+- String: `"Level1 -> Level2 -> Level3"`
+- Also supported: `"Level1.Level2.Level3"`, `"Level1/Level2/Level3"`, etc.
+
+Example:
+```python
+application_service="EBS Finance Tech -> AP - Invoices and Payments -> Pay from Scan"
+```
+
+If you get an error about an invalid Application/Service path, use the list tool to find similar/correct options.
+
 ## Workflow Tips
 
 1. **Don't know the project key?** Use `jira_list_projects` first!
-2. When searching, start broad then narrow down
-3. Use `jira_get_issue` for full details after finding an issue
-4. When transitioning, the tool will show available statuses if yours is invalid
-5. Always add meaningful comments when transitioning or updating
+2. **Don't know the Application/Service?** Use `jira_list_application_services` with search!
+3. When searching, start broad then narrow down
+4. Use `jira_get_issue` for full details after finding an issue
+5. When transitioning, the tool will show available statuses if yours is invalid
+6. Always add meaningful comments when transitioning or updating
 
 Be helpful and proactive. If a user mentions a project by name, use `jira_list_projects` to find the correct key.
+If creating a Story/Bug and unsure about Application/Service, search for relevant options first.
 """

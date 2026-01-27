@@ -7,7 +7,7 @@ Tools included:
 - BigQuery (7 tools): Data warehouse queries and schema inspection
 - Databricks (6 tools): Catalog, schema, and query execution
 - Confluence (4 tools): Documentation search and retrieval
-- Jira (9 tools): Issue tracking and project management
+- Jira (10 tools): Issue tracking and project management
 - Marketplace (5 tools): Agent marketplace operations
 """
 
@@ -54,6 +54,7 @@ def get_enterprise_tools() -> list[dict[str, Any]]:
         register_jira_create_issue,
         register_jira_get_comments,
         register_jira_get_issue,
+        register_jira_list_application_services,
         register_jira_list_projects,
         register_jira_search,
         register_jira_transition_issue,
@@ -88,9 +89,10 @@ def get_enterprise_tools() -> list[dict[str, Any]]:
         {"name": "confluence_read_page", "register_func": register_confluence_read_page},
         {"name": "confluence_search_by_space", "register_func": register_confluence_search_by_space},
         {"name": "confluence_authenticate", "register_func": register_confluence_authenticate},
-        # Jira Tools (9)
+        # Jira Tools (10)
         {"name": "jira_search", "register_func": register_jira_search},
         {"name": "jira_list_projects", "register_func": register_jira_list_projects},
+        {"name": "jira_list_application_services", "register_func": register_jira_list_application_services},
         {"name": "jira_get_issue", "register_func": register_jira_get_issue},
         {"name": "jira_create_issue", "register_func": register_jira_create_issue},
         {"name": "jira_add_comment", "register_func": register_jira_add_comment},
