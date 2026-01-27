@@ -4,7 +4,6 @@ The wiggum feature allows users to automatically re-run the same prompt
 when the agent finishes, like Chief Wiggum chasing donuts in circles. 🍩
 """
 
-import pytest
 
 
 class TestWiggumState:
@@ -120,15 +119,19 @@ class TestWiggumCommand:
     """Test wiggum command registration and handling."""
 
     def setup_method(self):
-        """Reset wiggum state before each test."""
+        """Reset wiggum state and ensure commands are registered before each test."""
+        import importlib
+
+        import code_puppy.command_line.core_commands
         from code_puppy.command_line.wiggum_state import stop_wiggum
 
+        # Reload core_commands to ensure commands are registered
+        # (in case a previous test cleared the registry)
+        importlib.reload(code_puppy.command_line.core_commands)
         stop_wiggum()
 
     def test_wiggum_command_registered(self):
         """The /wiggum command should be registered."""
-        # Import to trigger registration
-        import code_puppy.command_line.core_commands  # noqa: F401
         from code_puppy.command_line.command_registry import get_command
 
         cmd = get_command("wiggum")
@@ -139,7 +142,6 @@ class TestWiggumCommand:
 
     def test_wiggum_stop_command_registered(self):
         """The /wiggum_stop command should be registered with aliases."""
-        import code_puppy.command_line.core_commands  # noqa: F401
         from code_puppy.command_line.command_registry import get_command
 
         cmd = get_command("wiggum_stop")
@@ -151,7 +153,6 @@ class TestWiggumCommand:
 
     def test_wiggum_command_without_prompt_returns_true(self):
         """Calling /wiggum without a prompt should show help and return True."""
-        import code_puppy.command_line.core_commands  # noqa: F401
         from code_puppy.command_line.command_registry import get_command
         from code_puppy.command_line.wiggum_state import is_wiggum_active
 
@@ -163,7 +164,6 @@ class TestWiggumCommand:
 
     def test_wiggum_command_with_prompt_returns_prompt(self):
         """Calling /wiggum with a prompt should return the prompt for execution."""
-        import code_puppy.command_line.core_commands  # noqa: F401
         from code_puppy.command_line.command_registry import get_command
         from code_puppy.command_line.wiggum_state import (
             get_wiggum_prompt,
@@ -179,7 +179,6 @@ class TestWiggumCommand:
 
     def test_wiggum_stop_command_when_active(self):
         """Calling /wiggum_stop when active should stop wiggum mode."""
-        import code_puppy.command_line.core_commands  # noqa: F401
         from code_puppy.command_line.command_registry import get_command
         from code_puppy.command_line.wiggum_state import is_wiggum_active, start_wiggum
 
@@ -194,7 +193,6 @@ class TestWiggumCommand:
 
     def test_wiggum_stop_command_when_inactive(self):
         """Calling /wiggum_stop when inactive should just return True."""
-        import code_puppy.command_line.core_commands  # noqa: F401
         from code_puppy.command_line.command_registry import get_command
         from code_puppy.command_line.wiggum_state import is_wiggum_active
 
@@ -208,7 +206,6 @@ class TestWiggumCommand:
 
     def test_wiggum_stop_alias_ws(self):
         """The /ws alias should work for wiggum_stop."""
-        import code_puppy.command_line.core_commands  # noqa: F401
         from code_puppy.command_line.command_registry import get_command
 
         cmd = get_command("ws")

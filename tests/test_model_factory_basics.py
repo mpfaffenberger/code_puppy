@@ -198,6 +198,36 @@ class TestModelFactoryBasics:
             assert model1 is not model2
             assert model1.model_name == model2.model_name
 
+    @patch(
+        "code_puppy.model_factory.callbacks.get_callbacks",
+        return_value=["test_callback"],
+    )
+    @patch(
+        "code_puppy.model_factory.callbacks.on_load_model_config",
+        return_value=[{"test": "config"}],
+    )
+    @patch(
+        "code_puppy.model_factory.callbacks.on_load_models_config",
+        return_value=[],
+    )
+    @patch("builtins.open", new_callable=mock_open, read_data="{}")
+    @patch("code_puppy.model_factory.pathlib.Path.exists", return_value=False)
+    def test_load_config_with_callbacks(
+        self,
+        mock_exists,
+        mock_file,
+        mock_on_load_models,
+        mock_on_load,
+        mock_get_callbacks,
+    ):
+        """Test config loading using callbacks."""
+        config = ModelFactory.load_config()
+
+        # When callbacks are present, the callback result should be used
+        assert config == {"test": "config"}
+        # get_callbacks is called for "load_model_config" to check if callbacks exist
+        mock_get_callbacks.assert_any_call("load_model_config")
+        mock_on_load.assert_called_once()
 
     @patch.dict(os.environ, {"ZAI_API_KEY": "test-key"})
     def test_get_model_zai_coding(self):
