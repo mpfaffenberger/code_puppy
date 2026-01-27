@@ -551,7 +551,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             reset_windows_terminal_full()
             from code_puppy.messaging import emit_warning
 
-            emit_warning("\nInput cancelled")
+            # Stop wiggum mode on Ctrl+C
+            from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
+            if is_wiggum_active():
+                stop_wiggum()
+                emit_warning("\n🍩 Wiggum loop stopped!")
+            else:
+                emit_warning("\nInput cancelled")
             continue
 
         # Check for exit commands (plain text or command form)
@@ -718,6 +724,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         ensure_ctrl_c_disabled()
                     except ImportError:
                         pass
+                    # Stop wiggum mode on cancellation
+                    from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
+                    if is_wiggum_active():
+                        stop_wiggum()
+                        from code_puppy.messaging import emit_warning
+                        emit_warning("🍩 Wiggum loop stopped due to cancellation")
                     continue
                 # Get the structured response
                 agent_response = result.output
@@ -757,6 +769,86 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             from code_puppy.config import auto_save_session_if_enabled
 
             auto_save_session_if_enabled()
+
+            # ================================================================
+            # WIGGUM LOOP: Re-run prompt if wiggum mode is active
+            # ================================================================
+            from code_puppy.command_line.wiggum_state import (
+                get_wiggum_prompt,
+                get_wiggum_count,
+                increment_wiggum_count,
+                is_wiggum_active,
+                stop_wiggum,
+            )
+
+            while is_wiggum_active():
+                wiggum_prompt = get_wiggum_prompt()
+                if not wiggum_prompt:
+                    stop_wiggum()
+                    break
+
+                # Increment and show debug message
+                loop_num = increment_wiggum_count()
+                from code_puppy.messaging import emit_warning, emit_system_message
+
+                emit_warning(f"\n🍩 WIGGUM RELOOPING! (Loop #{loop_num})")
+                emit_system_message(f"Re-running prompt: {wiggum_prompt}")
+
+                # Reset context/history for fresh start
+                new_session_id = finalize_autosave_session()
+                current_agent.clear_message_history()
+                emit_system_message(f"Context cleared. Session rotated to: {new_session_id}")
+
+                # Small delay to let user see the debug message
+                import time
+                time.sleep(0.5)
+
+                try:
+                    # Re-run the wiggum prompt
+                    result, current_agent_task = await run_prompt_with_attachments(
+                        current_agent,
+                        wiggum_prompt,
+                        spinner_console=message_renderer.console,
+                    )
+
+                    if result is None:
+                        # Cancelled - stop wiggum mode
+                        emit_warning("Wiggum loop cancelled by user")
+                        stop_wiggum()
+                        break
+
+                    # Get the structured response
+                    agent_response = result.output
+
+                    # Emit structured message for proper markdown rendering
+                    response_msg = AgentResponseMessage(
+                        content=agent_response,
+                        is_markdown=True,
+                    )
+                    get_message_bus().emit(response_msg)
+
+                    # Update message history
+                    if hasattr(result, "all_messages"):
+                        current_agent.set_message_history(list(result.all_messages()))
+
+                    # Flush console
+                    display_console.file.flush() if hasattr(
+                        display_console.file, "flush"
+                    ) else None
+                    time.sleep(0.1)
+
+                    # Auto-save
+                    auto_save_session_if_enabled()
+
+                except KeyboardInterrupt:
+                    emit_warning("\n🍩 Wiggum loop interrupted by Ctrl+C")
+                    stop_wiggum()
+                    break
+                except Exception as e:
+                    from code_puppy.messaging import emit_error
+                    emit_error(f"Wiggum loop error: {e}")
+                    stop_wiggum()
+                    break
 
             # Re-disable Ctrl+C if needed (uvx mode) - must be done after
             # each iteration as various operations may restore console mode

@@ -790,3 +790,64 @@ def handle_generate_pr_description_command(command: str) -> str:
 
     # Return the prompt to be processed by the main chat system
     return pr_prompt
+
+
+@register_command(
+    name="wiggum",
+    description="Loop mode: re-run the same prompt when agent finishes (like Wiggum chasing donuts 🍩)",
+    usage="/wiggum <prompt>",
+    category="core",
+)
+def handle_wiggum_command(command: str) -> str | bool:
+    """Start wiggum loop mode.
+
+    When active, the agent will automatically re-run the same prompt
+    after completing, resetting context each time. Use Ctrl+C to stop.
+
+    Example:
+        /wiggum say hello world
+    """
+    from code_puppy.command_line.wiggum_state import start_wiggum, stop_wiggum
+    from code_puppy.messaging import emit_info, emit_success, emit_warning
+
+    # Extract the prompt after /wiggum
+    parts = command.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        emit_warning("Usage: /wiggum <prompt>")
+        emit_info("Example: /wiggum say hello world")
+        emit_info("This will repeatedly run 'say hello world' after each completion.")
+        emit_info("Press Ctrl+C to stop the loop.")
+        return True
+
+    prompt = parts[1].strip()
+
+    # Start wiggum mode
+    start_wiggum(prompt)
+    emit_success(f"🍩 WIGGUM MODE ACTIVATED!")
+    emit_info(f"Prompt: {prompt}")
+    emit_info("The agent will re-loop this prompt after each completion.")
+    emit_info("Press Ctrl+C to stop the wiggum loop.")
+
+    # Return the prompt to execute immediately
+    return prompt
+
+
+@register_command(
+    name="wiggum_stop",
+    description="Stop wiggum loop mode",
+    usage="/wiggum_stop",
+    aliases=["stopwiggum", "ws"],
+    category="core",
+)
+def handle_wiggum_stop_command(command: str) -> bool:
+    """Stop wiggum loop mode."""
+    from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
+    from code_puppy.messaging import emit_info, emit_success
+
+    if is_wiggum_active():
+        stop_wiggum()
+        emit_success("🍩 Wiggum mode stopped!")
+    else:
+        emit_info("Wiggum mode is not active.")
+
+    return True
