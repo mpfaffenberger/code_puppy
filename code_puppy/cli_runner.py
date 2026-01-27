@@ -574,6 +574,39 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 emit_info(f"Cleared {clipboard_count} pending clipboard image(s)")
             continue
 
+        # Check for secret phrases to unlock hidden features (Blizzard cheat codes!)
+        from code_puppy.config import (
+            HELIOS_SECRET_PHRASE,
+            WIGGUM_SECRET_PHRASE,
+            is_helios_unlocked,
+            is_wiggum_unlocked,
+            unlock_helios,
+            unlock_wiggum,
+        )
+        from code_puppy.messaging import emit_success
+
+        # "there is no cow level" - unlocks Helios
+        if task.strip().lower() == HELIOS_SECRET_PHRASE:
+            if is_helios_unlocked():
+                emit_info("🐄 Moo moo moo moo moo... (Helios is already unlocked!)")
+            else:
+                unlock_helios()
+                emit_success("🐄✨ Moo moo moo moo moo moo moo.")
+                emit_info("☀️ Helios, the Universal Constructor, has been unlocked!")
+                emit_info("Use /agents to see available agents, or /agent helios to switch.")
+            continue
+
+        # "show me the money" - unlocks /wiggum command
+        if task.strip().lower() == WIGGUM_SECRET_PHRASE:
+            if is_wiggum_unlocked():
+                emit_info("💰 Your resources are already plentiful! (/wiggum is unlocked)")
+            else:
+                unlock_wiggum()
+                emit_success("💰✨ Cha-ching! Your wealth increases!")
+                emit_info("🍩 The /wiggum command has been unlocked!")
+                emit_info("Use /wiggum <prompt> to start an infinite loop mode.")
+            continue
+
         # Parse attachments first so leading paths aren't misread as commands
         processed_for_commands = parse_prompt_attachments(task)
         cleaned_for_commands = (processed_for_commands.prompt or "").strip()

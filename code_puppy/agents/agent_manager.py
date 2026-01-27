@@ -362,6 +362,7 @@ def get_available_agents() -> Dict[str, str]:
         UC_AGENT_NAMES,
         get_pack_agents_enabled,
         get_universal_constructor_enabled,
+        is_helios_unlocked,
     )
 
     # Generate a message group ID for this operation
@@ -374,6 +375,9 @@ def get_available_agents() -> Dict[str, str]:
     # Check if UC is enabled
     uc_enabled = get_universal_constructor_enabled()
 
+    # Check if helios is unlocked (requires secret phrase)
+    helios_unlocked = is_helios_unlocked()
+
     agents = {}
     for name, agent_ref in _AGENT_REGISTRY.items():
         # Filter out pack agents if disabled
@@ -382,6 +386,10 @@ def get_available_agents() -> Dict[str, str]:
 
         # Filter out UC-dependent agents if UC is disabled
         if not uc_enabled and name in UC_AGENT_NAMES:
+            continue
+
+        # Filter out helios unless the secret phrase has been entered
+        if name == "helios" and not helios_unlocked:
             continue
 
         try:
@@ -478,11 +486,19 @@ def load_agent(agent_name: str) -> BaseAgent:
         The agent configuration instance.
 
     Raises:
-        ValueError: If the agent is not found.
+        ValueError: If the agent is not found or not accessible.
     """
+    from ..config import is_helios_unlocked
+
     # Generate a message group ID for agent loading
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
+
+    # Check if trying to load helios without the secret phrase
+    if agent_name == "helios" and not is_helios_unlocked():
+        raise ValueError(
+            "Helios is locked. Enter the secret phrase to unlock the Universal Constructor."
+        )
 
     if agent_name not in _AGENT_REGISTRY:
         # Fallback to code-puppy if agent not found
@@ -511,6 +527,7 @@ def get_agent_descriptions() -> Dict[str, str]:
         UC_AGENT_NAMES,
         get_pack_agents_enabled,
         get_universal_constructor_enabled,
+        is_helios_unlocked,
     )
 
     # Generate a message group ID for this operation
@@ -523,6 +540,9 @@ def get_agent_descriptions() -> Dict[str, str]:
     # Check if UC is enabled
     uc_enabled = get_universal_constructor_enabled()
 
+    # Check if helios is unlocked (requires secret phrase)
+    helios_unlocked = is_helios_unlocked()
+
     descriptions = {}
     for name, agent_ref in _AGENT_REGISTRY.items():
         # Filter out pack agents if disabled
@@ -531,6 +551,10 @@ def get_agent_descriptions() -> Dict[str, str]:
 
         # Filter out UC-dependent agents if UC is disabled
         if not uc_enabled and name in UC_AGENT_NAMES:
+            continue
+
+        # Filter out helios unless the secret phrase has been entered
+        if name == "helios" and not helios_unlocked:
             continue
 
         try:

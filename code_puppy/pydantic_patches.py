@@ -172,6 +172,60 @@ def patch_tool_call_json_repair() -> None:
         pass  # Don't crash on patch failure
 
 
+def patch_args_as_dict_json_repair() -> None:
+    """Patch pydantic-ai's args_as_dict to auto-repair malformed JSON arguments.
+
+    LLMs sometimes produce invalid JSON escape sequences in tool call arguments
+    (like \\s, \\d from regex patterns which are invalid in JSON). This patch
+    intercepts the args_as_dict method on ToolCallPart and runs json_repair
+    on the JSON string before parsing with pydantic_core.from_json.
+
+    This is needed in addition to patch_tool_call_json_repair() because the
+    error can also occur when mapping message history for API requests (e.g.,
+    in anthropic.py's _map_message method).
+    """
+    try:
+        import json_repair
+        import pydantic_core
+        from pydantic_ai import messages
+
+        # Get the ToolCallPart class
+        ToolCallPart = messages.ToolCallPart
+
+        # Store the original method
+        _original_args_as_dict = ToolCallPart.args_as_dict
+
+        def _patched_args_as_dict(self) -> dict:
+            """Patched args_as_dict that repairs malformed JSON before parsing."""
+            if isinstance(self.args, dict):
+                return self.args
+
+            if not self.args:
+                return {}
+
+            # First, try json_repair to fix any malformed JSON
+            try:
+                repaired_json = json_repair.repair_json(self.args)
+                args = pydantic_core.from_json(repaired_json)
+                return args if isinstance(args, dict) else {}
+            except Exception:
+                pass
+
+            # Fall back to original behavior
+            try:
+                return _original_args_as_dict(self)
+            except Exception:
+                return {}
+
+        # Apply the patch
+        ToolCallPart.args_as_dict = _patched_args_as_dict
+
+    except ImportError:
+        pass  # json_repair or pydantic_ai not available
+    except Exception:
+        pass  # Don't crash on patch failure
+
+
 def apply_all_patches() -> None:
     """Apply all pydantic-ai monkey patches.
 
@@ -181,3 +235,4 @@ def apply_all_patches() -> None:
     patch_message_history_cleaning()
     patch_process_message_history()
     patch_tool_call_json_repair()
+    patch_args_as_dict_json_repair()

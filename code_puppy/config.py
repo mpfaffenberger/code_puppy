@@ -103,6 +103,63 @@ PACK_AGENT_NAMES = frozenset(
 # Agents that require Universal Constructor to be enabled
 UC_AGENT_NAMES = frozenset(["helios"])
 
+# Secret phrase to unlock Helios (Blizzard cheat code easter egg!)
+HELIOS_SECRET_PHRASE = "there is no cow level"
+
+# Secret phrase to unlock Wiggum (StarCraft resource cheat!)
+WIGGUM_SECRET_PHRASE = "show me the money"
+
+# Runtime state for helios unlock (not persisted - resets each session)
+_helios_unlocked = False
+
+# Runtime state for wiggum unlock (not persisted - resets each session)
+_wiggum_unlocked = False
+
+
+def is_helios_unlocked() -> bool:
+    """Check if Helios has been unlocked with the secret phrase.
+
+    Helios requires both:
+    1. Universal Constructor to be enabled (enable_universal_constructor=true)
+    2. The secret phrase to be entered during the session
+
+    Returns:
+        True if the user has entered 'there is no cow level' this session.
+    """
+    return _helios_unlocked
+
+
+def unlock_helios() -> None:
+    """Unlock Helios for this session.
+
+    Called when the user enters the secret phrase 'there is no cow level'.
+    This is a runtime-only unlock that resets when Code Puppy is restarted.
+    """
+    global _helios_unlocked
+    _helios_unlocked = True
+
+
+def is_wiggum_unlocked() -> bool:
+    """Check if Wiggum command has been unlocked with the secret phrase.
+
+    The /wiggum command requires the secret phrase 'show me the money'
+    to be entered before it becomes available.
+
+    Returns:
+        True if the user has entered 'show me the money' this session.
+    """
+    return _wiggum_unlocked
+
+
+def unlock_wiggum() -> None:
+    """Unlock Wiggum command for this session.
+
+    Called when the user enters the secret phrase 'show me the money'.
+    This is a runtime-only unlock that resets when Code Puppy is restarted.
+    """
+    global _wiggum_unlocked
+    _wiggum_unlocked = True
+
 
 def get_pack_agents_enabled() -> bool:
     """Return True if pack agents are enabled (default False).

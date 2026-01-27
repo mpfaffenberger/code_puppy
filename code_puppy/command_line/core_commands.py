@@ -708,11 +708,16 @@ def handle_generate_pr_description_command(command: str) -> str:
     return pr_prompt
 
 
+# Import for wiggum availability check
+from code_puppy.config import is_wiggum_unlocked
+
+
 @register_command(
     name="wiggum",
     description="Loop mode: re-run the same prompt when agent finishes (like Wiggum chasing donuts 🍩)",
     usage="/wiggum <prompt>",
     category="core",
+    is_available=is_wiggum_unlocked,  # Hidden until secret phrase entered
 )
 def handle_wiggum_command(command: str) -> str | bool:
     """Start wiggum loop mode.
@@ -754,6 +759,7 @@ def handle_wiggum_command(command: str) -> str | bool:
     usage="/wiggum_stop",
     aliases=["stopwiggum", "ws"],
     category="core",
+    is_available=is_wiggum_unlocked,  # Hidden until secret phrase entered
 )
 def handle_wiggum_stop_command(command: str) -> bool:
     """Stop wiggum loop mode."""
