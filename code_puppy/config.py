@@ -1232,16 +1232,19 @@ def get_compaction_threshold():
     """
     Returns the user-configured compaction threshold as a float between 0.0 and 1.0.
     This is the proportion of model context that triggers compaction.
-    Defaults to 0.85 (85%) if unset or misconfigured.
+    Defaults to 0.70 (70%) if unset or misconfigured.
     Configurable by 'compaction_threshold' key.
+    
+    Note: Lower threshold (70%) helps avoid timeout issues with extended thinking
+    on large contexts - compaction happens earlier, keeping context smaller.
     """
     val = get_value("compaction_threshold")
     try:
-        threshold = float(val) if val else 0.85
+        threshold = float(val) if val else 0.70
         # Clamp between reasonable bounds
         return max(0.5, min(0.95, threshold))
     except (ValueError, TypeError):
-        return 0.85
+        return 0.70
 
 
 def get_compaction_strategy() -> str:

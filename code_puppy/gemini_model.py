@@ -271,11 +271,14 @@ class GeminiModel(Model):
         messages: list,
         model_request_parameters,
     ) -> str | None:
-        """Get additional instructions to prepend to system prompt.
+        """Get instructions from the most recent ModelRequest.
 
-        This is a compatibility method for pydantic-ai interface.
-        Override in subclasses to inject custom instructions.
+        This extracts the 'instructions' field from ModelRequest messages,
+        which is where pydantic-ai passes the agent's system prompt.
         """
+        for message in reversed(messages):
+            if isinstance(message, ModelRequest) and message.instructions is not None:
+                return message.instructions
         return None
 
     def prepare_request(
