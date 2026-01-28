@@ -452,6 +452,111 @@ class MSGraphClient:
         return all_items
 
     # =========================================================================
+    # RAW CONTENT METHODS (for file downloads)
+    # =========================================================================
+
+    def get_raw(
+        self,
+        endpoint: str,
+        **kwargs: Any,
+    ) -> bytes:
+        """Make a GET request and return raw bytes (for file downloads).
+
+        Unlike the regular `get` method which returns JSON, this method
+        returns the raw response bytes. Useful for downloading files.
+
+        Args:
+            endpoint: API endpoint (e.g., "/me/drive/items/{id}/content").
+            **kwargs: Additional arguments (params, headers, etc.).
+
+        Returns:
+            Raw response bytes.
+
+        Raises:
+            MSGraphAuthError: If authentication fails (401/403).
+            MSGraphNotFoundError: If resource is not found (404).
+            MSGraphThrottledError: If rate limited (429).
+            MSGraphAPIError: For other API errors.
+
+        Example:
+            # Download a file's content
+            content_bytes = client.get_raw("/me/drive/items/{item_id}/content")
+        """
+        # Ensure we have a valid token (may refresh if expired)
+        self._ensure_valid_token()
+
+        # Wait if our local rate limit is exceeded
+        self.rate_limiter.wait_if_needed()
+
+        # Build full URL
+        url = f"{MSGRAPH_BASE_URL}{endpoint}"
+
+        # Merge auth headers with any provided headers
+        headers = kwargs.pop("headers", {})
+        headers.update(self._get_auth_headers())
+        # Remove JSON content-type for raw requests
+        headers.pop("Content-Type", None)
+
+        try:
+            response = self.client.request("GET", url, headers=headers, **kwargs)
+
+            # Handle authentication errors
+            if response.status_code == 401:
+                # Try refreshing token once
+                emit_warning("Access token may be expired, attempting refresh...")
+                self._access_token = None
+                self._ensure_valid_token()
+
+                # Retry the request with new token
+                headers.update(self._get_auth_headers())
+                response = self.client.request("GET", url, headers=headers, **kwargs)
+
+                if response.status_code == 401:
+                    raise MSGraphAuthError(
+                        "Authentication failed (HTTP 401). "
+                        "Microsoft Graph re-authentication required."
+                    )
+
+            if response.status_code == 403:
+                error_msg, _ = self._parse_error_response(response)
+                raise MSGraphAuthError(
+                    f"Access denied (HTTP 403). {error_msg}\n"
+                    "Check that your app has the required permissions."
+                )
+
+            # Handle not found
+            if response.status_code == 404:
+                raise MSGraphNotFoundError(f"Resource not found: {endpoint} (HTTP 404)")
+
+            # Handle rate limiting
+            if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After")
+                retry_seconds = int(retry_after) if retry_after else None
+                raise MSGraphThrottledError(
+                    f"Rate limited by Microsoft Graph. "
+                    f"Retry after {retry_seconds or 'unknown'} seconds.",
+                    retry_after=retry_seconds,
+                )
+
+            # Handle other HTTP errors
+            if response.status_code >= 400:
+                error_msg, error_code = self._parse_error_response(response)
+                raise MSGraphAPIError(
+                    error_msg,
+                    status_code=response.status_code,
+                    error_code=error_code,
+                )
+
+            # Record successful request for rate limiting
+            self.rate_limiter.record_request()
+
+            # Return raw bytes
+            return response.content
+
+        except httpx.HTTPError as e:
+            raise MSGraphAPIError(f"HTTP request failed: {e}") from e
+
+    # =========================================================================
     # CONTEXT MANAGER AND CLEANUP
     # =========================================================================
 

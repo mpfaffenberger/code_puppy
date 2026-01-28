@@ -18,6 +18,8 @@ from code_puppy.messaging import emit_info, emit_success
 from code_puppy.tools.msgraph.common import (
     get_msgraph_client,
     _handle_msgraph_error,
+    truncate_list_response,
+    MAX_RESPONSE_CHARS,
 )
 
 
@@ -353,6 +355,7 @@ def msgraph_list_site_items(
     drive_id: str | None = None,
     path: str = "/",
     limit: int = 25,
+    item_offset: int = 0,
 ) -> dict:
     """List files and folders in a SharePoint site.
 
@@ -361,9 +364,12 @@ def msgraph_list_site_items(
         drive_id: The drive/library ID (optional, uses default if not specified).
         path: Folder path (default "/" for root).
         limit: Maximum items to return (default 25).
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, items list, or error.
+        If truncated: truncated=True, next_offset, items_returned.
     """
     display_path = path if path != "/" else "root"
     emit_info(
@@ -403,24 +409,36 @@ def msgraph_list_site_items(
         items_data = response.get("value", [])
 
         items = [_format_drive_item(item) for item in items_data]
-        total_count = len(items)
 
-        # Count folders and files
-        folder_count = sum(1 for i in items if i["type"] == "folder")
-        file_count = sum(1 for i in items if i["type"] == "file")
-
-        emit_success(
-            f"Found {total_count} item(s): {folder_count} folder(s), {file_count} file(s)"
+        # Apply list truncation
+        list_result = truncate_list_response(
+            items, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
         )
 
-        return {
+        # Count folders and files from returned items
+        folder_count = sum(1 for i in list_result["items"] if i["type"] == "folder")
+        file_count = sum(1 for i in list_result["items"] if i["type"] == "file")
+
+        emit_success(
+            f"Found {list_result['items_returned']} item(s): {folder_count} folder(s), {file_count} file(s)"
+        )
+
+        result = {
             "success": True,
-            "items": items,
-            "total_count": total_count,
+            "items": list_result["items"],
+            "total_count": len(items),
             "site_id": site_id,
             "drive_id": drive_id,
             "path": path,
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)
@@ -447,15 +465,19 @@ def msgraph_search_sharepoint(
     ctx: RunContext,
     query: str,
     limit: int = 10,
+    item_offset: int = 0,
 ) -> dict:
     """Search across all SharePoint content.
 
     Args:
         query: Search query.
         limit: Maximum results (default 10).
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, results list, or error.
+        If truncated: truncated=True, next_offset, items_returned.
     """
     emit_info(
         Text.from_markup(
@@ -496,16 +518,29 @@ def msgraph_search_sharepoint(
                 for hit in hits:
                     results.append(_format_search_hit(hit))
 
-        total_count = len(results)
+        # Apply list truncation
+        list_result = truncate_list_response(
+            results, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
+        )
 
-        emit_success(f"Found {total_count} result(s) for '{query}'")
+        emit_success(
+            f"Found {list_result['items_returned']} result(s) for '{query}'"
+        )
 
-        return {
+        result = {
             "success": True,
-            "results": results,
-            "total_count": total_count,
+            "results": list_result["items"],
+            "total_count": len(results),
             "query": query,
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)

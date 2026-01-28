@@ -21,6 +21,9 @@ from code_puppy.messaging import emit_info, emit_success
 from code_puppy.tools.msgraph.common import (
     get_msgraph_client,
     _handle_msgraph_error,
+    truncate_content,
+    truncate_list_response,
+    MAX_RESPONSE_CHARS,
 )
 
 
@@ -188,6 +191,7 @@ def msgraph_list_events(
     start: str | None = None,
     end: str | None = None,
     limit: int = 10,
+    item_offset: int = 0,
 ) -> dict:
     """List calendar events.
 
@@ -195,9 +199,12 @@ def msgraph_list_events(
         start: Start datetime in ISO format (default: now).
         end: End datetime in ISO format (default: 7 days from now).
         limit: Maximum events to return (default 10).
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, events list, or error.
+        If truncated: truncated=True, next_offset, items_returned.
     """
     # Set defaults for start and end
     now = datetime.now(timezone.utc)
@@ -237,17 +244,29 @@ def msgraph_list_events(
         events_data = response.get("value", [])
 
         events = [_format_event_preview(e) for e in events_data]
-        total_count = len(events)
 
-        emit_success(f"Found {total_count} event(s)")
+        # Apply list truncation
+        list_result = truncate_list_response(
+            events, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
+        )
 
-        return {
+        emit_success(f"Found {list_result['items_returned']} event(s)")
+
+        result = {
             "success": True,
-            "events": events,
-            "total_count": total_count,
+            "events": list_result["items"],
+            "total_count": len(events),
             "start": start,
             "end": end,
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)
@@ -270,14 +289,19 @@ def register_msgraph_list_events(agent: Any) -> Tool:
 # =============================================================================
 
 
-def msgraph_get_event(ctx: RunContext, event_id: str) -> dict:
+def msgraph_get_event(
+    ctx: RunContext, event_id: str, char_offset: int = 0
+) -> dict:
     """Get a specific calendar event.
 
     Args:
         event_id: The event ID.
+        char_offset: Character offset for paginating large event bodies (default 0).
+            If body exceeds 10,000 chars, use body_next_offset to continue.
 
     Returns:
         Dict with success, event details, or error.
+        If body is truncated: body_truncated=True, body_next_offset, body_total_chars.
     """
     emit_info(
         Text.from_markup(
@@ -298,6 +322,21 @@ def msgraph_get_event(ctx: RunContext, event_id: str) -> dict:
 
         event_data = client.get(endpoint, params=params)
         event = _format_event(event_data)
+
+        # Apply truncation to the body if it's large
+        body_content = event.get("body", "")
+        if len(body_content) > MAX_RESPONSE_CHARS:
+            body_truncation = truncate_content(
+                body_content, char_offset=char_offset, max_chars=MAX_RESPONSE_CHARS
+            )
+            event["body"] = body_truncation["content"]
+            event["body_truncated"] = body_truncation["truncated"]
+            event["body_char_offset"] = body_truncation["char_offset"]
+            event["body_next_offset"] = body_truncation["next_offset"]
+            event["body_total_chars"] = body_truncation["total_chars"]
+        else:
+            event["body_truncated"] = False
+            event["body_total_chars"] = len(body_content)
 
         emit_success(f"Retrieved event: {event['subject']}")
 

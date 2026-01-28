@@ -87,10 +87,15 @@ from code_puppy.tools.msgraph.planner import (
     register_msgraph_delete_task,
 )
 
-# Common (generic API request and authentication)
+# Common (generic API request, authentication, and utilities)
 from code_puppy.tools.msgraph.common import (
     register_msgraph_api_request,
     register_msgraph_authenticate,
+    # Truncation utilities (10,000 char limit)
+    truncate_content,
+    truncate_list_response,
+    apply_response_limit,
+    MAX_RESPONSE_CHARS,
 )
 
 # Convenience dict for bulk registration

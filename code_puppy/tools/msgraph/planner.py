@@ -24,6 +24,8 @@ from code_puppy.messaging import emit_info, emit_success, emit_warning
 from code_puppy.tools.msgraph.common import (
     get_msgraph_client,
     _handle_msgraph_error,
+    truncate_list_response,
+    MAX_RESPONSE_CHARS,
 )
 
 
@@ -324,6 +326,7 @@ def msgraph_list_tasks(
     plan_id: str,
     bucket_id: str | None = None,
     limit: int = 50,
+    item_offset: int = 0,
 ) -> dict:
     """List tasks in a Planner plan.
 
@@ -331,9 +334,12 @@ def msgraph_list_tasks(
         plan_id: The plan ID.
         bucket_id: Optional bucket ID to filter tasks.
         limit: Maximum tasks to return (default 50).
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, tasks list, or error.
+        If truncated: truncated=True, next_offset, items_returned.
     """
     if bucket_id:
         emit_info(
@@ -364,17 +370,29 @@ def msgraph_list_tasks(
             tasks_data = [t for t in tasks_data if t.get("bucketId") == bucket_id]
 
         tasks = [_format_task_preview(t) for t in tasks_data]
-        total_count = len(tasks)
 
-        emit_success(f"Found {total_count} task(s)")
+        # Apply list truncation
+        list_result = truncate_list_response(
+            tasks, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
+        )
 
-        return {
+        emit_success(f"Found {list_result['items_returned']} task(s)")
+
+        result = {
             "success": True,
-            "tasks": tasks,
-            "total_count": total_count,
+            "tasks": list_result["items"],
+            "total_count": len(tasks),
             "plan_id": plan_id,
             "bucket_id": bucket_id,
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)

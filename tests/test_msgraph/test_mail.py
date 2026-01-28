@@ -813,3 +813,208 @@ class TestMSGraphMailFormatting:
             assert folder["unread_count"] == 10
             assert folder["total_count"] == 50
             assert folder["parent_folder_id"] == "parent-folder-id"
+
+
+class TestMSGraphMailTruncation:
+    """Test suite for MS Graph mail truncation functionality."""
+
+    def test_msgraph_list_messages_with_item_offset(self, mock_context):
+        """Test list_messages with item_offset parameter."""
+        messages = {
+            "value": [
+                {
+                    "id": f"msg-{i}",
+                    "subject": f"Message {i}",
+                    "from": {"emailAddress": {"name": "Sender", "address": "s@test.com"}},
+                    "receivedDateTime": "2025-01-15T10:00:00Z",
+                    "bodyPreview": "Preview text",
+                    "isRead": True,
+                    "hasAttachments": False,
+                    "importance": "normal",
+                }
+                for i in range(10)
+            ]
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.mail.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = messages
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_messages(mock_context, item_offset=5)
+
+            assert result["success"] is True
+            assert "truncated" in result
+            assert "items_returned" in result
+            # Should skip first 5 items
+            assert result["messages"][0]["id"] == "msg-5"
+
+    def test_msgraph_list_messages_truncation_response_fields(self, mock_context):
+        """Test that list_messages includes truncation fields."""
+        messages = {
+            "value": [
+                {
+                    "id": f"msg-{i}",
+                    "subject": f"Message {i}",
+                    "from": {"emailAddress": {"name": "Sender", "address": "s@test.com"}},
+                    "receivedDateTime": "2025-01-15T10:00:00Z",
+                    "bodyPreview": "Preview text",
+                    "isRead": True,
+                    "hasAttachments": False,
+                    "importance": "normal",
+                }
+                for i in range(5)
+            ]
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.mail.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = messages
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_messages(mock_context)
+
+            assert result["success"] is True
+            assert "truncated" in result
+            assert result["truncated"] is False
+            assert "items_returned" in result
+            assert result["items_returned"] == 5
+
+    def test_msgraph_get_message_body_truncation_fields(self, mock_context):
+        """Test that get_message includes body truncation fields."""
+        message = {
+            "id": "msg-123",
+            "subject": "Test Message",
+            "from": {"emailAddress": {"name": "Sender", "address": "s@test.com"}},
+            "toRecipients": [],
+            "ccRecipients": [],
+            "bccRecipients": [],
+            "body": {"contentType": "text", "content": "Short body"},
+            "receivedDateTime": "2025-01-15T10:00:00Z",
+            "sentDateTime": "2025-01-15T09:59:00Z",
+            "isRead": True,
+            "hasAttachments": False,
+            "importance": "normal",
+            "conversationId": "conv-123",
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.mail.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = message
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_get_message(mock_context, "msg-123")
+
+            assert result["success"] is True
+            msg = result["message"]
+            assert "body_truncated" in msg
+            assert msg["body_truncated"] is False
+            assert "body_total_chars" in msg
+
+    def test_msgraph_get_message_large_body_truncation(self, mock_context):
+        """Test that large message bodies are truncated."""
+        large_body = "X" * 15000
+        message = {
+            "id": "msg-123",
+            "subject": "Large Message",
+            "from": {"emailAddress": {"name": "Sender", "address": "s@test.com"}},
+            "toRecipients": [],
+            "ccRecipients": [],
+            "bccRecipients": [],
+            "body": {"contentType": "text", "content": large_body},
+            "receivedDateTime": "2025-01-15T10:00:00Z",
+            "sentDateTime": "2025-01-15T09:59:00Z",
+            "isRead": True,
+            "hasAttachments": False,
+            "importance": "normal",
+            "conversationId": "conv-123",
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.mail.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = message
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_get_message(mock_context, "msg-123")
+
+            assert result["success"] is True
+            msg = result["message"]
+            assert msg["body_truncated"] is True
+            assert len(msg["body"]) == 10000
+            assert msg["body_total_chars"] == 15000
+            assert msg["body_next_offset"] == 10000
+
+    def test_msgraph_get_message_with_char_offset(self, mock_context):
+        """Test get_message with char_offset for body pagination."""
+        large_body = "A" * 5000 + "B" * 10000  # 15000 total
+        message = {
+            "id": "msg-123",
+            "subject": "Large Message",
+            "from": {"emailAddress": {"name": "Sender", "address": "s@test.com"}},
+            "toRecipients": [],
+            "ccRecipients": [],
+            "bccRecipients": [],
+            "body": {"contentType": "text", "content": large_body},
+            "receivedDateTime": "2025-01-15T10:00:00Z",
+            "sentDateTime": "2025-01-15T09:59:00Z",
+            "isRead": True,
+            "hasAttachments": False,
+            "importance": "normal",
+            "conversationId": "conv-123",
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.mail.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = message
+            mock_get_client.return_value = mock_client
+
+            # Get second page starting at offset 10000
+            result = msgraph_get_message(mock_context, "msg-123", char_offset=10000)
+
+            assert result["success"] is True
+            msg = result["message"]
+            assert msg["body_char_offset"] == 10000
+            assert len(msg["body"]) == 5000  # Remaining after offset
+            assert msg["body_truncated"] is False
+
+    def test_msgraph_search_mail_with_item_offset(self, mock_context):
+        """Test search_mail with item_offset parameter."""
+        messages = {
+            "value": [
+                {
+                    "id": f"msg-{i}",
+                    "subject": f"Search Result {i}",
+                    "from": {"emailAddress": {"name": "Sender", "address": "s@test.com"}},
+                    "receivedDateTime": "2025-01-15T10:00:00Z",
+                    "bodyPreview": "Preview text",
+                    "isRead": True,
+                    "hasAttachments": False,
+                    "importance": "normal",
+                }
+                for i in range(8)
+            ]
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.mail.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = messages
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_search_mail(mock_context, query="test", item_offset=3)
+
+            assert result["success"] is True
+            assert "truncated" in result
+            assert "items_returned" in result
+            assert result["messages"][0]["id"] == "msg-3"

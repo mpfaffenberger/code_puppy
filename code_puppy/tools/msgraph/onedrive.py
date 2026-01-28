@@ -22,6 +22,9 @@ from code_puppy.messaging import emit_info, emit_success, emit_warning
 from code_puppy.tools.msgraph.common import (
     get_msgraph_client,
     _handle_msgraph_error,
+    truncate_content,
+    truncate_list_response,
+    MAX_RESPONSE_CHARS,
 )
 
 
@@ -154,15 +157,19 @@ def msgraph_list_drive_items(
     ctx: RunContext,
     path: str = "/",
     limit: int = 25,
+    item_offset: int = 0,
 ) -> dict:
     """List files and folders in OneDrive.
 
     Args:
         path: Folder path (default "/" for root).
         limit: Maximum items to return (default 25).
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, items list (name, size, type, lastModified), or error.
+        If truncated: truncated=True, next_offset, items_returned.
     """
     display_path = path if path != "/" else "root"
     emit_info(
@@ -193,22 +200,34 @@ def msgraph_list_drive_items(
         items_data = response.get("value", [])
 
         items = [_format_drive_item(item) for item in items_data]
-        total_count = len(items)
 
-        # Count folders and files
-        folder_count = sum(1 for i in items if i["type"] == "folder")
-        file_count = sum(1 for i in items if i["type"] == "file")
-
-        emit_success(
-            f"Found {total_count} item(s): {folder_count} folder(s), {file_count} file(s)"
+        # Apply list truncation
+        list_result = truncate_list_response(
+            items, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
         )
 
-        return {
+        # Count folders and files from the returned items
+        folder_count = sum(1 for i in list_result["items"] if i["type"] == "folder")
+        file_count = sum(1 for i in list_result["items"] if i["type"] == "file")
+
+        emit_success(
+            f"Found {list_result['items_returned']} item(s): {folder_count} folder(s), {file_count} file(s)"
+        )
+
+        result = {
             "success": True,
-            "items": items,
-            "total_count": total_count,
+            "items": list_result["items"],
+            "total_count": len(items),
             "path": path,
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)
@@ -315,6 +334,7 @@ def msgraph_download_file(
     item_id: str | None = None,
     path: str | None = None,
     max_size_mb: int = 10,
+    char_offset: int = 0,
 ) -> dict:
     """Download a file's content.
 
@@ -322,10 +342,13 @@ def msgraph_download_file(
         item_id: The item ID (optional if path provided).
         path: The file path (optional if item_id provided).
         max_size_mb: Maximum file size to download in MB (default 10).
+        char_offset: Character offset for paginating large text files (default 0).
+            If content exceeds 10,000 chars, use the returned next_offset value
+            to continue reading. Only applies to text files.
 
     Returns:
         Dict with success, content (text for text files, base64 for binary),
-        metadata, or error.
+        metadata, or error. If truncated: truncated=True, next_offset, total_chars.
     """
     if not item_id and not path:
         return {
@@ -396,21 +419,44 @@ def msgraph_download_file(
             try:
                 content = content_bytes.decode("utf-8")
                 content_encoding = "text"
+
+                # Apply truncation for text content
+                if len(content) > MAX_RESPONSE_CHARS:
+                    truncation = truncate_content(
+                        content, char_offset=char_offset, max_chars=MAX_RESPONSE_CHARS
+                    )
+                    content = truncation["content"]
+                    truncated = truncation["truncated"]
+                    next_offset = truncation["next_offset"]
+                    total_chars = truncation["total_chars"]
+                else:
+                    truncated = False
+                    next_offset = None
+                    total_chars = len(content)
+
             except UnicodeDecodeError:
                 # Fall back to base64
                 content = base64.b64encode(content_bytes).decode("ascii")
                 content_encoding = "base64"
+                truncated = False
+                next_offset = None
+                total_chars = len(content)
         else:
             # Binary file - encode as base64
             content = base64.b64encode(content_bytes).decode("ascii")
             content_encoding = "base64"
+            truncated = False
+            next_offset = None
+            total_chars = len(content)
 
         emit_success(f"Downloaded: {filename} ({file_size} bytes)")
 
-        return {
+        result = {
             "success": True,
             "content": content,
             "encoding": content_encoding,
+            "truncated": truncated,
+            "total_chars": total_chars,
             "metadata": {
                 "id": actual_item_id,
                 "name": filename,
@@ -419,6 +465,15 @@ def msgraph_download_file(
                 "last_modified": item_data.get("lastModifiedDateTime"),
             },
         }
+
+        if truncated:
+            result["char_offset"] = char_offset
+            result["next_offset"] = next_offset
+            result[
+                "truncation_message"
+            ] = f"Content truncated. Use char_offset={next_offset} to continue."
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)
@@ -694,15 +749,19 @@ def msgraph_search_files(
     ctx: RunContext,
     query: str,
     limit: int = 10,
+    item_offset: int = 0,
 ) -> dict:
     """Search for files in OneDrive.
 
     Args:
         query: Search query.
         limit: Maximum results (default 10).
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, items list, or error.
+        If truncated: truncated=True, next_offset, items_returned.
     """
     emit_info(
         Text.from_markup(
@@ -734,16 +793,29 @@ def msgraph_search_files(
             item["parent_path"] = parent_ref.get("path", "").replace("/drive/root:", "")
             items.append(item)
 
-        total_count = len(items)
+        # Apply list truncation
+        list_result = truncate_list_response(
+            items, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
+        )
 
-        emit_success(f"Found {total_count} item(s) matching '{query}'")
+        emit_success(
+            f"Found {list_result['items_returned']} item(s) matching '{query}'"
+        )
 
-        return {
+        result = {
             "success": True,
-            "items": items,
-            "total_count": total_count,
+            "items": list_result["items"],
+            "total_count": len(items),
             "query": query,
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)

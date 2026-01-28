@@ -22,6 +22,8 @@ from code_puppy.tools.msgraph.common import (
     get_msgraph_client,
     _handle_msgraph_error,
     markdown_to_html,
+    truncate_list_response,
+    MAX_RESPONSE_CHARS,
 )
 
 
@@ -140,11 +142,16 @@ def _format_meeting(meeting_data: dict) -> dict:
 # =============================================================================
 
 
-def msgraph_list_teams(ctx: RunContext) -> dict:
+def msgraph_list_teams(ctx: RunContext, item_offset: int = 0) -> dict:
     """List all teams the current user is a member of.
+
+    Args:
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, teams list (id, displayName, description), or error.
+        If truncated: truncated=True, next_offset, items_returned.
     """
     emit_info(
         Text.from_markup(
@@ -159,15 +166,27 @@ def msgraph_list_teams(ctx: RunContext) -> dict:
         teams_data = response.get("value", [])
 
         teams = [_format_team(t) for t in teams_data]
-        total_count = len(teams)
 
-        emit_success(f"Found {total_count} team(s)")
+        # Apply list truncation
+        list_result = truncate_list_response(
+            teams, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
+        )
 
-        return {
+        emit_success(f"Found {list_result['items_returned']} team(s)")
+
+        result = {
             "success": True,
-            "teams": teams,
-            "total_count": total_count,
+            "teams": list_result["items"],
+            "total_count": len(teams),
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)
@@ -349,6 +368,7 @@ def msgraph_list_channel_messages(
     team_id: str,
     channel_id: str,
     limit: int = 20,
+    item_offset: int = 0,
 ) -> dict:
     """List messages in a channel.
 
@@ -356,9 +376,12 @@ def msgraph_list_channel_messages(
         team_id: The team ID.
         channel_id: The channel ID.
         limit: Maximum messages to return (default 20).
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, messages list, or error.
+        If truncated: truncated=True, next_offset, items_returned.
     """
     emit_info(
         Text.from_markup(
@@ -382,17 +405,29 @@ def msgraph_list_channel_messages(
         messages_data = response.get("value", [])
 
         messages = [_format_message(m) for m in messages_data]
-        total_count = len(messages)
 
-        emit_success(f"Retrieved {total_count} message(s)")
+        # Apply list truncation
+        list_result = truncate_list_response(
+            messages, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
+        )
 
-        return {
+        emit_success(f"Retrieved {list_result['items_returned']} message(s)")
+
+        result = {
             "success": True,
-            "messages": messages,
-            "total_count": total_count,
+            "messages": list_result["items"],
+            "total_count": len(messages),
             "team_id": team_id,
             "channel_id": channel_id,
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)
@@ -583,14 +618,19 @@ def register_msgraph_create_online_meeting(agent: Any) -> Tool:
 # =============================================================================
 
 
-def msgraph_list_chats(ctx: RunContext, limit: int = 20) -> dict:
+def msgraph_list_chats(
+    ctx: RunContext, limit: int = 20, item_offset: int = 0
+) -> dict:
     """List recent chats (1:1 and group chats).
 
     Args:
         limit: Maximum chats to return (default 20).
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, chats list, or error.
+        If truncated: truncated=True, next_offset, items_returned.
     """
     emit_info(
         Text.from_markup(
@@ -611,15 +651,27 @@ def msgraph_list_chats(ctx: RunContext, limit: int = 20) -> dict:
         chats_data = response.get("value", [])
 
         chats = [_format_chat(c) for c in chats_data]
-        total_count = len(chats)
 
-        emit_success(f"Found {total_count} chat(s)")
+        # Apply list truncation
+        list_result = truncate_list_response(
+            chats, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
+        )
 
-        return {
+        emit_success(f"Found {list_result['items_returned']} chat(s)")
+
+        result = {
             "success": True,
-            "chats": chats,
-            "total_count": total_count,
+            "chats": list_result["items"],
+            "total_count": len(chats),
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)

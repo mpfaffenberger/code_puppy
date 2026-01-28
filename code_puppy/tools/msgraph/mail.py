@@ -21,6 +21,9 @@ from code_puppy.tools.msgraph.common import (
     get_msgraph_client,
     _handle_msgraph_error,
     markdown_to_html,
+    truncate_content,
+    truncate_list_response,
+    MAX_RESPONSE_CHARS,
 )
 
 
@@ -175,6 +178,7 @@ def msgraph_list_messages(
     limit: int = 10,
     skip: int = 0,
     filter_unread: bool = False,
+    item_offset: int = 0,
 ) -> dict:
     """List messages from a mail folder.
 
@@ -182,12 +186,14 @@ def msgraph_list_messages(
         folder: Mail folder - "inbox", "sentitems", "drafts",
                 "deleteditems", or folder ID.
         limit: Maximum messages to return (default 10).
-        skip: Number of messages to skip for pagination (default 0).
+        skip: Number of messages to skip for API pagination (default 0).
         filter_unread: If True, only return unread messages.
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, messages list (subject, from, received, preview),
-        total_count.
+        total_count. If truncated: truncated=True, next_offset, items_returned.
     """
     emit_info(
         Text.from_markup(
@@ -218,17 +224,31 @@ def msgraph_list_messages(
         messages_data = response.get("value", [])
 
         messages = [_format_message_preview(m) for m in messages_data]
-        total_count = len(messages)
+
+        # Apply list truncation if response would be too large
+        list_result = truncate_list_response(
+            messages, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
+        )
 
         unread_note = " (unread only)" if filter_unread else ""
-        emit_success(f"Retrieved {total_count} message(s) from {folder}{unread_note}")
+        emit_success(
+            f"Retrieved {list_result['items_returned']} message(s) from {folder}{unread_note}"
+        )
 
-        return {
+        result = {
             "success": True,
-            "messages": messages,
-            "total_count": total_count,
+            "messages": list_result["items"],
+            "total_count": len(messages),
             "folder": folder,
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)
@@ -251,14 +271,22 @@ def register_msgraph_list_messages(agent: Any) -> Tool:
 # =============================================================================
 
 
-def msgraph_get_message(ctx: RunContext, message_id: str) -> dict:
+def msgraph_get_message(
+    ctx: RunContext,
+    message_id: str,
+    char_offset: int = 0,
+) -> dict:
     """Get a specific email message with full body.
 
     Args:
         message_id: The message ID.
+        char_offset: Character offset for paginating large message bodies (default 0).
+            If the body exceeds 10,000 chars, use the returned next_offset value
+            to continue reading.
 
     Returns:
         Dict with success, message (subject, from, to, cc, body, received, etc.).
+        If body is truncated: body_truncated=True, body_next_offset, body_total_chars.
     """
     emit_info(
         Text.from_markup(
@@ -279,6 +307,21 @@ def msgraph_get_message(ctx: RunContext, message_id: str) -> dict:
 
         msg_data = client.get(endpoint, params=params)
         message = _format_message_full(msg_data)
+
+        # Apply truncation to the body if it's large
+        body_content = message.get("body", "")
+        if len(body_content) > MAX_RESPONSE_CHARS:
+            body_truncation = truncate_content(
+                body_content, char_offset=char_offset, max_chars=MAX_RESPONSE_CHARS
+            )
+            message["body"] = body_truncation["content"]
+            message["body_truncated"] = body_truncation["truncated"]
+            message["body_char_offset"] = body_truncation["char_offset"]
+            message["body_next_offset"] = body_truncation["next_offset"]
+            message["body_total_chars"] = body_truncation["total_chars"]
+        else:
+            message["body_truncated"] = False
+            message["body_total_chars"] = len(body_content)
 
         emit_success(f"Retrieved message: {message['subject']}")
 
@@ -502,15 +545,19 @@ def msgraph_search_mail(
     ctx: RunContext,
     query: str,
     limit: int = 10,
+    item_offset: int = 0,
 ) -> dict:
     """Search emails using Microsoft Search.
 
     Args:
         query: Search query (searches subject, body, from, etc.).
         limit: Maximum results (default 10).
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, messages list, total_count.
+        If truncated: truncated=True, next_offset, items_returned.
     """
     emit_info(
         Text.from_markup(
@@ -536,16 +583,30 @@ def msgraph_search_mail(
         messages_data = response.get("value", [])
 
         messages = [_format_message_preview(m) for m in messages_data]
-        total_count = len(messages)
 
-        emit_success(f"Found {total_count} message(s) matching '{query}'")
+        # Apply list truncation
+        list_result = truncate_list_response(
+            messages, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
+        )
 
-        return {
+        emit_success(
+            f"Found {list_result['items_returned']} message(s) matching '{query}'"
+        )
+
+        result = {
             "success": True,
-            "messages": messages,
-            "total_count": total_count,
+            "messages": list_result["items"],
+            "total_count": len(messages),
             "query": query,
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)

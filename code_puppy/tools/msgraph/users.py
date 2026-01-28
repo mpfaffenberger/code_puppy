@@ -18,6 +18,8 @@ from code_puppy.messaging import emit_info, emit_success
 from code_puppy.tools.msgraph.common import (
     get_msgraph_client,
     _handle_msgraph_error,
+    truncate_list_response,
+    MAX_RESPONSE_CHARS,
 )
 
 
@@ -148,15 +150,20 @@ def register_msgraph_get_user(agent: Any) -> Tool:
 # =============================================================================
 
 
-def msgraph_search_users(ctx: RunContext, query: str, limit: int = 10) -> dict:
+def msgraph_search_users(
+    ctx: RunContext, query: str, limit: int = 10, item_offset: int = 0
+) -> dict:
     """Search for users in the directory.
 
     Args:
         query: Search query (matches displayName, mail, etc.).
         limit: Maximum results (default 10).
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, users list, total_count, or error.
+        If truncated: truncated=True, next_offset, items_returned.
     """
     emit_info(
         Text.from_markup(
@@ -182,16 +189,30 @@ def msgraph_search_users(ctx: RunContext, query: str, limit: int = 10) -> dict:
         users_data = response.get("value", [])
 
         users = [_format_user(u) for u in users_data]
-        total_count = len(users)
 
-        emit_success(f"Found {total_count} user(s) matching '{query}'")
+        # Apply list truncation
+        list_result = truncate_list_response(
+            users, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
+        )
 
-        return {
+        emit_success(
+            f"Found {list_result['items_returned']} user(s) matching '{query}'"
+        )
+
+        result = {
             "success": True,
-            "users": users,
-            "total_count": total_count,
+            "users": list_result["items"],
+            "total_count": len(users),
             "query": query,
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)
@@ -267,16 +288,19 @@ def register_msgraph_get_manager(agent: Any) -> Tool:
 
 
 def msgraph_get_direct_reports(
-    ctx: RunContext, user_id: str = "me", limit: int = 50
+    ctx: RunContext, user_id: str = "me", limit: int = 50, item_offset: int = 0
 ) -> dict:
     """Get a user's direct reports.
 
     Args:
         user_id: User ID, email, or "me" for current user (default: "me").
         limit: Maximum results (default 50).
+        item_offset: Item offset for response truncation (default 0).
+            If response exceeds 10,000 chars, use next_offset to continue.
 
     Returns:
         Dict with success, direct_reports list, count, or error.
+        If truncated: truncated=True, next_offset, items_returned.
     """
     target = "current user" if user_id == "me" else user_id
     emit_info(
@@ -299,16 +323,28 @@ def msgraph_get_direct_reports(
         reports_data = response.get("value", [])
 
         direct_reports = [_format_user(r) for r in reports_data]
-        count = len(direct_reports)
 
-        emit_success(f"Found {count} direct report(s)")
+        # Apply list truncation
+        list_result = truncate_list_response(
+            direct_reports, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
+        )
 
-        return {
+        emit_success(f"Found {list_result['items_returned']} direct report(s)")
+
+        result = {
             "success": True,
-            "direct_reports": direct_reports,
-            "count": count,
+            "direct_reports": list_result["items"],
+            "count": len(direct_reports),
             "user_id": user_id,
+            "truncated": list_result["truncated"],
+            "items_returned": list_result["items_returned"],
         }
+
+        if list_result["truncated"]:
+            result["next_offset"] = list_result["next_offset"]
+            result["truncation_message"] = list_result.get("message")
+
+        return result
 
     except Exception as e:
         return _handle_msgraph_error(e)

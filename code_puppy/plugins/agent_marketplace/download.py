@@ -681,12 +681,26 @@ def handle_download_agent(command: str) -> bool:
         elif "401" in error_msg:
             emit_error("Authentication required. Please log in first.")
         elif "403" in error_msg:
-            emit_error(
-                f"Access denied. You may not have permission to download "
-                f'"{agent_name}".'
-            )
+            # Extract AD group name from error message if present
+            import re
+
+            ad_group_match = re.search(r"AD group '([^']+)'", error_msg)
+            if ad_group_match:
+                ad_group = ad_group_match.group(1)
+                emit_error(
+                    f"Download failed: Access denied. You must be a member of "
+                    f"AD group '{ad_group}' to download this agent. \U0001f3e2"
+                )
+            else:
+                emit_error(
+                    f"Access denied. You may not have permission to download "
+                    f'"{agent_name}".'
+                )
             console.print(
-                "\n[dim]This agent may be restricted to specific AD groups.[/dim]"
+                "\n[dim]This agent may be restricted to specific AD groups.\n"
+                "If you believe you should have access, try:\n"
+                "  1. Re-authenticate with [cyan]/puppy_auth[/cyan]\n"
+                "  2. Check your AD group membership in Sailpoint[/dim]"
             )
         elif "timeout" in error_msg.lower():
             emit_error("Request timed out. The server may be busy.")

@@ -478,6 +478,127 @@ class TestMSGraphDownloadFile:
             assert result["success"] is False
             assert result["error_type"] == "not_found"
 
+    def test_msgraph_download_file_truncation_large_content(self, mock_context):
+        """Test that large text content is truncated at 10,000 chars."""
+        # Create content larger than MAX_RESPONSE_CHARS (10,000)
+        large_content = "A" * 15000  # 15,000 characters
+        
+        text_file_data = {
+            "id": "large-text-123",
+            "name": "large_file.txt",
+            "size": 15000,
+            "lastModifiedDateTime": "2025-01-15T10:00:00Z",
+            "file": {"mimeType": "text/plain"},
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.onedrive.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = text_file_data
+            mock_client.get_raw.return_value = large_content.encode("utf-8")
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_download_file(mock_context, item_id="large-text-123")
+
+            assert result["success"] is True
+            assert result["truncated"] is True
+            assert len(result["content"]) == 10000
+            assert result["total_chars"] == 15000
+            assert result["next_offset"] == 10000
+            assert "truncation_message" in result
+
+    def test_msgraph_download_file_char_offset_pagination(self, mock_context):
+        """Test paginating through large content using char_offset."""
+        # Create content larger than MAX_RESPONSE_CHARS (10,000)
+        large_content = "A" * 5000 + "B" * 5000 + "C" * 5000  # 15,000 chars
+        
+        text_file_data = {
+            "id": "large-text-123",
+            "name": "large_file.txt",
+            "size": 15000,
+            "lastModifiedDateTime": "2025-01-15T10:00:00Z",
+            "file": {"mimeType": "text/plain"},
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.onedrive.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = text_file_data
+            mock_client.get_raw.return_value = large_content.encode("utf-8")
+            mock_get_client.return_value = mock_client
+
+            # First request - starts at offset 0
+            result1 = msgraph_download_file(mock_context, item_id="large-text-123")
+            assert result1["success"] is True
+            assert result1["truncated"] is True
+            assert result1["char_offset"] == 0  # Only present when truncated
+            assert result1["next_offset"] == 10000
+            assert result1["content"].startswith("A" * 5000)  # First 5000 are A's
+
+            # Second request - continue from offset 10000
+            result2 = msgraph_download_file(
+                mock_context, item_id="large-text-123", char_offset=10000
+            )
+            assert result2["success"] is True
+            assert result2["truncated"] is False  # Only 5000 chars remaining
+            # char_offset is not included when not truncated
+            assert "char_offset" not in result2
+            assert result2["content"] == "C" * 5000  # Last 5000 are C's
+
+    def test_msgraph_download_file_small_content_no_truncation(self, mock_context):
+        """Test that small content is not truncated."""
+        small_content = "Hello, World!"  # Much smaller than 10,000 chars
+        
+        text_file_data = {
+            "id": "small-text-123",
+            "name": "small_file.txt",
+            "size": len(small_content),
+            "lastModifiedDateTime": "2025-01-15T10:00:00Z",
+            "file": {"mimeType": "text/plain"},
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.onedrive.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = text_file_data
+            mock_client.get_raw.return_value = small_content.encode("utf-8")
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_download_file(mock_context, item_id="small-text-123")
+
+            assert result["success"] is True
+            assert result["truncated"] is False
+            assert result["content"] == small_content
+            assert result["total_chars"] == len(small_content)
+
+    def test_msgraph_download_file_binary_not_truncated(self, mock_context):
+        """Test that binary files (base64) are not truncated by char_offset."""
+        binary_file_data = {
+            "id": "binary-123",
+            "name": "image.png",
+            "size": 500,
+            "lastModifiedDateTime": "2025-01-15T10:00:00Z",
+            "file": {"mimeType": "image/png"},
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.onedrive.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = binary_file_data
+            mock_client.get_raw.return_value = b"\x89PNG\r\n\x1a\n" * 100
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_download_file(mock_context, item_id="binary-123")
+
+            assert result["success"] is True
+            assert result["encoding"] == "base64"
+            # Binary content should not be truncated
+            assert result["truncated"] is False
+
 
 class TestMSGraphUploadFile:
     """Test suite for msgraph_upload_file tool."""
