@@ -715,8 +715,9 @@ def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> 
     if value is None:
         set_config_value(key, "")
     elif isinstance(value, float):
-        # Round floats to nearest tenth to avoid floating point weirdness
-        set_config_value(key, str(round(value, 1)))
+        # Round floats to nearest hundredth to avoid floating point weirdness
+        # (allows 0.05 step increments for temperature/top_p)
+        set_config_value(key, str(round(value, 2)))
     else:
         set_config_value(key, str(value))
 
