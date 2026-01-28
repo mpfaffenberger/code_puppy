@@ -82,6 +82,7 @@ from code_puppy.tools.command_runner import (
 
 
 from code_puppy.tools.msgraph import MSGRAPH_TOOLS
+from code_puppy.tools.powerbi import POWERBI_TOOLS
 from code_puppy.tools.display import (
     display_non_streamed_result as display_non_streamed_result,
 )
@@ -181,6 +182,9 @@ TOOL_REGISTRY.update(GUI_CUB_TOOLS)
 
 # Merge in MS Graph tools
 TOOL_REGISTRY.update(MSGRAPH_TOOLS)
+
+# Merge in Power BI tools
+TOOL_REGISTRY.update(POWERBI_TOOLS)
 
 
 def _load_plugin_tools() -> None:
