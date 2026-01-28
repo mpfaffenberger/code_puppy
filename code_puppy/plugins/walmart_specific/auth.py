@@ -1,4 +1,6 @@
 import asyncio
+import subprocess
+import sys
 import time
 import webbrowser
 from datetime import datetime
@@ -15,6 +17,29 @@ from code_puppy.messaging import (
     emit_warning,
 )
 from code_puppy.plugins.walmart_specific.urls import get_authentication_url
+
+
+def open_browser(url: str) -> None:
+    """
+    Open a URL in the browser.
+    On macOS, explicitly use Chrome to avoid Safari.
+    On other platforms, use the system default browser.
+    """
+    if sys.platform == "darwin":
+        # macOS: Use Chrome explicitly to avoid Safari
+        try:
+            subprocess.run(
+                ["open", "-a", "Google Chrome", url],
+                check=True,
+                capture_output=True,
+            )
+            return
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            # Chrome not available, fall back to default
+            emit_warning("Chrome not found, falling back to default browser")
+    
+    # Default behavior for non-macOS or if Chrome failed
+    webbrowser.open(url)
 
 
 def decode_jwt_without_validation(token: str) -> Optional[dict]:
@@ -155,7 +180,7 @@ async def authenticate_puppy(port: int) -> bool:
     emit_info(msg)
 
     try:
-        webbrowser.open(auth_url)
+        open_browser(auth_url)
         msg = "Browser opened - please complete authentication"
         emit_system_message(msg)
     except Exception as e:
