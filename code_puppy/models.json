@@ -29,6 +29,16 @@
     "context_length": 262144,
     "supported_settings": ["temperature", "seed", "top_p"]
   },
+  "synthetic-Kimi-K2.5-Thinking": {
+    "type": "custom_openai",
+    "name": "hf:moonshotai/Kimi-K2.5",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 262144,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  },
   "Gemini-3": {
     "type": "gemini",
     "name": "gemini-3-pro-preview",
