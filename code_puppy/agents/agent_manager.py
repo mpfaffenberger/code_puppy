@@ -471,7 +471,19 @@ def get_current_agent() -> BaseAgent:
 
     if _CURRENT_AGENT is None:
         agent_name = get_current_agent_name()
-        _CURRENT_AGENT = load_agent(agent_name)
+        try:
+            _CURRENT_AGENT = load_agent(agent_name)
+        except ValueError as e:
+            # If the agent is locked (e.g., helios), fallback to code-puppy
+            emit_warning(
+                f"Could not load agent '{agent_name}': {e}. Falling back to code-puppy."
+            )
+            # Update session cache to prevent repeated failures
+            _ensure_session_cache_loaded()
+            session_id = get_terminal_session_id()
+            _SESSION_AGENTS_CACHE[session_id] = "code-puppy"
+            _save_session_data(_SESSION_AGENTS_CACHE)
+            _CURRENT_AGENT = load_agent("code-puppy")
 
     return _CURRENT_AGENT
 

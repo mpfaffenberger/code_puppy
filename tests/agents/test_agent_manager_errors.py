@@ -118,14 +118,18 @@ class TestAgentManagerErrors:
     @patch("code_puppy.agents.agent_manager.get_current_agent_name")
     @patch("code_puppy.agents.agent_manager._CURRENT_AGENT", None)
     def test_get_current_agent_no_fallback(self, mock_get_name, mock_discover):
-        """Test get_current_agent when no agents are available at all."""
+        """Test get_current_agent when no agents are available at all.
+
+        When the initial agent fails to load, we try to fallback to 'code-puppy'.
+        If 'code-puppy' is also not available, a ValueError is raised.
+        """
         mock_get_name.return_value = "nonexistent-agent"
         mock_discover.return_value = None
 
         with patch("code_puppy.agents.agent_manager._AGENT_REGISTRY", {}):
             with pytest.raises(
                 ValueError,
-                match="Agent 'nonexistent-agent' not found and no fallback available",
+                match="Agent 'code-puppy' not found and no fallback available",
             ):
                 get_current_agent()
 
