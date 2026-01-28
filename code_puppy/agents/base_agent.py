@@ -3,11 +3,13 @@
 import asyncio
 import json
 import math
+import pathlib
 import signal
 import threading
 import time
 import traceback
 import uuid
+import pathlib
 from abc import ABC, abstractmethod
 from typing import (
     Any,
@@ -32,10 +34,10 @@ from pydantic_ai import (
     DocumentUrl,
     ImageUrl,
     RunContext,
+    UnexpectedModelBehavior,
     UsageLimitExceeded,
     UsageLimits,
 )
-from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.durable_exec.dbos import DBOSAgent
 from pydantic_ai.messages import (
     ModelMessage,
@@ -51,6 +53,10 @@ from pydantic_ai.messages import (
 from rich.text import Text
 
 from code_puppy.agents.event_stream_handler import event_stream_handler
+from code_puppy.callbacks import (
+    on_agent_run_end,
+    on_agent_run_start,
+)
 
 # Consolidated relative imports
 from code_puppy.config import (
@@ -99,7 +105,7 @@ def _log_error_to_file(exc: Exception) -> Optional[str]:
         The path to the log file if successful, None otherwise.
     """
     try:
-        error_logs_dir = Path.home() / ".code_puppy" / "error_logs"
+        error_logs_dir = pathlib.Path.home() / ".code_puppy" / "error_logs"
         error_logs_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -148,6 +154,37 @@ class BaseAgent(ABC):
         # Cache for MCP tool definitions (for token estimation)
         # This is populated after the first successful run when MCP tools are retrieved
         self._mcp_tool_definitions_cache: List[Dict[str, Any]] = []
+
+    def get_identity(self) -> str:
+        """Get a unique identity for this agent instance.
+
+        Returns:
+            A string like 'python-programmer-a3f2b1' combining name + short UUID.
+        """
+        return f"{self.name}-{self.id[:6]}"
+
+    def get_identity_prompt(self) -> str:
+        """Get the identity prompt suffix to embed in system prompts.
+
+        Returns:
+            A string instructing the agent about its identity for task ownership.
+        """
+        return (
+            f"\n\nYour ID is `{self.get_identity()}`. "
+            "Use this for any tasks which require identifying yourself "
+            "such as claiming task ownership or coordination with other agents."
+        )
+
+    def get_full_system_prompt(self) -> str:
+        """Get the complete system prompt with identity automatically appended.
+
+        This wraps get_system_prompt() and appends the agent's identity,
+        so subclasses don't need to worry about it.
+
+        Returns:
+            The full system prompt including identity information.
+        """
+        return self.get_system_prompt() + self.get_identity_prompt()
 
     @property
     @abstractmethod
@@ -251,57 +288,6 @@ class BaseAgent(ABC):
         """
         self._compacted_message_hashes.add(message_hash)
 
-    def ensure_history_ends_with_request(
-        self, messages: List[ModelMessage]
-    ) -> List[ModelMessage]:
-        """Ensure message history ends with a ModelRequest.
-
-        pydantic_ai requires that processed message history ends with a ModelRequest.
-        This can fail when swapping models mid-conversation if the history ends with
-        a ModelResponse from the previous model.
-
-        This method trims trailing ModelResponse messages to ensure compatibility.
-
-        Args:
-            messages: List of messages to validate/fix.
-
-        Returns:
-            List of messages guaranteed to end with ModelRequest, or empty list
-            if no valid history can be constructed.
-        """
-        if not messages:
-            return messages
-
-        # If history already ends with ModelRequest, we're good
-        if isinstance(messages[-1], ModelRequest):
-            return messages
-
-        # History ends with ModelResponse - trim trailing responses
-        # This can happen when swapping models mid-conversation
-        # Remove trailing ModelResponse messages
-        trimmed = list(messages)
-        while trimmed and isinstance(trimmed[-1], ModelResponse):
-            trimmed.pop()
-
-        # If we removed everything, return empty list
-        # The caller (pydantic_ai) will handle this appropriately
-        if not trimmed:
-            emit_warning(
-                "All messages were ModelResponse - returning empty history. "
-                "The conversation will start fresh with the new model."
-            )
-            return []
-
-        # Verify we now end with ModelRequest
-        if not isinstance(trimmed[-1], ModelRequest):
-            # Shouldn't happen in normal operation, but be defensive
-            emit_warning(
-                f"History still doesn't end with ModelRequest after trimming "
-                f"(ends with {type(trimmed[-1]).__name__}). Returning empty history."
-            )
-            return []
-
-        return trimmed
 
     def get_model_name(self) -> Optional[str]:
         """Get pinned model name for this agent, if specified.
@@ -328,6 +314,33 @@ class BaseAgent(ABC):
                 parts.append(part)
             cleaned.append(message)
         return cleaned
+
+    def ensure_history_ends_with_request(
+        self, messages: List[ModelMessage]
+    ) -> List[ModelMessage]:
+        """Ensure message history ends with a ModelRequest.
+
+        pydantic_ai requires that processed message history ends with a ModelRequest.
+        This can fail when swapping models mid-conversation if the history ends with
+        a ModelResponse from the previous model.
+
+        This method trims trailing ModelResponse messages to ensure compatibility.
+
+        Args:
+            messages: List of messages to validate/fix.
+
+        Returns:
+            List of messages guaranteed to end with ModelRequest, or empty list
+            if no ModelRequest is found.
+        """
+        if not messages:
+            return messages
+
+        # Trim trailing ModelResponse messages
+        while messages and isinstance(messages[-1], ModelResponse):
+            messages = messages[:-1]
+
+        return messages
 
     # Message history processing methods (moved from state_management.py and message_history_processor.py)
     def _stringify_part(self, part: Any) -> str:
@@ -437,7 +450,7 @@ class BaseAgent(ABC):
 
     def estimate_token_count(self, text: str) -> int:
         """
-        Simple token estimation using len(message) / 3.
+        Simple token estimation using len(message) / 2.5.
         This replaces tiktoken with a much simpler approach.
         """
         return max(1, math.floor((len(text) / 2.5)))
@@ -474,7 +487,7 @@ class BaseAgent(ABC):
         # 1. Estimate tokens for system prompt / instructions
         # Count the system prompt tokens
         try:
-            system_prompt = self.get_system_prompt()
+            system_prompt = self.get_full_system_prompt()
             if system_prompt:
                 total_tokens += self.estimate_token_count(system_prompt)
         except Exception:
@@ -1198,7 +1211,7 @@ class BaseAgent(ABC):
             message_group,
         )
 
-        instructions = self.get_system_prompt()
+        instructions = self.get_full_system_prompt()
         puppy_rules = self.load_puppy_rules()
         if puppy_rules:
             instructions += f"\n{puppy_rules}"
@@ -1362,7 +1375,7 @@ class BaseAgent(ABC):
             model_name, models_config, str(uuid.uuid4())
         )
 
-        instructions = self.get_system_prompt()
+        instructions = self.get_full_system_prompt()
         puppy_rules = self.load_puppy_rules()
         if puppy_rules:
             instructions += f"\n{puppy_rules}"
@@ -1435,14 +1448,6 @@ class BaseAgent(ABC):
             result_messages_filtered_empty_thinking.append(msg)
         # Update history after filtering (was incorrectly inside the loop before)
         self.set_message_history(result_messages_filtered_empty_thinking)
-
-        # GUARD: Ensure history ends with ModelRequest to prevent pydantic_ai errors
-        # This is crucial when swapping models mid-conversation (especially Gemini)
-        final_history = self.ensure_history_ends_with_request(
-            self.get_message_history()
-        )
-        if final_history != self.get_message_history():
-            self.set_message_history(final_history)
 
         return self.get_message_history()
 
@@ -1713,6 +1718,7 @@ class BaseAgent(ABC):
         if output_type is not None:
             pydantic_agent = self._create_agent_with_output_type(output_type)
 
+        # Handle claude-code, chatgpt-codex, and antigravity models: prepend system prompt to first user message
         from code_puppy.model_utils import is_gemini_model
 
         # Build combined prompt payload when attachments are provided.
@@ -1737,6 +1743,51 @@ class BaseAgent(ABC):
             self.get_model_name()
         )
         stream_handler = event_stream_handler if use_streaming else None
+
+        # Constants for streaming error retry
+        MAX_STREAMING_RETRIES = 3
+        STREAMING_RETRY_DELAYS = [1, 2, 4]  # Exponential backoff: 1s, 2s, 4s
+
+        async def _run_with_streaming_retry(run_coro_factory):
+            """Wrap agent run with auto-retry for transient streaming errors.
+            
+            Args:
+                run_coro_factory: A callable that returns a new coroutine for the agent run.
+                    Must be a factory (not a coroutine) since coroutines can only be awaited once.
+            
+            Returns:
+                The result from a successful agent run.
+                
+            Raises:
+                UnexpectedModelBehavior: If all retries are exhausted or error is not retryable.
+            """
+            last_error = None
+            for attempt in range(MAX_STREAMING_RETRIES):
+                try:
+                    return await run_coro_factory()
+                except UnexpectedModelBehavior as e:
+                    error_msg = str(e).lower()
+                    # Only retry on transient streaming errors, not validation errors
+                    is_streaming_error = (
+                        "streamed response ended without content" in error_msg
+                        or "stream" in error_msg and "ended" in error_msg
+                    )
+                    if not is_streaming_error:
+                        raise  # Re-raise non-retryable errors immediately
+                    
+                    last_error = e
+                    if attempt < MAX_STREAMING_RETRIES - 1:
+                        delay = STREAMING_RETRY_DELAYS[attempt]
+                        emit_warning(
+                            f"⚡ Streaming interrupted, auto-retrying in {delay}s... (attempt {attempt + 1}/{MAX_STREAMING_RETRIES})"
+                        )
+                        await asyncio.sleep(delay)
+                    else:
+                        emit_error(
+                            f"❌ Streaming failed after {MAX_STREAMING_RETRIES} attempts"
+                        )
+            # If we get here, all retries exhausted
+            raise last_error
 
         async def run_agent_task():
             try:
@@ -1775,12 +1826,14 @@ class BaseAgent(ABC):
                     try:
                         # Set the workflow ID for DBOS context so DBOS and Code Puppy ID match
                         with SetWorkflowID(group_id):
-                            result_ = await pydantic_agent.run(
-                                prompt_payload,
-                                message_history=self.get_message_history(),
-                                usage_limits=usage_limits,
-                                event_stream_handler=stream_handler,
-                                **kwargs,
+                            result_ = await _run_with_streaming_retry(
+                                lambda: pydantic_agent.run(
+                                    prompt_payload,
+                                    message_history=self.get_message_history(),
+                                    usage_limits=usage_limits,
+                                    event_stream_handler=stream_handler,
+                                    **kwargs,
+                                )
                             )
                             return result_
                     finally:
@@ -1788,22 +1841,26 @@ class BaseAgent(ABC):
                         pydantic_agent._toolsets = original_toolsets
                 elif get_use_dbos():
                     with SetWorkflowID(group_id):
-                        result_ = await pydantic_agent.run(
+                        result_ = await _run_with_streaming_retry(
+                            lambda: pydantic_agent.run(
+                                prompt_payload,
+                                message_history=self.get_message_history(),
+                                usage_limits=usage_limits,
+                                event_stream_handler=stream_handler,
+                                **kwargs,
+                            )
+                        )
+                        return result_
+                else:
+                    # Non-DBOS path (MCP servers are already included)
+                    result_ = await _run_with_streaming_retry(
+                        lambda: pydantic_agent.run(
                             prompt_payload,
                             message_history=self.get_message_history(),
                             usage_limits=usage_limits,
                             event_stream_handler=stream_handler,
                             **kwargs,
                         )
-                        return result_
-                else:
-                    # Non-DBOS path (MCP servers are already included)
-                    result_ = await pydantic_agent.run(
-                        prompt_payload,
-                        message_history=self.get_message_history(),
-                        usage_limits=usage_limits,
-                        event_stream_handler=stream_handler,
-                        **kwargs,
                     )
                     return result_
             except* UsageLimitExceeded as ule:
@@ -1842,7 +1899,9 @@ class BaseAgent(ABC):
                         emit_info(f"Unexpected error: {str(exc)}", group_id=group_id)
                         if log_file_path:
                             emit_info(
-                                f"[dim]Error details logged to: {log_file_path}[/dim]",
+                                Text.from_markup(
+                                    f"[dim]Error details logged to: {log_file_path}[/dim]"
+                                ),
                                 group_id=group_id,
                             )
 
@@ -1852,22 +1911,30 @@ class BaseAgent(ABC):
                             from code_puppy.error_logging import get_log_file_path
 
                             emit_info(
-                                "[yellow]Output validation retry error detected. Debug info:[/yellow]",
+                                Text.from_markup(
+                                    "[yellow]Output validation retry error detected. Debug info:[/yellow]"
+                                ),
                                 group_id=group_id,
                             )
                             # Log exception type and full repr
                             emit_info(
-                                f"[dim]  Exception type: {type(exc).__name__}[/dim]",
+                                Text.from_markup(
+                                    f"[dim]  Exception type: {type(exc).__name__}[/dim]"
+                                ),
                                 group_id=group_id,
                             )
                             emit_info(
-                                f"[dim]  Exception repr: {repr(exc)}[/dim]",
+                                Text.from_markup(
+                                    f"[dim]  Exception repr: {repr(exc)}[/dim]"
+                                ),
                                 group_id=group_id,
                             )
                             # Check for __cause__ (chained exception)
                             if exc.__cause__:
                                 emit_info(
-                                    f"[yellow]  Caused by: {type(exc.__cause__).__name__}: {exc.__cause__}[/yellow]",
+                                    Text.from_markup(
+                                        f"[yellow]  Caused by: {type(exc.__cause__).__name__}: {exc.__cause__}[/yellow]"
+                                    ),
                                     group_id=group_id,
                                 )
                                 # Try to extract more from the cause
@@ -1883,13 +1950,17 @@ class BaseAgent(ABC):
                                         val = getattr(cause, attr)
                                         if val:
                                             emit_info(
-                                                f"[dim]    cause.{attr}: {val}[/dim]",
+                                                Text.from_markup(
+                                                    f"[dim]    cause.{attr}: {val}[/dim]"
+                                                ),
                                                 group_id=group_id,
                                             )
                             # Check for __context__ (implicit chaining)
                             if exc.__context__ and exc.__context__ != exc.__cause__:
                                 emit_info(
-                                    f"[dim]  Context: {type(exc.__context__).__name__}: {exc.__context__}[/dim]",
+                                    Text.from_markup(
+                                        f"[dim]  Context: {type(exc.__context__).__name__}: {exc.__context__}[/dim]"
+                                    ),
                                     group_id=group_id,
                                 )
                                 # Dig into ExceptionGroup contexts
@@ -1898,7 +1969,9 @@ class BaseAgent(ABC):
                                         exc.__context__.exceptions
                                     ):
                                         emit_info(
-                                            f"[yellow]    Sub-exception {i + 1}: {type(sub_exc).__name__}: {sub_exc}[/yellow]",
+                                            Text.from_markup(
+                                                f"[yellow]    Sub-exception {i + 1}: {type(sub_exc).__name__}: {sub_exc}[/yellow]"
+                                            ),
                                             group_id=group_id,
                                         )
                                         # Log sub-exception attributes
@@ -1912,18 +1985,24 @@ class BaseAgent(ABC):
                                                 val = getattr(sub_exc, attr)
                                                 if val:
                                                     emit_info(
-                                                        f"[dim]      {attr}: {val}[/dim]",
+                                                        Text.from_markup(
+                                                            f"[dim]      {attr}: {val}[/dim]"
+                                                        ),
                                                         group_id=group_id,
                                                     )
                                         # Check sub-exception's cause
                                         if sub_exc.__cause__:
                                             emit_info(
-                                                f"[yellow]      __cause__: {type(sub_exc.__cause__).__name__}: {sub_exc.__cause__}[/yellow]",
+                                                Text.from_markup(
+                                                    f"[yellow]      __cause__: {type(sub_exc.__cause__).__name__}: {sub_exc.__cause__}[/yellow]"
+                                                ),
                                                 group_id=group_id,
                                             )
                                         if sub_exc.__context__:
                                             emit_info(
-                                                f"[dim]      __context__: {type(sub_exc.__context__).__name__}: {sub_exc.__context__}[/dim]",
+                                                Text.from_markup(
+                                                    f"[dim]      __context__: {type(sub_exc.__context__).__name__}: {sub_exc.__context__}[/dim]"
+                                                ),
                                                 group_id=group_id,
                                             )
                             # Log any pydantic-ai specific attributes
@@ -1938,12 +2017,16 @@ class BaseAgent(ABC):
                                     val = getattr(exc, attr)
                                     if val:
                                         emit_info(
-                                            f"[dim]  {attr}: {val}[/dim]",
+                                            Text.from_markup(
+                                                f"[dim]  {attr}: {val}[/dim]"
+                                            ),
                                             group_id=group_id,
                                         )
                             # Tell user where to find full logs
                             emit_info(
-                                f"[dim]  Full traceback logged to: {get_log_file_path()}[/dim]",
+                                Text.from_markup(
+                                    f"[dim]  Full traceback logged to: {get_log_file_path()}[/dim]"
+                                ),
                                 group_id=group_id,
                             )
 
@@ -1974,6 +2057,17 @@ class BaseAgent(ABC):
 
         # Create the task FIRST
         agent_task = asyncio.create_task(run_agent_task())
+
+        # Fire agent_run_start hook - plugins can use this to start background tasks
+        # (e.g., token refresh heartbeats for OAuth models)
+        try:
+            await on_agent_run_start(
+                agent_name=self.name,
+                model_name=self.get_model_name(),
+                session_id=group_id,
+            )
+        except Exception:
+            pass  # Don't fail agent run if hook fails
 
         # Import shell process status helper
 
@@ -2060,14 +2154,53 @@ class BaseAgent(ABC):
                 except Exception:
                     pass  # Don't fail the run if cache update fails
 
+            # Extract response text for the callback
+            _run_response_text = ""
+            if result is not None:
+                if hasattr(result, "data"):
+                    _run_response_text = str(result.data) if result.data else ""
+                elif hasattr(result, "output"):
+                    _run_response_text = str(result.output) if result.output else ""
+                else:
+                    _run_response_text = str(result)
+
+            _run_success = True
+            _run_error = None
             return result
         except asyncio.CancelledError:
+            _run_success = False
+            _run_error = None  # Cancellation is not an error
+            _run_response_text = ""
             agent_task.cancel()
         except KeyboardInterrupt:
-            # Handle direct keyboard interrupt during await
+            _run_success = False
+            _run_error = None  # User interrupt is not an error
+            _run_response_text = ""
             if not agent_task.done():
                 agent_task.cancel()
+        except Exception as e:
+            _run_success = False
+            _run_error = e
+            _run_response_text = ""
+            raise
         finally:
+            # Fire agent_run_end hook - plugins can use this for:
+            # - Stopping background tasks (token refresh heartbeats)
+            # - Workflow orchestration (Ralph's autonomous loop)
+            # - Logging/analytics
+            try:
+                await on_agent_run_end(
+                    agent_name=self.name,
+                    model_name=self.get_model_name(),
+                    session_id=group_id,
+                    success=_run_success,
+                    error=_run_error,
+                    response_text=_run_response_text,
+                    metadata={"model": self.get_model_name()},
+                )
+            except Exception:
+                pass  # Don't fail cleanup if hook fails
+
             # Stop keyboard listener if it was started
             if key_listener_stop_event is not None:
                 key_listener_stop_event.set()

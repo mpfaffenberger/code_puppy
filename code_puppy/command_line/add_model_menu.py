@@ -626,12 +626,21 @@ class AddModelMenu:
         elif model_type == "openai" and "gpt-5" in model.model_id:
             # GPT-5 models have special settings
             if "codex" in model.model_id:
-                config["supported_settings"] = ["reasoning_effort"]
+                config["supported_settings"] = [
+                    "temperature",
+                    "top_p",
+                    "reasoning_effort",
+                ]
             else:
-                config["supported_settings"] = ["reasoning_effort", "verbosity"]
+                config["supported_settings"] = [
+                    "temperature",
+                    "top_p",
+                    "reasoning_effort",
+                    "verbosity",
+                ]
         else:
-            # Default settings for most models (no top_p)
-            config["supported_settings"] = ["temperature", "seed"]
+            # Default settings for most models
+            config["supported_settings"] = ["temperature", "seed", "top_p"]
 
         return config
 
@@ -884,6 +893,7 @@ class AddModelMenu:
         kb = KeyBindings()
 
         @kb.add("up")
+        @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
         def _(event):
             if self.view_mode == "providers":
                 if self.selected_provider_idx > 0:
@@ -896,6 +906,7 @@ class AddModelMenu:
             self.update_display()
 
         @kb.add("down")
+        @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
         def _(event):
             if self.view_mode == "providers":
                 if self.selected_provider_idx < len(self.providers) - 1:

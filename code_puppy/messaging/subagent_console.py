@@ -24,7 +24,6 @@ from rich.text import Text
 
 from code_puppy.messaging.messages import SubAgentStatusMessage
 
-
 # =============================================================================
 # Status Configuration
 # =============================================================================

@@ -443,9 +443,9 @@ def register_invoke_agent(agent):
 
         terminal_session_token = set_terminal_session(f"terminal-{session_id}")
 
-        # Set browser session for Camoufox browser tools (qa-kitten, etc.)
+        # Set browser session for browser tools (qa-kitten, etc.)
         # This allows parallel agent invocations to each have their own browser
-        from code_puppy.tools.browser.camoufox_manager import (
+        from code_puppy.tools.browser.browser_manager import (
             set_browser_session,
         )
 
@@ -469,7 +469,7 @@ def register_invoke_agent(agent):
             model = ModelFactory.get_model(model_name, models_config)
 
             # Create a temporary agent instance to avoid interfering with current agent state
-            instructions = agent_config.get_system_prompt()
+            instructions = agent_config.get_full_system_prompt()
 
             # Add AGENTS.md content to subagents
             puppy_rules = agent_config.load_puppy_rules()
@@ -562,9 +562,31 @@ def register_invoke_agent(agent):
             # Pass the message_history from the session to continue the conversation
             workflow_id = None  # Track for potential cancellation
 
-            # Always use subagent_stream_handler to silence output and update console manager
-            # This ensures all sub-agent output goes through the aggregated dashboard
-            stream_handler = partial(subagent_stream_handler, session_id=session_id)
+            # Determine if we should use streaming based on the model
+            # Gemini models via puppy-backend don't support streaming yet (LLM Gateway limitation)
+            # so we disable streaming for Gemini to use non-streaming request() instead
+            use_streaming = True
+            if "gemini" in model_name.lower():
+                use_streaming = False
+
+            # If streaming is enabled, use subagent_stream_handler to update console manager
+            stream_handler = None
+            if use_streaming:
+                stream_handler = partial(subagent_stream_handler, session_id=session_id)
+
+            # Strip thinking signatures for non-Gemini models
+            # Gemini models use signature fields on ThinkingPart objects for thought validation.
+            # When using non-Gemini models (like Claude/Anthropic), these signatures cause errors.
+            if message_history and "gemini" not in model_name.lower():
+                from pydantic_ai.messages import ModelResponse, ThinkingPart
+
+                for message in message_history:
+                    if isinstance(message, ModelResponse):
+                        for part in message.parts:
+                            if isinstance(part, ThinkingPart) and getattr(
+                                part, "signature", None
+                            ):
+                                part.signature = None
 
             # Wrap the agent run in subagent context for tracking
             with subagent_context(agent_name):
@@ -665,7 +687,7 @@ def register_invoke_agent(agent):
             # Reset terminal session context
             _terminal_session_var.reset(terminal_session_token)
             # Reset browser session context
-            from code_puppy.tools.browser.camoufox_manager import (
+            from code_puppy.tools.browser.browser_manager import (
                 _browser_session_var,
             )
 

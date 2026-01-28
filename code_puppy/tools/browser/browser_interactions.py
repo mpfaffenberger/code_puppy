@@ -9,7 +9,7 @@ from rich.text import Text
 from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.tools.common import generate_group_id
 
-from .camoufox_manager import get_session_browser_manager
+from .browser_manager import get_session_browser_manager
 
 
 # --- Click Helper Functions ---
@@ -249,8 +249,6 @@ async def double_click_element(
             return {"success": False, "error": "No active browser page available"}
 
         element = page.locator(selector).first
-        await element.wait_for(state="visible", timeout=timeout)
-        await element.dblclick(force=force, timeout=timeout)
 
         # Pre-flight check
         count = await element.count()
@@ -384,8 +382,6 @@ async def hover_element(
             return {"success": False, "error": "No active browser page available"}
 
         element = page.locator(selector).first
-        await element.wait_for(state="visible", timeout=timeout)
-        await element.hover(force=force, timeout=timeout)
 
         # Pre-flight check
         count = await element.count()

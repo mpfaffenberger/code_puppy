@@ -32,9 +32,10 @@ def find_text_in_elements(
     Returns:
         OCRFindResult with matching elements
     """
-    from code_puppy.messaging import emit_info, emit_warning
+    from code_puppy.messaging import emit_warning
+    from ..rich_emit import emit_rich
 
-    emit_info(
+    emit_rich(
         Text.from_markup(
             f"[cyan]🔎 OCR TEXT SEARCH[/cyan]\n"
             f"[dim]   Searching for: '{search_text}'[/dim]\n"
@@ -67,20 +68,20 @@ def find_text_in_elements(
     matches.sort(key=lambda e: e.confidence, reverse=True)
 
     if matches:
-        emit_info(
+        emit_rich(
             Text.from_markup(
                 f"[green]✅ FOUND {len(matches)} MATCH(ES)[/green]\n"
                 f"[dim]   Best match: '{matches[0].text}' at ({matches[0].center_x}, {matches[0].center_y}) confidence {matches[0].confidence:.2%}[/dim]"
             )
         )
         for i, match in enumerate(matches[:5], 1):  # Show first 5
-            emit_info(
+            emit_rich(
                 Text.from_markup(
                     f"[dim]   {i}. '{match.text}' at ({match.center_x}, {match.center_y}) conf:{match.confidence:.2%}[/dim]"
                 )
             )
         if len(matches) > 5:
-            emit_info(
+            emit_rich(
                 Text.from_markup(f"[dim]   ... and {len(matches) - 5} more[/dim]")
             )
     else:

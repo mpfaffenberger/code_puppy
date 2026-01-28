@@ -19,11 +19,22 @@ class CommandInfo:
     aliases: List[str] = field(default_factory=list)
     category: str = "core"
     detailed_help: Optional[str] = None
+    is_available: Optional[Callable[[], bool]] = None  # Dynamic visibility check
 
     def __post_init__(self):
         """Set default usage if not provided."""
         if not self.usage:
             self.usage = f"/{self.name}"
+
+    def check_available(self) -> bool:
+        """Check if this command is currently available.
+
+        Returns:
+            True if available (or no check defined), False if hidden.
+        """
+        if self.is_available is None:
+            return True
+        return self.is_available()
 
 
 # Global registry: maps command name/alias -> CommandInfo
@@ -37,6 +48,7 @@ def register_command(
     aliases: Optional[List[str]] = None,
     category: str = "core",
     detailed_help: Optional[str] = None,
+    is_available: Optional[Callable[[], bool]] = None,
 ):
     """Decorator to register a command handler.
 
@@ -53,6 +65,9 @@ def register_command(
         aliases: List of alternative names (without leading /)
         category: Grouping category ("core", "session", "config", etc.)
         detailed_help: Optional detailed help text for /help <command>
+        is_available: Optional callback that returns True if command is available.
+            If provided and returns False, the command is completely hidden
+            (not shown in help, not executable). Useful for secret/unlockable commands.
 
     Example:
         >>> @register_command(
@@ -79,6 +94,7 @@ def register_command(
             aliases=aliases or [],
             category=category,
             detailed_help=detailed_help,
+            is_available=is_available,
         )
 
         # Register primary name
@@ -103,8 +119,12 @@ def get_all_commands() -> Dict[str, CommandInfo]:
     return _COMMAND_REGISTRY.copy()
 
 
-def get_unique_commands() -> List[CommandInfo]:
+def get_unique_commands(include_unavailable: bool = False) -> List[CommandInfo]:
     """Get unique registered commands (no duplicates from aliases).
+
+    Args:
+        include_unavailable: If True, include commands that are currently
+            unavailable (hidden). Defaults to False.
 
     Returns:
         List of unique CommandInfo objects (one per primary command).
@@ -115,11 +135,13 @@ def get_unique_commands() -> List[CommandInfo]:
         # Use object id to avoid duplicates from aliases
         if id(cmd_info) not in seen:
             seen.add(id(cmd_info))
-            unique.append(cmd_info)
+            # Filter out unavailable commands unless explicitly requested
+            if include_unavailable or cmd_info.check_available():
+                unique.append(cmd_info)
     return unique
 
 
-def get_command(name: str) -> Optional[CommandInfo]:
+def get_command(name: str, include_unavailable: bool = False) -> Optional[CommandInfo]:
     """Get command info by name or alias (case-insensitive).
 
     First tries exact match for backward compatibility, then falls back to
@@ -127,20 +149,26 @@ def get_command(name: str) -> Optional[CommandInfo]:
 
     Args:
         name: Command name or alias (without leading /)
+        include_unavailable: If True, return command even if it's currently
+            unavailable (hidden). Defaults to False.
 
     Returns:
-        CommandInfo if found, None otherwise
+        CommandInfo if found and available, None otherwise
     """
     # First try exact match (for backward compatibility)
     exact_match = _COMMAND_REGISTRY.get(name)
     if exact_match is not None:
-        return exact_match
+        if include_unavailable or exact_match.check_available():
+            return exact_match
+        return None  # Command exists but is unavailable
 
     # If no exact match, try case-insensitive matching
     name_lower = name.lower()
     for registered_name, cmd_info in _COMMAND_REGISTRY.items():
         if registered_name.lower() == name_lower:
-            return cmd_info
+            if include_unavailable or cmd_info.check_available():
+                return cmd_info
+            return None  # Command exists but is unavailable
 
     return None
 

@@ -7,7 +7,7 @@ from functools import lru_cache
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent
 
-from code_puppy.model_factory import ModelFactory
+from .image_conversion import normalize_image_for_vqa, is_format_accepted
 
 
 class DesktopVisualAnalysisResult(BaseModel):
@@ -23,6 +23,10 @@ def _load_desktop_vqa_agent(
     model_name: str,
 ) -> Agent[None, DesktopVisualAnalysisResult]:
     """Create a cached agent instance for desktop visual analysis."""
+    # Import lazily to avoid circular import:
+    # model_factory -> messaging -> rich_renderer -> tools -> gui_cub -> vqa_desktop -> model_factory
+    from code_puppy.model_factory import ModelFactory
+
     models_config = ModelFactory.load_config()
     model = ModelFactory.get_model(model_name, models_config)
 
@@ -73,15 +77,32 @@ def run_desktop_vqa_analysis(
     image_bytes: bytes,
     media_type: str = "image/png",
 ) -> DesktopVisualAnalysisResult:
-    """Execute the desktop VQA agent synchronously against screenshot bytes."""
-    from code_puppy.messaging import emit_info, emit_warning
+    """Execute the desktop VQA agent synchronously against screenshot bytes.
+
+    Automatically converts unsupported image formats (like BMP, TIFF) to PNG
+    before sending to the vision model API.
+    """
+    from code_puppy.messaging import emit_warning
+    from .rich_emit import emit_rich
 
     # Use internal model selection logic (prefers current global model)
     model_name = _get_model_for_vqa()
+    original_size_mb = len(image_bytes) / 1_000_000
+    original_media_type = media_type
+
+    # Normalize image format for VQA compatibility
+    if not is_format_accepted(media_type):
+        try:
+            image_bytes, media_type = normalize_image_for_vqa(image_bytes, media_type)
+            emit_rich(f"[dim]📐 Converted {original_media_type} → {media_type}[/dim]")
+        except ValueError as e:
+            emit_warning(f"Image conversion failed: {e}")
+            # Continue with original format - API may reject it
+
     image_size_mb = len(image_bytes) / 1_000_000
 
-    emit_info(
-        f"[bold cyan]🤖 VQA REQUEST[/bold cyan]\n"
+    emit_rich(
+        f"[bold cyan]🤖 VQA REQUEST 🐻 [/bold cyan]\n"
         f"[dim]   Model: {model_name}[/dim]\n"
         f"[dim]   Image size: {image_size_mb:.2f} MB[/dim]\n"
         f"[dim]   Media type: {media_type}[/dim]\n"
@@ -126,7 +147,7 @@ def run_desktop_vqa_analysis(
                 ]
             )
 
-        emit_info(
+        emit_rich(
             f"[bold green]✅ VQA RESPONSE[/bold green]\n"
             f"[dim]   Answer: {result.output.answer[:150]}{'...' if len(result.output.answer) > 150 else ''}[/dim]\n"
             f"[dim]   Confidence: {result.output.confidence:.2%}[/dim]\n"

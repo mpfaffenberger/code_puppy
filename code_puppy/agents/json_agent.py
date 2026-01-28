@@ -79,17 +79,40 @@ class JSONAgent(BaseAgent):
         return system_prompt
 
     def get_available_tools(self) -> List[str]:
-        """Get available tools from JSON config."""
-        # Filter out any tools that don't exist in our registry
+        """Get available tools from JSON config.
+
+        Supports both built-in tools and Universal Constructor (UC) tools.
+        UC tools are identified by checking the UC registry.
+        """
         from code_puppy.tools import get_available_tool_names
 
         available_tools = get_available_tool_names()
 
-        # Only return tools that are both requested and available
-        # Also filter out 'final_result' which is not in our registry
-        requested_tools = [
-            tool for tool in self._config["tools"] if tool in available_tools
-        ]
+        # Also get UC tool names
+        uc_tool_names = set()
+        try:
+            from code_puppy.plugins.universal_constructor.registry import get_registry
+
+            registry = get_registry()
+            for tool in registry.list_tools():
+                if tool.meta.enabled:
+                    uc_tool_names.add(tool.full_name)
+        except ImportError:
+            pass  # UC module not available
+        except Exception as e:
+            # Log unexpected errors but don't fail
+            import logging
+
+            logging.debug(f"UC registry access failed: {e}")
+
+        # Return tools that are either built-in OR UC tools
+        requested_tools = []
+        for tool in self._config["tools"]:
+            if tool in available_tools:
+                requested_tools.append(tool)
+            elif tool in uc_tool_names:
+                # UC tool - mark it specially so base_agent knows to handle it
+                requested_tools.append(f"uc:{tool}")
 
         return requested_tools
 

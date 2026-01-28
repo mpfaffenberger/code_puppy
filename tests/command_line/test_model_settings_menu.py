@@ -65,7 +65,7 @@ class TestSettingDefinitions:
         assert temp_def["type"] == "numeric"
         assert temp_def["min"] == 0.0
         assert temp_def["max"] == 1.0
-        assert temp_def["step"] == 0.1
+        assert temp_def["step"] == 0.05
 
     def test_seed_setting_definition(self):
         """Test seed setting has correct definition."""

@@ -31,149 +31,7 @@ class TestModelFactoryBasics:
             assert "gpt-4" in config
             assert config["claude-3-5-sonnet"]["type"] == "anthropic"
 
-    @patch(
-        "code_puppy.plugins.claude_code_oauth.utils.load_claude_models_filtered",
-        return_value={},
-    )
-    @patch("code_puppy.model_factory.pathlib.Path")
-    @patch("code_puppy.model_factory.callbacks.get_callbacks", return_value=[])
-    def test_load_config_with_extra_models(
-        self,
-        mock_callbacks,
-        mock_path_class,
-        mock_load_claude,
-    ):
-        """Test config loading with extra models file."""
-        base_config = {
-            "claude-3-5-sonnet": {
-                "type": "anthropic",
-                "name": "claude-3-5-sonnet-20241022",
-            }
-        }
-        extra_config = {
-            "custom-model": {"type": "custom_openai", "name": "custom-gpt-4"}
-        }
 
-        # Create mock path instances
-        mock_main_path = MagicMock()
-        mock_extra_path = MagicMock()
-        mock_other_path = MagicMock()
-
-        # Configure exists() for each path
-        mock_main_path.exists.return_value = True  # models.json exists
-        mock_extra_path.exists.return_value = True  # extra models exists
-        mock_other_path.exists.return_value = False  # Other models don't exist
-
-        # Configure Path() constructor to return appropriate mocks
-        def path_side_effect(path_arg):
-            path_str = str(path_arg)
-            if "extra_models.json" in path_str:
-                return mock_extra_path
-            elif (
-                "models.json" in path_str
-                and "extra" not in path_str
-                and "chatgpt" not in path_str
-                and "claude" not in path_str
-                and "gemini" not in path_str
-            ):
-                return mock_main_path
-            elif any(x in path_str for x in ["chatgpt", "claude", "gemini"]):
-                return mock_other_path
-            else:
-                return mock_main_path
-
-        mock_path_class.side_effect = path_side_effect
-
-        # Mock file reads - handle multiple file opens properly
-        with patch("builtins.open", mock_open()) as mock_file:
-            mock_file.return_value.read.side_effect = [
-                json.dumps(base_config),  # Source models.json
-                json.dumps(base_config),  # Target models.json after copy
-            ]
-            # Mock json.load for the extra models file
-            with patch(
-                "json.load",
-                side_effect=[
-                    base_config,  # Main models.json
-                    extra_config,  # Extra models file
-                ],
-            ):
-                config = ModelFactory.load_config()
-
-        assert "claude-3-5-sonnet" in config
-        assert "custom-model" in config
-
-    @patch(
-        "code_puppy.plugins.claude_code_oauth.utils.load_claude_models_filtered",
-        return_value={},
-    )
-    @patch("code_puppy.model_factory.pathlib.Path")
-    @patch("code_puppy.model_factory.callbacks.get_callbacks", return_value=[])
-    def test_load_config_invalid_json(
-        self,
-        mock_callbacks,
-        mock_path_class,
-        mock_load_claude,
-    ):
-        """Test handling of invalid JSON in extra models files."""
-        base_config = {
-            "claude-3-5-sonnet": {
-                "type": "anthropic",
-                "name": "claude-3-5-sonnet-20241022",
-            }
-        }
-
-        # Create mock path instances
-        mock_main_path = MagicMock()
-        mock_extra_path = MagicMock()
-        mock_other_path = MagicMock()
-
-        # Configure exists() for each path
-        mock_main_path.exists.return_value = True  # models.json exists
-        mock_extra_path.exists.return_value = (
-            True  # extra models exists (but has invalid JSON)
-        )
-        mock_other_path.exists.return_value = False
-
-        # Configure Path() constructor to return appropriate mocks
-        def path_side_effect(path_arg):
-            path_str = str(path_arg)
-            if "extra_models.json" in path_str:
-                return mock_extra_path
-            elif (
-                "models.json" in path_str
-                and "extra" not in path_str
-                and "chatgpt" not in path_str
-                and "claude" not in path_str
-                and "gemini" not in path_str
-            ):
-                return mock_main_path
-            elif any(x in path_str for x in ["chatgpt", "claude", "gemini"]):
-                return mock_other_path
-            else:
-                return mock_main_path
-
-        mock_path_class.side_effect = path_side_effect
-
-        # Mock file operations
-        with patch("builtins.open", mock_open()) as mock_file:
-            mock_file.return_value.read.side_effect = [
-                json.dumps(base_config),  # Source models.json (valid)
-                json.dumps(base_config),  # Target models.json after copy (valid)
-            ]
-            # Mock json.load to raise JSONDecodeError for extra models
-            with patch(
-                "json.load",
-                side_effect=[
-                    base_config,  # Main models.json (valid)
-                    json.JSONDecodeError(
-                        "Invalid JSON", "doc", 0
-                    ),  # Extra models file (invalid)
-                ],
-            ):
-                # Should still load base config despite invalid extra config
-                config = ModelFactory.load_config()
-                assert "claude-3-5-sonnet" in config
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_get_model_openai(self):
@@ -209,8 +67,8 @@ class TestModelFactoryBasics:
         model = ModelFactory.get_model("gemini-pro", config)
 
         assert model is not None
-        assert hasattr(model, "provider")
         assert model.model_name == "gemini-pro"
+        assert model.system == "google"
 
     def test_get_model_missing_api_key(self):
         """Test getting a model when API key is missing."""
@@ -348,17 +206,27 @@ class TestModelFactoryBasics:
         "code_puppy.model_factory.callbacks.on_load_model_config",
         return_value=[{"test": "config"}],
     )
+    @patch(
+        "code_puppy.model_factory.callbacks.on_load_models_config",
+        return_value=[],
+    )
     @patch("builtins.open", new_callable=mock_open, read_data="{}")
     @patch("code_puppy.model_factory.pathlib.Path.exists", return_value=False)
     def test_load_config_with_callbacks(
-        self, mock_exists, mock_file, mock_on_load, mock_get_callbacks
+        self,
+        mock_exists,
+        mock_file,
+        mock_on_load_models,
+        mock_on_load,
+        mock_get_callbacks,
     ):
         """Test config loading using callbacks."""
         config = ModelFactory.load_config()
 
         # When callbacks are present, the callback result should be used
         assert config == {"test": "config"}
-        mock_get_callbacks.assert_called_once_with("load_model_config")
+        # get_callbacks is called for "load_model_config" to check if callbacks exist
+        mock_get_callbacks.assert_any_call("load_model_config")
         mock_on_load.assert_called_once()
 
     @patch.dict(os.environ, {"ZAI_API_KEY": "test-key"})

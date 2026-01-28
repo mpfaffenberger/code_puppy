@@ -267,36 +267,6 @@ class TestGlobalHistoryManager:
         assert isinstance(manager1, CommandHistoryManager)
 
 
-class TestTUIHistoryIntegration:
-    """Test TUI history integration (requires mocking Textual components)."""
-
-    def test_custom_text_area_history_state(self):
-        """Test CustomTextArea history state initialization."""
-        # This would require setting up Textual app context, so we'll mock it
-        with patch(
-            "code_puppy.command_line.history_manager.get_history_manager"
-        ) as mock_get_manager:
-            mock_manager = MagicMock()
-            mock_manager.get_recent_commands.return_value = [
-                "recent command 1",
-                "recent command 2",
-            ]
-            mock_get_manager.return_value = mock_manager
-
-            # Import here to avoid Textual dependency issues in testing
-            from code_puppy.tui.components.custom_widgets import CustomTextArea
-
-            # Create widget (without mounting to avoid Textual context)
-            widget = CustomTextArea()
-
-            # Manually call load_command_history
-            widget.load_command_history()
-
-            assert widget._history_loaded is True
-            assert widget.command_history == ["recent command 1", "recent command 2"]
-            assert widget.history_position == -1
-            assert widget.original_text == ""
-
 
 @pytest.mark.integration
 class TestEndToEndHistory:

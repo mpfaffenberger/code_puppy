@@ -4,19 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.359"
+version = "0.0.382"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "pydantic-ai==1.25.0",
+    "pydantic-ai-slim[openai,anthropic,mcp]==1.26.0",
+    "typer>=0.12.0",
+    "mcp>=1.9.4",
     "httpx[http2]>=0.24.1",
+    "requests>=2.28.0",
     "rich>=13.4.2",
-    "logfire>=0.7.1",
     "pydantic>=2.4.0",
     "python-dotenv>=1.0.0",
-    "pytest-cov>=6.1.1",
-    "ruff>=0.11.11",
     "prompt-toolkit>=3.0.52",
     "rapidfuzz>=3.13.0",
     "json-repair>=0.46.2",
@@ -25,7 +25,6 @@ dependencies = [
     "ripgrep==14.1.0",
     "tenacity>=8.2.0",
     "playwright>=1.40.0",
-    "camoufox>=0.4.11",
     "dbos>=2.5.0",
     "fastapi>=0.111.0",
     "markdownify>=0.11.0",
@@ -33,26 +32,27 @@ dependencies = [
     "google-cloud-bigquery>=3.0.0",
     # GUI-Cub dependencies
     "atomacos>=3.2.0; sys_platform == 'darwin'",
-    "pillow>=12.0.0",  # Updated from 11.0.0 - latest with security fixes
-    "pyautogui>=0.9.40,<0.9.42",  # Locked by atomacos 3.3.0 requirement (last update: Jan 2019)
+    "pillow>=12.0.0", # Updated from 11.0.0 - latest with security fixes
+    "pyautogui>=0.9.40,<0.9.42", # Locked by atomacos 3.3.0 requirement (last update: Jan 2019)
     # Vision Framework OCR dependencies (macOS 10.15+ native OCR)
-    "pyobjc-framework-Cocoa>=12.1; sys_platform == 'darwin'",  # Updated from 10.0 - macOS 15 support
-    "pyobjc-framework-Quartz>=12.1; sys_platform == 'darwin'",  # Updated from 10.0 - macOS 15 support
-    "pyobjc-framework-Vision>=12.1; sys_platform == 'darwin'",  # Updated from 10.0 - macOS 15 support
+    "pyobjc-framework-Cocoa>=12.1; sys_platform == 'darwin'", # Updated from 10.0 - macOS 15 support
+    "pyobjc-framework-Quartz>=12.1; sys_platform == 'darwin'", # Updated from 10.0 - macOS 15 support
+    "pyobjc-framework-Vision>=12.1; sys_platform == 'darwin'", # Updated from 10.0 - macOS 15 support
     # WinRT OCR dependencies (Windows 10+ native OCR) - modular PyWinRT packages
     # See: https://pywinrt.readthedocs.io
-    "pywin32>=311; sys_platform == 'win32'",  # Updated from 306 - Windows 11 fixes
-    "pywinauto>=0.6.9; sys_platform == 'win32'",  # Updated from 0.6.8
-    "winrt-runtime>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0 - Windows 11 support
-    "winrt-windows-foundation-collections>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
-    "winrt-windows-foundation>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
-    "winrt-windows-graphics-imaging>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
-    "winrt-windows-media-ocr>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
-    "winrt-windows-storage-streams>=3.2.1; sys_platform == 'win32'",  # Updated from 2.0.0
+    "pywin32>=311; sys_platform == 'win32'", # Updated from 306 - Windows 11 fixes
+    "pywinauto>=0.6.9; sys_platform == 'win32'", # Updated from 0.6.8
+    "winrt-runtime>=3.2.1; sys_platform == 'win32'", # Updated from 2.0.0 - Windows 11 support
+    "winrt-windows-foundation-collections>=3.2.1; sys_platform == 'win32'", # Updated from 2.0.0
+    "winrt-windows-foundation>=3.2.1; sys_platform == 'win32'", # Updated from 2.0.0
+    "winrt-windows-graphics-imaging>=3.2.1; sys_platform == 'win32'", # Updated from 2.0.0
+    "winrt-windows-media-ocr>=3.2.1; sys_platform == 'win32'", # Updated from 2.0.0
+    "winrt-windows-storage-streams>=3.2.1; sys_platform == 'win32'", # Updated from 2.0.0
     "termflow-md>=0.1.9",
     "uvicorn[standard]>=0.27.0",
     "websockets>=12.0",
     "Pillow>=10.0.0",
+    "camoufox>=0.4.11",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",

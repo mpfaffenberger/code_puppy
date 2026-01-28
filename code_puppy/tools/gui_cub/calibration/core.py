@@ -6,7 +6,8 @@ from datetime import datetime
 from typing import Any, Dict
 
 from code_puppy import __version__ as code_puppy_version
-from code_puppy.messaging import emit_info, emit_warning
+from code_puppy.messaging import emit_warning
+from ..rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from .detection import detect_displays, detect_platform
@@ -19,12 +20,13 @@ def _attempt_install_windows_dependencies() -> bool:
         True if installation succeeded, False otherwise
     """
 
-    from code_puppy.messaging import emit_info, emit_warning
+    from code_puppy.messaging import emit_warning
+    from ..rich_emit import emit_rich
     from code_puppy.tools.common import generate_group_id
 
     group_id = generate_group_id("windows_deps")
 
-    emit_info(
+    emit_rich(
         "[cyan]📦 Installing Windows automation dependencies...[/cyan]",
         message_group=group_id,
     )
@@ -33,7 +35,7 @@ def _attempt_install_windows_dependencies() -> bool:
 
     try:
         # Try to install using pip
-        emit_info(
+        emit_rich(
             "  • Installing pywinauto and pywin32...",
             message_group=group_id,
         )
@@ -46,14 +48,14 @@ def _attempt_install_windows_dependencies() -> bool:
         )
 
         if result.returncode == 0:
-            emit_info(
+            emit_rich(
                 "[green]✅ Windows dependencies installed successfully[/green]",
                 message_group=group_id,
             )
 
             # Run pywin32 post-install script if needed
             try:
-                emit_info(
+                emit_rich(
                     "  • Running pywin32 post-install...",
                     message_group=group_id,
                 )
@@ -289,7 +291,7 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
     if not force:
         existing_config = load_config()
         if existing_config:
-            emit_info(
+            emit_rich(
                 "[dim]Platform already calibrated (use /calibrate to re-run)[/dim]",
                 message_group=group_id,
             )
@@ -300,46 +302,46 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
                 "path": str(get_config_path()),
             }
 
-    emit_info(
+    emit_rich(
         "[bold cyan]🔧 GUI-Cub Platform Calibration[/bold cyan]",
         message_group=group_id,
     )
-    emit_info(
+    emit_rich(
         "[dim]Detecting platform capabilities, displays, and performance...[/dim]",
         message_group=group_id,
     )
-    emit_info("", message_group=group_id)
+    emit_rich("", message_group=group_id)
 
     # Detect everything
-    emit_info("🔍 Detecting platform...", message_group=group_id)
+    emit_rich("🔍 Detecting platform...", message_group=group_id)
     platform_info = detect_platform()
-    emit_info(
+    emit_rich(
         f"  • OS: {platform_info['os_display']} {platform_info['version']}",
         message_group=group_id,
     )
-    emit_info(
+    emit_rich(
         f"  • Arch: {platform_info['machine']}",
         message_group=group_id,
     )
-    emit_info("", message_group=group_id)
+    emit_rich("", message_group=group_id)
 
-    emit_info("🖥️  Detecting displays...", message_group=group_id)
+    emit_rich("🖥️  Detecting displays...", message_group=group_id)
     display_info = detect_displays()
-    emit_info(
+    emit_rich(
         f"  • Primary: {display_info['primary_resolution'][0]}x{display_info['primary_resolution'][1]}",
         message_group=group_id,
     )
-    emit_info(
+    emit_rich(
         f"  • Scale: {display_info['scale_factor']}x",
         message_group=group_id,
     )
-    emit_info(
+    emit_rich(
         f"  • Monitors: {display_info['monitor_count']}",
         message_group=group_id,
     )
-    emit_info("", message_group=group_id)
+    emit_rich("", message_group=group_id)
 
-    emit_info("📦 Detecting capabilities...", message_group=group_id)
+    emit_rich("📦 Detecting capabilities...", message_group=group_id)
     capabilities = detect_capabilities()
 
     # Skip platform-specific capabilities when displaying
@@ -353,14 +355,14 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
             continue
 
         status = "✅" if available else "❌"
-        emit_info(
+        emit_rich(
             f"  {status} {cap}",
             message_group=group_id,
         )
-    emit_info("", message_group=group_id)
+    emit_rich("", message_group=group_id)
 
     # Detect OCR providers
-    emit_info("🔍 Detecting OCR providers...", message_group=group_id)
+    emit_rich("🔍 Detecting OCR providers...", message_group=group_id)
     ocr_info = detect_ocr_providers()
     ocr_providers = ocr_info["providers"]
     primary_ocr = ocr_info["primary"]
@@ -375,33 +377,33 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
             continue
 
         status = "✅" if available else "❌"
-        emit_info(
+        emit_rich(
             f"  {status} {provider}",
             message_group=group_id,
         )
 
     # Show primary OCR provider
     if primary_ocr:
-        emit_info(
+        emit_rich(
             f"  ⭐ Primary: {primary_ocr}",
             message_group=group_id,
         )
-    emit_info("", message_group=group_id)
+    emit_rich("", message_group=group_id)
 
     # Check permissions (macOS only)
     permissions = detect_permissions()
     if permissions:
-        emit_info("🔐 Checking permissions...", message_group=group_id)
+        emit_rich("🔐 Checking permissions...", message_group=group_id)
         for perm, status in permissions.items():
             if perm.endswith("_message"):
                 continue
             status_str = "✅" if status else "❌"
             message = permissions.get(f"{perm}_message", "")
-            emit_info(
+            emit_rich(
                 f"  {status_str} {perm}: {message}",
                 message_group=group_id,
             )
-        emit_info("", message_group=group_id)
+        emit_rich("", message_group=group_id)
 
     # Track any missing capabilities
     missing_capabilities = {}
@@ -427,23 +429,23 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
     from code_puppy.tools.gui_cub.config_manager import get_config_path
 
     if save_config(config):
-        emit_info(
+        emit_rich(
             "[green]✅ Platform calibrated successfully[/green]",
             message_group=group_id,
         )
-        emit_info(
+        emit_rich(
             f"[dim]   Config saved to: {get_config_path()}[/dim]",
             message_group=group_id,
         )
     else:
-        emit_info(
+        emit_rich(
             "[yellow]⚠️ Warning: Failed to save config (will re-calibrate next time)[/yellow]",
             message_group=group_id,
         )
 
     # If there are missing capabilities, pause so user can read the messages
     if missing_capabilities:
-        emit_info(
+        emit_rich(
             "[yellow]\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]",
             message_group=group_id,
         )
@@ -451,26 +453,26 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
             "[bold yellow]⚠️  Some optional features unavailable[/bold yellow]",
             message_group=group_id,
         )
-        emit_info(
+        emit_rich(
             "[yellow]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]",
             message_group=group_id,
         )
-        emit_info("", message_group=group_id)
+        emit_rich("", message_group=group_id)
         for cap_name, info in missing_capabilities.items():
-            emit_info(
+            emit_rich(
                 f"[yellow]❌ {cap_name}[/yellow]: {info['message']}",
                 message_group=group_id,
             )
-            emit_info(
+            emit_rich(
                 f"   Affects: {', '.join(info['affects'])}",
                 message_group=group_id,
             )
-            emit_info(
+            emit_rich(
                 f"   Solution: {info['solution']}",
                 message_group=group_id,
             )
-            emit_info("", message_group=group_id)
-        emit_info(
+            emit_rich("", message_group=group_id)
+        emit_rich(
             "[dim]Press Enter to continue...[/dim]",
             message_group=group_id,
         )

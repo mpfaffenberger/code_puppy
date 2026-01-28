@@ -8,17 +8,39 @@ import os
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_info
 
-MOTD_VERSION = "2025-12-29"
+MOTD_VERSION = "2025-01-01"
 MOTD_MESSAGE = """🐕‍🦺
 🐾```
-# 🐶 Version 0.0.320 - Hotfix 🔧
-Disabled extended thinking on the background security agent
-to make sure it runs fast! 🚀
+# 🐶 Welcome to Code Puppy! 🐕
+Your friendly open-source AI code agent.
+Ready to help you write, refactor, and ship code faster! 🚀
 
-Speed is a feature, not a luxury! 🐕‍🦺
+Type /help to see available commands.
 ```
 """
 MOTD_TRACK_FILE = os.path.join(CONFIG_DIR, "motd.txt")
+
+
+def get_motd_content() -> tuple[str, str]:
+    """Get MOTD content, checking plugins first.
+
+    Returns:
+        Tuple of (message, version) - either from plugin or built-in.
+    """
+    # Check if plugins want to override MOTD
+    try:
+        from code_puppy.callbacks import on_get_motd
+
+        results = on_get_motd()
+        # Use the last non-None result
+        for result in reversed(results):
+            if result is not None and isinstance(result, tuple) and len(result) == 2:
+                return result
+    except Exception:
+        pass
+
+    # Fall back to built-in MOTD
+    return (MOTD_MESSAGE, MOTD_VERSION)
 
 
 def has_seen_motd(version: str) -> bool:  # 🐕 Check if puppy has seen this MOTD!
@@ -58,12 +80,13 @@ def print_motd(
     Returns:
         True if the MOTD was printed, False otherwise 🐾
     """
-    if force or not has_seen_motd(MOTD_VERSION):
+    message, version = get_motd_content()
+    if force or not has_seen_motd(version):
         # Create a Rich Markdown object for proper rendering 🎨🐶
         from rich.markdown import Markdown
 
-        markdown_content = Markdown(MOTD_MESSAGE)
+        markdown_content = Markdown(message)
         emit_info(markdown_content)
-        mark_motd_seen(MOTD_VERSION)
+        mark_motd_seen(version)
         return True
     return False

@@ -7,7 +7,6 @@ from typing import Any, Dict
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
-from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import (
     OpenAIChatModel,
     OpenAIChatModelSettings,
@@ -16,11 +15,11 @@ from pydantic_ai.models.openai import (
 from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
-from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
 
+from code_puppy.gemini_model import GeminiModel
 from code_puppy.messaging import emit_warning
 
 from . import callbacks
@@ -28,6 +27,28 @@ from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_
 from .config import EXTRA_MODELS_FILE, get_value
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .round_robin_model import RoundRobinModel
+
+logger = logging.getLogger(__name__)
+
+# Registry for custom model provider classes from plugins
+_CUSTOM_MODEL_PROVIDERS: Dict[str, type] = {}
+
+
+def _load_plugin_model_providers():
+    """Load custom model providers from plugins."""
+    global _CUSTOM_MODEL_PROVIDERS
+    try:
+        from code_puppy.callbacks import on_register_model_providers
+        results = on_register_model_providers()
+        for result in results:
+            if isinstance(result, dict):
+                _CUSTOM_MODEL_PROVIDERS.update(result)
+    except Exception:
+        pass  # Don't break if plugins fail
+
+
+# Load plugin model providers at module initialization
+_load_plugin_model_providers()
 
 
 def get_api_key(env_var_name: str) -> str | None:
@@ -73,6 +94,7 @@ def make_model_settings(
         get_effective_model_settings,
         get_openai_reasoning_effort,
         get_openai_verbosity,
+        model_supports_setting,
     )
 
     model_settings_dict: dict = {}
@@ -94,6 +116,14 @@ def make_model_settings(
     effective_settings = get_effective_model_settings(model_name)
     model_settings_dict.update(effective_settings)
 
+    # Default to clear_thinking=False for GLM-4.7 models (preserved thinking)
+    if "glm-4.7" in model_name.lower():
+        clear_thinking = effective_settings.get("clear_thinking", False)
+        model_settings_dict["thinking"] = {
+            "type": "enabled",
+            "clear_thinking": clear_thinking,
+        }
+
     model_settings: ModelSettings = ModelSettings(**model_settings_dict)
 
     if "gpt-5" in model_name:
@@ -113,7 +143,9 @@ def make_model_settings(
         if model_settings_dict.get("temperature") is None:
             model_settings_dict["temperature"] = 1.0
 
-        extended_thinking = effective_settings.get("extended_thinking", False)
+        # ALWAYS enable extended thinking for Claude models by default
+        # Users can still disable via /model_settings extended_thinking=false
+        extended_thinking = effective_settings.get("extended_thinking", True)
         budget_tokens = effective_settings.get("budget_tokens", 10000)
         if extended_thinking and budget_tokens:
             model_settings_dict["anthropic_thinking"] = {
@@ -122,26 +154,17 @@ def make_model_settings(
             }
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
-    elif model_config.get("type") == "custom_gemini":
-        # Enable thinking for custom Gemini models with includeThoughts=True
-        # so we can see the actual thinking content, not just the signature
-        from pydantic_ai.models.google import GoogleModelSettings
-
-        # Get settings with defaults (handle case-insensitivity of configparser)
-        # configparser lowercases keys, so we check for both just in case
-        thinking_enabled = effective_settings.get(
-            "thinkingenabled", effective_settings.get("thinkingEnabled", True)
-        )
-        thinking_level = effective_settings.get(
-            "thinkinglevel", effective_settings.get("thinkingLevel", "low")
-        )
-
-        if thinking_enabled:
-            model_settings_dict["google_thinking_config"] = {
-                "includeThoughts": True,
-                "thinkingLevel": thinking_level,
-            }
-        model_settings = GoogleModelSettings(**model_settings_dict)
+    # Handle Gemini thinking models (Gemini-3)
+    # Check if model supports thinking settings and apply defaults
+    if model_supports_setting(model_name, "thinking_level"):
+        # Apply defaults if not explicitly set by user
+        # Default: thinking_enabled=True, thinking_level="low"
+        if "thinking_enabled" not in model_settings_dict:
+            model_settings_dict["thinking_enabled"] = True
+        if "thinking_level" not in model_settings_dict:
+            model_settings_dict["thinking_level"] = "low"
+        # Recreate settings with Gemini thinking config
+        model_settings = ModelSettings(**model_settings_dict)
 
     return model_settings
 
@@ -276,6 +299,20 @@ class ModelFactory:
                 logging.getLogger(__name__).warning(
                     f"Failed to load {label} config from {source_path}: {exc}"
                 )
+
+        # Let plugins add/override models via load_models_config hook
+        try:
+            from code_puppy.callbacks import on_load_models_config
+
+            results = on_load_models_config()
+            for result in results:
+                if isinstance(result, dict):
+                    config.update(result)  # Plugin models override built-in
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                f"Failed to load plugin models config: {exc}"
+            )
+
         return config
 
     @staticmethod
@@ -291,6 +328,15 @@ class ModelFactory:
 
         model_type = model_config.get("type")
 
+        # Check for plugin-registered model provider classes first
+        if model_type in _CUSTOM_MODEL_PROVIDERS:
+            provider_class = _CUSTOM_MODEL_PROVIDERS[model_type]
+            try:
+                return provider_class(model_name=model_name, model_config=model_config, config=config)
+            except Exception as e:
+                logger.error(f"Custom model provider '{model_type}' failed: {e}")
+                return None
+
         if model_type == "gemini":
             api_key = get_api_key("GEMINI_API_KEY")
             if not api_key:
@@ -299,9 +345,7 @@ class ModelFactory:
                 )
                 return None
 
-            provider = GoogleProvider(api_key=api_key)
-            model = GoogleModel(model_name=model_config["name"], provider=provider)
-            setattr(model, "provider", provider)
+            model = GeminiModel(model_name=model_config["name"], api_key=api_key)
             return model
 
         elif model_type == "openai":
@@ -339,9 +383,12 @@ class ModelFactory:
                 http2=http2_enabled,
             )
 
-            # ALWAYS enable interleaved thinking for Claude models
-            # This is forced on and cannot be overridden via /model_settings
-            interleaved_thinking = True
+            # Enable interleaved thinking by default for Claude models
+            # Users can disable via /model_settings interleaved_thinking=false
+            from code_puppy.config import get_effective_model_settings
+
+            effective_settings = get_effective_model_settings(model_name)
+            interleaved_thinking = effective_settings.get("interleaved_thinking", True)
 
             default_headers = {}
             if interleaved_thinking:
@@ -380,9 +427,12 @@ class ModelFactory:
                 http2=http2_enabled,
             )
 
-            # ALWAYS enable interleaved thinking for Claude models
-            # This is forced on and cannot be overridden via /model_settings
-            interleaved_thinking = True
+            # Enable interleaved thinking by default for Claude models
+            # Users can disable via /model_settings interleaved_thinking=false
+            from code_puppy.config import get_effective_model_settings
+
+            effective_settings = get_effective_model_settings(model_name)
+            interleaved_thinking = effective_settings.get("interleaved_thinking", True)
 
             default_headers = {}
             if interleaved_thinking:
@@ -400,76 +450,9 @@ class ModelFactory:
 
             provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=model_config["name"], provider=provider)
-        elif model_type == "claude_code":
-            url, headers, verify, api_key = get_custom_config(model_config)
-            if model_config.get("oauth_source") == "claude-code-plugin":
-                try:
-                    from code_puppy.plugins.claude_code_oauth.utils import (
-                        get_valid_access_token,
-                    )
+        # NOTE: 'claude_code' model type is now handled by the claude_code_oauth plugin
+        # via the register_model_type callback. See plugins/claude_code_oauth/register_callbacks.py
 
-                    refreshed_token = get_valid_access_token()
-                    if refreshed_token:
-                        api_key = refreshed_token
-                        custom_endpoint = model_config.get("custom_endpoint")
-                        if isinstance(custom_endpoint, dict):
-                            custom_endpoint["api_key"] = refreshed_token
-                except ImportError:
-                    pass
-            if not api_key:
-                emit_warning(
-                    f"API key is not set for Claude Code endpoint; skipping model '{model_config.get('name')}'."
-                )
-                return None
-
-            # ALWAYS enable interleaved thinking for Claude Code (OAuth) models
-            # This is forced on and cannot be overridden via /model_settings
-            interleaved_thinking = True
-
-            # Handle anthropic-beta header based on interleaved_thinking setting
-            if "anthropic-beta" in headers:
-                beta_parts = [p.strip() for p in headers["anthropic-beta"].split(",")]
-                if interleaved_thinking:
-                    # Ensure interleaved-thinking is in the header
-                    if "interleaved-thinking-2025-05-14" not in beta_parts:
-                        beta_parts.append("interleaved-thinking-2025-05-14")
-                else:
-                    # Remove interleaved-thinking from the header
-                    beta_parts = [
-                        p for p in beta_parts if "interleaved-thinking" not in p
-                    ]
-                headers["anthropic-beta"] = ",".join(beta_parts) if beta_parts else None
-                if headers.get("anthropic-beta") is None:
-                    del headers["anthropic-beta"]
-            elif interleaved_thinking:
-                # No existing beta header, add one for interleaved thinking
-                headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
-
-            # Use a dedicated client wrapper that injects cache_control on /v1/messages
-            if verify is None:
-                verify = get_cert_bundle_path()
-
-            http2_enabled = get_http2()
-
-            client = ClaudeCacheAsyncClient(
-                headers=headers,
-                verify=verify,
-                timeout=180,
-                http2=http2_enabled,
-            )
-
-            anthropic_client = AsyncAnthropic(
-                base_url=url,
-                http_client=client,
-                auth_token=api_key,
-            )
-            # Ensure cache_control is injected at the Anthropic SDK layer too
-            # so we don't depend solely on httpx internals.
-            patch_anthropic_client_messages(anthropic_client)
-            anthropic_client.api_key = None
-            anthropic_client.auth_token = api_key
-            provider = AnthropicProvider(anthropic_client=anthropic_client)
-            return AnthropicModel(model_name=model_config["name"], provider=provider)
         elif model_type == "azure_openai":
             azure_endpoint_config = model_config.get("azure_endpoint")
             if not azure_endpoint_config:
@@ -576,7 +559,42 @@ class ModelFactory:
             )
             setattr(zai_model, "provider", provider)
             return zai_model
+        # NOTE: 'antigravity' model type is now handled by the antigravity_oauth plugin
+        # via the register_model_type callback. See plugins/antigravity_oauth/register_callbacks.py
+
         elif model_type == "custom_gemini":
+            # Backwards compatibility: delegate to antigravity plugin if antigravity flag is set
+            # New configs use type="antigravity" directly, but old configs may have
+            # type="custom_gemini" with antigravity=True
+            if model_config.get("antigravity"):
+                # Find and call the antigravity handler from the plugin
+                registered_handlers = callbacks.on_register_model_types()
+                for handler_info in registered_handlers:
+                    handlers = (
+                        handler_info
+                        if isinstance(handler_info, list)
+                        else [handler_info]
+                        if handler_info
+                        else []
+                    )
+                    for handler_entry in handlers:
+                        if (
+                            isinstance(handler_entry, dict)
+                            and handler_entry.get("type") == "antigravity"
+                        ):
+                            handler = handler_entry.get("handler")
+                            if callable(handler):
+                                try:
+                                    return handler(model_name, model_config, config)
+                                except Exception as e:
+                                    logger.error(f"Antigravity handler failed: {e}")
+                                    return None
+                # If no antigravity handler found, warn and fall through
+                emit_warning(
+                    f"Model '{model_config.get('name')}' has antigravity=True but antigravity plugin not loaded."
+                )
+                return None
+
             url, headers, verify, api_key = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
@@ -584,12 +602,20 @@ class ModelFactory:
                 )
                 return None
             os.environ["GEMINI_API_KEY"] = api_key
-            client = create_async_client(verify=verify, headers=headers)
 
-            provider = GoogleProvider(
-                base_url=url, api_key=api_key, http_client=client, vertexai=True
+            client = create_async_client(headers=headers, verify=verify)
+            # Use WalmartGeminiModel for custom endpoints - uses header auth only
+            # Import from plugin to avoid circular dependency
+            from code_puppy.plugins.walmart_specific.walmart_gemini_model import (
+                WalmartGeminiModel,
             )
-            model = GoogleModel(model_name=model_config["name"], provider=provider)
+
+            model = WalmartGeminiModel(
+                model_name=model_config["name"],
+                api_key=api_key,
+                base_url=url,
+                http_client=client,
+            )
             return model
         elif model_type == "cerebras":
 
@@ -610,7 +636,12 @@ class ModelFactory:
                 return None
             # Add Cerebras 3rd party integration header
             headers["X-Cerebras-3rd-Party-Integration"] = "code-puppy"
-            client = create_async_client(headers=headers, verify=verify)
+            # Pass "cerebras" so RetryingAsyncClient knows to ignore Cerebras's
+            # absurdly aggressive Retry-After headers (they send 60s!)
+            # Note: model_config["name"] is "zai-glm-4.7", not "cerebras"
+            client = create_async_client(
+                headers=headers, verify=verify, model_name="cerebras"
+            )
             provider_args = dict(
                 api_key=api_key,
                 http_client=client,
@@ -733,4 +764,27 @@ class ModelFactory:
             return RoundRobinModel(*models, rotate_every=rotate_every)
 
         else:
+            # Check for plugin-registered model type handlers
+            registered_handlers = callbacks.on_register_model_types()
+            for handler_info in registered_handlers:
+                # Handler info can be a list of dicts or a single dict
+                if isinstance(handler_info, list):
+                    handlers = handler_info
+                else:
+                    handlers = [handler_info] if handler_info else []
+
+                for handler_entry in handlers:
+                    if not isinstance(handler_entry, dict):
+                        continue
+                    if handler_entry.get("type") == model_type:
+                        handler = handler_entry.get("handler")
+                        if callable(handler):
+                            try:
+                                return handler(model_name, model_config, config)
+                            except Exception as e:
+                                logger.error(
+                                    f"Plugin handler for model type '{model_type}' failed: {e}"
+                                )
+                                return None
+
             raise ValueError(f"Unsupported model type: {model_type}")

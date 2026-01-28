@@ -4,13 +4,12 @@ Provides the /delete-agent command to remove your agents from the marketplace.
 """
 
 import argparse
-from typing import Optional
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm
 
-from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.messaging import emit_error, emit_info
 
 from . import api_client
 
@@ -52,12 +51,14 @@ def _create_parser() -> argparse.ArgumentParser:
         help="Name of the agent to delete",
     )
     parser.add_argument(
-        "-f", "--force",
+        "-f",
+        "--force",
         action="store_true",
         help="Skip confirmation prompt",
     )
     parser.add_argument(
-        "-h", "--help",
+        "-h",
+        "--help",
         action="store_true",
         help="Show this help message",
     )
@@ -122,10 +123,16 @@ def handle_delete_agent(command: str) -> bool:
 
     # Confirm deletion unless --force
     if not args.force:
-        console.print(f"\n[yellow]⚠️  You are about to delete '{agent_name}' from the marketplace.[/yellow]")
-        console.print("[dim]This will remove it from search results and prevent downloads.[/dim]\n")
-        
-        if not Confirm.ask(f"Are you sure you want to delete [bold]{agent_name}[/bold]?", default=False):
+        console.print(
+            f"\n[yellow]⚠️  You are about to delete '{agent_name}' from the marketplace.[/yellow]"
+        )
+        console.print(
+            "[dim]This will remove it from search results and prevent downloads.[/dim]\n"
+        )
+
+        if not Confirm.ask(
+            f"Are you sure you want to delete [bold]{agent_name}[/bold]?", default=False
+        ):
             emit_info("Delete cancelled.")
             return True
 
@@ -133,6 +140,7 @@ def handle_delete_agent(command: str) -> bool:
 
     try:
         from code_puppy.plugins.agent_marketplace.api_client import run_async
+
         response = run_async(_delete_agent_async(agent_name))
 
         # Check for success
@@ -143,12 +151,14 @@ def handle_delete_agent(command: str) -> bool:
         # Success!
         data = response.get("data", {})
         message = response.get("message", f"Agent '{agent_name}' deleted successfully!")
-        
-        console.print(Panel(
-            f"[green]✓[/green] {message}",
-            title="🗑️ Agent Deleted",
-            border_style="green"
-        ))
+
+        console.print(
+            Panel(
+                f"[green]✓[/green] {message}",
+                title="🗑️ Agent Deleted",
+                border_style="green",
+            )
+        )
 
     except Exception as e:
         error_msg = str(e)
@@ -158,7 +168,11 @@ def handle_delete_agent(command: str) -> bool:
             emit_error(f'Agent "{agent_name}" not found in the marketplace.')
         elif "401" in error_msg or "auth" in error_msg.lower():
             emit_error("Authentication required. Run /puppy_auth first.")
-        elif "403" in error_msg or "permission" in error_msg.lower() or "own" in error_msg.lower():
+        elif (
+            "403" in error_msg
+            or "permission" in error_msg.lower()
+            or "own" in error_msg.lower()
+        ):
             emit_error(f"You don't have permission to delete '{agent_name}'.")
             console.print("[dim]You can only delete agents you own.[/dim]")
         else:

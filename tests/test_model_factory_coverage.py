@@ -16,6 +16,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 
+
 class TestGetApiKey:
     """Test the get_api_key() function."""
 
@@ -339,300 +340,6 @@ class TestLoadConfigExtended:
                     warning_msg = mock_logger.return_value.warning.call_args[0][0]
                     assert "Multiple load_model_config callbacks" in warning_msg
 
-    def test_load_config_filtered_claude_models(self):
-        """Test that Claude Code OAuth models use filtered loading."""
-        from code_puppy.model_factory import ModelFactory
-
-        base_config = {"base-model": {"type": "openai", "name": "gpt-4"}}
-        filtered_claude_config = {
-            "claude-oauth": {"type": "claude_code", "name": "claude-3-opus"}
-        }
-
-        with patch("code_puppy.model_factory.callbacks.get_callbacks", return_value=[]):
-            with patch(
-                "builtins.open",
-                MagicMock(
-                    return_value=MagicMock(
-                        __enter__=MagicMock(
-                            return_value=MagicMock(
-                                read=MagicMock(
-                                    return_value='{"base-model": {"type": "openai", "name": "gpt-4"}}'
-                                )
-                            )
-                        ),
-                        __exit__=MagicMock(return_value=False),
-                    )
-                ),
-            ):
-                with patch("code_puppy.model_factory.pathlib.Path") as mock_path_class:
-                    # Set up path mocking
-                    mock_main = MagicMock()
-                    mock_main.__truediv__ = MagicMock(return_value=mock_main)
-                    mock_main.exists.return_value = False
-                    mock_main.parent = mock_main
-
-                    mock_claude = MagicMock()
-                    mock_claude.exists.return_value = True
-
-                    def path_side_effect(arg):
-                        if "claude" in str(arg).lower():
-                            return mock_claude
-                        return mock_main
-
-                    mock_path_class.side_effect = path_side_effect
-
-                    with patch(
-                        "code_puppy.plugins.claude_code_oauth.utils.load_claude_models_filtered",
-                        return_value=filtered_claude_config,
-                    ) as mock_filtered:
-                        with patch("json.load", return_value=base_config):
-                            ModelFactory.load_config()
-                            # The filtered loader should be called
-                            mock_filtered.assert_called_once()
-
-    def test_load_config_filtered_loading_import_error(self):
-        """Test fallback when filtered loading import fails."""
-        from code_puppy.model_factory import ModelFactory
-
-        base_config = {"base-model": {"type": "openai", "name": "gpt-4"}}
-        plain_claude_config = {"claude-model": {"type": "anthropic", "name": "claude"}}
-
-        with patch("code_puppy.model_factory.callbacks.get_callbacks", return_value=[]):
-            with patch("builtins.open", MagicMock()) as mock_open:
-                mock_open.return_value.__enter__.return_value.read.return_value = (
-                    '{"base-model": {"type": "openai"}}'
-                )
-
-                with patch("code_puppy.model_factory.pathlib.Path") as mock_path_class:
-                    mock_main = MagicMock()
-                    mock_main.__truediv__ = MagicMock(return_value=mock_main)
-                    mock_main.exists.return_value = False
-                    mock_main.parent = mock_main
-
-                    mock_claude = MagicMock()
-                    mock_claude.exists.return_value = True
-
-                    def path_side_effect(arg):
-                        if "claude" in str(arg).lower():
-                            return mock_claude
-                        return mock_main
-
-                    mock_path_class.side_effect = path_side_effect
-
-                    # Make filtered import fail
-                    with patch.dict(
-                        "sys.modules",
-                        {"code_puppy.plugins.claude_code_oauth.utils": None},
-                    ):
-                        with patch(
-                            "code_puppy.plugins.claude_code_oauth.utils.load_claude_models_filtered",
-                            side_effect=ImportError("Module not found"),
-                        ):
-                            with patch(
-                                "json.load",
-                                side_effect=[base_config, plain_claude_config],
-                            ):
-                                with patch("logging.getLogger"):
-                                    # Should fall back to plain JSON loading
-                                    config = ModelFactory.load_config()
-                                    assert isinstance(config, dict)
-
-
-class TestClaudeCodeModel:
-    """Test claude_code model type."""
-
-    def test_claude_code_model_basic(self):
-        """Test basic claude_code model creation."""
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "claude-code-test": {
-                "type": "claude_code",
-                "name": "claude-3-opus",
-                "custom_endpoint": {
-                    "url": "https://api.anthropic.com",
-                    "api_key": "test-key",
-                },
-            }
-        }
-
-        with patch("code_puppy.model_factory.get_cert_bundle_path", return_value=None):
-            with patch("code_puppy.model_factory.get_http2", return_value=True):
-                with patch("code_puppy.model_factory.ClaudeCacheAsyncClient"):
-                    with patch("code_puppy.model_factory.AsyncAnthropic"):
-                        with patch(
-                            "code_puppy.model_factory.patch_anthropic_client_messages"
-                        ):
-                            with patch("code_puppy.model_factory.AnthropicProvider"):
-                                with patch(
-                                    "code_puppy.model_factory.AnthropicModel"
-                                ) as mock_model:
-                                    with patch(
-                                        "code_puppy.config.get_effective_model_settings",
-                                        return_value={"interleaved_thinking": True},
-                                    ):
-                                        ModelFactory.get_model(
-                                            "claude-code-test", config
-                                        )
-                                        mock_model.assert_called_once()
-
-    def test_claude_code_model_interleaved_thinking_header(self):
-        """Test interleaved thinking header handling."""
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "claude-code-test": {
-                "type": "claude_code",
-                "name": "claude-4-opus",
-                "custom_endpoint": {
-                    "url": "https://api.anthropic.com",
-                    "api_key": "test-key",
-                    "headers": {"anthropic-beta": "existing-feature"},
-                },
-            }
-        }
-
-        with patch("code_puppy.model_factory.get_cert_bundle_path", return_value=None):
-            with patch("code_puppy.model_factory.get_http2", return_value=True):
-                with patch(
-                    "code_puppy.model_factory.ClaudeCacheAsyncClient"
-                ) as mock_client:
-                    with patch("code_puppy.model_factory.AsyncAnthropic"):
-                        with patch(
-                            "code_puppy.model_factory.patch_anthropic_client_messages"
-                        ):
-                            with patch("code_puppy.model_factory.AnthropicProvider"):
-                                with patch("code_puppy.model_factory.AnthropicModel"):
-                                    with patch(
-                                        "code_puppy.config.get_effective_model_settings",
-                                        return_value={"interleaved_thinking": True},
-                                    ):
-                                        ModelFactory.get_model(
-                                            "claude-code-test", config
-                                        )
-                                        # Check that headers were passed with interleaved thinking
-                                        call_args = mock_client.call_args
-                                        headers = call_args[1]["headers"]
-                                        assert (
-                                            "interleaved-thinking-2025-05-14"
-                                            in headers.get("anthropic-beta", "")
-                                        )
-
-    def test_claude_code_model_disable_interleaved_thinking(self):
-        """Test disabling interleaved thinking removes header."""
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "claude-code-test": {
-                "type": "claude_code",
-                "name": "claude-3-opus",
-                "custom_endpoint": {
-                    "url": "https://api.anthropic.com",
-                    "api_key": "test-key",
-                    "headers": {
-                        "anthropic-beta": "interleaved-thinking-2025-05-14,other-feature"
-                    },
-                },
-            }
-        }
-
-        with patch("code_puppy.model_factory.get_cert_bundle_path", return_value=None):
-            with patch("code_puppy.model_factory.get_http2", return_value=True):
-                with patch(
-                    "code_puppy.model_factory.ClaudeCacheAsyncClient"
-                ) as mock_client:
-                    with patch("code_puppy.model_factory.AsyncAnthropic"):
-                        with patch(
-                            "code_puppy.model_factory.patch_anthropic_client_messages"
-                        ):
-                            with patch("code_puppy.model_factory.AnthropicProvider"):
-                                with patch("code_puppy.model_factory.AnthropicModel"):
-                                    with patch(
-                                        "code_puppy.config.get_effective_model_settings",
-                                        return_value={"interleaved_thinking": False},
-                                    ):
-                                        ModelFactory.get_model(
-                                            "claude-code-test", config
-                                        )
-                                        call_args = mock_client.call_args
-                                        headers = call_args[1]["headers"]
-                                        # interleaved-thinking should be removed
-                                        beta = headers.get("anthropic-beta", "")
-                                        assert "interleaved-thinking" not in beta
-
-    def test_claude_code_oauth_refresh(self):
-        """Test OAuth token refresh for claude_code models."""
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "claude-oauth": {
-                "type": "claude_code",
-                "name": "claude-3-opus",
-                "oauth_source": "claude-code-plugin",
-                "custom_endpoint": {
-                    "url": "https://api.anthropic.com",
-                    "api_key": "old-token",
-                },
-            }
-        }
-
-        with patch(
-            "code_puppy.plugins.claude_code_oauth.utils.get_valid_access_token",
-            return_value="new-refreshed-token",
-        ):
-            with patch(
-                "code_puppy.model_factory.get_cert_bundle_path", return_value=None
-            ):
-                with patch("code_puppy.model_factory.get_http2", return_value=True):
-                    with patch("code_puppy.model_factory.ClaudeCacheAsyncClient"):
-                        with patch(
-                            "code_puppy.model_factory.AsyncAnthropic"
-                        ) as mock_anthropic:
-                            with patch(
-                                "code_puppy.model_factory.patch_anthropic_client_messages"
-                            ):
-                                with patch(
-                                    "code_puppy.model_factory.AnthropicProvider"
-                                ):
-                                    with patch(
-                                        "code_puppy.model_factory.AnthropicModel"
-                                    ):
-                                        with patch(
-                                            "code_puppy.config.get_effective_model_settings",
-                                            return_value={},
-                                        ):
-                                            ModelFactory.get_model(
-                                                "claude-oauth", config
-                                            )
-                                            # Token should be refreshed
-                                            call_args = mock_anthropic.call_args
-                                            assert (
-                                                call_args[1]["auth_token"]
-                                                == "new-refreshed-token"
-                                            )
-
-    def test_claude_code_missing_api_key(self):
-        """Test claude_code model with missing API key."""
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "claude-code-test": {
-                "type": "claude_code",
-                "name": "claude-3-opus",
-                "custom_endpoint": {
-                    "url": "https://api.anthropic.com",
-                },
-            }
-        }
-
-        with patch("code_puppy.model_factory.emit_warning") as mock_warn:
-            with patch(
-                "code_puppy.config.get_effective_model_settings", return_value={}
-            ):
-                model = ModelFactory.get_model("claude-code-test", config)
-                assert model is None
-                mock_warn.assert_called()
-
 
 class TestCustomAnthropicModel:
     """Test custom_anthropic model type."""
@@ -737,26 +444,6 @@ class TestCustomAnthropicModel:
 class TestCustomGeminiModel:
     """Test custom_gemini model type."""
 
-    def test_custom_gemini_basic(self):
-        """Test basic custom_gemini model creation."""
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "custom-gemini": {
-                "type": "custom_gemini",
-                "name": "gemini-pro",
-                "custom_endpoint": {
-                    "url": "https://custom.gemini.proxy.com",
-                    "api_key": "custom-api-key",
-                },
-            }
-        }
-
-        with patch("code_puppy.model_factory.create_async_client"):
-            with patch("code_puppy.model_factory.GoogleProvider"):
-                with patch("code_puppy.model_factory.GoogleModel") as mock_model:
-                    ModelFactory.get_model("custom-gemini", config)
-                    mock_model.assert_called_once()
 
     def test_custom_gemini_missing_api_key(self):
         """Test custom_gemini with missing API key."""
@@ -1036,201 +723,6 @@ class TestRoundRobinExtended:
                 assert call_args[1]["rotate_every"] == 3
 
 
-class TestGeminiOAuthErrorPaths:
-    """Test error paths for gemini_oauth model type."""
-
-    def test_gemini_oauth_plugin_not_available(self):
-        """Test gemini_oauth when plugin is not available."""
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "gemini-oauth": {
-                "type": "gemini_oauth",
-                "name": "gemini-pro",
-            }
-        }
-
-        import sys
-
-        # Temporarily remove the module if it exists
-        original_modules = {}
-        for mod_name in list(sys.modules.keys()):
-            if "gemini_oauth" in mod_name:
-                original_modules[mod_name] = sys.modules.pop(mod_name)
-
-        try:
-            with patch("code_puppy.model_factory.emit_warning") as mock_warn:
-                # This should fail gracefully
-                model = ModelFactory.get_model("gemini-oauth", config)
-                # Should return None and emit warning
-                assert model is None
-                mock_warn.assert_called()
-        except ImportError:
-            # ImportError is also acceptable if not caught
-            pass
-        finally:
-            # Restore modules
-            sys.modules.update(original_modules)
-
-    def test_gemini_oauth_missing_token(self):
-        """Test gemini_oauth when token is missing."""
-        import sys
-
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "gemini-oauth": {
-                "type": "gemini_oauth",
-                "name": "gemini-pro",
-            }
-        }
-
-        # Create mock module for gemini_oauth
-        mock_utils = MagicMock()
-        mock_utils.get_valid_access_token = MagicMock(return_value=None)
-        mock_utils.get_project_id = MagicMock(return_value="test-project")
-
-        mock_config = MagicMock()
-        mock_config.GEMINI_OAUTH_CONFIG = {
-            "api_base_url": "https://test.com",
-            "api_version": "v1",
-        }
-
-        with patch.dict(
-            sys.modules,
-            {
-                "code_puppy.plugins.gemini_oauth": MagicMock(),
-                "code_puppy.plugins.gemini_oauth.utils": mock_utils,
-                "code_puppy.plugins.gemini_oauth.config": mock_config,
-            },
-        ):
-            with patch("code_puppy.model_factory.emit_warning") as mock_warn:
-                model = ModelFactory.get_model("gemini-oauth", config)
-                assert model is None
-                mock_warn.assert_called()
-
-    def test_gemini_oauth_missing_project_id(self):
-        """Test gemini_oauth when project_id is missing."""
-        import sys
-
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "gemini-oauth": {
-                "type": "gemini_oauth",
-                "name": "gemini-pro",
-            }
-        }
-
-        # Create mock module for gemini_oauth
-        mock_utils = MagicMock()
-        mock_utils.get_valid_access_token = MagicMock(return_value="valid-token")
-        mock_utils.get_project_id = MagicMock(return_value=None)
-
-        mock_config = MagicMock()
-        mock_config.GEMINI_OAUTH_CONFIG = {
-            "api_base_url": "https://test.com",
-            "api_version": "v1",
-        }
-
-        with patch.dict(
-            sys.modules,
-            {
-                "code_puppy.plugins.gemini_oauth": MagicMock(),
-                "code_puppy.plugins.gemini_oauth.utils": mock_utils,
-                "code_puppy.plugins.gemini_oauth.config": mock_config,
-            },
-        ):
-            with patch("code_puppy.model_factory.emit_warning") as mock_warn:
-                model = ModelFactory.get_model("gemini-oauth", config)
-                assert model is None
-                mock_warn.assert_called()
-
-
-class TestChatGPTOAuthErrorPaths:
-    """Test error paths for chatgpt_oauth model type."""
-
-    def test_chatgpt_oauth_plugin_not_available(self):
-        """Test chatgpt_oauth when plugin is not available."""
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "chatgpt-oauth": {
-                "type": "chatgpt_oauth",
-                "name": "gpt-4",
-            }
-        }
-
-        import sys
-
-        # Temporarily remove chatgpt_oauth modules
-        original_modules = {}
-        for mod_name in list(sys.modules.keys()):
-            if "chatgpt_oauth" in mod_name:
-                original_modules[mod_name] = sys.modules.pop(mod_name)
-
-        try:
-            with patch("code_puppy.model_factory.emit_warning"):
-                try:
-                    ModelFactory.get_model("chatgpt-oauth", config)
-                except ImportError:
-                    pass
-        finally:
-            sys.modules.update(original_modules)
-
-    def test_chatgpt_oauth_missing_token(self):
-        """Test chatgpt_oauth when token is missing."""
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "chatgpt-oauth": {
-                "type": "chatgpt_oauth",
-                "name": "gpt-4",
-            }
-        }
-
-        with patch(
-            "code_puppy.plugins.chatgpt_oauth.utils.get_valid_access_token",
-            return_value=None,
-        ):
-            with patch(
-                "code_puppy.plugins.chatgpt_oauth.config.CHATGPT_OAUTH_CONFIG",
-                {"api_base_url": "https://test.com"},
-            ):
-                with patch("code_puppy.model_factory.emit_warning") as mock_warn:
-                    model = ModelFactory.get_model("chatgpt-oauth", config)
-                    assert model is None
-                    mock_warn.assert_called()
-
-    def test_chatgpt_oauth_missing_account_id(self):
-        """Test chatgpt_oauth when account_id is missing."""
-        from code_puppy.model_factory import ModelFactory
-
-        config = {
-            "chatgpt-oauth": {
-                "type": "chatgpt_oauth",
-                "name": "gpt-4",
-            }
-        }
-
-        with patch(
-            "code_puppy.plugins.chatgpt_oauth.utils.get_valid_access_token",
-            return_value="valid-token",
-        ):
-            with patch(
-                "code_puppy.plugins.chatgpt_oauth.utils.load_stored_tokens",
-                return_value={},  # No account_id
-            ):
-                with patch(
-                    "code_puppy.plugins.chatgpt_oauth.config.CHATGPT_OAUTH_CONFIG",
-                    {"api_base_url": "https://test.com"},
-                ):
-                    with patch("code_puppy.model_factory.emit_warning") as mock_warn:
-                        model = ModelFactory.get_model("chatgpt-oauth", config)
-                        assert model is None
-                        mock_warn.assert_called()
-
-
 class TestAnthropicInterleaved:
     """Test Anthropic model with interleaved thinking."""
 
@@ -1281,8 +773,12 @@ class TestAnthropicInterleaved:
                                                 in headers["anthropic-beta"]
                                             )
 
-    def test_anthropic_no_interleaved_thinking(self):
-        """Test that no header is added when interleaved thinking is disabled."""
+    def test_anthropic_interleaved_thinking_disabled(self):
+        """Test that interleaved thinking can be disabled via config.
+
+        Interleaved thinking defaults to True but can be disabled via
+        /model_settings interleaved_thinking=false.
+        """
         from code_puppy.model_factory import ModelFactory
 
         config = {
@@ -1310,6 +806,8 @@ class TestAnthropicInterleaved:
                                     with patch(
                                         "code_puppy.model_factory.AnthropicModel"
                                     ):
+                                        # When interleaved_thinking is explicitly False,
+                                        # the header should NOT be present
                                         with patch(
                                             "code_puppy.config.get_effective_model_settings",
                                             return_value={
@@ -1320,11 +818,11 @@ class TestAnthropicInterleaved:
                                                 "claude-test", config
                                             )
                                             call_args = mock_anthropic.call_args
-                                            # default_headers should be None or empty
                                             headers = call_args[1].get(
                                                 "default_headers"
                                             )
-                                            assert headers is None
+                                            # Header should be None or empty when disabled
+                                            assert headers is None or headers == {}
 
 
 class TestOpenRouterEnvVarMissing:

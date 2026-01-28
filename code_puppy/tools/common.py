@@ -880,18 +880,22 @@ async def arrow_select_async(
                 lines.append(border_bottom)
                 lines.append("")
 
-        lines.append("<ansicyan>(Use ↑↓ arrows to select, Enter to confirm)</ansicyan>")
+        lines.append(
+            "<ansicyan>(Use ↑↓ or Ctrl+P/N to select, Enter to confirm)</ansicyan>"
+        )
         return HTML("\n".join(lines))
 
     # Key bindings
     kb = KeyBindings()
 
     @kb.add("up")
+    @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
     def move_up(event):
         selected_index[0] = (selected_index[0] - 1) % len(choices)
         event.app.invalidate()  # Force redraw to update preview
 
     @kb.add("down")
+    @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
     def move_down(event):
         selected_index[0] = (selected_index[0] + 1) % len(choices)
         event.app.invalidate()  # Force redraw to update preview
@@ -957,18 +961,22 @@ def arrow_select(message: str, choices: list[str]) -> str:
             else:
                 lines.append(f"  {choice}")
         lines.append("")
-        lines.append("<ansicyan>(Use ↑↓ arrows to select, Enter to confirm)</ansicyan>")
+        lines.append(
+            "<ansicyan>(Use ↑↓ or Ctrl+P/N to select, Enter to confirm)</ansicyan>"
+        )
         return HTML("\n".join(lines))
 
     # Key bindings
     kb = KeyBindings()
 
     @kb.add("up")
+    @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
     def move_up(event):
         selected_index[0] = (selected_index[0] - 1) % len(choices)
         event.app.invalidate()  # Force redraw to update preview
 
     @kb.add("down")
+    @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
     def move_down(event):
         selected_index[0] = (selected_index[0] + 1) % len(choices)
         event.app.invalidate()  # Force redraw to update preview

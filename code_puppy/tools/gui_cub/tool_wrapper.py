@@ -7,7 +7,8 @@ from typing import Any, Callable
 
 from rich.text import Text
 
-from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.messaging import emit_error, emit_warning
+from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from .constants import (
@@ -104,8 +105,8 @@ TOOL_EMOJIS = {
     "CONFIRM": "❓",
     "PROMPT": "💬",
     # Accessibility
-    "FIND ACCESSIBLE ELEMENT": "🔍",
-    "LIST ACCESSIBLE ELEMENTS": "📋",
+    "MAC FIND ACCESSIBLE ELEMENT": "🔍",
+    "MAC LIST ACCESSIBLE ELEMENTS": "📋",
     "CLICK ACCESSIBLE ELEMENT": "👆",
     # Windows automation
     "WINDOWS FOCUS": "🪟",
@@ -206,12 +207,12 @@ def desktop_tool(
                 )  # Default to bear if not found
 
                 if param_str:
-                    emit_info(
+                    emit_rich(
                         f"[bold cyan]{tool_name.upper()}[/bold cyan] {emoji}  {param_str}",
                         message_group=group_id,
                     )
                 else:
-                    emit_info(
+                    emit_rich(
                         f"[bold cyan]{tool_name.upper()}[/bold cyan] {emoji}",
                         message_group=group_id,
                     )
@@ -235,8 +236,8 @@ def desktop_tool(
                     elif "answer" in result:
                         success_msg = f"Answer: {result['answer'][:100]}"
 
-                    emit_info(
-                        Text.from_markup(f"[green]{success_msg}[/green]"),
+                    emit_rich(
+                        f"[green]{success_msg}[/green]",
                         message_group=group_id,
                     )
 

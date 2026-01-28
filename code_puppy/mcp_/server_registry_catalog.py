@@ -439,41 +439,7 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
             system_requirements=["GitHub account with personal access token"],
         ),
     ),
-    MCPServerTemplate(
-        id="github_enterprise",
-        name="github_enterprise",
-        display_name="GitHub Enterprise API",
-        description="Access GitHub Enterprise APIs",
-        category="Development",
-        tags=["github", "api", "repository", "issues", "pull-requests"],
-        type="stdio",
-        config={
-            "command": "podman",
-            "args": [
-                "run",
-                "-i",
-                "--rm",
-                "-e",
-                "GITHUB_PERSONAL_ACCESS_TOKEN",
-                "docker.ci.artifacts.walmart.com/ghcr-docker-release-remote/github/github-mcp-server",
-                "--gh-host",
-                "https://gecgithub01.walmart.com",
-                "stdio",
-            ],
-            "env": {
-                "GITHUB_PERSONAL_ACCESS_TOKEN": "$GITHUB_PERSONAL_ACCESS_TOKEN",
-            },
-            "timeout": 30,
-        },
-        verified=True,
-        popular=True,
-        requires=MCPServerRequirements(
-            environment_vars=["GITHUB_PERSONAL_ACCESS_TOKEN"],
-            required_tools=["podman"],
-            package_dependencies=[],
-            system_requirements=["GitHub account with personal access token"],
-        ),
-    ),
+
     MCPServerTemplate(
         id="gitlab",
         name="gitlab",
@@ -1062,7 +1028,20 @@ class MCPServerCatalog:
     """Catalog for searching and managing pre-configured MCP servers."""
 
     def __init__(self):
-        self.servers = MCP_SERVER_REGISTRY
+        # Start with built-in servers
+        self.servers = list(MCP_SERVER_REGISTRY)
+
+        # Let plugins add their own catalog entries
+        try:
+            from code_puppy.callbacks import on_register_mcp_catalog_servers
+
+            plugin_results = on_register_mcp_catalog_servers()
+            for result in plugin_results:
+                if isinstance(result, list):
+                    self.servers.extend(result)
+        except Exception:
+            pass  # Don't break catalog if plugins fail
+
         self._build_index()
 
     def _build_index(self):

@@ -29,6 +29,10 @@ from code_puppy.plugins.walmart_specific.pingfed_auth import (
     handle_pingfed_auth_command,
     handle_puppy_auth_command,
 )
+from code_puppy.plugins.walmart_specific.walmart_models import get_walmart_models
+from code_puppy.plugins.walmart_specific.workspace_safety import (
+    ensure_safe_windows_workspace,
+)
 from code_puppy.plugins.walmart_specific.bigquery_auth import (
     get_bigquery_auth_help,
     handle_bigquery_auth_command,
@@ -47,6 +51,11 @@ from code_puppy.plugins.walmart_specific.msgraph_auth import (
     handle_msgraph_auth_command,
     handle_msgraph_test_command,
 )
+from code_puppy.plugins.walmart_specific.powerbi_auth import (
+    get_powerbi_auth_help,
+    handle_powerbi_auth_command,
+    handle_powerbi_test_command,
+)
 from code_puppy.plugins.walmart_specific.disclaimer import (
     get_disclaimer_help,
     handle_disclaimer_command,
@@ -55,13 +64,64 @@ from code_puppy.plugins.walmart_specific.databricks_auth import (
     get_databricks_auth_help,
     handle_databricks_auth_command,
 )
+from code_puppy.plugins.walmart_specific.dbos_sampling import (
+    is_user_in_dbos_sample,
+)
 from code_puppy.plugins.walmart_specific.telemetry_utils import (
     build_delete_file_telemetry_data,
     build_shell_command_telemetry_data,
     build_telemetry_data,
     enqueue_telemetry_data,
 )
+from code_puppy.plugins.walmart_specific.camoufox_browser import (
+    get_camoufox_browser_types,
+)
 from code_puppy.tools.command_runner import ShellCommandOutput
+from code_puppy.mcp_.server_registry_catalog import MCPServerTemplate, MCPServerRequirements
+from code_puppy.plugins.walmart_specific.walmart_gemini_model import WalmartGeminiModel
+from code_puppy.plugins.walmart_specific.enterprise_tools import get_enterprise_tools
+from code_puppy.model_utils import is_gemini_model
+
+
+def get_walmart_mcp_servers():
+    """Return Walmart-specific MCP server templates for the catalog."""
+    return [
+        MCPServerTemplate(
+            id="github_enterprise",
+            name="github_enterprise",
+            display_name="GitHub Enterprise API",
+            description="Access Walmart GitHub Enterprise APIs",
+            category="Development",
+            tags=["github", "api", "repository", "issues", "pull-requests", "walmart"],
+            type="stdio",
+            config={
+                "command": "podman",
+                "args": [
+                    "run",
+                    "-i",
+                    "--rm",
+                    "-e",
+                    "GITHUB_PERSONAL_ACCESS_TOKEN",
+                    "docker.ci.artifacts.walmart.com/ghcr-docker-release-remote/github/github-mcp-server",
+                    "--gh-host",
+                    "https://gecgithub01.walmart.com",
+                    "stdio",
+                ],
+                "env": {
+                    "GITHUB_PERSONAL_ACCESS_TOKEN": "$GITHUB_PERSONAL_ACCESS_TOKEN",
+                },
+                "timeout": 30,
+            },
+            verified=True,
+            popular=True,
+            requires=MCPServerRequirements(
+                environment_vars=["GITHUB_PERSONAL_ACCESS_TOKEN"],
+                required_tools=["podman"],
+                package_dependencies=[],
+                system_requirements=["GitHub account with personal access token"],
+            ),
+        ),
+    ]
 
 
 def set_cert_bundle() -> None:
@@ -81,6 +141,8 @@ session_id = str(uuid.uuid4())
 set_cert_bundle()
 
 register_callback("version_check", _handle_update)
+register_callback("register_mcp_catalog_servers", get_walmart_mcp_servers)
+register_callback("register_browser_types", get_camoufox_browser_types)
 # Disclaimer is now shown via /disclaimer command instead of on startup
 
 
@@ -125,6 +187,7 @@ async def auth_flow() -> None:
     os.environ["puppy_token"] = token
 
 
+register_callback("startup", ensure_safe_windows_workspace)
 register_callback("startup", auth_flow)
 
 
@@ -134,6 +197,7 @@ def load_model_config() -> Dict[str, Any]:
 
 
 register_callback("load_model_config", load_model_config)
+register_callback("load_models_config", get_walmart_models)
 register_callback("load_prompt", lambda: prompt)
 
 
@@ -254,5 +318,98 @@ register_callback("custom_command", handle_disclaimer_command)
 register_callback("custom_command_help", get_msgraph_auth_help)
 register_callback("custom_command", handle_msgraph_auth_command)
 register_callback("custom_command", handle_msgraph_test_command)
+register_callback("custom_command_help", get_powerbi_auth_help)
+register_callback("custom_command", handle_powerbi_auth_command)
+register_callback("custom_command", handle_powerbi_test_command)
 register_callback("custom_command_help", get_databricks_auth_help)
 register_callback("custom_command", handle_databricks_auth_command)
+
+
+def get_walmart_model_providers():
+    """Return Walmart-specific model provider classes for the plugin system."""
+    return {"walmart_gemini": WalmartGeminiModel}
+
+
+register_callback("register_model_providers", get_walmart_model_providers)
+register_callback("register_tools", get_enterprise_tools)
+
+
+# MOTD (Message of the Day) for Walmart internal users
+def get_walmart_motd() -> tuple[str, str]:
+    """Return Walmart-specific MOTD content.
+
+    Returns:
+        Tuple of (message, version) for the Walmart MOTD.
+    """
+    version = "2025-12-29"
+    message = """🐕‍🦺
+🐾```
+# 🐶 Version 0.0.320 - Hotfix 🔧
+Disabled extended thinking on the background security agent
+to make sure it runs fast! 🚀
+
+Speed is a feature, not a luxury! 🐕‍🦺
+```
+"""
+    return (message, version)
+
+
+register_callback("get_motd", get_walmart_motd)
+
+
+async def strip_thinking_signatures_for_non_gemini(
+    agent_name: str,
+    model_name: str,
+    session_id: str | None = None,
+) -> None:
+    """Strip thinking signatures from message history when using non-Gemini models.
+
+    Gemini models use `signature` fields on ThinkingPart objects for thought validation.
+    When switching to non-Gemini models (like Claude/Anthropic), these signatures cause
+    errors like: "Invalid `signature` in `thinking` block".
+
+    This callback runs at agent_run_start and sanitizes the message history by clearing
+    signatures from ThinkingPart objects when the current model is not a Gemini model.
+    """
+    # Only strip signatures for non-Gemini models
+    if is_gemini_model(model_name):
+        return
+
+    try:
+        from pydantic_ai.messages import ModelResponse, ThinkingPart
+        from code_puppy.agents.agent_manager import get_current_agent
+
+        agent = get_current_agent()
+        if agent is None or agent.name != agent_name:
+            return
+
+        history = agent.get_message_history()
+        if not history:
+            return
+
+        # Check if any ThinkingParts have signatures
+        signatures_found = False
+        for message in history:
+            if isinstance(message, ModelResponse):
+                for part in message.parts:
+                    if isinstance(part, ThinkingPart) and getattr(part, 'signature', None):
+                        signatures_found = True
+                        break
+            if signatures_found:
+                break
+
+        if not signatures_found:
+            return
+
+        # Strip signatures from ThinkingParts
+        for message in history:
+            if isinstance(message, ModelResponse):
+                for part in message.parts:
+                    if isinstance(part, ThinkingPart) and getattr(part, 'signature', None):
+                        part.signature = None
+
+    except Exception:
+        pass  # Don't fail agent run if signature stripping fails
+
+
+register_callback("agent_run_start", strip_thinking_signatures_for_non_gemini)

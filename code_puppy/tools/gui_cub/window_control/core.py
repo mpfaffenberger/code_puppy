@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 import time
 
-from code_puppy.messaging import emit_info
+from ..rich_emit import emit_rich
 
 from ..constants import (
     DEFAULT_WINDOW_FOCUS_TIMEOUT,
@@ -325,7 +325,7 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
                     "app_name": owner_name,
                 }
 
-                emit_info(
+                emit_rich(
                     f"[dim]🔍 DEBUG: Found active window (first layer-0 window): '{owner_name}'[/dim]"
                 )
                 break  # First valid window IS the active window!
@@ -345,7 +345,7 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
             pid = best_window["pid"]
 
             # Debug logging
-            emit_info(
+            emit_rich(
                 f"[dim]🔍 DEBUG: Selected window:[/dim]\n"
                 f"[dim]   app_name={app_name!r}, pid={pid}[/dim]\n"
                 f"[dim]   window_title={best_window['title']!r}[/dim]\n"
@@ -366,7 +366,7 @@ def _get_active_window_bounds_impl() -> WindowBoundsResult:
             # On Retina displays, multiply by scale_factor to get physical pixels
 
             # DEBUG: Log the bounds we're about to return
-            emit_info(
+            emit_rich(
                 f"[dim]🔍 DEBUG [_get_active_window_bounds_impl]: Returning window bounds[/dim]\n"
                 f"[dim]   app_name={app_name}[/dim]\n"
                 f"[dim]   window_title={best_window['title']}[/dim]\n"

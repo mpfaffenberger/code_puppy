@@ -35,6 +35,7 @@ from code_puppy.tools.gui_cub.multi_strategy_click import (
     register_multi_strategy_click_tools,
 )
 from code_puppy.tools.gui_cub.vqa_two_stage_tools import register_vqa_two_stage_tools
+from code_puppy.tools.gui_cub.vqa_image import register_vqa_image_tools
 from code_puppy.tools.gui_cub.os_unified import register_os_unified_tools
 
 # macOS-specific tools
@@ -216,6 +217,17 @@ GUI_CUB_TOOLS.update(
             "use_cases": ["find elements visually", "AI-powered clicking"],
         },
         "desktop_vqa_two_stage": register_vqa_two_stage_tools,  # Alias
+        # VQA for analyzing any image file (not just screenshots)
+        "vqa_image": {
+            "register": register_vqa_image_tools,
+            "category": CATEGORY_DESKTOP,
+            "description": "VQA analysis for any image file (PNG, JPG, etc.)",
+            "keywords": ["vqa", "image", "analyze", "file", "vision"],
+            "platform": "all",
+            "requires_typing": False,
+            "use_cases": ["analyze images", "VQA on files", "image questions"],
+        },
+        "vqa_analyze_image": register_vqa_image_tools,  # Alias
         # Individual tool names (backward compatibility)
         "desktop_screenshot_analyze": register_desktop_screenshot_tools,
         "desktop_get_screen_size": register_desktop_screenshot_tools,

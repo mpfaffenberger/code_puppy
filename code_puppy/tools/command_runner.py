@@ -650,7 +650,7 @@ def run_shell_command_streaming(
                             line = process.stdout.readline()
                             if not line:  # EOF
                                 break
-                            line = line.rstrip("\n\r")
+                            line = line.rstrip("\n")
                             line = _truncate_line(line)
                             stdout_lines.append(line)
                             if not silent:
@@ -663,7 +663,7 @@ def run_shell_command_streaming(
                                 try:
                                     remaining = process.stdout.read()
                                     if remaining:
-                                        for line in remaining.splitlines():
+                                        for line in remaining.split("\n"):
                                             line = _truncate_line(line)
                                             stdout_lines.append(line)
                                             if not silent:
@@ -686,7 +686,7 @@ def run_shell_command_streaming(
                         line = process.stdout.readline()
                         if not line:  # EOF
                             break
-                        line = line.rstrip("\n\r")
+                        line = line.rstrip("\n")
                         line = _truncate_line(line)
                         stdout_lines.append(line)
                         if not silent:
@@ -719,7 +719,7 @@ def run_shell_command_streaming(
                             line = process.stderr.readline()
                             if not line:  # EOF
                                 break
-                            line = line.rstrip("\n\r")
+                            line = line.rstrip("\n")
                             line = _truncate_line(line)
                             stderr_lines.append(line)
                             if not silent:
@@ -732,7 +732,7 @@ def run_shell_command_streaming(
                                 try:
                                     remaining = process.stderr.read()
                                     if remaining:
-                                        for line in remaining.splitlines():
+                                        for line in remaining.split("\n"):
                                             line = _truncate_line(line)
                                             stderr_lines.append(line)
                                             if not silent:
@@ -754,7 +754,7 @@ def run_shell_command_streaming(
                         line = process.stderr.readline()
                         if not line:  # EOF
                             break
-                        line = line.rstrip("\n\r")
+                        line = line.rstrip("\n")
                         line = _truncate_line(line)
                         stderr_lines.append(line)
                         if not silent:
@@ -1168,6 +1168,11 @@ async def _execute_shell_command(
         )
     )
 
+    # Pause spinner during shell command so \r output can work properly
+    from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
+
+    pause_all_spinners()
+
     # Acquire shared keyboard context - Ctrl-X/Ctrl-C will kill ALL running commands
     # This is reference-counted: listener starts on first command, stops on last
     _acquire_keyboard_context()
@@ -1175,6 +1180,7 @@ async def _execute_shell_command(
         return await _run_command_inner(command, cwd, timeout, group_id, silent=silent)
     finally:
         _release_keyboard_context()
+        resume_all_spinners()
 
 
 def _run_command_sync(
@@ -1195,17 +1201,25 @@ def _run_command_sync(
     else:
         preexec_fn = os.setsid if hasattr(os, "setsid") else None
 
+    import io
+
     process = subprocess.Popen(
         command,
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
         cwd=cwd,
-        bufsize=1,
-        universal_newlines=True,
+        bufsize=0,  # Unbuffered for real-time output
         preexec_fn=preexec_fn,
         creationflags=creationflags,
+    )
+
+    # Wrap pipes with TextIOWrapper that preserves \r (newline='' disables translation)
+    process.stdout = io.TextIOWrapper(
+        process.stdout, newline="", encoding="utf-8", errors="replace"
+    )
+    process.stderr = io.TextIOWrapper(
+        process.stderr, newline="", encoding="utf-8", errors="replace"
     )
     _register_process(process)
     try:
@@ -1366,7 +1380,7 @@ def register_agent_run_shell_command(agent):
             This tool can execute arbitrary shell commands. Exercise caution when
             running untrusted commands, especially those that modify system state.
         """
-        result = await run_shell_command(context, command, cwd, timeout)
+        result = await run_shell_command(context, command, cwd, timeout, background)
         await on_run_shell_command_output(result)
         return result
 

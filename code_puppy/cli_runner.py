@@ -52,116 +52,8 @@ from code_puppy.version_checker import default_version_mismatch_behavior
 plugins.load_plugin_callbacks()
 
 
-def is_user_in_dbos_sample() -> bool:
-    """
-    Check if the current user (based on puppy token username) is in the 2% DBOS sample.
-    Uses SHA1 hash of username to deterministically sample 2% of users.
-
-    Returns:
-        bool: True if user should have DBOS enabled by default, False otherwise
-    """
-    try:
-        import hashlib
-
-        from code_puppy.config import get_puppy_token
-        from code_puppy.plugins.walmart_specific.auth import (
-            decode_jwt_without_validation,
-        )
-
-        token = get_puppy_token()
-        if not token:
-            return False
-
-        # Decode the JWT to get username
-        decoded = decode_jwt_without_validation(token)
-        if not decoded:
-            return False
-
-        # Extract username from common JWT claims (same order as confluence_client.py)
-        username = (
-            decoded.get("sub")
-            or decoded.get("user_id")
-            or decoded.get("userId")
-            or decoded.get("uid")
-        )
-
-        if not username:
-            return False
-
-        # Hash username with SHA1
-        username_hash = hashlib.sha1(str(username).encode("utf-8")).hexdigest()
-
-        # Convert first 8 hex chars to int and mod 100 to get 0-99 range
-        # Users with hash % 100 < 2 are in the 2% sample
-        hash_value = int(username_hash[:8], 16)
-        is_sampled = (hash_value % 100) < 2
-
-        return is_sampled
-
-    except Exception:
-        # If anything fails, don't enable DBOS by default
-        return False
-
-
-
-def _ensure_safe_windows_workspace():
-    """
-    On Windows, if the current working directory is System32 or the user's home directory,
-    automatically switch to a 'puppy_workspace' in the user's Documents folder.
-    """
-    # Only applies to Windows
-    if os.name != "nt":
-        return
-
-    try:
-        cwd = Path.cwd()
-        home = Path.home()
-
-        # Check if we are in a "dangerous" or "messy" location
-        # 1. System32 (or similar system directories)
-        # Using simple string check for robustness against variations
-        cwd_str = str(cwd).lower()
-        is_system_dir = "windows\\system32" in cwd_str
-
-        # 2. Home directory root
-        is_home_root = cwd == home
-
-        if is_system_dir or is_home_root:
-            # Determine target workspace path
-            # Standard location: ~/Documents/puppy_workspace
-            documents_dir = home / "Documents"
-
-            # If Documents doesn't exist (rare/custom setup), fall back to creating in Home
-            if not documents_dir.exists():
-                documents_dir = home
-
-            target_workspace = documents_dir / "puppy_workspace"
-
-            # Create if it doesn't exist
-            if not target_workspace.exists():
-                target_workspace.mkdir(parents=True, exist_ok=True)
-                print(f"🐶 Created new workspace: {target_workspace}")
-
-            # Change directory
-            os.chdir(target_workspace)
-
-            # Inform the user
-            print(f"🐶 Auto-switched working directory to: {target_workspace}")
-
-            if is_system_dir:
-                print("   (Safety measure: Moving out of System32!)")
-            elif is_home_root:
-                print("   (Housekeeping: Keeping your home directory tidy!)")
-
-    except Exception as e:
-        # If anything goes wrong (permissions, etc.), just warn and continue
-        # We don't want to crash the whole app just because of this
-        print(f"🐶 Warning: Failed to auto-switch workspace: {e}")
-
-
 async def main():
     """Main async entry point for Code Puppy CLI."""
-    _ensure_safe_windows_workspace()
 
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
@@ -511,7 +403,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         try:
             # Check if any tool is waiting for user input before showing spinner
             try:
-                from code_puppy.tools.command_runner import is_ppppping_user_input
+                from code_puppy.tools.command_runner import is_awaiting_user_input
 
                 awaiting_input = is_awaiting_user_input()
             except ImportError:
@@ -626,7 +518,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             reset_windows_terminal_full()
             from code_puppy.messaging import emit_warning
 
-            emit_warning("\nInput cancelled")
+            # Stop wiggum mode on Ctrl+C
+            from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
+            if is_wiggum_active():
+                stop_wiggum()
+                emit_warning("\n🍩 Wiggum loop stopped!")
+            else:
+                emit_warning("\nInput cancelled")
             continue
 
         # Check for exit commands (plain text or command form)
@@ -674,6 +572,39 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             clipboard_manager.clear_pending()
             if clipboard_count > 0:
                 emit_info(f"Cleared {clipboard_count} pending clipboard image(s)")
+            continue
+
+        # Check for secret phrases to unlock hidden features (Blizzard cheat codes!)
+        from code_puppy.config import (
+            HELIOS_SECRET_PHRASE,
+            WIGGUM_SECRET_PHRASE,
+            is_helios_unlocked,
+            is_wiggum_unlocked,
+            unlock_helios,
+            unlock_wiggum,
+        )
+        from code_puppy.messaging import emit_success
+
+        # "there is no cow level" - unlocks Helios
+        if task.strip().lower() == HELIOS_SECRET_PHRASE:
+            if is_helios_unlocked():
+                emit_info("🐄 Moo moo moo moo moo... (Helios is already unlocked!)")
+            else:
+                unlock_helios()
+                emit_success("🐄✨ Moo moo moo moo moo moo moo.")
+                emit_info("☀️ Helios, the Universal Constructor, has been unlocked!")
+                emit_info("Use /agents to see available agents, or /agent helios to switch.")
+            continue
+
+        # "show me the money" - unlocks /wiggum command
+        if task.strip().lower() == WIGGUM_SECRET_PHRASE:
+            if is_wiggum_unlocked():
+                emit_info("💰 Your resources are already plentiful! (/wiggum is unlocked)")
+            else:
+                unlock_wiggum()
+                emit_success("💰✨ Cha-ching! Your wealth increases!")
+                emit_info("🍩 The /wiggum command has been unlocked!")
+                emit_info("Use /wiggum <prompt> to start an infinite loop mode.")
             continue
 
         # Parse attachments first so leading paths aren't misread as commands
@@ -793,6 +724,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         ensure_ctrl_c_disabled()
                     except ImportError:
                         pass
+                    # Stop wiggum mode on cancellation
+                    from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
+                    if is_wiggum_active():
+                        stop_wiggum()
+                        from code_puppy.messaging import emit_warning
+                        emit_warning("🍩 Wiggum loop stopped due to cancellation")
                     continue
                 # Get the structured response
                 agent_response = result.output
@@ -832,6 +769,86 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             from code_puppy.config import auto_save_session_if_enabled
 
             auto_save_session_if_enabled()
+
+            # ================================================================
+            # WIGGUM LOOP: Re-run prompt if wiggum mode is active
+            # ================================================================
+            from code_puppy.command_line.wiggum_state import (
+                get_wiggum_prompt,
+                get_wiggum_count,
+                increment_wiggum_count,
+                is_wiggum_active,
+                stop_wiggum,
+            )
+
+            while is_wiggum_active():
+                wiggum_prompt = get_wiggum_prompt()
+                if not wiggum_prompt:
+                    stop_wiggum()
+                    break
+
+                # Increment and show debug message
+                loop_num = increment_wiggum_count()
+                from code_puppy.messaging import emit_warning, emit_system_message
+
+                emit_warning(f"\n🍩 WIGGUM RELOOPING! (Loop #{loop_num})")
+                emit_system_message(f"Re-running prompt: {wiggum_prompt}")
+
+                # Reset context/history for fresh start
+                new_session_id = finalize_autosave_session()
+                current_agent.clear_message_history()
+                emit_system_message(f"Context cleared. Session rotated to: {new_session_id}")
+
+                # Small delay to let user see the debug message
+                import time
+                time.sleep(0.5)
+
+                try:
+                    # Re-run the wiggum prompt
+                    result, current_agent_task = await run_prompt_with_attachments(
+                        current_agent,
+                        wiggum_prompt,
+                        spinner_console=message_renderer.console,
+                    )
+
+                    if result is None:
+                        # Cancelled - stop wiggum mode
+                        emit_warning("Wiggum loop cancelled by user")
+                        stop_wiggum()
+                        break
+
+                    # Get the structured response
+                    agent_response = result.output
+
+                    # Emit structured message for proper markdown rendering
+                    response_msg = AgentResponseMessage(
+                        content=agent_response,
+                        is_markdown=True,
+                    )
+                    get_message_bus().emit(response_msg)
+
+                    # Update message history
+                    if hasattr(result, "all_messages"):
+                        current_agent.set_message_history(list(result.all_messages()))
+
+                    # Flush console
+                    display_console.file.flush() if hasattr(
+                        display_console.file, "flush"
+                    ) else None
+                    time.sleep(0.1)
+
+                    # Auto-save
+                    auto_save_session_if_enabled()
+
+                except KeyboardInterrupt:
+                    emit_warning("\n🍩 Wiggum loop interrupted by Ctrl+C")
+                    stop_wiggum()
+                    break
+                except Exception as e:
+                    from code_puppy.messaging import emit_error
+                    emit_error(f"Wiggum loop error: {e}")
+                    stop_wiggum()
+                    break
 
             # Re-disable Ctrl+C if needed (uvx mode) - must be done after
             # each iteration as various operations may restore console mode

@@ -470,6 +470,7 @@ async def interactive_autosave_picker() -> Optional[str]:
     kb = KeyBindings()
 
     @kb.add("up")
+    @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
     def _(event):
         if browse_mode[0]:
             # In browse mode: go to older message
@@ -485,6 +486,7 @@ async def interactive_autosave_picker() -> Optional[str]:
                 update_display()
 
     @kb.add("down")
+    @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
     def _(event):
         if browse_mode[0]:
             # In browse mode: go to newer message

@@ -20,7 +20,8 @@ else:
 # Import thread-safe screenshot function
 from ..screen_capture.capture import _safe_screenshot
 
-from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.messaging import emit_error, emit_warning
+from ..rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from ..constants import ERROR_PILLOW_MISSING, ERROR_PYAUTOGUI_MISSING
@@ -222,7 +223,7 @@ def desktop_find_text(
                     )
 
         if find_result.found:
-            emit_info(
+            emit_rich(
                 f"[green]Found {find_result.total_matches} match(es) for '{search_text}'[/green]",
                 message_group=group_id,
             )
@@ -421,8 +422,8 @@ def register_ocr_tools(agent):
                     message_group=group_id,
                 )
         # Now emit the main header with the final region description
-        emit_info(
-            f"[bold white on blue] OCR EXTRACT TEXT [/bold white on blue] 📖 region={region_description} language={language}",
+        emit_rich(
+            f"[bold white on blue] OCR EXTRACT TEXT 🐻 [/bold white on blue] 📖 region={region_description} language={language}",
             message_group=group_id,
         )
 
@@ -433,11 +434,11 @@ def register_ocr_tools(agent):
             scale_factor = get_screen_scale_factor()
 
             if scale_factor != 1.0:
-                emit_info(
+                emit_rich(
                     f"[yellow]⚠️  HiDPI/Retina display detected (scale factor: {scale_factor}x)[/yellow]",
                     message_group=group_id,
                 )
-                emit_info(
+                emit_rich(
                     "[yellow]→ Coordinates will be converted from physical to logical space[/yellow]",
                     message_group=group_id,
                 )
@@ -455,7 +456,7 @@ def register_ocr_tools(agent):
                     int(region[3] * scale_factor),
                 )
 
-                emit_info(
+                emit_rich(
                     f"[cyan]📍 Region (logical): {region_logical}[/cyan]\n"
                     f"[cyan]📍 Region (physical): {region} - for screenshot capture[/cyan]",
                     message_group=group_id,
@@ -487,17 +488,17 @@ def register_ocr_tools(agent):
             result.region = list(region) if region else None
 
             if result.success:
-                emit_info(
+                emit_rich(
                     f"[green]✅ Extracted {result.total_words} words with avg confidence {result.average_confidence:.2f}[/green]",
                     message_group=group_id,
                 )
                 if result.text_elements:
                     sample_elem = result.text_elements[0]
-                    emit_info(
+                    emit_rich(
                         f"[cyan]Example: '{sample_elem.text}' at screen coords ({sample_elem.center_x}, {sample_elem.center_y})[/cyan]",
                         message_group=group_id,
                     )
-                emit_info(
+                emit_rich(
                     f"[dim]Full text: {result.full_text[:200]}{'...' if len(result.full_text) > 200 else ''}[/dim]",
                     message_group=group_id,
                 )
@@ -505,7 +506,7 @@ def register_ocr_tools(agent):
                 # Success-conditional compaction: Return compact result (unless internal call)
                 if len(result.text_elements) > 0 and not _internal:
                     compact_result = _compact_ocr_extract_result(result)
-                    emit_info(
+                    emit_rich(
                         f"[dim]💾 Compacted OCR result: {len(result.text_elements)} elements → summary + {len(compact_result.key_elements)} key elements[/dim]",
                         message_group=group_id,
                     )
@@ -579,8 +580,8 @@ def register_ocr_tools(agent):
             - desktop_find_text(search_text="OK", case_sensitive=True) - Exact case match
         """
         group_id = generate_group_id("ocr_find", search_text[:30])
-        emit_info(
-            f"[bold white on blue] OCR FIND TEXT [/bold white on blue] 🔍 search='{search_text}' case_sensitive={case_sensitive}",
+        emit_rich(
+            f"[bold white on blue] OCR FIND TEXT 🐻 [/bold white on blue] 🔍 search='{search_text}' case_sensitive={case_sensitive}",
             message_group=group_id,
         )
 
@@ -614,19 +615,19 @@ def register_ocr_tools(agent):
         )
 
         if find_result.found:
-            emit_info(
+            emit_rich(
                 f"[green]Found {find_result.total_matches} match(es) for '{search_text}'[/green]",
                 message_group=group_id,
             )
             if find_result.best_match:
-                emit_info(
+                emit_rich(
                     f"[green]Best match: '{find_result.best_match.text}' at ({find_result.best_match.center_x}, {find_result.best_match.center_y}) confidence={find_result.best_match.confidence:.2f}[/green]",
                     message_group=group_id,
                 )
 
             # Success-conditional compaction: Return compact result
             compact_result = _compact_ocr_find_result(find_result)
-            emit_info(
+            emit_rich(
                 f"[dim]💾 Compacted find result: {find_result.total_matches} matches → best match only[/dim]",
                 message_group=group_id,
             )
@@ -636,7 +637,7 @@ def register_ocr_tools(agent):
                 f"[yellow]No matches found for '{search_text}'[/yellow]",
                 message_group=group_id,
             )
-            emit_info(
+            emit_rich(
                 f"[dim]Returning full OCR data ({len(extract_result.text_elements)} elements) for debugging[/dim]",
                 message_group=group_id,
             )
@@ -696,8 +697,8 @@ def register_ocr_tools(agent):
             - desktop_verify_text(expected_text="Login", x=800, y=500, width=200, height=100)
         """
         group_id = generate_group_id("ocr_verify", expected_text[:30])
-        emit_info(
-            f"[bold white on blue] OCR VERIFY TEXT [/bold white on blue] ✓ expected='{expected_text}'",
+        emit_rich(
+            f"[bold white on blue] OCR VERIFY TEXT 🐻 [/bold white on blue] ✓ expected='{expected_text}'",
             message_group=group_id,
         )
 
@@ -726,7 +727,7 @@ def register_ocr_tools(agent):
 
         # Verification result
         if find_result.found and find_result.best_match:
-            emit_info(
+            emit_rich(
                 f"[bold green]✓ Text verified: '{expected_text}' found at ({find_result.best_match.center_x}, {find_result.best_match.center_y})[/bold green]",
                 message_group=group_id,
             )
@@ -824,7 +825,7 @@ def register_ocr_tools(agent):
             result = desktop_show_all_ocr_boxes(x=100, y=100, width=500, height=300)
         """
         group_id = generate_group_id("ocr_debug_viz", "show_all_boxes")
-        emit_info(
+        emit_rich(
             "[bold yellow on blue] OCR DEBUG VISUALIZATION [/bold yellow on blue] 📊 Generating bounding box overlay",
             message_group=group_id,
         )
@@ -997,15 +998,15 @@ def register_ocr_tools(agent):
                 screenshot, "ocr_debug_visualization", group_id
             )
 
-            emit_info(
+            emit_rich(
                 f"[green]✅ OCR debug visualization saved to temp: {save_path}[/green]",
                 message_group=group_id,
             )
-            emit_info(
+            emit_rich(
                 "[dim]   (Use gui_cub_save_debug_screenshot() to copy to current directory if needed)[/dim]",
                 message_group=group_id,
             )
-            emit_info(
+            emit_rich(
                 f"[cyan]📊 Displayed {len(elements)} text boxes[/cyan]",
                 message_group=group_id,
             )
@@ -1095,8 +1096,8 @@ def register_ocr_tools(agent):
             "ocr_find_reliable",
             f"{search_text[:30]}_conf{int(min_confidence * 100)}",
         )
-        emit_info(
-            f"[bold white on blue] OCR FIND (RELIABLE) [/bold white on blue] 🔍 search='{search_text}' min_confidence={min_confidence}",
+        emit_rich(
+            f"[bold white on blue] OCR FIND (HIGH CONFIDENCE) 🐻 [/bold white on blue] 🔍 search='{search_text}' min_confidence={min_confidence}",
             message_group=group_id,
         )
 
@@ -1144,11 +1145,11 @@ def register_ocr_tools(agent):
                     matches=[],
                 )
             # Best match meets confidence threshold - return it
-            emit_info(
+            emit_rich(
                 "[green]✅ Found high-confidence match (compacted result)[/green]",
                 message_group=group_id,
             )
-            emit_info(
+            emit_rich(
                 f"[cyan]Match: '{find_result.best_match.text}' at ({find_result.best_match.center_x}, {find_result.best_match.center_y}) conf: {find_result.best_match.confidence:.2%}[/cyan]",
                 message_group=group_id,
             )
@@ -1182,11 +1183,11 @@ def register_ocr_tools(agent):
 
         # Return filtered results
         best_match = max(high_conf_matches, key=lambda m: m.confidence)
-        emit_info(
+        emit_rich(
             f"[green]✅ Found {len(high_conf_matches)} high-confidence match(es)[/green]",
             message_group=group_id,
         )
-        emit_info(
+        emit_rich(
             f"[cyan]Best match: '{best_match.text}' (conf: {best_match.confidence:.2%})[/cyan]",
             message_group=group_id,
         )

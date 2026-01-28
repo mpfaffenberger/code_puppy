@@ -5,21 +5,52 @@ from code_puppy.command_line.command_handler import handle_command
 from code_puppy.command_line.command_registry import get_command
 
 
+class MultiPatcher:
+    """A patcher that patches multiple locations with the same mock."""
+    
+    def __init__(self, targets: list[str]):
+        self.targets = targets
+        self.mock = MagicMock()
+        self.patchers = [patch(target, self.mock) for target in targets]
+    
+    def start(self):
+        for p in self.patchers:
+            p.start()
+        return self.mock
+    
+    def stop(self):
+        for p in self.patchers:
+            p.stop()
+
+
 # Function to create a test context with patched messaging functions
 def setup_messaging_mocks():
-    """Set up mocks for all the messaging functions and return them in a dictionary."""
+    """Set up mocks for all the messaging functions and return them in a dictionary.
+    
+    Note: We patch both locations:
+    - code_puppy.messaging.X for dynamic imports inside functions  
+    - code_puppy.command_line.core_commands.X for static module-level imports
+    
+    This ensures mocks work regardless of how the function was imported.
+    """
     mocks = {}
-    patch_targets = [
+    
+    # emit_info is imported at module level in core_commands.py, so patch both
+    mocks["emit_info"] = MultiPatcher([
         "code_puppy.messaging.emit_info",
+        "code_puppy.command_line.core_commands.emit_info",
+    ])
+    
+    # emit_error is imported at module level in core_commands.py, so patch both
+    mocks["emit_error"] = MultiPatcher([
         "code_puppy.messaging.emit_error",
-        "code_puppy.messaging.emit_warning",
-        "code_puppy.messaging.emit_success",
-        "code_puppy.messaging.emit_system_message",
-    ]
-
-    for target in patch_targets:
-        function_name = target.split(".")[-1]
-        mocks[function_name] = patch(target)
+        "code_puppy.command_line.core_commands.emit_error",
+    ])
+    
+    # These are typically imported dynamically, so just patch messaging
+    mocks["emit_warning"] = MultiPatcher(["code_puppy.messaging.emit_warning"])
+    mocks["emit_success"] = MultiPatcher(["code_puppy.messaging.emit_success"])
+    mocks["emit_system_message"] = MultiPatcher(["code_puppy.messaging.emit_system_message"])
 
     return mocks
 
@@ -539,14 +570,16 @@ class TestRegistryIntegration:
     def test_registry_command_is_executed(self):
         """Test that registered commands are executed via registry."""
         # /help is registered - verify it's handled
-        with patch("code_puppy.messaging.emit_info") as mock_emit:
+        # Note: Must patch core_commands where emit_info is imported at module level
+        with patch("code_puppy.command_line.core_commands.emit_info") as mock_emit:
             result = handle_command("/help")
             assert result is True
             mock_emit.assert_called()
 
     def test_command_alias_works(self):
         """Test that command aliases work (e.g., /h for /help)."""
-        with patch("code_puppy.messaging.emit_info") as mock_emit:
+        # Note: Must patch core_commands where emit_info is imported at module level
+        with patch("code_puppy.command_line.core_commands.emit_info") as mock_emit:
             result = handle_command("/h")
             assert result is True
             mock_emit.assert_called()

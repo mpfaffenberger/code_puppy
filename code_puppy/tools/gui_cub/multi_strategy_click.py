@@ -33,7 +33,8 @@ import sys
 from pydantic import Field
 from pydantic_ai import RunContext
 
-from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.messaging import emit_error, emit_warning
+from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from .result_types import BaseAutomationResult
@@ -158,7 +159,7 @@ def register_multi_strategy_click_tools(agent):
             fuzzy_threshold = get_default_fuzzy_threshold()
 
         group_id = generate_group_id("multi_strategy_click", search_text[:30])
-        emit_info(
+        emit_rich(
             f"[bold magenta on black] MULTI-STRATEGY CLICK [/bold magenta on black] 🎯 '{search_text}' type={element_type}",
             message_group=group_id,
         )
@@ -172,7 +173,7 @@ def register_multi_strategy_click_tools(agent):
 
         # TIER 1: Try Accessibility API first (macOS/Windows only)
         if use_accessibility_api and accessibility_supported:
-            emit_info(
+            emit_rich(
                 "[cyan]✅ TIER 1: Trying Accessibility API...[/cyan]",
                 message_group=group_id,
             )
@@ -195,7 +196,7 @@ def register_multi_strategy_click_tools(agent):
                         accessibility_result.success
                         and accessibility_result.element_found
                     ):
-                        emit_info(
+                        emit_rich(
                             f"[bold green]✅ SUCCESS via Accessibility API! Clicked at ({accessibility_result.click_x}, {accessibility_result.click_y})[/bold green]",
                             message_group=group_id,
                         )
@@ -234,7 +235,7 @@ def register_multi_strategy_click_tools(agent):
                     )
 
                     if windows_result.success and windows_result.clicked:
-                        emit_info(
+                        emit_rich(
                             "[bold green]✅ SUCCESS via Windows UI Automation![/bold green]",
                             message_group=group_id,
                         )
@@ -273,7 +274,7 @@ def register_multi_strategy_click_tools(agent):
         # See platform_defaults.py for OCR confidence threshold details:
         # - macOS (Vision Framework): Returns 0.3-0.6 for clean text
         # - Windows (WinRT): Always returns 1.0, threshold ignored
-        emit_info(
+        emit_rich(
             "[cyan]🔍 TIER 2: Trying OCR with SmartClickCalculator...[/cyan]",
             message_group=group_id,
         )
@@ -291,7 +292,7 @@ def register_multi_strategy_click_tools(agent):
             )
 
             if ocr_result.found and ocr_result.best_match:
-                emit_info(
+                emit_rich(
                     f"[green]OCR found '{search_text}' with confidence {ocr_result.best_match.confidence:.2f}[/green]",
                     message_group=group_id,
                 )
@@ -305,11 +306,11 @@ def register_multi_strategy_click_tools(agent):
 
                 # Try each click point
                 for attempt_num, point in enumerate(retry_points, 1):
-                    emit_info(
+                    emit_rich(
                         f"[cyan]OCR Attempt {attempt_num}/{len(retry_points)}: ({point.x}, {point.y}) - {point.strategy}[/cyan]",
                         message_group=group_id,
                     )
-                    emit_info(
+                    emit_rich(
                         f"[dim]{point.reasoning}[/dim]",
                         message_group=group_id,
                     )
@@ -343,7 +344,7 @@ def register_multi_strategy_click_tools(agent):
                                 search_text=search_text,
                             )
                             if not verify_result.found:
-                                emit_info(
+                                emit_rich(
                                     f"[bold green]✅ SUCCESS via OCR! Element '{search_text}' disappeared after click.[/bold green]",
                                     message_group=group_id,
                                 )
@@ -370,7 +371,7 @@ def register_multi_strategy_click_tools(agent):
                                 search_text=verify_text,
                             )
                             if verify_result.found:
-                                emit_info(
+                                emit_rich(
                                     f"[bold green]✅ SUCCESS via OCR! Verification text '{verify_text}' appeared.[/bold green]",
                                     message_group=group_id,
                                 )
@@ -394,7 +395,7 @@ def register_multi_strategy_click_tools(agent):
 
                 # If no verification was requested, assume first click worked
                 if not verify_click and not verify_text:
-                    emit_info(
+                    emit_rich(
                         f"[green]✅ Clicked via OCR at ({retry_points[0].x}, {retry_points[0].y}) (no verification requested)[/green]",
                         message_group=group_id,
                     )
@@ -440,7 +441,7 @@ def register_multi_strategy_click_tools(agent):
             "[red]❌ All click strategies FAILED![/red]",
             message_group=group_id,
         )
-        emit_info(
+        emit_rich(
             "[dim]Consider using desktop_hover_and_verify() or desktop_highlight_click_target() for manual debugging[/dim]",
             message_group=group_id,
         )

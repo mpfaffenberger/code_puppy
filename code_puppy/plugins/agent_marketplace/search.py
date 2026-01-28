@@ -280,41 +280,43 @@ def _show_help() -> None:
 
 def _filter_latest_versions(agents: list[dict]) -> list[dict]:
     """Filter agents to only show the most recent version of each agent.
-    
+
     Args:
         agents: List of agent dictionaries from marketplace API
-        
+
     Returns:
         List of agents with only the latest version of each agent name
     """
     if not agents:
         return agents
-    
+
     # Group agents by name and track the latest version
     latest_by_name = {}
-    
+
     for agent in agents:
         name = agent.get("name")
         if not name:
             continue
-            
+
         version = agent.get("version", 1)
-        
+
         # If we haven't seen this agent, or this is a newer version, keep it
-        if name not in latest_by_name or version > latest_by_name[name].get("version", 1):
+        if name not in latest_by_name or version > latest_by_name[name].get(
+            "version", 1
+        ):
             latest_by_name[name] = agent
-    
+
     # Return the filtered list, preserving the original order where possible
     # by keeping the first occurrence of each agent name
     seen_names = set()
     result = []
-    
+
     for agent in agents:
         name = agent.get("name")
         if name and name not in seen_names:
             seen_names.add(name)
             result.append(latest_by_name[name])
-    
+
     return result
 
 
@@ -361,7 +363,7 @@ async def _search_agents_async(
     # 1. _normalize_response wraps API response: {"data": {"success": true, "data": [...]}}
     # 2. Direct list: {"data": [...]}
     # 3. Nested data with "agents" key: {"data": {"agents": [...]}}
-    
+
     agents = []
     if isinstance(data, dict):
         # Check for double-wrapped response from _normalize_response
@@ -376,7 +378,7 @@ async def _search_agents_async(
             agents = data["agents"]
     elif isinstance(data, list):
         agents = data
-    
+
     # Filter to only show the latest version of each agent
     return _filter_latest_versions(agents)
 

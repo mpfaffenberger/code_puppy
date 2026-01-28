@@ -191,9 +191,9 @@ async def screenshot_analyze(
 
         # Auto-refine logic: if confidence low, retry with grid
         if auto_refine and vqa_result.confidence < confidence_threshold:
-            from code_puppy.messaging import emit_info
+            from ..rich_emit import emit_rich
 
-            emit_info(
+            emit_rich(
                 f"🔄 Confidence {vqa_result.confidence:.2f} below threshold {confidence_threshold:.2f}, "
                 f"retrying with grid overlay"
             )
@@ -228,7 +228,7 @@ async def screenshot_analyze(
                         media_type="image/png",
                     )
 
-                    emit_info(
+                    emit_rich(
                         f"📊 Grid density '{density_name}' ({spacing}px): "
                         f"confidence {vqa_result_grid.confidence:.2f}"
                     )

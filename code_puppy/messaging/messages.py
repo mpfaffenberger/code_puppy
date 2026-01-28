@@ -317,6 +317,21 @@ class SubAgentStatusMessage(BaseMessage):
     )
 
 
+class UniversalConstructorMessage(BaseMessage):
+    """Result of a universal_constructor operation."""
+
+    category: MessageCategory = MessageCategory.TOOL_OUTPUT
+    action: str = Field(
+        description="The UC action performed (list/call/create/update/info)"
+    )
+    tool_name: Optional[str] = Field(
+        default=None, description="Tool name if applicable"
+    )
+    success: bool = Field(description="Whether the operation succeeded")
+    summary: str = Field(description="Brief summary of the result")
+    details: Optional[str] = Field(default=None, description="Additional details")
+
+
 # =============================================================================
 # User Interaction Messages (Agent → User)
 # =============================================================================
@@ -443,6 +458,7 @@ AnyMessage = Union[
     SubAgentInvocationMessage,
     SubAgentResponseMessage,
     SubAgentStatusMessage,
+    UniversalConstructorMessage,
     UserInputRequest,
     ConfirmationRequest,
     SelectionRequest,
@@ -485,6 +501,8 @@ __all__ = [
     "SubAgentInvocationMessage",
     "SubAgentResponseMessage",
     "SubAgentStatusMessage",
+    # Universal Constructor
+    "UniversalConstructorMessage",
     # User interaction
     "UserInputRequest",
     "ConfirmationRequest",

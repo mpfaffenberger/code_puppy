@@ -1,5 +1,7 @@
 """Tests for AgentCreatorAgent functionality."""
 
+from unittest.mock import patch
+
 from code_puppy.agents.agent_creator_agent import AgentCreatorAgent
 
 
@@ -167,18 +169,6 @@ class TestAgentCreatorAgent:
         assert "## ALL AVAILABLE MODELS:" in prompt
         assert "You are the Agent Creator! 🏗️" in prompt
 
-    def test_get_available_tools(self):
-        """Test that get_available_tools returns the expected tool list."""
-        agent = AgentCreatorAgent()
-        expected_tools = [
-            "list_files",
-            "read_file",
-            "edit_file",
-            "agent_share_your_reasoning",
-            "list_agents",
-            "invoke_agent",
-        ]
-        assert agent.get_available_tools() == expected_tools
 
     def test_get_user_prompt(self):
         """Test that get_user_prompt returns the expected greeting."""

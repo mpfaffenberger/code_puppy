@@ -32,6 +32,7 @@ BANNER_DISPLAY_INFO = {
     "invoke_agent": ("🤖 INVOKE AGENT", ""),
     "subagent_response": ("✓ AGENT RESPONSE", ""),
     "list_agents": ("LIST AGENTS", ""),
+    "universal_constructor": ("UNIVERSAL CONSTRUCTOR", "🔧"),
 }
 
 # Sample content to show after each banner
@@ -47,6 +48,7 @@ BANNER_SAMPLE_CONTENT = {
     "invoke_agent": "code-reviewer (New session)\nSession: review-auth-abc123",
     "subagent_response": "code-reviewer\nThe code looks good overall...",
     "list_agents": "- code-puppy: Code Puppy 🐶\n- planning-agent: Planning Agent",
+    "universal_constructor": "action=create tool_name=api.weather\n✅ Created successfully",
 }
 
 # Available background colors grouped by theme
@@ -297,6 +299,7 @@ async def _split_panel_selector(
     kb = KeyBindings()
 
     @kb.add("up")
+    @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
     def move_up(event):
         if choices:
             # Skip separator lines
@@ -308,6 +311,7 @@ async def _split_panel_selector(
         event.app.invalidate()
 
     @kb.add("down")
+    @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
     def move_down(event):
         if choices:
             # Skip separator lines

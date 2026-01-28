@@ -28,7 +28,8 @@ from ..platform import get_mouse_position_native
 
 from rich.text import Text
 
-from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.messaging import emit_error, emit_warning
+from ..rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
 from ..constants import ERROR_PILLOW_MISSING, ERROR_PYAUTOGUI_MISSING
@@ -105,7 +106,7 @@ def register_click_debugging_tools(agent):
             )
 
         group_id = generate_group_id("hover_verify", f"{x}_{y}")
-        emit_info(
+        emit_rich(
             Text.from_markup(
                 f"[bold cyan on black] HOVER & VERIFY [/bold cyan on black] 🎯 Moving to ({x}, {y}) and verifying position"
             ),
@@ -370,15 +371,15 @@ def register_click_debugging_tools(agent):
             save_path.parent.mkdir(parents=True, exist_ok=True)
             screenshot.save(save_path)
 
-            emit_info(
+            emit_rich(
                 f"[green]✅ Hover screenshot saved: {save_path}[/green]",
                 message_group=group_id,
             )
-            emit_info(
+            emit_rich(
                 f"[cyan]🎯 Target: ({x}, {y})[/cyan]",
                 message_group=group_id,
             )
-            emit_info(
+            emit_rich(
                 f"[cyan]📍 Actual: ({actual_x}, {actual_y})[/cyan]",
                 message_group=group_id,
             )
@@ -389,7 +390,7 @@ def register_click_debugging_tools(agent):
                     message_group=group_id,
                 )
             else:
-                emit_info(
+                emit_rich(
                     "[green]✅ Cursor is within 2px of target[/green]",
                     message_group=group_id,
                 )
@@ -612,7 +613,7 @@ def register_click_debugging_tools(agent):
             )
 
         group_id = generate_group_id("highlight_click_target", f"{x}_{y}")
-        emit_info(
+        emit_rich(
             Text.from_markup(
                 f"[bold yellow on black] HIGHLIGHT CLICK TARGET [/bold yellow on black] 🎯 Highlighting ({x}, {y}) in {color}"
             ),
@@ -703,15 +704,15 @@ def register_click_debugging_tools(agent):
             # Get pixel color at target
             pixel = screenshot.getpixel((x, y))
 
-            emit_info(
+            emit_rich(
                 Text.from_markup(f"[green]✅ Highlight saved: {save_path}[/green]"),
                 message_group=group_id,
             )
-            emit_info(
+            emit_rich(
                 Text.from_markup(f"[cyan]📍 Target: ({x}, {y})[/cyan]"),
                 message_group=group_id,
             )
-            emit_info(
+            emit_rich(
                 Text.from_markup(f"[dim]Pixel color at target: RGB{pixel}[/dim]"),
                 message_group=group_id,
             )
@@ -795,13 +796,13 @@ def register_click_debugging_tools(agent):
             }
 
             if is_valid:
-                emit_info(
+                emit_rich(
                     Text.from_markup(
                         f"[green]✅ Coordinates ({x}, {y}) are VALID[/green]"
                     ),
                     message_group=group_id,
                 )
-                emit_info(
+                emit_rich(
                     Text.from_markup(
                         f"[dim]Screen: {screen_width}x{screen_height}, Distance from edges: {distance_from_edge}[/dim]"
                     ),
@@ -892,9 +893,9 @@ def register_click_debugging_tools(agent):
             )
 
         group_id = generate_group_id("click_with_verification", f"{x}_{y}")
-        emit_info(
+        emit_rich(
             Text.from_markup(
-                f"[bold white on blue] VERIFIED CLICK [/bold white on blue] 🖱️  Clicking ({x}, {y}) with {button} button"
+                f"[bold white on blue] VERIFIED CLICK 🐻 [/bold white on blue] 🖱️  Clicking ({x}, {y}) with {button} button"
             ),
             message_group=group_id,
         )
@@ -956,11 +957,11 @@ def register_click_debugging_tools(agent):
                     error=f"Native click failed: {click_error}",
                 )
 
-            emit_info(
+            emit_rich(
                 Text.from_markup(f"[green]✅ Clicked at ({x}, {y})[/green]"),
                 message_group=group_id,
             )
-            emit_info(
+            emit_rich(
                 Text.from_markup(f"[dim]Pixel color at click: RGB{pixel_color}[/dim]"),
                 message_group=group_id,
             )
@@ -1047,7 +1048,7 @@ def register_click_debugging_tools(agent):
             )
 
         group_id = generate_group_id("smart_click", f"{x}_{y}")
-        emit_info(
+        emit_rich(
             Text.from_markup(
                 f"[bold magenta on black] SMART CLICK [/bold magenta on black] 🎯 Clicking ({x}, {y}) with retry logic"
             ),
@@ -1106,7 +1107,7 @@ def register_click_debugging_tools(agent):
             s_check_x = int(check_x * scale_factor)
             s_check_y = int(check_y * scale_factor)
             before_pixel_color = before_screenshot.getpixel((s_check_x, s_check_y))
-            emit_info(
+            emit_rich(
                 Text.from_markup(
                     f"[dim]Before-state pixel color at ({check_x}, {check_y}): RGB{before_pixel_color[:3]}[/dim]"
                 ),
@@ -1118,7 +1119,7 @@ def register_click_debugging_tools(agent):
                 click_x = x + offset_x
                 click_y = y + offset_y
 
-                emit_info(
+                emit_rich(
                     Text.from_markup(
                         f"[cyan]Attempt {attempt}/{len(offsets)}: Clicking ({click_x}, {click_y}) [offset: ({offset_x:+d}, {offset_y:+d})][/cyan]"
                     ),
@@ -1169,13 +1170,13 @@ def register_click_debugging_tools(agent):
                         log_msg = f"Attempt {attempt}: Color {'CHANGED' if color_changed else 'UNCHANGED'} - Before RGB{before_pixel_color[:3]}, After RGB{after_pixel_color[:3]}"
 
                     attempt_log.append(log_msg)
-                    emit_info(
+                    emit_rich(
                         Text.from_markup(f"[dim]{log_msg}[/dim]"),
                         message_group=group_id,
                     )
 
                     if verification_passed:
-                        emit_info(
+                        emit_rich(
                             Text.from_markup(
                                 f"[bold green]✅ SUCCESS! Click verified at offset ({offset_x:+d}, {offset_y:+d})[/bold green]"
                             ),

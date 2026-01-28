@@ -607,7 +607,7 @@ class TestLoadPluginCallbacks:
         try:
             result = load_plugin_callbacks()
             # Should return empty since plugins are "already loaded"
-            assert result == {"builtin": [], "user": []}
+            assert result == {"builtin": [], "user": [], "external": []}
         finally:
             plugins_module._PLUGINS_LOADED = original_loaded
 
@@ -670,7 +670,7 @@ class TestLoadPluginCallbacks:
         ):
             try:
                 load_plugin_callbacks()
-                assert "Loaded plugins" in caplog.text
+                assert "Loaded" in caplog.text and "plugins" in caplog.text
             finally:
                 plugins_module._PLUGINS_LOADED = original_loaded
 

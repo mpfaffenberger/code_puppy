@@ -139,6 +139,16 @@ class GeminiCodeAssistModel(Model):
 
         for msg in messages:
             if isinstance(msg, ModelRequest):
+                # Check for instructions field on ModelRequest (pydantic-ai's preferred way)
+                if msg.instructions is not None:
+                    if system_instruction is None:
+                        system_instruction = {
+                            "role": "user",
+                            "parts": [{"text": msg.instructions}],
+                        }
+                    else:
+                        system_instruction["parts"].insert(0, {"text": msg.instructions})
+
                 for part in msg.parts:
                     if isinstance(part, SystemPromptPart):
                         # Collect system prompt

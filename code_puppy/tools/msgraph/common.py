@@ -145,23 +145,23 @@ def markdown_to_html(text: str) -> str:
 
     # Escape HTML special characters first (except in code blocks)
     # We'll handle code blocks separately to preserve their content
-    
+
     # Extract and placeholder code blocks first
     code_blocks: list[str] = []
-    
+
     def save_code_block(match: re.Match) -> str:
         code_blocks.append(match.group(1))
         return f"\x00CODEBLOCK{len(code_blocks) - 1}\x00"
-    
+
     html = re.sub(r"```(?:\w+)?\n?(.*?)```", save_code_block, html, flags=re.DOTALL)
-    
+
     # Extract inline code
     inline_codes: list[str] = []
-    
+
     def save_inline_code(match: re.Match) -> str:
         inline_codes.append(match.group(1))
         return f"\x00INLINECODE{len(inline_codes) - 1}\x00"
-    
+
     html = re.sub(r"`([^`]+)`", save_inline_code, html)
 
     # Now escape HTML in the remaining text
@@ -213,7 +213,7 @@ def markdown_to_html(text: str) -> str:
         if in_list:
             result.append("</ul>")
         return "\n".join(result)
-    
+
     html = convert_bullet_list(html)
 
     # Numbered lists
@@ -237,12 +237,14 @@ def markdown_to_html(text: str) -> str:
         if in_list:
             result.append("</ol>")
         return "\n".join(result)
-    
+
     html = convert_numbered_list(html)
 
     # Restore code blocks with styling
     for i, code in enumerate(code_blocks):
-        escaped_code = code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        escaped_code = (
+            code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
         styled_block = (
             f'<pre style="background-color: #f4f4f4; padding: 10px; '
             f'border-radius: 4px; font-family: monospace; overflow-x: auto;">'
@@ -252,7 +254,9 @@ def markdown_to_html(text: str) -> str:
 
     # Restore inline code with styling
     for i, code in enumerate(inline_codes):
-        escaped_code = code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        escaped_code = (
+            code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
         styled_inline = (
             f'<code style="background-color: #f4f4f4; padding: 2px 6px; '
             f'border-radius: 3px; font-family: monospace;">{escaped_code}</code>'
@@ -262,7 +266,7 @@ def markdown_to_html(text: str) -> str:
     # Convert double newlines to paragraph breaks
     # But not inside pre/code blocks (already handled)
     html = re.sub(r"\n\n+", "</p><p>", html)
-    
+
     # Convert single newlines to <br> (for line breaks within paragraphs)
     html = re.sub(r"(?<!>)\n(?!<)", "<br>\n", html)
 

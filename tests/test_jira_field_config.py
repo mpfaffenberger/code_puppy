@@ -2,11 +2,11 @@
 
 import json
 
-import pytest
 
 from code_puppy.plugins.walmart_specific.jira_field_config import (
     DEFAULT_FIELD_MAPPINGS,
     _load_field_config,
+    get_application_service_field,
     get_epic_link_field,
     get_sprint_field,
     get_story_points_field,
@@ -26,6 +26,9 @@ class TestDefaultMappings:
 
     def test_default_story_points(self):
         assert DEFAULT_FIELD_MAPPINGS["story_points"] == "customfield_10002"
+
+    def test_default_application_service(self):
+        assert DEFAULT_FIELD_MAPPINGS["application_service"] == "customfield_20400"
 
 
 class TestFieldGetters:
@@ -47,6 +50,11 @@ class TestFieldGetters:
         assert isinstance(field, str)
         assert field.startswith("customfield_")
 
+    def test_get_application_service_field(self):
+        field = get_application_service_field()
+        assert isinstance(field, str)
+        assert field.startswith("customfield_")
+
 
 class TestConfigLoading:
     """Test configuration file loading."""
@@ -57,6 +65,7 @@ class TestConfigLoading:
         assert "epic_link" in mappings
         assert "sprint" in mappings
         assert "story_points" in mappings
+        assert "application_service" in mappings
 
     def test_reload_returns_dict(self):
         mappings = reload_field_mappings()
@@ -70,6 +79,7 @@ class TestConfigLoading:
             "epic_link": "customfield_99999",
             "sprint": "customfield_88888",
             "story_points": "customfield_77777",
+            "application_service": "customfield_66666",
         }
         config_file.write_text(json.dumps(custom_config))
 
@@ -84,6 +94,7 @@ class TestConfigLoading:
         assert mappings["epic_link"] == "customfield_99999"
         assert mappings["sprint"] == "customfield_88888"
         assert mappings["story_points"] == "customfield_77777"
+        assert mappings["application_service"] == "customfield_66666"
 
     def test_load_with_partial_config(self, tmp_path, monkeypatch):
         """Test that partial config merges with defaults."""
@@ -101,6 +112,7 @@ class TestConfigLoading:
         assert mappings["epic_link"] == "customfield_12345"  # Custom
         assert mappings["sprint"] == "customfield_10005"  # Default
         assert mappings["story_points"] == "customfield_10002"  # Default
+        assert mappings["application_service"] == "customfield_20400"  # Default
 
     def test_load_with_invalid_json(self, tmp_path, monkeypatch):
         """Test that invalid JSON falls back to defaults."""
@@ -126,3 +138,4 @@ class TestShowConfig:
         assert "Epic Link" in output
         assert "Sprint" in output
         assert "Story Points" in output
+        assert "App/Service" in output

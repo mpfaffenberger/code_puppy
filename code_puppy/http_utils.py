@@ -6,11 +6,12 @@ This module provides functions for creating properly configured HTTP clients.
 
 import os
 import socket
-from typing import Dict, Optional, Union
+from typing import TYPE_CHECKING, Dict, Optional, Union
 
 import httpx
-import requests
 
+if TYPE_CHECKING:
+    import requests
 from code_puppy.config import get_http2
 
 try:
@@ -118,7 +119,9 @@ def create_requests_session(
     timeout: float = 10.0,
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
-) -> requests.Session:
+) -> "requests.Session":
+    import requests
+
     session = requests.Session()
 
     if verify is None:
@@ -159,6 +162,7 @@ def create_reopenable_async_client(
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
     retry_status_codes: tuple = (429, 502, 503, 504),
+    model_name: str = "",
 ) -> Union[ReopenableAsyncClient, httpx.AsyncClient]:
     if verify is None:
         verify = get_cert_bundle_path()

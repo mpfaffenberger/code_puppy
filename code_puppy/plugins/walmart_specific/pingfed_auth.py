@@ -448,7 +448,7 @@ async def _fetch_puppy_token_playwright() -> Optional[dict]:
 
     base_url = _get_puppy_base_url()
     profile_path = _get_code_puppy_chrome_profile_path()
-    
+
     emit_info(
         Text.from_markup(
             f"🐶 Launching browser for Puppy authentication...\n"
@@ -474,15 +474,13 @@ async def _fetch_puppy_token_playwright() -> Optional[dict]:
                 bypass_csp=True,  # Accept all cookies including third-party
             )
             page = context.pages[0] if context.pages else await context.new_page()
-            emit_success(
-                "✅ Browser launched! Please sign in if prompted."
-            )
+            emit_success("✅ Browser launched! Please sign in if prompted.")
 
             # Navigate to the token endpoint - OAuth will redirect to signin if needed
             token_url = f"{base_url}/api/auth/fetch-my-token"
             emit_info(f"🔑 Navigating to {token_url}")
             emit_info("   (OAuth will redirect to signin if needed)")
-            
+
             await page.goto(token_url, wait_until="networkidle", timeout=30000)
 
             # Check if we were redirected to auth pages - wait for user to complete
@@ -490,26 +488,42 @@ async def _fetch_puppy_token_playwright() -> Optional[dict]:
             start_time = time.time()
             retry_count = 0
             max_retries = 3
-            
+
             while time.time() - start_time < max_wait:
                 current_url = page.url
-                
+
                 # If we're on signin or pingfed pages, user needs to authenticate
-                if "signin" in current_url or "pingfed" in current_url.lower() or "pfed" in current_url.lower():
+                if (
+                    "signin" in current_url
+                    or "pingfed" in current_url.lower()
+                    or "pfed" in current_url.lower()
+                ):
                     emit_info("⏳ Waiting for authentication to complete...")
                     await page.wait_for_timeout(2000)  # Check every 2 seconds
                     retry_count = 0  # Reset retry count when at auth page
                     continue
-                
+
                 # If we got redirected to a weird URL (favicon, root, etc), go back to token endpoint
-                if base_url in current_url and "fetch-my-token" not in current_url and "signin" not in current_url and "pingfed" not in current_url.lower():
+                if (
+                    base_url in current_url
+                    and "fetch-my-token" not in current_url
+                    and "signin" not in current_url
+                    and "pingfed" not in current_url.lower()
+                ):
                     # Check if it's a bad redirect (favicon, root page, etc)
-                    if "favicon" in current_url or current_url.rstrip('/') == base_url.rstrip('/') or ".ico" in current_url or ".png" in current_url:
+                    if (
+                        "favicon" in current_url
+                        or current_url.rstrip("/") == base_url.rstrip("/")
+                        or ".ico" in current_url
+                        or ".png" in current_url
+                    ):
                         emit_info("🔄 Redirecting back to token endpoint...")
-                        await page.goto(token_url, wait_until="networkidle", timeout=15000)
+                        await page.goto(
+                            token_url, wait_until="networkidle", timeout=15000
+                        )
                         await page.wait_for_timeout(1000)
                         continue
-                
+
                 # If we're back at the token endpoint or redirected elsewhere on puppy site
                 if base_url in current_url:
                     # Wait for page to settle before getting content
@@ -517,7 +531,7 @@ async def _fetch_puppy_token_playwright() -> Optional[dict]:
                         await page.wait_for_load_state("networkidle", timeout=5000)
                     except Exception:
                         pass  # Page might still be navigating
-                    
+
                     # Try to get the page content safely
                     try:
                         content = await page.content()
@@ -525,7 +539,7 @@ async def _fetch_puppy_token_playwright() -> Optional[dict]:
                         emit_info(f"⏳ Page still loading... ({e.__class__.__name__})")
                         await page.wait_for_timeout(2000)
                         continue
-                    
+
                     # Check if we got the token response
                     if '"success":true' in content and '"accessToken"' in content:
                         emit_success("✅ Authentication successful!")
@@ -533,22 +547,33 @@ async def _fetch_puppy_token_playwright() -> Optional[dict]:
                     elif '"success":false' in content:
                         retry_count += 1
                         if retry_count >= max_retries:
-                            emit_error("❌ Token fetch failed after retries. You may need to sign in again.")
+                            emit_error(
+                                "❌ Token fetch failed after retries. You may need to sign in again."
+                            )
                             # Try redirecting to signin page with callback to token endpoint
                             from urllib.parse import quote
-                            callback = quote(token_url, safe='')
-                            signin_url = f"{base_url}/api/auth/signin?callbackUrl={callback}"
-                            emit_info(f"🔑 Redirecting to sign-in...")
-                            await page.goto(signin_url, wait_until="networkidle", timeout=15000)
+
+                            callback = quote(token_url, safe="")
+                            signin_url = (
+                                f"{base_url}/api/auth/signin?callbackUrl={callback}"
+                            )
+                            emit_info("🔑 Redirecting to sign-in...")
+                            await page.goto(
+                                signin_url, wait_until="networkidle", timeout=15000
+                            )
                             retry_count = 0
                             continue
-                        emit_info(f"🔄 Re-fetching token (attempt {retry_count}/{max_retries})...")
-                        await page.goto(token_url, wait_until="networkidle", timeout=15000)
+                        emit_info(
+                            f"🔄 Re-fetching token (attempt {retry_count}/{max_retries})..."
+                        )
+                        await page.goto(
+                            token_url, wait_until="networkidle", timeout=15000
+                        )
                         await page.wait_for_timeout(2000)
                         continue
-                
+
                 await page.wait_for_timeout(1000)
-            
+
             # Check if we timed out
             if time.time() - start_time >= max_wait:
                 emit_error("❌ Authentication timed out. Please try again.")
@@ -567,7 +592,7 @@ async def _fetch_puppy_token_playwright() -> Optional[dict]:
                 await page.wait_for_load_state("networkidle", timeout=5000)
                 content = await page.content()
                 # Extract JSON from the page (it might be wrapped in HTML)
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                json_match = re.search(r"\{.*\}", content, re.DOTALL)
                 if json_match:
                     token_data = json.loads(json_match.group())
                 else:
@@ -594,6 +619,7 @@ async def _fetch_puppy_token_playwright() -> Optional[dict]:
     except Exception as e:
         emit_error(f"🐞 Browser automation failed: {e}")
         import traceback
+
         emit_error(Text.from_markup(f"[dim]{traceback.format_exc()}[/dim]"))
         return None
 
@@ -641,6 +667,7 @@ def handle_puppy_auth_command(command: str, name: str) -> Optional[bool]:
     except Exception as e:
         emit_error(f"Failed to run browser automation: {e}")
         import traceback
+
         emit_error(Text.from_markup(f"[dim]{traceback.format_exc()}[/dim]"))
         return True
 
@@ -652,21 +679,21 @@ def handle_puppy_auth_command(command: str, name: str) -> Optional[bool]:
 
     # Save token to config (use different key than puppy_token which is for backend)
     from code_puppy.config import set_config_value
-    
+
     # Handle both formats: result might be {accessToken, user} or {data: {accessToken, user}}
     if "data" in result:
         data = result.get("data", {})
     else:
         data = result
-    
+
     access_token = data.get("accessToken")
     user_info = data.get("user") or {}
-    
+
     # Helper to get a field value, filtering out "NOT_FOUND" placeholder
     def get_valid(field: str) -> str:
         val = user_info.get(field)
         return val if val and val != "NOT_FOUND" else ""
-    
+
     # PingFed puts email in various fields - try them all
     user_email = (
         get_valid("email")
@@ -677,7 +704,7 @@ def handle_puppy_auth_command(command: str, name: str) -> Optional[bool]:
         or get_valid("sub")
         or "Unknown"
     )
-    
+
     if access_token:
         set_config_value("marketplace_token", access_token)
         emit_success(
@@ -687,11 +714,11 @@ def handle_puppy_auth_command(command: str, name: str) -> Optional[bool]:
         )
     else:
         emit_warning("⚠️ No access token in response - you may need to re-authenticate")
-    
+
     # Also save the full token data for reference
     config_dir = Path(CONFIG_DIR)
     config_dir.mkdir(parents=True, exist_ok=True)
-    
+
     marketplace_token_file = config_dir / "marketplace_token.json"
     try:
         # Save the data portion (with accessToken and user info)
@@ -703,7 +730,7 @@ def handle_puppy_auth_command(command: str, name: str) -> Optional[bool]:
 
     emit_success("\n🎉 You're now authenticated for the Agent Marketplace!")
     emit_info("   Try: /search-agents or /upload-agent")
-    
+
     return True
 
 

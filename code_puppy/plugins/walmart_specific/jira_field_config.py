@@ -9,7 +9,8 @@ Example config:
     {
         "epic_link": "customfield_10007",
         "sprint": "customfield_10005",
-        "story_points": "customfield_10002"
+        "story_points": "customfield_10002",
+        "application_service": "customfield_20400"
     }
 
 If the config file doesn't exist, defaults are used.
@@ -22,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 from code_puppy.config import CONFIG_DIR
-from code_puppy.messaging import emit_info
 
 
 # =============================================================================
@@ -33,6 +33,7 @@ DEFAULT_FIELD_MAPPINGS: dict[str, str] = {
     "epic_link": "customfield_10007",
     "sprint": "customfield_10005",
     "story_points": "customfield_10002",
+    "application_service": "customfield_20400",
 }
 
 # Config file path
@@ -116,6 +117,11 @@ def get_story_points_field() -> str:
     return get_field_mappings()["story_points"]
 
 
+def get_application_service_field() -> str:
+    """Get the custom field ID for Application/Service."""
+    return get_field_mappings()["application_service"]
+
+
 # =============================================================================
 # CONFIG FILE MANAGEMENT
 # =============================================================================
@@ -167,6 +173,7 @@ def show_current_config() -> str:
         f"  Epic Link:    {mappings['epic_link']}",
         f"  Sprint:       {mappings['sprint']}",
         f"  Story Points: {mappings['story_points']}",
+        f"  App/Service:  {mappings['application_service']}",
         "",
         f"Config file: {FIELD_CONFIG_FILE}",
     ]
