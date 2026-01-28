@@ -19,7 +19,7 @@ from code_puppy.messaging import emit_system_message
 # This must happen BEFORE any other imports that might use HTTP libraries
 import code_puppy.plugins.walmart_specific  # noqa: F401
 
-from code_puppy.plugins.walmart_specific.agent_prompt import prompt
+from code_puppy.plugins.walmart_specific.agent_prompt import get_prompt
 from code_puppy.plugins.walmart_specific.auth import authenticate_puppy
 from code_puppy.plugins.walmart_specific.auto_update import _handle_update
 from code_puppy.plugins.walmart_specific.model_config_fetcher import ModelConfigFetcher
@@ -198,7 +198,7 @@ def load_model_config() -> Dict[str, Any]:
 
 register_callback("load_model_config", load_model_config)
 register_callback("load_models_config", get_walmart_models)
-register_callback("load_prompt", lambda: prompt)
+register_callback("load_prompt", get_prompt)
 
 
 def collect_edit_file_telemetry(*args, **kwargs) -> None:

@@ -200,6 +200,19 @@ def set_universal_constructor_enabled(enabled: bool) -> None:
     set_value("enable_universal_constructor", "true" if enabled else "false")
 
 
+def get_git_auto_commit_prompt_enabled() -> bool:
+    """Return True if git auto-commit prompt line is enabled (default True).
+
+    When True (default), the agent prompt includes guidance about committing
+    often with git. When False, this line is omitted from the Walmart-specific
+    agent prompt.
+    """
+    cfg_val = get_value("enable_git_auto_commit_prompt")
+    if cfg_val is None:
+        return True  # Enabled by default
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def get_enable_streaming() -> bool:
     """
     Get the enable_streaming configuration value.
@@ -381,6 +394,8 @@ def get_config_keys():
         default_keys.append(f"banner_color_{banner_name}")
     # Add data analytics knowledge base path configuration
     default_keys.append("data_analytics_knowledge_path")
+    # Add git auto-commit prompt control key
+    default_keys.append("enable_git_auto_commit_prompt")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
