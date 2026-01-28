@@ -562,9 +562,17 @@ def register_invoke_agent(agent):
             # Pass the message_history from the session to continue the conversation
             workflow_id = None  # Track for potential cancellation
 
-            # Always use subagent_stream_handler to silence output and update console manager
-            # This ensures all sub-agent output goes through the aggregated dashboard
-            stream_handler = partial(subagent_stream_handler, session_id=session_id)
+            # Determine if we should use streaming based on the model
+            # Gemini models via puppy-backend don't support streaming yet (LLM Gateway limitation)
+            # so we disable streaming for Gemini to use non-streaming request() instead
+            use_streaming = True
+            if "gemini" in model_name.lower():
+                use_streaming = False
+
+            # If streaming is enabled, use subagent_stream_handler to update console manager
+            stream_handler = None
+            if use_streaming:
+                stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
             # Wrap the agent run in subagent context for tracking
             with subagent_context(agent_name):
