@@ -75,6 +75,7 @@ from code_puppy.tools.command_runner import ShellCommandOutput
 from code_puppy.mcp_.server_registry_catalog import MCPServerTemplate, MCPServerRequirements
 from code_puppy.plugins.walmart_specific.walmart_gemini_model import WalmartGeminiModel
 from code_puppy.plugins.walmart_specific.enterprise_tools import get_enterprise_tools
+from code_puppy.model_utils import is_gemini_model
 
 
 def get_walmart_mcp_servers():
@@ -346,3 +347,61 @@ Speed is a feature, not a luxury! 🐕‍🦺
 
 
 register_callback("get_motd", get_walmart_motd)
+
+
+async def strip_thinking_signatures_for_non_gemini(
+    agent_name: str,
+    model_name: str,
+    session_id: str | None = None,
+) -> None:
+    """Strip thinking signatures from message history when using non-Gemini models.
+
+    Gemini models use `signature` fields on ThinkingPart objects for thought validation.
+    When switching to non-Gemini models (like Claude/Anthropic), these signatures cause
+    errors like: "Invalid `signature` in `thinking` block".
+
+    This callback runs at agent_run_start and sanitizes the message history by clearing
+    signatures from ThinkingPart objects when the current model is not a Gemini model.
+    """
+    # Only strip signatures for non-Gemini models
+    if is_gemini_model(model_name):
+        return
+
+    try:
+        from pydantic_ai.messages import ModelResponse, ThinkingPart
+        from code_puppy.agents.agent_manager import get_current_agent
+
+        agent = get_current_agent()
+        if agent is None or agent.name != agent_name:
+            return
+
+        history = agent.get_message_history()
+        if not history:
+            return
+
+        # Check if any ThinkingParts have signatures
+        signatures_found = False
+        for message in history:
+            if isinstance(message, ModelResponse):
+                for part in message.parts:
+                    if isinstance(part, ThinkingPart) and getattr(part, 'signature', None):
+                        signatures_found = True
+                        break
+            if signatures_found:
+                break
+
+        if not signatures_found:
+            return
+
+        # Strip signatures from ThinkingParts
+        for message in history:
+            if isinstance(message, ModelResponse):
+                for part in message.parts:
+                    if isinstance(part, ThinkingPart) and getattr(part, 'signature', None):
+                        part.signature = None
+
+    except Exception:
+        pass  # Don't fail agent run if signature stripping fails
+
+
+register_callback("agent_run_start", strip_thinking_signatures_for_non_gemini)
