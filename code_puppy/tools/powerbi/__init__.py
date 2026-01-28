@@ -35,6 +35,8 @@ from code_puppy.tools.powerbi.datasets import (
     register_powerbi_get_table_data,
     register_powerbi_refresh_dataset,
     register_powerbi_get_refresh_history,
+    register_powerbi_get_datasources,
+    register_powerbi_get_dataset_parameters,
 )
 
 # Dashboards
@@ -77,6 +79,8 @@ POWERBI_TOOLS = {
     "powerbi_get_table_data": register_powerbi_get_table_data,
     "powerbi_refresh_dataset": register_powerbi_refresh_dataset,
     "powerbi_get_refresh_history": register_powerbi_get_refresh_history,
+    "powerbi_get_datasources": register_powerbi_get_datasources,
+    "powerbi_get_dataset_parameters": register_powerbi_get_dataset_parameters,
     # Dashboards
     "powerbi_list_dashboards": register_powerbi_list_dashboards,
     "powerbi_get_dashboard": register_powerbi_get_dashboard,

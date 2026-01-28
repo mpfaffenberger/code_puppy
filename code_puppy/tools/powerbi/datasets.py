@@ -587,3 +587,150 @@ def powerbi_get_refresh_history(
 def register_powerbi_get_refresh_history(agent: Any) -> Tool:
     """Register the powerbi_get_refresh_history tool."""
     return agent.tool(powerbi_get_refresh_history)
+
+
+# =============================================================================
+# DATASOURCE TOOLS
+# =============================================================================
+
+
+def powerbi_get_datasources(
+    ctx: RunContext,
+    dataset_id: str,
+    workspace_id: str | None = None,
+) -> dict:
+    """Get the datasources for a Power BI dataset.
+
+    Shows all data connections used by the dataset, including:
+    - Connection type (SQL Server, Azure SQL, SharePoint, etc.)
+    - Server/host names
+    - Database names
+    - Connection details
+
+    Args:
+        dataset_id: The ID of the dataset.
+        workspace_id: Optional workspace ID containing the dataset.
+
+    Returns:
+        Dict with list of datasources and their connection details.
+
+    Example:
+        # Get datasources for a dataset
+        powerbi_get_datasources(dataset_id="abc123")
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            f"🔌 [bold cyan]Getting datasources for dataset...[/bold cyan]"
+        )
+    )
+
+    try:
+        client = get_powerbi_client()
+        
+        if workspace_id:
+            endpoint = f"/groups/{workspace_id}/datasets/{dataset_id}/datasources"
+        else:
+            endpoint = f"/datasets/{dataset_id}/datasources"
+        
+        response = client.get(endpoint)
+        datasources = response.get("value", [])
+        
+        emit_success(f"Found {len(datasources)} datasources")
+        
+        formatted = []
+        for ds in datasources:
+            # Extract connection details
+            conn_details = ds.get("connectionDetails", {})
+            gateway_id = ds.get("gatewayId")
+            
+            formatted.append({
+                "datasource_id": ds.get("datasourceId"),
+                "datasource_type": ds.get("datasourceType"),
+                "gateway_id": gateway_id,
+                "connection_details": {
+                    "server": conn_details.get("server"),
+                    "database": conn_details.get("database"),
+                    "url": conn_details.get("url"),
+                    "path": conn_details.get("path"),
+                    "kind": conn_details.get("kind"),
+                },
+            })
+        
+        return {
+            "success": True,
+            "dataset_id": dataset_id,
+            "count": len(formatted),
+            "datasources": formatted,
+        }
+
+    except Exception as e:
+        return handle_powerbi_error(e)
+
+
+def register_powerbi_get_datasources(agent: Any) -> Tool:
+    """Register the powerbi_get_datasources tool."""
+    return agent.tool(powerbi_get_datasources)
+
+
+def powerbi_get_dataset_parameters(
+    ctx: RunContext,
+    dataset_id: str,
+    workspace_id: str | None = None,
+) -> dict:
+    """Get parameters defined in a Power BI dataset.
+
+    Parameters are variables that can be used to customize queries,
+    filter data, or change connection strings dynamically.
+
+    Args:
+        dataset_id: The ID of the dataset.
+        workspace_id: Optional workspace ID containing the dataset.
+
+    Returns:
+        Dict with list of parameters and their current values.
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            f"⚙️ [bold cyan]Getting dataset parameters...[/bold cyan]"
+        )
+    )
+
+    try:
+        client = get_powerbi_client()
+        
+        if workspace_id:
+            endpoint = f"/groups/{workspace_id}/datasets/{dataset_id}/parameters"
+        else:
+            endpoint = f"/datasets/{dataset_id}/parameters"
+        
+        response = client.get(endpoint)
+        parameters = response.get("value", [])
+        
+        emit_success(f"Found {len(parameters)} parameters")
+        
+        formatted = []
+        for param in parameters:
+            formatted.append({
+                "name": param.get("name"),
+                "type": param.get("type"),
+                "current_value": param.get("currentValue"),
+                "is_required": param.get("isRequired", False),
+                "suggested_values": param.get("suggestedValues", []),
+            })
+        
+        return {
+            "success": True,
+            "dataset_id": dataset_id,
+            "count": len(formatted),
+            "parameters": formatted,
+        }
+
+    except Exception as e:
+        return handle_powerbi_error(e)
+
+
+def register_powerbi_get_dataset_parameters(agent: Any) -> Tool:
+    """Register the powerbi_get_dataset_parameters tool."""
+    return agent.tool(powerbi_get_dataset_parameters)

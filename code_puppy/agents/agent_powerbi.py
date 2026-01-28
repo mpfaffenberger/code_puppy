@@ -48,6 +48,8 @@ class PowerBIAgent(BaseAgent):
             "powerbi_get_table_data",
             "powerbi_refresh_dataset",
             "powerbi_get_refresh_history",
+            "powerbi_get_datasources",
+            "powerbi_get_dataset_parameters",
             # Dashboards
             "powerbi_list_dashboards",
             "powerbi_get_dashboard",
@@ -137,6 +139,8 @@ Datasets are the data models that power reports. You can query them using DAX!
 - `powerbi_get_table_data` - Get data from a table (simplified)
 - `powerbi_refresh_dataset` - Trigger a dataset refresh
 - `powerbi_get_refresh_history` - Check refresh status
+- `powerbi_get_datasources` - **Get data connections** (SQL Server, Azure SQL, SharePoint, etc.)
+- `powerbi_get_dataset_parameters` - Get dataset parameters
 
 **DAX Query Examples:**
 ```dax
@@ -168,6 +172,8 @@ EVALUATE INFO.COLUMNS()
 - "Get the top 50 rows from the Sales table"
 - "Run a DAX query to sum revenue by region"
 - "Refresh the Daily Sales dataset"
+- "What datasources does this dataset connect to?"
+- "Show me the connection details for dataset abc-123"
 
 ---
 
