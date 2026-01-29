@@ -15,6 +15,7 @@ from rich.table import Table
 from code_puppy.messaging import emit_error, emit_info
 
 from . import api_client
+from .api_client import get_marketplace_token_status
 
 console = Console()
 
@@ -408,6 +409,33 @@ def handle_search_agents(command: str) -> bool:
 
     # Combine query parts into a single string
     query = " ".join(args.query) if args.query else None
+
+    # Check if marketplace token is valid before making API calls
+    token_exists, is_valid = get_marketplace_token_status()
+
+    if not token_exists or not is_valid:
+        # Token missing or expired - auto-trigger authentication
+        if not token_exists:
+            console.print(
+                "[cyan]🔐[/cyan] No marketplace token found. Authenticating..."
+            )
+        else:
+            console.print(
+                "[cyan]🔐[/cyan] Marketplace token expired. Authenticating..."
+            )
+
+        try:
+            from code_puppy.plugins.walmart_specific.pingfed_auth import (
+                handle_puppy_auth_command,
+            )
+
+            result = handle_puppy_auth_command("/puppy_auth", "puppy_auth")
+            if not result:
+                emit_error("Authentication failed. Please try again.")
+                return True
+        except ImportError:
+            emit_error("Authentication module not available.")
+            return True
 
     console.print("[cyan]🐶[/cyan] Searching the Agent Marketplace...")
 
