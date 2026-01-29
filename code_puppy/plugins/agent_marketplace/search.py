@@ -417,11 +417,11 @@ def handle_search_agents(command: str) -> bool:
         # Token missing or expired - auto-trigger authentication
         if not token_exists:
             console.print(
-                "[cyan]🔐[/cyan] No marketplace token found. Authenticating..."
+                "[yellow]🔐 No marketplace token found. Authenticating...[/yellow]"
             )
         else:
             console.print(
-                "[cyan]🔐[/cyan] Marketplace token expired. Authenticating..."
+                "[yellow]🔐 Marketplace token expired. Authenticating...[/yellow]"
             )
 
         try:
