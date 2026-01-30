@@ -1,8 +1,12 @@
-"""Mouse control for desktop automation automation."""
+"""Mouse control for desktop automation."""
 
 from __future__ import annotations
 
-from typing import Literal
+import time
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from pydantic_ai import RunContext
 
@@ -17,9 +21,7 @@ if PYAUTOGUI_AVAILABLE:
 else:
     pyautogui = None
 
-from rich.text import Text
-
-from code_puppy.messaging import emit_warning
+from .rich_emit import emit_rich
 
 from .constants import DEFAULT_MOUSE_DURATION
 from .platform import (
@@ -106,7 +108,7 @@ def desktop_mouse_click(
     )
 
 
-def register_mouse_control_tools(agent):
+def register_mouse_control_tools(agent: "Agent[Any, Any]") -> None:
     """Register mouse control tools for desktop automation."""
 
     @agent.tool
@@ -145,7 +147,7 @@ def register_mouse_control_tools(agent):
         if IS_MACOS:
             has_permission, error_msg = check_macos_accessibility_permission()
             if not has_permission:
-                emit_warning(Text.from_markup(f"[yellow]{error_msg}[/yellow]"))
+                emit_rich(f"[yellow]{error_msg}[/yellow]")
                 return MouseActionResult(
                     success=False,
                     error=error_msg,
@@ -158,11 +160,7 @@ def register_mouse_control_tools(agent):
         if IS_MACOS:
             success, error = move_mouse_native(x, y, duration=duration)
             if not success:
-                emit_warning(
-                    Text.from_markup(
-                        f"[yellow]Native mouse move failed: {error}[/yellow]"
-                    )
-                )
+                emit_rich(f"[yellow]Native mouse move failed: {error}[/yellow]")
                 return MouseActionResult(
                     success=False,
                     error=error or "Native mouse move failed",
@@ -170,8 +168,6 @@ def register_mouse_control_tools(agent):
                     y=y,
                 )
             # Brief pause for CGEvent to propagate before verification
-            import time
-
             time.sleep(0.02)
         else:
             # Windows: pyautogui works correctly for multi-monitor
@@ -193,7 +189,7 @@ def register_mouse_control_tools(agent):
                     "This is usually a macOS Accessibility permission issue. "
                     "Grant permission in System Preferences → Security & Privacy → Accessibility."
                 )
-            emit_warning(Text.from_markup(f"[yellow]{error_msg}[/yellow]"))
+            emit_rich(f"[yellow]{error_msg}[/yellow]")
             return MouseActionResult(
                 success=False,
                 error=error_msg,
@@ -333,8 +329,6 @@ def register_mouse_control_tools(agent):
 
         Note: Cross-platform (macOS & Windows). Scroll distance auto-calibrated per platform.
         """
-        import time
-
         # Get screen dimensions
         screen_width, screen_height = pyautogui.size()
 
@@ -354,7 +348,7 @@ def register_mouse_control_tools(agent):
             return MouseScrollResult(
                 success=True,
                 clicks=0,
-                direction="none",
+                direction=None,
             )
 
         # Scroll until target is visible or max_scrolls reached
@@ -433,7 +427,7 @@ def register_mouse_control_tools(agent):
             return MouseScrollResult(
                 success=True,
                 clicks=0,
-                direction="none",
+                direction=None,
             )
 
         # Determine scroll direction and amount
@@ -454,8 +448,6 @@ def register_mouse_control_tools(agent):
         for i in range(0, clicks_needed, scroll_amount):
             pyautogui.scroll(direction * scroll_amount, x=x, y=screen_height // 2)
             total_clicks += scroll_amount
-            import time
-
             time.sleep(SCROLL_DELAY)  # Small delay for rendering
 
         direction_str = "up" if direction > 0 else "down"
