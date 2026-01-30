@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from pydantic_ai import RunContext
 
@@ -26,7 +29,6 @@ from ..screen_capture.capture import _safe_screenshot
 # Import native mouse position getter for multi-monitor support
 from ..platform import get_mouse_position_native
 
-from rich.text import Text
 
 from code_puppy.messaging import emit_error, emit_warning
 from ..rich_emit import emit_rich
@@ -42,7 +44,7 @@ from .result_types import (
 from .visualization import draw_pixel_grid
 
 
-def register_click_debugging_tools(agent):
+def register_click_debugging_tools(agent: "Agent[Any, Any]") -> None:
     """Register click debugging and verification tools.
 
     This file contains 5 click debugging tools (1,150 lines total):
@@ -107,9 +109,7 @@ def register_click_debugging_tools(agent):
 
         group_id = generate_group_id("hover_verify", f"{x}_{y}")
         emit_rich(
-            Text.from_markup(
-                f"[bold cyan on black] HOVER & VERIFY [/bold cyan on black] 🎯 Moving to ({x}, {y}) and verifying position"
-            ),
+            f"[bold cyan on black] HOVER & VERIFY [/bold cyan on black] 🎯 Moving to ({x}, {y}) and verifying position",
             message_group=group_id,
         )
 
@@ -614,9 +614,7 @@ def register_click_debugging_tools(agent):
 
         group_id = generate_group_id("highlight_click_target", f"{x}_{y}")
         emit_rich(
-            Text.from_markup(
-                f"[bold yellow on black] HIGHLIGHT CLICK TARGET [/bold yellow on black] 🎯 Highlighting ({x}, {y}) in {color}"
-            ),
+            f"[bold yellow on black] HIGHLIGHT CLICK TARGET [/bold yellow on black] 🎯 Highlighting ({x}, {y}) in {color}",
             message_group=group_id,
         )
 
@@ -705,21 +703,19 @@ def register_click_debugging_tools(agent):
             pixel = screenshot.getpixel((x, y))
 
             emit_rich(
-                Text.from_markup(f"[green]✅ Highlight saved: {save_path}[/green]"),
+                f"[green]✅ Highlight saved: {save_path}[/green]",
                 message_group=group_id,
             )
             emit_rich(
-                Text.from_markup(f"[cyan]📍 Target: ({x}, {y})[/cyan]"),
+                f"[cyan]📍 Target: ({x}, {y})[/cyan]",
                 message_group=group_id,
             )
             emit_rich(
-                Text.from_markup(f"[dim]Pixel color at target: RGB{pixel}[/dim]"),
+                f"[dim]Pixel color at target: RGB{pixel}[/dim]",
                 message_group=group_id,
             )
-            emit_warning(
-                Text.from_markup(
-                    "[yellow]⚠️  VERIFY THE SCREENSHOT BEFORE CLICKING![/yellow]"
-                ),
+            emit_rich(
+                "[yellow]⚠️  VERIFY THE SCREENSHOT BEFORE CLICKING![/yellow]",
                 message_group=group_id,
             )
 
@@ -733,8 +729,8 @@ def register_click_debugging_tools(agent):
             )
 
         except Exception as e:
-            emit_error(
-                Text.from_markup(f"[red]Failed to create highlight: {e}[/red]"),
+            emit_rich(
+                f"[red]Failed to create highlight: {e}[/red]",
                 message_group=group_id,
             )
             return ClickDebugResult(
@@ -797,38 +793,28 @@ def register_click_debugging_tools(agent):
 
             if is_valid:
                 emit_rich(
-                    Text.from_markup(
-                        f"[green]✅ Coordinates ({x}, {y}) are VALID[/green]"
-                    ),
+                    f"[green]✅ Coordinates ({x}, {y}) are VALID[/green]",
                     message_group=group_id,
                 )
                 emit_rich(
-                    Text.from_markup(
-                        f"[dim]Screen: {screen_width}x{screen_height}, Distance from edges: {distance_from_edge}[/dim]"
-                    ),
+                    f"[dim]Screen: {screen_width}x{screen_height}, Distance from edges: {distance_from_edge}[/dim]",
                     message_group=group_id,
                 )
             else:
-                emit_error(
-                    Text.from_markup(
-                        f"[red]❌ Coordinates ({x}, {y}) are OUT OF BOUNDS![/red]"
-                    ),
+                emit_rich(
+                    f"[red]❌ Coordinates ({x}, {y}) are OUT OF BOUNDS![/red]",
                     message_group=group_id,
                 )
-                emit_error(
-                    Text.from_markup(
-                        f"[red]Screen size: {screen_width}x{screen_height}[/red]"
-                    ),
+                emit_rich(
+                    f"[red]Screen size: {screen_width}x{screen_height}[/red]",
                     message_group=group_id,
                 )
 
             # Warn if too close to edges (might be window title bar issue)
             min_edge_distance = min(distance_from_edge.values())
             if min_edge_distance < 50 and is_valid:
-                emit_warning(
-                    Text.from_markup(
-                        f"[yellow]⚠️  WARNING: Very close to screen edge ({min_edge_distance}px). Double-check target![/yellow]"
-                    ),
+                emit_rich(
+                    f"[yellow]⚠️  WARNING: Very close to screen edge ({min_edge_distance}px). Double-check target![/yellow]",
                     message_group=group_id,
                 )
 
@@ -894,9 +880,7 @@ def register_click_debugging_tools(agent):
 
         group_id = generate_group_id("click_with_verification", f"{x}_{y}")
         emit_rich(
-            Text.from_markup(
-                f"[bold white on blue] VERIFIED CLICK 🐻 [/bold white on blue] 🖱️  Clicking ({x}, {y}) with {button} button"
-            ),
+            f"[bold white on blue] VERIFIED CLICK 🐻 [/bold white on blue] 🖱️  Clicking ({x}, {y}) with {button} button",
             message_group=group_id,
         )
 
@@ -905,10 +889,8 @@ def register_click_debugging_tools(agent):
                 # Verify coordinates
                 verify_result = desktop_verify_coordinates(context, x=x, y=y)
                 if not verify_result.is_valid:
-                    emit_error(
-                        Text.from_markup(
-                            "[red]❌ ABORTING CLICK - Coordinates out of bounds![/red]"
-                        ),
+                    emit_rich(
+                        "[red]❌ ABORTING CLICK - Coordinates out of bounds![/red]",
                         message_group=group_id,
                     )
                     return ClickDebugResult(
@@ -921,10 +903,8 @@ def register_click_debugging_tools(agent):
                 # Warn if close to edges
                 min_edge = min(verify_result.distance_from_edge.values())
                 if min_edge < 50:
-                    emit_warning(
-                        Text.from_markup(
-                            f"[yellow]⚠️  WARNING: Clicking very close to screen edge ({min_edge}px)![/yellow]"
-                        ),
+                    emit_rich(
+                        f"[yellow]⚠️  WARNING: Clicking very close to screen edge ({min_edge}px)![/yellow]",
                         message_group=group_id,
                     )
 
@@ -958,11 +938,11 @@ def register_click_debugging_tools(agent):
                 )
 
             emit_rich(
-                Text.from_markup(f"[green]✅ Clicked at ({x}, {y})[/green]"),
+                f"[green]✅ Clicked at ({x}, {y})[/green]",
                 message_group=group_id,
             )
             emit_rich(
-                Text.from_markup(f"[dim]Pixel color at click: RGB{pixel_color}[/dim]"),
+                f"[dim]Pixel color at click: RGB{pixel_color}[/dim]",
                 message_group=group_id,
             )
 
@@ -975,8 +955,8 @@ def register_click_debugging_tools(agent):
             )
 
         except Exception as e:
-            emit_error(
-                Text.from_markup(f"[red]Click failed: {e}[/red]"),
+            emit_rich(
+                f"[red]Click failed: {e}[/red]",
                 message_group=group_id,
             )
             return ClickDebugResult(
@@ -1049,9 +1029,7 @@ def register_click_debugging_tools(agent):
 
         group_id = generate_group_id("smart_click", f"{x}_{y}")
         emit_rich(
-            Text.from_markup(
-                f"[bold magenta on black] SMART CLICK [/bold magenta on black] 🎯 Clicking ({x}, {y}) with retry logic"
-            ),
+            f"[bold magenta on black] SMART CLICK [/bold magenta on black] 🎯 Clicking ({x}, {y}) with retry logic",
             message_group=group_id,
         )
 
@@ -1108,9 +1086,7 @@ def register_click_debugging_tools(agent):
             s_check_y = int(check_y * scale_factor)
             before_pixel_color = before_screenshot.getpixel((s_check_x, s_check_y))
             emit_rich(
-                Text.from_markup(
-                    f"[dim]Before-state pixel color at ({check_x}, {check_y}): RGB{before_pixel_color[:3]}[/dim]"
-                ),
+                f"[dim]Before-state pixel color at ({check_x}, {check_y}): RGB{before_pixel_color[:3]}[/dim]",
                 message_group=group_id,
             )
 
@@ -1120,9 +1096,7 @@ def register_click_debugging_tools(agent):
                 click_y = y + offset_y
 
                 emit_rich(
-                    Text.from_markup(
-                        f"[cyan]Attempt {attempt}/{len(offsets)}: Clicking ({click_x}, {click_y}) [offset: ({offset_x:+d}, {offset_y:+d})][/cyan]"
-                    ),
+                    f"[cyan]Attempt {attempt}/{len(offsets)}: Clicking ({click_x}, {click_y}) [offset: ({offset_x:+d}, {offset_y:+d})][/cyan]",
                     message_group=group_id,
                 )
 
@@ -1171,15 +1145,13 @@ def register_click_debugging_tools(agent):
 
                     attempt_log.append(log_msg)
                     emit_rich(
-                        Text.from_markup(f"[dim]{log_msg}[/dim]"),
+                        f"[dim]{log_msg}[/dim]",
                         message_group=group_id,
                     )
 
                     if verification_passed:
                         emit_rich(
-                            Text.from_markup(
-                                f"[bold green]✅ SUCCESS! Click verified at offset ({offset_x:+d}, {offset_y:+d})[/bold green]"
-                            ),
+                            f"[bold green]✅ SUCCESS! Click verified at offset ({offset_x:+d}, {offset_y:+d})[/bold green]",
                             message_group=group_id,
                         )
                         return SmartClickResult(
