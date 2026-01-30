@@ -109,7 +109,7 @@ def get_default_fuzzy_threshold() -> float:
     return FUZZY_THRESHOLD_DEFAULT
 
 
-def get_platform_defaults() -> dict[str, float]:
+def get_platform_defaults() -> dict[str, str | float]:
     """Get all platform defaults as a dictionary.
 
     Useful for debugging and logging.

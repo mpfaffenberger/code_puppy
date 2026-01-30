@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pydantic_ai import RunContext
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from .dependencies import PYAUTOGUI_AVAILABLE
 
@@ -28,7 +33,7 @@ def get_modifier_key() -> str:
     return "command" if IS_MACOS else "ctrl"
 
 
-def register_keyboard_shortcut_tools(agent):
+def register_keyboard_shortcut_tools(agent: "Agent[Any, Any]") -> None:
     """Register platform-aware keyboard shortcut tools."""
 
     @agent.tool

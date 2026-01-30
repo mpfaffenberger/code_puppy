@@ -24,6 +24,8 @@ import threading
 from contextlib import contextmanager
 from typing import Generator
 
+__all__ = ["GuiCubAlreadyRunningError", "gui_cub_agent_guard", "is_gui_cub_active"]
+
 # Global lock to prevent multiple GUI-Cub agents
 _GUI_CUB_ACTIVE_LOCK = threading.Lock()
 _gui_cub_is_active = False

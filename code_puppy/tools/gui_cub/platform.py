@@ -10,7 +10,7 @@ from .core.scaling import (
     convert_physical_to_logical,
 )
 from enum import Enum
-from typing import Callable
+from typing import Any, Callable
 
 # Import thread-safe screenshot function (defined later to avoid circular import)
 _safe_screenshot = None  # Will be set after screen_capture module loads
@@ -336,7 +336,7 @@ def get_screen_resolution(use_cache: bool = True) -> tuple[int, int]:
         return (1920, 1080)
 
 
-def get_display_info() -> dict[str, any]:
+def get_display_info() -> dict[str, Any]:
     """Get comprehensive display information for debugging.
 
     Returns:

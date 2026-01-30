@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pydantic_ai import RunContext
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from ..dependencies import PIL_AVAILABLE, PYAUTOGUI_AVAILABLE
 
@@ -294,7 +299,7 @@ def desktop_find_text_reliable(
     )
 
 
-def register_ocr_tools(agent):
+def register_ocr_tools(agent: "Agent[Any, Any]") -> None:
     """Register OCR (Optical Character Recognition) tools.
 
     This file contains 6 OCR tools (925 lines total):

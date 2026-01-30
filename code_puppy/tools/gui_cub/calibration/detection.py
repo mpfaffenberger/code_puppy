@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Platform calibration for GUI-Cub - detects and caches all automation-relevant info.
 
 Runs on first use (like QA-Kitten downloading Camoufox) to detect:
@@ -11,7 +13,7 @@ Runs on first use (like QA-Kitten downloading Camoufox) to detect:
 import os
 import platform
 import sys
-from typing import Any, Dict, List
+from typing import Any
 
 from ..dependencies import PYAUTOGUI_AVAILABLE
 
@@ -197,7 +199,7 @@ def _update_system_path_registry(path_to_add: str) -> tuple[bool, str]:
         return False, f"Registry error: {type(e).__name__}: {str(e)[:100]}"
 
 
-def detect_platform() -> Dict[str, Any]:
+def detect_platform() -> dict[str, Any]:
     """Detect OS platform information (Windows/macOS only)."""
     os_name = sys.platform
     os_display = {
@@ -214,7 +216,7 @@ def detect_platform() -> Dict[str, Any]:
     }
 
 
-def detect_displays() -> Dict[str, Any]:
+def detect_displays() -> dict[str, Any]:
     """Detect all displays, resolutions, and scaling."""
     # Get primary display
     try:
@@ -264,7 +266,7 @@ def detect_displays() -> Dict[str, Any]:
     }
 
 
-def _detect_macos_monitors() -> List[Dict[str, Any]]:
+def _detect_macos_monitors() -> list[dict[str, Any]]:
     """Detect monitors on macOS using NSScreen."""
     try:
         from AppKit import NSScreen
@@ -306,7 +308,7 @@ def _detect_macos_monitors() -> List[Dict[str, Any]]:
         ]
 
 
-def _detect_windows_monitors() -> List[Dict[str, Any]]:
+def _detect_windows_monitors() -> list[dict[str, Any]]:
     """Detect monitors on Windows."""
     try:
         import win32api

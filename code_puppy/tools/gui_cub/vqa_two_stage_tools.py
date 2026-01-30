@@ -9,7 +9,12 @@ Performance:
     - Stage 2 crop 10-100x smaller than Stage 1
 """
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from pydantic_ai import RunContext
 
@@ -19,7 +24,7 @@ from .vqa_vision_click import desktop_click_element_vqa
 from .window_control import focus_window
 
 
-def register_vqa_two_stage_tools(agent):
+def register_vqa_two_stage_tools(agent: "Agent[Any, Any]") -> None:
     """Register two-stage VQA tools with an agent.
 
     Registers:
@@ -174,5 +179,3 @@ def register_vqa_two_stage_tools(agent):
             window_title=window_title,
             save_debug=False,  # Don't save debug images unless explicitly requested
         )
-
-    return agent

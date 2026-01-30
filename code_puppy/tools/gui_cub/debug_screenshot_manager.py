@@ -9,10 +9,20 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from PIL import Image
+from .dependencies import PIL_AVAILABLE
+
+if PIL_AVAILABLE:
+    from PIL import Image
+else:
+    Image = None  # type: ignore[misc, assignment]
+
+if TYPE_CHECKING:
+    from PIL import Image as PILImage
 
 # Global temp directory for debug screenshots (NOT in user's pwd)
 _TEMP_SCREENSHOT_DIR: Path | None = None
@@ -85,7 +95,7 @@ def copy_last_screenshot_to_pwd(filename: str | None = None) -> Path | None:
     """
     global _LAST_SCREENSHOT_PATH
 
-    if _LAST_SCREENSHOT_PATH is None or not _LAST_SCREENSHOT_PATH.exists():
+    if _LAST_SCREENSHOT_PATH is None:
         return None
 
     if filename is None:
@@ -94,9 +104,13 @@ def copy_last_screenshot_to_pwd(filename: str | None = None) -> Path | None:
         filename = f"debug_screenshot_{timestamp}.png"
 
     dest_path = Path.cwd() / filename
-    shutil.copy2(_LAST_SCREENSHOT_PATH, dest_path)
 
-    return dest_path
+    # Use try/except instead of exists() check to avoid TOCTOU race
+    try:
+        shutil.copy2(_LAST_SCREENSHOT_PATH, dest_path)
+        return dest_path
+    except FileNotFoundError:
+        return None
 
 
 def cleanup_old_temp_screenshots(max_age_hours: int = 24) -> int:
@@ -112,8 +126,6 @@ def cleanup_old_temp_screenshots(max_age_hours: int = 24) -> int:
 
     if not temp_dir.exists():
         return 0
-
-    import time
 
     current_time = time.time()
     max_age_seconds = max_age_hours * 3600

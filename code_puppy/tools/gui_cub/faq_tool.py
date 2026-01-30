@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from pydantic_ai import RunContext
 from rich.console import Console
@@ -190,7 +193,7 @@ def list_faq_topics() -> dict[str, str]:
     return FAQ_TOPICS.copy()
 
 
-def register_faq_tool(agent):
+def register_faq_tool(agent: "Agent[Any, Any]") -> "Agent[Any, Any]":
     """Register the FAQ tool with an agent."""
 
     @agent.tool
@@ -269,3 +272,5 @@ def register_faq_tool(agent):
             "topics": topics,
             "count": len(topics),
         }
+
+    return agent

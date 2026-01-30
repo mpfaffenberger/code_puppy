@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pydantic_ai import RunContext
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from ..dependencies import PYAUTOGUI_AVAILABLE
 
@@ -19,7 +24,7 @@ from .screenshot_analyze import screenshot_analyze
 from .capture import _safe_screenshot
 
 
-def register_desktop_screenshot_tools(agent):
+def register_desktop_screenshot_tools(agent: "Agent[Any, Any]") -> None:
     """Register desktop screenshot and analysis tools."""
 
     @agent.tool

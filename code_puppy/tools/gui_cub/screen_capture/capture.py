@@ -305,8 +305,6 @@ def screenshot(
     - Explicit coordinates override for precise control
     - Graceful degradation ensures screenshots always succeed
     """
-    from pathlib import Path
-
     # TIERED LOCATION STRATEGY:
     # 1. Explicit coordinates (if all provided)
     # 2. Active window bounds (default, most focused)

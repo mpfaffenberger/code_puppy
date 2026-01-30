@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import io
 import platform
-from typing import List
+
 
 from PIL import Image
 
@@ -203,8 +203,8 @@ class VisionOCRProvider(OCRProvider):
                 )
 
             # Parse results
-            words: List[OCRWord] = []
-            full_text_lines: List[str] = []
+            words: list[OCRWord] = []
+            full_text_lines: list[str] = []
 
             observations = request.results()
             if not observations:

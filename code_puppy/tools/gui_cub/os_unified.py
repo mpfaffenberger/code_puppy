@@ -6,10 +6,14 @@ These provide parity-style interfaces: ui_list_windows, ui_list_elements, ui_fin
 from __future__ import annotations
 
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import RunContext
 
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
+
+from .platform import IS_MACOS, IS_WINDOWS
 from code_puppy.messaging import emit_warning
 from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
@@ -20,7 +24,7 @@ from code_puppy.tools.gui_cub.result_types import (
     WindowListResult,
 )
 
-if sys.platform == "win32":
+if IS_WINDOWS:
     from code_puppy.tools.gui_cub.windows_automation import (
         list_elements_in_window as _win_list_elements,
         find_element as _win_find_element,
@@ -32,7 +36,7 @@ if sys.platform == "win32":
 else:
     _WIN = False
 
-if sys.platform == "darwin":
+if IS_MACOS:
     from code_puppy.tools.gui_cub.accessibility import (
         list_accessible_elements as _mac_list_elements,
         find_accessible_element as _mac_find_element,
@@ -41,7 +45,7 @@ if sys.platform == "darwin":
 
     try:
         import atomacos as _atomacos  # type: ignore
-    except Exception:
+    except ImportError:
         _atomacos = None
     _MAC = True
 else:
@@ -178,7 +182,7 @@ def ui_click_element(
         return ElementClickResult(success=False, error=str(e))
 
 
-def register_os_unified_tools(agent):
+def register_os_unified_tools(agent: "Agent[Any, Any]") -> None:
     """Register unified OS-aware UI tools."""
 
     @agent.tool

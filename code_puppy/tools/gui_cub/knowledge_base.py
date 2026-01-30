@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import RunContext
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 from rich.console import Console
 
 console = Console()
@@ -132,7 +136,7 @@ def append_to_knowledge_base(
         return False, f"Error: {e}"
 
 
-def register_knowledge_base_tool(agent):
+def register_knowledge_base_tool(agent: "Agent[Any, Any]") -> "Agent[Any, Any]":
     """Register the knowledge base tool."""
 
     @agent.tool
@@ -185,3 +189,5 @@ def register_knowledge_base_tool(agent):
             "message": message,
             "kb_path": str(get_gui_cub_base_dir() / "gui_cub_knowledge_base.md"),
         }
+
+    return agent

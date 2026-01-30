@@ -15,10 +15,11 @@ Formats that need conversion: BMP, TIFF, and others.
 from __future__ import annotations
 
 import io
+from typing import Final
 
 
 # MIME types universally accepted by vision APIs
-ACCEPTED_MIME_TYPES = {
+ACCEPTED_MIME_TYPES: Final[set[str]] = {
     "image/png",
     "image/jpeg",
     "image/gif",
@@ -26,8 +27,8 @@ ACCEPTED_MIME_TYPES = {
 }
 
 # Default output format for conversion
-DEFAULT_OUTPUT_FORMAT = "PNG"
-DEFAULT_OUTPUT_MIME_TYPE = "image/png"
+DEFAULT_OUTPUT_FORMAT: Final = "PNG"
+DEFAULT_OUTPUT_MIME_TYPE: Final = "image/png"
 
 
 def normalize_image_for_vqa(

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 if sys.platform == "win32":
     try:
@@ -52,7 +55,7 @@ from .core import (
 )
 
 
-def register_windows_tools(agent):
+def register_windows_tools(agent: "Agent[Any, Any]") -> None:
     """Register Windows automation tools.
 
     This file contains 12+ Windows-specific automation tools (872 lines total):

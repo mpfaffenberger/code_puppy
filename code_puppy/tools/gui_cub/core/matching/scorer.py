@@ -4,7 +4,7 @@ This module contains pure functions for fuzzy text matching,
 separated from caching and I/O for easy testing.
 """
 
-from typing import List, Tuple
+from __future__ import annotations
 
 
 def normalize_text_pure(text: str) -> str:
@@ -25,7 +25,7 @@ def normalize_text_pure(text: str) -> str:
     return normalized
 
 
-def generate_identifier_variants(search_text: str) -> List[str]:
+def generate_identifier_variants(search_text: str) -> list[str]:
     """Generate identifier variants for fuzzy matching.
 
     Creates common programming identifier patterns:
@@ -269,7 +269,7 @@ def is_above_threshold(score: float, threshold: float) -> bool:
     return score >= threshold
 
 
-def rank_matches(matches: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
+def rank_matches(matches: list[tuple[str, float]]) -> list[tuple[str, float]]:
     """Rank matches by score (highest first).
 
     Args:
