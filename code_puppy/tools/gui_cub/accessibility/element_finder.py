@@ -19,7 +19,7 @@ else:
         atomacos = None
 
 
-from code_puppy.messaging import emit_error, emit_warning
+from code_puppy.messaging import emit_error
 from ..rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
@@ -67,9 +67,22 @@ def _element_to_info(elem: Any) -> ElementInfo:
         ElementInfo with element properties including comprehensive attributes
     """
     try:
-        elem_role = getattr(elem, "AXRole", None)
-        elem_title = getattr(elem, "AXTitle", None)
-        elem_description = getattr(elem, "AXDescription", None)
+        # Helper to safely convert values to strings
+        # AXValue can return NativeUIElement which is not JSON serializable
+        def safe_str(val: Any) -> str | None:
+            if val is None:
+                return None
+            if isinstance(val, (str, int, float, bool)):
+                return str(val) if not isinstance(val, str) else val
+            # For complex types (NativeUIElement, etc.), convert to string repr or skip
+            try:
+                return str(val)
+            except Exception:
+                return None
+
+        elem_role = safe_str(getattr(elem, "AXRole", None))
+        elem_title = safe_str(getattr(elem, "AXTitle", None))
+        elem_description = safe_str(getattr(elem, "AXDescription", None))
         elem_position = getattr(elem, "AXPosition", None)
         elem_size = getattr(elem, "AXSize", None)
 
@@ -77,13 +90,12 @@ def _element_to_info(elem: Any) -> ElementInfo:
             role=elem_role,
             title=elem_title,
             description=elem_description,
-            # NEW: Comprehensive attributes
-            value=getattr(elem, "AXValue", None),
-            placeholder=getattr(elem, "AXPlaceholderValue", None),
-            help=getattr(elem, "AXHelp", None),
-            role_description=getattr(elem, "AXRoleDescription", None),
-            identifier=getattr(elem, "AXIdentifier", None),
-            subrole=getattr(elem, "AXSubrole", None),
+            value=safe_str(getattr(elem, "AXValue", None)),
+            placeholder=safe_str(getattr(elem, "AXPlaceholderValue", None)),
+            help=safe_str(getattr(elem, "AXHelp", None)),
+            role_description=safe_str(getattr(elem, "AXRoleDescription", None)),
+            identifier=safe_str(getattr(elem, "AXIdentifier", None)),
+            subrole=safe_str(getattr(elem, "AXSubrole", None)),
         )
 
         # Calculate position and center
@@ -309,7 +321,7 @@ def find_accessible_element(
                 # Extract raw elements
                 matches = [elem_dict["element"] for elem_dict, _ in fuzzy_matches]
             else:
-                emit_warning(
+                emit_rich(
                     f"[yellow]No fuzzy matches found with threshold {fuzzy_threshold}[/yellow]",
                     message_group=group_id,
                 )
@@ -322,7 +334,7 @@ def find_accessible_element(
                 pass
 
         if not matches:
-            emit_warning(
+            emit_rich(
                 "[yellow]No elements found matching criteria[/yellow]",
                 message_group=group_id,
             )
