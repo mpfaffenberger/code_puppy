@@ -5,7 +5,7 @@ Code Puppy prompts on configurable schedules (intervals, cron expressions).
 
 Components:
     - config: Task definitions and JSON persistence
-    - daemon: Background scheduler process  
+    - daemon: Background scheduler process
     - executor: Task execution logic
     - platform: Cross-platform daemon management
 """
@@ -23,16 +23,18 @@ from code_puppy.scheduler.config import (
     toggle_task,
     update_task,
 )
+from code_puppy.scheduler.daemon import start_daemon_background
 
 __all__ = [
     "ScheduledTask",
     "load_tasks",
-    "save_tasks", 
+    "save_tasks",
     "add_task",
     "update_task",
     "delete_task",
     "get_task",
     "toggle_task",
+    "start_daemon_background",
     "SCHEDULES_FILE",
     "SCHEDULER_PID_FILE",
     "SCHEDULER_LOG_DIR",

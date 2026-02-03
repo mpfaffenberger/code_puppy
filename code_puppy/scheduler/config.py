@@ -7,9 +7,9 @@ for scheduled Code Puppy tasks.
 import json
 import os
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
 
 # Import from existing config
 from code_puppy.config import DATA_DIR
@@ -22,6 +22,7 @@ SCHEDULER_LOG_DIR = os.path.join(DATA_DIR, "scheduler_logs")
 @dataclass
 class ScheduledTask:
     """A scheduled Code Puppy task."""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     name: str = ""
     prompt: str = ""
@@ -36,14 +37,14 @@ class ScheduledTask:
     last_run: Optional[str] = None
     last_status: Optional[str] = None  # "success", "failed", "running"
     last_exit_code: Optional[int] = None
-    
+
     def __post_init__(self):
         if not self.log_file:
             self.log_file = os.path.join(SCHEDULER_LOG_DIR, f"{self.id}.log")
-    
+
     def to_dict(self) -> dict:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "ScheduledTask":
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})

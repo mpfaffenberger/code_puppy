@@ -4,17 +4,12 @@ Handles command-line operations like starting/stopping the daemon,
 listing tasks, and running tasks immediately.
 """
 
-import sys
-
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
 
 def handle_scheduler_start() -> bool:
     """Start the scheduler daemon in background."""
-    import subprocess
-    import time
-
-    from code_puppy.scheduler.daemon import get_daemon_pid
+    from code_puppy.scheduler.daemon import get_daemon_pid, start_daemon_background
 
     pid = get_daemon_pid()
     if pid:
@@ -23,30 +18,8 @@ def handle_scheduler_start() -> bool:
 
     emit_info("Starting scheduler daemon...")
 
-    # Start daemon in background
-    cmd = [sys.executable, "-m", "code_puppy.scheduler.daemon"]
-
-    if sys.platform == "win32":
-        # Windows: CREATE_NO_WINDOW flag
-        subprocess.Popen(
-            cmd,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    else:
-        # Unix: start_new_session for proper daemon
-        subprocess.Popen(
-            cmd,
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-    time.sleep(1)
-
-    pid = get_daemon_pid()
-    if pid:
+    if start_daemon_background():
+        pid = get_daemon_pid()
         emit_success(f"Scheduler daemon started (PID {pid})")
         return True
     else:

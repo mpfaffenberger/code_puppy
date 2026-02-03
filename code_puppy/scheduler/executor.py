@@ -60,6 +60,14 @@ def execute_task(task: ScheduledTask) -> Tuple[bool, int, str]:
         working_dir = os.getcwd()
     working_dir = os.path.expanduser(working_dir)
 
+    # Validate working directory exists
+    if not os.path.isdir(working_dir):
+        error_msg = f"Working directory not found: {working_dir}"
+        task.last_status = "failed"
+        task.last_exit_code = -1
+        update_task(task)
+        return (False, -1, error_msg)
+
     # Ensure log file path
     log_file = task.log_file
     if not log_file:

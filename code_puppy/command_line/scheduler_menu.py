@@ -18,12 +18,16 @@ from prompt_toolkit.widgets import Frame
 from code_puppy.messaging import emit_error, emit_success, emit_warning
 from code_puppy.scheduler.config import (
     ScheduledTask,
-    load_tasks,
     add_task,
     delete_task,
+    load_tasks,
     toggle_task,
 )
-from code_puppy.scheduler.daemon import get_daemon_pid, stop_daemon
+from code_puppy.scheduler.daemon import (
+    get_daemon_pid,
+    start_daemon_background,
+    stop_daemon,
+)
 from code_puppy.scheduler.executor import run_task_by_id
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
@@ -76,7 +80,9 @@ class SchedulerMenu:
         # Header with daemon status
         daemon_pid = get_daemon_pid()
         if daemon_pid:
-            lines.append(("fg:ansigreen bold", f" 🐕 Daemon: RUNNING (PID {daemon_pid})"))
+            lines.append(
+                ("fg:ansigreen bold", f" 🐕 Daemon: RUNNING (PID {daemon_pid})")
+            )
         else:
             lines.append(("fg:ansired bold", " 🐕 Daemon: STOPPED"))
         lines.append(("", "\n\n"))
@@ -106,7 +112,9 @@ class SchedulerMenu:
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", f" Page {self.current_page + 1}/{total_pages}\n"))
+        lines.append(
+            ("fg:ansibrightblack", f" Page {self.current_page + 1}/{total_pages}\n")
+        )
         self._render_navigation_hints(lines)
         return lines
 
@@ -167,7 +175,9 @@ class SchedulerMenu:
 
         # Prompt (truncated)
         lines.append(("bold", "  Prompt:\n"))
-        prompt_preview = task.prompt[:150] + "..." if len(task.prompt) > 150 else task.prompt
+        prompt_preview = (
+            task.prompt[:150] + "..." if len(task.prompt) > 150 else task.prompt
+        )
         for line in prompt_preview.split("\n")[:4]:
             lines.append(("fg:ansibrightblack", f"    {line}\n"))
         lines.append(("", "\n"))
@@ -201,8 +211,12 @@ class SchedulerMenu:
         self.menu_control = FormattedTextControl(text="")
         self.preview_control = FormattedTextControl(text="")
 
-        menu_window = Window(content=self.menu_control, wrap_lines=True, width=Dimension(weight=40))
-        preview_window = Window(content=self.preview_control, wrap_lines=True, width=Dimension(weight=60))
+        menu_window = Window(
+            content=self.menu_control, wrap_lines=True, width=Dimension(weight=40)
+        )
+        preview_window = Window(
+            content=self.preview_control, wrap_lines=True, width=Dimension(weight=60)
+        )
         menu_frame = Frame(menu_window, title="📅 Scheduled Tasks")
         preview_frame = Frame(preview_window, title="Details")
         root_container = VSplit([menu_frame, preview_frame])
@@ -286,7 +300,9 @@ class SchedulerMenu:
             event.app.exit()
 
         layout = Layout(root_container)
-        app = Application(layout=layout, key_bindings=kb, full_screen=False, mouse_support=False)
+        app = Application(
+            layout=layout, key_bindings=kb, full_screen=False, mouse_support=False
+        )
 
         set_awaiting_user_input(True)
         sys.stdout.write("\033[?1049h")  # Enter alternate buffer
@@ -337,7 +353,9 @@ def _create_new_task() -> Optional[ScheduledTask]:
 
         if choice == "1":
             schedule_type = "interval"
-            schedule_value = safe_input("Interval (e.g., 30m, 1h, 2d): ").strip() or "1h"
+            schedule_value = (
+                safe_input("Interval (e.g., 30m, 1h, 2d): ").strip() or "1h"
+            )
         elif choice == "2":
             schedule_type = "hourly"
             schedule_value = "1h"
@@ -473,21 +491,7 @@ def show_scheduler_menu() -> bool:
                     emit_error("Failed to stop daemon")
             else:
                 print("\n⏳ Starting daemon in background...")
-                # Start daemon in background
-                import subprocess
-
-                cmd = [sys.executable, "-m", "code_puppy.scheduler.daemon"]
-                if sys.platform == "win32":
-                    subprocess.Popen(cmd, creationflags=subprocess.CREATE_NO_WINDOW)
-                else:
-                    subprocess.Popen(
-                        cmd,
-                        start_new_session=True,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                time.sleep(1)
-                if get_daemon_pid():
+                if start_daemon_background():
                     emit_success("Daemon started")
                 else:
                     emit_error("Failed to start daemon")

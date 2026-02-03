@@ -73,8 +73,11 @@ def should_run_task(task: ScheduledTask, now: datetime) -> bool:
         return (now - last_run) >= timedelta(days=1)
 
     elif task.schedule_type == "cron":
-        # For cron, we'd need croniter library
-        # For now, skip cron tasks (can be added later)
+        # Cron expressions not yet supported - would need croniter library
+        # Log warning so users know why task isn't running
+        print(
+            f"[Scheduler] Warning: Cron schedules not yet supported, skipping: {task.name}"
+        )
         return False
 
     return False
@@ -189,6 +192,40 @@ def get_daemon_pid() -> Optional[int]:
         # PID file exists but process is not running - stale PID file
         remove_pid_file()
         return None
+
+
+def start_daemon_background() -> bool:
+    """Start the scheduler daemon in the background.
+
+    Returns:
+        True if daemon started successfully, False otherwise.
+    """
+    import subprocess
+    import time
+
+    pid = get_daemon_pid()
+    if pid:
+        return True  # Already running
+
+    cmd = [sys.executable, "-m", "code_puppy.scheduler.daemon"]
+
+    if sys.platform == "win32":
+        subprocess.Popen(
+            cmd,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        subprocess.Popen(
+            cmd,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    time.sleep(1)
+    return get_daemon_pid() is not None
 
 
 def stop_daemon() -> bool:
