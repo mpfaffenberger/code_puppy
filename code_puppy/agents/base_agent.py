@@ -3,8 +3,11 @@
 import asyncio
 import json
 import math
+import pathlib
 import signal
 import threading
+import time
+import traceback
 import uuid
 from abc import ABC, abstractmethod
 from typing import (
@@ -37,6 +40,7 @@ from pydantic_ai.durable_exec.dbos import DBOSAgent
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
+    ModelResponse,
     TextPart,
     ThinkingPart,
     ToolCallPart,
@@ -47,6 +51,10 @@ from pydantic_ai.messages import (
 from rich.text import Text
 
 from code_puppy.agents.event_stream_handler import event_stream_handler
+from code_puppy.callbacks import (
+    on_agent_run_end,
+    on_agent_run_start,
+)
 
 # Consolidated relative imports
 from code_puppy.config import (
@@ -84,6 +92,49 @@ _delayed_compaction_requested = False
 _reload_count = 0
 
 
+def _log_error_to_file(exc: Exception) -> Optional[str]:
+    """Log detailed error information to ~/.code_puppy/error_logs/log_{timestamp}.txt.
+
+    Args:
+        exc: The exception to log.
+
+    Returns:
+        The path to the log file if successful, None otherwise.
+    """
+    try:
+        error_logs_dir = pathlib.Path.home() / ".code_puppy" / "error_logs"
+        error_logs_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        log_file = error_logs_dir / f"log_{timestamp}.txt"
+
+        with open(log_file, "w", encoding="utf-8") as f:
+            f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Exception Type: {type(exc).__name__}\n")
+            f.write(f"Exception Message: {str(exc)}\n")
+            f.write(f"Exception Args: {exc.args}\n")
+            f.write("\n--- Full Traceback ---\n")
+            f.write(traceback.format_exc())
+            f.write("\n--- Exception Chain ---\n")
+            # Walk the exception chain for chained exceptions
+            current = exc
+            chain_depth = 0
+            while current is not None and chain_depth < 10:
+                f.write(
+                    f"\n[Cause {chain_depth}] {type(current).__name__}: {current}\n"
+                )
+                f.write("".join(traceback.format_tb(current.__traceback__)))
+                current = (
+                    current.__cause__ if current.__cause__ else current.__context__
+                )
+                chain_depth += 1
+
+        return str(log_file)
+    except Exception:
+        # Don't let logging errors break the main flow
+        return None
+
+
 class BaseAgent(ABC):
     """Base class for all agent configurations."""
 
@@ -100,6 +151,37 @@ class BaseAgent(ABC):
         # Cache for MCP tool definitions (for token estimation)
         # This is populated after the first successful run when MCP tools are retrieved
         self._mcp_tool_definitions_cache: List[Dict[str, Any]] = []
+
+    def get_identity(self) -> str:
+        """Get a unique identity for this agent instance.
+
+        Returns:
+            A string like 'python-programmer-a3f2b1' combining name + short UUID.
+        """
+        return f"{self.name}-{self.id[:6]}"
+
+    def get_identity_prompt(self) -> str:
+        """Get the identity prompt suffix to embed in system prompts.
+
+        Returns:
+            A string instructing the agent about its identity for task ownership.
+        """
+        return (
+            f"\n\nYour ID is `{self.get_identity()}`. "
+            "Use this for any tasks which require identifying yourself "
+            "such as claiming task ownership or coordination with other agents."
+        )
+
+    def get_full_system_prompt(self) -> str:
+        """Get the complete system prompt with identity automatically appended.
+
+        This wraps get_system_prompt() and appends the agent's identity,
+        so subclasses don't need to worry about it.
+
+        Returns:
+            The full system prompt including identity information.
+        """
+        return self.get_system_prompt() + self.get_identity_prompt()
 
     @property
     @abstractmethod
@@ -229,6 +311,33 @@ class BaseAgent(ABC):
             cleaned.append(message)
         return cleaned
 
+    def ensure_history_ends_with_request(
+        self, messages: List[ModelMessage]
+    ) -> List[ModelMessage]:
+        """Ensure message history ends with a ModelRequest.
+
+        pydantic_ai requires that processed message history ends with a ModelRequest.
+        This can fail when swapping models mid-conversation if the history ends with
+        a ModelResponse from the previous model.
+
+        This method trims trailing ModelResponse messages to ensure compatibility.
+
+        Args:
+            messages: List of messages to validate/fix.
+
+        Returns:
+            List of messages guaranteed to end with ModelRequest, or empty list
+            if no ModelRequest is found.
+        """
+        if not messages:
+            return messages
+
+        # Trim trailing ModelResponse messages
+        while messages and isinstance(messages[-1], ModelResponse):
+            messages = messages[:-1]
+
+        return messages
+
     # Message history processing methods (moved from state_management.py and message_history_processor.py)
     def _stringify_part(self, part: Any) -> str:
         """Create a stable string representation for a message part.
@@ -337,10 +446,10 @@ class BaseAgent(ABC):
 
     def estimate_token_count(self, text: str) -> int:
         """
-        Simple token estimation using len(message) / 3.
+        Simple token estimation using len(message) / 2.5.
         This replaces tiktoken with a much simpler approach.
         """
-        return max(1, math.floor((len(text) / 3)))
+        return max(1, math.floor((len(text) / 2.5)))
 
     def estimate_tokens_for_message(self, message: ModelMessage) -> int:
         """
@@ -372,42 +481,27 @@ class BaseAgent(ABC):
         total_tokens = 0
 
         # 1. Estimate tokens for system prompt / instructions
-        # For Claude Code models, the full system prompt is prepended to the first
-        # user message (already in message history), so we only count the short
-        # fixed instructions. For other models, count the full system prompt.
+        # Use prepare_prompt_for_model() to get the correct instructions for token counting.
+        # For models that prepend system prompt to user message (claude-code, antigravity),
+        # this returns the short fixed instructions. For other models, returns full prompt.
         try:
-            from code_puppy.model_utils import (
-                get_antigravity_instructions,
-                get_chatgpt_codex_instructions,
-                get_claude_code_instructions,
-                is_antigravity_model,
-                is_chatgpt_codex_model,
-                is_claude_code_model,
-            )
+            from code_puppy.model_utils import prepare_prompt_for_model
 
             model_name = (
                 self.get_model_name() if hasattr(self, "get_model_name") else ""
             )
-            if is_claude_code_model(model_name):
-                # For Claude Code models, only count the short fixed instructions
-                # The full system prompt is already in the message history
-                instructions = get_claude_code_instructions()
-                total_tokens += self.estimate_token_count(instructions)
-            elif is_chatgpt_codex_model(model_name):
-                # For ChatGPT Codex models, only count the short fixed instructions
-                # The full system prompt is already in the message history
-                instructions = get_chatgpt_codex_instructions()
-                total_tokens += self.estimate_token_count(instructions)
-            elif is_antigravity_model(model_name):
-                # For Antigravity models, only count the short fixed instructions
-                # The full system prompt is already in the message history
-                instructions = get_antigravity_instructions()
-                total_tokens += self.estimate_token_count(instructions)
-            else:
-                # For other models, count the full system prompt
-                system_prompt = self.get_system_prompt()
-                if system_prompt:
-                    total_tokens += self.estimate_token_count(system_prompt)
+            system_prompt = self.get_full_system_prompt()
+
+            # Get the instructions that will be used (handles model-specific logic via hooks)
+            prepared = prepare_prompt_for_model(
+                model_name=model_name,
+                system_prompt=system_prompt,
+                user_prompt="",  # Empty - we just need the instructions
+                prepend_system_to_user=False,  # Don't modify prompt, just get instructions
+            )
+
+            if prepared.instructions:
+                total_tokens += self.estimate_token_count(prepared.instructions)
         except Exception:
             pass  # If we can't get system prompt, skip it
 
@@ -1129,7 +1223,7 @@ class BaseAgent(ABC):
             message_group,
         )
 
-        instructions = self.get_system_prompt()
+        instructions = self.get_full_system_prompt()
         puppy_rules = self.load_puppy_rules()
         if puppy_rules:
             instructions += f"\n{puppy_rules}"
@@ -1293,7 +1387,7 @@ class BaseAgent(ABC):
             model_name, models_config, str(uuid.uuid4())
         )
 
-        instructions = self.get_system_prompt()
+        instructions = self.get_full_system_prompt()
         puppy_rules = self.load_puppy_rules()
         if puppy_rules:
             instructions += f"\n{puppy_rules}"
@@ -1565,24 +1659,25 @@ class BaseAgent(ABC):
         if output_type is not None:
             pydantic_agent = self._create_agent_with_output_type(output_type)
 
-        # Handle claude-code, chatgpt-codex, and antigravity models: prepend system prompt to first user message
-        from code_puppy.model_utils import (
-            is_antigravity_model,
-            is_chatgpt_codex_model,
-            is_claude_code_model,
-        )
+        # Handle model-specific prompt transformations via prepare_prompt_for_model()
+        # This uses the get_model_system_prompt hook, so plugins can register their own handlers
+        from code_puppy.model_utils import prepare_prompt_for_model
 
-        if (
-            is_claude_code_model(self.get_model_name())
-            or is_chatgpt_codex_model(self.get_model_name())
-            or is_antigravity_model(self.get_model_name())
-        ):
-            if len(self.get_message_history()) == 0:
-                system_prompt = self.get_system_prompt()
-                puppy_rules = self.load_puppy_rules()
-                if puppy_rules:
-                    system_prompt += f"\n{puppy_rules}"
-                prompt = system_prompt + "\n\n" + prompt
+        # Only prepend system prompt on first message (empty history)
+        should_prepend = len(self.get_message_history()) == 0
+        if should_prepend:
+            system_prompt = self.get_full_system_prompt()
+            puppy_rules = self.load_puppy_rules()
+            if puppy_rules:
+                system_prompt += f"\n{puppy_rules}"
+
+            prepared = prepare_prompt_for_model(
+                model_name=self.get_model_name(),
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                prepend_system_to_user=True,
+            )
+            prompt = prepared.user_prompt
 
         # Build combined prompt payload when attachments are provided.
         attachment_parts: List[Any] = []
@@ -1729,6 +1824,17 @@ class BaseAgent(ABC):
         # Create the task FIRST
         agent_task = asyncio.create_task(run_agent_task())
 
+        # Fire agent_run_start hook - plugins can use this to start background tasks
+        # (e.g., token refresh heartbeats for OAuth models)
+        try:
+            await on_agent_run_start(
+                agent_name=self.name,
+                model_name=self.get_model_name(),
+                session_id=group_id,
+            )
+        except Exception:
+            pass  # Don't fail agent run if hook fails
+
         # Import shell process status helper
 
         loop = asyncio.get_running_loop()
@@ -1810,14 +1916,53 @@ class BaseAgent(ABC):
                 except Exception:
                     pass  # Don't fail the run if cache update fails
 
+            # Extract response text for the callback
+            _run_response_text = ""
+            if result is not None:
+                if hasattr(result, "data"):
+                    _run_response_text = str(result.data) if result.data else ""
+                elif hasattr(result, "output"):
+                    _run_response_text = str(result.output) if result.output else ""
+                else:
+                    _run_response_text = str(result)
+
+            _run_success = True
+            _run_error = None
             return result
         except asyncio.CancelledError:
+            _run_success = False
+            _run_error = None  # Cancellation is not an error
+            _run_response_text = ""
             agent_task.cancel()
         except KeyboardInterrupt:
-            # Handle direct keyboard interrupt during await
+            _run_success = False
+            _run_error = None  # User interrupt is not an error
+            _run_response_text = ""
             if not agent_task.done():
                 agent_task.cancel()
+        except Exception as e:
+            _run_success = False
+            _run_error = e
+            _run_response_text = ""
+            raise
         finally:
+            # Fire agent_run_end hook - plugins can use this for:
+            # - Stopping background tasks (token refresh heartbeats)
+            # - Workflow orchestration (Ralph's autonomous loop)
+            # - Logging/analytics
+            try:
+                await on_agent_run_end(
+                    agent_name=self.name,
+                    model_name=self.get_model_name(),
+                    session_id=group_id,
+                    success=_run_success,
+                    error=_run_error,
+                    response_text=_run_response_text,
+                    metadata={"model": self.get_model_name()},
+                )
+            except Exception:
+                pass  # Don't fail cleanup if hook fails
+
             # Stop keyboard listener if it was started
             if key_listener_stop_event is not None:
                 key_listener_stop_event.set()

@@ -52,7 +52,7 @@ The plugin ships with sensible defaults in `config.py`:
 ```python
 CLAUDE_CODE_OAUTH_CONFIG = {
     "auth_url": "https://claude.ai/oauth/authorize",
-    "token_url": "https://claude.ai/api/oauth/token",
+    "token_url": "https://console.anthropic.com/v1/oauth/token",
     "api_base_url": "https://api.anthropic.com",
     "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
     "scope": "org:create_api_key user:profile user:inference",

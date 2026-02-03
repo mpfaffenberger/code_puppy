@@ -34,6 +34,8 @@ class CodePuppyAgent(BaseAgent):
             "agent_run_shell_command",
             "agent_share_your_reasoning",
             "ask_user_question",
+            "activate_skill",
+            "list_or_search_skills",
         ]
 
     def get_system_prompt(self) -> str:

@@ -9,11 +9,12 @@ import os
 import socket
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 import httpx
-import requests
 
+if TYPE_CHECKING:
+    import requests
 from code_puppy.config import get_http2
 
 
@@ -101,17 +102,24 @@ class RetryingAsyncClient(httpx.AsyncClient):
 
     This replaces the Tenacity transport with a more direct subclass implementation,
     which plays nicer with proxies and custom transports (like Antigravity).
+
+    Special handling for Cerebras: Their Retry-After headers are absurdly aggressive
+    (often 60s), so we ignore them and use a 3s base backoff instead.
     """
 
     def __init__(
         self,
         retry_status_codes: tuple = (429, 502, 503, 504),
         max_retries: int = 5,
+        model_name: str = "",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.retry_status_codes = retry_status_codes
         self.max_retries = max_retries
+        self.model_name = model_name.lower() if model_name else ""
+        # Cerebras sends crazy aggressive Retry-After headers (60s), ignore them
+        self._ignore_retry_headers = "cerebras" in self.model_name
 
     async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
         """Send request with automatic retries for rate limits and server errors."""
@@ -130,32 +138,39 @@ class RetryingAsyncClient(httpx.AsyncClient):
                 # Close response if we're going to retry
                 await response.aclose()
 
-                # Determine wait time
-                wait_time = 1.0 * (
-                    2**attempt
-                )  # Default exponential backoff: 1s, 2s, 4s...
+                # Determine wait time - Cerebras gets special treatment
+                if self._ignore_retry_headers:
+                    # Cerebras: 3s base with exponential backoff (3s, 6s, 12s...)
+                    wait_time = 3.0 * (2**attempt)
+                else:
+                    # Default exponential backoff: 1s, 2s, 4s...
+                    wait_time = 1.0 * (2**attempt)
 
-                # Check Retry-After header
-                retry_after = response.headers.get("Retry-After")
-                if retry_after:
-                    try:
-                        wait_time = float(retry_after)
-                    except ValueError:
-                        # Try parsing http-date
-                        from email.utils import parsedate_to_datetime
-
+                    # Check Retry-After header (only for non-Cerebras)
+                    retry_after = response.headers.get("Retry-After")
+                    if retry_after:
                         try:
-                            date = parsedate_to_datetime(retry_after)
-                            wait_time = date.timestamp() - time.time()
-                        except Exception:
-                            pass
+                            wait_time = float(retry_after)
+                        except ValueError:
+                            # Try parsing http-date
+                            from email.utils import parsedate_to_datetime
+
+                            try:
+                                date = parsedate_to_datetime(retry_after)
+                                wait_time = date.timestamp() - time.time()
+                            except Exception:
+                                pass
 
                 # Cap wait time
                 wait_time = max(0.5, min(wait_time, 60.0))
 
                 if attempt < self.max_retries:
+                    provider_note = (
+                        " (ignoring header)" if self._ignore_retry_headers else ""
+                    )
                     emit_info(
-                        f"HTTP retry: {response.status_code} received. Waiting {wait_time:.1f}s (attempt {attempt + 1}/{self.max_retries})"
+                        f"HTTP retry: {response.status_code} received{provider_note}. "
+                        f"Waiting {wait_time:.1f}s (attempt {attempt + 1}/{self.max_retries})"
                     )
                     await asyncio.sleep(wait_time)
 
@@ -218,12 +233,14 @@ def create_async_client(
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
     retry_status_codes: tuple = (429, 502, 503, 504),
+    model_name: str = "",
 ) -> httpx.AsyncClient:
     config = _resolve_proxy_config(verify)
 
     if not config.disable_retry:
         return RetryingAsyncClient(
             retry_status_codes=retry_status_codes,
+            model_name=model_name,
             proxy=config.proxy_url,
             verify=config.verify,
             headers=headers or {},
@@ -246,7 +263,9 @@ def create_requests_session(
     timeout: float = 5.0,
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
-) -> requests.Session:
+) -> "requests.Session":
+    import requests
+
     session = requests.Session()
 
     if verify is None:
@@ -287,6 +306,7 @@ def create_reopenable_async_client(
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
     retry_status_codes: tuple = (429, 502, 503, 504),
+    model_name: str = "",
 ) -> Union[ReopenableAsyncClient, httpx.AsyncClient]:
     config = _resolve_proxy_config(verify)
 
@@ -306,12 +326,15 @@ def create_reopenable_async_client(
         kwargs = {**base_kwargs, "client_class": client_class}
         if not config.disable_retry:
             kwargs["retry_status_codes"] = retry_status_codes
+            kwargs["model_name"] = model_name
         return ReopenableAsyncClient(**kwargs)
     else:
         # Fallback to RetryingAsyncClient or plain AsyncClient
         if not config.disable_retry:
             return RetryingAsyncClient(
-                retry_status_codes=retry_status_codes, **base_kwargs
+                retry_status_codes=retry_status_codes,
+                model_name=model_name,
+                **base_kwargs,
             )
         else:
             return httpx.AsyncClient(**base_kwargs)

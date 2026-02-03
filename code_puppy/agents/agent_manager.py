@@ -4,6 +4,7 @@ import importlib
 import json
 import os
 import pkgutil
+import re
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Type, Union
@@ -12,8 +13,8 @@ from pydantic_ai.messages import ModelMessage
 
 from code_puppy.agents.base_agent import BaseAgent
 from code_puppy.agents.json_agent import JSONAgent, discover_json_agents
-from code_puppy.callbacks import on_agent_reload
-from code_puppy.messaging import emit_warning
+from code_puppy.callbacks import on_agent_reload, on_register_agents
+from code_puppy.messaging import emit_success, emit_warning
 
 # Registry of available agents (Python classes and JSON file paths)
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
@@ -288,6 +289,38 @@ def _discover_agents(message_group_id: Optional[str] = None):
             message_group=message_group_id,
         )
 
+    # 3. Discover agents registered by plugins
+    try:
+        results = on_register_agents()
+        for result in results:
+            if result is None:
+                continue
+            # Each result should be a list of agent definitions
+            agents_list = result if isinstance(result, list) else [result]
+            for agent_def in agents_list:
+                if not isinstance(agent_def, dict) or "name" not in agent_def:
+                    continue
+
+                agent_name = agent_def["name"]
+
+                # Support both class-based and JSON path-based registration
+                if "class" in agent_def:
+                    agent_class = agent_def["class"]
+                    if isinstance(agent_class, type) and issubclass(
+                        agent_class, BaseAgent
+                    ):
+                        _AGENT_REGISTRY[agent_name] = agent_class
+                elif "json_path" in agent_def:
+                    json_path = agent_def["json_path"]
+                    if isinstance(json_path, str):
+                        _AGENT_REGISTRY[agent_name] = json_path
+
+    except Exception as e:
+        emit_warning(
+            f"Warning: Could not load plugin agents: {e}",
+            message_group=message_group_id,
+        )
+
 
 def get_available_agents() -> Dict[str, str]:
     """Get a dictionary of available agents with their display names.
@@ -295,12 +328,33 @@ def get_available_agents() -> Dict[str, str]:
     Returns:
         Dict mapping agent names to display names.
     """
+    from ..config import (
+        PACK_AGENT_NAMES,
+        UC_AGENT_NAMES,
+        get_pack_agents_enabled,
+        get_universal_constructor_enabled,
+    )
+
     # Generate a message group ID for this operation
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
 
+    # Check if pack agents are enabled
+    pack_agents_enabled = get_pack_agents_enabled()
+
+    # Check if UC is enabled
+    uc_enabled = get_universal_constructor_enabled()
+
     agents = {}
     for name, agent_ref in _AGENT_REGISTRY.items():
+        # Filter out pack agents if disabled
+        if not pack_agents_enabled and name in PACK_AGENT_NAMES:
+            continue
+
+        # Filter out UC-dependent agents if UC is disabled
+        if not uc_enabled and name in UC_AGENT_NAMES:
+            continue
+
         try:
             if isinstance(agent_ref, str):  # JSON agent (file path)
                 agent_instance = JSONAgent(agent_ref)
@@ -423,12 +477,33 @@ def get_agent_descriptions() -> Dict[str, str]:
     Returns:
         Dict mapping agent names to their descriptions.
     """
+    from ..config import (
+        PACK_AGENT_NAMES,
+        UC_AGENT_NAMES,
+        get_pack_agents_enabled,
+        get_universal_constructor_enabled,
+    )
+
     # Generate a message group ID for this operation
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
 
+    # Check if pack agents are enabled
+    pack_agents_enabled = get_pack_agents_enabled()
+
+    # Check if UC is enabled
+    uc_enabled = get_universal_constructor_enabled()
+
     descriptions = {}
     for name, agent_ref in _AGENT_REGISTRY.items():
+        # Filter out pack agents if disabled
+        if not pack_agents_enabled and name in PACK_AGENT_NAMES:
+            continue
+
+        # Filter out UC-dependent agents if UC is disabled
+        if not uc_enabled and name in UC_AGENT_NAMES:
+            continue
+
         try:
             if isinstance(agent_ref, str):  # JSON agent (file path)
                 agent_instance = JSONAgent(agent_ref)
@@ -449,3 +524,206 @@ def refresh_agents():
     # Generate a message group ID for agent refreshing
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
+
+
+_CLONE_NAME_PATTERN = re.compile(r"^(?P<base>.+)-clone-(?P<index>\d+)$")
+_CLONE_DISPLAY_PATTERN = re.compile(r"\s*\(Clone\s+\d+\)$", re.IGNORECASE)
+
+
+def _strip_clone_suffix(agent_name: str) -> str:
+    """Strip a trailing -clone-N suffix from a name if present."""
+    match = _CLONE_NAME_PATTERN.match(agent_name)
+    return match.group("base") if match else agent_name
+
+
+def _strip_clone_display_suffix(display_name: str) -> str:
+    """Remove a trailing "(Clone N)" suffix from display names."""
+    cleaned = _CLONE_DISPLAY_PATTERN.sub("", display_name).strip()
+    return cleaned or display_name
+
+
+def is_clone_agent_name(agent_name: str) -> bool:
+    """Return True if the agent name looks like a clone."""
+    return bool(_CLONE_NAME_PATTERN.match(agent_name))
+
+
+def _default_display_name(agent_name: str) -> str:
+    """Build a default display name from an agent name."""
+    title = agent_name.title()
+    return f"{title} 🤖"
+
+
+def _build_clone_display_name(display_name: str, clone_index: int) -> str:
+    """Build a clone display name based on the source display name."""
+    base_name = _strip_clone_display_suffix(display_name)
+    return f"{base_name} (Clone {clone_index})"
+
+
+def _filter_available_tools(tool_names: List[str]) -> List[str]:
+    """Filter a tool list to only available tool names."""
+    from code_puppy.tools import get_available_tool_names
+
+    available_tools = set(get_available_tool_names())
+    return [tool for tool in tool_names if tool in available_tools]
+
+
+def _next_clone_index(
+    base_name: str, existing_names: set[str], agents_dir: Path
+) -> int:
+    """Compute the next clone index for a base name."""
+    clone_pattern = re.compile(rf"^{re.escape(base_name)}-clone-(\\d+)$")
+    indices = []
+    for name in existing_names:
+        match = clone_pattern.match(name)
+        if match:
+            indices.append(int(match.group(1)))
+
+    next_index = max(indices, default=0) + 1
+    while True:
+        clone_name = f"{base_name}-clone-{next_index}"
+        clone_path = agents_dir / f"{clone_name}.json"
+        if clone_name not in existing_names and not clone_path.exists():
+            return next_index
+        next_index += 1
+
+
+def clone_agent(agent_name: str) -> Optional[str]:
+    """Clone an agent definition into the user agents directory.
+
+    Args:
+        agent_name: Source agent name to clone.
+
+    Returns:
+        The cloned agent name, or None if cloning failed.
+    """
+    # Generate a message group ID for agent cloning
+    message_group_id = str(uuid.uuid4())
+    _discover_agents(message_group_id=message_group_id)
+
+    agent_ref = _AGENT_REGISTRY.get(agent_name)
+    if agent_ref is None:
+        emit_warning(f"Agent '{agent_name}' not found for cloning.")
+        return None
+
+    from ..config import get_agent_pinned_model, get_user_agents_directory
+
+    agents_dir = Path(get_user_agents_directory())
+    base_name = _strip_clone_suffix(agent_name)
+    existing_names = set(_AGENT_REGISTRY.keys())
+    clone_index = _next_clone_index(base_name, existing_names, agents_dir)
+    clone_name = f"{base_name}-clone-{clone_index}"
+    clone_path = agents_dir / f"{clone_name}.json"
+
+    try:
+        if isinstance(agent_ref, str):
+            with open(agent_ref, "r", encoding="utf-8") as f:
+                source_config = json.load(f)
+
+            source_display_name = source_config.get("display_name")
+            if not source_display_name:
+                source_display_name = _default_display_name(base_name)
+
+            clone_config = dict(source_config)
+            clone_config["name"] = clone_name
+            clone_config["display_name"] = _build_clone_display_name(
+                source_display_name, clone_index
+            )
+
+            tools = source_config.get("tools", [])
+            clone_config["tools"] = (
+                _filter_available_tools(tools) if isinstance(tools, list) else []
+            )
+
+            if not clone_config.get("model"):
+                clone_config.pop("model", None)
+        else:
+            agent_instance = agent_ref()
+            clone_config = {
+                "name": clone_name,
+                "display_name": _build_clone_display_name(
+                    agent_instance.display_name, clone_index
+                ),
+                "description": agent_instance.description,
+                "system_prompt": agent_instance.get_full_system_prompt(),
+                "tools": _filter_available_tools(agent_instance.get_available_tools()),
+            }
+
+            user_prompt = agent_instance.get_user_prompt()
+            if user_prompt is not None:
+                clone_config["user_prompt"] = user_prompt
+
+            tools_config = agent_instance.get_tools_config()
+            if tools_config is not None:
+                clone_config["tools_config"] = tools_config
+
+            pinned_model = get_agent_pinned_model(agent_instance.name)
+            if pinned_model:
+                clone_config["model"] = pinned_model
+    except Exception as exc:
+        emit_warning(f"Failed to build clone for '{agent_name}': {exc}")
+        return None
+
+    if clone_path.exists():
+        emit_warning(f"Clone target '{clone_name}' already exists.")
+        return None
+
+    try:
+        with open(clone_path, "w", encoding="utf-8") as f:
+            json.dump(clone_config, f, indent=2, ensure_ascii=False)
+        emit_success(f"Cloned '{agent_name}' to '{clone_name}'.")
+        return clone_name
+    except Exception as exc:
+        emit_warning(f"Failed to write clone file '{clone_path}': {exc}")
+        return None
+
+
+def delete_clone_agent(agent_name: str) -> bool:
+    """Delete a cloned JSON agent definition.
+
+    Args:
+        agent_name: Clone agent name to delete.
+
+    Returns:
+        True if the clone was deleted, False otherwise.
+    """
+    message_group_id = str(uuid.uuid4())
+    _discover_agents(message_group_id=message_group_id)
+
+    if not is_clone_agent_name(agent_name):
+        emit_warning(f"Agent '{agent_name}' is not a clone.")
+        return False
+
+    if get_current_agent_name() == agent_name:
+        emit_warning("Cannot delete the active agent. Switch agents first.")
+        return False
+
+    agent_ref = _AGENT_REGISTRY.get(agent_name)
+    if agent_ref is None:
+        emit_warning(f"Clone '{agent_name}' not found.")
+        return False
+
+    if not isinstance(agent_ref, str):
+        emit_warning(f"Clone '{agent_name}' is not a JSON agent.")
+        return False
+
+    clone_path = Path(agent_ref)
+    if not clone_path.exists():
+        emit_warning(f"Clone file for '{agent_name}' does not exist.")
+        return False
+
+    from ..config import get_user_agents_directory
+
+    agents_dir = Path(get_user_agents_directory()).resolve()
+    if clone_path.resolve().parent != agents_dir:
+        emit_warning(f"Refusing to delete non-user clone '{agent_name}'.")
+        return False
+
+    try:
+        clone_path.unlink()
+        emit_success(f"Deleted clone '{agent_name}'.")
+        _AGENT_REGISTRY.pop(agent_name, None)
+        _AGENT_HISTORIES.pop(agent_name, None)
+        return True
+    except Exception as exc:
+        emit_warning(f"Failed to delete clone '{agent_name}': {exc}")
+        return False

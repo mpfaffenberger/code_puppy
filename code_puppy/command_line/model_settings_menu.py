@@ -39,10 +39,10 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "description": "Controls randomness. Lower = more deterministic, higher = more creative.",
         "type": "numeric",
         "min": 0.0,
-        "max": 1.0,  # Clamped to 0-1 per user request
-        "step": 0.1,
+        "max": 1.0,
+        "step": 0.05,
         "default": None,  # None means use model default
-        "format": "{:.1f}",
+        "format": "{:.2f}",
     },
     "seed": {
         "name": "Seed",
@@ -53,6 +53,16 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "step": 1,
         "default": None,
         "format": "{:.0f}",
+    },
+    "top_p": {
+        "name": "Top-P (Nucleus Sampling)",
+        "description": "Controls token diversity. 0.0 = least random (only most likely tokens), 1.0 = most random (sample from all tokens).",
+        "type": "numeric",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.05,
+        "default": None,
+        "format": "{:.2f}",
     },
     "reasoning_effort": {
         "name": "Reasoning Effort",
@@ -89,6 +99,25 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "description": "Enable thinking between tool calls (Claude 4 only: Opus 4.5, Opus 4.1, Opus 4, Sonnet 4). Adds beta header. WARNING: On Vertex/Bedrock, this FAILS for non-Claude 4 models!",
         "type": "boolean",
         "default": False,
+    },
+    "clear_thinking": {
+        "name": "Clear Thinking",
+        "description": "False = Preserved Thinking (keep <think> blocks visible). True = strip thinking from responses.",
+        "type": "boolean",
+        "default": False,
+    },
+    "thinking_enabled": {
+        "name": "Thinking Enabled",
+        "description": "Enable thinking mode for Gemini 3 Pro models. When enabled, the model will show its reasoning process.",
+        "type": "boolean",
+        "default": True,
+    },
+    "thinking_level": {
+        "name": "Thinking Level",
+        "description": "Controls the depth of thinking for Gemini 3 Pro models. Low = faster responses, High = more thorough reasoning.",
+        "type": "choice",
+        "choices": ["low", "high"],
+        "default": "low",
     },
 }
 
@@ -569,6 +598,8 @@ class ModelSettingsMenu:
             # Default to a sensible starting point for numeric
             if setting_key == "temperature":
                 self.edit_value = 0.7
+            elif setting_key == "top_p":
+                self.edit_value = 0.9  # Common default for top_p
             elif setting_key == "seed":
                 self.edit_value = 42
             elif setting_key == "budget_tokens":
@@ -712,6 +743,7 @@ class ModelSettingsMenu:
         kb = KeyBindings()
 
         @kb.add("up")
+        @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
         def _(event):
             if self.view_mode == "models":
                 if self.model_index > 0:
@@ -724,6 +756,7 @@ class ModelSettingsMenu:
                     self.update_display()
 
         @kb.add("down")
+        @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
         def _(event):
             if self.view_mode == "models":
                 if self.model_index < len(self.all_models) - 1:

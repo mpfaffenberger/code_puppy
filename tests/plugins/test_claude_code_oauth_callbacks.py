@@ -74,7 +74,9 @@ class TestHandleCustomCommand:
     @patch(
         "code_puppy.plugins.claude_code_oauth.register_callbacks._perform_authentication"
     )
-    @patch("code_puppy.plugins.claude_code_oauth.register_callbacks.set_model_name")
+    @patch(
+        "code_puppy.plugins.claude_code_oauth.register_callbacks.set_model_and_reload_agent"
+    )
     def test_handle_custom_command_auth(
         self, mock_set_model, mock_auth, mock_load_tokens
     ):
@@ -90,7 +92,7 @@ class TestHandleCustomCommand:
 
         assert result is True
         mock_auth.assert_called_once()
-        mock_set_model.assert_called_once()
+        mock_set_model.assert_called_once_with("claude-code-claude-opus-4-5-20251101")
 
     @patch("code_puppy.plugins.claude_code_oauth.register_callbacks.load_stored_tokens")
     def test_handle_custom_command_status_not_authenticated(self, mock_load_tokens):

@@ -20,7 +20,7 @@ class TestBrowserInitialization:
     @pytest.mark.asyncio
     async def test_initialize_browser_default_settings(self):
         """Test browser initialization with default settings."""
-        # Mock the camoufox manager
+        # Mock the browser manager
         mock_manager = AsyncMock()
         mock_page = AsyncMock()
         mock_page.url = "https://www.google.com"

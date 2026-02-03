@@ -1,3 +1,4 @@
+from code_puppy.callbacks import on_register_tools
 from code_puppy.messaging import emit_warning
 from code_puppy.tools.agent_tools import register_invoke_agent, register_list_agents
 
@@ -88,6 +89,11 @@ from code_puppy.tools.file_operations import (
     register_list_files,
     register_read_file,
 )
+from code_puppy.tools.skills_tools import (
+    register_activate_skill,
+    register_list_or_search_skills,
+)
+from code_puppy.tools.universal_constructor import register_universal_constructor
 
 # Map of tool names to their individual registration functions
 TOOL_REGISTRY = {
@@ -166,7 +172,40 @@ TOOL_REGISTRY = {
     "terminal_read_output": register_terminal_read_output,
     "terminal_compare_mockup": register_terminal_compare_mockup,
     "load_image_for_analysis": register_load_image,
+    # Skills Tools
+    "activate_skill": register_activate_skill,
+    "list_or_search_skills": register_list_or_search_skills,
+    # Universal Constructor
+    "universal_constructor": register_universal_constructor,
 }
+
+
+def _load_plugin_tools() -> None:
+    """Load tools registered by plugins via the register_tools callback.
+
+    This merges plugin-provided tools into the TOOL_REGISTRY.
+    Called lazily when tools are first accessed.
+    """
+    try:
+        results = on_register_tools()
+        for result in results:
+            if result is None:
+                continue
+            # Each result should be a list of tool definitions
+            tools_list = result if isinstance(result, list) else [result]
+            for tool_def in tools_list:
+                if (
+                    isinstance(tool_def, dict)
+                    and "name" in tool_def
+                    and "register_func" in tool_def
+                ):
+                    tool_name = tool_def["name"]
+                    register_func = tool_def["register_func"]
+                    if callable(register_func):
+                        TOOL_REGISTRY[tool_name] = register_func
+    except Exception:
+        # Don't let plugin failures break core functionality
+        pass
 
 
 def register_tools_for_agent(agent, tool_names: list[str]):
@@ -174,17 +213,152 @@ def register_tools_for_agent(agent, tool_names: list[str]):
 
     Args:
         agent: The agent to register tools to.
-        tool_names: List of tool names to register.
+        tool_names: List of tool names to register. UC tools are prefixed with "uc:".
     """
+    from code_puppy.config import get_universal_constructor_enabled
+
+    _load_plugin_tools()
     for tool_name in tool_names:
+        # Handle UC tools (prefixed with "uc:")
+        if tool_name.startswith("uc:"):
+            # Skip UC tools if UC is disabled
+            if not get_universal_constructor_enabled():
+                continue
+            uc_tool_name = tool_name[3:]  # Remove "uc:" prefix
+            _register_uc_tool_wrapper(agent, uc_tool_name)
+            continue
+
         if tool_name not in TOOL_REGISTRY:
             # Skip unknown tools with a warning instead of failing
             emit_warning(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
             continue
 
+        # Check if Universal Constructor is disabled
+        if (
+            tool_name == "universal_constructor"
+            and not get_universal_constructor_enabled()
+        ):
+            continue  # Skip UC if disabled in config
+
         # Register the individual tool
         register_func = TOOL_REGISTRY[tool_name]
         register_func(agent)
+
+
+def _register_uc_tool_wrapper(agent, uc_tool_name: str):
+    """Register a wrapper for a UC tool that calls it via the UC registry.
+
+    This creates a dynamic tool that wraps the UC tool, preserving its
+    parameter signature so pydantic-ai can generate proper JSON schema.
+
+    Args:
+        agent: The agent to register the tool wrapper to.
+        uc_tool_name: The full name of the UC tool (e.g., "api.weather").
+    """
+    import inspect
+    from typing import Any
+
+    from pydantic_ai import RunContext
+
+    # Get tool info and function from registry
+    try:
+        from code_puppy.plugins.universal_constructor.registry import get_registry
+
+        registry = get_registry()
+        tool_info = registry.get_tool(uc_tool_name)
+        if not tool_info:
+            emit_warning(f"Warning: UC tool '{uc_tool_name}' not found, skipping...")
+            return
+
+        func = registry.get_tool_function(uc_tool_name)
+        if not func:
+            emit_warning(
+                f"Warning: UC tool '{uc_tool_name}' function not found, skipping..."
+            )
+            return
+
+        description = tool_info.meta.description
+        docstring = tool_info.docstring or description
+    except Exception as e:
+        emit_warning(f"Warning: Failed to get UC tool '{uc_tool_name}' info: {e}")
+        return
+
+    # Get the original function's signature
+    try:
+        sig = inspect.signature(func)
+        # Get annotations from the original function
+        annotations = getattr(func, "__annotations__", {}).copy()
+    except (ValueError, TypeError):
+        sig = None
+        annotations = {}
+
+    # Create wrapper that preserves the signature
+    def make_uc_wrapper(
+        tool_name: str, original_func, original_sig, original_annotations
+    ):
+        # Build the wrapper function
+        async def uc_tool_wrapper(context: RunContext, **kwargs: Any) -> Any:
+            """Dynamically generated wrapper for a UC tool."""
+            try:
+                result = original_func(**kwargs)
+                # Await async tool implementations
+                if inspect.isawaitable(result):
+                    result = await result
+                return result
+            except Exception as e:
+                return {"error": f"UC tool '{tool_name}' failed: {e}"}
+
+        # Copy signature info from original function
+        uc_tool_wrapper.__name__ = tool_name.replace(".", "_")
+        uc_tool_wrapper.__doc__ = (
+            f"{docstring}\n\nThis is a Universal Constructor tool."
+        )
+
+        # Preserve annotations for pydantic-ai schema generation
+        if original_annotations:
+            # Add 'context' param and copy original params (excluding 'return')
+            new_annotations = {"context": RunContext}
+            for param_name, param_type in original_annotations.items():
+                if param_name != "return":
+                    new_annotations[param_name] = param_type
+            if "return" in original_annotations:
+                new_annotations["return"] = original_annotations["return"]
+            else:
+                new_annotations["return"] = Any
+            uc_tool_wrapper.__annotations__ = new_annotations
+
+        # Try to set __signature__ for better introspection
+        if original_sig:
+            try:
+                # Build new parameters list: context first, then original params
+                new_params = [
+                    inspect.Parameter(
+                        "context",
+                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                        annotation=RunContext,
+                    )
+                ]
+                for param in original_sig.parameters.values():
+                    new_params.append(param)
+
+                # Create new signature with return annotation
+                return_annotation = original_annotations.get("return", Any)
+                new_sig = original_sig.replace(
+                    parameters=new_params, return_annotation=return_annotation
+                )
+                uc_tool_wrapper.__signature__ = new_sig
+            except (ValueError, TypeError):
+                pass  # Signature manipulation failed, continue without it
+
+        return uc_tool_wrapper
+
+    wrapper = make_uc_wrapper(uc_tool_name, func, sig, annotations)
+
+    # Register the wrapper as a tool
+    try:
+        agent.tool(wrapper)
+    except Exception as e:
+        emit_warning(f"Warning: Failed to register UC tool '{uc_tool_name}': {e}")
 
 
 def register_all_tools(agent):
@@ -203,4 +377,5 @@ def get_available_tool_names() -> list[str]:
     Returns:
         List of all tool names that can be registered.
     """
+    _load_plugin_tools()
     return list(TOOL_REGISTRY.keys())

@@ -1,5 +1,8 @@
 """
 Claude Code OAuth Plugin for Code Puppy.
+
+Provides OAuth authentication for Claude Code models and registers
+the 'claude_code' model type handler.
 """
 
 from __future__ import annotations
@@ -12,8 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from code_puppy.callbacks import register_callback
-from code_puppy.config import set_model_name
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+from code_puppy.model_switching import set_model_and_reload_agent
 
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
 from .config import CLAUDE_CODE_OAUTH_CONFIG, get_token_storage_path
@@ -24,6 +27,7 @@ from .utils import (
     build_authorization_url,
     exchange_code_for_tokens,
     fetch_claude_code_models,
+    get_valid_access_token,
     load_claude_models_filtered,
     load_stored_tokens,
     prepare_oauth_context,
@@ -181,31 +185,6 @@ def _custom_help() -> List[Tuple[str, str]]:
     ]
 
 
-def _reload_current_agent() -> None:
-    """Reload the current agent so new auth tokens are picked up immediately."""
-    try:
-        from code_puppy.agents import get_current_agent
-
-        current_agent = get_current_agent()
-        if current_agent is None:
-            logger.debug("No current agent to reload")
-            return
-
-        # JSON agents may need to refresh their config before reload
-        if hasattr(current_agent, "refresh_config"):
-            try:
-                current_agent.refresh_config()
-            except Exception:
-                # Non-fatal, continue to reload
-                pass
-
-        current_agent.reload_code_generation_agent()
-        emit_info("Active agent reloaded with new authentication")
-    except Exception as e:
-        emit_warning(f"Authentication succeeded but agent reload failed: {e}")
-        logger.exception("Failed to reload agent after authentication")
-
-
 def _perform_authentication() -> None:
     context = prepare_oauth_context()
     code = _await_callback(context)
@@ -245,9 +224,6 @@ def _perform_authentication() -> None:
             "Claude Code models added to your configuration. Use the `claude-code-` prefix!"
         )
 
-    # Reload the current agent so the new auth token is picked up immediately
-    _reload_current_agent()
-
 
 def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if not name:
@@ -261,7 +237,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 "Existing Claude Code tokens found. Continuing will overwrite them."
             )
         _perform_authentication()
-        set_model_name("claude-code-claude-opus-4-5-20251101")
+        set_model_and_reload_agent("claude-code-claude-opus-4-5-20251101")
         return True
 
     if name == "claude-code-status":
@@ -304,5 +280,161 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     return None
 
 
+def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict) -> Any:
+    """Create a Claude Code model instance.
+
+    This handler is registered via the 'register_model_type' callback to handle
+    models with type='claude_code'.
+    """
+    from anthropic import AsyncAnthropic
+    from pydantic_ai.models.anthropic import AnthropicModel
+    from pydantic_ai.providers.anthropic import AnthropicProvider
+
+    from code_puppy.claude_cache_client import (
+        ClaudeCacheAsyncClient,
+        patch_anthropic_client_messages,
+    )
+    from code_puppy.config import get_effective_model_settings
+    from code_puppy.http_utils import get_cert_bundle_path, get_http2
+    from code_puppy.model_factory import get_custom_config
+
+    url, headers, verify, api_key = get_custom_config(model_config)
+
+    # Refresh token if this is from the plugin
+    if model_config.get("oauth_source") == "claude-code-plugin":
+        refreshed_token = get_valid_access_token()
+        if refreshed_token:
+            api_key = refreshed_token
+            custom_endpoint = model_config.get("custom_endpoint")
+            if isinstance(custom_endpoint, dict):
+                custom_endpoint["api_key"] = refreshed_token
+
+    if not api_key:
+        emit_warning(
+            f"API key is not set for Claude Code endpoint; skipping model '{model_config.get('name')}'."
+        )
+        return None
+
+    # Check if interleaved thinking is enabled (defaults to True for OAuth models)
+    effective_settings = get_effective_model_settings(model_name)
+    interleaved_thinking = effective_settings.get("interleaved_thinking", True)
+
+    # Handle anthropic-beta header based on interleaved_thinking setting
+    if "anthropic-beta" in headers:
+        beta_parts = [p.strip() for p in headers["anthropic-beta"].split(",")]
+        if interleaved_thinking:
+            if "interleaved-thinking-2025-05-14" not in beta_parts:
+                beta_parts.append("interleaved-thinking-2025-05-14")
+        else:
+            beta_parts = [p for p in beta_parts if "interleaved-thinking" not in p]
+        headers["anthropic-beta"] = ",".join(beta_parts) if beta_parts else None
+        if headers.get("anthropic-beta") is None:
+            del headers["anthropic-beta"]
+    elif interleaved_thinking:
+        headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+
+    # Use a dedicated client wrapper that injects cache_control on /v1/messages
+    if verify is None:
+        verify = get_cert_bundle_path()
+
+    http2_enabled = get_http2()
+
+    client = ClaudeCacheAsyncClient(
+        headers=headers,
+        verify=verify,
+        timeout=180,
+        http2=http2_enabled,
+    )
+
+    anthropic_client = AsyncAnthropic(
+        base_url=url,
+        http_client=client,
+        auth_token=api_key,
+    )
+    patch_anthropic_client_messages(anthropic_client)
+    anthropic_client.api_key = None
+    anthropic_client.auth_token = api_key
+    provider = AnthropicProvider(anthropic_client=anthropic_client)
+    return AnthropicModel(model_name=model_config["name"], provider=provider)
+
+
+def _register_model_types() -> List[Dict[str, Any]]:
+    """Register the claude_code model type handler."""
+    return [{"type": "claude_code", "handler": _create_claude_code_model}]
+
+
+# Global storage for the token refresh heartbeat
+# Using a dict to allow multiple concurrent agent runs (keyed by session_id)
+_active_heartbeats: Dict[str, Any] = {}
+
+
+async def _on_agent_run_start(
+    agent_name: str,
+    model_name: str,
+    session_id: Optional[str] = None,
+) -> None:
+    """Start token refresh heartbeat for Claude Code OAuth models.
+
+    This callback is triggered when an agent run starts. If the model is a
+    Claude Code OAuth model, we start a background heartbeat to keep the
+    token fresh during long-running operations.
+    """
+    # Only start heartbeat for Claude Code models
+    if not model_name.startswith("claude-code"):
+        return
+
+    try:
+        from .token_refresh_heartbeat import TokenRefreshHeartbeat
+
+        heartbeat = TokenRefreshHeartbeat()
+        await heartbeat.start()
+
+        # Store heartbeat for cleanup, keyed by session_id
+        key = session_id or "default"
+        _active_heartbeats[key] = heartbeat
+        logger.debug(
+            "Started token refresh heartbeat for session %s (model: %s)",
+            key,
+            model_name,
+        )
+    except ImportError:
+        logger.debug("Token refresh heartbeat module not available")
+    except Exception as exc:
+        logger.debug("Failed to start token refresh heartbeat: %s", exc)
+
+
+async def _on_agent_run_end(
+    agent_name: str,
+    model_name: str,
+    session_id: Optional[str] = None,
+    success: bool = True,
+    error: Optional[Exception] = None,
+    response_text: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Stop token refresh heartbeat when agent run ends.
+
+    This callback is triggered when an agent run completes (success or failure).
+    We stop any heartbeat that was started for this session.
+    """
+    # We don't use response_text or metadata, just cleanup the heartbeat
+    key = session_id or "default"
+    heartbeat = _active_heartbeats.pop(key, None)
+
+    if heartbeat is not None:
+        try:
+            await heartbeat.stop()
+            logger.debug(
+                "Stopped token refresh heartbeat for session %s (refreshed %d times)",
+                key,
+                heartbeat.refresh_count,
+            )
+        except Exception as exc:
+            logger.debug("Error stopping token refresh heartbeat: %s", exc)
+
+
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
+register_callback("register_model_type", _register_model_types)
+register_callback("agent_run_start", _on_agent_run_start)
+register_callback("agent_run_end", _on_agent_run_end)

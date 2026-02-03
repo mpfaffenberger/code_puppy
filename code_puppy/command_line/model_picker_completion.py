@@ -6,8 +6,9 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.history import FileHistory
 
-from code_puppy.config import get_global_model_name, set_model_name
+from code_puppy.config import get_global_model_name
 from code_puppy.model_factory import ModelFactory
+from code_puppy.model_switching import set_model_and_reload_agent
 
 
 def load_model_names():
@@ -28,25 +29,7 @@ def set_active_model(model_name: str):
     """
     Sets the active model name by updating the config (for persistence).
     """
-    from code_puppy.messaging import emit_info, emit_warning
-
-    set_model_name(model_name)
-    # Reload the currently active agent so the new model takes effect immediately
-    try:
-        from code_puppy.agents import get_current_agent
-
-        current_agent = get_current_agent()
-        # JSON agents may need to refresh their config before reload
-        if hasattr(current_agent, "refresh_config"):
-            try:
-                current_agent.refresh_config()
-            except Exception:
-                # Non-fatal, continue to reload
-                ...
-        current_agent.reload_code_generation_agent()
-        emit_info("Active agent reloaded")
-    except Exception as e:
-        emit_warning(f"Model changed but agent reload failed: {e}")
+    set_model_and_reload_agent(model_name)
 
 
 class ModelNameCompleter(Completer):

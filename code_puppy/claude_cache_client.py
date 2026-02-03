@@ -26,7 +26,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Refresh token if it's older than 1 hour (3600 seconds)
+# Refresh token if it's older than the configured max age (seconds)
 TOKEN_MAX_AGE_SECONDS = 3600
 
 # Tool name prefix for Claude Code OAuth compatibility
@@ -94,13 +94,13 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 return age
 
             # Fall back to calculating from 'exp' claim
-            # Assume tokens are typically valid for 1 hour
+            # Assume tokens are typically valid for TOKEN_MAX_AGE_SECONDS
             if "exp" in payload:
                 exp = float(payload["exp"])
                 # If exp is in the future, calculate how long until expiry
-                # and assume the token was issued 1 hour before expiry
+                # and assume the token was issued TOKEN_MAX_AGE_SECONDS before expiry
                 time_until_exp = exp - now
-                # If token has less than 1 hour left, it's "old"
+                # If token has less than TOKEN_MAX_AGE_SECONDS left, it's "old"
                 age = TOKEN_MAX_AGE_SECONDS - time_until_exp
                 return max(0, age)
 
@@ -119,23 +119,61 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         return None
 
     def _should_refresh_token(self, request: httpx.Request) -> bool:
-        """Check if the token in the request is older than 1 hour."""
+        """Check if the token should be refreshed (within the max-age window).
+
+        Uses two strategies:
+        1. Decode JWT to check token age (if possible)
+        2. Fall back to stored expires_at from token file
+
+        Returns True if token expires within TOKEN_MAX_AGE_SECONDS.
+        """
         token = self._extract_bearer_token(request)
         if not token:
             return False
 
+        # Strategy 1: Try to decode JWT age
         age = self._get_jwt_age_seconds(token)
-        if age is None:
-            return False
+        if age is not None:
+            should_refresh = age >= TOKEN_MAX_AGE_SECONDS
+            if should_refresh:
+                logger.info(
+                    "JWT token is %.1f seconds old (>= %d), will refresh proactively",
+                    age,
+                    TOKEN_MAX_AGE_SECONDS,
+                )
+            return should_refresh
 
-        should_refresh = age >= TOKEN_MAX_AGE_SECONDS
+        # Strategy 2: Fall back to stored expires_at from token file
+        should_refresh = self._check_stored_token_expiry()
         if should_refresh:
             logger.info(
-                "JWT token is %.1f seconds old (>= %d), will refresh proactively",
-                age,
+                "Stored token expires within %d seconds, will refresh proactively",
                 TOKEN_MAX_AGE_SECONDS,
             )
         return should_refresh
+
+    @staticmethod
+    def _check_stored_token_expiry() -> bool:
+        """Check if the stored token expires within TOKEN_MAX_AGE_SECONDS.
+
+        This is a fallback for when JWT decoding fails or isn't available.
+        Uses the expires_at timestamp from the stored token file.
+        """
+        try:
+            from code_puppy.plugins.claude_code_oauth.utils import (
+                is_token_expired,
+                load_stored_tokens,
+            )
+
+            tokens = load_stored_tokens()
+            if not tokens:
+                return False
+
+            # is_token_expired already uses the configured refresh buffer window
+            return is_token_expired(tokens)
+        except Exception as exc:
+            logger.debug("Error checking stored token expiry: %s", exc)
+            return False
 
     @staticmethod
     def _prefix_tool_names(body: bytes) -> bytes | None:
@@ -328,10 +366,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
         # Handle auth errors with token refresh
         try:
-            if response.status_code in (400, 401) and not request.extensions.get(
+            if response.status_code in (400, 401, 403) and not request.extensions.get(
                 "claude_oauth_refresh_attempted"
             ):
-                is_auth_error = response.status_code == 401
+                is_auth_error = response.status_code in (401, 403)
 
                 if response.status_code == 400:
                     is_auth_error = self._is_cloudflare_html_error(response)

@@ -40,7 +40,7 @@ class BrowserInteractionsBaseTest:
 
     @pytest.fixture
     def mock_browser_manager(self):
-        """Mock the camoufox manager and page."""
+        """Mock the browser manager and page."""
         manager = MagicMock()
         page = MagicMock()
         manager.get_current_page = AsyncMock(return_value=page)

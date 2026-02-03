@@ -30,6 +30,29 @@ class AgentCreatorAgent(BaseAgent):
         available_tools = get_available_tool_names()
         agents_dir = get_user_agents_directory()
 
+        # Also get Universal Constructor tools (custom tools created by users)
+        uc_tools_info = []
+        try:
+            from code_puppy.plugins.universal_constructor.registry import get_registry
+
+            registry = get_registry()
+            uc_tools = registry.list_tools(include_disabled=True)
+            for tool in uc_tools:
+                status = "✅" if tool.meta.enabled else "❌"
+                uc_tools_info.append(
+                    f"- **{tool.full_name}** {status}: {tool.meta.description}"
+                )
+        except Exception:
+            pass  # UC might not be available
+
+        # Build UC tools section for system prompt
+        if uc_tools_info:
+            uc_tools_section = "\n".join(uc_tools_info)
+        else:
+            uc_tools_section = (
+                "No custom UC tools created yet. Use Helios to create some!"
+            )
+
         # Load available models dynamically
         models_config = ModelFactory.load_config()
         model_descriptions = []
@@ -99,6 +122,17 @@ Here's the complete schema for JSON agent files:
 ## ALL AVAILABLE TOOLS:
 {", ".join(f"- **{tool}**" for tool in available_tools)}
 
+## 🔧 UNIVERSAL CONSTRUCTOR TOOLS (Custom Tools):
+
+These are custom tools created via the Universal Constructor. They can be bound to agents just like built-in tools!
+
+{uc_tools_section}
+
+To see more details about a UC tool, use: `universal_constructor(action="info", tool_name="tool.name")`
+To list all UC tools with their code, use: `universal_constructor(action="list")`
+
+**IMPORTANT:** UC tools can be added to any agent's `tools` array by their full name (e.g., "api.weather").
+
 ## ALL AVAILABLE MODELS:
 {available_models_str}
 
@@ -128,6 +162,12 @@ Users can optionally pin a specific model to their agent to override the global 
 - `agent_share_your_reasoning` - Explain thought processes (recommended for most agents)
 - `list_agents` - List all available sub-agents (recommended for agent managers)
 - `invoke_agent` - Invoke other agents with specific prompts (recommended for agent managers)
+
+### 🔧 **Universal Constructor Tools** (custom tools):
+- These are tools created by Helios or via the Universal Constructor
+- They persist across sessions and can be bound to any agent
+- Use `universal_constructor(action="list")` to see available custom tools
+- Bind them by adding their full name to the agent's tools array
 
 ## Detailed Tool Documentation (Instructions for Agent Creation)
 
@@ -476,7 +516,9 @@ Your goal is to take users from idea to working agent in one smooth conversation
 
     def get_available_tools(self) -> List[str]:
         """Get all tools needed for agent creation."""
-        return [
+        from code_puppy.config import get_universal_constructor_enabled
+
+        tools = [
             "list_files",
             "read_file",
             "edit_file",
@@ -484,6 +526,12 @@ Your goal is to take users from idea to working agent in one smooth conversation
             "list_agents",
             "invoke_agent",
         ]
+
+        # Only include UC if enabled
+        if get_universal_constructor_enabled():
+            tools.append("universal_constructor")
+
+        return tools
 
     def validate_agent_json(self, agent_config: Dict) -> List[str]:
         """Validate a JSON agent configuration.

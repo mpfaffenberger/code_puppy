@@ -1025,7 +1025,20 @@ class MCPServerCatalog:
     """Catalog for searching and managing pre-configured MCP servers."""
 
     def __init__(self):
-        self.servers = MCP_SERVER_REGISTRY
+        # Start with built-in servers
+        self.servers = list(MCP_SERVER_REGISTRY)
+
+        # Let plugins add their own catalog entries
+        try:
+            from code_puppy.callbacks import on_register_mcp_catalog_servers
+
+            plugin_results = on_register_mcp_catalog_servers()
+            for result in plugin_results:
+                if isinstance(result, list):
+                    self.servers.extend(result)
+        except Exception:
+            pass  # Don't break catalog if plugins fail
+
         self._build_index()
 
     def _build_index(self):

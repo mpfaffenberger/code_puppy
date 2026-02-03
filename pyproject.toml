@@ -4,19 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.361"
+version = "0.0.386"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "pydantic-ai==1.25.0",
+    "pydantic-ai-slim[openai,anthropic,mcp]==1.26.0",
+    "typer>=0.12.0",
+    "mcp>=1.9.4",    
     "httpx[http2]>=0.24.1",
+    "requests>=2.28.0",
     "rich>=13.4.2",
-    "logfire>=0.7.1",
     "pydantic>=2.4.0",
     "python-dotenv>=1.0.0",
-    "pytest-cov>=6.1.1",
-    "ruff>=0.11.11",
     "prompt-toolkit>=3.0.52",
     "rapidfuzz>=3.13.0",
     "json-repair>=0.46.2",
@@ -25,7 +25,6 @@ dependencies = [
     "ripgrep==14.1.0",
     "tenacity>=8.2.0",
     "playwright>=1.40.0",
-    "camoufox>=0.4.11",
     "dbos>=2.5.0",
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",

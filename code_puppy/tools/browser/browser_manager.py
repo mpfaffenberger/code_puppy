@@ -1,4 +1,4 @@
-"""Camoufox browser manager - privacy-focused Firefox automation.
+"""Playwright browser manager for browser automation.
 
 Supports multiple simultaneous instances with unique profile directories.
 """
@@ -8,15 +8,44 @@ import atexit
 import contextvars
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Dict, Optional
 
 from playwright.async_api import Browser, BrowserContext, Page
 
 from code_puppy import config
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 
+# Registry for custom browser types from plugins (e.g., Camoufox for stealth browsing)
+_CUSTOM_BROWSER_TYPES: Dict[str, Callable] = {}
+_BROWSER_TYPES_LOADED: bool = False
+
+
+def _load_plugin_browser_types() -> None:
+    """Load custom browser types from plugins.
+
+    This is called lazily on first browser initialization to allow plugins
+    to register custom browser providers (like Camoufox for stealth browsing).
+    """
+    global _CUSTOM_BROWSER_TYPES, _BROWSER_TYPES_LOADED
+
+    if _BROWSER_TYPES_LOADED:
+        return
+
+    _BROWSER_TYPES_LOADED = True
+
+    try:
+        from code_puppy.callbacks import on_register_browser_types
+
+        results = on_register_browser_types()
+        for result in results:
+            if isinstance(result, dict):
+                _CUSTOM_BROWSER_TYPES.update(result)
+    except Exception:
+        pass  # Don't break if plugins fail to load
+
+
 # Store active manager instances by session ID
-_active_managers: dict[str, "CamoufoxManager"] = {}
+_active_managers: dict[str, "BrowserManager"] = {}
 
 # Context variable for browser session - properly inherits through async tasks
 # This allows parallel agent invocations to each have their own browser instance
@@ -49,53 +78,53 @@ def get_browser_session() -> Optional[str]:
     return _browser_session_var.get()
 
 
-def get_session_browser_manager() -> "CamoufoxManager":
-    """Get the CamoufoxManager for the current context's session.
+def get_session_browser_manager() -> "BrowserManager":
+    """Get the BrowserManager for the current context's session.
 
     This is the preferred way to get a browser manager in tool functions,
     as it automatically uses the correct session ID for the current
     agent context.
 
     Returns:
-        A CamoufoxManager instance for the current session.
+        A BrowserManager instance for the current session.
     """
     session_id = get_browser_session()
-    return get_camoufox_manager(session_id)
+    return get_browser_manager(session_id)
 
 
 # Flag to track if cleanup has already run
 _cleanup_done: bool = False
 
 
-class CamoufoxManager:
-    """Browser manager for Camoufox (privacy-focused Firefox) automation.
+class BrowserManager:
+    """Browser manager for Playwright-based browser automation.
 
     Supports multiple simultaneous instances, each with its own profile directory.
+    Uses Chromium by default for maximum compatibility.
     """
 
     _browser: Optional[Browser] = None
     _context: Optional[BrowserContext] = None
     _initialized: bool = False
 
-    def __init__(self, session_id: Optional[str] = None):
+    def __init__(
+        self, session_id: Optional[str] = None, browser_type: Optional[str] = None
+    ):
         """Initialize manager settings.
 
         Args:
             session_id: Optional session ID for this instance.
                 If None, uses 'default' as the session ID.
+            browser_type: Optional browser type to use. If None, uses Chromium.
+                Custom types can be registered via the register_browser_types hook.
         """
         self.session_id = session_id or "default"
+        self.browser_type = browser_type  # None means default Chromium
 
         # Default to headless=True (no browser spam during tests)
         # Override with BROWSER_HEADLESS=false to see the browser
         self.headless = os.getenv("BROWSER_HEADLESS", "true").lower() != "false"
         self.homepage = "https://www.google.com"
-        # Browser type: "chromium" skips Camoufox entirely, "firefox"/"camoufox" uses Camoufox
-        self.browser_type = "chromium"  # Default to Chromium for reliability
-        # Camoufox-specific settings
-        self.geoip = True  # Enable GeoIP spoofing
-        self.block_webrtc = True  # Block WebRTC for privacy
-        self.humanize = True  # Add human-like behavior
 
         # Unique profile directory per session for browser state
         self.profile_dir = self._get_profile_directory()
@@ -104,82 +133,56 @@ class CamoufoxManager:
         """Get or create the profile directory for this session.
 
         Each session gets its own profile directory under:
-        XDG_CACHE_HOME/code_puppy/camoufox_profiles/<session_id>/
+        XDG_CACHE_HOME/code_puppy/browser_profiles/<session_id>/
 
         This allows multiple instances to run simultaneously.
         """
         cache_dir = Path(config.CACHE_DIR)
-        profiles_base = cache_dir / "camoufox_profiles"
+        profiles_base = cache_dir / "browser_profiles"
         profile_path = profiles_base / self.session_id
         profile_path.mkdir(parents=True, exist_ok=True, mode=0o700)
         return profile_path
 
     async def async_initialize(self) -> None:
-        """Initialize browser (Chromium or Camoufox based on browser_type)."""
+        """Initialize Chromium browser via Playwright."""
         if self._initialized:
             return
 
         try:
-            browser_name = "Chromium" if self.browser_type == "chromium" else "Camoufox"
-            emit_info(f"Initializing {browser_name} (session: {self.session_id})...")
-
-            # Only prefetch Camoufox if we're going to use it
-            if self.browser_type != "chromium":
-                await self._prefetch_camoufox()
-
-            await self._initialize_camoufox()
-            # emit_info(
-            #     "[green]✅ Browser initialized successfully[/green]"
-            # )  # Removed to reduce console spam
+            emit_info(f"Initializing Chromium browser (session: {self.session_id})...")
+            await self._initialize_browser()
             self._initialized = True
 
         except Exception:
             await self._cleanup()
             raise
 
-    async def _initialize_camoufox(self) -> None:
-        """Try to start browser with the configured settings.
+    async def _initialize_browser(self) -> None:
+        """Initialize browser with persistent context.
 
-        If browser_type is 'chromium', skips Camoufox and uses Playwright Chromium directly.
-        Otherwise, tries Camoufox first and falls back to Chromium on failure.
+        Checks for custom browser types registered via plugins first,
+        then falls back to default Playwright Chromium.
         """
-        emit_info(f"Using persistent profile: {self.profile_dir}")
+        # Load plugin browser types on first initialization
+        _load_plugin_browser_types()
 
-        # If chromium is explicitly requested, skip Camoufox entirely
-        if self.browser_type == "chromium":
-            await self._initialize_chromium()
+        # Check if a custom browser type was requested and is available
+        if self.browser_type and self.browser_type in _CUSTOM_BROWSER_TYPES:
+            emit_info(
+                f"Using custom browser type '{self.browser_type}' "
+                f"(session: {self.session_id})"
+            )
+            init_func = _CUSTOM_BROWSER_TYPES[self.browser_type]
+            # Custom init functions should set self._context and self._browser
+            await init_func(self)
+            self._initialized = True
             return
 
-        # Lazy import camoufox to avoid triggering heavy optional deps at import time
-        try:
-            import camoufox
-            from camoufox.addons import DefaultAddons
-
-            camoufox_instance = camoufox.AsyncCamoufox(
-                headless=self.headless,
-                block_webrtc=self.block_webrtc,
-                humanize=self.humanize,
-                exclude_addons=list(DefaultAddons),
-                persistent_context=True,
-                user_data_dir=str(self.profile_dir),
-                addons=[],
-            )
-
-            self._browser = camoufox_instance.browser
-            if not self._initialized:
-                self._context = await camoufox_instance.start()
-                self._initialized = True
-        except Exception:
-            emit_warning(
-                "Camoufox not available. Falling back to Playwright (Chromium)."
-            )
-            await self._initialize_chromium()
-
-    async def _initialize_chromium(self) -> None:
-        """Initialize Playwright Chromium browser."""
+        # Default: use Playwright Chromium
         from playwright.async_api import async_playwright
 
-        emit_info("Initializing Chromium browser...")
+        emit_info(f"Using persistent profile: {self.profile_dir}")
+
         pw = await async_playwright().start()
         # Use persistent context directory for Chromium to preserve browser state
         context = await pw.chromium.launch_persistent_context(
@@ -213,41 +216,6 @@ class CamoufoxManager:
         if url:
             await page.goto(url)
         return page
-
-    async def _prefetch_camoufox(self) -> None:
-        """Prefetch Camoufox binary and dependencies."""
-        emit_info("Ensuring Camoufox binary and dependencies are up-to-date...")
-
-        # Lazy import camoufox utilities to avoid side effects during module import
-        try:
-            from camoufox.exceptions import CamoufoxNotInstalled, UnsupportedVersion
-            from camoufox.locale import ALLOW_GEOIP, download_mmdb
-            from camoufox.pkgman import CamoufoxFetcher, camoufox_path
-        except Exception:
-            emit_warning(
-                "Camoufox no disponible. Omitiendo prefetch y preparándose para usar Playwright."
-            )
-            return
-
-        needs_install = False
-        try:
-            camoufox_path(download_if_missing=False)
-            emit_info("Using cached Camoufox installation")
-        except (CamoufoxNotInstalled, FileNotFoundError):
-            emit_info("Camoufox not found, installing fresh copy")
-            needs_install = True
-        except UnsupportedVersion:
-            emit_info("Camoufox update required, reinstalling")
-            needs_install = True
-
-        if needs_install:
-            CamoufoxFetcher().install()
-
-        # Fetch GeoIP database if enabled
-        if ALLOW_GEOIP:
-            download_mmdb()
-
-        emit_info("Camoufox dependencies ready")
 
     async def close_page(self, page: Page) -> None:
         """Close a specific page."""
@@ -303,31 +271,39 @@ class CamoufoxManager:
     async def close(self) -> None:
         """Close the browser and clean up resources."""
         await self._cleanup()
-        emit_info(f"Camoufox browser closed (session: {self.session_id})")
+        emit_info(f"Browser closed (session: {self.session_id})")
 
 
-def get_camoufox_manager(session_id: Optional[str] = None) -> CamoufoxManager:
-    """Get or create a CamoufoxManager instance.
+def get_browser_manager(
+    session_id: Optional[str] = None, browser_type: Optional[str] = None
+) -> BrowserManager:
+    """Get or create a BrowserManager instance.
 
     Args:
         session_id: Optional session ID. If provided and a manager with this
             session exists, returns that manager. Otherwise creates a new one.
             If None, uses 'default' as the session ID.
+        browser_type: Optional browser type to use for new managers.
+            Ignored if a manager for this session already exists.
+            Custom types can be registered via the register_browser_types hook.
 
     Returns:
-        A CamoufoxManager instance.
+        A BrowserManager instance.
 
     Example:
         # Default session (for single-agent use)
-        manager = get_camoufox_manager()
+        manager = get_browser_manager()
 
         # Named session (for multi-agent use)
-        manager = get_camoufox_manager("qa-agent-1")
+        manager = get_browser_manager("qa-agent-1")
+
+        # Custom browser type (e.g., stealth browser from plugin)
+        manager = get_browser_manager("stealth-session", browser_type="camoufox")
     """
     session_id = session_id or "default"
 
     if session_id not in _active_managers:
-        _active_managers[session_id] = CamoufoxManager(session_id)
+        _active_managers[session_id] = BrowserManager(session_id, browser_type)
 
     return _active_managers[session_id]
 
@@ -395,3 +371,8 @@ def _sync_cleanup_browsers() -> None:
 # Register the cleanup handler with atexit
 # This ensures browsers are closed even if close_browser() isn't explicitly called
 atexit.register(_sync_cleanup_browsers)
+
+
+# Backwards compatibility aliases
+CamoufoxManager = BrowserManager
+get_camoufox_manager = get_browser_manager

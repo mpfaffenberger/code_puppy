@@ -5,7 +5,7 @@ This module provides browser-based terminal automation tools.
 
 from code_puppy.config import get_banner_color
 
-from .camoufox_manager import (
+from .browser_manager import (
     cleanup_all_browsers,
     get_browser_session,
     get_session_browser_manager,

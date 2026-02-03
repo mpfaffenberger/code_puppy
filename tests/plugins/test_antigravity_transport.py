@@ -77,25 +77,24 @@ class TestInlineRefs:
 
         assert result["properties"]["data"]["type"] == "object"
 
-    def test_inline_refs_union_conversion_gemini(self):
-        """Test anyOf/oneOf/allOf conversion for Gemini models."""
+    def test_inline_refs_union_simplification_gemini(self):
+        """Test anyOf/oneOf/allOf simplification for Gemini models.
+
+        Gemini doesn't support union types at all - we need to simplify them!
+        """
         schema = {
             "type": "object",
             "anyOf": [{"type": "string"}, {"type": "number"}],
-            "oneOf": [{"type": "boolean"}],
-            "allOf": [{"type": "object"}],
         }
 
-        result = _inline_refs(schema, convert_unions=True)
+        result = _inline_refs(schema, simplify_unions=True)
 
+        # Should simplify to the first type (string)
         assert "anyOf" not in result
-        assert "oneOf" not in result
-        assert "allOf" not in result
-        assert "any_of" in result
-        assert "one_of" in result
-        assert "all_of" in result
+        assert "any_of" not in result  # We don't convert to snake_case anymore!
+        assert result["type"] == "string"
 
-    def test_inline_refs_union_conversion_claude(self):
+    def test_inline_refs_union_simplification_claude(self):
         """Test anyOf/oneOf simplification for Claude models."""
         schema = {
             "type": "object",
@@ -105,25 +104,88 @@ class TestInlineRefs:
             ],
         }
 
-        result = _inline_refs(schema, simplify_for_claude=True)
+        result = _inline_refs(schema, simplify_unions=True)
 
         # Should simplify to just the string type (first non-null)
         assert result["type"] == "string"
         assert result["description"] == "A string value"
         assert "anyOf" not in result
 
-    def test_inline_refs_claude_additional_properties_removed(self):
-        """Test additionalProperties removal for Claude models."""
+    def test_inline_refs_discriminated_union_flattening(self):
+        """Test flattening of discriminated unions (like EditFilePayload).
+
+        When multiple object types are in a union, we merge them into one
+        object with all properties from all types.
+        """
+        schema = {
+            "$defs": {
+                "PayloadA": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "content": {"type": "string"},
+                    },
+                },
+                "PayloadB": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "delete_snippet": {"type": "string"},
+                    },
+                },
+            },
+            "type": "object",
+            "properties": {
+                "payload": {
+                    "anyOf": [
+                        {"$ref": "#/$defs/PayloadA"},
+                        {"$ref": "#/$defs/PayloadB"},
+                        {"type": "string"},
+                    ]
+                }
+            },
+        }
+
+        result = _inline_refs(schema, simplify_unions=True)
+
+        # Should flatten to single object with all properties
+        assert "anyOf" not in result["properties"]["payload"]
+        assert result["properties"]["payload"]["type"] == "object"
+        props = result["properties"]["payload"]["properties"]
+        assert "file_path" in props
+        assert "content" in props
+        assert "delete_snippet" in props
+
+    def test_inline_refs_additional_properties_removed(self):
+        """Test additionalProperties removal when simplifying."""
         schema = {
             "type": "object",
             "properties": {"name": {"type": "string"}},
             "additionalProperties": {"type": "string"},
         }
 
-        result = _inline_refs(schema, simplify_for_claude=True)
+        result = _inline_refs(schema, simplify_unions=True)
 
         assert "additionalProperties" not in result
         assert "properties" in result
+
+    def test_inline_refs_allof_merging(self):
+        """Test allOf merging when simplifying."""
+        schema = {
+            "allOf": [
+                {"type": "object", "properties": {"name": {"type": "string"}}},
+                {"properties": {"age": {"type": "integer"}}},
+            ],
+        }
+
+        result = _inline_refs(schema, simplify_unions=True)
+
+        # allOf should be merged into a single object
+        assert "allOf" not in result
+        assert "all_of" not in result
+        assert "properties" in result
+        assert "name" in result["properties"]
+        assert "age" in result["properties"]
 
     def test_inline_refs_removes_unsupported_fields(self):
         """Test removal of unsupported schema fields."""
@@ -541,9 +603,14 @@ class TestAntigravityClientWrapRequest:
                                     },
                                     "type": "object",
                                     "properties": {
-                                        "param": {"$ref": "#/$defs/ParamType"}
+                                        "param": {"$ref": "#/$defs/ParamType"},
+                                        "optional_field": {
+                                            "anyOf": [
+                                                {"type": "string"},
+                                                {"type": "null"},
+                                            ]
+                                        },
                                     },
-                                    "anyOf": [{"type": "string"}, {"type": "number"}],
                                 },
                             }
                         ]
@@ -570,9 +637,12 @@ class TestAntigravityClientWrapRequest:
         assert "$defs" not in params
         assert params["properties"]["param"]["type"] == "object"
 
-        # Check that unions were converted for Gemini
-        assert "anyOf" not in params
-        assert "any_of" in params
+        # Check that anyOf unions were simplified (not converted to any_of)
+        # Gemini doesn't support union types at all!
+        assert "anyOf" not in params["properties"]["optional_field"]
+        assert "any_of" not in params["properties"]["optional_field"]
+        # The union should be simplified to just "string" (first non-null type)
+        assert params["properties"]["optional_field"]["type"] == "string"
 
     def test_wrap_request_generation_config_cleanup(self):
         """Test generationConfig cleanup and enhancement."""

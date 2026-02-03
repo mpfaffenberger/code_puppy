@@ -6,6 +6,7 @@ discovered by the command registry system.
 
 import os
 
+from code_puppy.command_line.agent_menu import interactive_agent_picker
 from code_puppy.command_line.command_registry import register_command
 from code_puppy.command_line.model_picker_completion import update_model_in_input
 from code_puppy.command_line.motd import print_motd
@@ -168,7 +169,7 @@ def handle_tutorial_command(command: str) -> bool:
         reset_onboarding,
         run_onboarding_wizard,
     )
-    from code_puppy.config import set_model_name
+    from code_puppy.model_switching import set_model_and_reload_agent
 
     # Always reset so user can re-run the tutorial anytime
     reset_onboarding()
@@ -183,7 +184,7 @@ def handle_tutorial_command(command: str) -> bool:
         from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
 
         run_oauth_flow()
-        set_model_name("chatgpt-gpt-5.2-codex")
+        set_model_and_reload_agent("chatgpt-gpt-5.2-codex")
     elif result == "claude":
         emit_info("🔐 Starting Claude Code OAuth flow...")
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (
@@ -191,7 +192,7 @@ def handle_tutorial_command(command: str) -> bool:
         )
 
         _perform_authentication()
-        set_model_name("claude-code-claude-opus-4-5-20251101")
+        set_model_and_reload_agent("claude-code-claude-opus-4-5-20251101")
     elif result == "completed":
         emit_info("🎉 Tutorial complete! Happy coding!")
     elif result == "skipped":
@@ -396,115 +397,6 @@ def handle_agent_command(command: str) -> bool:
     else:
         emit_warning("Usage: /agent [agent-name]")
         return True
-
-
-async def interactive_agent_picker() -> str | None:
-    """Show an interactive arrow-key selector to pick an agent (async version).
-
-    Returns:
-        The selected agent name, or None if cancelled
-    """
-    import sys
-    import time
-
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.text import Text
-
-    from code_puppy.agents import (
-        get_agent_descriptions,
-        get_available_agents,
-        get_current_agent,
-    )
-    from code_puppy.tools.command_runner import set_awaiting_user_input
-    from code_puppy.tools.common import arrow_select_async
-
-    # Load available agents
-    available_agents = get_available_agents()
-    descriptions = get_agent_descriptions()
-    current_agent = get_current_agent()
-
-    # Build choices with current agent indicator and keep track of agent names
-    choices = []
-    agent_names = list(available_agents.keys())
-    for agent_name in agent_names:
-        display_name = available_agents[agent_name]
-        if agent_name == current_agent.name:
-            choices.append(f"✓ {agent_name} - {display_name} (current)")
-        else:
-            choices.append(f"  {agent_name} - {display_name}")
-
-    # Create preview callback to show agent description
-    def get_preview(index: int) -> str:
-        """Get the description for the agent at the given index."""
-        agent_name = agent_names[index]
-        description = descriptions.get(agent_name, "No description available")
-        return description
-
-    # Create panel content
-    panel_content = Text()
-    panel_content.append("🐶 Select an agent to use\n", style="bold cyan")
-    panel_content.append("Current agent: ", style="dim")
-    panel_content.append(f"{current_agent.name}", style="bold green")
-    panel_content.append(" - ", style="dim")
-    panel_content.append(current_agent.display_name, style="bold green")
-    panel_content.append("\n", style="dim")
-    panel_content.append(current_agent.description, style="dim italic")
-
-    # Display panel
-    panel = Panel(
-        panel_content,
-        title="[bold white]Agent Selection[/bold white]",
-        border_style="cyan",
-        padding=(1, 2),
-    )
-
-    # Pause spinners BEFORE showing panel
-    set_awaiting_user_input(True)
-    time.sleep(0.3)  # Let spinners fully stop
-
-    local_console = Console()
-    emit_info("")
-    local_console.print(panel)
-    emit_info("")
-
-    # Flush output before prompt_toolkit takes control
-    sys.stdout.flush()
-    sys.stderr.flush()
-    time.sleep(0.1)
-
-    selected_agent = None
-
-    try:
-        # Final flush
-        sys.stdout.flush()
-
-        # Show arrow-key selector with preview (async version)
-        choice = await arrow_select_async(
-            "💭 Which agent would you like to use?",
-            choices,
-            preview_callback=get_preview,
-        )
-
-        # Extract agent name from choice (remove prefix and suffix)
-        if choice:
-            # Remove the "✓ " or "  " prefix and extract agent name (before " - ")
-            choice_stripped = choice.strip().lstrip("✓").strip()
-            # Split on " - " and take the first part (agent name)
-            agent_name = choice_stripped.split(" - ")[0].strip()
-            # Remove " (current)" suffix if present
-            if agent_name.endswith(" (current)"):
-                agent_name = agent_name[:-10].strip()
-            selected_agent = agent_name
-
-    except (KeyboardInterrupt, EOFError):
-        emit_error("Cancelled by user")
-        selected_agent = None
-
-    finally:
-        set_awaiting_user_input(False)
-
-    return selected_agent
 
 
 async def interactive_model_picker() -> str | None:
@@ -898,3 +790,225 @@ def handle_generate_pr_description_command(command: str) -> str:
 
     # Return the prompt to be processed by the main chat system
     return pr_prompt
+
+
+@register_command(
+    name="wiggum",
+    description="Loop mode: re-run the same prompt when agent finishes (like Wiggum chasing donuts 🍩)",
+    usage="/wiggum <prompt>",
+    category="core",
+)
+def handle_wiggum_command(command: str) -> str | bool:
+    """Start wiggum loop mode.
+
+    When active, the agent will automatically re-run the same prompt
+    after completing, resetting context each time. Use Ctrl+C to stop.
+
+    Example:
+        /wiggum say hello world
+    """
+    from code_puppy.command_line.wiggum_state import start_wiggum
+    from code_puppy.messaging import emit_info, emit_success, emit_warning
+
+    # Extract the prompt after /wiggum
+    parts = command.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        emit_warning("Usage: /wiggum <prompt>")
+        emit_info("Example: /wiggum say hello world")
+        emit_info("This will repeatedly run 'say hello world' after each completion.")
+        emit_info("Press Ctrl+C to stop the loop.")
+        return True
+
+    prompt = parts[1].strip()
+
+    # Start wiggum mode
+    start_wiggum(prompt)
+    emit_success("🍩 WIGGUM MODE ACTIVATED!")
+    emit_info(f"Prompt: {prompt}")
+    emit_info("The agent will re-loop this prompt after each completion.")
+    emit_info("Press Ctrl+C to stop the wiggum loop.")
+
+    # Return the prompt to execute immediately
+    return prompt
+
+
+@register_command(
+    name="wiggum_stop",
+    description="Stop wiggum loop mode",
+    usage="/wiggum_stop",
+    aliases=["stopwiggum", "ws"],
+    category="core",
+)
+def handle_wiggum_stop_command(command: str) -> bool:
+    """Stop wiggum loop mode."""
+    from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
+    from code_puppy.messaging import emit_info, emit_success
+
+    if is_wiggum_active():
+        stop_wiggum()
+        emit_success("🍩 Wiggum mode stopped!")
+    else:
+        emit_info("Wiggum mode is not active.")
+
+    return True
+
+
+@register_command(
+    name="skills",
+    description="Manage agent skills - browse, enable, disable skills",
+    usage="/skills [list|enable|disable]",
+    category="core",
+    detailed_help="""Launch the skills TUI menu or manage skills with subcommands:
+    /skills        - Launch interactive TUI menu
+    /skills list   - Quick text list of all skills
+    /skills enable - Enable skills integration globally
+    /skills disable - Disable skills integration globally""",
+)
+def handle_skills_command(command: str) -> bool:
+    """Handle the /skills command.
+
+    Subcommands:
+        /skills         - Launch interactive TUI menu
+        /skills list    - Quick text list of all skills (no TUI)
+        /skills enable  - Enable skills globally
+        /skills disable - Disable skills globally
+    """
+    from code_puppy.command_line.skills_menu import show_skills_menu
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+    from code_puppy.plugins.agent_skills.config import (
+        get_skills_enabled,
+        set_skills_enabled,
+    )
+    from code_puppy.plugins.agent_skills.discovery import discover_skills
+    from code_puppy.plugins.agent_skills.metadata import parse_skill_metadata
+
+    tokens = command.split()
+
+    # Handle subcommands
+    if len(tokens) > 1:
+        subcommand = tokens[1].lower()
+
+        if subcommand == "list":
+            # Quick text list of all skills
+            from code_puppy.plugins.agent_skills.config import get_disabled_skills
+
+            skills = discover_skills()
+            enabled = get_skills_enabled()
+            disabled_skills = get_disabled_skills()
+
+            if not skills:
+                emit_info("No skills found.")
+                emit_info("Create skills in:")
+                emit_info("  - ~/.code_puppy/skills/")
+                emit_info("  - ./skills/")
+                return True
+
+            emit_info(f"🛠️ Skills (integration: {'enabled' if enabled else 'disabled'})")
+            emit_info(f"Found {len(skills)} skill(s):\n")
+
+            for skill in skills:
+                metadata = parse_skill_metadata(skill.path)
+                if metadata:
+                    status = (
+                        "🔴 disabled"
+                        if metadata.name in disabled_skills
+                        else "🟢 enabled"
+                    )
+                    version_str = f" v{metadata.version}" if metadata.version else ""
+                    author_str = f" by {metadata.author}" if metadata.author else ""
+                    emit_info(f"  {status} {metadata.name}{version_str}{author_str}")
+                    emit_info(f"      {metadata.description}")
+                    if metadata.tags:
+                        emit_info(f"      tags: {', '.join(metadata.tags)}")
+                else:
+                    status = (
+                        "🔴 disabled" if skill.name in disabled_skills else "🟢 enabled"
+                    )
+                    emit_info(f"  {status} {skill.name}")
+                    emit_info("      (no SKILL.md metadata found)")
+                emit_info("")
+
+            return True
+
+        elif subcommand == "enable":
+            set_skills_enabled(True)
+            emit_success("✅ Skills integration enabled globally")
+            return True
+
+        elif subcommand == "disable":
+            set_skills_enabled(False)
+            emit_warning("🔴 Skills integration disabled globally")
+            return True
+
+        else:
+            emit_error(f"Unknown subcommand: {subcommand}")
+            emit_info("Usage: /skills [list|enable|disable]")
+            return True
+
+    # No subcommand - launch TUI menu
+    # Always return True so the command is consumed and not passed to LLM
+    show_skills_menu()
+    return True
+
+
+@register_command(
+    name="scheduler",
+    description="Manage scheduled tasks - create, run, and monitor automated prompts",
+    usage="/scheduler [start|stop|status|list|run <id>]",
+    aliases=["sched", "cron"],
+    category="core",
+    detailed_help="""Launch the scheduler TUI menu or manage scheduled tasks:
+    /scheduler        - Launch interactive TUI menu
+    /scheduler start  - Start the scheduler daemon
+    /scheduler stop   - Stop the scheduler daemon  
+    /scheduler status - Show daemon status and task summary
+    /scheduler list   - List all scheduled tasks
+    /scheduler run <id> - Run a specific task immediately""",
+)
+def handle_scheduler_command(command: str) -> bool:
+    """Handle the /scheduler command.
+
+    Subcommands:
+        /scheduler         - Launch interactive TUI menu
+        /scheduler start   - Start the scheduler daemon
+        /scheduler stop    - Stop the scheduler daemon
+        /scheduler status  - Show daemon status
+        /scheduler list    - List all tasks
+        /scheduler run <id> - Run a task immediately
+    """
+    from code_puppy.command_line.scheduler_menu import show_scheduler_menu
+    from code_puppy.scheduler.cli import (
+        handle_scheduler_list,
+        handle_scheduler_run,
+        handle_scheduler_start,
+        handle_scheduler_status,
+        handle_scheduler_stop,
+    )
+
+    tokens = command.split()
+
+    # Handle subcommands
+    if len(tokens) > 1:
+        subcommand = tokens[1].lower()
+
+        if subcommand == "start":
+            return handle_scheduler_start()
+        elif subcommand == "stop":
+            return handle_scheduler_stop()
+        elif subcommand == "status":
+            return handle_scheduler_status()
+        elif subcommand == "list":
+            return handle_scheduler_list()
+        elif subcommand == "run":
+            if len(tokens) < 3:
+                emit_error("Usage: /scheduler run <task_id>")
+                return False
+            return handle_scheduler_run(tokens[2])
+        else:
+            emit_error(f"Unknown subcommand: {subcommand}")
+            emit_info("Usage: /scheduler [start|stop|status|list|run <id>]")
+            return False
+
+    # No subcommand - launch TUI menu
+    show_scheduler_menu()
+    return True

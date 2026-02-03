@@ -736,7 +736,9 @@ class TestHandleCustomCommand:
 
         assert result is None
 
-    @patch("code_puppy.plugins.antigravity_oauth.register_callbacks.set_model_name")
+    @patch(
+        "code_puppy.plugins.antigravity_oauth.register_callbacks.set_model_and_reload_agent"
+    )
     @patch(
         "code_puppy.plugins.antigravity_oauth.register_callbacks._perform_authentication"
     )
@@ -756,7 +758,7 @@ class TestHandleCustomCommand:
         result = _handle_custom_command("custom_command", "antigravity-auth")
 
         assert result is True
-        mock_perform_auth.assert_called_once()
+        mock_perform_auth.assert_called_once_with(reload_agent=False)
         mock_set_model.assert_called_once_with("antigravity-gemini-3-pro-high")
 
     @patch(

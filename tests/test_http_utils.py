@@ -298,6 +298,44 @@ class TestCreateAsyncClient:
         assert client is not None
 
 
+class TestRetryingAsyncClientCerebras:
+    """Test Cerebras-specific rate limit handling."""
+
+    def test_cerebras_ignores_retry_headers(self):
+        """Test that Cerebras models ignore Retry-After headers."""
+        from code_puppy.http_utils import RetryingAsyncClient
+
+        # Cerebras model should ignore headers
+        client = RetryingAsyncClient(model_name="Cerebras-GLM-4.7")
+        assert client._ignore_retry_headers is True
+        assert "cerebras" in client.model_name
+
+    def test_non_cerebras_uses_retry_headers(self):
+        """Test that non-Cerebras models respect Retry-After headers."""
+        from code_puppy.http_utils import RetryingAsyncClient
+
+        # Non-Cerebras model should use headers
+        client = RetryingAsyncClient(model_name="gpt-4")
+        assert client._ignore_retry_headers is False
+
+        # Empty model name should also use headers
+        client2 = RetryingAsyncClient()
+        assert client2._ignore_retry_headers is False
+
+    def test_cerebras_case_insensitive(self):
+        """Test that Cerebras detection is case-insensitive."""
+        from code_puppy.http_utils import RetryingAsyncClient
+
+        for name in [
+            "cerebras-glm",
+            "CEREBRAS-GLM",
+            "Cerebras-GLM-4.7",
+            "my-cerebras-model",
+        ]:
+            client = RetryingAsyncClient(model_name=name)
+            assert client._ignore_retry_headers is True, f"Failed for {name}"
+
+
 class TestFindAvailablePort:
     """Test port availability detection."""
 

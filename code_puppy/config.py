@@ -88,11 +88,83 @@ def get_subagent_verbose() -> bool:
     return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 
+# Pack agents - the specialized sub-agents coordinated by Pack Leader
+PACK_AGENT_NAMES = frozenset(
+    [
+        "pack-leader",
+        "bloodhound",
+        "husky",
+        "shepherd",
+        "terrier",
+        "watchdog",
+        "retriever",
+    ]
+)
+
+# Agents that require Universal Constructor to be enabled
+UC_AGENT_NAMES = frozenset(["helios"])
+
+
+def get_pack_agents_enabled() -> bool:
+    """Return True if pack agents are enabled (default False).
+
+    When False (default), pack agents (pack-leader, bloodhound, husky, shepherd,
+    terrier, watchdog, retriever) are hidden from `list_agents` tool and `/agents`
+    command. They cannot be invoked by other agents or selected by users.
+
+    When True, pack agents are available for use.
+    """
+    cfg_val = get_value("enable_pack_agents")
+    if cfg_val is None:
+        return False
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def get_universal_constructor_enabled() -> bool:
+    """Return True if the Universal Constructor is enabled (default True).
+
+    The Universal Constructor allows agents to dynamically create, manage,
+    and execute custom tools at runtime. When enabled, agents can extend
+    their capabilities by writing Python code that becomes callable tools.
+
+    When False, the universal_constructor tool is not registered with agents.
+    """
+    cfg_val = get_value("enable_universal_constructor")
+    if cfg_val is None:
+        return True  # Enabled by default
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def set_universal_constructor_enabled(enabled: bool) -> None:
+    """Enable or disable the Universal Constructor.
+
+    Args:
+        enabled: True to enable, False to disable
+    """
+    set_value("enable_universal_constructor", "true" if enabled else "false")
+
+
+def get_enable_streaming() -> bool:
+    """
+    Get the enable_streaming configuration value.
+    Controls whether streaming (SSE) is used for model responses.
+    Returns True if streaming is enabled, False otherwise.
+    Defaults to True.
+    """
+    val = get_value("enable_streaming")
+    if val is None:
+        return True  # Default to True for better UX
+    return str(val).lower() in ("1", "true", "yes", "on")
+
+
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
 
 # Runtime-only autosave session ID (per-process)
 _CURRENT_AUTOSAVE_ID: Optional[str] = None
+
+# Session-local model name (initialized from file on first access, then cached)
+_SESSION_MODEL: Optional[str] = None
 
 # Cache containers for model validation and defaults
 _model_validation_cache = {}
@@ -226,6 +298,12 @@ def get_config_keys():
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
+    # Add pack agents control key
+    default_keys.append("enable_pack_agents")
+    # Add universal constructor control key
+    default_keys.append("enable_universal_constructor")
+    # Add streaming control key
+    default_keys.append("enable_streaming")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
     # Add banner color keys
@@ -388,6 +466,16 @@ def clear_model_cache():
     _default_vision_model_cache = None
 
 
+def reset_session_model():
+    """Reset the session-local model cache.
+
+    This is primarily for testing purposes. In normal operation, the session
+    model is set once at startup and only changes via set_model_name().
+    """
+    global _SESSION_MODEL
+    _SESSION_MODEL = None
+
+
 def model_supports_setting(model_name: str, setting: str) -> bool:
     """Check if a model supports a particular setting (e.g., 'temperature', 'seed').
 
@@ -399,6 +487,10 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
+    # GLM-4.7 models always support clear_thinking setting
+    if setting == "clear_thinking" and "glm-4.7" in model_name.lower():
+        return True
+
     try:
         from code_puppy.model_factory import ModelFactory
 
@@ -424,26 +516,49 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
 def get_global_model_name():
     """Return a valid model name for Code Puppy to use.
 
-    1. Look at ``model`` in *puppy.cfg*.
-    2. If that value exists **and** is present in *models.json*, use it.
-    3. Otherwise return the first model listed in *models.json*.
-    4. As a last resort (e.g.
-       *models.json* unreadable) fall back to ``claude-4-0-sonnet``.
-    """
+    Uses session-local caching so that model changes in other terminals
+    don't affect this running instance. The file is only read once at startup.
 
+    1. If _SESSION_MODEL is set, return it (session cache)
+    2. Otherwise, look at ``model`` in *puppy.cfg*
+    3. If that value exists **and** is present in *models.json*, use it
+    4. Otherwise return the first model listed in *models.json*
+    5. As a last resort fall back to ``claude-4-0-sonnet``
+
+    The result is cached in _SESSION_MODEL for subsequent calls.
+    """
+    global _SESSION_MODEL
+
+    # Return cached session model if already initialized
+    if _SESSION_MODEL is not None:
+        return _SESSION_MODEL
+
+    # First access - initialize from file
     stored_model = get_value("model")
 
     if stored_model:
         # Use cached validation to avoid hitting ModelFactory every time
         if _validate_model_exists(stored_model):
-            return stored_model
+            _SESSION_MODEL = stored_model
+            return _SESSION_MODEL
 
     # Either no stored model or it's not valid – choose default from models.json
-    return _default_model_from_models_json()
+    _SESSION_MODEL = _default_model_from_models_json()
+    return _SESSION_MODEL
 
 
 def set_model_name(model: str):
-    """Sets the model name in the persistent config file."""
+    """Sets the model name in both the session cache and persistent config file.
+
+    Updates _SESSION_MODEL immediately for this process, and writes to the
+    config file so new terminals will pick up this model as their default.
+    """
+    global _SESSION_MODEL
+
+    # Update session cache immediately
+    _SESSION_MODEL = model
+
+    # Also persist to file for new terminal sessions
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     if DEFAULT_SECTION not in config:
@@ -600,8 +715,9 @@ def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> 
     if value is None:
         set_config_value(key, "")
     elif isinstance(value, float):
-        # Round floats to nearest tenth to avoid floating point weirdness
-        set_config_value(key, str(round(value, 1)))
+        # Round floats to nearest hundredth to avoid floating point weirdness
+        # (allows 0.05 step increments for temperature/top_p)
+        set_config_value(key, str(round(value, 2)))
     else:
         set_config_value(key, str(value))
 

@@ -23,13 +23,24 @@ class TestMessageMapping:
 
     @pytest.mark.asyncio
     async def test_map_empty_messages(self, mock_google_model, model_request_params):
-        """Test mapping empty message list."""
+        """Test mapping empty message list.
+
+        For AntigravityModel, even empty messages should include the
+        Antigravity system instruction (identity prompt).
+        """
         messages = []
         system_instruction, contents = await mock_google_model._map_messages(
             messages, model_request_params
         )
 
-        assert system_instruction is None
+        # AntigravityModel always injects the Antigravity system prompt
+        assert system_instruction is not None
+        assert "parts" in system_instruction
+        assert any(
+            "Antigravity" in part.get("text", "")
+            for part in system_instruction["parts"]
+        )
+
         assert len(contents) == 1
         assert contents[0]["role"] == "user"
         assert contents[0]["parts"] == [{"text": ""}]

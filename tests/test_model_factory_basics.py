@@ -209,8 +209,8 @@ class TestModelFactoryBasics:
         model = ModelFactory.get_model("gemini-pro", config)
 
         assert model is not None
-        assert hasattr(model, "provider")
         assert model.model_name == "gemini-pro"
+        assert model.system == "google"
 
     def test_get_model_missing_api_key(self):
         """Test getting a model when API key is missing."""
@@ -348,17 +348,27 @@ class TestModelFactoryBasics:
         "code_puppy.model_factory.callbacks.on_load_model_config",
         return_value=[{"test": "config"}],
     )
+    @patch(
+        "code_puppy.model_factory.callbacks.on_load_models_config",
+        return_value=[],
+    )
     @patch("builtins.open", new_callable=mock_open, read_data="{}")
     @patch("code_puppy.model_factory.pathlib.Path.exists", return_value=False)
     def test_load_config_with_callbacks(
-        self, mock_exists, mock_file, mock_on_load, mock_get_callbacks
+        self,
+        mock_exists,
+        mock_file,
+        mock_on_load_models,
+        mock_on_load,
+        mock_get_callbacks,
     ):
         """Test config loading using callbacks."""
         config = ModelFactory.load_config()
 
         # When callbacks are present, the callback result should be used
         assert config == {"test": "config"}
-        mock_get_callbacks.assert_called_once_with("load_model_config")
+        # get_callbacks is called for "load_model_config" to check if callbacks exist
+        mock_get_callbacks.assert_any_call("load_model_config")
         mock_on_load.assert_called_once()
 
     @patch.dict(os.environ, {"ZAI_API_KEY": "test-key"})

@@ -249,12 +249,14 @@ async def run_onboarding_wizard() -> Optional[str]:
 
         @kb.add("down")
         @kb.add("j")
+        @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
         def next_option(event):
             wizard.next_option()
             event.app.invalidate()
 
         @kb.add("up")
         @kb.add("k")
+        @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
         def prev_option(event):
             wizard.prev_option()
             event.app.invalidate()

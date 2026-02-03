@@ -43,11 +43,14 @@ from .messages import (
     ShellLineMessage,
     ShellOutputMessage,
     ShellStartMessage,
+    SkillActivateMessage,
+    SkillListMessage,
     SpinnerControl,
     StatusPanelMessage,
     SubAgentInvocationMessage,
     SubAgentResponseMessage,
     TextMessage,
+    UniversalConstructorMessage,
     UserInputRequest,
     VersionCheckMessage,
 )
@@ -287,6 +290,8 @@ class RichConsoleRenderer:
         elif isinstance(message, SubAgentResponseMessage):
             # Skip rendering - we now display sub-agent responses via display_non_streamed_result
             pass
+        elif isinstance(message, UniversalConstructorMessage):
+            self._render_universal_constructor(message)
         elif isinstance(message, UserInputRequest):
             # Can't handle async user input in sync context - skip
             self._console.print("[dim]User input requested (requires async)[/dim]")
@@ -304,6 +309,10 @@ class RichConsoleRenderer:
             self._render_status_panel(message)
         elif isinstance(message, VersionCheckMessage):
             self._render_version_check(message)
+        elif isinstance(message, SkillListMessage):
+            self._render_skill_list(message)
+        elif isinstance(message, SkillActivateMessage):
+            self._render_skill_activate(message)
         else:
             # Unknown message type - render as debug
             self._console.print(f"[dim]Unknown message: {type(message).__name__}[/dim]")
@@ -672,15 +681,21 @@ class RichConsoleRenderer:
             self._console.print(f"[dim]⏱ Timeout: {msg.timeout}s[/dim]")
 
     def _render_shell_line(self, msg: ShellLineMessage) -> None:
-        """Render shell output line preserving ANSI codes."""
+        """Render shell output line preserving ANSI codes and carriage returns."""
+        import sys
+
         from rich.text import Text
 
-        # Use Text.from_ansi() to parse ANSI codes into Rich styling
-        # This preserves colors while still being safe
-        text = Text.from_ansi(msg.line)
-
-        # Make all shell output dim to reduce visual noise
-        self._console.print(text, style="dim")
+        # Check if line contains carriage return (progress bar style output)
+        if "\r" in msg.line:
+            # Bypass Rich entirely - write directly to stdout so terminal interprets \r
+            # Apply dim styling manually via ANSI codes
+            sys.stdout.write(f"\033[2m{msg.line}\033[0m")
+            sys.stdout.flush()
+        else:
+            # Normal line: use Rich for nice formatting
+            text = Text.from_ansi(msg.line)
+            self._console.print(text, style="dim")
 
     def _render_shell_output(self, msg: ShellOutputMessage) -> None:
         """Render shell command output - just a trailing newline for spinner separation.
@@ -774,6 +789,38 @@ class RichConsoleRenderer:
             f"\n[dim]Session [bold]{msg.session_id}[/bold] saved "
             f"({msg.message_count} messages)[/dim]"
         )
+
+    def _render_universal_constructor(self, msg: UniversalConstructorMessage) -> None:
+        """Render universal_constructor tool output with banner."""
+        # Skip for sub-agents unless verbose mode
+        if self._should_suppress_subagent_output():
+            return
+
+        # Format banner
+        banner = self._format_banner("universal_constructor", "UNIVERSAL CONSTRUCTOR")
+
+        # Build the header line with action and optional tool name
+        # Escape user-controlled strings to prevent Rich markup injection
+        header_parts = [f"\n{banner} 🔧 [bold cyan]{msg.action.upper()}[/bold cyan]"]
+        if msg.tool_name:
+            safe_tool_name = escape_rich_markup(msg.tool_name)
+            header_parts.append(f" [dim]tool=[/dim][bold]{safe_tool_name}[/bold]")
+        self._console.print("".join(header_parts))
+
+        # Status indicator
+        safe_summary = escape_rich_markup(msg.summary) if msg.summary else ""
+        if msg.success:
+            self._console.print(f"[green]✓[/green] {safe_summary}")
+        else:
+            self._console.print(f"[red]✗[/red] {safe_summary}")
+
+        # Show details if present
+        if msg.details:
+            safe_details = escape_rich_markup(msg.details)
+            self._console.print(f"[dim]{safe_details}[/dim]")
+
+        # Trailing newline for spinner separation
+        self._console.print()
 
     # =========================================================================
     # User Interaction
@@ -1013,6 +1060,83 @@ class RichConsoleRenderer:
             ".dylib": "⚡",
         }
         return icons.get(ext, "📄")
+
+    # =========================================================================
+    # Skills
+    # =========================================================================
+
+    def _render_skill_list(self, msg: SkillListMessage) -> None:
+        """Render a list of available skills."""
+        # Skip for sub-agents unless verbose mode
+        if self._should_suppress_subagent_output():
+            return
+
+        # Banner
+        banner = self._format_banner("agent_response", "LIST SKILLS")
+        query_info = f" matching [cyan]'{msg.query}'[/cyan]" if msg.query else ""
+        self._console.print(
+            f"\n{banner} 🛠️ Found [bold]{msg.total_count}[/bold] skill(s){query_info}\n"
+        )
+
+        if not msg.skills:
+            self._console.print("[dim]  No skills found.[/dim]")
+            self._console.print(
+                "[dim]  Install skills in ~/.code_puppy/skills/[/dim]\n"
+            )
+            return
+
+        # Create a table for skills
+        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+        table.add_column("Status", style="dim", width=8)
+        table.add_column("Name", style="cyan")
+        table.add_column("Description", style="dim")
+        table.add_column("Tags", style="yellow dim")
+
+        for skill in msg.skills:
+            status = "[green]✓[/green]" if skill.enabled else "[red]✗[/red]"
+            tags = ", ".join(skill.tags[:3]) if skill.tags else "-"
+            # Truncate description if too long
+            desc = skill.description
+            if len(desc) > 50:
+                desc = desc[:47] + "..."
+            table.add_row(status, skill.name, desc, tags)
+
+        self._console.print(table)
+        self._console.print()
+
+    def _render_skill_activate(self, msg: SkillActivateMessage) -> None:
+        """Render skill activation result."""
+        # Skip for sub-agents unless verbose mode
+        if self._should_suppress_subagent_output():
+            return
+
+        # Banner
+        banner = self._format_banner("agent_response", "ACTIVATE SKILL")
+        status = "[green]✓[/green]" if msg.success else "[red]✗[/red]"
+        self._console.print(
+            f"\n{banner} {status} [bold cyan]{msg.skill_name}[/bold cyan]\n"
+        )
+
+        if msg.success:
+            # Show path
+            self._console.print(f"  [dim]Path:[/dim] {msg.skill_path}")
+
+            # Show resource count
+            if msg.resource_count > 0:
+                self._console.print(
+                    f"  [dim]Resources:[/dim] {msg.resource_count} bundled file(s)"
+                )
+
+            # Show preview
+            if msg.content_preview:
+                preview = msg.content_preview.replace("\n", " ")[:100]
+                if len(msg.content_preview) > 100:
+                    preview += "..."
+                self._console.print(f"  [dim]Preview:[/dim] {preview}")
+        else:
+            self._console.print("  [red]Activation failed[/red]")
+
+        self._console.print()
 
 
 # =============================================================================
