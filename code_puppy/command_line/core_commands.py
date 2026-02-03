@@ -949,3 +949,65 @@ def handle_skills_command(command: str) -> bool:
     # Always return True so the command is consumed and not passed to LLM
     show_skills_menu()
     return True
+
+
+@register_command(
+    name="scheduler",
+    description="Manage scheduled tasks - create, run, and monitor automated prompts",
+    usage="/scheduler [start|stop|status|list|run <id>]",
+    aliases=["sched", "cron"],
+    category="core",
+    detailed_help="""Launch the scheduler TUI menu or manage scheduled tasks:
+    /scheduler        - Launch interactive TUI menu
+    /scheduler start  - Start the scheduler daemon
+    /scheduler stop   - Stop the scheduler daemon  
+    /scheduler status - Show daemon status and task summary
+    /scheduler list   - List all scheduled tasks
+    /scheduler run <id> - Run a specific task immediately""",
+)
+def handle_scheduler_command(command: str) -> bool:
+    """Handle the /scheduler command.
+
+    Subcommands:
+        /scheduler         - Launch interactive TUI menu
+        /scheduler start   - Start the scheduler daemon
+        /scheduler stop    - Stop the scheduler daemon
+        /scheduler status  - Show daemon status
+        /scheduler list    - List all tasks
+        /scheduler run <id> - Run a task immediately
+    """
+    from code_puppy.command_line.scheduler_menu import show_scheduler_menu
+    from code_puppy.scheduler.cli import (
+        handle_scheduler_list,
+        handle_scheduler_run,
+        handle_scheduler_start,
+        handle_scheduler_status,
+        handle_scheduler_stop,
+    )
+
+    tokens = command.split()
+
+    # Handle subcommands
+    if len(tokens) > 1:
+        subcommand = tokens[1].lower()
+
+        if subcommand == "start":
+            return handle_scheduler_start()
+        elif subcommand == "stop":
+            return handle_scheduler_stop()
+        elif subcommand == "status":
+            return handle_scheduler_status()
+        elif subcommand == "list":
+            return handle_scheduler_list()
+        elif subcommand == "run":
+            if len(tokens) < 3:
+                emit_error("Usage: /scheduler run <task_id>")
+                return False
+            return handle_scheduler_run(tokens[2])
+        else:
+            emit_error(f"Unknown subcommand: {subcommand}")
+            emit_info("Usage: /scheduler [start|stop|status|list|run <id>]")
+            return False
+
+    # No subcommand - launch TUI menu
+    return show_scheduler_menu()
