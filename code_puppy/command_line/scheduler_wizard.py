@@ -119,7 +119,7 @@ class TextInputMenu:
 
     def run(self) -> Optional[str]:
         """Run text input. Returns entered text or None if cancelled."""
-        from code_puppy.tools.common import safe_input
+        from code_puppy.command_line.utils import safe_input
 
         try:
             prompt = f"  {self.title}"
@@ -143,7 +143,7 @@ class MultilineInputMenu:
 
     def run(self) -> Optional[str]:
         """Run multiline input. Returns entered text or None if cancelled."""
-        from code_puppy.tools.common import safe_input
+        from code_puppy.command_line.utils import safe_input
 
         print(f"\n  {self.title}")
         print("  (Enter an empty line to finish, Ctrl+C to cancel)\n")
@@ -319,7 +319,7 @@ def create_task_wizard() -> Optional[dict]:
     print("-" * 60)
 
     # Confirm
-    from code_puppy.tools.common import safe_input
+    from code_puppy.command_line.utils import safe_input
 
     try:
         confirm = safe_input("\n  Create this task? (Y/n): ").strip().lower()
