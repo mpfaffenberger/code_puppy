@@ -75,6 +75,7 @@ from code_puppy.tools.browser.terminal_tools import (
     register_open_terminal,
     register_start_api_server,
 )
+from code_puppy.tools.ask_user_question import register_ask_user_question
 from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
@@ -109,6 +110,8 @@ TOOL_REGISTRY = {
     # Command Runner
     "agent_run_shell_command": register_agent_run_shell_command,
     "agent_share_your_reasoning": register_agent_share_your_reasoning,
+    # User Interaction
+    "ask_user_question": register_ask_user_question,
     # Browser Control
     "browser_initialize": register_initialize_browser,
     "browser_close": register_close_browser,
