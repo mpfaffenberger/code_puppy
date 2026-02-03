@@ -1010,4 +1010,5 @@ def handle_scheduler_command(command: str) -> bool:
             return False
 
     # No subcommand - launch TUI menu
-    return show_scheduler_menu()
+    show_scheduler_menu()
+    return True
