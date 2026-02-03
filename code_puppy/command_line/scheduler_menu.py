@@ -350,36 +350,98 @@ def _create_new_task() -> Optional[ScheduledTask]:
 
 
 def _tail_log_file(log_file: str) -> None:
-    """Simple log file viewer/tailer."""
+    """Interactive log file viewer with proper keybindings."""
+    import threading
+
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.layout import Layout, Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+
     from code_puppy.command_line.utils import safe_input
+    from code_puppy.tools.command_runner import set_awaiting_user_input
 
     if not os.path.exists(log_file):
         print(f"\n⚠️ Log file not found: {log_file}")
         safe_input("\nPress Enter to continue...")
         return
 
-    print(f"\n📄 Tailing: {log_file}")
-    print("Press Ctrl+C to stop\n")
-    print("-" * 60)
-
+    # Read initial content
     try:
         with open(log_file, "r") as f:
-            # Show last 50 lines initially
-            lines = f.readlines()
-            for line in lines[-50:]:
-                print(line, end="")
+            content = f.read()
+            # Keep last 200 lines
+            lines = content.split("\n")
+            if len(lines) > 200:
+                lines = lines[-200:]
+            content = "\n".join(lines)
+    except Exception as e:
+        print(f"\n⚠️ Error reading log: {e}")
+        safe_input("\nPress Enter to continue...")
+        return
 
-            # Then tail for new content
-            while True:
-                line = f.readline()
-                if line:
-                    print(line, end="")
-                else:
-                    time.sleep(0.5)
-    except KeyboardInterrupt:
-        print("\n\n[Stopped tailing]")
+    # State
+    log_content = [content]
+    stop_tailing = [False]
 
-    safe_input("\nPress Enter to continue...")
+    def render_log():
+        lines = []
+        lines.append(("bold fg:ansicyan", f"📄 Log: {log_file}\n"))
+        lines.append(("fg:ansiyellow", "Press q, Esc, or d to close\n"))
+        lines.append(("fg:ansibrightblack", "-" * 60 + "\n\n"))
+        lines.append(("", log_content[0]))
+        return lines
+
+    control = FormattedTextControl(text=render_log)
+    window = Window(content=control, wrap_lines=True)
+
+    kb = KeyBindings()
+
+    @kb.add("q")
+    @kb.add("d")
+    @kb.add("escape")
+    @kb.add("c-c")
+    def _(event):
+        stop_tailing[0] = True
+        event.app.exit()
+
+    layout = Layout(window)
+    app = Application(
+        layout=layout, key_bindings=kb, full_screen=False, mouse_support=False
+    )
+
+    # Background thread to tail the file
+    def tail_thread():
+        try:
+            with open(log_file, "r") as f:
+                f.seek(0, 2)  # Go to end
+                while not stop_tailing[0]:
+                    line = f.readline()
+                    if line:
+                        log_content[0] += line
+                        # Keep only last 200 lines
+                        lines = log_content[0].split("\n")
+                        if len(lines) > 200:
+                            log_content[0] = "\n".join(lines[-200:])
+                        try:
+                            app.invalidate()
+                        except Exception:
+                            pass
+                    else:
+                        time.sleep(0.3)
+        except Exception:
+            pass
+
+    # Start tail thread
+    tailer = threading.Thread(target=tail_thread, daemon=True)
+    tailer.start()
+
+    set_awaiting_user_input(True)
+    try:
+        app.run(in_thread=True)
+    finally:
+        stop_tailing[0] = True
+        set_awaiting_user_input(False)
 
 
 def show_scheduler_menu() -> bool:
