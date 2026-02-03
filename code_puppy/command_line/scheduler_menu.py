@@ -331,74 +331,22 @@ class SchedulerMenu:
 
 
 def _create_new_task() -> Optional[ScheduledTask]:
-    """Interactive wizard to create a new task."""
-    from code_puppy.command_line.utils import safe_input
+    """Interactive TUI wizard to create a new task."""
+    from code_puppy.command_line.scheduler_wizard import create_task_wizard
 
-    print("\n" + "=" * 60)
-    print("📅 CREATE NEW SCHEDULED TASK")
-    print("=" * 60)
-    print("\nPress Ctrl+C to cancel.\n")
-
-    try:
-        name = safe_input("Task name: ").strip()
-        if not name:
-            print("Cancelled - name required.")
-            return None
-
-        print("\nSchedule type:")
-        print("  1. Interval (e.g., every 30m, 1h, 2d)")
-        print("  2. Hourly")
-        print("  3. Daily")
-        choice = safe_input("Choose [1-3]: ").strip()
-
-        if choice == "1":
-            schedule_type = "interval"
-            schedule_value = (
-                safe_input("Interval (e.g., 30m, 1h, 2d): ").strip() or "1h"
-            )
-        elif choice == "2":
-            schedule_type = "hourly"
-            schedule_value = "1h"
-        elif choice == "3":
-            schedule_type = "daily"
-            schedule_value = "24h"
-        else:
-            schedule_type = "interval"
-            schedule_value = "1h"
-
-        agent = safe_input("Agent [code-puppy]: ").strip() or "code-puppy"
-        model = safe_input("Model [default]: ").strip() or ""
-
-        print("\nEnter the prompt (end with an empty line):")
-        prompt_lines = []
-        while True:
-            line = safe_input("")
-            if not line:
-                break
-            prompt_lines.append(line)
-        prompt = "\n".join(prompt_lines)
-
-        if not prompt:
-            print("Cancelled - prompt required.")
-            return None
-
-        working_dir = safe_input("Working directory [.]: ").strip() or "."
-
-        task = ScheduledTask(
-            name=name,
-            prompt=prompt,
-            agent=agent,
-            model=model,
-            schedule_type=schedule_type,
-            schedule_value=schedule_value,
-            working_directory=working_dir,
-        )
-
-        return task
-
-    except (KeyboardInterrupt, EOFError):
-        print("\nCancelled.")
+    result = create_task_wizard()
+    if not result:
         return None
+
+    return ScheduledTask(
+        name=result["name"],
+        prompt=result["prompt"],
+        agent=result["agent"],
+        model=result["model"],
+        schedule_type=result["schedule_type"],
+        schedule_value=result["schedule_value"],
+        working_directory=result["working_directory"],
+    )
 
 
 def _tail_log_file(log_file: str) -> None:
