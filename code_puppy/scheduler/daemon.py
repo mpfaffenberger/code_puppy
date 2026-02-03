@@ -207,7 +207,7 @@ def start_daemon_background() -> bool:
     if pid:
         return True  # Already running
 
-    cmd = [sys.executable, "-m", "code_puppy.scheduler.daemon"]
+    cmd = [sys.executable, "-m", "code_puppy.scheduler"]
 
     if sys.platform == "win32":
         subprocess.Popen(
