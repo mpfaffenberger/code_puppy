@@ -8,6 +8,9 @@ import os
 
 from pydantic import Field
 
+from code_puppy.messaging import emit_info, emit_success, emit_warning
+from code_puppy.tools.common import generate_group_id
+
 
 def register_scheduler_list_tasks(agent):
     """Register the scheduler_list_tasks tool."""
@@ -22,6 +25,9 @@ def register_scheduler_list_tasks(agent):
         """
         from code_puppy.scheduler import load_tasks
         from code_puppy.scheduler.daemon import get_daemon_pid
+
+        group_id = generate_group_id("scheduler_list_tasks")
+        emit_info("📅 SCHEDULER LIST TASKS", message_group=group_id)
 
         tasks = load_tasks()
         pid = get_daemon_pid()
@@ -103,21 +109,12 @@ def register_scheduler_create_task(agent):
 
         Creates a task that will run automatically according to the specified schedule.
         The daemon must be running for tasks to execute.
-
-        Args:
-            name: Human-readable name for the task
-            prompt: The prompt to execute
-            agent: Which agent to use (default: code-puppy)
-            model: Which model to use (empty for default)
-            schedule_type: 'interval', 'hourly', or 'daily'
-            schedule_value: For intervals: '30m', '2h', '1d', etc.
-            working_directory: Where to run the task from
-
-        Returns:
-            Confirmation message with task details
         """
         from code_puppy.scheduler import ScheduledTask, add_task
         from code_puppy.scheduler.daemon import get_daemon_pid
+
+        group_id = generate_group_id("scheduler_create_task", name)
+        emit_info(f"📅 SCHEDULER CREATE TASK → {name}", message_group=group_id)
 
         task = ScheduledTask(
             name=name,
@@ -130,6 +127,7 @@ def register_scheduler_create_task(agent):
         )
 
         add_task(task)
+        emit_success(f"Created task: {name} ({task.id})", message_group=group_id)
 
         result = f"""✅ **Task Created Successfully!**
 
@@ -171,12 +169,17 @@ def register_scheduler_delete_task(agent):
         """
         from code_puppy.scheduler import delete_task, get_task
 
+        group_id = generate_group_id("scheduler_delete_task", task_id)
+        emit_info(f"📅 SCHEDULER DELETE TASK → {task_id}", message_group=group_id)
+
         task = get_task(task_id)
         if not task:
+            emit_warning(f"Task not found: {task_id}", message_group=group_id)
             return f"❌ Task not found: `{task_id}`"
 
         task_name = task.name
         if delete_task(task_id):
+            emit_success(f"Deleted task: {task_name}", message_group=group_id)
             return f"✅ Deleted task: **{task_name}** (`{task_id}`)"
         else:
             return f"❌ Failed to delete task: `{task_id}`"
@@ -196,8 +199,12 @@ def register_scheduler_toggle_task(agent):
         """
         from code_puppy.scheduler import get_task, toggle_task
 
+        group_id = generate_group_id("scheduler_toggle_task", task_id)
+        emit_info(f"📅 SCHEDULER TOGGLE TASK → {task_id}", message_group=group_id)
+
         task = get_task(task_id)
         if not task:
+            emit_warning(f"Task not found: {task_id}", message_group=group_id)
             return f"❌ Task not found: `{task_id}`"
 
         task_name = task.name
@@ -207,6 +214,8 @@ def register_scheduler_toggle_task(agent):
             return f"❌ Failed to toggle task: `{task_id}`"
 
         status = "🟢 **Enabled**" if new_state else "🔴 **Disabled**"
+        status_msg = "enabled" if new_state else "disabled"
+        emit_success(f"Task {task_name} {status_msg}", message_group=group_id)
         return f"Task **{task_name}** (`{task_id}`) is now {status}"
 
     agent.tool_plain(scheduler_toggle_task)
@@ -222,6 +231,9 @@ def register_scheduler_daemon_status(agent):
         """
         from code_puppy.scheduler import load_tasks
         from code_puppy.scheduler.daemon import get_daemon_pid
+
+        group_id = generate_group_id("scheduler_daemon_status")
+        emit_info("📅 SCHEDULER DAEMON STATUS", message_group=group_id)
 
         pid = get_daemon_pid()
         tasks = load_tasks()
@@ -259,14 +271,20 @@ def register_scheduler_start_daemon(agent):
         """
         from code_puppy.scheduler.daemon import get_daemon_pid, start_daemon_background
 
+        group_id = generate_group_id("scheduler_start_daemon")
+        emit_info("📅 SCHEDULER START DAEMON", message_group=group_id)
+
         pid = get_daemon_pid()
         if pid:
+            emit_warning(f"Daemon already running (PID {pid})", message_group=group_id)
             return f"ℹ️ Daemon is already running (PID {pid})"
 
         if start_daemon_background():
             new_pid = get_daemon_pid()
+            emit_success(f"Daemon started (PID {new_pid})", message_group=group_id)
             return f"✅ **Daemon started successfully!** (PID {new_pid})\n\nScheduled tasks will now run automatically."
         else:
+            emit_warning("Failed to start daemon", message_group=group_id)
             return "❌ **Failed to start daemon.** Check the logs for errors."
 
     agent.tool_plain(scheduler_start_daemon)
@@ -283,13 +301,19 @@ def register_scheduler_stop_daemon(agent):
         """
         from code_puppy.scheduler.daemon import get_daemon_pid, stop_daemon
 
+        group_id = generate_group_id("scheduler_stop_daemon")
+        emit_info("📅 SCHEDULER STOP DAEMON", message_group=group_id)
+
         pid = get_daemon_pid()
         if not pid:
+            emit_warning("Daemon is not running", message_group=group_id)
             return "ℹ️ Daemon is not running."
 
         if stop_daemon():
+            emit_success(f"Daemon stopped (was PID {pid})", message_group=group_id)
             return f"✅ **Daemon stopped.** (was PID {pid})\n\nScheduled tasks will NOT run until you start the daemon again."
         else:
+            emit_warning(f"Failed to stop daemon (PID {pid})", message_group=group_id)
             return f"❌ **Failed to stop daemon** (PID {pid}). You may need to kill it manually."
 
     agent.tool_plain(scheduler_stop_daemon)
@@ -309,17 +333,24 @@ def register_scheduler_run_task(agent):
         from code_puppy.scheduler import get_task
         from code_puppy.scheduler.executor import run_task_by_id
 
+        group_id = generate_group_id("scheduler_run_task", task_id)
+        emit_info(f"📅 SCHEDULER RUN TASK → {task_id}", message_group=group_id)
+
         task = get_task(task_id)
         if not task:
+            emit_warning(f"Task not found: {task_id}", message_group=group_id)
             return f"❌ Task not found: `{task_id}`"
 
+        emit_info(f"Running: {task.name}...", message_group=group_id)
         result = f"⏳ Running task **{task.name}** (`{task_id}`)...\n\n"
 
         success, message = run_task_by_id(task_id)
 
         if success:
+            emit_success(f"Task completed: {task.name}", message_group=group_id)
             result += f"✅ **Task completed successfully!**\n\n{message}\n\nView the log with `scheduler_view_log`."
         else:
+            emit_warning(f"Task failed: {task.name}", message_group=group_id)
             result += f"❌ **Task failed.**\n\n{message}\n\nCheck the log with `scheduler_view_log` for details."
 
         return result
@@ -343,8 +374,15 @@ def register_scheduler_view_log(agent):
         """
         from code_puppy.scheduler import get_task
 
+        group_id = generate_group_id("scheduler_view_log", task_id)
+        emit_info(
+            f"📅 SCHEDULER VIEW LOG → {task_id} (last {lines} lines)",
+            message_group=group_id,
+        )
+
         task = get_task(task_id)
         if not task:
+            emit_warning(f"Task not found: {task_id}", message_group=group_id)
             return f"❌ Task not found: `{task_id}`"
 
         log_file = task.log_file
