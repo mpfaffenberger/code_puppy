@@ -33,6 +33,8 @@ class CodePuppyAgent(BaseAgent):
             "delete_file",
             "agent_run_shell_command",
             "agent_share_your_reasoning",
+            "activate_skill",
+            "list_or_search_skills",
         ]
 
     def get_system_prompt(self) -> str:

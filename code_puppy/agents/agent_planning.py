@@ -33,6 +33,7 @@ class PlanningAgent(BaseAgent):
             "agent_share_your_reasoning",
             "list_agents",
             "invoke_agent",
+            "list_or_search_skills",
         ]
 
     def get_system_prompt(self) -> str:

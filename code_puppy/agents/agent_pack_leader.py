@@ -38,6 +38,8 @@ class PackLeaderAgent(BaseAgent):
             # Pack coordination
             "list_agents",
             "invoke_agent",
+            # Skills
+            "list_or_search_skills",
         ]
 
     def get_system_prompt(self) -> str:

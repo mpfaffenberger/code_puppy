@@ -9,7 +9,7 @@ Usage:
     Ctrl+C            - Stop the wiggum loop
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 

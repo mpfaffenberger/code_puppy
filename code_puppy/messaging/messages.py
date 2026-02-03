@@ -440,6 +440,51 @@ class VersionCheckMessage(BaseMessage):
 
 
 # =============================================================================
+# Skill Messages
+# =============================================================================
+
+
+class SkillEntry(BaseModel):
+    """A single skill entry for display."""
+
+    name: str = Field(description="Skill name")
+    description: str = Field(description="Skill description")
+    path: str = Field(description="Path to skill directory")
+    tags: List[str] = Field(default_factory=list, description="Skill tags")
+    enabled: bool = Field(default=True, description="Whether skill is enabled")
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+
+class SkillListMessage(BaseMessage):
+    """Result of listing or searching skills."""
+
+    category: MessageCategory = MessageCategory.TOOL_OUTPUT
+    skills: List[SkillEntry] = Field(
+        default_factory=list,
+        description="List of skills found",
+    )
+    query: Optional[str] = Field(
+        default=None,
+        description="Search query if filtered",
+    )
+    total_count: int = Field(ge=0, description="Total number of skills")
+
+
+class SkillActivateMessage(BaseMessage):
+    """Result of activating a skill."""
+
+    category: MessageCategory = MessageCategory.TOOL_OUTPUT
+    skill_name: str = Field(description="Name of the activated skill")
+    skill_path: str = Field(description="Path to the skill")
+    content_preview: str = Field(
+        description="Preview of skill content (first ~200 chars)"
+    )
+    resource_count: int = Field(ge=0, description="Number of bundled resources")
+    success: bool = Field(default=True, description="Whether activation succeeded")
+
+
+# =============================================================================
 # Union Type for Type Checking
 # =============================================================================
 
@@ -466,6 +511,8 @@ AnyMessage = Union[
     DividerMessage,
     StatusPanelMessage,
     VersionCheckMessage,
+    SkillListMessage,
+    SkillActivateMessage,
 ]
 """Union of all message types for type checking."""
 
@@ -513,6 +560,10 @@ __all__ = [
     # Status
     "StatusPanelMessage",
     "VersionCheckMessage",
+    # Skills
+    "SkillEntry",
+    "SkillListMessage",
+    "SkillActivateMessage",
     # Union type
     "AnyMessage",
 ]

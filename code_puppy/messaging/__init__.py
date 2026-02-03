@@ -109,6 +109,9 @@ from .messages import (  # Enums, Base, Text, File ops, Diff, Shell, Agent, etc.
     ShellLineMessage,
     ShellOutputMessage,
     ShellStartMessage,
+    SkillActivateMessage,
+    SkillEntry,
+    SkillListMessage,
     SpinnerControl,
     StatusPanelMessage,
     SubAgentInvocationMessage,
@@ -121,20 +124,22 @@ from .messages import (  # Enums, Base, Text, File ops, Diff, Shell, Agent, etc.
 from .queue_console import QueueConsole, get_queue_console
 from .renderers import InteractiveRenderer, SynchronousInteractiveRenderer
 
-# Sub-agent console manager
-from .subagent_console import (
-    AgentState,
-    SubAgentConsoleManager,
-    get_subagent_console_manager,
-    STATUS_STYLES as SUBAGENT_STATUS_STYLES,
-)
-
 # Renderer
 from .rich_renderer import (
     DEFAULT_STYLES,
     DIFF_STYLES,
     RendererProtocol,
     RichConsoleRenderer,
+)
+from .subagent_console import (
+    STATUS_STYLES as SUBAGENT_STATUS_STYLES,
+)
+
+# Sub-agent console manager
+from .subagent_console import (
+    AgentState,
+    SubAgentConsoleManager,
+    get_subagent_console_manager,
 )
 
 # =============================================================================
@@ -210,6 +215,9 @@ __all__ = [
     "DividerMessage",
     "StatusPanelMessage",
     "VersionCheckMessage",
+    "SkillEntry",
+    "SkillListMessage",
+    "SkillActivateMessage",
     "AnyMessage",
     # Command types
     "CancelAgentCommand",

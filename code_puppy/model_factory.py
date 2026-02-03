@@ -39,6 +39,7 @@ def _load_plugin_model_providers():
     global _CUSTOM_MODEL_PROVIDERS
     try:
         from code_puppy.callbacks import on_register_model_providers
+
         results = on_register_model_providers()
         for result in results:
             if isinstance(result, dict):
@@ -332,7 +333,9 @@ class ModelFactory:
         if model_type in _CUSTOM_MODEL_PROVIDERS:
             provider_class = _CUSTOM_MODEL_PROVIDERS[model_type]
             try:
-                return provider_class(model_name=model_name, model_config=model_config, config=config)
+                return provider_class(
+                    model_name=model_name, model_config=model_config, config=config
+                )
             except Exception as e:
                 logger.error(f"Custom model provider '{model_type}' failed: {e}")
                 return None

@@ -807,7 +807,7 @@ def handle_wiggum_command(command: str) -> str | bool:
     Example:
         /wiggum say hello world
     """
-    from code_puppy.command_line.wiggum_state import start_wiggum, stop_wiggum
+    from code_puppy.command_line.wiggum_state import start_wiggum
     from code_puppy.messaging import emit_info, emit_success, emit_warning
 
     # Extract the prompt after /wiggum
@@ -823,7 +823,7 @@ def handle_wiggum_command(command: str) -> str | bool:
 
     # Start wiggum mode
     start_wiggum(prompt)
-    emit_success(f"🍩 WIGGUM MODE ACTIVATED!")
+    emit_success("🍩 WIGGUM MODE ACTIVATED!")
     emit_info(f"Prompt: {prompt}")
     emit_info("The agent will re-loop this prompt after each completion.")
     emit_info("Press Ctrl+C to stop the wiggum loop.")
@@ -850,4 +850,102 @@ def handle_wiggum_stop_command(command: str) -> bool:
     else:
         emit_info("Wiggum mode is not active.")
 
+    return True
+
+
+@register_command(
+    name="skills",
+    description="Manage agent skills - browse, enable, disable skills",
+    usage="/skills [list|enable|disable]",
+    category="core",
+    detailed_help="""Launch the skills TUI menu or manage skills with subcommands:
+    /skills        - Launch interactive TUI menu
+    /skills list   - Quick text list of all skills
+    /skills enable - Enable skills integration globally
+    /skills disable - Disable skills integration globally""",
+)
+def handle_skills_command(command: str) -> bool:
+    """Handle the /skills command.
+
+    Subcommands:
+        /skills         - Launch interactive TUI menu
+        /skills list    - Quick text list of all skills (no TUI)
+        /skills enable  - Enable skills globally
+        /skills disable - Disable skills globally
+    """
+    from code_puppy.command_line.skills_menu import show_skills_menu
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+    from code_puppy.plugins.agent_skills.config import (
+        get_skills_enabled,
+        set_skills_enabled,
+    )
+    from code_puppy.plugins.agent_skills.discovery import discover_skills
+    from code_puppy.plugins.agent_skills.metadata import parse_skill_metadata
+
+    tokens = command.split()
+
+    # Handle subcommands
+    if len(tokens) > 1:
+        subcommand = tokens[1].lower()
+
+        if subcommand == "list":
+            # Quick text list of all skills
+            from code_puppy.plugins.agent_skills.config import get_disabled_skills
+
+            skills = discover_skills()
+            enabled = get_skills_enabled()
+            disabled_skills = get_disabled_skills()
+
+            if not skills:
+                emit_info("No skills found.")
+                emit_info("Create skills in:")
+                emit_info("  - ~/.code_puppy/skills/")
+                emit_info("  - ./skills/")
+                return True
+
+            emit_info(f"🛠️ Skills (integration: {'enabled' if enabled else 'disabled'})")
+            emit_info(f"Found {len(skills)} skill(s):\n")
+
+            for skill in skills:
+                metadata = parse_skill_metadata(skill.path)
+                if metadata:
+                    status = (
+                        "🔴 disabled"
+                        if metadata.name in disabled_skills
+                        else "🟢 enabled"
+                    )
+                    version_str = f" v{metadata.version}" if metadata.version else ""
+                    author_str = f" by {metadata.author}" if metadata.author else ""
+                    emit_info(f"  {status} {metadata.name}{version_str}{author_str}")
+                    emit_info(f"      {metadata.description}")
+                    if metadata.tags:
+                        emit_info(f"      tags: {', '.join(metadata.tags)}")
+                else:
+                    status = (
+                        "🔴 disabled" if skill.name in disabled_skills else "🟢 enabled"
+                    )
+                    emit_info(f"  {status} {skill.name}")
+                    emit_info("      (no SKILL.md metadata found)")
+                emit_info("")
+
+            return True
+
+        elif subcommand == "enable":
+            set_skills_enabled(True)
+            emit_success("✅ Skills integration enabled globally")
+            return True
+
+        elif subcommand == "disable":
+            set_skills_enabled(False)
+            emit_warning("🔴 Skills integration disabled globally")
+            return True
+
+        else:
+            emit_error(f"Unknown subcommand: {subcommand}")
+            emit_info("Usage: /skills [list|enable|disable]")
+            return True
+
+    # No subcommand - launch TUI menu
+    # Always return True so the command is consumed and not passed to LLM
+    show_skills_menu()
     return True

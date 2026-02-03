@@ -43,6 +43,7 @@ def _load_plugin_browser_types() -> None:
     except Exception:
         pass  # Don't break if plugins fail to load
 
+
 # Store active manager instances by session ID
 _active_managers: dict[str, "BrowserManager"] = {}
 

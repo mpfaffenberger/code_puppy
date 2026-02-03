@@ -88,6 +88,10 @@ from code_puppy.tools.file_operations import (
     register_list_files,
     register_read_file,
 )
+from code_puppy.tools.skills_tools import (
+    register_activate_skill,
+    register_list_or_search_skills,
+)
 from code_puppy.tools.universal_constructor import register_universal_constructor
 
 # Map of tool names to their individual registration functions
@@ -165,6 +169,9 @@ TOOL_REGISTRY = {
     "terminal_read_output": register_terminal_read_output,
     "terminal_compare_mockup": register_terminal_compare_mockup,
     "load_image_for_analysis": register_load_image,
+    # Skills Tools
+    "activate_skill": register_activate_skill,
+    "list_or_search_skills": register_list_or_search_skills,
     # Universal Constructor
     "universal_constructor": register_universal_constructor,
 }
