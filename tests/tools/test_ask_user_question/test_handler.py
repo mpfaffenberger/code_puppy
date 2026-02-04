@@ -9,6 +9,7 @@ from code_puppy.tools.ask_user_question.handler import (
     ask_user_question,
     is_interactive,
 )
+from code_puppy.tools.subagent_context import subagent_context
 
 
 class TestIsInteractive:
@@ -145,9 +146,7 @@ class TestAskUserQuestionValidation:
         )
         assert result.error is not None
         # Error should mention headers or uniqueness
-        assert (
-            "header" in result.error.lower() or "unique" in result.error.lower()
-        )
+        assert "header" in result.error.lower() or "unique" in result.error.lower()
 
     def test_duplicate_option_labels(self) -> None:
         """Duplicate option labels should return validation error."""
@@ -174,6 +173,71 @@ class TestAskUserQuestionValidation:
             ]
         )
         assert result.error is not None
+
+
+class TestAskUserQuestionSubagentBlocking:
+    """Tests for sub-agent context blocking."""
+
+    def test_blocks_in_subagent_context(self) -> None:
+        """Should return error when called from sub-agent context."""
+        with subagent_context("retriever"):
+            result = ask_user_question(
+                [
+                    {
+                        "question": "Which database?",
+                        "header": "Database",
+                        "options": [{"label": "A"}, {"label": "B"}],
+                    }
+                ]
+            )
+        assert result.error is not None
+        assert "sub-agent" in result.error.lower()
+        assert "disabled" in result.error.lower()
+        assert result.answers == []
+        assert result.cancelled is False
+        assert result.timed_out is False
+
+    def test_blocks_in_nested_subagent_context(self) -> None:
+        """Should return error when called from nested sub-agent context."""
+        with subagent_context("retriever"):
+            with subagent_context("terrier"):
+                result = ask_user_question(
+                    [
+                        {
+                            "question": "Which database?",
+                            "header": "Database",
+                            "options": [{"label": "A"}, {"label": "B"}],
+                        }
+                    ]
+                )
+        assert result.error is not None
+        assert "sub-agent" in result.error.lower()
+
+    def test_works_outside_subagent_context(self) -> None:
+        """Should work normally when not in sub-agent context.
+
+        Note: This test still uses mock_interactive since we don't want
+        to actually show a TUI in tests.
+        """
+        with patch(
+            "code_puppy.tools.ask_user_question.handler.is_interactive",
+            return_value=False,
+        ):
+            # Outside subagent context, it should reach the interactive check
+            # (which returns False here), not the subagent check
+            result = ask_user_question(
+                [
+                    {
+                        "question": "Which database?",
+                        "header": "Database",
+                        "options": [{"label": "A"}, {"label": "B"}],
+                    }
+                ]
+            )
+        # Should fail at interactive check, not subagent check
+        assert result.error is not None
+        assert "interactive" in result.error.lower()
+        assert "sub-agent" not in result.error.lower()
 
 
 class TestAskUserQuestionNonInteractive:

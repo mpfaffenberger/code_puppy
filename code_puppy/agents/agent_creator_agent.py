@@ -523,6 +523,7 @@ Your goal is to take users from idea to working agent in one smooth conversation
             "read_file",
             "edit_file",
             "agent_share_your_reasoning",
+            "ask_user_question",
             "list_agents",
             "invoke_agent",
         ]
