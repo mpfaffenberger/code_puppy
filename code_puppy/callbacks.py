@@ -32,6 +32,8 @@ PhaseType = Literal[
     "register_browser_types",
     "get_motd",
     "register_model_providers",
+    "message_history_processor_start",
+    "message_history_processor_end",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -64,6 +66,8 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_browser_types": [],
     "get_motd": [],
     "register_model_providers": [],
+    "message_history_processor_start": [],
+    "message_history_processor_end": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -601,3 +605,70 @@ def on_register_model_providers() -> List[Any]:
         List of dicts from all registered callbacks.
     """
     return _trigger_callbacks_sync("register_model_providers")
+
+
+def on_message_history_processor_start(
+    agent_name: str,
+    session_id: str | None,
+    message_history: List[Any],
+    incoming_messages: List[Any],
+) -> List[Any]:
+    """Trigger callbacks at the start of message history processing.
+
+    This hook fires at the beginning of the message_history_accumulator,
+    before any deduplication or processing occurs. Useful for:
+    - Logging/debugging message flow
+    - Observing raw incoming messages
+    - Analytics on message history growth
+
+    Args:
+        agent_name: Name of the agent processing messages
+        session_id: Optional session identifier
+        message_history: Current message history (before processing)
+        incoming_messages: New messages being added
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return _trigger_callbacks_sync(
+        "message_history_processor_start",
+        agent_name,
+        session_id,
+        message_history,
+        incoming_messages,
+    )
+
+
+def on_message_history_processor_end(
+    agent_name: str,
+    session_id: str | None,
+    message_history: List[Any],
+    messages_added: int,
+    messages_filtered: int,
+) -> List[Any]:
+    """Trigger callbacks at the end of message history processing.
+
+    This hook fires at the end of the message_history_accumulator,
+    after deduplication and filtering has been applied. Useful for:
+    - Logging/debugging final message state
+    - Analytics on deduplication effectiveness
+    - Observing what was actually added to history
+
+    Args:
+        agent_name: Name of the agent processing messages
+        session_id: Optional session identifier
+        message_history: Final message history (after processing)
+        messages_added: Count of new messages that were added
+        messages_filtered: Count of messages that were filtered out (dupes/empty)
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return _trigger_callbacks_sync(
+        "message_history_processor_end",
+        agent_name,
+        session_id,
+        message_history,
+        messages_added,
+        messages_filtered,
+    )

@@ -54,6 +54,8 @@ from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
     on_agent_run_end,
     on_agent_run_start,
+    on_message_history_processor_end,
+    on_message_history_processor_start,
 )
 
 # Consolidated relative imports
@@ -1440,26 +1442,50 @@ class BaseAgent(ABC):
     @DBOS.step()
     def message_history_accumulator(self, ctx: RunContext, messages: List[Any]):
         _message_history = self.get_message_history()
+
+        # Hook: on_message_history_processor_start - dump the message history before processing
+        on_message_history_processor_start(
+            agent_name=self.name,
+            session_id=getattr(self, "session_id", None),
+            message_history=list(_message_history),  # Copy to avoid mutation issues
+            incoming_messages=list(messages),
+        )
         message_history_hashes = set([self.hash_message(m) for m in _message_history])
+        messages_added = 0
         for msg in messages:
             if (
                 self.hash_message(msg) not in message_history_hashes
                 and self.hash_message(msg) not in self.get_compacted_message_hashes()
             ):
                 _message_history.append(msg)
+                messages_added += 1
 
         # Apply message history trimming using the main processor
         # This ensures we maintain global state while still managing context limits
         self.message_history_processor(ctx, _message_history)
         result_messages_filtered_empty_thinking = []
+        filtered_count = 0
         for msg in self.get_message_history():
             if len(msg.parts) == 1:
                 if isinstance(msg.parts[0], ThinkingPart):
                     if msg.parts[0].content == "":
+                        filtered_count += 1
                         continue
             result_messages_filtered_empty_thinking.append(msg)
             self.set_message_history(result_messages_filtered_empty_thinking)
-        return self.get_message_history()
+
+        # Hook: on_message_history_processor_end - dump the message history after processing
+        final_history = self.get_message_history()
+        messages_filtered = len(messages) - messages_added + filtered_count
+        on_message_history_processor_end(
+            agent_name=self.name,
+            session_id=getattr(self, "session_id", None),
+            message_history=list(final_history),  # Copy to avoid mutation issues
+            messages_added=messages_added,
+            messages_filtered=messages_filtered,
+        )
+
+        return final_history
 
     def _spawn_ctrl_x_key_listener(
         self,

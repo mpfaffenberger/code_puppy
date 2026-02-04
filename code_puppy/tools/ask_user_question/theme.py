@@ -24,6 +24,7 @@ def _get_config_value(key: str) -> str | None:
     if _config_getter is None:
         try:
             from code_puppy.config import get_value
+
             _config_getter = get_value
         except ImportError:
             _config_getter = lambda _: None  # noqa: E731

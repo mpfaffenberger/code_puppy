@@ -356,9 +356,7 @@ class TestAskUserQuestionOutput:
     def test_success_property_true(self) -> None:
         """success property returns True for successful output."""
         output = AskUserQuestionOutput(
-            answers=[
-                QuestionAnswer(question_header="Q", selected_options=["A"])
-            ]
+            answers=[QuestionAnswer(question_header="Q", selected_options=["A"])]
         )
         assert output.success is True
 
@@ -382,7 +380,9 @@ class TestAskUserQuestionOutput:
         output = AskUserQuestionOutput(
             answers=[
                 QuestionAnswer(question_header="Database", selected_options=["PG"]),
-                QuestionAnswer(question_header="Framework", selected_options=["FastAPI"]),
+                QuestionAnswer(
+                    question_header="Framework", selected_options=["FastAPI"]
+                ),
             ]
         )
         answer = output.get_answer("database")  # case-insensitive

@@ -76,7 +76,7 @@ async def run_question_tui(
 
     # --- Factory for arrow key navigation (don't type in text mode) ---
     def make_arrow_handler(
-        action: Callable[[], None]
+        action: Callable[[], None],
     ) -> Callable[[KeyPressEvent], None]:
         """Create handler that only fires when not in text input mode."""
 
@@ -244,10 +244,14 @@ async def run_question_tui(
             status = f"{CHECK_MARK} " if is_answered else "  "
 
             # Determine styles based on state
-            cursor_style = tui_colors.cursor_active if is_current else tui_colors.cursor_inactive
+            cursor_style = (
+                tui_colors.cursor_active if is_current else tui_colors.cursor_inactive
+            )
             content_style = (
-                tui_colors.selected_check if is_answered
-                else tui_colors.cursor_active if is_current
+                tui_colors.selected_check
+                if is_answered
+                else tui_colors.cursor_active
+                if is_current
                 else tui_colors.text_dim
             )
 
@@ -262,13 +266,21 @@ async def run_question_tui(
             lines.append(("", "\n"))
 
         # Footer with keyboard shortcuts
-        lines.extend([
-            ("", "\n"),
-            ("", pad), (tui_colors.header_dim, f"{ARROW_LEFT}{ARROW_RIGHT} Switch question"), ("", "\n"),
-            ("", pad), (tui_colors.header_dim, f"{ARROW_UP}{ARROW_DOWN} Navigate options"), ("", "\n"),
-            ("", "\n"),
-            ("", pad), (tui_colors.help_key, "Ctrl+S"), (tui_colors.header_dim, " Submit"),
-        ])
+        lines.extend(
+            [
+                ("", "\n"),
+                ("", pad),
+                (tui_colors.header_dim, f"{ARROW_LEFT}{ARROW_RIGHT} Switch question"),
+                ("", "\n"),
+                ("", pad),
+                (tui_colors.header_dim, f"{ARROW_UP}{ARROW_DOWN} Navigate options"),
+                ("", "\n"),
+                ("", "\n"),
+                ("", pad),
+                (tui_colors.help_key, "Ctrl+S"),
+                (tui_colors.header_dim, " Submit"),
+            ]
+        )
 
         return FormattedText(lines)
 

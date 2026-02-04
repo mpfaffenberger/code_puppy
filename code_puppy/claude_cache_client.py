@@ -14,6 +14,7 @@ This module also handles:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 
 # Refresh token if it's older than the configured max age (seconds)
 TOKEN_MAX_AGE_SECONDS = 3600
+
+# Retry configuration
+RETRY_STATUS_CODES = (429, 500, 502, 503, 504)
+MAX_RETRIES = 5
 
 # Tool name prefix for Claude Code OAuth compatibility
 # Tools are prefixed on outgoing requests and unprefixed on incoming responses
@@ -354,8 +359,8 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             except Exception as exc:
                 logger.debug("Error in Claude Code transformations: %s", exc)
 
-        # Send the request
-        response = await super().send(request, *args, **kwargs)
+        # Send the request with retry logic for transient errors
+        response = await self._send_with_retries(request, *args, **kwargs)
 
         # Transform streaming response to unprefix tool names
         if is_messages_endpoint and response.status_code == 200:
@@ -395,13 +400,109 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         retry_request.extensions["claude_oauth_refresh_attempted"] = (
                             True
                         )
-                        return await super().send(retry_request, *args, **kwargs)
+                        return await self._send_with_retries(
+                            retry_request, *args, **kwargs
+                        )
                     else:
                         logger.warning("Token refresh failed, returning original error")
         except Exception as exc:
             logger.debug("Error during token refresh attempt: %s", exc)
 
         return response
+
+    async def _send_with_retries(
+        self, request: httpx.Request, *args: Any, **kwargs: Any
+    ) -> httpx.Response:
+        """Send request with automatic retries for rate limits and server errors.
+
+        Retries on:
+        - 429 (rate limit) - respects Retry-After header
+        - 500, 502, 503, 504 (server errors) - exponential backoff
+        - Connection errors (ConnectError, ReadTimeout, PoolTimeout)
+        """
+        last_response = None
+        last_exception = None
+
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                response = await super().send(request, *args, **kwargs)
+                last_response = response
+
+                # Check for retryable status
+                if response.status_code not in RETRY_STATUS_CODES:
+                    return response
+
+                # Don't retry if this is the last attempt
+                if attempt >= MAX_RETRIES:
+                    return response
+
+                # Close response before retrying
+                await response.aclose()
+
+                # Calculate wait time with exponential backoff
+                wait_time = 1.0 * (2**attempt)  # 1s, 2s, 4s, 8s, 16s
+
+                # For 429, respect Retry-After header if present
+                if response.status_code == 429:
+                    retry_after = response.headers.get("Retry-After")
+                    if retry_after:
+                        try:
+                            wait_time = float(retry_after)
+                        except ValueError:
+                            # Try parsing http-date format
+                            try:
+                                from email.utils import parsedate_to_datetime
+
+                                date = parsedate_to_datetime(retry_after)
+                                wait_time = max(0, date.timestamp() - time.time())
+                            except Exception:
+                                pass
+
+                # Cap wait time between 0.5s and 60s
+                wait_time = max(0.5, min(wait_time, 60.0))
+
+                logger.info(
+                    "HTTP %d received, retrying in %.1fs (attempt %d/%d)",
+                    response.status_code,
+                    wait_time,
+                    attempt + 1,
+                    MAX_RETRIES,
+                )
+                await asyncio.sleep(wait_time)
+
+            except (httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout) as exc:
+                last_exception = exc
+
+                # Don't retry if this is the last attempt
+                if attempt >= MAX_RETRIES:
+                    raise
+
+                wait_time = 1.0 * (2**attempt)
+                wait_time = max(0.5, min(wait_time, 60.0))
+
+                logger.warning(
+                    "HTTP connection error: %s. Retrying in %.1fs (attempt %d/%d)",
+                    exc,
+                    wait_time,
+                    attempt + 1,
+                    MAX_RETRIES,
+                )
+                await asyncio.sleep(wait_time)
+
+            except Exception:
+                # Don't retry on other exceptions (e.g., validation errors)
+                raise
+
+        # Return last response if we have one
+        if last_response is not None:
+            return last_response
+
+        # Re-raise last exception if we have one
+        if last_exception is not None:
+            raise last_exception
+
+        # This shouldn't happen, but just in case
+        raise RuntimeError("Retry loop completed without response or exception")
 
     def _wrap_response_with_tool_unprefixing(
         self, response: httpx.Response, request: httpx.Request

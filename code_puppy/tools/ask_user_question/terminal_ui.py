@@ -159,7 +159,7 @@ class QuestionUIState:
 
     def enter_other_text_mode(self) -> None:
         """Enter text input mode for the 'Other' option.
-        
+
         This centralizes the logic for starting 'Other' text entry,
         avoiding duplication in the keyboard handlers.
         """

@@ -209,7 +209,9 @@ def _render_help_overlay(
     border_line = f"{pad}[{border}]{BORDER_DOUBLE * HELP_BORDER_WIDTH}[/{border}]"
 
     console.print(border_line)
-    console.print(f"{pad}[{colors.help_title}]           KEYBOARD SHORTCUTS[/{colors.help_title}]")
+    console.print(
+        f"{pad}[{colors.help_title}]           KEYBOARD SHORTCUTS[/{colors.help_title}]"
+    )
     console.print(border_line)
     console.print()
 
@@ -222,7 +224,9 @@ def _render_help_overlay(
                     f"[{key_style}]{alt}[/{key_style}]       {desc}"
                 )
             else:
-                console.print(f"{pad}  [{key_style}]{primary}[/{key_style}]           {desc}")
+                console.print(
+                    f"{pad}  [{key_style}]{primary}[/{key_style}]           {desc}"
+                )
         console.print()
 
     console.print(border_line)
