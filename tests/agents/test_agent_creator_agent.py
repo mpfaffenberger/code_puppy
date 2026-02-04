@@ -181,6 +181,7 @@ class TestAgentCreatorAgent:
                 "read_file",
                 "edit_file",
                 "agent_share_your_reasoning",
+                "ask_user_question",
                 "list_agents",
                 "invoke_agent",
                 "universal_constructor",
@@ -199,6 +200,7 @@ class TestAgentCreatorAgent:
                 "read_file",
                 "edit_file",
                 "agent_share_your_reasoning",
+                "ask_user_question",
                 "list_agents",
                 "invoke_agent",
             ]
