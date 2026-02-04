@@ -24,7 +24,7 @@ from code_puppy.messaging import emit_warning
 
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
-from .config import EXTRA_MODELS_FILE, get_value
+from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .round_robin_model import RoundRobinModel
 
@@ -116,6 +116,10 @@ def make_model_settings(
     model_settings_dict["max_tokens"] = max_tokens
     effective_settings = get_effective_model_settings(model_name)
     model_settings_dict.update(effective_settings)
+
+    # Disable parallel tool calls when yolo_mode is off (for safer, sequential tool execution)
+    if not get_yolo_mode():
+        model_settings_dict["parallel_tool_calls"] = False
 
     # Default to clear_thinking=False for GLM-4.7 models (preserved thinking)
     if "glm-4.7" in model_name.lower():

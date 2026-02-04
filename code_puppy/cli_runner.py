@@ -349,7 +349,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     display_console = message_renderer.console
     from code_puppy.messaging import emit_info, emit_system_message
 
-    emit_system_message("Type '/exit' or '/quit' to exit the interactive mode.")
+    emit_system_message(
+        "Type '/exit', '/quit', or press Ctrl+D to exit the interactive mode."
+    )
     emit_system_message("Type 'clear' to reset the conversation history.")
     emit_system_message("Type /help to view all commands")
     emit_system_message(
@@ -544,8 +546,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Fall back to basic input if prompt_toolkit is not available
                 task = input(">>> ")
 
-        except (KeyboardInterrupt, EOFError):
-            # Handle Ctrl+C or Ctrl+D
+        except KeyboardInterrupt:
+            # Handle Ctrl+C - cancel input and continue
             # Windows-specific: Reset terminal state after interrupt to prevent
             # the terminal from becoming unresponsive (can't type characters)
             reset_windows_terminal_full()
@@ -562,6 +564,24 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             else:
                 emit_warning("\nInput cancelled")
             continue
+        except EOFError:
+            # Handle Ctrl+D - exit the application
+            import asyncio
+
+            from code_puppy.messaging import emit_success
+
+            emit_success("\nGoodbye! (Ctrl+D)")
+
+            # Cancel any running agent task for clean shutdown
+            if current_agent_task and not current_agent_task.done():
+                emit_info("Cancelling running agent task...")
+                current_agent_task.cancel()
+                try:
+                    await current_agent_task
+                except asyncio.CancelledError:
+                    pass  # Expected when cancelling
+
+            break
 
         # Check for exit commands (plain text or command form)
         if task.strip().lower() in ["exit", "quit"] or task.strip().lower() in [
