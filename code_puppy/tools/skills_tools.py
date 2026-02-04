@@ -40,7 +40,7 @@ def register_activate_skill(agent):
 
     @agent.tool
     async def activate_skill(
-        context: RunContext, skill_name: str
+        context: RunContext, skill_name: str = ""
     ) -> SkillActivateOutput:
         """Activate a skill by loading its full SKILL.md instructions.
 
