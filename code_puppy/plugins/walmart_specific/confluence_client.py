@@ -23,6 +23,21 @@ from code_puppy.plugins.walmart_specific.rate_limiter import SharedRateLimiter
 
 
 # =============================================================================
+# MODULE-LEVEL STATE
+# =============================================================================
+
+# Track if we've already emitted the staleness warning this session
+# to avoid spamming the terminal with duplicate warnings
+_staleness_warning_emitted = False
+
+
+def _reset_staleness_warning_flag() -> None:
+    """Reset the staleness warning flag. Used for testing."""
+    global _staleness_warning_emitted
+    _staleness_warning_emitted = False
+
+
+# =============================================================================
 # MODELS
 # =============================================================================
 
@@ -174,10 +189,18 @@ class ConfluenceClient:
         """Check if the session is stale and emit a warning if needed.
 
         A session is considered stale if it's older than STALENESS_THRESHOLD (12 hours).
+        Only emits the warning once per process to avoid spamming the terminal.
         """
+        global _staleness_warning_emitted
+
+        # Skip if we've already warned this session
+        if _staleness_warning_emitted:
+            return
+
         timestamp_str = self.session_data.get("timestamp")
         if not timestamp_str:
             emit_warning("Session file has no timestamp. Consider refreshing.")
+            _staleness_warning_emitted = True
             return
 
         try:
@@ -190,8 +213,10 @@ class ConfluenceClient:
                     f"Confluence session is {hours_old:.1f} hours old. "
                     "Session may be stale, consider re-authenticating."
                 )
+                _staleness_warning_emitted = True
         except ValueError:
             emit_warning(f"Invalid timestamp format in session file: {timestamp_str}")
+            _staleness_warning_emitted = True
 
     def _build_user_agent(self) -> str:
         """Build a custom User-Agent header with version and user_id.
