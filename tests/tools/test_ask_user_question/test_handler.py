@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from code_puppy.command_line.wiggum_state import start_wiggum, stop_wiggum
 from code_puppy.tools.ask_user_question.handler import (
     ask_user_question,
     is_interactive,
@@ -238,6 +239,62 @@ class TestAskUserQuestionSubagentBlocking:
         assert result.error is not None
         assert "interactive" in result.error.lower()
         assert "sub-agent" not in result.error.lower()
+
+
+class TestAskUserQuestionWiggumBlocking:
+    """Tests for wiggum (autonomous loop) mode blocking."""
+
+    def test_blocks_when_wiggum_active(self) -> None:
+        """Should return error when called during wiggum mode."""
+        try:
+            start_wiggum("test prompt")
+            result = ask_user_question(
+                [
+                    {
+                        "question": "Which database?",
+                        "header": "Database",
+                        "options": [{"label": "A"}, {"label": "B"}],
+                    }
+                ]
+            )
+        finally:
+            stop_wiggum()
+
+        assert result.error is not None
+        assert "wiggum" in result.error.lower()
+        assert "disabled" in result.error.lower()
+        assert result.answers == []
+        assert result.cancelled is False
+        assert result.timed_out is False
+
+    def test_works_when_wiggum_not_active(self) -> None:
+        """Should work normally when wiggum mode is not active.
+
+        Note: This test uses mock_interactive since we don't want
+        to actually show a TUI in tests.
+        """
+        # Ensure wiggum is stopped
+        stop_wiggum()
+
+        with patch(
+            "code_puppy.tools.ask_user_question.handler.is_interactive",
+            return_value=False,
+        ):
+            # Outside wiggum mode, it should reach the interactive check
+            # (which returns False here), not the wiggum check
+            result = ask_user_question(
+                [
+                    {
+                        "question": "Which database?",
+                        "header": "Database",
+                        "options": [{"label": "A"}, {"label": "B"}],
+                    }
+                ]
+            )
+        # Should fail at interactive check, not wiggum check
+        assert result.error is not None
+        assert "interactive" in result.error.lower()
+        assert "wiggum" not in result.error.lower()
 
 
 class TestAskUserQuestionNonInteractive:

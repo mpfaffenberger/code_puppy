@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from code_puppy.command_line.wiggum_state import is_wiggum_active
 from code_puppy.tools.subagent_context import is_subagent
 
 from .constants import CI_ENV_VARS, DEFAULT_TIMEOUT_SECONDS, MAX_VALIDATION_ERRORS_SHOWN
@@ -103,6 +104,16 @@ def ask_user_question(
             "Interactive tools are disabled for sub-agents. "
             "Sub-agents should make reasonable decisions or return to the parent agent "
             "if user input is required."
+        )
+
+    # Block interactive tools in wiggum (autonomous loop) mode
+    if is_wiggum_active():
+        logger.warning("ask_user_question called during wiggum mode - disabled")
+        return AskUserQuestionOutput.error_response(
+            "Interactive tools are disabled during /wiggum mode. "
+            "The agent is running autonomously in a loop. "
+            "Make a reasonable decision to proceed, or stop and wait for user input "
+            "by completing the current task."
         )
 
     # Check for interactive environment
