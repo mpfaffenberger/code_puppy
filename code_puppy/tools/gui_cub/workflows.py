@@ -188,6 +188,13 @@ async def read_workflow(name: str) -> dict[str, Any]:
 
 def register_workflow_tools(agent: "Agent[Any, Any]") -> None:
     """Register workflow management tools."""
+    # Guard against double registration - same function may be called multiple times
+    # when agent-creator pulls in overlapping tool names (e.g., "gui_cub_workflows"
+    # and "gui_cub_save_workflow" both map to this function)
+    marker = "_gui_cub_workflow_tools_registered"
+    if getattr(agent, marker, False):
+        return  # Already registered, skip
+    setattr(agent, marker, True)
 
     @agent.tool
     async def gui_cub_save_workflow(

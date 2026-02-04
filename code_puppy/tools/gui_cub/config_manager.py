@@ -489,6 +489,11 @@ async def ensure_calibrated() -> dict[str, Any]:
 
 def register_debug_screenshot_tools(agent: "Agent[Any, Any]") -> None:
     """Register debug screenshot management tools."""
+    # Guard against double registration
+    marker = "_gui_cub_debug_screenshot_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     async def save_debug_screenshot(

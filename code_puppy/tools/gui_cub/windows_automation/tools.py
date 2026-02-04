@@ -66,6 +66,11 @@ def register_windows_tools(agent: "Agent[Any, Any]") -> None:
     Note: File is long but cohesive - all tools are Windows-specific automation.
     Platform: Windows only (requires pywinauto, win32gui)
     """
+    # Guard against double registration
+    marker = "_gui_cub_windows_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     # ============================================================================
     # WINDOWS AUTOMATION TOOLS

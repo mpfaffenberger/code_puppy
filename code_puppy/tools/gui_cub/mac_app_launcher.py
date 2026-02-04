@@ -100,6 +100,11 @@ def mac_launch_app(
 
 def register_mac_app_launcher_tools(agent: "Agent[Any, Any]") -> None:
     """Register macOS application launcher tool."""
+    # Guard against double registration
+    marker = "_gui_cub_mac_app_launcher_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     @desktop_tool("MAC LAUNCH APP", requires=None)

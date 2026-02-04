@@ -35,6 +35,11 @@ def get_modifier_key() -> str:
 
 def register_keyboard_shortcut_tools(agent: "Agent[Any, Any]") -> None:
     """Register platform-aware keyboard shortcut tools."""
+    # Guard against double registration
+    marker = "_gui_cub_keyboard_shortcut_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     @desktop_tool("COPY", requires="pyautogui")

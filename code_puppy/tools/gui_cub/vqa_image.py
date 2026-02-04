@@ -149,9 +149,13 @@ def register_vqa_image_tools(agent: "Agent[Any, Any]") -> "Agent[Any, Any]":
     Returns:
         The same agent instance with tools registered.
 
-    Registers:
-        - vqa_analyze_image: Analyze any image file with VQA
-    """
+    Registers:"""
+    # Guard against double registration
+    marker = "_gui_cub_vqa_image_tools_registered"
+    if getattr(agent, marker, False):
+        return agent
+    setattr(agent, marker, True)
+    # Registers: vqa_analyze_image: Analyze any image file with VQA
 
     @agent.tool
     def vqa_analyze_image(

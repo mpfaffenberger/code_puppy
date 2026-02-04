@@ -110,6 +110,11 @@ def desktop_mouse_click(
 
 def register_mouse_control_tools(agent: "Agent[Any, Any]") -> None:
     """Register mouse control tools for desktop automation."""
+    # Guard against double registration
+    marker = "_gui_cub_mouse_control_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     @desktop_tool("MOUSE MOVE", requires="pyautogui")

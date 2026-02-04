@@ -138,6 +138,11 @@ def append_to_knowledge_base(
 
 def register_knowledge_base_tool(agent: "Agent[Any, Any]") -> "Agent[Any, Any]":
     """Register the knowledge base tool."""
+    # Guard against double registration
+    marker = "_gui_cub_knowledge_base_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     async def gui_cub_append_to_knowledge_base(

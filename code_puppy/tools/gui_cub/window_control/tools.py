@@ -38,6 +38,11 @@ from .core import _focus_window_impl, _get_active_window_bounds_impl
 
 def register_window_control_tools(agent: "Agent[Any, Any]") -> None:
     """Register window control tools for desktop automation."""
+    # Guard against double registration
+    marker = "_gui_cub_window_control_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     # Global counters to track tool invocations
     _focus_window_call_count = {"count": 0}

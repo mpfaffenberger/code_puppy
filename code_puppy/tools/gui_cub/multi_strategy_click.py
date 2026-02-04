@@ -73,6 +73,11 @@ class MultiStrategyClickResult(BaseAutomationResult):
 
 def register_multi_strategy_click_tools(agent: "Agent[Any, Any]") -> None:
     """Register multi-strategy click tools with automatic fallback."""
+    # Guard against double registration
+    marker = "_gui_cub_multi_strategy_click_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     def desktop_click_element_smart(

@@ -53,9 +53,14 @@ def register_click_debugging_tools(agent: "Agent[Any, Any]") -> None:
     3. desktop_verify_coordinates - Verify coordinate accuracy (~89 lines)
     4. desktop_click_with_verification - Click with pre/post verification (~114 lines)
     5. desktop_click_smart - Smart clicking with auto-retry (~234 lines)
-
-    Note: File is long but cohesive - all tools are related to click debugging/verification.
     """
+    # Guard against double registration
+    marker = "_gui_cub_click_debugging_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
+
+    # Note: File is long but cohesive - all tools are related to click debugging/verification.
 
     # ============================================================================
     # TOOL 1: HOVER AND VERIFY (~506 lines)

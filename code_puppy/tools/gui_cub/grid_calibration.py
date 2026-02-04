@@ -257,6 +257,11 @@ def create_calibration_test_pattern(
 
 def register_grid_calibration_tools(agent: "Agent[Any, Any]") -> None:
     """Register advanced grid calibration and density tools."""
+    # Guard against double registration
+    marker = "_gui_cub_grid_calibration_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     def desktop_set_grid_density(

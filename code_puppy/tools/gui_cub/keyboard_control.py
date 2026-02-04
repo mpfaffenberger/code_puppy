@@ -111,6 +111,11 @@ def desktop_keyboard_release(
 
 def register_keyboard_control_tools(agent: "Agent[Any, Any]") -> None:
     """Register keyboard control tools for desktop automation."""
+    # Guard against double registration
+    marker = "_gui_cub_keyboard_control_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     @desktop_tool("KEYBOARD TYPE", requires="pyautogui")

@@ -184,6 +184,11 @@ def ui_click_element(
 
 def register_os_unified_tools(agent: "Agent[Any, Any]") -> None:
     """Register unified OS-aware UI tools."""
+    # Guard against double registration
+    marker = "_gui_cub_os_unified_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     def ui_list_windows(context: RunContext) -> WindowListResult:

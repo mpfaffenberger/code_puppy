@@ -195,6 +195,11 @@ def list_faq_topics() -> dict[str, str]:
 
 def register_faq_tool(agent: "Agent[Any, Any]") -> "Agent[Any, Any]":
     """Register the FAQ tool with an agent."""
+    # Guard against double registration
+    marker = "_gui_cub_faq_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     async def gui_cub_faq(

@@ -31,6 +31,11 @@ def register_vqa_two_stage_tools(agent: "Agent[Any, Any]") -> None:
         - desktop_vqa_click_two_stage: Primary two-stage VQA tool
         - desktop_find_and_click: Alias for backward compatibility
     """
+    # Guard against double registration
+    marker = "_gui_cub_vqa_two_stage_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     def desktop_vqa_click_two_stage(

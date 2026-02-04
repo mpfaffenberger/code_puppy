@@ -169,6 +169,11 @@ def desktop_click_accessible_element(
 
 def register_accessibility_tools(agent: "Agent[Any, Any]") -> None:
     """Register accessibility API tools for macOS."""
+    # Guard against double registration
+    marker = "_gui_cub_accessibility_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     def desktop_list_windows(
