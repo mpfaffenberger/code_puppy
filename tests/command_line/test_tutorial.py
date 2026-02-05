@@ -63,7 +63,7 @@ def test_tutorial_claude_flow() -> None:
     assert result is True
     mock_reset.assert_called_once()
     mock_auth.assert_called_once()
-    mock_set_model.assert_called_once_with("claude-code-claude-opus-4-5-20251101")
+    mock_set_model.assert_called_once_with("claude-code-claude-opus-4-6")
 
 
 @pytest.mark.parametrize(

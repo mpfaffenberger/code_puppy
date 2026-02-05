@@ -192,7 +192,7 @@ def handle_tutorial_command(command: str) -> bool:
         )
 
         _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-5-20251101")
+        set_model_and_reload_agent("claude-code-claude-opus-4-6")
     elif result == "completed":
         emit_info("🎉 Tutorial complete! Happy coding!")
     elif result == "skipped":

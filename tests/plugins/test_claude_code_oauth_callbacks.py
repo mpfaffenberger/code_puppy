@@ -92,7 +92,7 @@ class TestHandleCustomCommand:
 
         assert result is True
         mock_auth.assert_called_once()
-        mock_set_model.assert_called_once_with("claude-code-claude-opus-4-5-20251101")
+        mock_set_model.assert_called_once_with("claude-code-claude-opus-4-6")
 
     @patch("code_puppy.plugins.claude_code_oauth.register_callbacks.load_stored_tokens")
     def test_handle_custom_command_status_not_authenticated(self, mock_load_tokens):

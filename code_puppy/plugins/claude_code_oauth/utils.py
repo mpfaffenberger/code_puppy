@@ -423,6 +423,8 @@ def filter_latest_claude_models(models: List[str]) -> List[str]:
     latest_models: Dict[str, Tuple[str, int, int, int]] = {}
 
     for model_name in models:
+        if model_name == "claude-opus-4-6":
+            latest_models["opus"] = model_name, 4, 6, 20260205
         # Match pattern: claude-{family}-{major}-{minor}-{date}
         # Examples: claude-haiku-3-5-20241022, claude-sonnet-4-5-20250929
         match = re.match(r"claude-(haiku|sonnet|opus)-(\d+)-(\d+)-(\d+)", model_name)

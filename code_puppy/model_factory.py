@@ -148,13 +148,23 @@ def make_model_settings(
         if model_settings_dict.get("temperature") is None:
             model_settings_dict["temperature"] = 1.0
 
-        extended_thinking = effective_settings.get("extended_thinking", True)
+        extended_thinking = effective_settings.get("extended_thinking", "enabled")
+        # Backwards compat: handle legacy boolean values
+        if extended_thinking is True:
+            extended_thinking = "enabled"
+        elif extended_thinking is False:
+            extended_thinking = "off"
+
         budget_tokens = effective_settings.get("budget_tokens", 10000)
-        if extended_thinking and budget_tokens:
+        if extended_thinking in ("enabled", "adaptive"):
             model_settings_dict["anthropic_thinking"] = {
-                "type": "enabled",
-                "budget_tokens": budget_tokens,
+                "type": extended_thinking,
             }
+            # Only send budget_tokens for classic "enabled" mode
+            if extended_thinking == "enabled" and budget_tokens:
+                model_settings_dict["anthropic_thinking"]["budget_tokens"] = (
+                    budget_tokens
+                )
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
     # Handle Gemini thinking models (Gemini-3)
