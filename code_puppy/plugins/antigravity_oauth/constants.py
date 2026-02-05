@@ -44,9 +44,21 @@ ANTIGRAVITY_ENDPOINT = ANTIGRAVITY_ENDPOINT_DAILY
 # Default project ID fallback
 ANTIGRAVITY_DEFAULT_PROJECT_ID = "rising-fact-p41fc"
 
-# Request headers for Antigravity API
+# Antigravity version string - SINGLE SOURCE OF TRUTH.
+# Update this value when a new version is needed.
+# Used by ANTIGRAVITY_HEADERS and all version-dependent code.
+#
+# This version MUST be kept in sync with Google's supported Antigravity versions.
+# Using an outdated version will cause "This version of Antigravity is no longer supported" errors.
+#
+# See: https://github.com/NoeFabris/opencode-antigravity-auth/issues/324
+ANTIGRAVITY_VERSION = "1.15.8"
+
+# Request headers for Antigravity API.
+# Uses ANTIGRAVITY_VERSION to ensure the User-Agent version stays in sync
+# with the single source of truth, preventing "version no longer supported" errors.
 ANTIGRAVITY_HEADERS: Dict[str, str] = {
-    "User-Agent": "antigravity/1.11.5 windows/amd64",
+    "User-Agent": f"antigravity/{ANTIGRAVITY_VERSION} windows/amd64",
     "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
     "Client-Metadata": '{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}',
     "x-goog-api-key": "",  # Must be present but empty for Antigravity

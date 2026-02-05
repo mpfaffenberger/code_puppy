@@ -18,6 +18,7 @@ from .constants import (
     ANTIGRAVITY_DEFAULT_PROJECT_ID,
     ANTIGRAVITY_ENDPOINT_FALLBACKS,
     ANTIGRAVITY_HEADERS,
+    ANTIGRAVITY_VERSION,
 )
 
 logger = logging.getLogger(__name__)
@@ -612,7 +613,10 @@ class AntigravityClient(httpx.AsyncClient):
                 }
 
                 # Add Antigravity headers (matching OpenCode exactly)
-                new_headers["user-agent"] = "antigravity/1.11.5 windows/amd64"
+                # Uses ANTIGRAVITY_VERSION to stay in sync with constants.py
+                new_headers["user-agent"] = (
+                    f"antigravity/{ANTIGRAVITY_VERSION} windows/amd64"
+                )
                 new_headers["x-goog-api-client"] = (
                     "google-cloud-sdk vscode_cloudshelleditor/0.1"
                 )
