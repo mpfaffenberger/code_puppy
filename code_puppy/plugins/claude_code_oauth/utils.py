@@ -493,6 +493,31 @@ def fetch_claude_code_models(access_token: str) -> Optional[List[str]]:
     return None
 
 
+def _build_model_entry(model_name: str, access_token: str, context_length: int) -> dict:
+    """Build a single model config entry for claude_models.json."""
+    return {
+        "type": "claude_code",
+        "name": model_name,
+        "custom_endpoint": {
+            "url": CLAUDE_CODE_OAUTH_CONFIG["api_base_url"],
+            "api_key": access_token,
+            "headers": {
+                "anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14",
+                "x-app": "cli",
+                "User-Agent": "claude-cli/2.0.61 (external, cli)",
+            },
+        },
+        "context_length": context_length,
+        "oauth_source": "claude-code-plugin",
+        "supported_settings": [
+            "temperature",
+            "extended_thinking",
+            "budget_tokens",
+            "interleaved_thinking",
+        ],
+    }
+
+
 def add_models_to_extra_config(models: List[str]) -> bool:
     try:
         # Filter to only latest haiku, sonnet, and opus models
@@ -502,31 +527,26 @@ def add_models_to_extra_config(models: List[str]) -> bool:
         claude_models = {}
         added = 0
         access_token = get_valid_access_token() or ""
+        prefix = CLAUDE_CODE_OAUTH_CONFIG["prefix"]
+        default_ctx = CLAUDE_CODE_OAUTH_CONFIG["default_context_length"]
+        long_ctx = CLAUDE_CODE_OAUTH_CONFIG["long_context_length"]
+        long_ctx_models = CLAUDE_CODE_OAUTH_CONFIG["long_context_models"]
 
         for model_name in filtered_models:
-            prefixed = f"{CLAUDE_CODE_OAUTH_CONFIG['prefix']}{model_name}"
-            claude_models[prefixed] = {
-                "type": "claude_code",
-                "name": model_name,
-                "custom_endpoint": {
-                    "url": CLAUDE_CODE_OAUTH_CONFIG["api_base_url"],
-                    "api_key": access_token,
-                    "headers": {
-                        "anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14",
-                        "x-app": "cli",
-                        "User-Agent": "claude-cli/2.0.61 (external, cli)",
-                    },
-                },
-                "context_length": CLAUDE_CODE_OAUTH_CONFIG["default_context_length"],
-                "oauth_source": "claude-code-plugin",
-                "supported_settings": [
-                    "temperature",
-                    "extended_thinking",
-                    "budget_tokens",
-                    "interleaved_thinking",
-                ],
-            }
+            prefixed = f"{prefix}{model_name}"
+            claude_models[prefixed] = _build_model_entry(
+                model_name, access_token, default_ctx
+            )
             added += 1
+
+            # Create a "-long" variant with extended context for eligible models
+            if model_name in long_ctx_models:
+                long_prefixed = f"{prefix}{model_name}-long"
+                claude_models[long_prefixed] = _build_model_entry(
+                    model_name, access_token, long_ctx
+                )
+                added += 1
+
         if save_claude_models(claude_models):
             logger.info("Added %s Claude Code models", added)
             return True

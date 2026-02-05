@@ -344,8 +344,9 @@ def exchange_code_for_tokens(
 # These are the known models that work with ChatGPT OAuth tokens
 # Based on codex-rs CLI and shell-scripts/codex-call.sh
 DEFAULT_CODEX_MODELS = [
-    "gpt-5.2",
+    "gpt-5.3-codex",
     "gpt-5.2-codex",
+    "gpt-5.2",
 ]
 
 

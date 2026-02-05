@@ -267,7 +267,7 @@ class TestCustomCommands:
 
         assert result is True
         mock_oauth.assert_called_once()
-        mock_set_model.assert_called_once_with("chatgpt-gpt-5.2-codex")
+        mock_set_model.assert_called_once_with("chatgpt-gpt-5.3-codex")
 
     @patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.load_stored_tokens")
     def test_handle_custom_command_status(self, mock_load):

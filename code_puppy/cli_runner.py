@@ -492,7 +492,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
 
                 run_oauth_flow()
-                set_model_name("chatgpt-gpt-5.2-codex")
+                set_model_name("chatgpt-gpt-5.3-codex")
             elif result == "claude":
                 emit_info("🔐 Starting Claude Code OAuth flow...")
                 from code_puppy.plugins.claude_code_oauth.register_callbacks import (
