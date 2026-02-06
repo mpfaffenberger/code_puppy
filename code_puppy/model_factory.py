@@ -52,6 +52,31 @@ def _load_plugin_model_providers():
 _load_plugin_model_providers()
 
 
+# Anthropic beta header required for 1M context window support.
+CONTEXT_1M_BETA = "context-1m-2025-08-07"
+
+
+def _build_anthropic_beta_header(
+    model_config: Dict,
+    *,
+    interleaved_thinking: bool = False,
+) -> str | None:
+    """Build the anthropic-beta header value for an Anthropic model.
+
+    Combines beta flags based on model capabilities:
+    - interleaved-thinking-2025-05-14  (when interleaved_thinking is enabled)
+    - context-1m-2025-08-07            (when context_length >= 1_000_000)
+
+    Returns None if no beta flags are needed.
+    """
+    parts: list[str] = []
+    if interleaved_thinking:
+        parts.append("interleaved-thinking-2025-05-14")
+    if model_config.get("context_length", 0) >= 1_000_000:
+        parts.append(CONTEXT_1M_BETA)
+    return ",".join(parts) if parts else None
+
+
 def get_api_key(env_var_name: str) -> str | None:
     """Get an API key from config first, then fall back to environment variable.
 
@@ -148,7 +173,12 @@ def make_model_settings(
         if model_settings_dict.get("temperature") is None:
             model_settings_dict["temperature"] = 1.0
 
-        extended_thinking = effective_settings.get("extended_thinking", "enabled")
+        from code_puppy.model_utils import get_default_extended_thinking
+
+        default_thinking = get_default_extended_thinking(model_name)
+        extended_thinking = effective_settings.get(
+            "extended_thinking", default_thinking
+        )
         # Backwards compat: handle legacy boolean values
         if extended_thinking is True:
             extended_thinking = "enabled"
@@ -165,6 +195,18 @@ def make_model_settings(
                 model_settings_dict["anthropic_thinking"]["budget_tokens"] = (
                     budget_tokens
                 )
+
+        # Opus 4-6 models support the `effort` setting via output_config.
+        # pydantic-ai doesn't have a native field for output_config yet,
+        # so we inject it through extra_body which gets merged into the
+        # HTTP request body.
+        if model_supports_setting(model_name, "effort"):
+            effort = effective_settings.get("effort", "high")
+            if "anthropic_thinking" in model_settings_dict:
+                extra_body = model_settings_dict.get("extra_body") or {}
+                extra_body["output_config"] = {"effort": effort}
+                model_settings_dict["extra_body"] = extra_body
+
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
     # Handle Gemini thinking models (Gemini-3)
@@ -407,9 +449,12 @@ class ModelFactory:
             effective_settings = get_effective_model_settings(model_name)
             interleaved_thinking = effective_settings.get("interleaved_thinking", False)
 
+            beta_header = _build_anthropic_beta_header(
+                model_config, interleaved_thinking=interleaved_thinking
+            )
             default_headers = {}
-            if interleaved_thinking:
-                default_headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+            if beta_header:
+                default_headers["anthropic-beta"] = beta_header
 
             anthropic_client = AsyncAnthropic(
                 api_key=api_key,
@@ -450,9 +495,12 @@ class ModelFactory:
             effective_settings = get_effective_model_settings(model_name)
             interleaved_thinking = effective_settings.get("interleaved_thinking", False)
 
+            beta_header = _build_anthropic_beta_header(
+                model_config, interleaved_thinking=interleaved_thinking
+            )
             default_headers = {}
-            if interleaved_thinking:
-                default_headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+            if beta_header:
+                default_headers["anthropic-beta"] = beta_header
 
             anthropic_client = AsyncAnthropic(
                 base_url=url,

@@ -58,6 +58,7 @@ class TestBaseAgentReload:
             patch("code_puppy.model_factory.ModelFactory.load_config"),
             patch("code_puppy.model_factory.ModelFactory.get_model"),
             patch("code_puppy.tools.register_tools_for_agent"),
+            patch("code_puppy.tools.has_extended_thinking_active", return_value=False),
             patch.object(agent, "get_model_name", return_value="claude-code-test"),
             patch.object(agent, "load_puppy_rules", return_value=""),
             patch.object(agent, "load_mcp_servers", return_value=[]),

@@ -333,6 +333,18 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
     elif interleaved_thinking:
         headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
 
+    # Add 1M context beta header for long-context models
+    from code_puppy.model_factory import CONTEXT_1M_BETA
+
+    if model_config.get("context_length", 0) >= 1_000_000:
+        if "anthropic-beta" in headers:
+            beta_parts = [p.strip() for p in headers["anthropic-beta"].split(",")]
+            if CONTEXT_1M_BETA not in beta_parts:
+                beta_parts.append(CONTEXT_1M_BETA)
+            headers["anthropic-beta"] = ",".join(beta_parts)
+        else:
+            headers["anthropic-beta"] = CONTEXT_1M_BETA
+
     # Use a dedicated client wrapper that injects cache_control on /v1/messages
     if verify is None:
         verify = get_cert_bundle_path()

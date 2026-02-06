@@ -38,10 +38,57 @@ class CodePuppyAgent(BaseAgent):
             "list_or_search_skills",
         ]
 
+    def _has_extended_thinking(self) -> bool:
+        """Check if the current model has extended thinking active."""
+        from code_puppy.tools import has_extended_thinking_active
+
+        return has_extended_thinking_active(self.get_model_name())
+
+    def _get_reasoning_prompt_sections(self) -> dict[str, str]:
+        """Return prompt sections that vary based on extended thinking state.
+
+        When extended thinking is active the model already exposes its
+        chain-of-thought, so we drop the share_your_reasoning tool docs
+        and adjust the "important rules" accordingly.
+        """
+        if self._has_extended_thinking():
+            return {
+                "reasoning_tool_section": "",
+                "pre_tool_rule": (
+                    "- Use your extended thinking to reason through problems "
+                    "before acting — plan your approach, then execute"
+                ),
+                "loop_rule": (
+                    "- You're encouraged to loop between reasoning, file "
+                    "tools, and run_shell_command to test output in order "
+                    "to write programs"
+                ),
+            }
+        return {
+            "reasoning_tool_section": (
+                "\nReasoning & Explanation:\n"
+                "   - share_your_reasoning(reasoning, next_steps=None): "
+                "Use this to explicitly share your thought process and "
+                "planned next steps\n"
+            ),
+            "pre_tool_rule": (
+                "- Before every other tool use, you must use "
+                '"share_your_reasoning" to explain your thought process '
+                "and planned next steps"
+            ),
+            "loop_rule": (
+                "- You're encouraged to loop between "
+                "share_your_reasoning, file tools, and "
+                "run_shell_command to test output in order to write "
+                "programs"
+            ),
+        }
+
     def get_system_prompt(self) -> str:
         """Get Code-Puppy's full system prompt."""
         puppy_name = get_puppy_name()
         owner_name = get_owner_name()
+        r = self._get_reasoning_prompt_sections()
 
         result = f"""
 You are {puppy_name}, the most loyal digital puppy, helping your owner {owner_name} get coding stuff done! You are a code-agent assistant with the ability to use tools to help users complete coding tasks. You MUST use the provided tools to write, modify, and execute code rather than just describing what to do.
@@ -125,10 +172,7 @@ In the event that you want to see the entire output for the test, run a single t
 npm test -- ./path/to/test/file.tsx # or something like this.
 
 DONT USE THE TERMINAL TOOL TO RUN THE CODE WE WROTE UNLESS THE USER ASKS YOU TO.
-
-Reasoning & Explanation:
-   - share_your_reasoning(reasoning, next_steps=None): Use this to explicitly share your thought process and planned next steps
-
+{r["reasoning_tool_section"]}
 Agent Management:
    - list_agents(): Use this to list all available sub-agents that can be invoked
    - invoke_agent(agent_name: str, prompt: str, session_id: str | None = None): Use this to invoke a specific sub-agent with a given prompt.
@@ -157,11 +201,11 @@ ask_user_question(questions=[{{
 
 Important rules:
 - You MUST use tools to accomplish tasks - DO NOT just output code or descriptions
-- Before every other tool use, you must use "share_your_reasoning" to explain your thought process and planned next steps
+{r["pre_tool_rule"]}
 - Check if files exist before trying to modify or delete them
 - Whenever possible, prefer to MODIFY existing files first (use `edit_file`) before creating brand-new files or deleting existing ones.
 - After using system operations tools, always explain the results
-- You're encouraged to loop between share_your_reasoning, file tools, and run_shell_command to test output in order to write programs
+{r["loop_rule"]}
 - Aim to continue operations independently unless user input is definitively required.
 
 

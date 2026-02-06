@@ -10,7 +10,7 @@ import re
 import secrets
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlencode
 
 import requests
@@ -331,7 +331,11 @@ def load_claude_models_filtered() -> Dict[str, Any]:
                 model_names.append(name)
 
         # Filter to only latest models
-        latest_names = set(filter_latest_claude_models(model_names))
+        latest_names = set(
+            filter_latest_claude_models(
+                model_names, max_per_family={"default": 1, "opus": 3}
+            )
+        )
 
         # Return only the filtered models
         filtered_models = {}
@@ -413,13 +417,19 @@ def exchange_code_for_tokens(
 
 
 def filter_latest_claude_models(
-    models: List[str], max_per_family: int = 2
+    models: List[str], max_per_family: Union[int, Dict[str, int]] = 2
 ) -> List[str]:
     """Filter models to keep the top N latest haiku, sonnet, and opus.
 
     Parses model names in the format claude-{family}-{major}-{minor}-{date}
     and returns the top ``max_per_family`` versions of each family
     (haiku, sonnet, opus), sorted newest-first.
+
+    Args:
+        models: List of model name strings to filter.
+        max_per_family: Either a single int applied to all families, or a dict
+            mapping family name to its limit (e.g. ``{"opus": 3}``). Families
+            not present in the dict fall back to ``"default"`` key, or ``2``.
     """
     # Collect all parsed models per family
     # family -> list of (model_name, major, minor, date)
@@ -450,13 +460,17 @@ def filter_latest_claude_models(
 
     # Sort each family descending and keep the top N
     filtered: List[str] = []
-    for family_entries in family_models.values():
+    for family, family_entries in family_models.items():
+        if isinstance(max_per_family, dict):
+            limit = max_per_family.get(family, max_per_family.get("default", 2))
+        else:
+            limit = max_per_family
         family_entries.sort(key=lambda e: (e[1], e[2], e[3]), reverse=True)
-        for entry in family_entries[:max_per_family]:
+        for entry in family_entries[:limit]:
             filtered.append(entry[0])
 
     logger.info(
-        "Filtered %d models to %d latest models (max %d per family): %s",
+        "Filtered %d models to %d latest models (max_per_family=%s): %s",
         len(models),
         len(filtered),
         max_per_family,
@@ -499,6 +513,18 @@ def fetch_claude_code_models(access_token: str) -> Optional[List[str]]:
 
 def _build_model_entry(model_name: str, access_token: str, context_length: int) -> dict:
     """Build a single model config entry for claude_models.json."""
+    supported_settings = [
+        "temperature",
+        "extended_thinking",
+        "budget_tokens",
+        "interleaved_thinking",
+    ]
+
+    # Opus 4-6 models support the effort setting
+    lower = model_name.lower()
+    if "opus-4-6" in lower or "4-6-opus" in lower:
+        supported_settings.append("effort")
+
     return {
         "type": "claude_code",
         "name": model_name,
@@ -513,19 +539,16 @@ def _build_model_entry(model_name: str, access_token: str, context_length: int) 
         },
         "context_length": context_length,
         "oauth_source": "claude-code-plugin",
-        "supported_settings": [
-            "temperature",
-            "extended_thinking",
-            "budget_tokens",
-            "interleaved_thinking",
-        ],
+        "supported_settings": supported_settings,
     }
 
 
 def add_models_to_extra_config(models: List[str]) -> bool:
     try:
         # Filter to only latest haiku, sonnet, and opus models
-        filtered_models = filter_latest_claude_models(models)
+        filtered_models = filter_latest_claude_models(
+            models, max_per_family={"default": 1, "opus": 3}
+        )
 
         # Start fresh - overwrite the file on every auth instead of loading existing
         claude_models = {}

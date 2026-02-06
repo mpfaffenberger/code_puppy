@@ -405,3 +405,22 @@ class TestErrorHandling:
         mock_load_models.return_value = ["gpt-5"]
         menu = ModelSettingsMenu()
         assert menu is not None
+
+    @patch("code_puppy.command_line.model_settings_menu.get_global_model_name")
+    @patch("code_puppy.command_line.model_settings_menu._load_all_model_names")
+    def test_format_value_unknown_setting_does_not_crash(
+        self,
+        mock_load_models,
+        mock_get_global,
+    ):
+        """_format_value should gracefully handle stale/unknown settings."""
+        mock_get_global.return_value = "claude-3-sonnet"
+        mock_load_models.return_value = ["claude-3-sonnet"]
+        menu = ModelSettingsMenu()
+
+        # Unknown setting with a value
+        assert (
+            menu._format_value("long_extended_thinking", "some_value") == "some_value"
+        )
+        # Unknown setting with None
+        assert menu._format_value("totally_bogus", None) == "(unknown)"

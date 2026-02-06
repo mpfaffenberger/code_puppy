@@ -297,6 +297,7 @@ class TestGetConfigKeys:
                 "banner_color_subagent_response",
                 "banner_color_terminal_tool",
                 "banner_color_thinking",
+                "banner_color_universal_constructor",
                 "cancel_agent_key",
                 "compaction_strategy",
                 "compaction_threshold",
@@ -349,6 +350,7 @@ class TestGetConfigKeys:
                 "banner_color_subagent_response",
                 "banner_color_terminal_tool",
                 "banner_color_thinking",
+                "banner_color_universal_constructor",
                 "cancel_agent_key",
                 "compaction_strategy",
                 "compaction_threshold",
@@ -830,3 +832,20 @@ class TestModelSupportsSetting:
         """Should default to True for unknown models."""
         mock_load_config.return_value = {}
         assert cp_config.model_supports_setting("unknown-model", "temperature") is True
+
+    @patch("code_puppy.model_factory.ModelFactory.load_config")
+    def test_opus_46_fallback_supports_effort(self, mock_load_config):
+        """Opus 4-6 models should support effort in the fallback path."""
+        mock_load_config.return_value = {
+            "claude-opus-4-6": {"type": "anthropic", "name": "claude-opus-4-6"}
+        }
+        assert cp_config.model_supports_setting("claude-opus-4-6", "effort") is True
+        assert cp_config.model_supports_setting("claude-4-6-opus", "effort") is True
+
+    @patch("code_puppy.model_factory.ModelFactory.load_config")
+    def test_non_opus_46_fallback_does_not_support_effort(self, mock_load_config):
+        """Non Opus 4-6 Claude models should NOT support effort in fallback."""
+        mock_load_config.return_value = {
+            "claude-sonnet-4": {"type": "anthropic", "name": "claude-sonnet-4"}
+        }
+        assert cp_config.model_supports_setting("claude-sonnet-4", "effort") is False

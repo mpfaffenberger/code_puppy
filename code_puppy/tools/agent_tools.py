@@ -527,7 +527,7 @@ def register_invoke_agent(agent):
                 from code_puppy.tools import register_tools_for_agent
 
                 agent_tools = agent_config.get_available_tools()
-                register_tools_for_agent(temp_agent, agent_tools)
+                register_tools_for_agent(temp_agent, agent_tools, model_name=model_name)
 
                 # Wrap with DBOS - no streaming for sub-agents
                 dbos_agent = DBOSAgent(
@@ -554,7 +554,7 @@ def register_invoke_agent(agent):
                 from code_puppy.tools import register_tools_for_agent
 
                 agent_tools = agent_config.get_available_tools()
-                register_tools_for_agent(temp_agent, agent_tools)
+                register_tools_for_agent(temp_agent, agent_tools, model_name=model_name)
 
                 subagent_mcp_servers = None
 

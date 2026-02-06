@@ -667,6 +667,28 @@ class TestHeaderTransformation:
         assert "x-api-key" not in headers
         assert "X-API-Key" not in headers
 
+    def test_transform_headers_preserves_extra_betas(self):
+        """Extra betas (e.g. context-1m) should survive the transform."""
+        headers = {
+            "anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-1m-2025-08-07"
+        }
+
+        ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
+
+        assert "context-1m-2025-08-07" in headers["anthropic-beta"]
+        assert "oauth-2025-04-20" in headers["anthropic-beta"]
+        assert "interleaved-thinking-2025-05-14" in headers["anthropic-beta"]
+
+    def test_transform_headers_no_duplicate_required_betas(self):
+        """Required betas should not be duplicated in the output."""
+        headers = {"anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14"}
+
+        ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
+
+        beta_str = headers["anthropic-beta"]
+        assert beta_str.count("oauth-2025-04-20") == 1
+        assert beta_str.count("interleaved-thinking-2025-05-14") == 1
+
 
 class TestUrlBetaParam:
     """Test URL beta query parameter addition."""

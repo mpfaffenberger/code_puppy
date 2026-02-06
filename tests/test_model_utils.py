@@ -4,6 +4,7 @@ from code_puppy.model_utils import (
     CLAUDE_CODE_INSTRUCTIONS,
     PreparedPrompt,
     get_claude_code_instructions,
+    get_default_extended_thinking,
     is_claude_code_model,
     prepare_prompt_for_model,
 )
@@ -146,3 +147,30 @@ class TestPreparedPromptDataclass:
         )
 
         assert prompt1 == prompt2
+
+
+class TestGetDefaultExtendedThinking:
+    """Tests for get_default_extended_thinking."""
+
+    def test_opus_4_6_returns_adaptive(self):
+        assert get_default_extended_thinking("claude-opus-4-6") == "adaptive"
+
+    def test_4_6_opus_returns_adaptive(self):
+        assert get_default_extended_thinking("claude-4-6-opus") == "adaptive"
+
+    def test_case_insensitive(self):
+        assert get_default_extended_thinking("Claude-Opus-4-6") == "adaptive"
+        assert get_default_extended_thinking("CLAUDE-4-6-OPUS") == "adaptive"
+
+    def test_non_opus_46_returns_enabled(self):
+        assert get_default_extended_thinking("claude-sonnet-4-20250514") == "enabled"
+        assert get_default_extended_thinking("claude-opus-4-5") == "enabled"
+        assert get_default_extended_thinking("claude-4-5-opus") == "enabled"
+
+    def test_non_anthropic_returns_enabled(self):
+        assert get_default_extended_thinking("gpt-4o") == "enabled"
+        assert get_default_extended_thinking("gemini-2.5-pro") == "enabled"
+
+    def test_substring_match_in_longer_name(self):
+        assert get_default_extended_thinking("anthropic-opus-4-6-preview") == "adaptive"
+        assert get_default_extended_thinking("claude-4-6-opus-20250701") == "adaptive"

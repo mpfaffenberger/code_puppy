@@ -187,6 +187,83 @@ class TestMakeModelSettings:
             assert "parallel_tool_calls" not in settings
 
 
+class TestOpus46EffortSetting:
+    """Test the effort setting for Opus 4-6 models.
+
+    The Anthropic API expects effort as a separate top-level parameter:
+        output_config: {"effort": "high"}
+    Since pydantic-ai doesn't natively support output_config yet,
+    we inject it via extra_body which gets merged into the HTTP request.
+    """
+
+    def test_opus_46_gets_effort_in_extra_body(self):
+        """Opus 4-6 should inject effort via extra_body.output_config."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
+        extra_body = settings.get("extra_body", {})
+        assert "output_config" in extra_body
+        assert "effort" in extra_body["output_config"]
+
+    def test_opus_46_effort_default_is_high(self):
+        """Default effort for Opus 4-6 should be 'high'."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
+        assert settings["extra_body"]["output_config"]["effort"] == "high"
+
+    def test_opus_46_effort_user_override(self):
+        """User-configured effort value should be respected."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={"effort": "low", "extended_thinking": "adaptive"},
+        ):
+            settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
+            assert settings["extra_body"]["output_config"]["effort"] == "low"
+
+    def test_opus_46_reverse_name_also_works(self):
+        """claude-4-6-opus variant should also get effort."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("claude-4-6-opus", max_tokens=4096)
+        extra_body = settings.get("extra_body", {})
+        assert "output_config" in extra_body
+        assert "effort" in extra_body["output_config"]
+
+    def test_non_opus_46_does_not_get_effort(self):
+        """Non Opus 4-6 Claude models should NOT have extra_body.output_config."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("claude-sonnet-4-20250514", max_tokens=4096)
+        extra_body = settings.get("extra_body", {})
+        assert "output_config" not in extra_body
+
+    def test_opus_45_does_not_get_effort(self):
+        """Opus 4-5 should NOT have effort — it's 4-6 only."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("claude-opus-4-5", max_tokens=4096)
+        extra_body = settings.get("extra_body", {})
+        assert "output_config" not in extra_body
+
+    def test_opus_46_thinking_type_is_adaptive_by_default(self):
+        """Opus 4-6 should default to adaptive thinking (from previous change)."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
+        assert settings["anthropic_thinking"]["type"] == "adaptive"
+
+    def test_opus_46_effort_not_in_anthropic_thinking(self):
+        """Effort should NOT be inside anthropic_thinking — it's a separate param."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
+        thinking = settings.get("anthropic_thinking", {})
+        assert "effort" not in thinking
+
+
 class TestZaiChatModel:
     """Test the ZaiChatModel class."""
 
@@ -1434,6 +1511,66 @@ class TestAnthropicInterleaved:
                                                 "default_headers"
                                             )
                                             assert headers is None
+
+
+class TestContext1MBetaHeader:
+    """Test the _build_anthropic_beta_header helper for 1M context."""
+
+    def test_1m_context_adds_beta(self):
+        from code_puppy.model_factory import (
+            CONTEXT_1M_BETA,
+            _build_anthropic_beta_header,
+        )
+
+        header = _build_anthropic_beta_header({"context_length": 1_000_000})
+        assert header is not None
+        assert CONTEXT_1M_BETA in header
+
+    def test_200k_context_no_beta(self):
+        from code_puppy.model_factory import (
+            _build_anthropic_beta_header,
+        )
+
+        header = _build_anthropic_beta_header({"context_length": 200_000})
+        assert header is None
+
+    def test_interleaved_and_1m_combined(self):
+        from code_puppy.model_factory import (
+            CONTEXT_1M_BETA,
+            _build_anthropic_beta_header,
+        )
+
+        header = _build_anthropic_beta_header(
+            {"context_length": 1_000_000}, interleaved_thinking=True
+        )
+        assert "interleaved-thinking-2025-05-14" in header
+        assert CONTEXT_1M_BETA in header
+
+    def test_interleaved_only_no_1m(self):
+        from code_puppy.model_factory import (
+            CONTEXT_1M_BETA,
+            _build_anthropic_beta_header,
+        )
+
+        header = _build_anthropic_beta_header(
+            {"context_length": 200_000}, interleaved_thinking=True
+        )
+        assert "interleaved-thinking-2025-05-14" in header
+        assert CONTEXT_1M_BETA not in header
+
+    def test_no_context_length_key(self):
+        from code_puppy.model_factory import _build_anthropic_beta_header
+
+        header = _build_anthropic_beta_header({})
+        assert header is None
+
+    def test_returns_none_when_nothing_needed(self):
+        from code_puppy.model_factory import _build_anthropic_beta_header
+
+        header = _build_anthropic_beta_header(
+            {"context_length": 100_000}, interleaved_thinking=False
+        )
+        assert header is None
 
 
 class TestOpenRouterEnvVarMissing:

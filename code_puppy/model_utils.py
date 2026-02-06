@@ -146,3 +146,21 @@ def get_claude_code_instructions() -> str:
 def get_antigravity_instructions() -> str:
     """Get the Antigravity system prompt for Antigravity models."""
     return _load_antigravity_prompt()
+
+
+def get_default_extended_thinking(model_name: str) -> str:
+    """Return the default extended_thinking mode for an Anthropic model.
+
+    Opus 4-6 models default to ``"adaptive"`` thinking; all other
+    Anthropic models default to ``"enabled"``.
+
+    Args:
+        model_name: The model name string (e.g. ``"claude-opus-4-6"``).
+
+    Returns:
+        ``"adaptive"`` for Opus 4-6 variants, ``"enabled"`` otherwise.
+    """
+    lower = model_name.lower()
+    if "opus-4-6" in lower or "4-6-opus" in lower:
+        return "adaptive"
+    return "enabled"

@@ -229,22 +229,28 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         # Set user-agent
         headers["user-agent"] = CLAUDE_CLI_USER_AGENT
 
-        # Handle anthropic-beta header
+        # Handle anthropic-beta header — merge required betas with any
+        # extras already present (e.g. context-1m-2025-08-07).
         incoming_beta = headers.get("anthropic-beta", "")
         incoming_betas = [b.strip() for b in incoming_beta.split(",") if b.strip()]
 
-        # Check if claude-code beta was explicitly requested
-        include_claude_code = "claude-code-20250219" in incoming_betas
-
-        # Build merged betas list
-        merged_betas = [
+        # Always-required betas for Claude Code OAuth
+        required_betas = [
             "oauth-2025-04-20",
             "interleaved-thinking-2025-05-14",
         ]
-        if include_claude_code:
-            merged_betas.append("claude-code-20250219")
+        if "claude-code-20250219" in incoming_betas:
+            required_betas.append("claude-code-20250219")
 
-        headers["anthropic-beta"] = ",".join(merged_betas)
+        # Merge: start with required, then append any extras from the
+        # incoming headers that aren't already in the required set.
+        merged = list(required_betas)
+        required_set = set(required_betas)
+        for beta in incoming_betas:
+            if beta not in required_set:
+                merged.append(beta)
+
+        headers["anthropic-beta"] = ",".join(merged)
 
         # Remove x-api-key if present (we use Bearer auth)
         for key in ["x-api-key", "X-API-Key", "X-Api-Key"]:
