@@ -56,6 +56,8 @@ from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
     on_agent_run_end,
     on_agent_run_start,
+    on_message_history_processor_end,
+    on_message_history_processor_start,
 )
 
 # Consolidated relative imports
@@ -1197,7 +1199,11 @@ class BaseAgent(ABC):
 
     def reload_code_generation_agent(self, message_group: Optional[str] = None):
         """Force-reload the pydantic-ai Agent based on current config and model."""
-        from code_puppy.tools import register_tools_for_agent
+        from code_puppy.tools import (
+            EXTENDED_THINKING_PROMPT_NOTE,
+            has_extended_thinking_active,
+            register_tools_for_agent,
+        )
 
         if message_group is None:
             message_group = str(uuid.uuid4())
@@ -1223,6 +1229,11 @@ class BaseAgent(ABC):
         # Handle claude-code models: swap instructions (prompt prepending happens in run_with_mcp)
         from code_puppy.model_utils import prepare_prompt_for_model
 
+        # When extended thinking is active, nudge the model to think between
+        # tool calls (the share_your_reasoning tool is stripped in this case).
+        if has_extended_thinking_active(resolved_model_name):
+            instructions += EXTENDED_THINKING_PROMPT_NOTE
+
         prepared = prepare_prompt_for_model(
             model_name, instructions, "", prepend_system_to_user=False
         )
@@ -1240,7 +1251,7 @@ class BaseAgent(ABC):
         )
 
         agent_tools = self.get_available_tools()
-        register_tools_for_agent(p_agent, agent_tools)
+        register_tools_for_agent(p_agent, agent_tools, model_name=resolved_model_name)
 
         # Get existing tool names to filter out conflicts with MCP tools
         existing_tool_names = set()
@@ -1317,7 +1328,9 @@ class BaseAgent(ABC):
 
             # Register regular tools (non-MCP) on the new agent
             agent_tools = self.get_available_tools()
-            register_tools_for_agent(agent_without_mcp, agent_tools)
+            register_tools_for_agent(
+                agent_without_mcp, agent_tools, model_name=resolved_model_name
+            )
 
             # Wrap with DBOS - pass event_stream_handler at construction time
             # so DBOSModel gets the handler for streaming output
@@ -1345,7 +1358,9 @@ class BaseAgent(ABC):
             )
             # Register regular tools on the agent
             agent_tools = self.get_available_tools()
-            register_tools_for_agent(p_agent, agent_tools)
+            register_tools_for_agent(
+                p_agent, agent_tools, model_name=resolved_model_name
+            )
 
             self.pydantic_agent = p_agent
             self._code_generation_agent = p_agent
@@ -1367,7 +1382,11 @@ class BaseAgent(ABC):
             A configured PydanticAgent (or DBOSAgent wrapper) with the custom output_type.
         """
         from code_puppy.model_utils import prepare_prompt_for_model
-        from code_puppy.tools import register_tools_for_agent
+        from code_puppy.tools import (
+            EXTENDED_THINKING_PROMPT_NOTE,
+            has_extended_thinking_active,
+            register_tools_for_agent,
+        )
 
         model_name = self.get_model_name()
         models_config = ModelFactory.load_config()
@@ -1388,6 +1407,11 @@ class BaseAgent(ABC):
         )
         instructions = prepared.instructions
 
+        # When extended thinking is active, nudge the model to think between
+        # tool calls (the share_your_reasoning tool is stripped in this case).
+        if has_extended_thinking_active(resolved_model_name):
+            instructions += EXTENDED_THINKING_PROMPT_NOTE
+
         global _reload_count
         _reload_count += 1
 
@@ -1402,7 +1426,9 @@ class BaseAgent(ABC):
                 model_settings=model_settings,
             )
             agent_tools = self.get_available_tools()
-            register_tools_for_agent(temp_agent, agent_tools)
+            register_tools_for_agent(
+                temp_agent, agent_tools, model_name=resolved_model_name
+            )
             # Pass event_stream_handler at construction time for streaming output
             dbos_agent = DBOSAgent(
                 temp_agent,
@@ -1421,35 +1447,59 @@ class BaseAgent(ABC):
                 model_settings=model_settings,
             )
             agent_tools = self.get_available_tools()
-            register_tools_for_agent(temp_agent, agent_tools)
+            register_tools_for_agent(
+                temp_agent, agent_tools, model_name=resolved_model_name
+            )
             return temp_agent
 
     # It's okay to decorate it with DBOS.step even if not using DBOS; the decorator is a no-op in that case.
     @DBOS.step()
     def message_history_accumulator(self, ctx: RunContext, messages: List[Any]):
         _message_history = self.get_message_history()
+
+        # Hook: on_message_history_processor_start - dump the message history before processing
+        on_message_history_processor_start(
+            agent_name=self.name,
+            session_id=getattr(self, "session_id", None),
+            message_history=list(_message_history),  # Copy to avoid mutation issues
+            incoming_messages=list(messages),
+        )
         message_history_hashes = set([self.hash_message(m) for m in _message_history])
+        messages_added = 0
         for msg in messages:
             if (
                 self.hash_message(msg) not in message_history_hashes
                 and self.hash_message(msg) not in self.get_compacted_message_hashes()
             ):
                 _message_history.append(msg)
+                messages_added += 1
 
         # Apply message history trimming using the main processor
         # This ensures we maintain global state while still managing context limits
         self.message_history_processor(ctx, _message_history)
         result_messages_filtered_empty_thinking = []
+        filtered_count = 0
         for msg in self.get_message_history():
             if len(msg.parts) == 1:
                 if isinstance(msg.parts[0], ThinkingPart):
                     if msg.parts[0].content == "":
+                        filtered_count += 1
                         continue
             result_messages_filtered_empty_thinking.append(msg)
-        # Update history after filtering (was incorrectly inside the loop before)
-        self.set_message_history(result_messages_filtered_empty_thinking)
+            self.set_message_history(result_messages_filtered_empty_thinking)
 
-        return self.get_message_history()
+        # Hook: on_message_history_processor_end - dump the message history after processing
+        final_history = self.get_message_history()
+        messages_filtered = len(messages) - messages_added + filtered_count
+        on_message_history_processor_end(
+            agent_name=self.name,
+            session_id=getattr(self, "session_id", None),
+            message_history=list(final_history),  # Copy to avoid mutation issues
+            messages_added=messages_added,
+            messages_filtered=messages_filtered,
+        )
+
+        return final_history
 
     async def _display_non_streamed_response(self, result) -> None:
         """Display response when not using streaming mode.

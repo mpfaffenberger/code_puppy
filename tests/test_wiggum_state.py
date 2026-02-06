@@ -5,7 +5,6 @@ when the agent finishes, like Chief Wiggum chasing donuts in circles. 🍩
 """
 
 
-
 class TestWiggumState:
     """Test wiggum state management."""
 

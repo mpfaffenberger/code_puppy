@@ -24,7 +24,7 @@ from code_puppy.messaging import emit_warning
 
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
-from .config import EXTRA_MODELS_FILE, get_value
+from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .round_robin_model import RoundRobinModel
 
@@ -39,6 +39,7 @@ def _load_plugin_model_providers():
     global _CUSTOM_MODEL_PROVIDERS
     try:
         from code_puppy.callbacks import on_register_model_providers
+
         results = on_register_model_providers()
         for result in results:
             if isinstance(result, dict):
@@ -49,6 +50,31 @@ def _load_plugin_model_providers():
 
 # Load plugin model providers at module initialization
 _load_plugin_model_providers()
+
+
+# Anthropic beta header required for 1M context window support.
+CONTEXT_1M_BETA = "context-1m-2025-08-07"
+
+
+def _build_anthropic_beta_header(
+    model_config: Dict,
+    *,
+    interleaved_thinking: bool = False,
+) -> str | None:
+    """Build the anthropic-beta header value for an Anthropic model.
+
+    Combines beta flags based on model capabilities:
+    - interleaved-thinking-2025-05-14  (when interleaved_thinking is enabled)
+    - context-1m-2025-08-07            (when context_length >= 1_000_000)
+
+    Returns None if no beta flags are needed.
+    """
+    parts: list[str] = []
+    if interleaved_thinking:
+        parts.append("interleaved-thinking-2025-05-14")
+    if model_config.get("context_length", 0) >= 1_000_000:
+        parts.append(CONTEXT_1M_BETA)
+    return ",".join(parts) if parts else None
 
 
 def get_api_key(env_var_name: str) -> str | None:
@@ -116,6 +142,10 @@ def make_model_settings(
     effective_settings = get_effective_model_settings(model_name)
     model_settings_dict.update(effective_settings)
 
+    # Disable parallel tool calls when yolo_mode is off (for safer, sequential tool execution)
+    if not get_yolo_mode():
+        model_settings_dict["parallel_tool_calls"] = False
+
     # Default to clear_thinking=False for GLM-4.7 models (preserved thinking)
     if "glm-4.7" in model_name.lower():
         clear_thinking = effective_settings.get("clear_thinking", False)
@@ -143,15 +173,40 @@ def make_model_settings(
         if model_settings_dict.get("temperature") is None:
             model_settings_dict["temperature"] = 1.0
 
-        # ALWAYS enable extended thinking for Claude models by default
-        # Users can still disable via /model_settings extended_thinking=false
-        extended_thinking = effective_settings.get("extended_thinking", True)
+        from code_puppy.model_utils import get_default_extended_thinking
+
+        default_thinking = get_default_extended_thinking(model_name)
+        extended_thinking = effective_settings.get(
+            "extended_thinking", default_thinking
+        )
+        # Backwards compat: handle legacy boolean values
+        if extended_thinking is True:
+            extended_thinking = "enabled"
+        elif extended_thinking is False:
+            extended_thinking = "off"
+
         budget_tokens = effective_settings.get("budget_tokens", 10000)
-        if extended_thinking and budget_tokens:
+        if extended_thinking in ("enabled", "adaptive"):
             model_settings_dict["anthropic_thinking"] = {
-                "type": "enabled",
-                "budget_tokens": budget_tokens,
+                "type": extended_thinking,
             }
+            # Only send budget_tokens for classic "enabled" mode
+            if extended_thinking == "enabled" and budget_tokens:
+                model_settings_dict["anthropic_thinking"]["budget_tokens"] = (
+                    budget_tokens
+                )
+
+        # Opus 4-6 models support the `effort` setting via output_config.
+        # pydantic-ai doesn't have a native field for output_config yet,
+        # so we inject it through extra_body which gets merged into the
+        # HTTP request body.
+        if model_supports_setting(model_name, "effort"):
+            effort = effective_settings.get("effort", "high")
+            if "anthropic_thinking" in model_settings_dict:
+                extra_body = model_settings_dict.get("extra_body") or {}
+                extra_body["output_config"] = {"effort": effort}
+                model_settings_dict["extra_body"] = extra_body
+
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
     # Handle Gemini thinking models (Gemini-3)
@@ -332,7 +387,9 @@ class ModelFactory:
         if model_type in _CUSTOM_MODEL_PROVIDERS:
             provider_class = _CUSTOM_MODEL_PROVIDERS[model_type]
             try:
-                return provider_class(model_name=model_name, model_config=model_config, config=config)
+                return provider_class(
+                    model_name=model_name, model_config=model_config, config=config
+                )
             except Exception as e:
                 logger.error(f"Custom model provider '{model_type}' failed: {e}")
                 return None
@@ -390,9 +447,12 @@ class ModelFactory:
             effective_settings = get_effective_model_settings(model_name)
             interleaved_thinking = effective_settings.get("interleaved_thinking", True)
 
+            beta_header = _build_anthropic_beta_header(
+                model_config, interleaved_thinking=interleaved_thinking
+            )
             default_headers = {}
-            if interleaved_thinking:
-                default_headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+            if beta_header:
+                default_headers["anthropic-beta"] = beta_header
 
             anthropic_client = AsyncAnthropic(
                 api_key=api_key,
@@ -434,9 +494,12 @@ class ModelFactory:
             effective_settings = get_effective_model_settings(model_name)
             interleaved_thinking = effective_settings.get("interleaved_thinking", True)
 
+            beta_header = _build_anthropic_beta_header(
+                model_config, interleaved_thinking=interleaved_thinking
+            )
             default_headers = {}
-            if interleaved_thinking:
-                default_headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+            if beta_header:
+                default_headers["anthropic-beta"] = beta_header
 
             anthropic_client = AsyncAnthropic(
                 base_url=url,

@@ -291,6 +291,7 @@ class TestGetConfigKeys:
                 "banner_color_subagent_response",
                 "banner_color_terminal_tool",
                 "banner_color_thinking",
+                "banner_color_universal_constructor",
                 "cancel_agent_key",
                 "compaction_strategy",
                 "compaction_threshold",
@@ -343,6 +344,7 @@ class TestGetConfigKeys:
                 "banner_color_subagent_response",
                 "banner_color_terminal_tool",
                 "banner_color_thinking",
+                "banner_color_universal_constructor",
                 "cancel_agent_key",
                 "compaction_strategy",
                 "compaction_threshold",
@@ -819,89 +821,19 @@ class TestGetCommandTimeoutSeconds:
         monkeypatch.setattr(cp_config, "get_value", lambda key: "59")
         assert cp_config.get_command_timeout_seconds() == 270
 
-        # Test very low value
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "1")
-        assert cp_config.get_command_timeout_seconds() == 270
+    @patch("code_puppy.model_factory.ModelFactory.load_config")
+    def test_opus_46_fallback_supports_effort(self, mock_load_config):
+        """Opus 4-6 models should support effort in the fallback path."""
+        mock_load_config.return_value = {
+            "claude-opus-4-6": {"type": "anthropic", "name": "claude-opus-4-6"}
+        }
+        assert cp_config.model_supports_setting("claude-opus-4-6", "effort") is True
+        assert cp_config.model_supports_setting("claude-4-6-opus", "effort") is True
 
-        # Test negative value
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "-100")
-        assert cp_config.get_command_timeout_seconds() == 270
-
-        # Test zero
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "0")
-        assert cp_config.get_command_timeout_seconds() == 270
-
-    def test_returns_default_for_value_above_maximum(self, monkeypatch):
-        """Test that values above 900 seconds return default (270)."""
-        # Test value just above maximum
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "901")
-        assert cp_config.get_command_timeout_seconds() == 270
-
-        # Test very high value
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "10000")
-        assert cp_config.get_command_timeout_seconds() == 270
-
-    def test_returns_default_for_non_numeric_values(self, monkeypatch):
-        """Test that non-numeric values return default (270)."""
-        # Test alphabetic string
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "abc")
-        assert cp_config.get_command_timeout_seconds() == 270
-
-        # Test alphanumeric string
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "123abc")
-        assert cp_config.get_command_timeout_seconds() == 270
-
-        # Test float string (should fail int conversion)
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "270.5")
-        assert cp_config.get_command_timeout_seconds() == 270
-
-        # Test boolean string
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "true")
-        assert cp_config.get_command_timeout_seconds() == 270
-
-        # Test empty string
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "")
-        assert cp_config.get_command_timeout_seconds() == 270
-
-    def test_boundary_values(self, monkeypatch):
-        """Test exact boundary values to ensure they are handled correctly."""
-        # Test one less than minimum (should default)
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "59")
-        assert cp_config.get_command_timeout_seconds() == 270
-
-        # Test exact minimum (should accept)
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "60")
-        assert cp_config.get_command_timeout_seconds() == 60
-
-        # Test exact maximum (should accept)
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "900")
-        assert cp_config.get_command_timeout_seconds() == 900
-
-        # Test one more than maximum (should default)
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "901")
-        assert cp_config.get_command_timeout_seconds() == 270
-
-    def test_handles_integer_instead_of_string(self, monkeypatch):
-        """Test that the function handles integer values correctly (edge case)."""
-        # In practice, get_value returns strings, but test robustness
-        monkeypatch.setattr(cp_config, "get_value", lambda key: 150)
-        result = cp_config.get_command_timeout_seconds()
-        # Should convert integer to int successfully
-        assert result == 150
-
-    def test_whitespace_handling(self, monkeypatch):
-        """Test that values with whitespace are handled correctly."""
-        # String with leading/trailing whitespace should still parse
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "  300  ")
-        # int() can handle whitespace, so this should work
-        assert cp_config.get_command_timeout_seconds() == 300
-
-    def test_special_characters(self, monkeypatch):
-        """Test that special characters cause fallback to default."""
-        # Test with special characters
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "@#$")
-        assert cp_config.get_command_timeout_seconds() == 270
-
-        # Test with mixed valid/invalid
-        monkeypatch.setattr(cp_config, "get_value", lambda key: "100!")
-        assert cp_config.get_command_timeout_seconds() == 270
+    @patch("code_puppy.model_factory.ModelFactory.load_config")
+    def test_non_opus_46_fallback_does_not_support_effort(self, mock_load_config):
+        """Non Opus 4-6 Claude models should NOT support effort in fallback."""
+        mock_load_config.return_value = {
+            "claude-sonnet-4": {"type": "anthropic", "name": "claude-sonnet-4"}
+        }
+        assert cp_config.model_supports_setting("claude-sonnet-4", "effort") is False

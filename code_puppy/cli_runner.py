@@ -351,6 +351,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     from code_puppy.messaging import emit_info, emit_system_message
 
     emit_system_message(
+        "Type '/exit', '/quit', or press Ctrl+D to exit the interactive mode."
+    )
+    emit_system_message("Type 'clear' to reset the conversation history.")
+    emit_system_message("Type /help to view all commands")
+    emit_system_message(
         "Type '/exit' or '/quit' to exit the interactive mode.", dim=True
     )
     emit_system_message("Type 'clear' to reset the conversation history.", dim=True)
@@ -511,21 +516,42 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Fall back to basic input if prompt_toolkit is not available
                 task = input(">>> ")
 
-        except (KeyboardInterrupt, EOFError):
-            # Handle Ctrl+C or Ctrl+D
+        except KeyboardInterrupt:
+            # Handle Ctrl+C - cancel input and continue
             # Windows-specific: Reset terminal state after interrupt to prevent
             # the terminal from becoming unresponsive (can't type characters)
             reset_windows_terminal_full()
+            # Stop wiggum mode on Ctrl+C
+            from code_puppy.command_line.wiggum_state import (
+                is_wiggum_active,
+                stop_wiggum,
+            )
             from code_puppy.messaging import emit_warning
 
-            # Stop wiggum mode on Ctrl+C
-            from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
             if is_wiggum_active():
                 stop_wiggum()
                 emit_warning("\n🍩 Wiggum loop stopped!")
             else:
                 emit_warning("\nInput cancelled")
             continue
+        except EOFError:
+            # Handle Ctrl+D - exit the application
+            import asyncio
+
+            from code_puppy.messaging import emit_success
+
+            emit_success("\nGoodbye! (Ctrl+D)")
+
+            # Cancel any running agent task for clean shutdown
+            if current_agent_task and not current_agent_task.done():
+                emit_info("Cancelling running agent task...")
+                current_agent_task.cancel()
+                try:
+                    await current_agent_task
+                except asyncio.CancelledError:
+                    pass  # Expected when cancelling
+
+            break
 
         # Check for exit commands (plain text or command form)
         if task.strip().lower() in ["exit", "quit"] or task.strip().lower() in [
@@ -725,10 +751,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     except ImportError:
                         pass
                     # Stop wiggum mode on cancellation
-                    from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
+                    from code_puppy.command_line.wiggum_state import (
+                        is_wiggum_active,
+                        stop_wiggum,
+                    )
+
                     if is_wiggum_active():
                         stop_wiggum()
                         from code_puppy.messaging import emit_warning
+
                         emit_warning("🍩 Wiggum loop stopped due to cancellation")
                     continue
                 # Get the structured response
@@ -775,7 +806,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             # ================================================================
             from code_puppy.command_line.wiggum_state import (
                 get_wiggum_prompt,
-                get_wiggum_count,
                 increment_wiggum_count,
                 is_wiggum_active,
                 stop_wiggum,
@@ -789,7 +819,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 # Increment and show debug message
                 loop_num = increment_wiggum_count()
-                from code_puppy.messaging import emit_warning, emit_system_message
+                from code_puppy.messaging import emit_system_message, emit_warning
 
                 emit_warning(f"\n🍩 WIGGUM RELOOPING! (Loop #{loop_num})")
                 emit_system_message(f"Re-running prompt: {wiggum_prompt}")
@@ -797,10 +827,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Reset context/history for fresh start
                 new_session_id = finalize_autosave_session()
                 current_agent.clear_message_history()
-                emit_system_message(f"Context cleared. Session rotated to: {new_session_id}")
+                emit_system_message(
+                    f"Context cleared. Session rotated to: {new_session_id}"
+                )
 
                 # Small delay to let user see the debug message
                 import time
+
                 time.sleep(0.5)
 
                 try:
@@ -846,6 +879,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     break
                 except Exception as e:
                     from code_puppy.messaging import emit_error
+
                     emit_error(f"Wiggum loop error: {e}")
                     stop_wiggum()
                     break

@@ -58,3 +58,20 @@ def prepare_prompt_for_model(
         user_prompt=user_prompt,
         is_claude_code=is_claude_code_model(model_name),
     )
+
+def get_default_extended_thinking(model_name: str) -> str:
+    """Return the default extended_thinking mode for an Anthropic model.
+
+    Opus 4-6 models default to ``"adaptive"`` thinking; all other
+    Anthropic models default to ``"enabled"``.
+
+    Args:
+        model_name: The model name string (e.g. ``"claude-opus-4-6"``).
+
+    Returns:
+        ``"adaptive"`` for Opus 4-6 variants, ``"enabled"`` otherwise.
+    """
+    lower = model_name.lower()
+        return "adaptive"
+    if "opus-4-6" in lower or "4-6-opus" in lower:
+    return "enabled"

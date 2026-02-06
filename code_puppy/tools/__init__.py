@@ -1,6 +1,7 @@
 from code_puppy.callbacks import on_register_tools
 from code_puppy.messaging import emit_warning
 from code_puppy.tools.agent_tools import register_invoke_agent, register_list_agents
+from code_puppy.tools.ask_user_question import register_ask_user_question
 
 # Browser automation tools
 from code_puppy.tools.browser.browser_control import (
@@ -92,6 +93,23 @@ from code_puppy.tools.file_operations import (
     register_list_files,
     register_read_file,
 )
+
+# Scheduler tools
+from code_puppy.tools.scheduler_tools import (
+    register_scheduler_create_task,
+    register_scheduler_daemon_status,
+    register_scheduler_delete_task,
+    register_scheduler_list_tasks,
+    register_scheduler_run_task,
+    register_scheduler_start_daemon,
+    register_scheduler_stop_daemon,
+    register_scheduler_toggle_task,
+    register_scheduler_view_log,
+)
+from code_puppy.tools.skills_tools import (
+    register_activate_skill,
+    register_list_or_search_skills,
+)
 from code_puppy.tools.universal_constructor import register_universal_constructor
 
 # Import GUI-Cub tools from separate registry to minimize diff noise
@@ -112,6 +130,8 @@ TOOL_REGISTRY = {
     # Command Runner
     "agent_run_shell_command": register_agent_run_shell_command,
     "agent_share_your_reasoning": register_agent_share_your_reasoning,
+    # User Interaction
+    "ask_user_question": register_ask_user_question,
     # Browser Control
     "browser_initialize": register_initialize_browser,
     "browser_close": register_close_browser,
@@ -173,8 +193,21 @@ TOOL_REGISTRY = {
     "terminal_read_output": register_terminal_read_output,
     "terminal_compare_mockup": register_terminal_compare_mockup,
     "load_image_for_analysis": register_load_image,
+    # Skills Tools
+    "activate_skill": register_activate_skill,
+    "list_or_search_skills": register_list_or_search_skills,
     # Universal Constructor
     "universal_constructor": register_universal_constructor,
+    # Scheduler Tools
+    "scheduler_list_tasks": register_scheduler_list_tasks,
+    "scheduler_create_task": register_scheduler_create_task,
+    "scheduler_delete_task": register_scheduler_delete_task,
+    "scheduler_toggle_task": register_scheduler_toggle_task,
+    "scheduler_daemon_status": register_scheduler_daemon_status,
+    "scheduler_start_daemon": register_scheduler_start_daemon,
+    "scheduler_stop_daemon": register_scheduler_stop_daemon,
+    "scheduler_run_task": register_scheduler_run_task,
+    "scheduler_view_log": register_scheduler_view_log,
 }
 
 # Merge in GUI-Cub tools from separate registry
@@ -215,16 +248,76 @@ def _load_plugin_tools() -> None:
         pass
 
 
-def register_tools_for_agent(agent, tool_names: list[str]):
+# Appended to the system prompt when extended thinking is active and
+# the share_your_reasoning tool is removed.  Encourages the model to
+# use its native thinking blocks between tool calls instead.
+EXTENDED_THINKING_PROMPT_NOTE = (
+    "\n\nIMPORTANT: You have extended thinking enabled. "
+    "Always think between tool calls or waves of tool calls "
+    "(if running parallel tools). Use your thinking blocks to reason "
+    "about the results before deciding on next steps."
+)
+
+
+def has_extended_thinking_active(model_name: str | None = None) -> bool:
+    """Check if an Anthropic model has extended thinking enabled or adaptive.
+
+    When extended thinking is active, the model already exposes its reasoning
+    via thinking blocks, making the share_your_reasoning tool redundant.
+
+    Args:
+        model_name: The model name to check. If None, uses the current global model.
+
+    Returns:
+        True if the model is an Anthropic model with extended_thinking set to
+        "enabled" or "adaptive".
+    """
+    from code_puppy.config import get_effective_model_settings, get_global_model_name
+
+    if model_name is None:
+        model_name = get_global_model_name()
+
+    if model_name is None:
+        return False
+
+    # Only applies to Anthropic/Claude models
+    if not (model_name.startswith("claude-") or model_name.startswith("anthropic-")):
+        return False
+
+    from code_puppy.model_utils import get_default_extended_thinking
+
+    settings = get_effective_model_settings(model_name)
+    default_thinking = get_default_extended_thinking(model_name)
+    extended_thinking = settings.get("extended_thinking", default_thinking)
+
+    # Handle legacy boolean values
+    if extended_thinking is True:
+        extended_thinking = "enabled"
+    elif extended_thinking is False:
+        return False
+
+    return extended_thinking in ("enabled", "adaptive")
+
+
+def register_tools_for_agent(
+    agent, tool_names: list[str], model_name: str | None = None
+):
     """Register specific tools for an agent based on tool names.
 
     Args:
         agent: The agent to register tools to.
         tool_names: List of tool names to register. UC tools are prefixed with "uc:".
+        model_name: Optional model name. Used to determine if certain tools
+            (like agent_share_your_reasoning) should be skipped. If None,
+            falls back to the current global model.
     """
     from code_puppy.config import get_universal_constructor_enabled
 
     _load_plugin_tools()
+
+    # Pre-compute whether extended thinking is active to avoid repeated checks
+    skip_reasoning_tool = has_extended_thinking_active(model_name)
+
     for tool_name in tool_names:
         # Handle UC tools (prefixed with "uc:")
         if tool_name.startswith("uc:"):
@@ -246,6 +339,11 @@ def register_tools_for_agent(agent, tool_names: list[str]):
             and not get_universal_constructor_enabled()
         ):
             continue  # Skip UC if disabled in config
+
+        # Skip reasoning tool when extended thinking is active — the model
+        # already exposes its chain-of-thought via thinking blocks.
+        if tool_name == "agent_share_your_reasoning" and skip_reasoning_tool:
+            continue
 
         # Register the individual tool
         registry_entry = TOOL_REGISTRY[tool_name]
@@ -379,14 +477,15 @@ def _register_uc_tool_wrapper(agent, uc_tool_name: str):
         emit_warning(f"Warning: Failed to register UC tool '{uc_tool_name}': {e}")
 
 
-def register_all_tools(agent):
+def register_all_tools(agent, model_name: str | None = None):
     """Register all available tools to the provided agent.
 
     Args:
         agent: The agent to register tools to.
+        model_name: Optional model name for conditional tool filtering.
     """
     all_tools = list(TOOL_REGISTRY.keys())
-    register_tools_for_agent(agent, all_tools)
+    register_tools_for_agent(agent, all_tools, model_name=model_name)
 
 
 def get_available_tool_names() -> list[str]:

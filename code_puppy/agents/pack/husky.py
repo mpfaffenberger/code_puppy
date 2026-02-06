@@ -42,6 +42,9 @@ class HuskyAgent(BaseAgent):
             "agent_run_shell_command",
             # Transparency
             "agent_share_your_reasoning",
+            # Skills
+            "activate_skill",
+            "list_or_search_skills",
         ]
 
     def get_system_prompt(self) -> str:

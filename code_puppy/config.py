@@ -646,13 +646,13 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
             # Default: assume common settings are supported for backwards compatibility
             # For Anthropic/Claude models, include extended thinking settings
             if model_name.startswith("claude-") or model_name.startswith("anthropic-"):
-                claude_settings = [
-                    "temperature",
-                    "extended_thinking",
-                    "budget_tokens",
-                    "interleaved_thinking",
-                ]
-                return setting_lower in claude_settings
+                base = ["temperature", "extended_thinking", "budget_tokens"]
+                # Opus 4-6 models also support the effort setting
+                lower = model_name.lower()
+                if "opus-4-6" in lower or "4-6-opus" in lower:
+                    base.append("effort")
+                return setting in base
+            return setting in ["temperature", "seed"]
 
             # For Gemini models, include thinking settings
             if model_config.get("type") == "custom_gemini" or "gemini" in model_name:
@@ -876,8 +876,9 @@ def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> 
     if value is None:
         set_config_value(key, "")
     elif isinstance(value, float):
-        # Round floats to nearest tenth to avoid floating point weirdness
-        set_config_value(key, str(round(value, 1)))
+        # Round floats to nearest hundredth to avoid floating point weirdness
+        # (allows 0.05 step increments for temperature/top_p)
+        set_config_value(key, str(round(value, 2)))
     else:
         set_config_value(key, str(value))
 
@@ -1560,6 +1561,7 @@ DEFAULT_BANNER_COLORS = {
     "invoke_agent": "deep_pink4",  # Ruby - agent invocation
     "subagent_response": "sea_green3",  # Emerald - sub-agent success
     "list_agents": "dark_slate_gray3",  # Slate - neutral listing
+    "universal_constructor": "dark_cyan",  # Teal - constructing tools
     # Browser/Terminal tools - same color as edit_file (gold)
     "terminal_tool": "dark_goldenrod",  # Gold - browser terminal operations
 }

@@ -90,10 +90,11 @@ class TestSettingDefinitions:
         assert "high" in verb_def["choices"]
 
     def test_extended_thinking_setting_definition(self):
-        """Test extended_thinking setting is boolean type."""
+        """Test extended_thinking setting is choice type with enabled/adaptive/off."""
         ext_thinking_def = SETTING_DEFINITIONS["extended_thinking"]
-        assert ext_thinking_def["type"] == "boolean"
-        assert ext_thinking_def["default"] is True
+        assert ext_thinking_def["type"] == "choice"
+        assert ext_thinking_def["default"] == "enabled"
+        assert ext_thinking_def["choices"] == ["enabled", "adaptive", "off"]
 
 
 class TestModelNavigation:
@@ -284,22 +285,26 @@ class TestChoiceSettingValidation:
                 break
 
 
-class TestBooleanSettingValidation:
-    """Test boolean setting validation."""
+class TestExtendedThinkingChoiceValidation:
+    """Test extended_thinking choice setting validation."""
 
-    def test_extended_thinking_accepts_true(self):
-        """Test extended_thinking accepts True."""
+    def test_extended_thinking_accepts_enabled(self):
+        """Test extended_thinking accepts 'enabled'."""
         ext_thinking_def = SETTING_DEFINITIONS["extended_thinking"]
-        assert ext_thinking_def["type"] == "boolean"
-        value = True
-        assert isinstance(value, bool)
+        assert ext_thinking_def["type"] == "choice"
+        assert "enabled" in ext_thinking_def["choices"]
 
-    def test_extended_thinking_accepts_false(self):
-        """Test extended_thinking accepts False."""
+    def test_extended_thinking_accepts_adaptive(self):
+        """Test extended_thinking accepts 'adaptive'."""
         ext_thinking_def = SETTING_DEFINITIONS["extended_thinking"]
-        assert ext_thinking_def["type"] == "boolean"
-        value = False
-        assert isinstance(value, bool)
+        assert ext_thinking_def["type"] == "choice"
+        assert "adaptive" in ext_thinking_def["choices"]
+
+    def test_extended_thinking_accepts_off(self):
+        """Test extended_thinking accepts 'off'."""
+        ext_thinking_def = SETTING_DEFINITIONS["extended_thinking"]
+        assert ext_thinking_def["type"] == "choice"
+        assert "off" in ext_thinking_def["choices"]
 
 
 class TestSettingsPersistence:
@@ -400,3 +405,22 @@ class TestErrorHandling:
         mock_load_models.return_value = ["gpt-5"]
         menu = ModelSettingsMenu()
         assert menu is not None
+
+    @patch("code_puppy.command_line.model_settings_menu.get_global_model_name")
+    @patch("code_puppy.command_line.model_settings_menu._load_all_model_names")
+    def test_format_value_unknown_setting_does_not_crash(
+        self,
+        mock_load_models,
+        mock_get_global,
+    ):
+        """_format_value should gracefully handle stale/unknown settings."""
+        mock_get_global.return_value = "claude-3-sonnet"
+        mock_load_models.return_value = ["claude-3-sonnet"]
+        menu = ModelSettingsMenu()
+
+        # Unknown setting with a value
+        assert (
+            menu._format_value("long_extended_thinking", "some_value") == "some_value"
+        )
+        # Unknown setting with None
+        assert menu._format_value("totally_bogus", None) == "(unknown)"

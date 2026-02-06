@@ -527,7 +527,7 @@ Your goal is to take users from idea to working agent in one smooth conversation
             "agent_run_shell_command",
             # Communication
             "agent_share_your_reasoning",
-            # Agent management
+            "ask_user_question",
             "list_agents",
             "invoke_agent",
             # Marketplace

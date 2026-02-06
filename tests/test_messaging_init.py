@@ -177,6 +177,10 @@ class TestMessagingPackageExports:
             "SubAgentConsoleManager",
             "get_subagent_console_manager",
             "SUBAGENT_STATUS_STYLES",
+            # Skill-related message types
+            "SkillEntry",
+            "SkillListMessage",
+            "SkillActivateMessage",
         }
 
         expected_exports = legacy_exports | new_api_exports
