@@ -36,6 +36,8 @@ class TestBannerDisplayInfo:
             "invoke_agent",
             "subagent_response",
             "list_agents",
+            "universal_constructor",
+            "terminal_tool",
         ]
         for banner in expected_banners:
             assert banner in BANNER_DISPLAY_INFO

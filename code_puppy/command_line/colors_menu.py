@@ -33,6 +33,7 @@ BANNER_DISPLAY_INFO = {
     "subagent_response": ("✓ AGENT RESPONSE", ""),
     "list_agents": ("LIST AGENTS", ""),
     "universal_constructor": ("UNIVERSAL CONSTRUCTOR", "🔧"),
+    "terminal_tool": ("TERMINAL TOOL", "🖥️"),
 }
 
 # Sample content to show after each banner
@@ -49,6 +50,7 @@ BANNER_SAMPLE_CONTENT = {
     "subagent_response": "code-reviewer\nThe code looks good overall...",
     "list_agents": "- code-puppy: Code Puppy 🐶\n- planning-agent: Planning Agent",
     "universal_constructor": "action=create tool_name=api.weather\n✅ Created successfully",
+    "terminal_tool": "$ chromium --headless\nBrowser terminal session started",
 }
 
 # Available background colors grouped by theme

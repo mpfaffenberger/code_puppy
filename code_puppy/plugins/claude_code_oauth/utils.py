@@ -412,19 +412,23 @@ def exchange_code_for_tokens(
     return None
 
 
-def filter_latest_claude_models(models: List[str]) -> List[str]:
-    """Filter models to keep only the latest haiku, sonnet, and opus.
+def filter_latest_claude_models(
+    models: List[str], max_per_family: int = 2
+) -> List[str]:
+    """Filter models to keep the top N latest haiku, sonnet, and opus.
 
     Parses model names in the format claude-{family}-{major}-{minor}-{date}
-    and returns only the latest version of each family (haiku, sonnet, opus).
+    and returns the top ``max_per_family`` versions of each family
+    (haiku, sonnet, opus), sorted newest-first.
     """
-    # Dictionary to store the latest model for each family
-    # family -> (model_name, major, minor, date)
-    latest_models: Dict[str, Tuple[str, int, int, int]] = {}
+    # Collect all parsed models per family
+    # family -> list of (model_name, major, minor, date)
+    family_models: Dict[str, List[Tuple[str, int, int, int]]] = {}
 
     for model_name in models:
         if model_name == "claude-opus-4-6":
-            latest_models["opus"] = model_name, 4, 6, 20260205
+            family_models.setdefault("opus", []).append((model_name, 4, 6, 20260205))
+            continue
         # Match pattern: claude-{family}-{major}-{minor}-{date}
         # Examples: claude-haiku-3-5-20241022, claude-sonnet-4-5-20250929
         match = re.match(r"claude-(haiku|sonnet|opus)-(\d+)-(\d+)-(\d+)", model_name)
@@ -442,20 +446,20 @@ def filter_latest_claude_models(models: List[str]) -> List[str]:
         minor = int(match.group(3))
         date = int(match.group(4))
 
-        if family not in latest_models:
-            latest_models[family] = (model_name, major, minor, date)
-        else:
-            # Compare versions: first by major, then minor, then date
-            _, cur_major, cur_minor, cur_date = latest_models[family]
-            if (major, minor, date) > (cur_major, cur_minor, cur_date):
-                latest_models[family] = (model_name, major, minor, date)
+        family_models.setdefault(family, []).append((model_name, major, minor, date))
 
-    # Return only the model names
-    filtered = [model_data[0] for model_data in latest_models.values()]
+    # Sort each family descending and keep the top N
+    filtered: List[str] = []
+    for family_entries in family_models.values():
+        family_entries.sort(key=lambda e: (e[1], e[2], e[3]), reverse=True)
+        for entry in family_entries[:max_per_family]:
+            filtered.append(entry[0])
+
     logger.info(
-        "Filtered %d models to %d latest models: %s",
+        "Filtered %d models to %d latest models (max %d per family): %s",
         len(models),
         len(filtered),
+        max_per_family,
         filtered,
     )
     return filtered

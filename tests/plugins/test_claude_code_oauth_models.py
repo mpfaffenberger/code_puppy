@@ -115,7 +115,7 @@ class TestModelFiltering:
     """Test model filtering to keep only latest versions."""
 
     def test_filter_latest_claude_models_keeps_latest(self):
-        """Test filtering keeps latest version of each family."""
+        """Test filtering keeps top 2 versions of each family by default."""
         models = [
             "claude-opus-4-0-20250101",
             "claude-opus-4-1-20250805",  # Latest opus
@@ -127,10 +127,9 @@ class TestModelFiltering:
 
         filtered = filter_latest_claude_models(models)
 
-        assert len(filtered) == 3
-        assert "claude-opus-4-1-20250805" in filtered
-        assert "claude-sonnet-4-5-20250514" in filtered
-        assert "claude-haiku-3-5-20241022" in filtered
+        # With max_per_family=2 (default), all 6 are kept (2 per family)
+        assert len(filtered) == 6
+        assert set(filtered) == set(models)
 
     def test_filter_latest_claude_models_single_version(self):
         """Test filtering with single version of each family."""
@@ -161,14 +160,28 @@ class TestModelFiltering:
         assert len(filtered) == 2
 
     def test_filter_latest_claude_models_date_comparison(self):
-        """Test that date-based filtering works correctly."""
+        """Test that date-based filtering keeps top 2 by default."""
         models = [
             "claude-opus-4-1-20250101",
-            "claude-opus-4-1-20250805",  # More recent
+            "claude-opus-4-1-20250805",  # Most recent
             "claude-opus-4-1-20250615",  # In between
         ]
 
         filtered = filter_latest_claude_models(models)
+
+        # Top 2 by (major, minor, date): 20250805 and 20250615
+        assert len(filtered) == 2
+        assert "claude-opus-4-1-20250805" in filtered
+        assert "claude-opus-4-1-20250615" in filtered
+
+    def test_filter_latest_claude_models_max_per_family_one(self):
+        """Test that max_per_family=1 keeps only the single latest."""
+        models = [
+            "claude-opus-4-0-20250101",
+            "claude-opus-4-1-20250805",
+        ]
+
+        filtered = filter_latest_claude_models(models, max_per_family=1)
 
         assert len(filtered) == 1
         assert "claude-opus-4-1-20250805" in filtered

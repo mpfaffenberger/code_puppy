@@ -1378,6 +1378,7 @@ DEFAULT_BANNER_COLORS = {
     "invoke_agent": "deep_pink4",  # Ruby - agent invocation
     "subagent_response": "sea_green3",  # Emerald - sub-agent success
     "list_agents": "dark_slate_gray3",  # Slate - neutral listing
+    "universal_constructor": "dark_cyan",  # Teal - constructing tools
     # Browser/Terminal tools - same color as edit_file (gold)
     "terminal_tool": "dark_goldenrod",  # Gold - browser terminal operations
 }

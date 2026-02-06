@@ -700,7 +700,7 @@ class TestFilterLatestClaudeModels:
     """Test Claude model filtering to only latest versions."""
 
     def test_filter_latest_claude_models_basic(self):
-        """Test basic model filtering."""
+        """Test basic model filtering keeps top 2 per family."""
         models = [
             "claude-haiku-3-5-20241022",
             "claude-haiku-3-0-20240229",  # Older haiku
@@ -712,18 +712,12 @@ class TestFilterLatestClaudeModels:
 
         result = filter_latest_claude_models(models)
 
-        # Should only return latest versions, preserving original order if possible
-        expected = [
-            "claude-haiku-3-5-20241022",
-            "claude-sonnet-3-5-20241022",
-            "claude-opus-3-0-20240229",
-        ]
-        # Order might not be preserved, so we check as sets
-        assert set(result) == set(expected)
-        assert len(result) == 3
+        # With max_per_family=2, all versions are kept (2 per family)
+        assert set(result) == set(models)
+        assert len(result) == 6
 
     def test_filter_latest_claude_models_dot_version_format(self):
-        """Test filtering with dot version format."""
+        """Test filtering with dot version format keeps top 2 per family."""
         models = [
             "claude-haiku-3.5-20241022",
             "claude-haiku-3.0-20240229",  # Older
@@ -733,23 +727,25 @@ class TestFilterLatestClaudeModels:
 
         result = filter_latest_claude_models(models)
 
-        expected = ["claude-haiku-3.5-20241022", "claude-sonnet-4.0-20250929"]
-        assert set(result) == set(expected)
+        # With max_per_family=2, all versions are kept
+        assert set(result) == set(models)
+        assert len(result) == 4
 
     def test_filter_latest_claude_models_version_comparison(self):
         """Test proper version comparison (major > minor > date)."""
         models = [
             "claude-sonnet-3-5-20241022",  # 3.5
-            "claude-sonnet-4-0-20240101",  # 4.0 but older date - should be newer due to major
+            "claude-sonnet-4-0-20240101",  # 4.0 but older date - should be newest due to major
             "claude-sonnet-3-6-20241023",  # 3.6 newer minor but same major
             "claude-sonnet-3-5-20241023",  # Same version but newer date
         ]
 
         result = filter_latest_claude_models(models)
 
-        # 4.0 should win over 3.x due to major version
+        # Top 2: 4.0 wins, then 3.6 is next
         assert "claude-sonnet-4-0-20240101" in result
-        assert len(result) == 1
+        assert "claude-sonnet-3-6-20241023" in result
+        assert len(result) == 2
 
     def test_filter_latest_claude_models_invalid_names(self):
         """Test filtering ignores invalid model names."""
@@ -793,10 +789,11 @@ class TestFilterLatestClaudeModels:
 
         result = filter_latest_claude_models(models)
 
-        # Should pick the newer date for same version
+        # Top 2 haiku (both kept), plus 1 sonnet = 3 total
         assert "claude-haiku-3-5-20241023" in result
+        assert "claude-haiku-3-5-20241022" in result
         assert "claude-sonnet-3-5-20241022" in result
-        assert len(result) == 2
+        assert len(result) == 3
 
 
 class TestFetchClaudeCodeModels:
@@ -1172,7 +1169,7 @@ class TestErrorHandling:
             ([], []),
             # Only invalid names
             (["gpt-4", "invalid", "random"], []),
-            # Mixed valid and invalid with newer versions
+            # Mixed valid and invalid with newer versions (top 2 kept)
             (
                 [
                     "claude-sonnet-3-5-20241022",
@@ -1181,7 +1178,7 @@ class TestErrorHandling:
                     "gpt-4",
                     "claude-sonnet-3-0-20240229",
                 ],
-                ["claude-sonnet-4-0-20250929"],
+                ["claude-sonnet-4-0-20250929", "claude-sonnet-3-5-20241022"],
             ),
         ]
 

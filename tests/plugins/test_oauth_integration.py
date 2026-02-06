@@ -957,8 +957,8 @@ class TestOAuthPerformanceAndLimits:
             f"Model filtering too slow: {elapsed}s for {len(large_model_list)} models"
         )
 
-        # Should return only latest versions
-        assert len(filtered) <= 3  # One per family
+        # Should return only top 2 latest versions per family
+        assert len(filtered) <= 6  # Up to two per family
 
 
 if __name__ == "__main__":

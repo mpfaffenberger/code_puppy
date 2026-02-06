@@ -80,9 +80,10 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
     },
     "extended_thinking": {
         "name": "Extended Thinking",
-        "description": "Enable or disable extended thinking for supported models.",
-        "type": "boolean",
-        "default": True,
+        "description": "Controls extended thinking mode. 'enabled' = classic thinking with budget_tokens, 'adaptive' = model decides when/how much to think (no budget), 'off' = disabled.",
+        "type": "choice",
+        "choices": ["enabled", "adaptive", "off"],
+        "default": "enabled",
     },
     "budget_tokens": {
         "name": "Thinking Budget (tokens)",
@@ -428,8 +429,8 @@ class ModelSettingsMenu:
                 for setting_key, value in model_settings.items():
                     setting_def = SETTING_DEFINITIONS.get(setting_key, {})
                     name = setting_def.get("name", setting_key)
-                    fmt = setting_def.get("format", "{:.2f}")
-                    lines.append(("fg:ansicyan", f"    {name}: {fmt.format(value)}"))
+                    display = self._format_value(setting_key, value)
+                    lines.append(("fg:ansicyan", f"    {name}: {display}"))
                     lines.append(("", "\n"))
             else:
                 lines.append(("fg:ansibrightblack", "  Using all default settings"))
@@ -907,5 +908,14 @@ def show_model_settings_summary(model_name: Optional[str] = None) -> None:
     for setting_key, value in settings.items():
         setting_def = SETTING_DEFINITIONS.get(setting_key, {})
         name = setting_def.get("name", setting_key)
-        fmt = setting_def.get("format", "{:.2f}")
-        emit_info(f"  {name}: {fmt.format(value)}")
+        setting_type = setting_def.get("type")
+        if setting_type in ("choice", "boolean"):
+            display = (
+                str(value)
+                if setting_type == "choice"
+                else ("Enabled" if value else "Disabled")
+            )
+        else:
+            fmt = setting_def.get("format", "{:.2f}")
+            display = fmt.format(value)
+        emit_info(f"  {name}: {display}")

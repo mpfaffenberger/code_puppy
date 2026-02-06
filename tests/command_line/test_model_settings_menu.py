@@ -90,10 +90,11 @@ class TestSettingDefinitions:
         assert "high" in verb_def["choices"]
 
     def test_extended_thinking_setting_definition(self):
-        """Test extended_thinking setting is boolean type."""
+        """Test extended_thinking setting is choice type with enabled/adaptive/off."""
         ext_thinking_def = SETTING_DEFINITIONS["extended_thinking"]
-        assert ext_thinking_def["type"] == "boolean"
-        assert ext_thinking_def["default"] is True
+        assert ext_thinking_def["type"] == "choice"
+        assert ext_thinking_def["default"] == "enabled"
+        assert ext_thinking_def["choices"] == ["enabled", "adaptive", "off"]
 
 
 class TestModelNavigation:
@@ -284,22 +285,26 @@ class TestChoiceSettingValidation:
                 break
 
 
-class TestBooleanSettingValidation:
-    """Test boolean setting validation."""
+class TestExtendedThinkingChoiceValidation:
+    """Test extended_thinking choice setting validation."""
 
-    def test_extended_thinking_accepts_true(self):
-        """Test extended_thinking accepts True."""
+    def test_extended_thinking_accepts_enabled(self):
+        """Test extended_thinking accepts 'enabled'."""
         ext_thinking_def = SETTING_DEFINITIONS["extended_thinking"]
-        assert ext_thinking_def["type"] == "boolean"
-        value = True
-        assert isinstance(value, bool)
+        assert ext_thinking_def["type"] == "choice"
+        assert "enabled" in ext_thinking_def["choices"]
 
-    def test_extended_thinking_accepts_false(self):
-        """Test extended_thinking accepts False."""
+    def test_extended_thinking_accepts_adaptive(self):
+        """Test extended_thinking accepts 'adaptive'."""
         ext_thinking_def = SETTING_DEFINITIONS["extended_thinking"]
-        assert ext_thinking_def["type"] == "boolean"
-        value = False
-        assert isinstance(value, bool)
+        assert ext_thinking_def["type"] == "choice"
+        assert "adaptive" in ext_thinking_def["choices"]
+
+    def test_extended_thinking_accepts_off(self):
+        """Test extended_thinking accepts 'off'."""
+        ext_thinking_def = SETTING_DEFINITIONS["extended_thinking"]
+        assert ext_thinking_def["type"] == "choice"
+        assert "off" in ext_thinking_def["choices"]
 
 
 class TestSettingsPersistence:
