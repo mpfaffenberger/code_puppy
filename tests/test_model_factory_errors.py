@@ -39,7 +39,7 @@ class TestModelFactoryErrors:
             ModelFactory.get_model("bad-model", config)
 
     def test_missing_models_config_file(self):
-        """Test load_config() when models.json doesn't exist."""
+        """Test load_config() when models config directory is not writable."""
         with patch("code_puppy.config.MODELS_FILE", "/nonexistent/path/models.json"):
             with patch("pathlib.Path.exists", return_value=False):
                 with patch("pathlib.Path.mkdir"):
@@ -53,11 +53,12 @@ class TestModelFactoryErrors:
     def test_malformed_json_models_file(self):
         """Test load_config() with malformed JSON in models.json."""
         with patch("code_puppy.config.MODELS_FILE", "/fake/path/models.json"):
-            with patch(
-                "builtins.open", mock_open(read_data="{ invalid json content }")
-            ):
-                with pytest.raises(json.JSONDecodeError):
-                    ModelFactory.load_config()
+            with patch("pathlib.Path.exists", return_value=True):
+                with patch(
+                    "builtins.open", mock_open(read_data="{ invalid json content }")
+                ):
+                    with pytest.raises(json.JSONDecodeError):
+                        ModelFactory.load_config()
 
     def test_malformed_json_extra_models_file(self):
         """Test load_config() handles JSON decode errors gracefully."""
@@ -312,11 +313,12 @@ class TestModelFactoryErrors:
     def test_load_config_file_permission_error(self):
         """Test load_config() when there's a file permission error."""
         with patch("code_puppy.config.MODELS_FILE", "/permission/denied/models.json"):
-            with patch(
-                "builtins.open", side_effect=PermissionError("Permission denied")
-            ):
-                with pytest.raises(PermissionError):
-                    ModelFactory.load_config()
+            with patch("pathlib.Path.exists", return_value=True):
+                with patch(
+                    "builtins.open", side_effect=PermissionError("Permission denied")
+                ):
+                    with pytest.raises(PermissionError):
+                        ModelFactory.load_config()
 
     def test_load_config_general_exception_handling(self):
         """Test load_config() handles general exceptions gracefully for extra models."""
