@@ -104,7 +104,9 @@ def _log_error_to_file(exc: Exception) -> Optional[str]:
         The path to the log file if successful, None otherwise.
     """
     try:
-        error_logs_dir = pathlib.Path.home() / ".code_puppy" / "error_logs"
+        from code_puppy.error_logging import get_logs_dir
+
+        error_logs_dir = pathlib.Path(get_logs_dir())
         error_logs_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
