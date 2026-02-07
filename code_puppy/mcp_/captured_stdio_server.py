@@ -68,7 +68,7 @@ class StderrCapture:
                 # Use asyncio's add_reader for efficient async reading
                 future = asyncio.Future()
 
-                def read_callback():
+                def read_callback(future=future):
                     try:
                         data = os.read(self._pipe_r, 4096)
                         future.set_result(data)
