@@ -101,6 +101,16 @@ async def screenshot_analyze(
     # Determine if OCR or VQA mode
     is_ocr = question is None
 
+    # VQA mode needs the screenshot file saved to disk for analysis
+    # Generate a temp path if not provided
+    if not is_ocr and save_path is None:
+        from tempfile import gettempdir
+        from pathlib import Path
+        temp_dir = Path(gettempdir()) / "code_puppy_vqa_screenshots"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_path = str(temp_dir / f"vqa_screenshot_{timestamp}.png")
+
     # Initial capture (without grid if auto_refine is enabled)
     initial_grid = add_grid if not auto_refine else False
 

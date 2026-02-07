@@ -5,7 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from tempfile import gettempdir
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from pydantic_ai import RunContext
 
@@ -23,7 +26,6 @@ else:
     ImageDraw = None
     ImageFont = None
 
-from rich.text import Text
 
 from code_puppy.messaging import emit_error
 from .rich_emit import emit_rich
@@ -253,8 +255,13 @@ def create_calibration_test_pattern(
     return img
 
 
-def register_grid_calibration_tools(agent):
+def register_grid_calibration_tools(agent: "Agent[Any, Any]") -> None:
     """Register advanced grid calibration and density tools."""
+    # Guard against double registration
+    marker = "_gui_cub_grid_calibration_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     def desktop_set_grid_density(
@@ -382,11 +389,11 @@ Marker reference:
                 instructions += f"  Marker #{idx}: ({x}, {y})\n"
 
             emit_rich(
-                Text.from_markup(f"[green]Test pattern saved: {save_path}[/green]"),
+                f"[green]Test pattern saved: {save_path}[/green]",
                 message_group=group_id,
             )
             emit_rich(
-                Text.from_markup(f"[dim]{instructions.strip()}[/dim]"),
+                f"[dim]{instructions.strip()}[/dim]",
                 message_group=group_id,
             )
 
@@ -399,8 +406,8 @@ Marker reference:
             )
 
         except Exception as e:
-            emit_error(
-                Text.from_markup(f"[red]Failed to create test pattern: {e}[/red]"),
+            emit_rich(
+                f"[red]Failed to create test pattern: {e}[/red]",
                 message_group=group_id,
             )
             return GridCalibrationResult(

@@ -72,6 +72,6 @@ def get_default_extended_thinking(model_name: str) -> str:
         ``"adaptive"`` for Opus 4-6 variants, ``"enabled"`` otherwise.
     """
     lower = model_name.lower()
-        return "adaptive"
     if "opus-4-6" in lower or "4-6-opus" in lower:
+        return "adaptive"
     return "enabled"

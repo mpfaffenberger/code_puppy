@@ -24,7 +24,7 @@ IMPORTANT - HiDPI/Retina Coordinate Handling:
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -45,19 +45,7 @@ from .core.click_offsets import (
     calculate_confidence_adjustment,
 )
 
-try:
-    from .result_types import TextBoundingBox
-except ImportError:
-    # For type checking when result_types isn't available
-    class TextBoundingBox(BaseModel):  # type: ignore
-        text: str
-        confidence: float
-        x: int
-        y: int
-        width: int
-        height: int
-        center_x: int
-        center_y: int
+from .ocr import TextBoundingBox
 
 
 ElementType = Literal[
@@ -293,7 +281,7 @@ class SmartClickCalculator:
         return points
 
     @staticmethod
-    def analyze_bounding_box(bbox: TextBoundingBox) -> dict[str, any]:
+    def analyze_bounding_box(bbox: TextBoundingBox) -> dict[str, Any]:
         """
         Analyze OCR bounding box characteristics for debugging.
 

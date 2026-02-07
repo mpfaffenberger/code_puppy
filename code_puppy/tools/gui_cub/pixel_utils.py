@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Tuple
+from typing import Literal
 
 from .dependencies import PIL_AVAILABLE, PYAUTOGUI_AVAILABLE
 
@@ -18,7 +18,7 @@ else:
     ImageGrab = None
 
 
-def _to_rgb(val) -> Tuple[int, int, int]:
+def _to_rgb(val: tuple[int, int, int] | list[int] | int) -> tuple[int, int, int]:
     if isinstance(val, (tuple, list)):
         return (int(val[0]), int(val[1]), int(val[2]))
     return (int(val), int(val), int(val))

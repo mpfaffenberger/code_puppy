@@ -5,11 +5,12 @@ screenshot coordinates (physical pixels) and screen coordinates (logical pixels)
 separated from I/O operations for easy testing.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Tuple
 
 
-@dataclass
+@dataclass(frozen=True)
 class DisplayMetrics:
     """Display metrics for scaling calculations."""
 
@@ -63,7 +64,7 @@ def convert_physical_to_logical(
     physical_x: int,
     physical_y: int,
     scale_factor: float,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """Convert physical screenshot coordinates to logical screen coordinates.
 
     On HiDPI/Retina displays, screenshots are captured at higher resolution
@@ -97,7 +98,7 @@ def convert_logical_to_physical(
     logical_x: int,
     logical_y: int,
     scale_factor: float,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """Convert logical screen coordinates to physical screenshot coordinates.
 
     Inverse of convert_physical_to_logical(). Useful when you have a mouse

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Platform configuration manager for GUI-Cub (QA-Kitten pattern).
 
 Follows the same pattern as QA-Kitten's Camoufox manager:
@@ -12,7 +14,12 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
+
+from pydantic_ai import RunContext
 
 from code_puppy.messaging import emit_warning
 from code_puppy.tools.common import generate_group_id
@@ -62,7 +69,7 @@ def get_config_path() -> Path:
     return get_gui_cub_base_dir() / "config.json"
 
 
-def _compute_config_hash(config: Dict[str, Any]) -> str:
+def _compute_config_hash(config: dict[str, Any]) -> str:
     """Compute SHA256 hash of important config fields for validation."""
     # Hash platform, display, and capabilities (not metadata)
     hashable = {
@@ -74,7 +81,7 @@ def _compute_config_hash(config: Dict[str, Any]) -> str:
     return hashlib.sha256(content.encode()).hexdigest()
 
 
-def load_config() -> Optional[Dict[str, Any]]:
+def load_config() -> dict[str, Any] | None:
     """Load cached config from disk.
 
     Returns:
@@ -275,7 +282,7 @@ def set_vqa_model_name(model: str):
     save_config(config)
 
 
-def save_config(config: Dict[str, Any]) -> bool:
+def save_config(config: dict[str, Any]) -> bool:
     """Save config to disk.
 
     Args:
@@ -310,7 +317,7 @@ def save_config(config: Dict[str, Any]) -> bool:
         return False
 
 
-def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
+def validate_config(config: dict[str, Any]) -> tuple[bool, str]:
     """Validate if cached config is still valid.
 
     Args:
@@ -379,7 +386,7 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, str]:
     return True, "Config is valid"
 
 
-async def ensure_calibrated() -> Dict[str, Any]:
+async def ensure_calibrated() -> dict[str, Any]:
     """Ensure platform is calibrated (QA-Kitten pattern).
 
     This runs on agent initialization and checks if calibration is needed.
@@ -480,16 +487,19 @@ async def ensure_calibrated() -> Dict[str, Any]:
 # Tool registration functions (following QA-Kitten patterns)
 
 
-def register_debug_screenshot_tools(agent):
+def register_debug_screenshot_tools(agent: "Agent[Any, Any]") -> None:
     """Register debug screenshot management tools."""
-
-    from pydantic_ai import RunContext
+    # Guard against double registration
+    marker = "_gui_cub_debug_screenshot_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     async def save_debug_screenshot(
         context: RunContext,
         filename: str | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Save the last debug screenshot (from VQA or OCR) to current directory.
 
         Use this when the user asks to see debug screenshots, save images for debugging,
@@ -542,13 +552,11 @@ def register_debug_screenshot_tools(agent):
             }
 
 
-def register_config_tools(agent):
+def register_config_tools(agent: "Agent[Any, Any]") -> None:
     """Register config management tools."""
 
-    from pydantic_ai import RunContext
-
     @agent.tool
-    async def gui_cub_get_config(context: RunContext) -> Dict[str, Any]:
+    async def gui_cub_get_config(context: RunContext) -> dict[str, Any]:
         """Get current platform configuration.
 
         Returns cached config if valid, otherwise triggers re-calibration.
@@ -560,7 +568,7 @@ def register_config_tools(agent):
         return await ensure_calibrated()
 
     @agent.tool
-    async def gui_cub_calibrate(context: RunContext) -> Dict[str, Any]:
+    async def gui_cub_calibrate(context: RunContext) -> dict[str, Any]:
         """Force platform re-calibration.
 
         Useful when:
@@ -582,7 +590,7 @@ def register_config_tools(agent):
         return await run_calibration()
 
     @agent.tool
-    async def gui_cub_validate_config(context: RunContext) -> Dict[str, Any]:
+    async def gui_cub_validate_config(context: RunContext) -> dict[str, Any]:
         """Validate current cached config without re-calibrating.
 
         Quick check to see if config is still valid.
@@ -625,7 +633,7 @@ def register_config_tools(agent):
         }
 
     @agent.tool
-    async def gui_cub_reset_config(context: RunContext) -> Dict[str, Any]:
+    async def gui_cub_reset_config(context: RunContext) -> dict[str, Any]:
         """Delete cached config to force re-calibration on next run.
 
         Useful for troubleshooting config issues.

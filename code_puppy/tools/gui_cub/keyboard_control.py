@@ -1,8 +1,13 @@
-"""Keyboard control for desktop automation automation."""
+"""Keyboard control for desktop automation."""
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pydantic_ai import RunContext
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from .dependencies import PYAUTOGUI_AVAILABLE
 
@@ -104,8 +109,13 @@ def desktop_keyboard_release(
     return KeyboardActionResult(success=True, key=key, status="released")
 
 
-def register_keyboard_control_tools(agent):
+def register_keyboard_control_tools(agent: "Agent[Any, Any]") -> None:
     """Register keyboard control tools for desktop automation."""
+    # Guard against double registration
+    marker = "_gui_cub_keyboard_control_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     @desktop_tool("KEYBOARD TYPE", requires="pyautogui")

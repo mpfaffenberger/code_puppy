@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 """Helper functions for desktop automation tests."""
 
-from typing import Any, Dict
+from typing import Any
 
 
 def validate_result_type(result, expected_type):
@@ -12,7 +14,7 @@ def validate_result_type(result, expected_type):
     assert isinstance(result.success, bool), "'success' must be boolean"
 
 
-def validate_tool_schema(schema: Dict[str, Any]):
+def validate_tool_schema(schema: dict[str, Any]):
     """Validate that a tool schema is well-formed."""
     # Check required top-level keys
     assert "type" in schema, "Schema must have 'type'"

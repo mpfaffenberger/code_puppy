@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import io
 import time
-from typing import List
+
 
 from PIL import Image
 
@@ -201,8 +201,8 @@ class WinRTOCRProvider(OCRProvider):
         ocr_result = await self._engine.recognize_async(bitmap)
 
         # Parse results
-        words: List[OCRWord] = []
-        full_text_lines: List[str] = []
+        words: list[OCRWord] = []
+        full_text_lines: list[str] = []
 
         # Convert WinRT collection to list to avoid iteration issues
         # WinRT collections can cause import errors when iterating

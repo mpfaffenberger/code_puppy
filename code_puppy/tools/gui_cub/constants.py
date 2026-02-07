@@ -48,3 +48,35 @@ DEFAULT_ALERT_TIMEOUT = 5000  # milliseconds
 GRID_LINE_COLOR = (255, 0, 0, 128)  # Red, semi-transparent (RGBA)
 GRID_TEXT_COLOR = (255, 0, 0)  # Red (RGB)
 GRID_LINE_WIDTH = 1  # pixels
+
+__all__ = [
+    # Error messages - missing dependencies
+    "ERROR_PYAUTOGUI_MISSING",
+    "ERROR_PILLOW_MISSING",
+    "ERROR_ATOMACOS_MISSING",
+    "ERROR_WINDOWS_AUTOMATION_MISSING",
+    "ERROR_APPKIT_MISSING",
+    # Error messages - platform-specific
+    "ERROR_MACOS_ONLY",
+    "ERROR_WINDOWS_ONLY",
+    # Error messages - common
+    "ERROR_FAILSAFE_TRIGGERED",
+    "ERROR_ELEMENT_NOT_FOUND",
+    "ERROR_WINDOW_NOT_FOUND",
+    "ERROR_NO_FRONTMOST_APP",
+    "ERROR_CLICK_FAILED",
+    "ERROR_SCREENSHOT_FAILED",
+    "ERROR_VQA_FAILED",
+    # Default values
+    "DEFAULT_GRID_SPACING",
+    "DEFAULT_MOUSE_DURATION",
+    "DEFAULT_PYAUTOGUI_PAUSE",
+    "DEFAULT_FAILSAFE",
+    # Timeout values
+    "DEFAULT_WINDOW_FOCUS_TIMEOUT",
+    "DEFAULT_ALERT_TIMEOUT",
+    # Grid overlay defaults
+    "GRID_LINE_COLOR",
+    "GRID_TEXT_COLOR",
+    "GRID_LINE_WIDTH",
+]

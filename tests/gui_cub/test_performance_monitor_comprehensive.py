@@ -24,7 +24,7 @@ class TestOperationMetrics:
         assert metrics.total_time == 0.0
         assert metrics.min_time == float("inf")
         assert metrics.max_time == 0.0
-        assert metrics.timings == []
+        assert len(metrics.timings) == 0
 
     def test_record_single_timing(self):
         """Test recording single timing."""

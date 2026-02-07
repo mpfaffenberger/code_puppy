@@ -2,13 +2,13 @@
 
 This module defines the abstract interface that all OCR providers must implement,
 allowing GUI-Cub to use native platform OCR (WinRT, Vision Framework) with
-
+a consistent API.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
+
 
 from PIL import Image
 from pydantic import BaseModel, Field
@@ -70,7 +70,7 @@ class OCRResult(BaseModel):
     """
 
     success: bool = Field(description="Whether OCR operation succeeded")
-    words: List[OCRWord] = Field(
+    words: list[OCRWord] = Field(
         default_factory=list,
         description="List of recognized text elements with bounding boxes",
     )
@@ -78,7 +78,7 @@ class OCRResult(BaseModel):
     provider: str = Field(
         description="Name of OCR provider used (e.g. 'winrt', 'vision')"
     )
-    error: Optional[str] = Field(
+    error: str | None = Field(
         default=None, description="Error message if operation failed"
     )
 

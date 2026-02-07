@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .result_types import WindowBoundsResult
 
+__all__ = ["window_to_screen_coords", "screen_to_window_coords"]
+
 
 def window_to_screen_coords(
     window_x: int,
@@ -108,14 +110,3 @@ def screen_to_window_coords(
     window_y = screen_y - window_bounds.y
 
     return window_x, window_y
-
-
-#         self._cache[cache_key] = (bounds, now)
-#         return bounds
-#
-#     def invalidate(self, window_title: str | None = None):
-#         """Clear cache for specific window or all windows."""
-#         if window_title is None:
-#             self._cache.clear()
-#         else:
-#             self._cache.pop(window_title, None)

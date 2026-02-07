@@ -10,14 +10,14 @@ Provides telemetry for:
 from __future__ import annotations
 
 import time
-from collections import defaultdict
+from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from rich.text import Text
-
 from code_puppy.messaging import emit_info
+
+from .rich_emit import emit_rich
 
 
 @dataclass
@@ -29,7 +29,7 @@ class OperationMetrics:
     total_time: float = 0.0
     min_time: float = float("inf")
     max_time: float = 0.0
-    timings: list[float] = field(default_factory=list)
+    timings: deque[float] = field(default_factory=lambda: deque(maxlen=100))
 
     @property
     def avg_time(self) -> float:
@@ -49,18 +49,12 @@ class OperationMetrics:
         self.max_time = max(self.max_time, elapsed)
         self.timings.append(elapsed)
 
-        # Keep only last 100 timings to avoid memory bloat
-        if len(self.timings) > 100:
-            self.timings.pop(0)
-
 
 class PerformanceMonitor:
     """Global performance monitor for GUI automation operations."""
 
     def __init__(self):
-        self.metrics: dict[str, OperationMetrics] = defaultdict(
-            lambda: OperationMetrics(operation="unknown")
-        )
+        self.metrics: dict[str, OperationMetrics] = {}
         self.cache_hits: int = 0
         self.cache_misses: int = 0
         self.early_stops: int = 0
@@ -145,12 +139,10 @@ class PerformanceMonitor:
         Args:
             show_details: Show detailed per-operation stats
         """
-        emit_info(
-            Text.from_markup("[bold cyan]\n=== Performance Report ===[/bold cyan]")
-        )
+        emit_rich("[bold cyan]\n=== Performance Report ===[/bold cyan]")
 
         if show_details and self.metrics:
-            emit_info(Text.from_markup("\n[bold]Operation Timings:[/bold]"))
+            emit_rich("\n[bold]Operation Timings:[/bold]")
             for op, metrics in sorted(self.metrics.items()):
                 emit_info(
                     f"  {op:30s} "
@@ -163,7 +155,7 @@ class PerformanceMonitor:
         # Cache stats
         total_cache_ops = self.cache_hits + self.cache_misses
         if total_cache_ops > 0:
-            emit_info(Text.from_markup("\n[bold]Cache Performance:[/bold]"))
+            emit_rich("\n[bold]Cache Performance:[/bold]")
             emit_info(f"  Hits:      {self.cache_hits}")
             emit_info(f"  Misses:    {self.cache_misses}")
             emit_info(f"  Hit Rate:  {self.cache_hit_rate * 100:.1f}%")
@@ -171,14 +163,12 @@ class PerformanceMonitor:
         # Search optimization stats
         total_searches = self.early_stops + self.full_searches
         if total_searches > 0:
-            emit_info(Text.from_markup("\n[bold]Search Optimization:[/bold]"))
+            emit_rich("\n[bold]Search Optimization:[/bold]")
             emit_info(f"  Early Stops:   {self.early_stops}")
             emit_info(f"  Full Searches: {self.full_searches}")
             emit_info(f"  Early Stop Rate: {self.early_stop_rate * 100:.1f}%")
 
-        emit_info(
-            Text.from_markup("[bold cyan]=========================\n[/bold cyan]")
-        )
+        emit_rich("[bold cyan]=========================\n[/bold cyan]")
 
     def reset(self) -> None:
         """Reset all metrics."""

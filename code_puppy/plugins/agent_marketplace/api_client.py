@@ -4,9 +4,22 @@ Provides async functions to interact with the Walmart Agent Marketplace backend.
 """
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+
+# Gracefully import is_token_expired from walmart_specific
+# This allows the plugin to work even if walmart_specific isn't installed
+try:
+    from code_puppy.plugins.walmart_specific.auth import is_token_expired
+
+    _HAS_TOKEN_EXPIRY_CHECK = True
+except ImportError:
+    _HAS_TOKEN_EXPIRY_CHECK = False
+
+    def is_token_expired(token: str, silent: bool = False) -> bool:  # type: ignore[misc]
+        """Fallback: assume token is valid if we can't check expiration."""
+        return False
 
 
 def _get_marketplace_base_url() -> str:
@@ -63,23 +76,82 @@ def _format_response_error(response_text: str, status_code: int) -> str:
     return f"Unexpected response: {text}"
 
 
+def _get_marketplace_token() -> Optional[str]:
+    """Retrieve the marketplace token from config.
+
+    Returns:
+        The marketplace token string, or None if not set.
+    """
+    try:
+        from code_puppy.config import get_value
+
+        return get_value("marketplace_token")
+    except ImportError:
+        return None
+
+
+def is_marketplace_token_valid() -> bool:
+    """Check if the marketplace token exists and is not expired.
+
+    This function checks:
+    1. Whether a marketplace token exists in config
+    2. Whether the token is still valid (not expired)
+
+    Returns:
+        True if the token exists and is valid, False otherwise.
+    """
+    token = _get_marketplace_token()
+    if not token:
+        return False
+
+    # Check expiration silently to avoid console spam
+    return not is_token_expired(token, silent=True)
+
+
+def get_marketplace_token_status() -> Tuple[bool, bool]:
+    """Get the status of the marketplace token.
+
+    This function provides detailed status information that callers
+    can use to decide whether to prompt for authentication.
+
+    Returns:
+        A tuple of (token_exists, is_valid):
+        - token_exists: True if a token is present in config
+        - is_valid: True if the token exists AND is not expired
+    """
+    token = _get_marketplace_token()
+    token_exists = token is not None and len(token) > 0
+
+    if not token_exists:
+        return (False, False)
+
+    # Check if token is expired (silently)
+    is_valid = not is_token_expired(token, silent=True)
+
+    return (token_exists, is_valid)
+
+
 def _get_auth_headers() -> dict:
     """Get authentication headers for marketplace API.
 
     Uses marketplace_token from config (set by /puppy_auth command).
     This is different from puppy_token which is for the backend.
-    """
-    headers = {}
-    try:
-        from code_puppy.config import get_value
 
-        token = get_value("marketplace_token")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-    except ImportError:
-        # config not available
-        pass
-    return headers
+    Returns empty headers if the token is missing or expired,
+    so callers know authentication is needed.
+    """
+    token = _get_marketplace_token()
+
+    # No token available
+    if not token:
+        return {}
+
+    # Check if token is expired (silently to avoid console spam)
+    if is_token_expired(token, silent=True):
+        return {}
+
+    # Token exists and is valid - return auth headers
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _normalize_response(

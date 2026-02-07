@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 
 from code_puppy import __version__ as code_puppy_version
 from code_puppy.messaging import emit_warning
@@ -166,7 +166,7 @@ def detect_tesseract() -> bool:
         return False
 
 
-def detect_capabilities() -> Dict[str, bool]:
+def detect_capabilities() -> dict[str, bool]:
     """Detect which libraries are available."""
     capabilities = {}
 
@@ -207,7 +207,7 @@ def detect_capabilities() -> Dict[str, bool]:
     return capabilities
 
 
-def detect_ocr_providers() -> Dict[str, Any]:
+def detect_ocr_providers() -> dict[str, Any]:
     """Detect available OCR providers.
 
     Returns:
@@ -250,7 +250,7 @@ def detect_ocr_providers() -> Dict[str, Any]:
     }
 
 
-def detect_permissions() -> Dict[str, Any]:
+def detect_permissions() -> dict[str, Any]:
     """Detect accessibility permissions (macOS only)."""
     permissions = {}
 
@@ -270,7 +270,7 @@ def detect_permissions() -> Dict[str, Any]:
     return permissions
 
 
-def calibrate_platform(force: bool = False) -> Dict[str, Any]:
+def calibrate_platform(force: bool = False) -> dict[str, Any]:
     """Run full platform calibration and save results.
 
     Args:
@@ -489,7 +489,7 @@ def calibrate_platform(force: bool = False) -> Dict[str, Any]:
     }
 
 
-async def run_calibration(force: bool = False) -> Dict[str, Any]:
+async def run_calibration(force: bool = False) -> dict[str, Any]:
     """Async wrapper for calibrate_platform.
 
     This function provides an async interface to the synchronous calibration.

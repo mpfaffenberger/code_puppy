@@ -83,11 +83,24 @@ def list_accessible_elements(
         by_role = {}
         elements_list = []  # Flat list for compaction
 
+        # Helper to safely convert values to strings
+        # AXValue can return NativeUIElement which is not JSON serializable
+        def safe_str(val: Any) -> str | None:
+            if val is None:
+                return None
+            if isinstance(val, (str, int, float, bool)):
+                return str(val) if not isinstance(val, str) else val
+            # For complex types (NativeUIElement, etc.), convert to string repr or skip
+            try:
+                return str(val)
+            except Exception:
+                return None
+
         for elem in elements:
             try:
-                elem_role = getattr(elem, "AXRole", "Unknown")
-                elem_title = getattr(elem, "AXTitle", None)
-                elem_description = getattr(elem, "AXDescription", None)
+                elem_role = safe_str(getattr(elem, "AXRole", None)) or "Unknown"
+                elem_title = safe_str(getattr(elem, "AXTitle", None))
+                elem_description = safe_str(getattr(elem, "AXDescription", None))
                 elem_position = getattr(elem, "AXPosition", None)
                 elem_size = getattr(elem, "AXSize", None)
 
@@ -96,13 +109,12 @@ def list_accessible_elements(
                     "role": elem_role,
                     "title": elem_title,
                     "description": elem_description,
-                    # NEW: Comprehensive attributes
-                    "value": getattr(elem, "AXValue", None),
-                    "placeholder": getattr(elem, "AXPlaceholderValue", None),
-                    "help": getattr(elem, "AXHelp", None),
-                    "role_description": getattr(elem, "AXRoleDescription", None),
-                    "identifier": getattr(elem, "AXIdentifier", None),
-                    "subrole": getattr(elem, "AXSubrole", None),
+                    "value": safe_str(getattr(elem, "AXValue", None)),
+                    "placeholder": safe_str(getattr(elem, "AXPlaceholderValue", None)),
+                    "help": safe_str(getattr(elem, "AXHelp", None)),
+                    "role_description": safe_str(getattr(elem, "AXRoleDescription", None)),
+                    "identifier": safe_str(getattr(elem, "AXIdentifier", None)),
+                    "subrole": safe_str(getattr(elem, "AXSubrole", None)),
                 }
 
                 # Add position/coordinates if available

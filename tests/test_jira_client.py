@@ -15,6 +15,7 @@ from code_puppy.plugins.walmart_specific.jira_client import (
     JiraClient,
     JiraError,
     JiraNotFoundError,
+    _reset_staleness_warning_flag,
 )
 
 
@@ -179,6 +180,13 @@ class TestJiraClientInit:
 
 class TestJiraClientStaleness:
     """Test suite for session staleness checks."""
+
+    @pytest.fixture(autouse=True)
+    def reset_staleness_flag(self):
+        """Reset the staleness warning flag before each test."""
+        _reset_staleness_warning_flag()
+        yield
+        _reset_staleness_warning_flag()
 
     def test_staleness_warning_no_timestamp(self, tmp_path: Path, mock_rate_limiter):
         """Test warning when timestamp is missing."""
