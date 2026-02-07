@@ -611,8 +611,7 @@ def run_shell_command_streaming(
     group_id: str = None,
     silent: bool = False,
 ):
-    global _READER_STOP_EVENT
-    _READER_STOP_EVENT = threading.Event()
+    stop_event = threading.Event()
 
     start_time = time.time()
     last_output_time = [start_time]
@@ -634,7 +633,7 @@ def run_shell_command_streaming(
         try:
             while True:
                 # Check stop event first
-                if _READER_STOP_EVENT and _READER_STOP_EVENT.is_set():
+                if stop_event.is_set():
                     break
 
                 # Use select to check if data is available (with timeout)
@@ -704,7 +703,7 @@ def run_shell_command_streaming(
         try:
             while True:
                 # Check stop event first
-                if _READER_STOP_EVENT and _READER_STOP_EVENT.is_set():
+                if stop_event.is_set():
                     break
 
                 if sys.platform.startswith("win"):
@@ -770,8 +769,7 @@ def run_shell_command_streaming(
 
         try:
             # Signal reader threads to stop first
-            if _READER_STOP_EVENT:
-                _READER_STOP_EVENT.set()
+            stop_event.set()
 
             if process.poll() is None:
                 nuclear_kill(process)
@@ -889,7 +887,7 @@ def run_shell_command_streaming(
             get_message_bus().emit(shell_output_msg)
 
         # Reset the stop event now that we're done
-        _READER_STOP_EVENT = None
+        # stop_event is local, no global cleanup needed
 
         if exit_code != 0:
             time.sleep(1)
@@ -918,7 +916,7 @@ def run_shell_command_streaming(
 
     except Exception as e:
         # Reset the stop event on exception too
-        _READER_STOP_EVENT = None
+        # stop_event is local, no global cleanup needed
         return ShellCommandOutput(
             success=False,
             command=command,
