@@ -29,17 +29,29 @@ def powerbi_list_workspaces(
 ) -> dict:
     """List all Power BI workspaces (groups) the user has access to.
 
+    Supports pagination via top/skip parameters. Check 'has_more' in the response
+    to determine if additional pages exist, and use 'next_skip' for the next request.
+
     Args:
         top: Maximum number of workspaces to return (default: 100, max: 5000).
-        skip: Number of workspaces to skip for pagination.
+        skip: Number of workspaces to skip for pagination (default: 0).
         filter_query: Optional OData filter (e.g., "contains(name,'Sales')").
 
     Returns:
-        Dict with success=True and list of workspaces, or error details.
+        Dict with success=True and list of workspaces, plus pagination metadata:
+        - count: Number of workspaces returned in this page
+        - workspaces: List of workspace objects
+        - has_more: True if there may be more results (returned count == top)
+        - next_skip: The skip value to use for the next page (if has_more is True)
+        - top_used: The top value used for this request
+        - skip_used: The skip value used for this request
 
     Example:
-        # List all workspaces
+        # List first page of workspaces
         powerbi_list_workspaces()
+
+        # Get next page
+        powerbi_list_workspaces(skip=100)
 
         # Filter by name
         powerbi_list_workspaces(filter_query="contains(name,'Analytics')")
@@ -61,7 +73,12 @@ def powerbi_list_workspaces(
         response = client.get("/groups", params=params)
         workspaces = response.get("value", [])
 
-        emit_success(f"Found {len(workspaces)} workspaces")
+        # Determine if there are more results
+        # Power BI API doesn't always return total count, so we infer from result size
+        has_more = len(workspaces) == top
+        next_skip = skip + len(workspaces) if has_more else None
+
+        emit_success(f"Found {len(workspaces)} workspaces (skip={skip}, has_more={has_more})")
 
         # Format workspaces for readability
         formatted = []
@@ -80,6 +97,11 @@ def powerbi_list_workspaces(
             "success": True,
             "count": len(formatted),
             "workspaces": formatted,
+            # Pagination metadata
+            "has_more": has_more,
+            "next_skip": next_skip,
+            "top_used": top,
+            "skip_used": skip,
         }
 
     except Exception as e:
