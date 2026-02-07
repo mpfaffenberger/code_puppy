@@ -159,7 +159,7 @@ async def get_session(session_id: str) -> SessionInfo:
             timeout=FILE_IO_TIMEOUT,
         )
     except asyncio.TimeoutError:
-        raise HTTPException(504, f"Timeout reading session '{session_id}'")
+        raise HTTPException(504, f"Timeout reading session '{session_id}'") from None
 
     return SessionInfo(
         session_id=session_id,
@@ -199,9 +199,11 @@ async def get_session_messages(session_id: str) -> List[Dict[str, Any]]:
         )
         return [_serialize_message(msg) for msg in messages]
     except asyncio.TimeoutError:
-        raise HTTPException(504, f"Timeout loading session '{session_id}' messages")
+        raise HTTPException(
+            504, f"Timeout loading session '{session_id}' messages"
+        ) from None
     except Exception as e:
-        raise HTTPException(500, f"Error loading session messages: {e}")
+        raise HTTPException(500, f"Error loading session messages: {e}") from e
 
 
 @router.delete("/{session_id}")
