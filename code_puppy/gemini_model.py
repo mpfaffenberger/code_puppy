@@ -580,15 +580,16 @@ class GeminiModel(Model):
 
         response_parts: list[ModelResponsePart] = []
 
-        for i, part in enumerate(parts):
+        for part in parts:
             if part.get("thought") and part.get("text") is not None:
-                # Thinking part - look ahead for signature on next part
-                signature = None
-                if i + 1 < len(parts):
-                    next_part = parts[i + 1]
-                    signature = next_part.get("thoughtSignature")
+                # Thinking part — signature lives on the same part
+                signature = part.get("thoughtSignature")
                 response_parts.append(
-                    ThinkingPart(content=part["text"], signature=signature)
+                    ThinkingPart(
+                        content=part["text"],
+                        signature=signature,
+                        provider_name=self._model_name,
+                    )
                 )
             elif "text" in part:
                 response_parts.append(TextPart(content=part["text"]))

@@ -574,19 +574,8 @@ def register_invoke_agent(agent):
             if use_streaming:
                 stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
-            # Strip thinking signatures for non-Gemini models
-            # Gemini models use signature fields on ThinkingPart objects for thought validation.
-            # When using non-Gemini models (like Claude/Anthropic), these signatures cause errors.
-            if message_history and "gemini" not in model_name.lower():
-                from pydantic_ai.messages import ModelResponse, ThinkingPart
-
-                for message in message_history:
-                    if isinstance(message, ModelResponse):
-                        for part in message.parts:
-                            if isinstance(part, ThinkingPart) and getattr(
-                                part, "signature", None
-                            ):
-                                part.signature = None
+            # NOTE: Signature stripping removed — pydantic-ai handles
+            # cross-provider signatures via ThinkingPart.provider_name.
 
             # Wrap the agent run in subagent context for tracking
             with subagent_context(agent_name):

@@ -1478,13 +1478,32 @@ class BaseAgent(ABC):
         result_messages_filtered_empty_thinking = []
         filtered_count = 0
         for msg in self.get_message_history():
-            if len(msg.parts) == 1:
-                if isinstance(msg.parts[0], ThinkingPart):
-                    if msg.parts[0].content == "":
-                        filtered_count += 1
-                        continue
+            # Filter out single-part messages that are empty ThinkingParts
+            if len(msg.parts) == 1 and isinstance(msg.parts[0], ThinkingPart):
+                if not msg.parts[0].content:
+                    filtered_count += 1
+                    continue
+            # For multi-part messages, strip empty ThinkingParts but keep the message
+            elif any(
+                isinstance(p, ThinkingPart) and not p.content for p in msg.parts
+            ):
+                msg = type(msg)(
+                    parts=[
+                        p
+                        for p in msg.parts
+                        if not (isinstance(p, ThinkingPart) and not p.content)
+                    ],
+                    **{
+                        k: v
+                        for k, v in msg.__dict__.items()
+                        if k != "parts"
+                    },
+                )
+                if not msg.parts:
+                    filtered_count += 1
+                    continue
             result_messages_filtered_empty_thinking.append(msg)
-            self.set_message_history(result_messages_filtered_empty_thinking)
+        self.set_message_history(result_messages_filtered_empty_thinking)
 
         # Hook: on_message_history_processor_end - dump the message history after processing
         final_history = self.get_message_history()
