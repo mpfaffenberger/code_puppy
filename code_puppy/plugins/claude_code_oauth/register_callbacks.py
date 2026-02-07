@@ -99,7 +99,7 @@ def _start_callback_server(
             _CallbackHandler.result = result
             _CallbackHandler.received_event = event
 
-            def run_server() -> None:
+            def run_server(server=server) -> None:
                 with server:
                     server.serve_forever()
 
