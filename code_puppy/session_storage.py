@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
 import json
 import logging
 import os
@@ -19,6 +20,36 @@ from pathlib import Path
 from typing import Any, Callable, List
 
 logger = logging.getLogger(__name__)
+
+
+class _RestrictedUnpickler(pickle.Unpickler):
+    """Restrict pickle to safe types only."""
+
+    _SAFE_MODULES = frozenset({
+        "builtins",
+        "collections",
+        "datetime",
+        "pydantic_ai.messages",
+        "pydantic_ai._parts_manager",
+        "pydantic_ai.usage",
+        "pydantic",
+        "pydantic.main",
+        "pydantic_core",
+        "pydantic_core._pydantic_core",
+        "uuid",
+    })
+
+    def find_class(self, module: str, name: str) -> type:
+        if module in self._SAFE_MODULES:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(
+            f"Forbidden unpickle: {module}.{name}"
+        )
+
+
+def _safe_loads(data: bytes) -> Any:
+    """Deserialize pickle data with restricted class allowlist."""
+    return _RestrictedUnpickler(io.BytesIO(data)).load()
 
 _HEADER_MAGIC = b"CPSESSION\x01"
 _HMAC_SIZE = 32  # SHA-256 digest size
@@ -143,7 +174,7 @@ def load_session(
                 f"HMAC verification failed for session '{session_name}' – "
                 "file may have been tampered with"
             )
-        return pickle.loads(pickle_data)
+        return _safe_loads(pickle_data)
 
     # Legacy file without HMAC header
     if not allow_legacy:
@@ -153,7 +184,7 @@ def load_session(
         "Re-save to add integrity protection.",
         session_name,
     )
-    return pickle.loads(raw)
+    return _safe_loads(raw)
 
 
 def list_sessions(base_dir: Path) -> List[str]:
