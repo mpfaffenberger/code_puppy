@@ -301,9 +301,12 @@ class ModelFactory:
         else:
             from code_puppy.config import MODELS_FILE
 
-            with open(pathlib.Path(__file__).parent / "models.json", "r") as src:
-                with open(pathlib.Path(MODELS_FILE), "w") as target:
-                    target.write(src.read())
+            models_path = pathlib.Path(MODELS_FILE)
+            if not models_path.exists():
+                models_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(pathlib.Path(__file__).parent / "models.json", "r") as src:
+                    with open(models_path, "w") as target:
+                        target.write(src.read())
 
             with open(MODELS_FILE, "r") as f:
                 config = json.load(f)
