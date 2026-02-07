@@ -1378,7 +1378,6 @@ def _find_best_window(
     win_size = len(needle_lines)
     best_score = 0.0
     best_span: Optional[Tuple[int, int]] = None
-    best_window = ""
     # Pre-join the needle once; join windows on the fly
     for i in range(len(haystack_lines) - win_size + 1):
         window = "\n".join(haystack_lines[i : i + win_size])
@@ -1386,12 +1385,7 @@ def _find_best_window(
         if score > best_score:
             best_score = score
             best_span = (i, i + win_size)
-            best_window = window
 
-    # Debug logging
-    console.log(best_span)
-    console.log(best_window)
-    console.log(best_score)
     return best_span, best_score
 
 
