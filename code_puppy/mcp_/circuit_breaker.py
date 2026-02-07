@@ -117,12 +117,12 @@ class CircuitBreaker:
             raise e
 
     def record_success(self) -> None:
-        """Record a successful operation."""
-        asyncio.create_task(self._on_success())
+        """Record a successful operation (synchronous)."""
+        self._on_success_sync()
 
     def record_failure(self) -> None:
-        """Record a failed operation."""
-        asyncio.create_task(self._on_failure())
+        """Record a failed operation (synchronous)."""
+        self._on_failure_sync()
 
     def get_state(self) -> CircuitState:
         """Get current circuit breaker state."""
@@ -182,6 +182,53 @@ class CircuitBreaker:
             return False
 
         return time.time() - self._last_failure_time >= self.timeout
+
+    def _on_success_sync(self) -> None:
+        """Handle successful operation (synchronous, no lock)."""
+        current_state = self._get_current_state()
+
+        if current_state == CircuitState.CLOSED:
+            if self._failure_count > 0:
+                logger.debug("Resetting failure count after success")
+                self._failure_count = 0
+
+        elif current_state == CircuitState.HALF_OPEN:
+            self._success_count += 1
+            logger.debug(
+                f"Success in HALF_OPEN state: {self._success_count}/{self.success_threshold}"
+            )
+
+            if self._success_count >= self.success_threshold:
+                logger.info(
+                    "Success threshold reached, transitioning from HALF_OPEN to CLOSED"
+                )
+                self._state = CircuitState.CLOSED
+                self._failure_count = 0
+                self._success_count = 0
+                self._last_failure_time = None
+
+    def _on_failure_sync(self) -> None:
+        """Handle failed operation (synchronous, no lock)."""
+        current_state = self._get_current_state()
+
+        if current_state == CircuitState.CLOSED:
+            self._failure_count += 1
+            logger.debug(
+                f"Failure in CLOSED state: {self._failure_count}/{self.failure_threshold}"
+            )
+
+            if self._failure_count >= self.failure_threshold:
+                logger.warning(
+                    "Failure threshold reached, transitioning from CLOSED to OPEN"
+                )
+                self._state = CircuitState.OPEN
+                self._last_failure_time = time.time()
+
+        elif current_state == CircuitState.HALF_OPEN:
+            logger.warning("Failure in HALF_OPEN state, transitioning back to OPEN")
+            self._state = CircuitState.OPEN
+            self._success_count = 0
+            self._last_failure_time = time.time()
 
     async def _on_success(self) -> None:
         """Handle successful operation."""
