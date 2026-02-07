@@ -923,8 +923,8 @@ def run_shell_command_streaming(
             success=False,
             command=command,
             error=f"Error during streaming execution: {str(e)}",
-            stdout="\n".join(stdout_lines[-1000:]),
-            stderr="\n".join(stderr_lines[-1000:]),
+            stdout="\n".join(stdout_lines[-256:]),
+            stderr="\n".join(stderr_lines[-256:]),
             exit_code=-1,
             timeout=False,
         )
