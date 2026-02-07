@@ -341,14 +341,16 @@ def get_walmart_motd() -> tuple[str, str]:
     Returns:
         Tuple of (message, version) for the Walmart MOTD.
     """
-    version = "2025-12-29"
+    version = "2026-02-07"
     message = """🐕‍🦺
 🐾```
-# 🐶 Version 0.0.320 - Hotfix 🔧
-Disabled extended thinking on the background security agent
-to make sure it runs fast! 🚀
+# 🐶 What's New 🐕
 
-Speed is a feature, not a luxury! 🐕‍🦺
+- Fixed bugs in Opus 4.6 thinking/signature handling
+  across provider swaps (Claude ↔ Gemini)
+- Fixed typos and clarified rules in system prompt
+- Gemini streaming now correctly persists thought
+  signatures between turns
 ```
 """
     return (message, version)
