@@ -874,9 +874,12 @@ def handle_uc_command(command: str) -> bool:
     import asyncio
 
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # We're already in an async context - create a task
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
             import concurrent.futures
 
             with concurrent.futures.ThreadPoolExecutor() as pool:
