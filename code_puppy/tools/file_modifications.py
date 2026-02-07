@@ -231,7 +231,7 @@ def _delete_snippet_from_file(
                 "error": f"Snippet not found in file '{file_path}'.",
                 "diff": diff_text,
             }
-        modified = original.replace(snippet, "")
+        modified = original.replace(snippet, "", 1)
         from code_puppy.config import get_diff_context_lines
 
         diff_text = "".join(
