@@ -59,10 +59,15 @@ class StderrFileCapture:
         self.log_file = open(self.log_path, "a", encoding="utf-8")
 
         # Start monitoring thread only if we need to emit to user or capture lines
-        self.stop_monitoring.clear()
-        self.monitor_thread = threading.Thread(target=self._monitor_file)
-        self.monitor_thread.daemon = True
-        self.monitor_thread.start()
+        try:
+            self.stop_monitoring.clear()
+            self.monitor_thread = threading.Thread(target=self._monitor_file)
+            self.monitor_thread.daemon = True
+            self.monitor_thread.start()
+        except Exception:
+            self.log_file.close()
+            self.log_file = None
+            raise
 
         return self.log_file
 
