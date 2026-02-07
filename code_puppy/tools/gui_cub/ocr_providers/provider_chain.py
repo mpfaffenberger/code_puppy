@@ -6,7 +6,7 @@ automatically falling back to the next provider if one fails.
 
 from __future__ import annotations
 
-from typing import List
+
 
 from PIL import Image
 
@@ -31,7 +31,7 @@ class OCRProviderChain:
         # Uses native WinRT OCR on Windows
     """
 
-    def __init__(self, providers: List[OCRProvider]):
+    def __init__(self, providers: list[OCRProvider]):
         """Initialize provider chain.
 
         Args:
@@ -118,7 +118,7 @@ class OCRProviderChain:
             error=f"All OCR providers failed: {'; '.join(errors)}",
         )
 
-    def get_available_providers(self) -> List[str]:
+    def get_available_providers(self) -> list[str]:
         """Get list of available provider names.
 
         Returns:

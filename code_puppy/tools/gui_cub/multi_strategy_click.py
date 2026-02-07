@@ -29,10 +29,14 @@ if needed for specific applications.
 from __future__ import annotations
 
 import sys
+import time
+from typing import TYPE_CHECKING, Any
 
 from pydantic import Field
 from pydantic_ai import RunContext
 
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 from code_puppy.messaging import emit_error, emit_warning
 from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
@@ -67,8 +71,13 @@ class MultiStrategyClickResult(BaseAutomationResult):
     offset_used: tuple[int, int] | None = None
 
 
-def register_multi_strategy_click_tools(agent):
+def register_multi_strategy_click_tools(agent: "Agent[Any, Any]") -> None:
     """Register multi-strategy click tools with automatic fallback."""
+    # Guard against double registration
+    marker = "_gui_cub_multi_strategy_click_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     def desktop_click_element_smart(
@@ -329,8 +338,6 @@ def register_multi_strategy_click_tools(agent):
                         # Continue anyway - the click might have partially worked
 
                     # Wait for UI update
-                    import time
-
                     time.sleep(0.3)
 
                     # Verify if requested

@@ -1,4 +1,4 @@
-"""Window management for desktop automation automation."""
+"""Window management for desktop automation."""
 
 from __future__ import annotations
 

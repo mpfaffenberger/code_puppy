@@ -11,7 +11,7 @@ not just screenshots. Useful for analyzing:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from pydantic_ai import RunContext
 
@@ -27,10 +27,10 @@ from .vqa_desktop import run_desktop_vqa_analysis
 
 
 # Maximum image file size in MB (prevents memory issues with huge files)
-MAX_IMAGE_SIZE_MB = 50
+MAX_IMAGE_SIZE_MB: Final = 50
 
 # Supported image file extensions (format conversion handled by vqa_desktop)
-SUPPORTED_IMAGE_EXTENSIONS = {
+SUPPORTED_IMAGE_EXTENSIONS: Final[set[str]] = {
     ".png",
     ".jpg",
     ".jpeg",
@@ -149,9 +149,13 @@ def register_vqa_image_tools(agent: "Agent[Any, Any]") -> "Agent[Any, Any]":
     Returns:
         The same agent instance with tools registered.
 
-    Registers:
-        - vqa_analyze_image: Analyze any image file with VQA
-    """
+    Registers:"""
+    # Guard against double registration
+    marker = "_gui_cub_vqa_image_tools_registered"
+    if getattr(agent, marker, False):
+        return agent
+    setattr(agent, marker, True)
+    # Registers: vqa_analyze_image: Analyze any image file with VQA
 
     @agent.tool
     def vqa_analyze_image(

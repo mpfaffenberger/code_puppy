@@ -1,7 +1,12 @@
 """GUI-Cub workflow management tools for saving and reusing automation patterns."""
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from pydantic_ai import RunContext
 
@@ -17,7 +22,7 @@ def get_workflows_directory() -> Path:
     return workflows_dir
 
 
-async def save_workflow(name: str, content: str) -> Dict[str, Any]:
+async def save_workflow(name: str, content: str) -> dict[str, Any]:
     """Save a GUI-Cub workflow as Markdown.
 
     Args:
@@ -68,7 +73,7 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
         return {"success": False, "error": str(e), "name": name}
 
 
-async def list_workflows() -> Dict[str, Any]:
+async def list_workflows() -> dict[str, Any]:
     """List all available GUI-Cub workflows."""
     group_id = generate_group_id("list_workflows")
     emit_rich(
@@ -122,7 +127,7 @@ async def list_workflows() -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-async def read_workflow(name: str) -> Dict[str, Any]:
+async def read_workflow(name: str) -> dict[str, Any]:
     """Read a saved GUI-Cub workflow."""
     group_id = generate_group_id("read_workflow", name)
     emit_rich(
@@ -181,15 +186,22 @@ async def read_workflow(name: str) -> Dict[str, Any]:
         return {"success": False, "error": str(e), "name": name}
 
 
-def register_workflow_tools(agent):
+def register_workflow_tools(agent: "Agent[Any, Any]") -> None:
     """Register workflow management tools."""
+    # Guard against double registration - same function may be called multiple times
+    # when agent-creator pulls in overlapping tool names (e.g., "gui_cub_workflows"
+    # and "gui_cub_save_workflow" both map to this function)
+    marker = "_gui_cub_workflow_tools_registered"
+    if getattr(agent, marker, False):
+        return  # Already registered, skip
+    setattr(agent, marker, True)
 
     @agent.tool
     async def gui_cub_save_workflow(
         context: RunContext,
         name: str,
         content: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Save a GUI-Cub workflow as Markdown guidance documentation.
 
         Workflows document proven patterns and approaches for accomplishing tasks.
@@ -239,7 +251,7 @@ def register_workflow_tools(agent):
         return await save_workflow(name, content)
 
     @agent.tool
-    async def gui_cub_list_workflows(context: RunContext) -> Dict[str, Any]:
+    async def gui_cub_list_workflows(context: RunContext) -> dict[str, Any]:
         """List all saved GUI-Cub workflow guidance documents.
 
         Returns workflows sorted by modification time (newest first).
@@ -258,7 +270,7 @@ def register_workflow_tools(agent):
     async def gui_cub_read_workflow(
         context: RunContext,
         name: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Read a saved GUI-Cub workflow guidance document.
 
         **This is the CORRECT way to use workflows!**

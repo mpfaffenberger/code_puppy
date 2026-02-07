@@ -1,7 +1,16 @@
+"""Window control tool registration for desktop automation.
+
+Provides tools for window management, alerts, dialogs, monitor detection,
+and pixel color checking across platforms.
+"""
+
 from __future__ import annotations
 
 import time
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from pydantic_ai import RunContext
 
@@ -27,8 +36,13 @@ from ..tool_wrapper import desktop_tool
 from .core import _focus_window_impl, _get_active_window_bounds_impl
 
 
-def register_window_control_tools(agent):
+def register_window_control_tools(agent: "Agent[Any, Any]") -> None:
     """Register window control tools for desktop automation."""
+    # Guard against double registration
+    marker = "_gui_cub_window_control_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     # Global counters to track tool invocations
     _focus_window_call_count = {"count": 0}

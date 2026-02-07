@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import functools
-from typing import Any, Callable
+from typing import Any, Callable, Final
 
-from rich.text import Text
-
-from code_puppy.messaging import emit_error, emit_warning
+from code_puppy.messaging import emit_error
 from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 
@@ -18,6 +16,8 @@ from .constants import (
     ERROR_PYAUTOGUI_MISSING,
     ERROR_WINDOWS_AUTOMATION_MISSING,
 )
+
+__all__ = ["check_library_available", "desktop_tool", "TOOL_EMOJIS"]
 
 
 def check_library_available(library: str) -> tuple[bool, str | None]:
@@ -66,7 +66,7 @@ def check_library_available(library: str) -> tuple[bool, str | None]:
 
 
 # Emoji mapping for different tool types
-TOOL_EMOJIS = {
+TOOL_EMOJIS: Final[dict[str, str]] = {
     # Mouse operations
     "MOUSE MOVE": "🖱️",
     "MOUSE CLICK": "🖱️",
@@ -248,10 +248,8 @@ def desktop_tool(
                 error_class = type(e).__name__
                 if error_class == "FailSafeException":
                     if emit_errors:
-                        emit_warning(
-                            Text.from_markup(
-                                f"[yellow]{ERROR_FAILSAFE_TRIGGERED}[/yellow]"
-                            ),
+                        emit_rich(
+                            f"[yellow]{ERROR_FAILSAFE_TRIGGERED}[/yellow]",
                             message_group=group_id,
                         )
                     return {"success": False, "error": ERROR_FAILSAFE_TRIGGERED}
@@ -259,8 +257,8 @@ def desktop_tool(
                 # General exception handling
                 error_msg = str(e)
                 if emit_errors:
-                    emit_error(
-                        Text.from_markup(f"[red]{tool_name} failed: {error_msg}[/red]"),
+                    emit_rich(
+                        f"[red]{tool_name} failed: {error_msg}[/red]",
                         message_group=group_id,
                     )
                 return {"success": False, "error": error_msg}

@@ -10,7 +10,7 @@ from .core.scaling import (
     convert_physical_to_logical,
 )
 from enum import Enum
-from typing import Callable
+from typing import Any, Callable
 
 # Import thread-safe screenshot function (defined later to avoid circular import)
 _safe_screenshot = None  # Will be set after screen_capture module loads
@@ -263,33 +263,43 @@ def check_macos_accessibility_permission() -> tuple[bool, str | None]:
     try:
         import pyautogui
 
-        # Try to get current mouse position - requires Accessibility permission
-        # If this succeeds, we likely have permission
-        current_x, current_y = pyautogui.position()
+        # Temporarily disable FAILSAFE during permission check
+        # This prevents false failures on multi-monitor setups where the
+        # mouse may be at negative coordinates (external monitor to the left)
+        original_failsafe = pyautogui.FAILSAFE
+        pyautogui.FAILSAFE = False
 
-        # Try a tiny mouse movement (1px) and verify it worked
-        # This is a more robust check than just getting position
-        original_pos = pyautogui.position()
-        test_x = min(current_x + 1, pyautogui.size()[0] - 1)
-        test_y = current_y
+        try:
+            # Try to get current mouse position - requires Accessibility permission
+            # If this succeeds, we likely have permission
+            current_x, current_y = pyautogui.position()
 
-        pyautogui.moveTo(test_x, test_y, duration=0)
-        new_pos = pyautogui.position()
+            # Try a tiny mouse movement (1px) and verify it worked
+            # This is a more robust check than just getting position
+            original_pos = pyautogui.position()
+            test_x = min(current_x + 1, pyautogui.size()[0] - 1)
+            test_y = current_y
 
-        # Move back to original position
-        pyautogui.moveTo(original_pos[0], original_pos[1], duration=0)
+            pyautogui.moveTo(test_x, test_y, duration=0)
+            new_pos = pyautogui.position()
 
-        # If the position actually changed, we have permission
-        if new_pos[0] != original_pos[0] or abs(new_pos[0] - test_x) <= 1:
-            return True, None
-        else:
-            # Mouse didn't move - likely permission issue
-            error_msg = (
-                "macOS Accessibility permission required! "
-                "Go to System Preferences → Security & Privacy → Privacy → Accessibility, "
-                "and grant permission to Terminal (or your Python IDE/app)."
-            )
-            return False, error_msg
+            # Move back to original position
+            pyautogui.moveTo(original_pos[0], original_pos[1], duration=0)
+
+            # If the position actually changed, we have permission
+            if new_pos[0] != original_pos[0] or abs(new_pos[0] - test_x) <= 1:
+                return True, None
+            else:
+                # Mouse didn't move - likely permission issue
+                error_msg = (
+                    "macOS Accessibility permission required! "
+                    "Go to System Preferences → Security & Privacy → Privacy → Accessibility, "
+                    "and grant permission to Terminal (or your Python IDE/app)."
+                )
+                return False, error_msg
+        finally:
+            # Always restore original FAILSAFE setting
+            pyautogui.FAILSAFE = original_failsafe
 
     except Exception as e:
         # If we get an exception, assume it's a permission issue
@@ -336,7 +346,7 @@ def get_screen_resolution(use_cache: bool = True) -> tuple[int, int]:
         return (1920, 1080)
 
 
-def get_display_info() -> dict[str, any]:
+def get_display_info() -> dict[str, Any]:
     """Get comprehensive display information for debugging.
 
     Returns:

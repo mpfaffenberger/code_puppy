@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pydantic_ai import RunContext
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from ..dependencies import PIL_AVAILABLE, PYAUTOGUI_AVAILABLE
 
@@ -294,7 +299,7 @@ def desktop_find_text_reliable(
     )
 
 
-def register_ocr_tools(agent):
+def register_ocr_tools(agent: "Agent[Any, Any]") -> None:
     """Register OCR (Optical Character Recognition) tools.
 
     This file contains 6 OCR tools (925 lines total):
@@ -304,9 +309,14 @@ def register_ocr_tools(agent):
     4. desktop_click_text - Click on text found via OCR (~264 lines)
     5. desktop_smart_scroll_to_text - Scroll until text is visible (~167 lines)
     6. desktop_highlight_text - Highlight text on screen for debugging (~28 lines)
-
-    Note: File is long but cohesive - all tools are OCR-based text operations.
     """
+    # Guard against double registration
+    marker = "_gui_cub_ocr_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
+
+    # Note: File is long but cohesive - all tools are OCR-based text operations.
 
     # ============================================================================
     # TOOL 1: EXTRACT TEXT (~199 lines)

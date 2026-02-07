@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import sys
-from typing import Any
+import time
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 if sys.platform != "darwin":
     ACCESSIBILITY_AVAILABLE = False
@@ -163,8 +167,13 @@ def desktop_click_accessible_element(
         return ElementClickResult(success=False, error=f"Click failed: {str(e)}")
 
 
-def register_accessibility_tools(agent):
+def register_accessibility_tools(agent: "Agent[Any, Any]") -> None:
     """Register accessibility API tools for macOS."""
+    # Guard against double registration
+    marker = "_gui_cub_accessibility_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     def desktop_list_windows(
@@ -277,7 +286,6 @@ def register_accessibility_tools(agent):
             # NOTE: We use _is_app_window_topmost() instead of NSWorkspace.frontmostApplication()
             # because NSWorkspace returns stale/incorrect data (it reports menu bar owner,
             # not actual window focus).
-            import time
             from ..window_control.core import (
                 _is_app_window_topmost,
                 _get_active_window_bounds_impl,

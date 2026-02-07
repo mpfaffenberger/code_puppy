@@ -10,8 +10,12 @@ Provides a robust alternative to Spotlight-based app launching that:
 from __future__ import annotations
 
 import subprocess
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import RunContext
+
+if TYPE_CHECKING:
+    from pydantic_ai import Agent
 
 from code_puppy.messaging import emit_error
 from .rich_emit import emit_rich
@@ -94,8 +98,13 @@ def mac_launch_app(
         )
 
 
-def register_mac_app_launcher_tools(agent):
+def register_mac_app_launcher_tools(agent: "Agent[Any, Any]") -> None:
     """Register macOS application launcher tool."""
+    # Guard against double registration
+    marker = "_gui_cub_mac_app_launcher_tools_registered"
+    if getattr(agent, marker, False):
+        return
+    setattr(agent, marker, True)
 
     @agent.tool
     @desktop_tool("MAC LAUNCH APP", requires=None)
