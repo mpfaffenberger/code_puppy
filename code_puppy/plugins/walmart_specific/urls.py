@@ -52,7 +52,7 @@ def get_setup_url(environment: Environment = Environment.STAGE) -> str:
     return f"{base_url}/api/releases/setup"
 
 
-def get_telemetry_url(environment: Environment = Environment.PROD) -> str:
+def get_telemetry_url(environment: Environment = Environment.STAGE) -> str:
     """Get the telemetry endpoint URL for code generation events."""
     if environment == Environment.DEV:
         return "https://puppy-backend.dev.walmart.com/telemetry/code-generation"
