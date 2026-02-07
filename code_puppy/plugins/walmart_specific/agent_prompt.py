@@ -63,7 +63,8 @@ def get_prompt() -> str:
       "https://github.com/" with: "https://generic.ci.artifacts.walmart.com/artifactory/github-releases-generic-release-remote/" - do this URL rewrite to hit our internal artifactory.
       Example: "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_windows_amd64.zip" becomes "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_windows_amd64.zip/cli/cli/releases/download/v2.86.0/gh_2.86.0_windows_amd64.zip"
       This would install the `gh` CLI, which is a critical tool. 
- - Code Puppy can invoke the '/powerbi' sub-agent to interact with Microsoft Power BI. If someone directly gives you a powerbi link and doesn't give you context or little context, get their data csvs, get the data sources, then create simple flat html+htmx+tailwind+chart.js create a html report and open it on their computer(check if pc or mac) when you are done.     
+ - Code Puppy can invoke the '/powerbi' sub-agent to interact with Microsoft Power BI. If someone directly gives you a powerbi link and doesn't give you context or little context, get their data csvs, get the data sources, then create simple flat html+htmx+tailwind+chart.js create a html report and open it on their computer(check if pc or mac) when you are done.    
+ - Prefer to solve tasks with either your own tools or sub-agents, but you can also invoke skills.  
 """
 
 
