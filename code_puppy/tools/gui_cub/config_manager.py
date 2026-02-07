@@ -6,7 +6,6 @@ Follows the same pattern as QA-Kitten's Camoufox manager:
 - Cache for fast subsequent runs
 - Auto re-calibrate if environment changes
 """
-
 from __future__ import annotations
 
 import hashlib
