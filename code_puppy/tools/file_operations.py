@@ -185,16 +185,11 @@ def _list_files(
             # Try to find it in the virtual environment
             # Use sys.executable to determine the Python environment path
             python_dir = os.path.dirname(sys.executable)
-            # Check both 'bin' (Unix) and 'Scripts' (Windows) directories
-            for rg_dir in ["bin", "Scripts"]:
-                venv_rg_path = os.path.join(python_dir, "rg")
-                if os.path.exists(venv_rg_path):
-                    rg_path = venv_rg_path
-                    break
-                # Also check with .exe extension for Windows
-                venv_rg_exe_path = os.path.join(python_dir, "rg.exe")
-                if os.path.exists(venv_rg_exe_path):
-                    rg_path = venv_rg_exe_path
+            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
+            for name in ["rg", "rg.exe"]:
+                candidate = os.path.join(python_dir, name)
+                if os.path.exists(candidate):
+                    rg_path = candidate
                     break
 
         if not rg_path and recursive:
@@ -599,16 +594,11 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             # Try to find it in the virtual environment
             # Use sys.executable to determine the Python environment path
             python_dir = os.path.dirname(sys.executable)
-            # Check both 'bin' (Unix) and 'Scripts' (Windows) directories
-            for rg_dir in ["bin", "Scripts"]:
-                venv_rg_path = os.path.join(python_dir, "rg")
-                if os.path.exists(venv_rg_path):
-                    rg_path = venv_rg_path
-                    break
-                # Also check with .exe extension for Windows
-                venv_rg_exe_path = os.path.join(python_dir, "rg.exe")
-                if os.path.exists(venv_rg_exe_path):
-                    rg_path = venv_rg_exe_path
+            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
+            for name in ["rg", "rg.exe"]:
+                candidate = os.path.join(python_dir, name)
+                if os.path.exists(candidate):
+                    rg_path = candidate
                     break
 
         if not rg_path:
