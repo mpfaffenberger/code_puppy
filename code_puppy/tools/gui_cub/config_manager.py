@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Platform configuration manager for GUI-Cub (QA-Kitten pattern).
 
 Follows the same pattern as QA-Kitten's Camoufox manager:
@@ -8,6 +6,8 @@ Follows the same pattern as QA-Kitten's Camoufox manager:
 - Cache for fast subsequent runs
 - Auto re-calibrate if environment changes
 """
+
+from __future__ import annotations
 
 import hashlib
 import json
@@ -112,9 +112,6 @@ def load_config() -> dict[str, Any] | None:
                 f"[dim]   displays keys: {list(config['displays'].keys())}[/dim]"
             )
 
-        # Migrate old configs
-        import sys
-
         needs_save = False
         migrations_applied = []
 
@@ -173,6 +170,7 @@ def load_config() -> dict[str, Any] | None:
                 emit_rich("[yellow]⚠️  Config migration failed to save![/yellow]")
         else:
             _emit_debug("[dim]   No migrations needed[/dim]")
+
 
         # Validate hash
         stored_hash = config.get("metadata", {}).get("hash")
