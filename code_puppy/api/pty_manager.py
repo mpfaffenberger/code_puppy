@@ -58,10 +58,12 @@ class PTYSession:
             if self.pid is None:
                 return False
             try:
-                os.waitpid(self.pid, os.WNOHANG)
-                return True
+                pid_result, status = os.waitpid(self.pid, os.WNOHANG)
+                if pid_result == 0:
+                    return True  # Still running
+                return False  # Exited
             except ChildProcessError:
-                return False
+                return False  # Already reaped
 
 
 class PTYManager:
