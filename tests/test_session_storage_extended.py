@@ -222,8 +222,8 @@ class TestSessionStorageExtended:
         with pickle_path.open("wb") as f:
             f.write(b"not valid pickle data")
 
-        # Should raise an error when trying to load
-        with pytest.raises((pickle.UnpicklingError, EOFError, TypeError)):
+        # Should raise an error when trying to load (unsigned file)
+        with pytest.raises((ValueError, pickle.UnpicklingError, EOFError, TypeError)):
             load_session(session_name, tmp_path)
 
     def test_missing_session_file(self, tmp_path: Path):
