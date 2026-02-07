@@ -30,7 +30,15 @@ MIN_REFRESH_INTERVAL_SECONDS = 60
 
 # Global tracking of last refresh time to coordinate across heartbeats
 _last_refresh_time: float = 0.0
-_heartbeat_lock = asyncio.Lock()
+_heartbeat_lock: Optional[asyncio.Lock] = None
+
+
+def _get_heartbeat_lock() -> asyncio.Lock:
+    """Lazily initialize the heartbeat lock to avoid event loop issues."""
+    global _heartbeat_lock
+    if _heartbeat_lock is None:
+        _heartbeat_lock = asyncio.Lock()
+    return _heartbeat_lock
 
 
 class TokenRefreshHeartbeat:
@@ -98,7 +106,7 @@ class TokenRefreshHeartbeat:
                     pass
 
                 # Check if we should attempt refresh
-                async with _heartbeat_lock:
+                async with _get_heartbeat_lock():
                     now = time.time()
                     if now - _last_refresh_time < self._min_refresh_interval:
                         logger.debug(
@@ -229,7 +237,7 @@ async def force_token_refresh() -> bool:
         refreshed_token = refresh_access_token(force=True)
 
         if refreshed_token:
-            async with _heartbeat_lock:
+            async with _get_heartbeat_lock():
                 _last_refresh_time = time.time()
             logger.info("Force refresh successful")
             return True
