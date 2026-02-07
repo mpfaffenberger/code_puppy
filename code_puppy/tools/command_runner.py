@@ -874,8 +874,8 @@ def run_shell_command_streaming(
         _unregister_process(process)
 
         # Apply line length limits to stdout/stderr before returning
-        truncated_stdout = [_truncate_line(line) for line in stdout_lines[-256:]]
-        truncated_stderr = [_truncate_line(line) for line in stderr_lines[-256:]]
+        truncated_stdout = stdout_lines[-256:]
+        truncated_stderr = stderr_lines[-256:]
 
         # Emit structured ShellOutputMessage for the UI (skip for silent sub-agents)
         if not silent:
