@@ -173,13 +173,10 @@ class ReopenableAsyncClient:
         """
         if self._client is None or self._is_closed:
             # Create a temporary client just for building the request
-            temp_client = self._client_class(**self._client_kwargs)
-            try:
-                request = temp_client.build_request(method, url, **kwargs)
-                return request
-            finally:
-                # Clean up the temporary client synchronously if possible
-                pass
+            # Store as self._client so it gets reused and properly closed later
+            self._client = self._client_class(**self._client_kwargs)
+            self._is_closed = False
+            return self._client.build_request(method, url, **kwargs)
         return self._client.build_request(method, url, **kwargs)
 
     def stream(self, method: str, url: Union[str, httpx.URL], **kwargs):
