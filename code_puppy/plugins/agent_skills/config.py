@@ -35,8 +35,10 @@ def get_skill_directories() -> List[str]:
 
     # Fallback to defaults
     home_skills = str(Path.home() / ".code_puppy" / "skills")
+    claude_skills = str(Path.home() / ".claude" / "skills")
+    wibey_skills = str(Path.home() / ".wibey" / "skills")
     local_skills = str(Path.cwd() / "skills")
-    return [home_skills, local_skills]
+    return [home_skills, claude_skills, wibey_skills, local_skills]
 
 
 def add_skill_directory(path: str) -> bool:
