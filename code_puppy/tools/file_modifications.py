@@ -362,8 +362,21 @@ def _write_to_file(
 
         from code_puppy.config import get_diff_context_lines
 
+        if exists:
+            with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
+                old_content = f.read()
+            try:
+                old_content = old_content.encode(
+                    "utf-8", errors="surrogatepass"
+                ).decode("utf-8", errors="replace")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+            old_lines = old_content.splitlines(keepends=True)
+        else:
+            old_lines = []
+
         diff_lines = difflib.unified_diff(
-            [] if not exists else [""],
+            old_lines,
             content.splitlines(keepends=True),
             fromfile="/dev/null" if not exists else f"a/{os.path.basename(file_path)}",
             tofile=f"b/{os.path.basename(file_path)}",
