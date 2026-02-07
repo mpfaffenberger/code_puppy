@@ -34,8 +34,6 @@ Example (new):
 # =============================================================================
 from .markdown_patches import patch_markdown_headings
 
-patch_markdown_headings()
-
 # =============================================================================
 # Legacy API (backward compatible)
 # =============================================================================
@@ -253,3 +251,6 @@ __all__ = [
     "get_subagent_console_manager",
     "SUBAGENT_STATUS_STYLES",
 ]
+
+# Apply Rich Markdown patches (must be after all imports)
+patch_markdown_headings()
