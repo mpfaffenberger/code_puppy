@@ -60,7 +60,7 @@ class StderrCapture:
 
     async def _read_pipe(self):
         """Background task to read from the pipe."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         buffer = b""
 
         try:

@@ -218,7 +218,7 @@ class PTYManager:
 
     async def _unix_reader_loop(self, session: PTYSession) -> None:
         """Read output from Unix PTY and forward to callback."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         try:
             while session._running and session.master_fd is not None:
@@ -263,7 +263,7 @@ class PTYManager:
 
     async def _windows_reader_loop(self, session: PTYSession) -> None:
         """Read output from Windows PTY and forward to callback."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         try:
             while (
