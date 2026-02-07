@@ -44,8 +44,8 @@ def _load_plugin_model_providers():
         for result in results:
             if isinstance(result, dict):
                 _CUSTOM_MODEL_PROVIDERS.update(result)
-    except Exception:
-        pass  # Don't break if plugins fail
+    except Exception as e:
+        logger.warning("Failed to load plugin model providers: %s", e)
 
 
 # Load plugin model providers at module initialization
