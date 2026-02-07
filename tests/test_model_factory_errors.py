@@ -41,11 +41,14 @@ class TestModelFactoryErrors:
     def test_missing_models_config_file(self):
         """Test load_config() when models.json doesn't exist."""
         with patch("code_puppy.config.MODELS_FILE", "/nonexistent/path/models.json"):
-            with patch(
-                "pathlib.Path.open", side_effect=FileNotFoundError("No such file")
-            ):
-                with pytest.raises(FileNotFoundError):
-                    ModelFactory.load_config()
+            with patch("pathlib.Path.exists", return_value=False):
+                with patch("pathlib.Path.mkdir"):
+                    with patch(
+                        "builtins.open",
+                        side_effect=FileNotFoundError("No such file"),
+                    ):
+                        with pytest.raises(FileNotFoundError):
+                            ModelFactory.load_config()
 
     def test_malformed_json_models_file(self):
         """Test load_config() with malformed JSON in models.json."""
