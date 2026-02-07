@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Platform calibration for GUI-Cub - detects and caches all automation-relevant info.
 
 Runs on first use (like QA-Kitten downloading Camoufox) to detect:
@@ -9,6 +7,8 @@ Runs on first use (like QA-Kitten downloading Camoufox) to detect:
 - Performance (screenshot, mouse, keyboard latencies)
 - Permissions (accessibility, screen recording on macOS)
 """
+
+from __future__ import annotations
 
 import os
 import platform
