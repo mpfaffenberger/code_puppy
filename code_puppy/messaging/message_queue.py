@@ -5,6 +5,7 @@ This allows interactive mode to consume messages and render them appropriately.
 """
 
 import asyncio
+import logging
 import queue
 import threading
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ from enum import Enum
 from typing import Any, Dict, Optional, Union
 
 from rich.text import Text
+
+logger = logging.getLogger(__name__)
 
 
 class MessageType(Enum):
@@ -160,16 +163,15 @@ class MessageQueue:
                         self._event_loop.call_soon_threadsafe(
                             self._async_queue.put_nowait, message
                         )
-                    except Exception:
-                        # Handle any errors with the async queue operation
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to enqueue message to async queue: %s", e)
 
                 # Notify listeners immediately for sync processing
                 for listener in self._listeners:
                     try:
                         listener(message)
-                    except Exception:
-                        pass  # Don't let listener errors break processing
+                    except Exception as e:
+                        logger.debug("Listener error in message queue: %s", e)
 
             except queue.Empty:
                 continue
