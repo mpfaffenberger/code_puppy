@@ -297,13 +297,15 @@ def _replace_in_file(
             }
 
         start, end = loc
-        modified = (
-            "\n".join(orig_lines[:start])
-            + "\n"
-            + new_snippet.rstrip("\n")
-            + "\n"
-            + "\n".join(orig_lines[end:])
-        )
+        prefix = "\n".join(orig_lines[:start])
+        suffix = "\n".join(orig_lines[end:])
+        parts = []
+        if prefix:
+            parts.append(prefix)
+        parts.append(new_snippet.rstrip("\n"))
+        if suffix:
+            parts.append(suffix)
+        modified = "\n".join(parts)
 
     if modified == original:
         emit_warning(
