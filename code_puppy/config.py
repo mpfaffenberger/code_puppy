@@ -214,7 +214,7 @@ def ensure_config_exists():
 
     # Write the config if we made any changes
     if missing or not exists:
-        with open(CONFIG_FILE, "w") as f:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             config.write(f)
     return config
 
@@ -326,7 +326,7 @@ def set_config_value(key: str, value: str):
     if DEFAULT_SECTION not in config:
         config[DEFAULT_SECTION] = {}
     config[DEFAULT_SECTION][key] = value
-    with open(CONFIG_FILE, "w") as f:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         config.write(f)
 
 
@@ -342,7 +342,7 @@ def reset_value(key: str) -> None:
     config.read(CONFIG_FILE)
     if DEFAULT_SECTION in config and key in config[DEFAULT_SECTION]:
         del config[DEFAULT_SECTION][key]
-        with open(CONFIG_FILE, "w") as f:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             config.write(f)
 
 
@@ -358,7 +358,7 @@ def load_mcp_server_configs():
     try:
         if not pathlib.Path(MCP_SERVERS_FILE).exists():
             return {}
-        with open(MCP_SERVERS_FILE, "r") as f:
+        with open(MCP_SERVERS_FILE, "r", encoding="utf-8") as f:
             conf = json.loads(f.read())
             return conf["mcp_servers"]
     except Exception as e:
@@ -569,7 +569,7 @@ def set_model_name(model: str):
     if DEFAULT_SECTION not in config:
         config[DEFAULT_SECTION] = {}
     config[DEFAULT_SECTION]["model"] = model or ""
-    with open(CONFIG_FILE, "w") as f:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         config.write(f)
 
     # Clear model cache when switching models to ensure fresh validation
@@ -790,7 +790,7 @@ def clear_model_settings(model_name: str) -> None:
         for key in keys_to_remove:
             del config[DEFAULT_SECTION][key]
 
-        with open(CONFIG_FILE, "w") as f:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             config.write(f)
 
 
