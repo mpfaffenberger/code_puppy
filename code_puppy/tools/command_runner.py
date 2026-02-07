@@ -937,8 +937,6 @@ async def run_shell_command(
     timeout: int = 60,
     background: bool = False,
 ) -> ShellCommandOutput:
-    time.time()
-
     # Generate unique group_id for this command execution
     group_id = generate_group_id("shell_command", command)
 
