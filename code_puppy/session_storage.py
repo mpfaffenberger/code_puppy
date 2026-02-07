@@ -69,6 +69,7 @@ def _get_signing_key() -> bytes:
     try:
         config_dir.mkdir(parents=True, exist_ok=True)
         key_path.write_bytes(key)
+        os.chmod(key_path, 0o600)
     except OSError:
         pass
     return key
@@ -124,7 +125,9 @@ def save_session(
     return metadata
 
 
-def load_session(session_name: str, base_dir: Path) -> SessionHistory:
+def load_session(
+    session_name: str, base_dir: Path, *, allow_legacy: bool = False
+) -> SessionHistory:
     paths = build_session_paths(base_dir, session_name)
     if not paths.pickle_path.exists():
         raise FileNotFoundError(paths.pickle_path)
@@ -142,7 +145,9 @@ def load_session(session_name: str, base_dir: Path) -> SessionHistory:
             )
         return pickle.loads(pickle_data)
 
-    # Legacy file without HMAC header – load with warning for migration
+    # Legacy file without HMAC header
+    if not allow_legacy:
+        raise ValueError("Unsigned session file - run migration to re-sign")
     logger.warning(
         "Session '%s' has no HMAC signature (legacy format). "
         "Re-save to add integrity protection.",
