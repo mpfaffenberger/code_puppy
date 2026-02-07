@@ -65,8 +65,9 @@ class StderrFileCapture:
             self.monitor_thread.daemon = True
             self.monitor_thread.start()
         except Exception:
-            self.log_file.close()
-            self.log_file = None
+            if self.log_file is not None:
+                self.log_file.close()
+                self.log_file = None
             raise
 
         return self.log_file
