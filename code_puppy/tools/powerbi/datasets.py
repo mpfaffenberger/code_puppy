@@ -25,20 +25,34 @@ def powerbi_list_datasets(
     ctx: RunContext,
     workspace_id: str | None = None,
     top: int = 100,
+    skip: int = 0,
 ) -> dict:
     """List Power BI datasets.
+
+    Supports pagination via top/skip parameters. Check 'has_more' in the response
+    to determine if additional pages exist, and use 'next_skip' for the next request.
 
     Args:
         workspace_id: Optional workspace ID. If not specified, lists datasets
             from "My Workspace".
         top: Maximum number of datasets to return (default: 100).
+        skip: Number of datasets to skip for pagination (default: 0).
 
     Returns:
-        Dict with success=True and list of datasets, or error details.
+        Dict with success=True and list of datasets, plus pagination metadata:
+        - count: Number of datasets returned in this page
+        - datasets: List of dataset objects
+        - has_more: True if there may be more results (returned count == top)
+        - next_skip: The skip value to use for the next page (if has_more is True)
+        - top_used: The top value used for this request
+        - skip_used: The skip value used for this request
 
     Example:
-        # List datasets in My Workspace
+        # List first page of datasets in My Workspace
         powerbi_list_datasets()
+
+        # Get next page
+        powerbi_list_datasets(skip=100)
 
         # List datasets in a specific workspace
         powerbi_list_datasets(workspace_id="abc-123-def")
@@ -62,10 +76,14 @@ def powerbi_list_datasets(
         else:
             endpoint = "/datasets"
 
-        response = client.get(endpoint, params={"$top": top})
+        response = client.get(endpoint, params={"$top": top, "$skip": skip})
         datasets = response.get("value", [])
 
-        emit_success(f"Found {len(datasets)} datasets")
+        # Determine if there are more results
+        has_more = len(datasets) == top
+        next_skip = skip + len(datasets) if has_more else None
+
+        emit_success(f"Found {len(datasets)} datasets (skip={skip}, has_more={has_more})")
 
         formatted = []
         for ds in datasets:
@@ -85,6 +103,11 @@ def powerbi_list_datasets(
             "count": len(formatted),
             "workspace_id": workspace_id,
             "datasets": formatted,
+            # Pagination metadata
+            "has_more": has_more,
+            "next_skip": next_skip,
+            "top_used": top,
+            "skip_used": skip,
         }
 
     except Exception as e:
@@ -538,16 +561,27 @@ def powerbi_get_refresh_history(
     dataset_id: str,
     workspace_id: str | None = None,
     top: int = 10,
+    skip: int = 0,
 ) -> dict:
     """Get the refresh history for a Power BI dataset.
+
+    Supports pagination via top/skip parameters. Check 'has_more' in the response
+    to determine if additional pages exist, and use 'next_skip' for the next request.
 
     Args:
         dataset_id: The ID of the dataset.
         workspace_id: Optional workspace ID containing the dataset.
-        top: Maximum number of refresh entries to return.
+        top: Maximum number of refresh entries to return (default: 10).
+        skip: Number of refresh entries to skip for pagination (default: 0).
 
     Returns:
-        Dict with refresh history entries.
+        Dict with refresh history entries, plus pagination metadata:
+        - count: Number of refresh entries returned in this page
+        - refreshes: List of refresh history objects
+        - has_more: True if there may be more results (returned count == top)
+     skip: The skip value to use for the next page (if has_more is True)
+        - top_used: The top value used for this request
+        - skip_used: The skip value used for this request
     """
     emit_info(
         Text.from_markup(
@@ -564,10 +598,14 @@ def powerbi_get_refresh_history(
         else:
             endpoint = f"/datasets/{dataset_id}/refreshes"
 
-        response = client.get(endpoint, params={"$top": top})
+        response = client.get(endpoint, params={"$top": top, "$skip": skip})
         refreshes = response.get("value", [])
 
-        emit_success(f"Found {len(refreshes)} refresh entries")
+        # Determine if there are more results
+        has_more = len(refreshes) == top
+        next_skip = skip + len(refreshes) if has_more else None
+
+        emit_success(f"Found {len(refreshes)} refresh entries (skip={skip}, has_more={has_more})")
 
         formatted = []
         for ref in refreshes:
@@ -587,6 +625,11 @@ def powerbi_get_refresh_history(
             "dataset_id": dataset_id,
             "count": len(formatted),
             "refreshes": formatted,
+            # Pagination metadata
+            "has_more": has_more,
+            "next_skip": next_skip,
+            "top_used": top,
+            "skip_used": skip,
         }
 
     except Exception as e:

@@ -25,20 +25,34 @@ def powerbi_list_dashboards(
     ctx: RunContext,
     workspace_id: str | None = None,
     top: int = 100,
+    skip: int = 0,
 ) -> dict:
     """List Power BI dashboards.
+
+    Supports pagination via top/skip parameters. Check 'has_more' in the response
+    to determine if additional pages exist, and use 'next_skip' for the next request.
 
     Args:
         workspace_id: Optional workspace ID. If not specified, lists dashboards
             from "My Workspace".
         top: Maximum number of dashboards to return (default: 100).
+        skip: Number of dashboards to skip for pagination (default: 0).
 
     Returns:
-        Dict with success=True and list of dashboards, or error details.
+        Dict with success=True and list of dashboards, plus pagination metada:
+        - count: Number of dashboards returned in this page
+        - dashboards: List of dashboard objects
+        - has_more: True if there may be more results (returned count == top)
+        - next_skip: The skip value to use for the next page (if has_more is True)
+        - top_used: The top value used for this request
+        - skip_used: The skip value used for this request
 
     Example:
-        # List dashboards in My Workspace
+        # List first page of dashboards in My Workspace
         powerbi_list_dashboards()
+
+        # Get next page
+        powerbi_list_dashboards(skip=100)
 
         # List dashboards in a specific workspace
         powerbi_list_dashboards(workspace_id="abc-123-def")
@@ -62,10 +76,14 @@ def powerbi_list_dashboards(
         else:
             endpoint = "/dashboards"
 
-        response = client.get(endpoint, params={"$top": top})
+        response = client.get(endpoint, params={"$top": top, "$skip": skip})
         dashboards = response.get("value", [])
 
-        emit_success(f"Found {len(dashboards)} dashboards")
+        # Determine if there are more results
+        has_more = len(dashboards) == top
+        next_skip = skip + len(dashboards) if has_more else None
+
+        emit_success(f"Found {len(dashboards)} dashboards (skip={skip}, has_more={has_more})")
 
         formatted = []
         for dash in dashboards:
@@ -84,6 +102,11 @@ def powerbi_list_dashboards(
             "count": len(formatted),
             "workspace_id": workspace_id,
             "dashboards": formatted,
+            # Pagination metadata
+            "has_more": has_more,
+            "next_skip": next_skip,
+            "top_used": top,
+            "skip_used": skip,
         }
 
     except Exception as e:

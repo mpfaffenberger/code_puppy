@@ -25,20 +25,34 @@ def powerbi_list_reports(
     ctx: RunContext,
     workspace_id: str | None = None,
     top: int = 100,
+    skip: int = 0,
 ) -> dict:
     """List Power BI reports.
+
+    Supports pagination via top/skip parameters. Check 'has_more' in the response
+    to determine if additional pages exist, and use 'next_skip' for the next request.
 
     Args:
         workspace_id: Optional workspace ID. If not specified, lists reports
             from "My Workspace".
         top: Maximum number of reports to return (default: 100).
+        skip: Number of reports to skip for pagination (default: 0).
 
     Returns:
-        Dict with success=True and list of reports, or error details.
+        Dict with success=True and list of reports, plus pagination metadata:
+        - count: Number of reports returned in this page
+        - reports: List of report objects
+        - has_more: True if there may be more results (returned count == top)
+        - next_skip: The skip value to use for the next page (if has_more is True)
+        - top_used: The top value used for this request
+        - skip_used: The skip value used for this request
 
     Example:
-        # List reports in My Workspace
+        # List first page of reports in My Workspace
         powerbi_list_reports()
+
+        # Get next page
+        powerbi_list_reports(skip=100)
 
         # List reports in a specific workspace
         powerbi_list_reports(workspace_id="abc-123-def")
@@ -62,10 +76,14 @@ def powerbi_list_reports(
         else:
             endpoint = "/reports"
 
-        response = client.get(endpoint, params={"$top": top})
+        response = client.get(endpoint, params={"$top": top, "$skip": skip})
         reports = response.get("value", [])
 
-        emit_success(f"Found {len(reports)} reports")
+        # Determine if there are more results
+        has_more = len(reports) == top
+        next_skip = skip + len(reports) if has_more else None
+
+        emit_success(f"Found {len(reports)} reports (skip={skip}, has_more={has_more})")
 
         formatted = []
         for report in reports:
@@ -85,6 +103,11 @@ def powerbi_list_reports(
             "count": len(formatted),
             "workspace_id": workspace_id,
             "reports": formatted,
+            # Pagination metadata
+            "has_more": has_more,
+            "next_skip": next_skip,
+            "top_used": top,
+            "skip_used": skip,
         }
 
     except Exception as e:

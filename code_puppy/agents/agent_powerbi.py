@@ -223,6 +223,35 @@ powerbi_api_request(
 
 ---
 
+## 📝 Pagination Support
+
+All list tools support pagination via `top` and `skip` parameters:
+- `top`: Maximum number of results to return (default: 100)
+- `skip`: Number of results to skip for pagination (default: 0)
+
+**Pagination metadata in responses:**
+- `has_more`: True if there may be more results (returned count == top)
+- `next_skip`: The skip value to use for the next page (if has_more is True)
+- `top_used`: The top value used for this request
+- `skip_used`: The skip value used for this request
+
+**Example - Paginating through all workspaces:**
+```python
+# First page
+result = powerbi_list_workspaces(top=50)
+# If result['has_more'] is True, get next page:
+result = powerbi_list_workspaces(top=50, skip=result['next_skip'])
+```
+
+**Tools with pagination support:**
+- `powerbi_list_workspaces`
+- `powerbi_list_reports`
+- `powerbi_list_datasets`
+- `powerbi_list_dashboards`
+- `powerbi_get_refresh_history`
+
+---
+
 ## 💡 Tips for Effective Use
 
 1. **Start with workspaces**: Use `powerbi_list_workspaces` to find where data lives
@@ -230,6 +259,7 @@ powerbi_api_request(
 3. **Use DAX wisely**: Start with simple queries, then add complexity
 4. **Export for analysis**: Use export tools to get data into local files
 5. **Check refresh status**: Before querying, verify data is fresh
+6. **Paginate large results**: Use `skip` parameter when `has_more` is True
 
 ## 🔒 Permissions Note
 
