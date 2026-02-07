@@ -35,7 +35,9 @@ def default_version_mismatch_behavior(current_version):
 
     latest_version = fetch_latest_version("code-puppy")
 
-    update_available = bool(latest_version and latest_version != current_version)
+    update_available = bool(
+        latest_version and not versions_are_equal(latest_version, current_version)
+    )
 
     # Emit structured version check message
     version_msg = VersionCheckMessage(
