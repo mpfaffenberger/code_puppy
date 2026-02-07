@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, List
 from code_puppy.agents.base_agent import BaseAgent
 
 if TYPE_CHECKING:
-    pass
+    from code_puppy.tools.command_runner import ShellSafetyAssessment
 
 
 class ShellSafetyAgent(BaseAgent):
