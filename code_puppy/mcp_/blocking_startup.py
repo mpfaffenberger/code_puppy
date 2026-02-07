@@ -11,6 +11,7 @@ import asyncio
 import os
 import threading
 import uuid
+from collections import deque
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
@@ -41,7 +42,7 @@ class StderrFileCapture:
         self.log_path = None
         self.monitor_thread = None
         self.stop_monitoring = threading.Event()
-        self.captured_lines = []
+        self.captured_lines: deque = deque(maxlen=1000)
         self._last_read_pos = 0
 
     def start(self):
@@ -141,7 +142,7 @@ class StderrFileCapture:
 
     def get_captured_lines(self) -> List[str]:
         """Get all captured lines from this session."""
-        return self.captured_lines.copy()
+        return list(self.captured_lines)
 
 
 class SimpleCapturedMCPServerStdio(MCPServerStdio):
