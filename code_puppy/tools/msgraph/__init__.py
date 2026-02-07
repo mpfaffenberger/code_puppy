@@ -95,7 +95,7 @@ from code_puppy.tools.msgraph.common import (
     truncate_content as truncate_content,
     truncate_list_response as truncate_list_response,
     apply_response_limit as apply_response_limit,
-    MAX_RESPONSE_CHARS,
+    MAX_RESPONSE_CHARS as MAX_RESPONSE_CHARS,
 )
 
 # Convenience dict for bulk registration
