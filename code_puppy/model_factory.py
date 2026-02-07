@@ -303,10 +303,18 @@ class ModelFactory:
 
             models_path = pathlib.Path(MODELS_FILE)
             if not models_path.exists():
-                models_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(pathlib.Path(__file__).parent / "models.json", "r") as src:
-                    with open(models_path, "w") as target:
-                        target.write(src.read())
+                try:
+                    models_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(
+                        pathlib.Path(__file__).parent / "models.json", "r"
+                    ) as src:
+                        with open(models_path, "w") as target:
+                            target.write(src.read())
+                except OSError as e:
+                    raise OSError(
+                        f"Cannot initialize models config at {models_path}: {e}. "
+                        f"Please check directory permissions or set MODELS_FILE to a writable path."
+                    ) from e
 
             with open(MODELS_FILE, "r") as f:
                 config = json.load(f)
