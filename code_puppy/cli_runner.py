@@ -784,9 +784,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 display_console.file.flush() if hasattr(
                     display_console.file, "flush"
                 ) else None
-                import time
 
-                time.sleep(0.1)  # Brief pause to ensure all messages are rendered
+                await asyncio.sleep(
+                    0.1
+                )  # Brief pause to ensure all messages are rendered
 
             except Exception:
                 from code_puppy.messaging.queue_console import get_queue_console
@@ -829,9 +830,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
 
                 # Small delay to let user see the debug message
-                import time
 
-                time.sleep(0.5)
+                await asyncio.sleep(0.5)
 
                 try:
                     # Re-run the wiggum prompt
@@ -865,7 +865,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     display_console.file.flush() if hasattr(
                         display_console.file, "flush"
                     ) else None
-                    time.sleep(0.1)
+                    await asyncio.sleep(0.1)
 
                     # Auto-save
                     auto_save_session_if_enabled()
