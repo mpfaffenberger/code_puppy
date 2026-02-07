@@ -431,8 +431,10 @@ async def start_servers_with_blocking(
             await asyncio.sleep(0.1)  # Keep context alive briefly
             return server
 
-    # Start servers in parallel
-    [asyncio.create_task(start_server(server)) for server in servers]
+    # Store tasks to prevent garbage collection; note that server contexts
+    # will still close after the brief sleep - callers should manage server
+    # lifecycle separately
+    _startup_tasks = [asyncio.create_task(start_server(server)) for server in servers]
 
     # Wait for all to be ready
     results = await monitor.wait_all_ready(timeout)
