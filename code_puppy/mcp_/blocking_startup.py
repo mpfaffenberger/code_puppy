@@ -272,7 +272,7 @@ class BlockingMCPServerStdio(SimpleCapturedMCPServerStdio):
             server_name = getattr(self, "tool_prefix", self.command)
             raise TimeoutError(
                 f"Server '{server_name}' initialization timeout after {timeout}s"
-            )
+            ) from None
 
     async def ensure_ready(self, timeout: float = 30.0):
         """
