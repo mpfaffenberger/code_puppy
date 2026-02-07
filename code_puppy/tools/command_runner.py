@@ -115,8 +115,9 @@ _ORIGINAL_SIGINT_HANDLER = None
 _KEYBOARD_CONTEXT_REFCOUNT = 0
 _KEYBOARD_CONTEXT_LOCK = threading.Lock()
 
-# Stop event to signal reader threads to terminate
-_READER_STOP_EVENT: Optional[threading.Event] = None
+# Thread-safe registry of active stop events for concurrent shell commands
+_ACTIVE_STOP_EVENTS: Set[threading.Event] = set()
+_ACTIVE_STOP_EVENTS_LOCK = threading.Lock()
 
 # Thread pool for running blocking shell commands without blocking the event loop
 # This allows multiple sub-agents to run shell commands in parallel
@@ -205,11 +206,10 @@ def kill_all_running_shell_processes() -> int:
 
     Returns the number of processes signaled.
     """
-    global _READER_STOP_EVENT
-
-    # Signal reader threads to stop
-    if _READER_STOP_EVENT:
-        _READER_STOP_EVENT.set()
+    # Signal all active reader threads to stop
+    with _ACTIVE_STOP_EVENTS_LOCK:
+        for evt in _ACTIVE_STOP_EVENTS:
+            evt.set()
 
     procs: list[subprocess.Popen]
     with _RUNNING_PROCESSES_LOCK:
@@ -612,6 +612,8 @@ def run_shell_command_streaming(
     silent: bool = False,
 ):
     stop_event = threading.Event()
+    with _ACTIVE_STOP_EVENTS_LOCK:
+        _ACTIVE_STOP_EVENTS.add(stop_event)
 
     start_time = time.time()
     last_output_time = [start_time]
@@ -886,8 +888,8 @@ def run_shell_command_streaming(
             )
             get_message_bus().emit(shell_output_msg)
 
-        # Reset the stop event now that we're done
-        # stop_event is local, no global cleanup needed
+        with _ACTIVE_STOP_EVENTS_LOCK:
+            _ACTIVE_STOP_EVENTS.discard(stop_event)
 
         if exit_code != 0:
             time.sleep(1)
@@ -915,8 +917,8 @@ def run_shell_command_streaming(
         )
 
     except Exception as e:
-        # Reset the stop event on exception too
-        # stop_event is local, no global cleanup needed
+        with _ACTIVE_STOP_EVENTS_LOCK:
+            _ACTIVE_STOP_EVENTS.discard(stop_event)
         return ShellCommandOutput(
             success=False,
             command=command,
