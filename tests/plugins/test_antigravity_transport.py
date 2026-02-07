@@ -338,7 +338,7 @@ class TestUnwrappedSSEResponse:
                 try:
                     return next(self.items)
                 except StopIteration:
-                    raise StopAsyncIteration
+                    raise StopAsyncIteration from None
 
         mock_response = Mock()
         mock_response.aiter_lines = Mock(
@@ -375,7 +375,7 @@ class TestUnwrappedSSEResponse:
                 try:
                     return next(self.items)
                 except StopIteration:
-                    raise StopAsyncIteration
+                    raise StopAsyncIteration from None
 
         mock_response = Mock()
         mock_response.aiter_lines = Mock(
@@ -411,7 +411,7 @@ class TestUnwrappedSSEResponse:
                 try:
                     return next(self.items)
                 except StopIteration:
-                    raise StopAsyncIteration
+                    raise StopAsyncIteration from None
 
         mock_response = Mock()
         mock_response.aiter_lines = Mock(
@@ -447,7 +447,7 @@ class TestUnwrappedSSEResponse:
                 try:
                     return next(self.items)
                 except StopIteration:
-                    raise StopAsyncIteration
+                    raise StopAsyncIteration from None
 
         mock_response = Mock()
         mock_response.aiter_text = Mock(
@@ -483,7 +483,7 @@ class TestUnwrappedSSEResponse:
                 try:
                     return next(self.items)
                 except StopIteration:
-                    raise StopAsyncIteration
+                    raise StopAsyncIteration from None
 
         mock_response = Mock()
         mock_response.aiter_text = Mock(

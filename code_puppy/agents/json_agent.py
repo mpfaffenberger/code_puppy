@@ -29,7 +29,7 @@ class JSONAgent(BaseAgent):
         except (json.JSONDecodeError, FileNotFoundError) as e:
             raise ValueError(
                 f"Failed to load JSON agent config from {self.json_path}: {e}"
-            )
+            ) from e
 
     def _validate_config(self) -> None:
         """Validate required fields in configuration."""
