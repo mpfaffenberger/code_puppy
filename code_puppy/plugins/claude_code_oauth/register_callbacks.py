@@ -75,7 +75,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         self.received_event.set()
 
-    def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
+    def log_message(self, log_format: str, *args: Any) -> None:
         return
 
     def _write_response(self, status: int, body: str) -> None:
