@@ -59,6 +59,7 @@ def prepare_prompt_for_model(
         is_claude_code=is_claude_code_model(model_name),
     )
 
+
 def get_default_extended_thinking(model_name: str) -> str:
     """Return the default extended_thinking mode for an Anthropic model.
 

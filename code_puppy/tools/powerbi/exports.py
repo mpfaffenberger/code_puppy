@@ -6,10 +6,7 @@ like CSV, JSON, and Excel.
 
 from __future__ import annotations
 
-import csv
-import json
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from pydantic_ai import RunContext
@@ -64,10 +61,10 @@ def powerbi_export_table_to_csv(
 
     try:
         client = get_powerbi_client()
-        
+
         # Query the table data
         rows = client.get_table_data(dataset_id, table_name, workspace_id, max_rows)
-        
+
         if not rows:
             emit_warning(f"Table '{table_name}' is empty or not accessible")
             return {
@@ -75,18 +72,18 @@ def powerbi_export_table_to_csv(
                 "row_count": 0,
                 "message": "Table is empty",
             }
-        
+
         # Generate output path if not specified
         if not output_path:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             safe_name = table_name.replace(" ", "_").replace("/", "_")
             output_path = f"./{safe_name}_{timestamp}.csv"
-        
+
         # Export to CSV
         output_file = client.export_to_csv(rows, output_path)
-        
+
         emit_success(f"Exported {len(rows)} rows to {output_file}")
-        
+
         return {
             "success": True,
             "row_count": len(rows),
@@ -143,10 +140,10 @@ def powerbi_export_table_to_json(
 
     try:
         client = get_powerbi_client()
-        
+
         # Query the table data
         rows = client.get_table_data(dataset_id, table_name, workspace_id, max_rows)
-        
+
         if not rows:
             emit_warning(f"Table '{table_name}' is empty or not accessible")
             return {
@@ -154,18 +151,18 @@ def powerbi_export_table_to_json(
                 "row_count": 0,
                 "message": "Table is empty",
             }
-        
+
         # Generate output path if not specified
         if not output_path:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             safe_name = table_name.replace(" ", "_").replace("/", "_")
             output_path = f"./{safe_name}_{timestamp}.json"
-        
+
         # Export to JSON
         output_file = client.export_to_json(rows, output_path)
-        
+
         emit_success(f"Exported {len(rows)} rows to {output_file}")
-        
+
         return {
             "success": True,
             "row_count": len(rows),
@@ -219,17 +216,17 @@ def powerbi_export_dax_query_to_csv(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"📤 [bold cyan]Executing DAX and exporting to CSV...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "📤 [bold cyan]Executing DAX and exporting to CSV...[/bold cyan]"
         )
     )
 
     try:
         client = get_powerbi_client()
-        
+
         # Execute the DAX query
         result = client.execute_dax_query(dataset_id, dax_query, workspace_id)
-        
+
         # Extract and clean rows
         rows = []
         if "results" in result:
@@ -241,7 +238,7 @@ def powerbi_export_dax_query_to_csv(
                     clean_key = key.strip("[]").split("[")[-1].strip("]")
                     clean_row[clean_key] = value
                 rows.append(clean_row)
-        
+
         if not rows:
             emit_warning("Query returned no results")
             return {
@@ -249,12 +246,12 @@ def powerbi_export_dax_query_to_csv(
                 "row_count": 0,
                 "message": "Query returned no results",
             }
-        
+
         # Export to CSV
         output_file = client.export_to_csv(rows, output_path)
-        
+
         emit_success(f"Exported {len(rows)} rows to {output_file}")
-        
+
         return {
             "success": True,
             "row_count": len(rows),

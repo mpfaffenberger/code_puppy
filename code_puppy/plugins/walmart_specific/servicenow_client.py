@@ -111,20 +111,24 @@ class ServiceNowClient:
         )
         self.session_data = self._load_session()
         self.base_url = self.session_data.get("base_url", self.DEFAULT_BASE_URL)
-        
+
         # Use all_cookies if available (more complete), otherwise fall back to cookies
-        self.cookies = self.session_data.get("all_cookies", self.session_data.get("cookies", {}))
+        self.cookies = self.session_data.get(
+            "all_cookies", self.session_data.get("cookies", {})
+        )
 
         # Check if session is stale
         self._check_staleness()
 
         # Build custom User-Agent with version and user_id from puppy token
         user_agent = self._build_user_agent()
-        
+
         # Extract X-UserToken if available (ServiceNow uses this for API auth)
         # The g_ck token is the CSRF token needed for REST API calls
-        x_user_token = self.cookies.pop("g_ck", None)  # Remove from cookies, use as header
-        
+        x_user_token = self.cookies.pop(
+            "g_ck", None
+        )  # Remove from cookies, use as header
+
         # Build headers
         headers = {
             "User-Agent": user_agent,
@@ -441,7 +445,7 @@ class ServiceNowClient:
         else:
             # Treat as a display name - use LIKE query
             sysparm_query = f"kb_categoryLIKE{category}"
-        
+
         if query:
             sysparm_query += f"^short_descriptionLIKE{query}^ORtextLIKE{query}"
         if workflow_state:
@@ -616,7 +620,7 @@ class ServiceNowClient:
         Args:
             sys_id: The incident sys_id
             comment: The comment text to add
-            work_notes: If True, add as work notes (internal). 
+            work_notes: If True, add as work notes (internal).
                        If False, add as comments (customer-visible).
 
         Returns:
@@ -835,7 +839,9 @@ class ServiceNowClient:
             Dictionary containing group data.
         """
         # Check if it looks like a sys_id (32 char hex) or a name
-        if len(group_id) == 32 and all(c in '0123456789abcdef' for c in group_id.lower()):
+        if len(group_id) == 32 and all(
+            c in "0123456789abcdef" for c in group_id.lower()
+        ):
             # It's a sys_id
             params = {"sysparm_display_value": "true"}
             return self._make_request(
@@ -850,7 +856,9 @@ class ServiceNowClient:
                 "sysparm_limit": 1,
                 "sysparm_display_value": "true",
             }
-            return self._make_request("GET", "/api/now/table/sys_user_group", params=params)
+            return self._make_request(
+                "GET", "/api/now/table/sys_user_group", params=params
+            )
 
     # =========================================================================
     # USER SEARCH
@@ -878,7 +886,9 @@ class ServiceNowClient:
         # Build query - only active users
         sysparm_query = "active=true"
         if query:
-            sysparm_query += f"^nameLIKE{query}^ORuser_nameLIKE{query}^ORemailLIKE{query}"
+            sysparm_query += (
+                f"^nameLIKE{query}^ORuser_nameLIKE{query}^ORemailLIKE{query}"
+            )
         sysparm_query += "^ORDERBYname"
 
         params = {
@@ -903,7 +913,7 @@ class ServiceNowClient:
             Dictionary containing user data.
         """
         # Check if it looks like a sys_id (32 char hex) or a username
-        if len(user_id) == 32 and all(c in '0123456789abcdef' for c in user_id.lower()):
+        if len(user_id) == 32 and all(c in "0123456789abcdef" for c in user_id.lower()):
             # It's a sys_id
             params = {"sysparm_display_value": "true"}
             return self._make_request(
@@ -940,7 +950,7 @@ class ServiceNowClient:
                 print(f"Member of: {m['group']['display_value']}")
         """
         # Build query based on whether it's a sys_id or username
-        if len(user_id) == 32 and all(c in '0123456789abcdef' for c in user_id.lower()):
+        if len(user_id) == 32 and all(c in "0123456789abcdef" for c in user_id.lower()):
             # It's a sys_id
             sysparm_query = f"user={user_id}"
         else:
@@ -954,7 +964,9 @@ class ServiceNowClient:
             "sysparm_display_value": "all",  # Get both value and display_value
         }
 
-        return self._make_request("GET", "/api/now/table/sys_user_grmember", params=params)
+        return self._make_request(
+            "GET", "/api/now/table/sys_user_grmember", params=params
+        )
 
     def get_group_members(
         self,
@@ -976,7 +988,9 @@ class ServiceNowClient:
                 print(f"Member: {m['user']['display_value']}")
         """
         # Build query based on whether it's a sys_id or name
-        if len(group_id) == 32 and all(c in '0123456789abcdef' for c in group_id.lower()):
+        if len(group_id) == 32 and all(
+            c in "0123456789abcdef" for c in group_id.lower()
+        ):
             # It's a sys_id
             sysparm_query = f"group={group_id}"
         else:
@@ -990,7 +1004,9 @@ class ServiceNowClient:
             "sysparm_display_value": "all",  # Get both value and display_value
         }
 
-        return self._make_request("GET", "/api/now/table/sys_user_grmember", params=params)
+        return self._make_request(
+            "GET", "/api/now/table/sys_user_grmember", params=params
+        )
 
     # =========================================================================
     # CHANGE MANAGEMENT
@@ -1076,7 +1092,9 @@ class ServiceNowClient:
                 "sysparm_limit": 1,
                 "sysparm_display_value": "all",
             }
-            return self._make_request("GET", "/api/now/table/change_request", params=params)
+            return self._make_request(
+                "GET", "/api/now/table/change_request", params=params
+            )
         else:
             params = {"sysparm_display_value": "all"}
             return self._make_request(
@@ -1099,11 +1117,13 @@ class ServiceNowClient:
         Returns:
             Dictionary containing the list of changes.
         """
-        query_parts = ["requested_byDYNAMIC90d1921e5f510100a9ad2572f2b477fe^ORassigned_toDYNAMIC90d1921e5f510100a9ad2572f2b477fe"]
-        
+        query_parts = [
+            "requested_byDYNAMIC90d1921e5f510100a9ad2572f2b477fe^ORassigned_toDYNAMIC90d1921e5f510100a9ad2572f2b477fe"
+        ]
+
         if state:
             query_parts.append(f"state={state}")
-        
+
         query_parts.append("ORDERBYDESCsys_created_on")
 
         params = {
@@ -1144,9 +1164,13 @@ class ServiceNowClient:
             change_result = self.get_change(change_id)
             results = change_result.get("result", [])
             if isinstance(results, list) and results:
-                change_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                change_sys_id = (
+                    results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                )
             else:
-                change_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
+                change_sys_id = results.get("sys_id", {}).get(
+                    "value", results.get("sys_id")
+                )
         else:
             change_sys_id = change_id
 
@@ -1189,9 +1213,13 @@ class ServiceNowClient:
             change_result = self.get_change(change_id)
             results = change_result.get("result", [])
             if isinstance(results, list) and results:
-                change_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                change_sys_id = (
+                    results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                )
             else:
-                change_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
+                change_sys_id = results.get("sys_id", {}).get(
+                    "value", results.get("sys_id")
+                )
         else:
             change_sys_id = change_id
 
@@ -1305,18 +1333,20 @@ class ServiceNowClient:
             Dictionary containing the list of problems.
         """
         query_parts = []
-        
+
         if query:
             query_parts.append(f"short_descriptionLIKE{query}")
         if state:
             query_parts.append(f"state={state}")
         if assignment_group:
             query_parts.append(f"assignment_groupLIKE{assignment_group}")
-        
+
         query_parts.append("ORDERBYDESCsys_created_on")
 
         params = {
-            "sysparm_query": "^".join(query_parts) if query_parts else "ORDERBYDESCsys_created_on",
+            "sysparm_query": "^".join(query_parts)
+            if query_parts
+            else "ORDERBYDESCsys_created_on",
             "sysparm_limit": limit,
             "sysparm_display_value": "all",
         }
@@ -1342,9 +1372,13 @@ class ServiceNowClient:
             problem_result = self.get_problem(problem_id)
             results = problem_result.get("result", [])
             if isinstance(results, list) and results:
-                problem_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                problem_sys_id = (
+                    results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                )
             else:
-                problem_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
+                problem_sys_id = results.get("sys_id", {}).get(
+                    "value", results.get("sys_id")
+                )
         else:
             problem_sys_id = problem_id
 
@@ -1372,7 +1406,9 @@ class ServiceNowClient:
                 "sysparm_limit": 1,
                 "sysparm_display_value": "all",
             }
-            return self._make_request("GET", "/api/now/table/sc_req_item", params=params)
+            return self._make_request(
+                "GET", "/api/now/table/sc_req_item", params=params
+            )
         else:
             params = {"sysparm_display_value": "all"}
             return self._make_request(
@@ -1396,10 +1432,10 @@ class ServiceNowClient:
             Dictionary containing the list of RITMs.
         """
         query_parts = ["requested_forDYNAMIC90d1921e5f510100a9ad2572f2b477fe"]
-        
+
         if state:
             query_parts.append(f"state={state}")
-        
+
         query_parts.append("ORDERBYDESCsys_created_on")
 
         params = {
@@ -1432,9 +1468,13 @@ class ServiceNowClient:
             ritm_result = self.get_ritm(ritm_id)
             results = ritm_result.get("result", [])
             if isinstance(results, list) and results:
-                ritm_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                ritm_sys_id = (
+                    results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                )
             else:
-                ritm_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
+                ritm_sys_id = results.get("sys_id", {}).get(
+                    "value", results.get("sys_id")
+                )
         else:
             ritm_sys_id = ritm_id
 
@@ -1491,7 +1531,7 @@ class ServiceNowClient:
             Dictionary containing the CI data.
         """
         # Check if it looks like a sys_id (32 char hex)
-        if len(ci_id) == 32 and all(c in '0123456789abcdef' for c in ci_id.lower()):
+        if len(ci_id) == 32 and all(c in "0123456789abcdef" for c in ci_id.lower()):
             params = {"sysparm_display_value": "all"}
             return self._make_request(
                 "GET",
@@ -1505,7 +1545,9 @@ class ServiceNowClient:
                 "sysparm_limit": 1,
                 "sysparm_display_value": "all",
             }
-            return self._make_request("GET", f"/api/now/table/{ci_class}", params=params)
+            return self._make_request(
+                "GET", f"/api/now/table/{ci_class}", params=params
+            )
 
     def get_cmdb_relationships(
         self,
@@ -1574,10 +1616,10 @@ class ServiceNowClient:
             Dictionary containing the list of approvals.
         """
         query_parts = ["approverDYNAMIC90d1921e5f510100a9ad2572f2b477fe"]
-        
+
         if state:
             query_parts.append(f"state={state}")
-        
+
         query_parts.append("ORDERBYDESCsys_created_on")
 
         params = {
@@ -1586,7 +1628,9 @@ class ServiceNowClient:
             "sysparm_display_value": "all",
         }
 
-        return self._make_request("GET", "/api/now/table/sysapproval_approver", params=params)
+        return self._make_request(
+            "GET", "/api/now/table/sysapproval_approver", params=params
+        )
 
     def approve(
         self,
@@ -1657,11 +1701,14 @@ class ServiceNowClient:
         Returns:
             Dictionary containing the list of tasks.
         """
-        query_parts = ["assigned_toDYNAMIC90d1921e5f510100a9ad2572f2b477fe", "active=true"]
-        
+        query_parts = [
+            "assigned_toDYNAMIC90d1921e5f510100a9ad2572f2b477fe",
+            "active=true",
+        ]
+
         if state:
             query_parts.append(f"state={state}")
-        
+
         query_parts.append("ORDERBYDESCsys_updated_on")
 
         params = {
@@ -1845,9 +1892,13 @@ class ServiceNowClient:
             incident_result = self.get_incident(incident_id)
             results = incident_result.get("result", [])
             if isinstance(results, list) and results:
-                incident_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                incident_sys_id = (
+                    results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                )
             else:
-                incident_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
+                incident_sys_id = results.get("sys_id", {}).get(
+                    "value", results.get("sys_id")
+                )
         else:
             incident_sys_id = incident_id
 
@@ -1878,13 +1929,19 @@ class ServiceNowClient:
             parent_result = self.get_incident(parent_incident_id)
             results = parent_result.get("result", [])
             if isinstance(results, list) and results:
-                parent_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                parent_sys_id = (
+                    results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                )
             else:
-                parent_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
+                parent_sys_id = results.get("sys_id", {}).get(
+                    "value", results.get("sys_id")
+                )
         else:
             parent_sys_id = parent_incident_id
 
-        return self.update_incident(child_incident_id, {"parent_incident": parent_sys_id})
+        return self.update_incident(
+            child_incident_id, {"parent_incident": parent_sys_id}
+        )
 
     # =========================================================================
     # SLA MANAGEMENT

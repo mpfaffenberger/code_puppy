@@ -201,7 +201,7 @@ def make_model_settings(
         # so we inject it through extra_body which gets merged into the
         # HTTP request body.
         if model_supports_setting(model_name, "effort"):
-            effort = effective_settings.get("effort", "high")
+            effort = effective_settings.get("effort", "medium")
             if "anthropic_thinking" in model_settings_dict:
                 extra_body = model_settings_dict.get("extra_body") or {}
                 extra_body["output_config"] = {"effort": effort}

@@ -222,7 +222,6 @@ class TestPrintMotd:
         assert result is False
 
 
-
 class TestMotdConstants:
     """Tests for MOTD module constants."""
 

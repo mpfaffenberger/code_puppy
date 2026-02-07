@@ -52,8 +52,12 @@ class TestBaseAgentReload:
             assert "instructions" in call_args.kwargs
             assert "model_settings" in call_args.kwargs
 
-    def test_reload_with_claude_code_specific_instructions(self, agent):
-        """Test that claude-code models get specific instructions."""
+    def test_reload_with_claude_code_passes_through_instructions(self, agent):
+        """Test that claude-code models pass through instructions normally.
+
+        Claude-code no longer gets special instruction overrides; the system
+        prompt is passed through via prepare_prompt_for_model unchanged.
+        """
         with (
             patch("code_puppy.model_factory.ModelFactory.load_config"),
             patch("code_puppy.model_factory.ModelFactory.get_model"),
@@ -75,13 +79,12 @@ class TestBaseAgentReload:
 
             result = agent.reload_code_generation_agent()
 
-            # Verify claude-code specific instruction override
+            # Instructions are now passed through unchanged (no claude-code override)
             call_args = mock_agent_class.call_args
             instructions = call_args.kwargs["instructions"]
-            assert (
-                "You are Claude Code, Anthropic's official CLI for Claude."
-                == instructions
-            )
+            # The instructions should be the system prompt built from
+            # load_puppy_rules (mocked to "") — just verify it's a string
+            assert isinstance(instructions, str)
             assert result == mock_agent_instance
 
     def test_reload_with_gpt5_model_settings(self, agent):

@@ -482,7 +482,7 @@ class TestMSGraphDownloadFile:
         """Test that large text content is truncated at 10,000 chars."""
         # Create content larger than MAX_RESPONSE_CHARS (10,000)
         large_content = "A" * 15000  # 15,000 characters
-        
+
         text_file_data = {
             "id": "large-text-123",
             "name": "large_file.txt",
@@ -512,7 +512,7 @@ class TestMSGraphDownloadFile:
         """Test paginating through large content using char_offset."""
         # Create content larger than MAX_RESPONSE_CHARS (10,000)
         large_content = "A" * 5000 + "B" * 5000 + "C" * 5000  # 15,000 chars
-        
+
         text_file_data = {
             "id": "large-text-123",
             "name": "large_file.txt",
@@ -550,7 +550,7 @@ class TestMSGraphDownloadFile:
     def test_msgraph_download_file_small_content_no_truncation(self, mock_context):
         """Test that small content is not truncated."""
         small_content = "Hello, World!"  # Much smaller than 10,000 chars
-        
+
         text_file_data = {
             "id": "small-text-123",
             "name": "small_file.txt",

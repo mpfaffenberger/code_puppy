@@ -9,7 +9,7 @@ from pydantic_ai import RunContext
 from pydantic_ai.tools import Tool
 from rich.text import Text
 
-from code_puppy.messaging import emit_info, emit_success, emit_warning
+from code_puppy.messaging import emit_info, emit_success
 
 from ._common import (
     SERVICENOW_BASE_URL,
@@ -54,7 +54,7 @@ def servicenow_kb_search(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW KB SEARCH [/bold white on blue] "
-            f"\U0001F50D [bold cyan]{query}[/bold cyan]"
+            f"\U0001f50d [bold cyan]{query}[/bold cyan]"
         )
     )
 
@@ -66,15 +66,19 @@ def servicenow_kb_search(
         for article in result.get("result", []):
             sys_id = article.get("sys_id", "")
             number = article.get("number", "")
-            
-            articles.append({
-                "sys_id": sys_id,
-                "number": number,
-                "title": article.get("short_description", ""),
-                "snippet": clean_text(article.get("text", ""))[:300] + "..." if article.get("text") else "",
-                "category": article.get("kb_category", ""),
-                "url": f"{SERVICENOW_BASE_URL}/kb_view.do?sysparm_article={number}",
-            })
+
+            articles.append(
+                {
+                    "sys_id": sys_id,
+                    "number": number,
+                    "title": article.get("short_description", ""),
+                    "snippet": clean_text(article.get("text", ""))[:300] + "..."
+                    if article.get("text")
+                    else "",
+                    "category": article.get("kb_category", ""),
+                    "url": f"{SERVICENOW_BASE_URL}/kb_view.do?sysparm_article={number}",
+                }
+            )
 
         emit_success(f"Found {len(articles)} article(s)")
 
@@ -131,13 +135,13 @@ def servicenow_kb_read_article(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW KB READ [/bold white on blue] "
-            f"\U0001F4D6 [bold cyan]{article_id}[/bold cyan]"
+            f"\U0001f4d6 [bold cyan]{article_id}[/bold cyan]"
         )
     )
 
     try:
         client = get_servicenow_client()
-        
+
         # Determine if it's a KB number or sys_id
         if article_id.upper().startswith("KB"):
             result = client.get_kb_article_by_number(article_id)
@@ -145,7 +149,7 @@ def servicenow_kb_read_article(
             result = client.get_kb_article_by_id(article_id)
 
         article_data = result.get("result", {})
-        
+
         # Handle list response (from number lookup)
         if isinstance(article_data, list):
             if not article_data:
@@ -166,12 +170,12 @@ def servicenow_kb_read_article(
         # Convert HTML content to markdown
         raw_content = article_data.get("text", "")
         content = convert_html_to_markdown(raw_content)
-        
+
         # Apply pagination
         total_length = len(content)
         if character_offset > 0:
             content = content[character_offset:]
-        
+
         truncated = len(content) > character_limit
         if truncated:
             content = content[:character_limit]
@@ -239,7 +243,7 @@ def servicenow_kb_search_by_category(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW KB CATEGORY SEARCH [/bold white on blue] "
-            f"\U0001F4C1 [bold cyan]{category}[/bold cyan]"
+            f"\U0001f4c1 [bold cyan]{category}[/bold cyan]"
         )
     )
 
@@ -255,14 +259,18 @@ def servicenow_kb_search_by_category(
         for article in result.get("result", []):
             sys_id = article.get("sys_id", "")
             number = article.get("number", "")
-            
-            articles.append({
-                "sys_id": sys_id,
-                "number": number,
-                "title": article.get("short_description", ""),
-                "snippet": clean_text(article.get("text", ""))[:300] + "..." if article.get("text") else "",
-                "url": f"{SERVICENOW_BASE_URL}/kb_view.do?sysparm_article={number}",
-            })
+
+            articles.append(
+                {
+                    "sys_id": sys_id,
+                    "number": number,
+                    "title": article.get("short_description", ""),
+                    "snippet": clean_text(article.get("text", ""))[:300] + "..."
+                    if article.get("text")
+                    else "",
+                    "url": f"{SERVICENOW_BASE_URL}/kb_view.do?sysparm_article={number}",
+                }
+            )
 
         emit_success(f"Found {len(articles)} article(s) in category '{category}'")
 

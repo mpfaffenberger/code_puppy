@@ -9,7 +9,6 @@ import threading
 import time
 import traceback
 import uuid
-import pathlib
 from abc import ABC, abstractmethod
 from typing import (
     Any,
@@ -289,7 +288,6 @@ class BaseAgent(ABC):
             message_hash: Hash of a message that has been compacted/summarized.
         """
         self._compacted_message_hashes.add(message_hash)
-
 
     def get_model_name(self) -> Optional[str]:
         """Get pinned model name for this agent, if specified.
@@ -1800,14 +1798,14 @@ class BaseAgent(ABC):
 
         async def _run_with_streaming_retry(run_coro_factory):
             """Wrap agent run with auto-retry for transient streaming errors.
-            
+
             Args:
                 run_coro_factory: A callable that returns a new coroutine for the agent run.
                     Must be a factory (not a coroutine) since coroutines can only be awaited once.
-            
+
             Returns:
                 The result from a successful agent run.
-                
+
             Raises:
                 UnexpectedModelBehavior: If all retries are exhausted or error is not retryable.
             """
@@ -1820,11 +1818,12 @@ class BaseAgent(ABC):
                     # Only retry on transient streaming errors, not validation errors
                     is_streaming_error = (
                         "streamed response ended without content" in error_msg
-                        or "stream" in error_msg and "ended" in error_msg
+                        or "stream" in error_msg
+                        and "ended" in error_msg
                     )
                     if not is_streaming_error:
                         raise  # Re-raise non-retryable errors immediately
-                    
+
                     last_error = e
                     if attempt < MAX_STREAMING_RETRIES - 1:
                         delay = STREAMING_RETRY_DELAYS[attempt]

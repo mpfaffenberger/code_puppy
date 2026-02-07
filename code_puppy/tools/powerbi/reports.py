@@ -43,8 +43,10 @@ def powerbi_list_reports(
         # List reports in a specific workspace
         powerbi_list_reports(workspace_id="abc-123-def")
     """
-    workspace_label = f"workspace {workspace_id[:8]}..." if workspace_id else "My Workspace"
-    
+    workspace_label = (
+        f"workspace {workspace_id[:8]}..." if workspace_id else "My Workspace"
+    )
+
     emit_info(
         Text.from_markup(
             f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
@@ -54,28 +56,30 @@ def powerbi_list_reports(
 
     try:
         client = get_powerbi_client()
-        
+
         if workspace_id:
             endpoint = f"/groups/{workspace_id}/reports"
         else:
             endpoint = "/reports"
-        
+
         response = client.get(endpoint, params={"$top": top})
         reports = response.get("value", [])
-        
+
         emit_success(f"Found {len(reports)} reports")
-        
+
         formatted = []
         for report in reports:
-            formatted.append({
-                "id": report.get("id"),
-                "name": report.get("name"),
-                "report_type": report.get("reportType"),
-                "web_url": report.get("webUrl"),
-                "dataset_id": report.get("datasetId"),
-                "embed_url": report.get("embedUrl"),
-            })
-        
+            formatted.append(
+                {
+                    "id": report.get("id"),
+                    "name": report.get("name"),
+                    "report_type": report.get("reportType"),
+                    "web_url": report.get("webUrl"),
+                    "dataset_id": report.get("datasetId"),
+                    "embed_url": report.get("embedUrl"),
+                }
+            )
+
         return {
             "success": True,
             "count": len(formatted),
@@ -115,16 +119,16 @@ def powerbi_get_report(
 
     try:
         client = get_powerbi_client()
-        
+
         if workspace_id:
             endpoint = f"/groups/{workspace_id}/reports/{report_id}"
         else:
             endpoint = f"/reports/{report_id}"
-        
+
         response = client.get(endpoint)
-        
+
         emit_success(f"Got report: {response.get('name', 'Unknown')}")
-        
+
         return {
             "success": True,
             "report": {
@@ -164,32 +168,34 @@ def powerbi_list_report_pages(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"📄 [bold cyan]Listing report pages...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "📄 [bold cyan]Listing report pages...[/bold cyan]"
         )
     )
 
     try:
         client = get_powerbi_client()
-        
+
         if workspace_id:
             endpoint = f"/groups/{workspace_id}/reports/{report_id}/pages"
         else:
             endpoint = f"/reports/{report_id}/pages"
-        
+
         response = client.get(endpoint)
         pages = response.get("value", [])
-        
+
         emit_success(f"Found {len(pages)} pages")
-        
+
         formatted = []
         for page in pages:
-            formatted.append({
-                "name": page.get("name"),
-                "display_name": page.get("displayName"),
-                "order": page.get("order"),
-            })
-        
+            formatted.append(
+                {
+                    "name": page.get("name"),
+                    "display_name": page.get("displayName"),
+                    "order": page.get("order"),
+                }
+            )
+
         return {
             "success": True,
             "count": len(formatted),
@@ -234,22 +240,22 @@ def powerbi_clone_report(
 
     try:
         client = get_powerbi_client()
-        
+
         if source_workspace_id:
             endpoint = f"/groups/{source_workspace_id}/reports/{report_id}/Clone"
         else:
             endpoint = f"/reports/{report_id}/Clone"
-        
+
         body = {"name": new_name}
         if target_workspace_id:
             body["targetWorkspaceId"] = target_workspace_id
         if target_dataset_id:
             body["targetModelId"] = target_dataset_id
-        
+
         response = client.post(endpoint, json=body)
-        
+
         emit_success(f"Cloned report: {response.get('name', new_name)}")
-        
+
         return {
             "success": True,
             "cloned_report": {

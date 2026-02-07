@@ -266,6 +266,12 @@ class TestSimpleGetters:
 
 
 class TestGetConfigKeys:
+    @patch("configparser.ConfigParser")
+    def test_get_config_keys_with_existing_section(
+        self, mock_config_parser_class, mock_config_paths
+    ):
+        _, mock_cfg_file = mock_config_paths
+        mock_parser_instance = MagicMock()
 
         section_proxy = {"key1": "val1", "key2": "val2"}
         mock_parser_instance.__contains__.return_value = True
@@ -295,9 +301,11 @@ class TestGetConfigKeys:
                 "cancel_agent_key",
                 "compaction_strategy",
                 "compaction_threshold",
+                "data_analytics_knowledge_path",
                 "default_agent",
                 "diff_context_lines",
                 "enable_dbos",
+                "enable_git_auto_commit_prompt",
                 "enable_pack_agents",
                 "enable_streaming",
                 "enable_universal_constructor",
@@ -352,6 +360,7 @@ class TestGetConfigKeys:
                 "default_agent",
                 "diff_context_lines",
                 "enable_dbos",
+                "enable_git_auto_commit_prompt",
                 "enable_pack_agents",
                 "enable_streaming",
                 "enable_universal_constructor",

@@ -126,7 +126,9 @@ class TestHandleCdCommand:
             "code_puppy.command_line.core_commands.make_directory_table",
             side_effect=PermissionError("Access denied"),
         ):
-            with patch("code_puppy.command_line.core_commands.emit_error") as mock_error:
+            with patch(
+                "code_puppy.command_line.core_commands.emit_error"
+            ) as mock_error:
                 result = handle_cd_command("/cd")
                 assert result is True
                 mock_error.assert_called_once()
@@ -275,7 +277,9 @@ class TestHandleAgentCommand:
                         "code_puppy.agents.get_agent_descriptions",
                         return_value=mock_descriptions,
                     ):
-                        with patch("code_puppy.command_line.core_commands.emit_info") as mock_info:
+                        with patch(
+                            "code_puppy.command_line.core_commands.emit_info"
+                        ) as mock_info:
                             with patch(
                                 "code_puppy.messaging.emit_warning"
                             ) as mock_warning:
@@ -306,7 +310,9 @@ class TestHandleAgentCommand:
             with patch(
                 "code_puppy.agents.get_current_agent", return_value=mock_current
             ):
-                with patch("code_puppy.command_line.core_commands.emit_info") as mock_info:
+                with patch(
+                    "code_puppy.command_line.core_commands.emit_info"
+                ) as mock_info:
                     result = handle_agent_command("/agent")
                     assert result is True
 
@@ -341,7 +347,9 @@ class TestHandleAgentCommand:
                         return_value="new_session",
                     ):
                         with patch("code_puppy.messaging.emit_success") as mock_success:
-                            with patch("code_puppy.command_line.core_commands.emit_info"):
+                            with patch(
+                                "code_puppy.command_line.core_commands.emit_info"
+                            ):
                                 result = handle_agent_command("/agent")
                                 assert result is True
 
@@ -386,7 +394,9 @@ class TestHandleAgentCommand:
         mock_agents = {"valid_agent": "Valid Agent"}
 
         with patch("code_puppy.agents.get_available_agents", return_value=mock_agents):
-            with patch("code_puppy.command_line.core_commands.emit_error") as mock_error:
+            with patch(
+                "code_puppy.command_line.core_commands.emit_error"
+            ) as mock_error:
                 with patch("code_puppy.messaging.emit_warning") as mock_warning:
                     result = handle_agent_command("/agent invalid_agent")
                     assert result is True
@@ -491,7 +501,9 @@ class TestInteractiveAgentPicker:
                                 return_value="session-123",
                             ):
                                 with patch("code_puppy.messaging.emit_success"):
-                                    with patch("code_puppy.command_line.core_commands.emit_info"):
+                                    with patch(
+                                        "code_puppy.command_line.core_commands.emit_info"
+                                    ):
                                         result = handle_agent_command("/agent")
                                         assert result is True
 
@@ -1068,7 +1080,9 @@ class TestIntegrationScenarios:
                         return_value="new_session_123",
                     ):
                         with patch("code_puppy.messaging.emit_success") as mock_success:
-                            with patch("code_puppy.command_line.core_commands.emit_info") as mock_info:
+                            with patch(
+                                "code_puppy.command_line.core_commands.emit_info"
+                            ) as mock_info:
                                 result = handle_agent_command("/agent")
                                 assert result is True
 

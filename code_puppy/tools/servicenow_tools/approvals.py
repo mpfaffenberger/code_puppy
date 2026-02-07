@@ -12,7 +12,6 @@ from rich.text import Text
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 
 from ._common import (
-    SERVICENOW_BASE_URL,
     get_servicenow_client,
     handle_servicenow_error,
 )
@@ -51,6 +50,7 @@ def servicenow_list_my_approvals(
 
         approvals = []
         for appr in result.get("result", []):
+
             def get_display(field):
                 val = appr.get(field, {})
                 if isinstance(val, dict):
@@ -58,24 +58,34 @@ def servicenow_list_my_approvals(
                 return val or ""
 
             sys_id = get_display("sys_id") or appr.get("sys_id", "")
-            
+
             # Get the source document info
             source_table = get_display("source_table")
             document_id = appr.get("document_id", {})
-            doc_display = document_id.get("display_value", "") if isinstance(document_id, dict) else ""
-            doc_value = document_id.get("value", "") if isinstance(document_id, dict) else document_id
+            doc_display = (
+                document_id.get("display_value", "")
+                if isinstance(document_id, dict)
+                else ""
+            )
+            doc_value = (
+                document_id.get("value", "")
+                if isinstance(document_id, dict)
+                else document_id
+            )
 
-            approvals.append({
-                "sys_id": sys_id,
-                "state": get_display("state"),
-                "approver": get_display("approver"),
-                "source_table": source_table,
-                "document_id": doc_value,
-                "document_display": doc_display,
-                "comments": get_display("comments"),
-                "due_date": get_display("due_date"),
-                "created": get_display("sys_created_on"),
-            })
+            approvals.append(
+                {
+                    "sys_id": sys_id,
+                    "state": get_display("state"),
+                    "approver": get_display("approver"),
+                    "source_table": source_table,
+                    "document_id": doc_value,
+                    "document_display": doc_display,
+                    "comments": get_display("comments"),
+                    "due_date": get_display("due_date"),
+                    "created": get_display("sys_created_on"),
+                }
+            )
 
         emit_success(f"Found {len(approvals)} approval(s)")
 
@@ -139,7 +149,7 @@ def servicenow_approve(
 
     try:
         client = get_servicenow_client()
-        result = client.approve(approval_id=approval_id, comments=comments)
+        client.approve(approval_id=approval_id, comments=comments)
 
         emit_success(f"Approved: {approval_id}")
 
@@ -211,7 +221,7 @@ def servicenow_reject(
 
     try:
         client = get_servicenow_client()
-        result = client.reject(approval_id=approval_id, comments=comments)
+        client.reject(approval_id=approval_id, comments=comments)
 
         emit_success(f"Rejected: {approval_id}")
 

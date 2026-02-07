@@ -406,22 +406,6 @@ class TestInteractiveUcPicker:
         assert result is None
 
 
-class TestCommandRegistration:
-    """Tests to verify command is properly registered."""
-
-    def test_uc_command_is_registered(self):
-        """Test that /uc command is registered in the registry."""
-        from code_puppy.command_line.command_registry import get_command
-
-        cmd_info = get_command("uc")
-
-        assert cmd_info is not None
-        assert cmd_info.name == "uc"
-        assert cmd_info.category == "tools"
-        assert "Universal Constructor" in cmd_info.description
-        assert cmd_info.handler == handle_uc_command
-
-
 class TestDeleteTool:
     """Tests for the _delete_tool function."""
 

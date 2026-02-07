@@ -48,22 +48,25 @@ def servicenow_get_sla_status(
 
         slas = []
         for sla in result.get("result", []):
+
             def get_display(field):
                 val = sla.get(field, {})
                 if isinstance(val, dict):
                     return val.get("display_value", val.get("value", ""))
                 return val or ""
 
-            slas.append({
-                "sla_name": get_display("sla"),
-                "stage": get_display("stage"),
-                "has_breached": get_display("has_breached"),
-                "breach_time": get_display("planned_end_time"),
-                "percentage": get_display("percentage"),
-                "business_duration": get_display("business_duration"),
-                "start_time": get_display("start_time"),
-                "end_time": get_display("end_time"),
-            })
+            slas.append(
+                {
+                    "sla_name": get_display("sla"),
+                    "stage": get_display("stage"),
+                    "has_breached": get_display("has_breached"),
+                    "breach_time": get_display("planned_end_time"),
+                    "percentage": get_display("percentage"),
+                    "business_duration": get_display("business_duration"),
+                    "start_time": get_display("start_time"),
+                    "end_time": get_display("end_time"),
+                }
+            )
 
         emit_success(f"Found {len(slas)} SLA record(s)")
 
@@ -103,8 +106,8 @@ def servicenow_list_sla_definitions(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on blue] SERVICENOW SLA DEFINITIONS [/bold white on blue] "
-            f"\u23f1 [bold cyan]Listing...[/bold cyan]"
+            "\n[bold white on blue] SERVICENOW SLA DEFINITIONS [/bold white on blue] "
+            "\u23f1 [bold cyan]Listing...[/bold cyan]"
         )
     )
 
@@ -114,19 +117,22 @@ def servicenow_list_sla_definitions(
 
         definitions = []
         for sla in result.get("result", []):
+
             def get_display(field):
                 val = sla.get(field, {})
                 if isinstance(val, dict):
                     return val.get("display_value", val.get("value", ""))
                 return val or ""
 
-            definitions.append({
-                "sys_id": sla.get("sys_id", ""),
-                "name": get_display("name"),
-                "duration": get_display("duration"),
-                "schedule": get_display("schedule"),
-                "active": get_display("active"),
-            })
+            definitions.append(
+                {
+                    "sys_id": sla.get("sys_id", ""),
+                    "name": get_display("name"),
+                    "duration": get_display("duration"),
+                    "schedule": get_display("schedule"),
+                    "active": get_display("active"),
+                }
+            )
 
         emit_success(f"Found {len(definitions)} SLA definition(s)")
 

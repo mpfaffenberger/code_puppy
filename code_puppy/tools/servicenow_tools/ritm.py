@@ -39,7 +39,7 @@ def servicenow_get_ritm(
     emit_info(
         Text.from_markup(
             f"\n[bold white on purple] SERVICENOW GET RITM [/bold white on purple] "
-            f"\U0001F4CB [bold cyan]{ritm_id}[/bold cyan]"
+            f"\U0001f4cb [bold cyan]{ritm_id}[/bold cyan]"
         )
     )
 
@@ -48,7 +48,7 @@ def servicenow_get_ritm(
         result = client.get_ritm(ritm_id)
 
         ritm_data = result.get("result", {})
-        
+
         if isinstance(ritm_data, list):
             if not ritm_data:
                 return {
@@ -119,8 +119,8 @@ def servicenow_list_my_ritms(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on purple] SERVICENOW MY RITMS [/bold white on purple] "
-            f"\U0001F4E6 [bold cyan]Fetching...[/bold cyan]"
+            "\n[bold white on purple] SERVICENOW MY RITMS [/bold white on purple] "
+            "\U0001f4e6 [bold cyan]Fetching...[/bold cyan]"
         )
     )
 
@@ -130,20 +130,23 @@ def servicenow_list_my_ritms(
 
         ritms = []
         for ritm in result.get("result", []):
+
             def get_display(field):
                 val = ritm.get(field, {})
                 if isinstance(val, dict):
                     return val.get("display_value", val.get("value", ""))
                 return val or ""
 
-            ritms.append({
-                "number": get_display("number"),
-                "short_description": get_display("short_description"),
-                "state": get_display("state"),
-                "catalog_item": get_display("cat_item"),
-                "assignment_group": get_display("assignment_group"),
-                "opened_at": get_display("opened_at"),
-            })
+            ritms.append(
+                {
+                    "number": get_display("number"),
+                    "short_description": get_display("short_description"),
+                    "state": get_display("state"),
+                    "catalog_item": get_display("cat_item"),
+                    "assignment_group": get_display("assignment_group"),
+                    "opened_at": get_display("opened_at"),
+                }
+            )
 
         emit_success(f"Found {len(ritms)} RITM(s)")
 
@@ -188,11 +191,11 @@ def servicenow_add_ritm_comment(
     """
     note_type = "work note" if is_work_note else "comment"
     mode_label = "DRY RUN" if dry_run else f"ADD {note_type.upper()}"
-    
+
     emit_info(
         Text.from_markup(
             f"\n[bold white on green] SERVICENOW {mode_label} [/bold white on green] "
-            f"\U0001F4AC [bold cyan]{ritm_id}[/bold cyan]"
+            f"\U0001f4ac [bold cyan]{ritm_id}[/bold cyan]"
         )
     )
 
@@ -211,7 +214,7 @@ def servicenow_add_ritm_comment(
 
     try:
         client = get_servicenow_client()
-        result = client.add_ritm_comment(
+        client.add_ritm_comment(
             ritm_id=ritm_id,
             comment=comment,
             is_work_note=is_work_note,

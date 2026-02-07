@@ -1,12 +1,10 @@
 import os
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from code_puppy import config as cp_config
-from code_puppy.session_storage import SessionMetadata
 
 
 @pytest.fixture

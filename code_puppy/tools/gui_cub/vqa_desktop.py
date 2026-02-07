@@ -87,7 +87,7 @@ def run_desktop_vqa_analysis(
 
     # Use internal model selection logic (prefers current global model)
     model_name = _get_model_for_vqa()
-    original_size_mb = len(image_bytes) / 1_000_000
+    len(image_bytes) / 1_000_000
     original_media_type = media_type
 
     # Normalize image format for VQA compatibility

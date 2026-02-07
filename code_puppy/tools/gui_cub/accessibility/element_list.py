@@ -112,7 +112,9 @@ def list_accessible_elements(
                     "value": safe_str(getattr(elem, "AXValue", None)),
                     "placeholder": safe_str(getattr(elem, "AXPlaceholderValue", None)),
                     "help": safe_str(getattr(elem, "AXHelp", None)),
-                    "role_description": safe_str(getattr(elem, "AXRoleDescription", None)),
+                    "role_description": safe_str(
+                        getattr(elem, "AXRoleDescription", None)
+                    ),
                     "identifier": safe_str(getattr(elem, "AXIdentifier", None)),
                     "subrole": safe_str(getattr(elem, "AXSubrole", None)),
                 }

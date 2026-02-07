@@ -289,9 +289,7 @@ def register_msgraph_list_events(agent: Any) -> Tool:
 # =============================================================================
 
 
-def msgraph_get_event(
-    ctx: RunContext, event_id: str, char_offset: int = 0
-) -> dict:
+def msgraph_get_event(ctx: RunContext, event_id: str, char_offset: int = 0) -> dict:
     """Get a specific calendar event.
 
     Args:

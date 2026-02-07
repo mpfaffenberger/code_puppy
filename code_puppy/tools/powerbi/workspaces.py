@@ -53,27 +53,29 @@ def powerbi_list_workspaces(
 
     try:
         client = get_powerbi_client()
-        
+
         params = {"$top": top, "$skip": skip}
         if filter_query:
             params["$filter"] = filter_query
-        
+
         response = client.get("/groups", params=params)
         workspaces = response.get("value", [])
-        
+
         emit_success(f"Found {len(workspaces)} workspaces")
-        
+
         # Format workspaces for readability
         formatted = []
         for ws in workspaces:
-            formatted.append({
-                "id": ws.get("id"),
-                "name": ws.get("name"),
-                "type": ws.get("type"),
-                "is_read_only": ws.get("isReadOnly", False),
-                "capacity_id": ws.get("capacityId"),
-            })
-        
+            formatted.append(
+                {
+                    "id": ws.get("id"),
+                    "name": ws.get("name"),
+                    "type": ws.get("type"),
+                    "is_read_only": ws.get("isReadOnly", False),
+                    "capacity_id": ws.get("capacityId"),
+                }
+            )
+
         return {
             "success": True,
             "count": len(formatted),
@@ -111,9 +113,9 @@ def powerbi_get_workspace(
     try:
         client = get_powerbi_client()
         response = client.get(f"/groups/{workspace_id}")
-        
+
         emit_success(f"Got workspace: {response.get('name', 'Unknown')}")
-        
+
         return {
             "success": True,
             "workspace": {
@@ -148,8 +150,8 @@ def powerbi_list_workspace_users(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"👥 [bold cyan]Listing workspace users...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "👥 [bold cyan]Listing workspace users...[/bold cyan]"
         )
     )
 
@@ -157,18 +159,20 @@ def powerbi_list_workspace_users(
         client = get_powerbi_client()
         response = client.get(f"/groups/{workspace_id}/users")
         users = response.get("value", [])
-        
+
         emit_success(f"Found {len(users)} users")
-        
+
         formatted = []
         for user in users:
-            formatted.append({
-                "email": user.get("emailAddress"),
-                "display_name": user.get("displayName"),
-                "access_right": user.get("groupUserAccessRight"),
-                "principal_type": user.get("principalType"),
-            })
-        
+            formatted.append(
+                {
+                    "email": user.get("emailAddress"),
+                    "display_name": user.get("displayName"),
+                    "access_right": user.get("groupUserAccessRight"),
+                    "principal_type": user.get("principalType"),
+                }
+            )
+
         return {
             "success": True,
             "count": len(formatted),

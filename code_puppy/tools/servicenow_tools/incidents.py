@@ -9,7 +9,7 @@ from pydantic_ai import RunContext
 from pydantic_ai.tools import Tool
 from rich.text import Text
 
-from code_puppy.messaging import emit_info, emit_success, emit_warning
+from code_puppy.messaging import emit_info, emit_success
 
 from ._common import (
     SERVICENOW_BASE_URL,
@@ -70,7 +70,7 @@ def servicenow_create_incident(
     emit_info(
         Text.from_markup(
             f"\n[bold white on red] SERVICENOW {mode_label} [/bold white on red] "
-            f"\U0001F6A8 [bold cyan]{short_description[:50]}...[/bold cyan]"
+            f"\U0001f6a8 [bold cyan]{short_description[:50]}...[/bold cyan]"
         )
     )
 
@@ -78,7 +78,7 @@ def servicenow_create_incident(
     if dry_run:
         urgency_labels = {1: "1 (High)", 2: "2 (Medium)", 3: "3 (Low)"}
         impact_labels = {1: "1 (High)", 2: "2 (Medium)", 3: "3 (Low)"}
-        
+
         emit_success("Dry run complete - incident NOT created")
         return {
             "success": True,
@@ -162,7 +162,7 @@ def servicenow_get_incident(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW GET INCIDENT [/bold white on blue] "
-            f"\U0001F4CB [bold cyan]{incident_id}[/bold cyan]"
+            f"\U0001f4cb [bold cyan]{incident_id}[/bold cyan]"
         )
     )
 
@@ -171,7 +171,7 @@ def servicenow_get_incident(
         result = client.get_incident(incident_id)
 
         incident_data = result.get("result", {})
-        
+
         # Handle list response
         if isinstance(incident_data, list):
             if not incident_data:
@@ -257,8 +257,8 @@ def servicenow_list_my_incidents(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on blue] SERVICENOW MY INCIDENTS [/bold white on blue] "
-            f"\U0001F4CB [bold cyan]Fetching...[/bold cyan]"
+            "\n[bold white on blue] SERVICENOW MY INCIDENTS [/bold white on blue] "
+            "\U0001f4cb [bold cyan]Fetching...[/bold cyan]"
         )
     )
 
@@ -268,21 +268,24 @@ def servicenow_list_my_incidents(
 
         incidents = []
         for inc in result.get("result", []):
+
             def get_display(field):
                 val = inc.get(field, {})
                 if isinstance(val, dict):
                     return val.get("display_value", val.get("value", ""))
                 return val or ""
 
-            incidents.append({
-                "number": get_display("number"),
-                "short_description": get_display("short_description"),
-                "state": get_display("state"),
-                "priority": get_display("priority"),
-                "assignment_group": get_display("assignment_group"),
-                "assigned_to": get_display("assigned_to"),
-                "opened_at": get_display("opened_at"),
-            })
+            incidents.append(
+                {
+                    "number": get_display("number"),
+                    "short_description": get_display("short_description"),
+                    "state": get_display("state"),
+                    "priority": get_display("priority"),
+                    "assignment_group": get_display("assignment_group"),
+                    "assigned_to": get_display("assigned_to"),
+                    "opened_at": get_display("opened_at"),
+                }
+            )
 
         emit_success(f"Found {len(incidents)} incident(s)")
 
@@ -327,11 +330,11 @@ def servicenow_add_incident_comment(
     """
     note_type = "work note" if is_work_note else "comment"
     mode_label = "DRY RUN" if dry_run else f"ADD {note_type.upper()}"
-    
+
     emit_info(
         Text.from_markup(
             f"\n[bold white on green] SERVICENOW {mode_label} [/bold white on green] "
-            f"\U0001F4AC [bold cyan]{incident_id}[/bold cyan]"
+            f"\U0001f4ac [bold cyan]{incident_id}[/bold cyan]"
         )
     )
 
@@ -350,7 +353,7 @@ def servicenow_add_incident_comment(
 
     try:
         client = get_servicenow_client()
-        result = client.add_incident_comment(
+        client.add_incident_comment(
             incident_id=incident_id,
             comment=comment,
             is_work_note=is_work_note,
@@ -409,7 +412,7 @@ def servicenow_reassign_incident(
     emit_info(
         Text.from_markup(
             f"\n[bold white on purple] SERVICENOW {mode_label} [/bold white on purple] "
-            f"\U0001F504 [bold cyan]{incident_id}[/bold cyan]"
+            f"\U0001f504 [bold cyan]{incident_id}[/bold cyan]"
         )
     )
 
@@ -444,7 +447,7 @@ def servicenow_reassign_incident(
 
     try:
         client = get_servicenow_client()
-        
+
         # Get incident sys_id if we have a number
         if incident_id.upper().startswith("INC"):
             incident_result = client.get_incident(incident_id)
@@ -456,11 +459,21 @@ def servicenow_reassign_incident(
                         "error": f"Incident not found: {incident_id}",
                         "error_type": "not_found",
                     }
-                incident_sys_id = results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
-                incident_number = results[0].get("number", {}).get("value", results[0].get("number", incident_id))
+                incident_sys_id = (
+                    results[0].get("sys_id", {}).get("value", results[0].get("sys_id"))
+                )
+                incident_number = (
+                    results[0]
+                    .get("number", {})
+                    .get("value", results[0].get("number", incident_id))
+                )
             else:
-                incident_sys_id = results.get("sys_id", {}).get("value", results.get("sys_id"))
-                incident_number = results.get("number", {}).get("value", results.get("number", incident_id))
+                incident_sys_id = results.get("sys_id", {}).get(
+                    "value", results.get("sys_id")
+                )
+                incident_number = results.get("number", {}).get(
+                    "value", results.get("number", incident_id)
+                )
         else:
             incident_sys_id = incident_id
             incident_number = incident_id
@@ -472,7 +485,7 @@ def servicenow_reassign_incident(
         )
 
         updated_data = result.get("result", {})
-        
+
         def get_display(field):
             val = updated_data.get(field, {})
             if isinstance(val, dict):
@@ -546,7 +559,7 @@ def servicenow_resolve_incident(
 
     try:
         client = get_servicenow_client()
-        result = client.resolve_incident(
+        client.resolve_incident(
             incident_id=incident_id,
             resolution_code=resolution_code,
             resolution_notes=resolution_notes,
@@ -597,7 +610,7 @@ def servicenow_close_incident(
     emit_info(
         Text.from_markup(
             f"\n[bold white on gray] SERVICENOW {mode_label} [/bold white on gray] "
-            f"\U0001F512 [bold cyan]{incident_id}[/bold cyan]"
+            f"\U0001f512 [bold cyan]{incident_id}[/bold cyan]"
         )
     )
 
@@ -616,7 +629,7 @@ def servicenow_close_incident(
 
     try:
         client = get_servicenow_client()
-        result = client.close_incident(
+        client.close_incident(
             incident_id=incident_id,
             close_code=close_code,
             close_notes=close_notes,
@@ -665,7 +678,7 @@ def servicenow_reopen_incident(
     emit_info(
         Text.from_markup(
             f"\n[bold white on yellow] SERVICENOW {mode_label} [/bold white on yellow] "
-            f"\U0001F513 [bold cyan]{incident_id}[/bold cyan]"
+            f"\U0001f513 [bold cyan]{incident_id}[/bold cyan]"
         )
     )
 
@@ -683,7 +696,7 @@ def servicenow_reopen_incident(
 
     try:
         client = get_servicenow_client()
-        result = client.reopen_incident(
+        client.reopen_incident(
             incident_id=incident_id,
             reason=reason,
         )
@@ -728,7 +741,7 @@ def servicenow_get_incident_history(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW INCIDENT HISTORY [/bold white on blue] "
-            f"\U0001F4DC [bold cyan]{incident_id}[/bold cyan]"
+            f"\U0001f4dc [bold cyan]{incident_id}[/bold cyan]"
         )
     )
 
@@ -741,19 +754,22 @@ def servicenow_get_incident_history(
 
         history = []
         for entry in result.get("result", []):
+
             def get_display(field):
                 val = entry.get(field, {})
                 if isinstance(val, dict):
                     return val.get("display_value", val.get("value", ""))
                 return val or ""
 
-            history.append({
-                "field": get_display("fieldname"),
-                "old_value": get_display("oldvalue"),
-                "new_value": get_display("newvalue"),
-                "user": get_display("user"),
-                "timestamp": get_display("sys_created_on"),
-            })
+            history.append(
+                {
+                    "field": get_display("fieldname"),
+                    "old_value": get_display("oldvalue"),
+                    "new_value": get_display("newvalue"),
+                    "user": get_display("user"),
+                    "timestamp": get_display("sys_created_on"),
+                }
+            )
 
         emit_success(f"Found {len(history)} history entries")
 
@@ -799,7 +815,7 @@ def servicenow_link_incidents(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW {mode_label} [/bold white on blue] "
-            f"\U0001F517 [bold cyan]{child_incident_id} -> {parent_incident_id}[/bold cyan]"
+            f"\U0001f517 [bold cyan]{child_incident_id} -> {parent_incident_id}[/bold cyan]"
         )
     )
 
@@ -817,7 +833,7 @@ def servicenow_link_incidents(
 
     try:
         client = get_servicenow_client()
-        result = client.link_incidents(
+        client.link_incidents(
             parent_incident_id=parent_incident_id,
             child_incident_id=child_incident_id,
         )

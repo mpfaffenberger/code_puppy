@@ -523,9 +523,7 @@ def msgraph_search_sharepoint(
             results, char_offset=item_offset, max_chars=MAX_RESPONSE_CHARS
         )
 
-        emit_success(
-            f"Found {list_result['items_returned']} result(s) for '{query}'"
-        )
+        emit_success(f"Found {list_result['items_returned']} result(s) for '{query}'")
 
         result = {
             "success": True,

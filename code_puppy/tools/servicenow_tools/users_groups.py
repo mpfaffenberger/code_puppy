@@ -40,7 +40,7 @@ def servicenow_search_assignment_groups(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW SEARCH GROUPS [/bold white on blue] "
-            f"\U0001F465 [bold cyan]{query}[/bold cyan]"
+            f"\U0001f465 [bold cyan]{query}[/bold cyan]"
         )
     )
 
@@ -50,19 +50,22 @@ def servicenow_search_assignment_groups(
 
         groups = []
         for group in result.get("result", []):
+
             def get_display(field):
                 val = group.get(field, {})
                 if isinstance(val, dict):
                     return val.get("display_value", val.get("value", ""))
                 return val or ""
 
-            groups.append({
-                "sys_id": get_display("sys_id") or group.get("sys_id", ""),
-                "name": get_display("name"),
-                "description": get_display("description"),
-                "manager": get_display("manager"),
-                "email": get_display("email"),
-            })
+            groups.append(
+                {
+                    "sys_id": get_display("sys_id") or group.get("sys_id", ""),
+                    "name": get_display("name"),
+                    "description": get_display("description"),
+                    "manager": get_display("manager"),
+                    "email": get_display("email"),
+                }
+            )
 
         emit_success(f"Found {len(groups)} group(s)")
 
@@ -104,7 +107,7 @@ def servicenow_search_users(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW SEARCH USERS [/bold white on blue] "
-            f"\U0001F464 [bold cyan]{query}[/bold cyan]"
+            f"\U0001f464 [bold cyan]{query}[/bold cyan]"
         )
     )
 
@@ -114,21 +117,24 @@ def servicenow_search_users(
 
         users = []
         for user in result.get("result", []):
+
             def get_display(field):
                 val = user.get(field, {})
                 if isinstance(val, dict):
                     return val.get("display_value", val.get("value", ""))
                 return val or ""
 
-            users.append({
-                "sys_id": get_display("sys_id") or user.get("sys_id", ""),
-                "user_name": get_display("user_name"),
-                "name": get_display("name"),
-                "email": get_display("email"),
-                "title": get_display("title"),
-                "department": get_display("department"),
-                "manager": get_display("manager"),
-            })
+            users.append(
+                {
+                    "sys_id": get_display("sys_id") or user.get("sys_id", ""),
+                    "user_name": get_display("user_name"),
+                    "name": get_display("name"),
+                    "email": get_display("email"),
+                    "title": get_display("title"),
+                    "department": get_display("department"),
+                    "manager": get_display("manager"),
+                }
+            )
 
         emit_success(f"Found {len(users)} user(s)")
 
@@ -170,7 +176,7 @@ def servicenow_get_user_groups(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW USER GROUPS [/bold white on blue] "
-            f"\U0001F465 [bold cyan]Groups for: {user_id}[/bold cyan]"
+            f"\U0001f465 [bold cyan]Groups for: {user_id}[/bold cyan]"
         )
     )
 
@@ -182,10 +188,12 @@ def servicenow_get_user_groups(
         for membership in result.get("result", []):
             group_info = membership.get("group", {})
             if isinstance(group_info, dict):
-                groups.append({
-                    "sys_id": group_info.get("value", ""),
-                    "name": group_info.get("display_value", ""),
-                })
+                groups.append(
+                    {
+                        "sys_id": group_info.get("value", ""),
+                        "name": group_info.get("display_value", ""),
+                    }
+                )
 
         emit_success(f"Found {len(groups)} group(s) for user {user_id}")
 
@@ -228,7 +236,7 @@ def servicenow_get_group_members(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW GROUP MEMBERS [/bold white on blue] "
-            f"\U0001F465 [bold cyan]Members of: {group_id}[/bold cyan]"
+            f"\U0001f465 [bold cyan]Members of: {group_id}[/bold cyan]"
         )
     )
 
@@ -240,15 +248,19 @@ def servicenow_get_group_members(
         for membership in result.get("result", []):
             user_info = membership.get("user", {})
             if isinstance(user_info, dict):
-                members.append({
-                    "sys_id": user_info.get("value", ""),
-                    "name": user_info.get("display_value", ""),
-                })
+                members.append(
+                    {
+                        "sys_id": user_info.get("value", ""),
+                        "name": user_info.get("display_value", ""),
+                    }
+                )
             elif user_info:
-                members.append({
-                    "sys_id": user_info,
-                    "name": "(name not available)",
-                })
+                members.append(
+                    {
+                        "sys_id": user_info,
+                        "name": "(name not available)",
+                    }
+                )
 
         emit_success(f"Found {len(members)} member(s) in group {group_id}")
 

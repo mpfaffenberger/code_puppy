@@ -496,9 +496,7 @@ async def test_get_input_with_combined_completion_no_history(
 ):
     """Test that we handle no history file gracefully."""
     mock_session_instance = MagicMock()
-    mock_session_instance.prompt_async = AsyncMock(
-        return_value="input without history"
-    )
+    mock_session_instance.prompt_async = AsyncMock(return_value="input without history")
     mock_prompt_session_cls.return_value = mock_session_instance
 
     # No history file provided

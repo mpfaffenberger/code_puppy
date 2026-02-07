@@ -469,9 +469,9 @@ def msgraph_download_file(
         if truncated:
             result["char_offset"] = char_offset
             result["next_offset"] = next_offset
-            result[
-                "truncation_message"
-            ] = f"Content truncated. Use char_offset={next_offset} to continue."
+            result["truncation_message"] = (
+                f"Content truncated. Use char_offset={next_offset} to continue."
+            )
 
         return result
 

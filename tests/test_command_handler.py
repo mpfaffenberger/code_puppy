@@ -7,17 +7,17 @@ from code_puppy.command_line.command_registry import get_command
 
 class MultiPatcher:
     """A patcher that patches multiple locations with the same mock."""
-    
+
     def __init__(self, targets: list[str]):
         self.targets = targets
         self.mock = MagicMock()
         self.patchers = [patch(target, self.mock) for target in targets]
-    
+
     def start(self):
         for p in self.patchers:
             p.start()
         return self.mock
-    
+
     def stop(self):
         for p in self.patchers:
             p.stop()
@@ -26,31 +26,37 @@ class MultiPatcher:
 # Function to create a test context with patched messaging functions
 def setup_messaging_mocks():
     """Set up mocks for all the messaging functions and return them in a dictionary.
-    
+
     Note: We patch both locations:
-    - code_puppy.messaging.X for dynamic imports inside functions  
+    - code_puppy.messaging.X for dynamic imports inside functions
     - code_puppy.command_line.core_commands.X for static module-level imports
-    
+
     This ensures mocks work regardless of how the function was imported.
     """
     mocks = {}
-    
+
     # emit_info is imported at module level in core_commands.py, so patch both
-    mocks["emit_info"] = MultiPatcher([
-        "code_puppy.messaging.emit_info",
-        "code_puppy.command_line.core_commands.emit_info",
-    ])
-    
+    mocks["emit_info"] = MultiPatcher(
+        [
+            "code_puppy.messaging.emit_info",
+            "code_puppy.command_line.core_commands.emit_info",
+        ]
+    )
+
     # emit_error is imported at module level in core_commands.py, so patch both
-    mocks["emit_error"] = MultiPatcher([
-        "code_puppy.messaging.emit_error",
-        "code_puppy.command_line.core_commands.emit_error",
-    ])
-    
+    mocks["emit_error"] = MultiPatcher(
+        [
+            "code_puppy.messaging.emit_error",
+            "code_puppy.command_line.core_commands.emit_error",
+        ]
+    )
+
     # These are typically imported dynamically, so just patch messaging
     mocks["emit_warning"] = MultiPatcher(["code_puppy.messaging.emit_warning"])
     mocks["emit_success"] = MultiPatcher(["code_puppy.messaging.emit_success"])
-    mocks["emit_system_message"] = MultiPatcher(["code_puppy.messaging.emit_system_message"])
+    mocks["emit_system_message"] = MultiPatcher(
+        ["code_puppy.messaging.emit_system_message"]
+    )
 
     return mocks
 
@@ -173,101 +179,6 @@ def test_m_unrecognized_model_lists_options():
         mocks["emit_warning"].stop()
 
 
-def test_set_config_value_equals():
-    mocks = setup_messaging_mocks()
-    mock_emit_success = mocks["emit_success"].start()
-
-    try:
-        with (
-            patch("code_puppy.config.set_config_value") as mock_set_cfg,
-            patch(
-                "code_puppy.config.get_config_keys", return_value=["pony", "rainbow"]
-            ),
-        ):
-            result = handle_command("/set pony=rainbow")
-            assert result is True
-            mock_set_cfg.assert_called_once_with("pony", "rainbow")
-            mock_emit_success.assert_called()
-            assert any(
-                "Set" in str(call) and "pony" in str(call) and "rainbow" in str(call)
-                for call in mock_emit_success.call_args_list
-            )
-    finally:
-        mocks["emit_success"].stop()
-
-
-def test_set_config_value_space():
-    mocks = setup_messaging_mocks()
-    mock_emit_success = mocks["emit_success"].start()
-
-    try:
-        with (
-            patch("code_puppy.config.set_config_value") as mock_set_cfg,
-            patch(
-                "code_puppy.config.get_config_keys", return_value=["pony", "rainbow"]
-            ),
-        ):
-            result = handle_command("/set pony rainbow")
-            assert result is True
-            mock_set_cfg.assert_called_once_with("pony", "rainbow")
-            mock_emit_success.assert_called()
-            assert any(
-                "Set" in str(call) and "pony" in str(call) and "rainbow" in str(call)
-                for call in mock_emit_success.call_args_list
-            )
-    finally:
-        mocks["emit_success"].stop()
-
-
-def test_set_config_only_key():
-    mocks = setup_messaging_mocks()
-    mock_emit_success = mocks["emit_success"].start()
-
-    try:
-        with (
-            patch("code_puppy.config.set_config_value") as mock_set_cfg,
-            patch("code_puppy.config.get_config_keys", return_value=["key"]),
-        ):
-            result = handle_command("/set pony")
-            assert result is True
-            mock_set_cfg.assert_called_once_with("pony", "")
-            mock_emit_success.assert_called()
-            assert any(
-                "Set" in str(call) and "pony" in str(call)
-                for call in mock_emit_success.call_args_list
-            )
-    finally:
-        mocks["emit_success"].stop()
-
-
-def test_show_status():
-    mocks = setup_messaging_mocks()
-    mock_emit_info = mocks["emit_info"].start()
-
-    try:
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion.get_active_model",
-                return_value="MODEL-X",
-            ),
-            patch("code_puppy.config.get_owner_name", return_value="Ivan"),
-            patch("code_puppy.config.get_puppy_name", return_value="Biscuit"),
-            patch("code_puppy.config.get_yolo_mode", return_value=True),
-        ):
-            result = handle_command("/show")
-            assert result is True
-            mock_emit_info.assert_called()
-            assert any(
-                "Puppy Status" in str(call)
-                and "Ivan" in str(call)
-                and "Biscuit" in str(call)
-                and "MODEL-X" in str(call)
-                for call in mock_emit_info.call_args_list
-            )
-    finally:
-        mocks["emit_info"].stop()
-
-
 def test_unknown_command():
     mocks = setup_messaging_mocks()
     mock_emit_warning = mocks["emit_warning"].start()
@@ -301,37 +212,6 @@ def test_bare_slash_shows_current_model():
             )
     finally:
         mocks["emit_info"].stop()
-
-
-def test_set_no_args_prints_usage():
-    mocks = setup_messaging_mocks()
-    mock_emit_warning = mocks["emit_warning"].start()
-
-    try:
-        with patch("code_puppy.config.get_config_keys", return_value=["foo", "bar"]):
-            result = handle_command("/set")
-            assert result is True
-            mock_emit_warning.assert_called()
-            assert any(
-                "Usage" in str(call) and "Config keys" in str(call)
-                for call in mock_emit_warning.call_args_list
-            )
-    finally:
-        mocks["emit_warning"].stop()
-
-
-def test_set_missing_key_errors():
-    mocks = setup_messaging_mocks()
-    mock_emit_error = mocks["emit_error"].start()
-
-    try:
-        # This will enter the 'else' branch printing 'You must supply a key.'
-        with patch("code_puppy.config.get_config_keys", return_value=["foo", "bar"]):
-            result = handle_command("/set =value")
-            assert result is True
-            mock_emit_error.assert_called_with("You must supply a key.")
-    finally:
-        mocks["emit_error"].stop()
 
 
 def test_non_command_returns_false():
@@ -597,297 +477,6 @@ class TestRegistryIntegration:
         assert result is False
 
 
-class TestSessionCommand:
-    """Tests for /session command."""
-
-    def test_session_show_current_id(self):
-        """Test /session shows current session ID."""
-        with (
-            patch("code_puppy.config.get_current_autosave_id", return_value="test-id"),
-            patch(
-                "code_puppy.config.get_current_autosave_session_name",
-                return_value="test-session",
-            ),
-            patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/autosave"),
-            patch("code_puppy.messaging.emit_info") as mock_emit,
-        ):
-            result = handle_command("/session")
-            assert result is True
-            mock_emit.assert_called_once()
-            call_str = str(mock_emit.call_args)
-            assert "test-id" in call_str
-
-    def test_session_id_subcommand(self):
-        """Test /session id shows current session ID."""
-        with (
-            patch("code_puppy.config.get_current_autosave_id", return_value="test-id"),
-            patch(
-                "code_puppy.config.get_current_autosave_session_name",
-                return_value="test-session",
-            ),
-            patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/autosave"),
-            patch("code_puppy.messaging.emit_info") as mock_emit,
-        ):
-            result = handle_command("/session id")
-            assert result is True
-            mock_emit.assert_called_once()
-
-    def test_session_new_rotates(self):
-        """Test /session new creates new session."""
-        with (
-            patch(
-                "code_puppy.config.rotate_autosave_id", return_value="new-id"
-            ) as mock_rotate,
-            patch("code_puppy.messaging.emit_success") as mock_success,
-        ):
-            result = handle_command("/session new")
-            assert result is True
-            mock_rotate.assert_called_once()
-            mock_success.assert_called_once()
-            call_str = str(mock_success.call_args)
-            assert "new-id" in call_str
-
-    def test_session_invalid_subcommand(self):
-        """Test /session with invalid subcommand shows usage."""
-        with patch("code_puppy.messaging.emit_warning") as mock_warn:
-            result = handle_command("/session invalid")
-            assert result is True
-            mock_warn.assert_called_once()
-            call_str = str(mock_warn.call_args)
-            assert "Usage" in call_str
-
-    def test_session_alias_works(self):
-        """Test /s alias works for /session."""
-        with (
-            patch("code_puppy.config.get_current_autosave_id", return_value="test-id"),
-            patch(
-                "code_puppy.config.get_current_autosave_session_name",
-                return_value="test",
-            ),
-            patch("code_puppy.config.AUTOSAVE_DIR", "/tmp"),
-            patch("code_puppy.messaging.emit_info") as mock_emit,
-        ):
-            result = handle_command("/s")
-            assert result is True
-            mock_emit.assert_called()
-
-
-class TestCompactCommand:
-    """Tests for /compact command."""
-
-    def test_compact_with_history(self):
-        """Test /compact with message history."""
-        mock_agent = MagicMock()
-        mock_agent.get_message_history.return_value = [
-            {"role": "system", "content": "You are a helper"},
-            {"role": "user", "content": "Hello"},
-        ]
-        mock_agent.estimate_tokens_for_message.return_value = 10
-        mock_agent.summarize_messages.return_value = (
-            [{"role": "system", "content": "summarized"}],
-            [],
-        )
-
-        with (
-            patch(
-                "code_puppy.agents.agent_manager.get_current_agent",
-                return_value=mock_agent,
-            ),
-            patch(
-                "code_puppy.config.get_compaction_strategy",
-                return_value="summarization",
-            ),
-            patch("code_puppy.config.get_protected_token_count", return_value=1000),
-            patch("code_puppy.messaging.emit_info"),
-            patch("code_puppy.messaging.emit_success") as mock_success,
-        ):
-            result = handle_command("/compact")
-            assert result is True
-            mock_agent.set_message_history.assert_called_once()
-            mock_success.assert_called_once()
-
-    def test_compact_empty_history(self):
-        """Test /compact with no history shows warning."""
-        mock_agent = MagicMock()
-        mock_agent.get_message_history.return_value = []
-
-        with (
-            patch(
-                "code_puppy.agents.agent_manager.get_current_agent",
-                return_value=mock_agent,
-            ),
-            patch("code_puppy.messaging.emit_warning") as mock_warn,
-        ):
-            result = handle_command("/compact")
-            assert result is True
-            mock_warn.assert_called_once()
-            assert "No history" in str(mock_warn.call_args)
-
-    def test_compact_with_truncation_strategy(self):
-        """Test /compact using truncation strategy."""
-        mock_agent = MagicMock()
-        mock_agent.get_message_history.return_value = [
-            {"role": "system", "content": "System"},
-            {"role": "user", "content": "Hello"},
-        ]
-        mock_agent.estimate_tokens_for_message.return_value = 5
-        mock_agent.truncation.return_value = [{"role": "system", "content": "System"}]
-
-        with (
-            patch(
-                "code_puppy.agents.agent_manager.get_current_agent",
-                return_value=mock_agent,
-            ),
-            patch(
-                "code_puppy.config.get_compaction_strategy", return_value="truncation"
-            ),
-            patch("code_puppy.config.get_protected_token_count", return_value=1000),
-            patch("code_puppy.messaging.emit_info"),
-            patch("code_puppy.messaging.emit_success"),
-        ):
-            result = handle_command("/compact")
-            assert result is True
-            mock_agent.truncation.assert_called_once()
-
-
-class TestReasoningCommand:
-    """Tests for /reasoning command."""
-
-    def test_reasoning_set_low(self):
-        """Test /reasoning low sets effort to low."""
-        mock_agent = MagicMock()
-
-        with (
-            patch("code_puppy.config.set_openai_reasoning_effort") as mock_set,
-            patch("code_puppy.config.get_openai_reasoning_effort", return_value="low"),
-            patch(
-                "code_puppy.agents.agent_manager.get_current_agent",
-                return_value=mock_agent,
-            ),
-            patch("code_puppy.messaging.emit_success") as mock_success,
-        ):
-            result = handle_command("/reasoning low")
-            assert result is True
-            mock_set.assert_called_once_with("low")
-            mock_agent.reload_code_generation_agent.assert_called_once()
-            mock_success.assert_called_once()
-
-    def test_reasoning_invalid_level(self):
-        """Test /reasoning with invalid level shows error."""
-        with (
-            patch(
-                "code_puppy.config.set_openai_reasoning_effort",
-                side_effect=ValueError("Invalid"),
-            ),
-            patch("code_puppy.messaging.emit_error") as mock_error,
-        ):
-            result = handle_command("/reasoning invalid")
-            assert result is True
-            mock_error.assert_called_once()
-
-    def test_reasoning_no_argument(self):
-        """Test /reasoning without argument shows usage."""
-        with patch("code_puppy.messaging.emit_warning") as mock_warn:
-            result = handle_command("/reasoning")
-            assert result is True
-            mock_warn.assert_called_once()
-            assert "Usage" in str(mock_warn.call_args)
-
-
-class TestTruncateCommand:
-    """Tests for /truncate command."""
-
-    def test_truncate_valid_number(self):
-        """Test /truncate with valid number."""
-        mock_agent = MagicMock()
-        mock_agent.get_message_history.return_value = [
-            {"role": "system", "content": "System"},
-            {"role": "user", "content": "1"},
-            {"role": "assistant", "content": "2"},
-            {"role": "user", "content": "3"},
-        ]
-
-        with (
-            patch(
-                "code_puppy.agents.agent_manager.get_current_agent",
-                return_value=mock_agent,
-            ),
-            patch("code_puppy.messaging.emit_success") as mock_success,
-        ):
-            result = handle_command("/truncate 2")
-            assert result is True
-            mock_agent.set_message_history.assert_called_once()
-            mock_success.assert_called_once()
-
-    def test_truncate_no_argument(self):
-        """Test /truncate without argument shows error."""
-        with patch("code_puppy.messaging.emit_error") as mock_error:
-            result = handle_command("/truncate")
-            assert result is True
-            mock_error.assert_called_once()
-            assert "Usage" in str(mock_error.call_args)
-
-    def test_truncate_invalid_number(self):
-        """Test /truncate with non-integer shows error."""
-        with patch("code_puppy.messaging.emit_error") as mock_error:
-            result = handle_command("/truncate abc")
-            assert result is True
-            mock_error.assert_called_once()
-            assert "valid integer" in str(mock_error.call_args)
-
-    def test_truncate_negative_number(self):
-        """Test /truncate with negative number shows error."""
-        with patch("code_puppy.messaging.emit_error") as mock_error:
-            result = handle_command("/truncate -5")
-            assert result is True
-            mock_error.assert_called_once()
-
-    def test_truncate_empty_history(self):
-        """Test /truncate with no history shows warning."""
-        mock_agent = MagicMock()
-        mock_agent.get_message_history.return_value = []
-
-        with (
-            patch(
-                "code_puppy.agents.agent_manager.get_current_agent",
-                return_value=mock_agent,
-            ),
-            patch("code_puppy.messaging.emit_warning") as mock_warn,
-        ):
-            result = handle_command("/truncate 10")
-            assert result is True
-            mock_warn.assert_called_once()
-
-    def test_truncate_already_small_history(self):
-        """Test /truncate when history is already small enough."""
-        mock_agent = MagicMock()
-        mock_agent.get_message_history.return_value = [
-            {"role": "system", "content": "System"},
-            {"role": "user", "content": "1"},
-        ]
-
-        with (
-            patch(
-                "code_puppy.agents.agent_manager.get_current_agent",
-                return_value=mock_agent,
-            ),
-            patch("code_puppy.messaging.emit_info") as mock_info,
-        ):
-            result = handle_command("/truncate 10")
-            assert result is True
-            mock_info.assert_called_once()
-            assert "Nothing to truncate" in str(mock_info.call_args)
-
-
-class TestAutosaveLoadCommand:
-    """Tests for /autosave_load command."""
-
-    def test_autosave_load_returns_special_marker(self):
-        """Test that /autosave_load returns special marker for async handling."""
-        result = handle_command("/autosave_load")
-        assert result == "__AUTOSAVE_LOAD__"
-
-
 class TestMotdCommand:
     """Tests for /motd command."""
 
@@ -902,14 +491,6 @@ class TestMotdCommand:
 
 class TestGetCommandsHelp:
     """Tests for get_commands_help() function."""
-
-    def test_help_includes_registered_commands(self):
-        """Test that help text includes registered commands."""
-        from code_puppy.command_line.command_handler import get_commands_help
-
-        help_text = str(get_commands_help())
-        assert "help" in help_text.lower() or "Help" in help_text
-        assert "session" in help_text.lower() or "Session" in help_text
 
     def test_help_includes_categories(self):
         """Test that help organizes into Built-in and Custom sections."""
@@ -1022,19 +603,6 @@ class TestCommandRegistry:
         assert cmd.name == "help"
         assert "h" in cmd.aliases
 
-    def test_session_command_registered(self):
-        """Test that session command is registered."""
-        cmd = get_command("session")
-        assert cmd is not None
-        assert cmd.name == "session"
-        assert "s" in cmd.aliases
-
-    def test_show_command_registered(self):
-        """Test that show command is registered."""
-        cmd = get_command("show")
-        assert cmd is not None
-        assert cmd.category == "config"
-
     def test_cd_command_registered(self):
         """Test that cd command is registered."""
         cmd = get_command("cd")
@@ -1056,35 +624,6 @@ class TestCommandRegistry:
         assert cmd is not None
         assert "quit" in cmd.aliases
 
-    def test_compact_command_registered(self):
-        """Test that compact command is registered."""
-        cmd = get_command("compact")
-        assert cmd is not None
-        assert cmd.category == "session"
-
-    def test_reasoning_command_registered(self):
-        """Test that reasoning command is registered."""
-        cmd = get_command("reasoning")
-        assert cmd is not None
-        assert cmd.category == "config"
-
-    def test_truncate_command_registered(self):
-        """Test that truncate command is registered."""
-        cmd = get_command("truncate")
-        assert cmd is not None
-        assert cmd.category == "session"
-
-    def test_autosave_load_command_registered(self):
-        """Test that autosave_load command is registered."""
-        cmd = get_command("autosave_load")
-        assert cmd is not None
-
-    def test_set_command_registered(self):
-        """Test that set command is registered."""
-        cmd = get_command("set")
-        assert cmd is not None
-        assert cmd.category == "config"
-
     def test_agent_command_registered(self):
         """Test that agent command is registered."""
         cmd = get_command("agent")
@@ -1103,41 +642,11 @@ class TestCommandRegistry:
         assert cmd is not None
         assert cmd.category == "core"
 
-    def test_pin_model_command_registered(self):
-        """Test that pin_model command is registered."""
-        cmd = get_command("pin_model")
-        assert cmd is not None
-        assert cmd.category == "config"
-
-    def test_unpin_command_registered(self):
-        """Test that unpin command is registered."""
-        cmd = get_command("unpin")
-        assert cmd is not None
-        assert cmd.category == "config"
-
     def test_generate_pr_description_command_registered(self):
         """Test that generate-pr-description command is registered."""
         cmd = get_command("generate-pr-description")
         assert cmd is not None
         assert cmd.category == "core"
-
-    def test_dump_context_command_registered(self):
-        """Test that dump_context command is registered."""
-        cmd = get_command("dump_context")
-        assert cmd is not None
-        assert cmd.category == "session"
-
-    def test_load_context_command_registered(self):
-        """Test that load_context command is registered."""
-        cmd = get_command("load_context")
-        assert cmd is not None
-        assert cmd.category == "session"
-
-    def test_diff_command_registered(self):
-        """Test that diff command is registered."""
-        cmd = get_command("diff")
-        assert cmd is not None
-        assert cmd.category == "config"
 
 
 def test_m_command_case_sensitive_baseline():

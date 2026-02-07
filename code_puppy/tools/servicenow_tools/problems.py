@@ -58,14 +58,14 @@ def servicenow_create_problem(
     emit_info(
         Text.from_markup(
             f"\n[bold white on red] SERVICENOW {mode_label} [/bold white on red] "
-            f"\U0001F6A8 [bold cyan]{short_description[:50]}...[/bold cyan]"
+            f"\U0001f6a8 [bold cyan]{short_description[:50]}...[/bold cyan]"
         )
     )
 
     if dry_run:
         urgency_labels = {1: "1 (High)", 2: "2 (Medium)", 3: "3 (Low)"}
         impact_labels = {1: "1 (High)", 2: "2 (Medium)", 3: "3 (Low)"}
-        
+
         emit_success("Dry run complete - problem NOT created")
         return {
             "success": True,
@@ -143,7 +143,7 @@ def servicenow_get_problem(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW GET PROBLEM [/bold white on blue] "
-            f"\U0001F4CB [bold cyan]{problem_id}[/bold cyan]"
+            f"\U0001f4cb [bold cyan]{problem_id}[/bold cyan]"
         )
     )
 
@@ -152,7 +152,7 @@ def servicenow_get_problem(
         result = client.get_problem(problem_id)
 
         problem_data = result.get("result", {})
-        
+
         if isinstance(problem_data, list):
             if not problem_data:
                 return {
@@ -231,7 +231,7 @@ def servicenow_list_problems(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW LIST PROBLEMS [/bold white on blue] "
-            f"\U0001F6A8 [bold cyan]{query or 'All'}[/bold cyan]"
+            f"\U0001f6a8 [bold cyan]{query or 'All'}[/bold cyan]"
         )
     )
 
@@ -246,20 +246,23 @@ def servicenow_list_problems(
 
         problems = []
         for prob in result.get("result", []):
+
             def get_display(field):
                 val = prob.get(field, {})
                 if isinstance(val, dict):
                     return val.get("display_value", val.get("value", ""))
                 return val or ""
 
-            problems.append({
-                "number": get_display("number"),
-                "short_description": get_display("short_description"),
-                "state": get_display("state"),
-                "priority": get_display("priority"),
-                "assignment_group": get_display("assignment_group"),
-                "assigned_to": get_display("assigned_to"),
-            })
+            problems.append(
+                {
+                    "number": get_display("number"),
+                    "short_description": get_display("short_description"),
+                    "state": get_display("state"),
+                    "priority": get_display("priority"),
+                    "assignment_group": get_display("assignment_group"),
+                    "assigned_to": get_display("assigned_to"),
+                }
+            )
 
         emit_success(f"Found {len(problems)} problem(s)")
 
@@ -304,7 +307,7 @@ def servicenow_link_incident_to_problem(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW {mode_label} [/bold white on blue] "
-            f"\U0001F517 [bold cyan]{incident_id} -> {problem_id}[/bold cyan]"
+            f"\U0001f517 [bold cyan]{incident_id} -> {problem_id}[/bold cyan]"
         )
     )
 
@@ -322,7 +325,7 @@ def servicenow_link_incident_to_problem(
 
     try:
         client = get_servicenow_client()
-        result = client.link_incident_to_problem(
+        client.link_incident_to_problem(
             incident_id=incident_id,
             problem_id=problem_id,
         )

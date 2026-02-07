@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 """Helper functions for desktop automation tests."""
 
+from __future__ import annotations
 from typing import Any
 
 

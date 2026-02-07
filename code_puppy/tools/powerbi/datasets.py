@@ -43,8 +43,10 @@ def powerbi_list_datasets(
         # List datasets in a specific workspace
         powerbi_list_datasets(workspace_id="abc-123-def")
     """
-    workspace_label = f"workspace {workspace_id[:8]}..." if workspace_id else "My Workspace"
-    
+    workspace_label = (
+        f"workspace {workspace_id[:8]}..." if workspace_id else "My Workspace"
+    )
+
     emit_info(
         Text.from_markup(
             f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
@@ -54,28 +56,30 @@ def powerbi_list_datasets(
 
     try:
         client = get_powerbi_client()
-        
+
         if workspace_id:
             endpoint = f"/groups/{workspace_id}/datasets"
         else:
             endpoint = "/datasets"
-        
+
         response = client.get(endpoint, params={"$top": top})
         datasets = response.get("value", [])
-        
+
         emit_success(f"Found {len(datasets)} datasets")
-        
+
         formatted = []
         for ds in datasets:
-            formatted.append({
-                "id": ds.get("id"),
-                "name": ds.get("name"),
-                "configured_by": ds.get("configuredBy"),
-                "is_refreshable": ds.get("isRefreshable", False),
-                "web_url": ds.get("webUrl"),
-                "created_date": ds.get("createdDate"),
-            })
-        
+            formatted.append(
+                {
+                    "id": ds.get("id"),
+                    "name": ds.get("name"),
+                    "configured_by": ds.get("configuredBy"),
+                    "is_refreshable": ds.get("isRefreshable", False),
+                    "web_url": ds.get("webUrl"),
+                    "created_date": ds.get("createdDate"),
+                }
+            )
+
         return {
             "success": True,
             "count": len(formatted),
@@ -115,16 +119,16 @@ def powerbi_get_dataset(
 
     try:
         client = get_powerbi_client()
-        
+
         if workspace_id:
             endpoint = f"/groups/{workspace_id}/datasets/{dataset_id}"
         else:
             endpoint = f"/datasets/{dataset_id}"
-        
+
         response = client.get(endpoint)
-        
+
         emit_success(f"Got dataset: {response.get('name', 'Unknown')}")
-        
+
         return {
             "success": True,
             "dataset": {
@@ -172,18 +176,18 @@ def powerbi_get_dataset_tables(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"📝 [bold cyan]Getting dataset tables...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "📝 [bold cyan]Getting dataset tables...[/bold cyan]"
         )
     )
 
     try:
         client = get_powerbi_client()
-        
+
         # Use DAX INFO.TABLES() to get table metadata
         dax_query = "EVALUATE INFO.TABLES()"
         result = client.execute_dax_query(dataset_id, dax_query, workspace_id)
-        
+
         tables = []
         if "results" in result:
             raw_rows = result["results"][0]["tables"][0].get("rows", [])
@@ -192,18 +196,20 @@ def powerbi_get_dataset_tables(
                 table_id = row.get("[ID]")
                 name = row.get("[Name]", "")
                 is_hidden = row.get("[IsHidden]", False)
-                
+
                 # Skip system tables (usually negative IDs or $ prefix)
                 if table_id and table_id >= 0 and not name.startswith("$"):
-                    tables.append({
-                        "id": table_id,
-                        "name": name,
-                        "is_hidden": is_hidden,
-                        "description": row.get("[Description]", ""),
-                    })
-        
+                    tables.append(
+                        {
+                            "id": table_id,
+                            "name": name,
+                            "is_hidden": is_hidden,
+                            "description": row.get("[Description]", ""),
+                        }
+                    )
+
         emit_success(f"Found {len(tables)} tables")
-        
+
         return {
             "success": True,
             "count": len(tables),
@@ -245,9 +251,9 @@ def powerbi_get_table_columns(
 
     try:
         client = get_powerbi_client()
-        
+
         # Get columns and filter by table
-        dax_query = f"""
+        dax_query = """
         EVALUATE 
         FILTER(
             INFO.COLUMNS(),
@@ -255,7 +261,7 @@ def powerbi_get_table_columns(
         )
         """
         result = client.execute_dax_query(dataset_id, dax_query, workspace_id)
-        
+
         columns = []
         if "results" in result:
             raw_rows = result["results"][0]["tables"][0].get("rows", [])
@@ -263,15 +269,17 @@ def powerbi_get_table_columns(
                 # Get column info
                 col_name = row.get("[ExplicitName]") or row.get("[InferredName]")
                 if col_name:
-                    columns.append({
-                        "name": col_name,
-                        "table_id": row.get("[TableID]"),
-                        "data_type": row.get("[ExplicitDataType]"),
-                        "is_hidden": row.get("[IsHidden]", False),
-                    })
-        
+                    columns.append(
+                        {
+                            "name": col_name,
+                            "table_id": row.get("[TableID]"),
+                            "data_type": row.get("[ExplicitDataType]"),
+                            "is_hidden": row.get("[IsHidden]", False),
+                        }
+                    )
+
         emit_success(f"Found {len(columns)} columns")
-        
+
         return {
             "success": True,
             "count": len(columns),
@@ -336,28 +344,28 @@ def powerbi_execute_dax_query(
     query_upper = dax_query.strip().upper()
     if not query_upper.startswith("EVALUATE"):
         emit_warning("DAX query should start with EVALUATE")
-    
+
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"⚡ [bold cyan]Executing DAX query...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "⚡ [bold cyan]Executing DAX query...[/bold cyan]"
         )
     )
 
     try:
         client = get_powerbi_client()
         result = client.execute_dax_query(dataset_id, dax_query, workspace_id)
-        
+
         # Parse and clean up the results
         tables = []
         total_rows = 0
-        
+
         if "results" in result:
             for query_result in result["results"]:
                 for table in query_result.get("tables", []):
                     rows = table.get("rows", [])
                     total_rows += len(rows)
-                    
+
                     # Clean up column names in each row
                     clean_rows = []
                     for row in rows:
@@ -370,11 +378,11 @@ def powerbi_execute_dax_query(
                                 clean_key = clean_key.split("[")[-1].strip("]")
                             clean_row[clean_key] = value
                         clean_rows.append(clean_row)
-                    
+
                     tables.append({"rows": clean_rows})
-        
+
         emit_success(f"Query returned {total_rows} rows")
-        
+
         return {
             "success": True,
             "dataset_id": dataset_id,
@@ -430,7 +438,7 @@ def powerbi_get_table_data(
     """
     # Limit top_n to reasonable max
     top_n = min(top_n, 10000)
-    
+
     emit_info(
         Text.from_markup(
             f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
@@ -440,18 +448,17 @@ def powerbi_get_table_data(
 
     try:
         client = get_powerbi_client()
-        
+
         # Build DAX query
         if columns:
-            col_list = ", ".join(f"'{table_name}'[{col}]" for col in columns)
-            dax = f"EVALUATE TOPN({top_n}, SELECTCOLUMNS('{table_name}', {col_list}))"
+            ", ".join(f"'{table_name}'[{col}]" for col in columns)
         else:
-            dax = f"EVALUATE TOPN({top_n}, '{table_name}')"
-        
+            pass
+
         rows = client.get_table_data(dataset_id, table_name, workspace_id, top_n)
-        
+
         emit_success(f"Got {len(rows)} rows from '{table_name}'")
-        
+
         return {
             "success": True,
             "dataset_id": dataset_id,
@@ -493,24 +500,24 @@ def powerbi_refresh_dataset(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"🔄 [bold cyan]Triggering dataset refresh...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "🔄 [bold cyan]Triggering dataset refresh...[/bold cyan]"
         )
     )
 
     try:
         client = get_powerbi_client()
-        
+
         if workspace_id:
             endpoint = f"/groups/{workspace_id}/datasets/{dataset_id}/refreshes"
         else:
             endpoint = f"/datasets/{dataset_id}/refreshes"
-        
+
         body = {"notifyOption": notify_option}
         client.post(endpoint, json=body)
-        
+
         emit_success("Dataset refresh triggered successfully!")
-        
+
         return {
             "success": True,
             "message": "Dataset refresh triggered. Use powerbi_get_refresh_history to check status.",
@@ -544,35 +551,37 @@ def powerbi_get_refresh_history(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"📊 [bold cyan]Getting refresh history...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "📊 [bold cyan]Getting refresh history...[/bold cyan]"
         )
     )
 
     try:
         client = get_powerbi_client()
-        
+
         if workspace_id:
             endpoint = f"/groups/{workspace_id}/datasets/{dataset_id}/refreshes"
         else:
             endpoint = f"/datasets/{dataset_id}/refreshes"
-        
+
         response = client.get(endpoint, params={"$top": top})
         refreshes = response.get("value", [])
-        
+
         emit_success(f"Found {len(refreshes)} refresh entries")
-        
+
         formatted = []
         for ref in refreshes:
-            formatted.append({
-                "request_id": ref.get("requestId"),
-                "status": ref.get("status"),
-                "refresh_type": ref.get("refreshType"),
-                "start_time": ref.get("startTime"),
-                "end_time": ref.get("endTime"),
-                "service_exception_json": ref.get("serviceExceptionJson"),
-            })
-        
+            formatted.append(
+                {
+                    "request_id": ref.get("requestId"),
+                    "status": ref.get("status"),
+                    "refresh_type": ref.get("refreshType"),
+                    "start_time": ref.get("startTime"),
+                    "end_time": ref.get("endTime"),
+                    "service_exception_json": ref.get("serviceExceptionJson"),
+                }
+            )
+
         return {
             "success": True,
             "dataset_id": dataset_id,
@@ -620,43 +629,45 @@ def powerbi_get_datasources(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"🔌 [bold cyan]Getting datasources for dataset...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "🔌 [bold cyan]Getting datasources for dataset...[/bold cyan]"
         )
     )
 
     try:
         client = get_powerbi_client()
-        
+
         if workspace_id:
             endpoint = f"/groups/{workspace_id}/datasets/{dataset_id}/datasources"
         else:
             endpoint = f"/datasets/{dataset_id}/datasources"
-        
+
         response = client.get(endpoint)
         datasources = response.get("value", [])
-        
+
         emit_success(f"Found {len(datasources)} datasources")
-        
+
         formatted = []
         for ds in datasources:
             # Extract connection details
             conn_details = ds.get("connectionDetails", {})
             gateway_id = ds.get("gatewayId")
-            
-            formatted.append({
-                "datasource_id": ds.get("datasourceId"),
-                "datasource_type": ds.get("datasourceType"),
-                "gateway_id": gateway_id,
-                "connection_details": {
-                    "server": conn_details.get("server"),
-                    "database": conn_details.get("database"),
-                    "url": conn_details.get("url"),
-                    "path": conn_details.get("path"),
-                    "kind": conn_details.get("kind"),
-                },
-            })
-        
+
+            formatted.append(
+                {
+                    "datasource_id": ds.get("datasourceId"),
+                    "datasource_type": ds.get("datasourceType"),
+                    "gateway_id": gateway_id,
+                    "connection_details": {
+                        "server": conn_details.get("server"),
+                        "database": conn_details.get("database"),
+                        "url": conn_details.get("url"),
+                        "path": conn_details.get("path"),
+                        "kind": conn_details.get("kind"),
+                    },
+                }
+            )
+
         return {
             "success": True,
             "dataset_id": dataset_id,
@@ -692,34 +703,36 @@ def powerbi_get_dataset_parameters(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"⚙️ [bold cyan]Getting dataset parameters...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "⚙️ [bold cyan]Getting dataset parameters...[/bold cyan]"
         )
     )
 
     try:
         client = get_powerbi_client()
-        
+
         if workspace_id:
             endpoint = f"/groups/{workspace_id}/datasets/{dataset_id}/parameters"
         else:
             endpoint = f"/datasets/{dataset_id}/parameters"
-        
+
         response = client.get(endpoint)
         parameters = response.get("value", [])
-        
+
         emit_success(f"Found {len(parameters)} parameters")
-        
+
         formatted = []
         for param in parameters:
-            formatted.append({
-                "name": param.get("name"),
-                "type": param.get("type"),
-                "current_value": param.get("currentValue"),
-                "is_required": param.get("isRequired", False),
-                "suggested_values": param.get("suggestedValues", []),
-            })
-        
+            formatted.append(
+                {
+                    "name": param.get("name"),
+                    "type": param.get("type"),
+                    "current_value": param.get("currentValue"),
+                    "is_required": param.get("isRequired", False),
+                    "suggested_values": param.get("suggestedValues", []),
+                }
+            )
+
         return {
             "success": True,
             "dataset_id": dataset_id,

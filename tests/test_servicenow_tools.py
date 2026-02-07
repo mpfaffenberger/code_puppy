@@ -1,7 +1,6 @@
 """Tests for ServiceNow Knowledge Base tools."""
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -272,7 +271,9 @@ class TestServiceNowKBReadArticle:
 class TestServiceNowKBSearchByCategory:
     """Tests for servicenow_kb_search_by_category tool."""
 
-    def test_search_by_category_success(self, mock_session_file, mock_kb_search_response):
+    def test_search_by_category_success(
+        self, mock_session_file, mock_kb_search_response
+    ):
         """Test successful category search."""
         from code_puppy.tools.servicenow_tools import servicenow_kb_search_by_category
 
@@ -304,9 +305,13 @@ class TestHelperFunctions:
 
     def test_convert_html_to_markdown(self):
         """Test HTML to markdown conversion."""
-        from code_puppy.tools.servicenow_tools._common import convert_html_to_markdown as _convert_html_to_markdown
+        from code_puppy.tools.servicenow_tools._common import (
+            convert_html_to_markdown as _convert_html_to_markdown,
+        )
 
-        html = "<h2>Title</h2><p>Paragraph text</p><ul><li>Item 1</li><li>Item 2</li></ul>"
+        html = (
+            "<h2>Title</h2><p>Paragraph text</p><ul><li>Item 1</li><li>Item 2</li></ul>"
+        )
         markdown = _convert_html_to_markdown(html)
 
         assert "## Title" in markdown
@@ -315,7 +320,9 @@ class TestHelperFunctions:
 
     def test_convert_empty_html(self):
         """Test conversion of empty HTML."""
-        from code_puppy.tools.servicenow_tools._common import convert_html_to_markdown as _convert_html_to_markdown
+        from code_puppy.tools.servicenow_tools._common import (
+            convert_html_to_markdown as _convert_html_to_markdown,
+        )
 
         assert _convert_html_to_markdown("") == ""
         assert _convert_html_to_markdown(None) == ""
@@ -400,7 +407,9 @@ class TestServiceNowCreateIncident:
         assert result["success"] is True
         assert result["dry_run"] is True
         assert "preview" in result
-        assert result["preview"]["short_description"] == "Test incident - VPN not working"
+        assert (
+            result["preview"]["short_description"] == "Test incident - VPN not working"
+        )
         assert "2 (Medium)" in result["preview"]["urgency"]
         assert "3 (Low)" in result["preview"]["impact"]
         assert result["preview"]["category"] == "Network"
@@ -663,7 +672,9 @@ class TestServiceNowGetCatalogItemDetails:
 
     def test_get_catalog_item_details_success(self):
         """Test getting catalog item details with variables."""
-        from code_puppy.tools.servicenow_tools import servicenow_get_catalog_item_details
+        from code_puppy.tools.servicenow_tools import (
+            servicenow_get_catalog_item_details,
+        )
 
         mock_ctx = MagicMock()
         mock_response = {
@@ -719,7 +730,9 @@ class TestServiceNowGetCatalogItemDetails:
 
     def test_get_catalog_item_not_found(self):
         """Test handling of catalog item not found."""
-        from code_puppy.tools.servicenow_tools import servicenow_get_catalog_item_details
+        from code_puppy.tools.servicenow_tools import (
+            servicenow_get_catalog_item_details,
+        )
 
         mock_ctx = MagicMock()
 
@@ -773,7 +786,9 @@ class TestServiceNowSubmitCatalogRequest:
             "code_puppy.tools.servicenow_tools.catalog.get_servicenow_client"
         ) as mock_get_client:
             mock_client = MagicMock()
-            mock_client.submit_catalog_request.return_value = mock_catalog_request_response
+            mock_client.submit_catalog_request.return_value = (
+                mock_catalog_request_response
+            )
             mock_get_client.return_value = mock_client
 
             result = servicenow_submit_catalog_request(

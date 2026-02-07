@@ -7,7 +7,6 @@ automatically falling back to the next provider if one fails.
 from __future__ import annotations
 
 
-
 from PIL import Image
 
 from code_puppy.messaging import emit_error, emit_info, emit_warning

@@ -212,7 +212,7 @@ class TestConfigExtendedPart1:
         # Test default when not set
         set_config_value("compaction_threshold", "")
         result = get_compaction_threshold()
-        assert result == 0.85  # Default should be 0.85
+        assert result == 0.7  # Default should be 0.70
 
     def test_integer_conversion_diff_context_lines(self, mock_config_file):
         """Test integer conversion for diff_context_lines"""
@@ -332,7 +332,7 @@ class TestConfigExtendedPart1:
         # Test float conversion with invalid values
         set_config_value("compaction_threshold", "invalid")
         result = get_compaction_threshold()
-        assert result == 0.85  # Should fall back to default
+        assert result == 0.7  # Should fall back to default
 
         # Test integer conversion with out-of-range values
         set_config_value("diff_context_lines", "100")  # Above max of 50

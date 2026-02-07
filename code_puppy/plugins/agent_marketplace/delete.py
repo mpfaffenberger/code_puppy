@@ -149,7 +149,7 @@ def handle_delete_agent(command: str) -> bool:
             raise Exception(error_msg)
 
         # Success!
-        data = response.get("data", {})
+        response.get("data", {})
         message = response.get("message", f"Agent '{agent_name}' deleted successfully!")
 
         console.print(

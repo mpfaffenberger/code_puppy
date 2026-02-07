@@ -62,7 +62,7 @@ def servicenow_create_change(
     emit_info(
         Text.from_markup(
             f"\n[bold white on orange1] SERVICENOW {mode_label} [/bold white on orange1] "
-            f"\U0001F504 [bold cyan]{short_description[:50]}...[/bold cyan]"
+            f"\U0001f504 [bold cyan]{short_description[:50]}...[/bold cyan]"
         )
     )
 
@@ -148,7 +148,7 @@ def servicenow_get_change(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW GET CHANGE [/bold white on blue] "
-            f"\U0001F4CB [bold cyan]{change_id}[/bold cyan]"
+            f"\U0001f4cb [bold cyan]{change_id}[/bold cyan]"
         )
     )
 
@@ -157,7 +157,7 @@ def servicenow_get_change(
         result = client.get_change(change_id)
 
         change_data = result.get("result", {})
-        
+
         if isinstance(change_data, list):
             if not change_data:
                 return {
@@ -231,8 +231,8 @@ def servicenow_list_my_changes(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on blue] SERVICENOW MY CHANGES [/bold white on blue] "
-            f"\U0001F504 [bold cyan]Fetching...[/bold cyan]"
+            "\n[bold white on blue] SERVICENOW MY CHANGES [/bold white on blue] "
+            "\U0001f504 [bold cyan]Fetching...[/bold cyan]"
         )
     )
 
@@ -242,22 +242,25 @@ def servicenow_list_my_changes(
 
         changes = []
         for chg in result.get("result", []):
+
             def get_display(field):
                 val = chg.get(field, {})
                 if isinstance(val, dict):
                     return val.get("display_value", val.get("value", ""))
                 return val or ""
 
-            changes.append({
-                "number": get_display("number"),
-                "short_description": get_display("short_description"),
-                "state": get_display("state"),
-                "type": get_display("type"),
-                "risk": get_display("risk"),
-                "assignment_group": get_display("assignment_group"),
-                "start_date": get_display("start_date"),
-                "end_date": get_display("end_date"),
-            })
+            changes.append(
+                {
+                    "number": get_display("number"),
+                    "short_description": get_display("short_description"),
+                    "state": get_display("state"),
+                    "type": get_display("type"),
+                    "risk": get_display("risk"),
+                    "assignment_group": get_display("assignment_group"),
+                    "start_date": get_display("start_date"),
+                    "end_date": get_display("end_date"),
+                }
+            )
 
         emit_success(f"Found {len(changes)} change(s)")
 
@@ -312,7 +315,7 @@ def servicenow_add_change_task(
     emit_info(
         Text.from_markup(
             f"\n[bold white on orange1] SERVICENOW {mode_label} [/bold white on orange1] "
-            f"\U0001F4DD [bold cyan]{change_id}[/bold cyan]"
+            f"\U0001f4dd [bold cyan]{change_id}[/bold cyan]"
         )
     )
 
@@ -387,7 +390,7 @@ def servicenow_list_change_tasks(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW CHANGE TASKS [/bold white on blue] "
-            f"\U0001F4DD [bold cyan]{change_id}[/bold cyan]"
+            f"\U0001f4dd [bold cyan]{change_id}[/bold cyan]"
         )
     )
 
@@ -397,20 +400,23 @@ def servicenow_list_change_tasks(
 
         tasks = []
         for task in result.get("result", []):
+
             def get_display(field):
                 val = task.get(field, {})
                 if isinstance(val, dict):
                     return val.get("display_value", val.get("value", ""))
                 return val or ""
 
-            tasks.append({
-                "number": get_display("number"),
-                "short_description": get_display("short_description"),
-                "state": get_display("state"),
-                "assignment_group": get_display("assignment_group"),
-                "assigned_to": get_display("assigned_to"),
-                "order": get_display("order"),
-            })
+            tasks.append(
+                {
+                    "number": get_display("number"),
+                    "short_description": get_display("short_description"),
+                    "state": get_display("state"),
+                    "assignment_group": get_display("assignment_group"),
+                    "assigned_to": get_display("assigned_to"),
+                    "order": get_display("order"),
+                }
+            )
 
         emit_success(f"Found {len(tasks)} task(s) for {change_id}")
 

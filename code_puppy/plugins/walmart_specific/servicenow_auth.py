@@ -108,7 +108,7 @@ async def _scrape_servicenow_session_playwright() -> Dict[str, Any]:
             # IMPORTANT: We must wait until we're back on service-now.com, not on the SSO page
             while time.time() - start_time < AUTH_WAIT_TIMEOUT:
                 current_url = page.url
-                
+
                 # Only check cookies if we're actually on the ServiceNow domain
                 # (not on PingFederate SSO or other auth pages)
                 if (
@@ -121,7 +121,7 @@ async def _scrape_servicenow_session_playwright() -> Dict[str, Any]:
                     # We're on ServiceNow - now check for cookies
                     cookies = await context.cookies()
                     cookie_names = [cookie["name"] for cookie in cookies]
-                    
+
                     has_glide_session = any(
                         "glide_session" in name.lower() for name in cookie_names
                     )
@@ -173,14 +173,16 @@ async def _scrape_servicenow_session_playwright() -> Dict[str, Any]:
 
             # Also store all cookies for completeness
             all_cookies = {cookie["name"]: cookie["value"] for cookie in cookies}
-            
+
             # Try to extract the g_ck token (CSRF token needed for API calls)
             # This is typically available as a JavaScript variable on the page
             g_ck_token = None
             try:
-                g_ck_token = await page.evaluate("() => window.g_ck || window.NOW?.g_ck || ''")
+                g_ck_token = await page.evaluate(
+                    "() => window.g_ck || window.NOW?.g_ck || ''"
+                )
                 if g_ck_token:
-                    emit_info(f"🔑 Captured g_ck token for API authentication")
+                    emit_info("🔑 Captured g_ck token for API authentication")
                     all_cookies["g_ck"] = g_ck_token
             except Exception:
                 emit_info("⚠️  Could not extract g_ck token (may not be needed)")

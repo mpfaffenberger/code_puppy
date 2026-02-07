@@ -64,9 +64,6 @@ from code_puppy.plugins.walmart_specific.databricks_auth import (
     get_databricks_auth_help,
     handle_databricks_auth_command,
 )
-from code_puppy.plugins.walmart_specific.dbos_sampling import (
-    is_user_in_dbos_sample,
-)
 from code_puppy.plugins.walmart_specific.telemetry_utils import (
     build_delete_file_telemetry_data,
     build_shell_command_telemetry_data,
@@ -77,7 +74,10 @@ from code_puppy.plugins.walmart_specific.camoufox_browser import (
     get_camoufox_browser_types,
 )
 from code_puppy.tools.command_runner import ShellCommandOutput
-from code_puppy.mcp_.server_registry_catalog import MCPServerTemplate, MCPServerRequirements
+from code_puppy.mcp_.server_registry_catalog import (
+    MCPServerTemplate,
+    MCPServerRequirements,
+)
 from code_puppy.plugins.walmart_specific.walmart_gemini_model import WalmartGeminiModel
 from code_puppy.plugins.walmart_specific.enterprise_tools import get_enterprise_tools
 from code_puppy.model_utils import is_gemini_model
@@ -392,7 +392,9 @@ async def strip_thinking_signatures_for_non_gemini(
         for message in history:
             if isinstance(message, ModelResponse):
                 for part in message.parts:
-                    if isinstance(part, ThinkingPart) and getattr(part, 'signature', None):
+                    if isinstance(part, ThinkingPart) and getattr(
+                        part, "signature", None
+                    ):
                         signatures_found = True
                         break
             if signatures_found:
@@ -405,7 +407,9 @@ async def strip_thinking_signatures_for_non_gemini(
         for message in history:
             if isinstance(message, ModelResponse):
                 for part in message.parts:
-                    if isinstance(part, ThinkingPart) and getattr(part, 'signature', None):
+                    if isinstance(part, ThinkingPart) and getattr(
+                        part, "signature", None
+                    ):
                         part.signature = None
 
     except Exception:

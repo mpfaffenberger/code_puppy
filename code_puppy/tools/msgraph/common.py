@@ -1,4 +1,3 @@
-
 """Common utilities for Microsoft Graph tools.
 
 Provides shared helpers for all msgraph tools including:
@@ -13,9 +12,6 @@ Provides shared helpers for all msgraph tools including:
 import json
 import re
 from typing import Any
-# Maximum character limit for tool responses to stay within token budget
-MAX_RESPONSE_CHARS = 10_000
-
 
 from pydantic_ai import RunContext
 from pydantic_ai.tools import Tool
@@ -30,6 +26,9 @@ from code_puppy.plugins.walmart_specific.msgraph_client import (
     MSGraphAPIError,
     MSGraphThrottledError,
 )
+
+# Maximum character limit for tool responses to stay within token budget
+MAX_RESPONSE_CHARS = 10_000
 
 
 # =============================================================================
@@ -181,9 +180,9 @@ def truncate_list_response(
     }
 
     if truncated:
-        result[
-            "message"
-        ] = f"Response truncated. Returned {items_returned} of {len(items)} items. Use item_offset={next_offset} to continue."
+        result["message"] = (
+            f"Response truncated. Returned {items_returned} of {len(items)} items. Use item_offset={next_offset} to continue."
+        )
 
     return result
 

@@ -22,7 +22,7 @@ else:
     Image = None  # type: ignore[misc, assignment]
 
 if TYPE_CHECKING:
-    from PIL import Image as PILImage
+    pass
 
 # Global temp directory for debug screenshots (NOT in user's pwd)
 _TEMP_SCREENSHOT_DIR: Path | None = None

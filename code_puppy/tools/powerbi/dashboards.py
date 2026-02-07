@@ -43,8 +43,10 @@ def powerbi_list_dashboards(
         # List dashboards in a specific workspace
         powerbi_list_dashboards(workspace_id="abc-123-def")
     """
-    workspace_label = f"workspace {workspace_id[:8]}..." if workspace_id else "My Workspace"
-    
+    workspace_label = (
+        f"workspace {workspace_id[:8]}..." if workspace_id else "My Workspace"
+    )
+
     emit_info(
         Text.from_markup(
             f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
@@ -54,27 +56,29 @@ def powerbi_list_dashboards(
 
     try:
         client = get_powerbi_client()
-        
+
         if workspace_id:
             endpoint = f"/groups/{workspace_id}/dashboards"
         else:
             endpoint = "/dashboards"
-        
+
         response = client.get(endpoint, params={"$top": top})
         dashboards = response.get("value", [])
-        
+
         emit_success(f"Found {len(dashboards)} dashboards")
-        
+
         formatted = []
         for dash in dashboards:
-            formatted.append({
-                "id": dash.get("id"),
-                "name": dash.get("displayName"),
-                "web_url": dash.get("webUrl"),
-                "embed_url": dash.get("embedUrl"),
-                "is_read_only": dash.get("isReadOnly", False),
-            })
-        
+            formatted.append(
+                {
+                    "id": dash.get("id"),
+                    "name": dash.get("displayName"),
+                    "web_url": dash.get("webUrl"),
+                    "embed_url": dash.get("embedUrl"),
+                    "is_read_only": dash.get("isReadOnly", False),
+                }
+            )
+
         return {
             "success": True,
             "count": len(formatted),
@@ -114,16 +118,16 @@ def powerbi_get_dashboard(
 
     try:
         client = get_powerbi_client()
-        
+
         if workspace_id:
             endpoint = f"/groups/{workspace_id}/dashboards/{dashboard_id}"
         else:
             endpoint = f"/dashboards/{dashboard_id}"
-        
+
         response = client.get(endpoint)
-        
+
         emit_success(f"Got dashboard: {response.get('displayName', 'Unknown')}")
-        
+
         return {
             "success": True,
             "dashboard": {
@@ -162,36 +166,38 @@ def powerbi_list_dashboard_tiles(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"🖼️ [bold cyan]Listing dashboard tiles...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "🖼️ [bold cyan]Listing dashboard tiles...[/bold cyan]"
         )
     )
 
     try:
         client = get_powerbi_client()
-        
+
         if workspace_id:
             endpoint = f"/groups/{workspace_id}/dashboards/{dashboard_id}/tiles"
         else:
             endpoint = f"/dashboards/{dashboard_id}/tiles"
-        
+
         response = client.get(endpoint)
         tiles = response.get("value", [])
-        
+
         emit_success(f"Found {len(tiles)} tiles")
-        
+
         formatted = []
         for tile in tiles:
-            formatted.append({
-                "id": tile.get("id"),
-                "title": tile.get("title"),
-                "report_id": tile.get("reportId"),
-                "dataset_id": tile.get("datasetId"),
-                "embed_url": tile.get("embedUrl"),
-                "row_span": tile.get("rowSpan"),
-                "col_span": tile.get("colSpan"),
-            })
-        
+            formatted.append(
+                {
+                    "id": tile.get("id"),
+                    "title": tile.get("title"),
+                    "report_id": tile.get("reportId"),
+                    "dataset_id": tile.get("datasetId"),
+                    "embed_url": tile.get("embedUrl"),
+                    "row_span": tile.get("rowSpan"),
+                    "col_span": tile.get("colSpan"),
+                }
+            )
+
         return {
             "success": True,
             "count": len(formatted),

@@ -82,7 +82,7 @@ class TestConfigExtendedPart2:
         with patch("code_puppy.config.get_value") as mock_get:
             mock_get.return_value = None
             result = get_compaction_threshold()
-            assert result == 0.85  # Default value
+            assert result == 0.7  # Default value
             mock_get.assert_called_once_with("compaction_threshold")
 
         # Test valid threshold
@@ -107,7 +107,7 @@ class TestConfigExtendedPart2:
         with patch("code_puppy.config.get_value") as mock_get:
             mock_get.return_value = "invalid"
             result = get_compaction_threshold()
-            assert result == 0.85  # Default fallback
+            assert result == 0.7  # Default fallback
 
     def test_get_use_dbos(self, mock_config_file):
         """Test getting DBOS usage flag"""

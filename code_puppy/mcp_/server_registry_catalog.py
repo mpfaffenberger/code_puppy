@@ -439,7 +439,6 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
             system_requirements=["GitHub account with personal access token"],
         ),
     ),
-
     MCPServerTemplate(
         id="gitlab",
         name="gitlab",

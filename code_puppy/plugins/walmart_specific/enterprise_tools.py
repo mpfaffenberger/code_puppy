@@ -11,7 +11,7 @@ Tools included:
 - Marketplace (5 tools): Agent marketplace operations
 """
 
-from typing import Any, Callable
+from typing import Any
 
 
 def get_enterprise_tools() -> list[dict[str, Any]]:
@@ -70,40 +70,109 @@ def get_enterprise_tools() -> list[dict[str, Any]]:
 
     return [
         # BigQuery Tools (7)
-        {"name": "bigquery_get_default_project", "register_func": register_bigquery_get_default_project},
-        {"name": "bigquery_list_all_projects", "register_func": register_bigquery_list_all_projects},
-        {"name": "bigquery_list_datasets", "register_func": register_bigquery_list_datasets},
-        {"name": "bigquery_list_tables", "register_func": register_bigquery_list_tables},
-        {"name": "bigquery_execute_query", "register_func": register_bigquery_execute_query},
-        {"name": "bigquery_get_table_schema", "register_func": register_bigquery_get_table_schema},
-        {"name": "bigquery_search_tables", "register_func": register_bigquery_search_tables},
+        {
+            "name": "bigquery_get_default_project",
+            "register_func": register_bigquery_get_default_project,
+        },
+        {
+            "name": "bigquery_list_all_projects",
+            "register_func": register_bigquery_list_all_projects,
+        },
+        {
+            "name": "bigquery_list_datasets",
+            "register_func": register_bigquery_list_datasets,
+        },
+        {
+            "name": "bigquery_list_tables",
+            "register_func": register_bigquery_list_tables,
+        },
+        {
+            "name": "bigquery_execute_query",
+            "register_func": register_bigquery_execute_query,
+        },
+        {
+            "name": "bigquery_get_table_schema",
+            "register_func": register_bigquery_get_table_schema,
+        },
+        {
+            "name": "bigquery_search_tables",
+            "register_func": register_bigquery_search_tables,
+        },
         # Databricks Tools (6)
-        {"name": "databricks_list_catalogs", "register_func": register_databricks_list_catalogs},
-        {"name": "databricks_list_schemas", "register_func": register_databricks_list_schemas},
-        {"name": "databricks_list_tables", "register_func": register_databricks_list_tables},
-        {"name": "databricks_get_table_schema", "register_func": register_databricks_get_table_schema},
-        {"name": "databricks_list_warehouses", "register_func": register_databricks_list_warehouses},
-        {"name": "databricks_execute_query", "register_func": register_databricks_execute_query},
+        {
+            "name": "databricks_list_catalogs",
+            "register_func": register_databricks_list_catalogs,
+        },
+        {
+            "name": "databricks_list_schemas",
+            "register_func": register_databricks_list_schemas,
+        },
+        {
+            "name": "databricks_list_tables",
+            "register_func": register_databricks_list_tables,
+        },
+        {
+            "name": "databricks_get_table_schema",
+            "register_func": register_databricks_get_table_schema,
+        },
+        {
+            "name": "databricks_list_warehouses",
+            "register_func": register_databricks_list_warehouses,
+        },
+        {
+            "name": "databricks_execute_query",
+            "register_func": register_databricks_execute_query,
+        },
         # Confluence Tools (4)
         {"name": "confluence_search", "register_func": register_confluence_search},
-        {"name": "confluence_read_page", "register_func": register_confluence_read_page},
-        {"name": "confluence_search_by_space", "register_func": register_confluence_search_by_space},
-        {"name": "confluence_authenticate", "register_func": register_confluence_authenticate},
+        {
+            "name": "confluence_read_page",
+            "register_func": register_confluence_read_page,
+        },
+        {
+            "name": "confluence_search_by_space",
+            "register_func": register_confluence_search_by_space,
+        },
+        {
+            "name": "confluence_authenticate",
+            "register_func": register_confluence_authenticate,
+        },
         # Jira Tools (10)
         {"name": "jira_search", "register_func": register_jira_search},
         {"name": "jira_list_projects", "register_func": register_jira_list_projects},
-        {"name": "jira_list_application_services", "register_func": register_jira_list_application_services},
+        {
+            "name": "jira_list_application_services",
+            "register_func": register_jira_list_application_services,
+        },
         {"name": "jira_get_issue", "register_func": register_jira_get_issue},
         {"name": "jira_create_issue", "register_func": register_jira_create_issue},
         {"name": "jira_add_comment", "register_func": register_jira_add_comment},
         {"name": "jira_update_issue", "register_func": register_jira_update_issue},
-        {"name": "jira_transition_issue", "register_func": register_jira_transition_issue},
+        {
+            "name": "jira_transition_issue",
+            "register_func": register_jira_transition_issue,
+        },
         {"name": "jira_get_comments", "register_func": register_jira_get_comments},
         {"name": "jira_authenticate", "register_func": register_jira_authenticate},
         # Marketplace Tools (5)
-        {"name": "marketplace_search_agents", "register_func": register_marketplace_search_agents},
-        {"name": "marketplace_download_agent", "register_func": register_marketplace_download_agent},
-        {"name": "marketplace_upload_agent", "register_func": register_marketplace_upload_agent},
-        {"name": "marketplace_check_update", "register_func": register_marketplace_check_update},
-        {"name": "marketplace_authenticate", "register_func": register_marketplace_authenticate},
+        {
+            "name": "marketplace_search_agents",
+            "register_func": register_marketplace_search_agents,
+        },
+        {
+            "name": "marketplace_download_agent",
+            "register_func": register_marketplace_download_agent,
+        },
+        {
+            "name": "marketplace_upload_agent",
+            "register_func": register_marketplace_upload_agent,
+        },
+        {
+            "name": "marketplace_check_update",
+            "register_func": register_marketplace_check_update,
+        },
+        {
+            "name": "marketplace_authenticate",
+            "register_func": register_marketplace_authenticate,
+        },
     ]

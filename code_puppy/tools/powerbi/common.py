@@ -33,6 +33,7 @@ from code_puppy.plugins.walmart_specific.powerbi_client import (
 
 class Workspace(BaseModel):
     """Power BI Workspace (Group)."""
+
     id: str
     name: str
     type: str | None = None
@@ -42,6 +43,7 @@ class Workspace(BaseModel):
 
 class Report(BaseModel):
     """Power BI Report."""
+
     id: str
     name: str
     report_type: str | None = Field(default=None, alias="reportType")
@@ -52,6 +54,7 @@ class Report(BaseModel):
 
 class Dataset(BaseModel):
     """Power BI Dataset."""
+
     id: str
     name: str
     configured_by: str | None = Field(default=None, alias="configuredBy")
@@ -62,6 +65,7 @@ class Dataset(BaseModel):
 
 class TableInfo(BaseModel):
     """Power BI Dataset Table Info."""
+
     id: int = Field(alias="[ID]")
     name: str = Field(alias="[Name]")
     is_hidden: bool = Field(default=False, alias="[IsHidden]")
@@ -69,6 +73,7 @@ class TableInfo(BaseModel):
 
 class ColumnInfo(BaseModel):
     """Power BI Dataset Column Info."""
+
     table_id: int = Field(alias="[TableID]")
     name: str | None = Field(default=None)
     data_type: int | None = Field(default=None)
@@ -201,7 +206,7 @@ def powerbi_api_request(
     """
     method = method.upper()
     valid_methods = {"GET", "POST", "PATCH", "DELETE", "PUT"}
-    
+
     if method not in valid_methods:
         error_msg = f"Invalid HTTP method: {method}. Must be one of: {', '.join(sorted(valid_methods))}"
         emit_error(error_msg)

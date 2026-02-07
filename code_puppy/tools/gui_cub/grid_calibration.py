@@ -27,7 +27,6 @@ else:
     ImageFont = None
 
 
-from code_puppy.messaging import emit_error
 from .rich_emit import emit_rich
 from code_puppy.tools.common import generate_group_id
 

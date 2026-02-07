@@ -106,6 +106,7 @@ async def screenshot_analyze(
     if not is_ocr and save_path is None:
         from tempfile import gettempdir
         from pathlib import Path
+
         temp_dir = Path(gettempdir()) / "code_puppy_vqa_screenshots"
         temp_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

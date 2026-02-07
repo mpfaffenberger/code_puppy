@@ -619,13 +619,17 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 unlock_helios()
                 emit_success("🐄✨ Moo moo moo moo moo moo moo.")
                 emit_info("☀️ Helios, the Universal Constructor, has been unlocked!")
-                emit_info("Use /agents to see available agents, or /agent helios to switch.")
+                emit_info(
+                    "Use /agents to see available agents, or /agent helios to switch."
+                )
             continue
 
         # "show me the money" - unlocks /wiggum command
         if task.strip().lower() == WIGGUM_SECRET_PHRASE:
             if is_wiggum_unlocked():
-                emit_info("💰 Your resources are already plentiful! (/wiggum is unlocked)")
+                emit_info(
+                    "💰 Your resources are already plentiful! (/wiggum is unlocked)"
+                )
             else:
                 unlock_wiggum()
                 emit_success("💰✨ Cha-ching! Your wealth increases!")

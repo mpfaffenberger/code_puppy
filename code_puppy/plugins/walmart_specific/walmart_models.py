@@ -37,7 +37,12 @@ def get_walmart_models() -> Dict[str, Any]:
             "name": "gemini-2.5-pro",
             "type": "custom_gemini",
             "context_length": 1048576,
-            "supported_settings": ["temperature", "top_p", "thinking_enabled", "thinking_level"],
+            "supported_settings": [
+                "temperature",
+                "top_p",
+                "thinking_enabled",
+                "thinking_level",
+            ],
         },
         "gemini-3-pro-preview": {
             "custom_endpoint": {
@@ -48,7 +53,12 @@ def get_walmart_models() -> Dict[str, Any]:
             "name": "gemini-3-pro-preview",
             "type": "custom_gemini",
             "context_length": 200000,
-            "supported_settings": ["temperature", "top_p", "thinking_enabled", "thinking_level"],
+            "supported_settings": [
+                "temperature",
+                "top_p",
+                "thinking_enabled",
+                "thinking_level",
+            ],
         },
         "gemini-3-pro-preview-long": {
             "custom_endpoint": {
@@ -59,7 +69,12 @@ def get_walmart_models() -> Dict[str, Any]:
             "name": "gemini-3-pro-preview",
             "type": "custom_gemini",
             "context_length": 1000000,
-            "supported_settings": ["temperature", "top_p", "thinking_enabled", "thinking_level"],
+            "supported_settings": [
+                "temperature",
+                "top_p",
+                "thinking_enabled",
+                "thinking_level",
+            ],
         },
         "gpt-4.1-custom": {
             "custom_endpoint": {

@@ -13,7 +13,6 @@ from code_puppy.tools.msgraph.common import (
 )
 from code_puppy.plugins.walmart_specific.msgraph_client import (
     MSGraphAuthError,
-    MSGraphAPIError,
 )
 
 
@@ -317,7 +316,7 @@ class TestMsgraphAuthenticate:
     def test_msgraph_authenticate_success(self, mock_context):
         """Test successful authentication."""
         with patch(
-            "code_puppy.tools.msgraph.common.handle_msgraph_auth_command"
+            "code_puppy.plugins.walmart_specific.msgraph_auth.handle_msgraph_auth_command"
         ) as mock_auth:
             mock_auth.return_value = "Authentication successful"
 
@@ -329,7 +328,7 @@ class TestMsgraphAuthenticate:
     def test_msgraph_authenticate_failure(self, mock_context):
         """Test failed authentication."""
         with patch(
-            "code_puppy.tools.msgraph.common.handle_msgraph_auth_command"
+            "code_puppy.plugins.walmart_specific.msgraph_auth.handle_msgraph_auth_command"
         ) as mock_auth:
             mock_auth.return_value = "Authentication failed"
 
@@ -340,7 +339,7 @@ class TestMsgraphAuthenticate:
     def test_msgraph_authenticate_exception(self, mock_context):
         """Test authentication exception handling."""
         with patch(
-            "code_puppy.tools.msgraph.common.handle_msgraph_auth_command"
+            "code_puppy.plugins.walmart_specific.msgraph_auth.handle_msgraph_auth_command"
         ) as mock_auth:
             mock_auth.side_effect = Exception("Network error")
 

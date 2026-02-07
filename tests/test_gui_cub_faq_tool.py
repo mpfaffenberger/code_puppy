@@ -234,7 +234,6 @@ class TestFAQTopicCoverage:
             assert display_name, f"Topic {key} has no display name"
             assert len(display_name) > 5, f"Topic {key} display name too short"
 
-
     def test_minimum_topic_count(self):
         """Should have at least 10 FAQ topics."""
         assert len(FAQ_TOPICS) >= 10

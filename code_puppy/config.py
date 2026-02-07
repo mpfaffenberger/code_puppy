@@ -1250,7 +1250,7 @@ def get_compaction_threshold():
     This is the proportion of model context that triggers compaction.
     Defaults to 0.70 (70%) if unset or misconfigured.
     Configurable by 'compaction_threshold' key.
-    
+
     Note: Lower threshold (70%) helps avoid timeout issues with extended thinking
     on large contexts - compaction happens earlier, keeping context smaller.
     """

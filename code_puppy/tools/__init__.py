@@ -103,8 +103,11 @@ from code_puppy.tools.confluence_tools import (
     register_confluence_search_by_space,
     register_confluence_authenticate,
 )
+
 # ServiceNow tools - imported from new modular package
-from code_puppy.tools.servicenow_tools import ALL_REGISTRATION_FUNCTIONS as SERVICENOW_TOOLS
+from code_puppy.tools.servicenow_tools import (
+    ALL_REGISTRATION_FUNCTIONS as SERVICENOW_TOOLS,
+)
 from code_puppy.tools.jira_tools import (
     register_jira_search,
     register_jira_list_projects,
@@ -257,7 +260,6 @@ TOOL_REGISTRY = {
     "marketplace_upload_agent": register_marketplace_upload_agent,
     "marketplace_check_update": register_marketplace_check_update,
     "marketplace_authenticate": register_marketplace_authenticate,
-  
     # Terminal Connection Tools
     "terminal_check_server": register_check_terminal_server,
     "terminal_open": register_open_terminal,

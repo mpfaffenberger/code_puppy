@@ -133,7 +133,7 @@ class TestWiggumCommand:
         """The /wiggum command should be registered."""
         from code_puppy.command_line.command_registry import get_command
 
-        cmd = get_command("wiggum")
+        cmd = get_command("wiggum", include_unavailable=True)
 
         assert cmd is not None
         assert cmd.name == "wiggum"
@@ -143,7 +143,7 @@ class TestWiggumCommand:
         """The /wiggum_stop command should be registered with aliases."""
         from code_puppy.command_line.command_registry import get_command
 
-        cmd = get_command("wiggum_stop")
+        cmd = get_command("wiggum_stop", include_unavailable=True)
 
         assert cmd is not None
         assert cmd.name == "wiggum_stop"
@@ -155,7 +155,7 @@ class TestWiggumCommand:
         from code_puppy.command_line.command_registry import get_command
         from code_puppy.command_line.wiggum_state import is_wiggum_active
 
-        cmd = get_command("wiggum")
+        cmd = get_command("wiggum", include_unavailable=True)
         result = cmd.handler("/wiggum")
 
         assert result is True
@@ -169,7 +169,7 @@ class TestWiggumCommand:
             is_wiggum_active,
         )
 
-        cmd = get_command("wiggum")
+        cmd = get_command("wiggum", include_unavailable=True)
         result = cmd.handler("/wiggum say hello world")
 
         assert result == "say hello world"
@@ -184,7 +184,7 @@ class TestWiggumCommand:
         start_wiggum("test prompt")
         assert is_wiggum_active()
 
-        cmd = get_command("wiggum_stop")
+        cmd = get_command("wiggum_stop", include_unavailable=True)
         result = cmd.handler("/wiggum_stop")
 
         assert result is True
@@ -197,7 +197,7 @@ class TestWiggumCommand:
 
         assert not is_wiggum_active()
 
-        cmd = get_command("wiggum_stop")
+        cmd = get_command("wiggum_stop", include_unavailable=True)
         result = cmd.handler("/wiggum_stop")
 
         assert result is True
@@ -207,7 +207,7 @@ class TestWiggumCommand:
         """The /ws alias should work for wiggum_stop."""
         from code_puppy.command_line.command_registry import get_command
 
-        cmd = get_command("ws")
+        cmd = get_command("ws", include_unavailable=True)
 
         assert cmd is not None
         assert cmd.name == "wiggum_stop"  # Same CommandInfo

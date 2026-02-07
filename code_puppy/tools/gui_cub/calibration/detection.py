@@ -16,12 +16,6 @@ import sys
 from typing import Any
 
 from ..dependencies import PYAUTOGUI_AVAILABLE
-from ..rich_emit import emit_rich
-
-try:
-    from code_puppy import __version__ as code_puppy_version
-except ImportError:
-    code_puppy_version = "unknown"
 
 if PYAUTOGUI_AVAILABLE:
     import pyautogui
@@ -36,6 +30,13 @@ if sys.platform == "win32":
     HWND_BROADCAST = 0xFFFF
     WM_SETTINGCHANGE = 0x001A
     SMTO_ABORTIFHUNG = 0x0002
+
+from ..rich_emit import emit_rich
+
+try:
+    from code_puppy import __version__ as code_puppy_version
+except ImportError:
+    code_puppy_version = "unknown"
 
 
 def download_with_walmart_fallback(

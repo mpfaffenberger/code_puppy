@@ -31,7 +31,6 @@ def find_text_in_elements(
     Returns:
         OCRFindResult with matching elements
     """
-    from code_puppy.messaging import emit_warning
     from ..rich_emit import emit_rich
 
     emit_rich(

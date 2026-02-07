@@ -267,7 +267,6 @@ class TestGlobalHistoryManager:
         assert isinstance(manager1, CommandHistoryManager)
 
 
-
 @pytest.mark.integration
 class TestEndToEndHistory:
     """Integration tests for complete history workflow."""

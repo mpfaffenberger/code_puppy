@@ -242,7 +242,7 @@ def _format_issue(issue: dict[str, Any]) -> dict[str, Any]:
     # - 1 element: raw ID ['2125770'] (if resolution failed)
     application_service_raw = fields.get(get_application_service_field())
     application_service = None
-    
+
     if application_service_raw and isinstance(application_service_raw, list):
         if len(application_service_raw) == 3:
             # Resolved path - format as "Level1 -> Level2 -> Level3"
@@ -323,15 +323,15 @@ def _format_issue_summary(issue: dict[str, Any]) -> dict[str, Any]:
 
 def _parse_application_service_input(value: str | list[str]) -> list[str]:
     """Parse application_service input into a 3-element list.
-    
+
     Args:
         value: Either a list of 3 strings or a delimited string.
                Supported delimiters: ' -> ', '.', '/', '|', '>'
                e.g. "Level1 -> Level2 -> Level3" or ["Level1", "Level2", "Level3"]
-    
+
     Returns:
         A list of exactly 3 strings.
-    
+
     Raises:
         ValueError: If the input cannot be parsed into exactly 3 elements.
     """
@@ -341,27 +341,29 @@ def _parse_application_service_input(value: str | list[str]) -> list[str]:
                 f"Application/Service must have exactly 3 levels, got {len(value)}"
             )
         return value
-    
+
     if isinstance(value, str):
         # Try different delimiters in order of likelihood
-        delimiters = [' -> ', '.', '/', '|', '>']
+        delimiters = [" -> ", ".", "/", "|", ">"]
         for delimiter in delimiters:
             if delimiter in value:
                 parts = [part.strip() for part in value.split(delimiter)]
                 if len(parts) == 3:
                     return parts
-        
+
         raise ValueError(
             f"Application/Service string must contain exactly 3 levels separated by "
             f"' -> ', '.', '/', '|', or '>'. Got: {value}"
         )
-    
+
     raise ValueError(
         f"Application/Service must be a list or string, got {type(value).__name__}"
     )
 
 
-def _resolve_application_service_id(client: JiraClient, path: list[str], issue_id: str | None = None) -> str:
+def _resolve_application_service_id(
+    client: JiraClient, path: list[str], issue_id: str | None = None
+) -> str:
     """Resolve the Application/Service path to an ID.
 
     Args:
@@ -389,11 +391,11 @@ def _resolve_application_service_id(client: JiraClient, path: list[str], issue_i
         "view": "EDIT",
         "startIndex": 0,
     }
-    
+
     # Add issue context if available (helps the API return complete results)
     if issue_id:
         payload["fieldContext"] = {"issueKeyOrId": issue_id}
-    
+
     try:
         response = client._make_request(
             "POST",
@@ -886,11 +888,13 @@ def jira_list_application_services(
                 # Each option should have exactly 3 levels
                 if len(values) == 3:
                     path = " -> ".join(values)
-                    formatted_options.append({
-                        "id": option_id,
-                        "path": path,
-                        "levels": values,
-                    })
+                    formatted_options.append(
+                        {
+                            "id": option_id,
+                            "path": path,
+                            "levels": values,
+                        }
+                    )
 
             # Apply search filter if provided
             filtered = False
@@ -898,7 +902,8 @@ def jira_list_application_services(
                 filtered = True
                 search_lower = search_query.lower()
                 formatted_options = [
-                    opt for opt in formatted_options
+                    opt
+                    for opt in formatted_options
                     if search_lower in opt["path"].lower()
                 ]
 
@@ -1005,7 +1010,7 @@ def jira_get_issue(
                 get_application_service_field(),
             ]
             issue = client.get_issue(issue_key, fields=issue_fields)
-            
+
             # Resolve Application/Service ID to human-readable path
             app_service_field = get_application_service_field()
             raw_app_service = issue.get("fields", {}).get(app_service_field)
@@ -1022,7 +1027,7 @@ def jira_get_issue(
                 except Exception:
                     # If resolution fails, keep the raw value
                     pass
-            
+
             formatted = _format_issue(issue)
 
             # Apply truncation guardrails to description
@@ -1195,7 +1200,7 @@ def jira_create_issue(
             if application_service:
                 # Parse and normalize the input (handles both string and list formats)
                 app_service_path = _parse_application_service_input(application_service)
-                
+
                 # To resolve the ID, we need an existing issue as context
                 # Search for any recent issue in this project to use as template
                 template_issue_id = None
@@ -1210,14 +1215,14 @@ def jira_create_issue(
                 except Exception:
                     # If we can't find a template issue, try without context
                     pass
-                
+
                 # Resolve the path to the numeric ID
                 app_service_id = _resolve_application_service_id(
                     client, app_service_path, issue_id=template_issue_id
                 )
                 # Jira REST API expects just a list with the ID
                 extra_fields[get_application_service_field()] = [app_service_id]
-            
+
             result = client.create_issue(
                 project_key=project_key,
                 issue_type=issue_type,

@@ -180,10 +180,16 @@ class TestAgentCreatorAgent:
                 "list_files",
                 "read_file",
                 "edit_file",
+                "grep",
+                "agent_run_shell_command",
                 "agent_share_your_reasoning",
                 "ask_user_question",
                 "list_agents",
                 "invoke_agent",
+                "marketplace_search_agents",
+                "marketplace_download_agent",
+                "marketplace_upload_agent",
+                "marketplace_authenticate",
                 "universal_constructor",
             ]
             assert agent.get_available_tools() == expected_tools
@@ -199,10 +205,16 @@ class TestAgentCreatorAgent:
                 "list_files",
                 "read_file",
                 "edit_file",
+                "grep",
+                "agent_run_shell_command",
                 "agent_share_your_reasoning",
                 "ask_user_question",
                 "list_agents",
                 "invoke_agent",
+                "marketplace_search_agents",
+                "marketplace_download_agent",
+                "marketplace_upload_agent",
+                "marketplace_authenticate",
             ]
             assert agent.get_available_tools() == expected_tools
 

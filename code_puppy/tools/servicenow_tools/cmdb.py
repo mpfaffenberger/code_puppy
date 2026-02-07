@@ -50,7 +50,7 @@ def servicenow_search_cmdb(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW CMDB SEARCH [/bold white on blue] "
-            f"\U0001F5A5 [bold cyan]{query}[/bold cyan] in {ci_class}"
+            f"\U0001f5a5 [bold cyan]{query}[/bold cyan] in {ci_class}"
         )
     )
 
@@ -60,6 +60,7 @@ def servicenow_search_cmdb(
 
         cis = []
         for ci in result.get("result", []):
+
             def get_display(field):
                 val = ci.get(field, {})
                 if isinstance(val, dict):
@@ -67,17 +68,19 @@ def servicenow_search_cmdb(
                 return val or ""
 
             sys_id = get_display("sys_id") or ci.get("sys_id", "")
-            cis.append({
-                "sys_id": sys_id,
-                "name": get_display("name"),
-                "class": get_display("sys_class_name"),
-                "operational_status": get_display("operational_status"),
-                "install_status": get_display("install_status"),
-                "support_group": get_display("support_group"),
-                "owned_by": get_display("owned_by"),
-                "location": get_display("location"),
-                "url": f"{SERVICENOW_BASE_URL}/nav_to.do?uri={ci_class}.do?sys_id={sys_id}",
-            })
+            cis.append(
+                {
+                    "sys_id": sys_id,
+                    "name": get_display("name"),
+                    "class": get_display("sys_class_name"),
+                    "operational_status": get_display("operational_status"),
+                    "install_status": get_display("install_status"),
+                    "support_group": get_display("support_group"),
+                    "owned_by": get_display("owned_by"),
+                    "location": get_display("location"),
+                    "url": f"{SERVICENOW_BASE_URL}/nav_to.do?uri={ci_class}.do?sys_id={sys_id}",
+                }
+            )
 
         emit_success(f"Found {len(cis)} CI(s)")
 
@@ -119,7 +122,7 @@ def servicenow_get_cmdb_item(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW GET CI [/bold white on blue] "
-            f"\U0001F5A5 [bold cyan]{ci_id}[/bold cyan]"
+            f"\U0001f5a5 [bold cyan]{ci_id}[/bold cyan]"
         )
     )
 
@@ -128,7 +131,7 @@ def servicenow_get_cmdb_item(
         result = client.get_cmdb_item(ci_id=ci_id, ci_class=ci_class)
 
         ci_data = result.get("result", {})
-        
+
         if isinstance(ci_data, list):
             if not ci_data:
                 return {
@@ -199,7 +202,7 @@ def servicenow_get_cmdb_relationships(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW CI RELATIONSHIPS [/bold white on blue] "
-            f"\U0001F517 [bold cyan]{ci_id}[/bold cyan] ({direction})"
+            f"\U0001f517 [bold cyan]{ci_id}[/bold cyan] ({direction})"
         )
     )
 
@@ -209,6 +212,7 @@ def servicenow_get_cmdb_relationships(
 
         relationships = []
         for rel in result.get("result", []):
+
             def get_display(field):
                 val = rel.get(field, {})
                 if isinstance(val, dict):
@@ -217,14 +221,24 @@ def servicenow_get_cmdb_relationships(
 
             parent_val = rel.get("parent", {})
             child_val = rel.get("child", {})
-            
-            relationships.append({
-                "type": get_display("type"),
-                "parent_id": parent_val.get("value", "") if isinstance(parent_val, dict) else parent_val,
-                "parent_name": parent_val.get("display_value", "") if isinstance(parent_val, dict) else "",
-                "child_id": child_val.get("value", "") if isinstance(child_val, dict) else child_val,
-                "child_name": child_val.get("display_value", "") if isinstance(child_val, dict) else "",
-            })
+
+            relationships.append(
+                {
+                    "type": get_display("type"),
+                    "parent_id": parent_val.get("value", "")
+                    if isinstance(parent_val, dict)
+                    else parent_val,
+                    "parent_name": parent_val.get("display_value", "")
+                    if isinstance(parent_val, dict)
+                    else "",
+                    "child_id": child_val.get("value", "")
+                    if isinstance(child_val, dict)
+                    else child_val,
+                    "child_name": child_val.get("display_value", "")
+                    if isinstance(child_val, dict)
+                    else "",
+                }
+            )
 
         emit_success(f"Found {len(relationships)} relationship(s)")
 
@@ -265,8 +279,8 @@ def servicenow_list_cmdb_classes(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on blue] SERVICENOW CMDB CLASSES [/bold white on blue] "
-            f"\U0001F5A5 [bold cyan]Listing...[/bold cyan]"
+            "\n[bold white on blue] SERVICENOW CMDB CLASSES [/bold white on blue] "
+            "\U0001f5a5 [bold cyan]Listing...[/bold cyan]"
         )
     )
 
@@ -276,11 +290,13 @@ def servicenow_list_cmdb_classes(
 
         classes = []
         for cls in result.get("result", []):
-            classes.append({
-                "name": cls.get("name", ""),
-                "label": cls.get("label", ""),
-                "sys_id": cls.get("sys_id", ""),
-            })
+            classes.append(
+                {
+                    "name": cls.get("name", ""),
+                    "label": cls.get("label", ""),
+                    "sys_id": cls.get("sys_id", ""),
+                }
+            )
 
         emit_success(f"Found {len(classes)} class(es)")
 

@@ -755,4 +755,3 @@ class GeminiStreamingResponse(StreamedResponse):
     @property
     def timestamp(self) -> datetime:
         return self._timestamp_val
-

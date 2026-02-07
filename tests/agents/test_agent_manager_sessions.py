@@ -97,7 +97,6 @@ class TestProcessLiveness:
                 result = _is_process_alive(12345)
                 assert result is False
 
-
     def test_is_process_alive_windows(self):
         """Test Windows process checking."""
         if platform.system() == "Windows":

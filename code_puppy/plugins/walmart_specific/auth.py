@@ -37,7 +37,7 @@ def open_browser(url: str) -> None:
         except (subprocess.CalledProcessError, FileNotFoundError):
             # Chrome not available, fall back to default
             emit_warning("Chrome not found, falling back to default browser")
-    
+
     # Default behavior for non-macOS or if Chrome failed
     webbrowser.open(url)
 

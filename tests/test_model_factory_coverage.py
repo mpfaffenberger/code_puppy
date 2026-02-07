@@ -16,7 +16,6 @@ import os
 from unittest.mock import MagicMock, patch
 
 
-
 class TestGetApiKey:
     """Test the get_api_key() function."""
 
@@ -204,12 +203,12 @@ class TestOpus46EffortSetting:
         assert "output_config" in extra_body
         assert "effort" in extra_body["output_config"]
 
-    def test_opus_46_effort_default_is_high(self):
-        """Default effort for Opus 4-6 should be 'high'."""
+    def test_opus_46_effort_default_is_medium(self):
+        """Default effort for Opus 4-6 should be 'medium'."""
         from code_puppy.model_factory import make_model_settings
 
         settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
-        assert settings["extra_body"]["output_config"]["effort"] == "high"
+        assert settings["extra_body"]["output_config"]["effort"] == "medium"
 
     def test_opus_46_effort_user_override(self):
         """User-configured effort value should be respected."""
@@ -539,7 +538,6 @@ class TestCustomAnthropicModel:
 
 class TestCustomGeminiModel:
     """Test custom_gemini model type."""
-
 
     def test_custom_gemini_missing_api_key(self):
         """Test custom_gemini with missing API key."""

@@ -1,6 +1,6 @@
 import json
 import os
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import mock_open, patch
 
 import pytest
 
@@ -30,8 +30,6 @@ class TestModelFactoryBasics:
             assert "claude-3-5-sonnet" in config
             assert "gpt-4" in config
             assert config["claude-3-5-sonnet"]["type"] == "anthropic"
-
-
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     def test_get_model_openai(self):

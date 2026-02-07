@@ -48,7 +48,7 @@ def servicenow_list_my_tasks(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW MY TASKS [/bold white on blue] "
-            f"\U0001F4CB [bold cyan]Table: {table}[/bold cyan]"
+            f"\U0001f4cb [bold cyan]Table: {table}[/bold cyan]"
         )
     )
 
@@ -58,21 +58,24 @@ def servicenow_list_my_tasks(
 
         tasks = []
         for task in result.get("result", []):
+
             def get_display(field):
                 val = task.get(field, {})
                 if isinstance(val, dict):
                     return val.get("display_value", val.get("value", ""))
                 return val or ""
 
-            tasks.append({
-                "number": get_display("number"),
-                "short_description": get_display("short_description"),
-                "state": get_display("state"),
-                "priority": get_display("priority"),
-                "assignment_group": get_display("assignment_group"),
-                "class": get_display("sys_class_name"),
-                "updated": get_display("sys_updated_on"),
-            })
+            tasks.append(
+                {
+                    "number": get_display("number"),
+                    "short_description": get_display("short_description"),
+                    "state": get_display("state"),
+                    "priority": get_display("priority"),
+                    "assignment_group": get_display("assignment_group"),
+                    "class": get_display("sys_class_name"),
+                    "updated": get_display("sys_updated_on"),
+                }
+            )
 
         emit_success(f"Found {len(tasks)} task(s)")
 
@@ -114,7 +117,7 @@ def servicenow_get_task(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW GET TASK [/bold white on blue] "
-            f"\U0001F4CB [bold cyan]{task_id}[/bold cyan]"
+            f"\U0001f4cb [bold cyan]{task_id}[/bold cyan]"
         )
     )
 
@@ -123,7 +126,7 @@ def servicenow_get_task(
         result = client.get_task(task_id=task_id, table=table)
 
         task_data = result.get("result", {})
-        
+
         if isinstance(task_data, list):
             if not task_data:
                 return {
@@ -199,7 +202,7 @@ def servicenow_update_task(
     emit_info(
         Text.from_markup(
             f"\n[bold white on orange1] SERVICENOW {mode_label} [/bold white on orange1] "
-            f"\U0001F4DD [bold cyan]{task_id[:20]}...[/bold cyan]"
+            f"\U0001f4dd [bold cyan]{task_id[:20]}...[/bold cyan]"
         )
     )
 
@@ -218,7 +221,7 @@ def servicenow_update_task(
 
     try:
         client = get_servicenow_client()
-        result = client.update_task(task_id=task_id, updates=updates, table=table)
+        client.update_task(task_id=task_id, updates=updates, table=table)
 
         emit_success(f"Updated task: {task_id}")
 
@@ -265,7 +268,7 @@ def servicenow_close_task(
     emit_info(
         Text.from_markup(
             f"\n[bold white on gray] SERVICENOW {mode_label} [/bold white on gray] "
-            f"\U0001F512 [bold cyan]{task_id[:20]}...[/bold cyan]"
+            f"\U0001f512 [bold cyan]{task_id[:20]}...[/bold cyan]"
         )
     )
 
@@ -284,7 +287,9 @@ def servicenow_close_task(
 
     try:
         client = get_servicenow_client()
-        result = client.close_task(task_id=task_id, close_notes=close_notes, table=table)
+        client.close_task(
+            task_id=task_id, close_notes=close_notes, table=table
+        )
 
         emit_success(f"Closed task: {task_id}")
 

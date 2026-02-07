@@ -825,7 +825,9 @@ class TestMSGraphMailTruncation:
                 {
                     "id": f"msg-{i}",
                     "subject": f"Message {i}",
-                    "from": {"emailAddress": {"name": "Sender", "address": "s@test.com"}},
+                    "from": {
+                        "emailAddress": {"name": "Sender", "address": "s@test.com"}
+                    },
                     "receivedDateTime": "2025-01-15T10:00:00Z",
                     "bodyPreview": "Preview text",
                     "isRead": True,
@@ -858,7 +860,9 @@ class TestMSGraphMailTruncation:
                 {
                     "id": f"msg-{i}",
                     "subject": f"Message {i}",
-                    "from": {"emailAddress": {"name": "Sender", "address": "s@test.com"}},
+                    "from": {
+                        "emailAddress": {"name": "Sender", "address": "s@test.com"}
+                    },
                     "receivedDateTime": "2025-01-15T10:00:00Z",
                     "bodyPreview": "Preview text",
                     "isRead": True,
@@ -994,7 +998,9 @@ class TestMSGraphMailTruncation:
                 {
                     "id": f"msg-{i}",
                     "subject": f"Search Result {i}",
-                    "from": {"emailAddress": {"name": "Sender", "address": "s@test.com"}},
+                    "from": {
+                        "emailAddress": {"name": "Sender", "address": "s@test.com"}
+                    },
                     "receivedDateTime": "2025-01-15T10:00:00Z",
                     "bodyPreview": "Preview text",
                     "isRead": True,

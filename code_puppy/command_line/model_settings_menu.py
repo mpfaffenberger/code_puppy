@@ -138,7 +138,7 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "description": "Controls how much effort the model spends on its response (Opus 4-6 only). Low = fast, Max = most thorough.",
         "type": "choice",
         "choices": ["low", "medium", "high", "max"],
-        "default": "high",
+        "default": "medium",
     },
 }
 

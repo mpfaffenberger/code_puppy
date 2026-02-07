@@ -43,16 +43,19 @@ def servicenow_list_attachments(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW LIST ATTACHMENTS [/bold white on blue] "
-            f"\U0001F4CE [bold cyan]{table_name}/{record_sys_id[:20]}...[/bold cyan]"
+            f"\U0001f4ce [bold cyan]{table_name}/{record_sys_id[:20]}...[/bold cyan]"
         )
     )
 
     try:
         client = get_servicenow_client()
-        result = client.list_attachments(table_name=table_name, record_sys_id=record_sys_id)
+        result = client.list_attachments(
+            table_name=table_name, record_sys_id=record_sys_id
+        )
 
         attachments = []
         for att in result.get("result", []):
+
             def get_display(field):
                 val = att.get(field, {})
                 if isinstance(val, dict):
@@ -60,15 +63,17 @@ def servicenow_list_attachments(
                 return val or ""
 
             sys_id = get_display("sys_id") or att.get("sys_id", "")
-            attachments.append({
-                "sys_id": sys_id,
-                "file_name": get_display("file_name"),
-                "content_type": get_display("content_type"),
-                "size_bytes": get_display("size_bytes"),
-                "created_by": get_display("sys_created_by"),
-                "created_on": get_display("sys_created_on"),
-                "download_url": f"{SERVICENOW_BASE_URL}/api/now/attachment/{sys_id}/file",
-            })
+            attachments.append(
+                {
+                    "sys_id": sys_id,
+                    "file_name": get_display("file_name"),
+                    "content_type": get_display("content_type"),
+                    "size_bytes": get_display("size_bytes"),
+                    "created_by": get_display("sys_created_by"),
+                    "created_on": get_display("sys_created_on"),
+                    "download_url": f"{SERVICENOW_BASE_URL}/api/now/attachment/{sys_id}/file",
+                }
+            )
 
         emit_success(f"Found {len(attachments)} attachment(s)")
 
@@ -112,7 +117,7 @@ def servicenow_download_attachment(
     emit_info(
         Text.from_markup(
             f"\n[bold white on blue] SERVICENOW DOWNLOAD ATTACHMENT [/bold white on blue] "
-            f"\U0001F4E5 [bold cyan]{attachment_sys_id[:20]}...[/bold cyan]"
+            f"\U0001f4e5 [bold cyan]{attachment_sys_id[:20]}...[/bold cyan]"
         )
     )
 
@@ -133,7 +138,7 @@ def servicenow_download_attachment(
             }
         else:
             # Return as base64
-            content_b64 = base64.b64encode(content).decode('utf-8')
+            content_b64 = base64.b64encode(content).decode("utf-8")
             emit_success(f"Downloaded {len(content)} bytes")
             return {
                 "success": True,
@@ -180,12 +185,12 @@ def servicenow_upload_attachment(
     emit_info(
         Text.from_markup(
             f"\n[bold white on green] SERVICENOW {mode_label} [/bold white on green] "
-            f"\U0001F4E4 [bold cyan]{file_path}[/bold cyan]"
+            f"\U0001f4e4 [bold cyan]{file_path}[/bold cyan]"
         )
     )
 
     path = Path(file_path)
-    
+
     if not path.exists():
         emit_warning(f"File not found: {file_path}")
         return {
@@ -226,10 +231,12 @@ def servicenow_upload_attachment(
             ".xls": "application/vnd.ms-excel",
             ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         }
-        content_type = content_type_map.get(path.suffix.lower(), "application/octet-stream")
-        
+        content_type = content_type_map.get(
+            path.suffix.lower(), "application/octet-stream"
+        )
+
         file_content = path.read_bytes()
-        
+
         client = get_servicenow_client()
         result = client.upload_attachment(
             table_name=table_name,

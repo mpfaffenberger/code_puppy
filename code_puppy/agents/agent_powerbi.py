@@ -46,7 +46,7 @@ class PowerBIAgent(BaseAgent):
             "powerbi_get_table_columns",
             "powerbi_execute_dax_query",
             "powerbi_get_table_data",
-            #"powerbi_refresh_dataset", -- Disabling the ability to refresh a dataset for a user.
+            # "powerbi_refresh_dataset", -- Disabling the ability to refresh a dataset for a user.
             "powerbi_get_refresh_history",
             "powerbi_get_datasources",
             "powerbi_get_dataset_parameters",

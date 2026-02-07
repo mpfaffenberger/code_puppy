@@ -45,7 +45,7 @@ def servicenow_list_catalog_items(
     emit_info(
         Text.from_markup(
             f"\n[bold white on purple] SERVICENOW CATALOG SEARCH [/bold white on purple] "
-            f"\U0001F6D2 [bold cyan]{query or 'Browse all'}[/bold cyan]"
+            f"\U0001f6d2 [bold cyan]{query or 'Browse all'}[/bold cyan]"
         )
     )
 
@@ -60,14 +60,18 @@ def servicenow_list_catalog_items(
         items = []
         for item in result.get("result", []):
             sys_id = item.get("sys_id", "")
-            items.append({
-                "sys_id": sys_id,
-                "name": item.get("name", ""),
-                "short_description": item.get("short_description", ""),
-                "category": item.get("category", {}).get("title", "") if isinstance(item.get("category"), dict) else item.get("category", ""),
-                "price": item.get("price", ""),
-                "url": f"{SERVICENOW_BASE_URL}/sp?id=sc_cat_item&sys_id={sys_id}",
-            })
+            items.append(
+                {
+                    "sys_id": sys_id,
+                    "name": item.get("name", ""),
+                    "short_description": item.get("short_description", ""),
+                    "category": item.get("category", {}).get("title", "")
+                    if isinstance(item.get("category"), dict)
+                    else item.get("category", ""),
+                    "price": item.get("price", ""),
+                    "url": f"{SERVICENOW_BASE_URL}/sp?id=sc_cat_item&sys_id={sys_id}",
+                }
+            )
 
         emit_success(f"Found {len(items)} catalog item(s)")
 
@@ -117,14 +121,14 @@ def servicenow_get_catalog_item_details(
             - url (str): Web URL to view the catalog item
             - automation (dict): Analysis of whether the form can be automated
             - error (str, optional): Error message if lookup failed
-    
+
     IMPORTANT: If automation.automatable is False, do NOT attempt to submit via API.
     Instead, provide the user with the URL and the values they need to enter manually.
     """
     emit_info(
         Text.from_markup(
             f"\n[bold white on purple] SERVICENOW CATALOG ITEM DETAILS [/bold white on purple] "
-            f"\U0001F4CB [bold cyan]{item_id[:20]}...[/bold cyan]"
+            f"\U0001f4cb [bold cyan]{item_id[:20]}...[/bold cyan]"
         )
     )
 
@@ -133,7 +137,7 @@ def servicenow_get_catalog_item_details(
         result = client.get_catalog_item(item_id)
 
         item_data = result.get("result", {})
-        
+
         if not item_data:
             return {
                 "success": False,
@@ -144,7 +148,7 @@ def servicenow_get_catalog_item_details(
         # Extract and format variables
         variables = []
         raw_variables = item_data.get("variables", [])
-        
+
         for var in raw_variables:
             var_info = {
                 "name": var.get("name", ""),
@@ -154,18 +158,21 @@ def servicenow_get_catalog_item_details(
                 "description": var.get("help_text", var.get("instructions", "")),
                 "default_value": var.get("default_value", ""),
             }
-            
+
             # Include choices for select/choice fields
             choices = var.get("choices", var.get("choice_table", []))
             if choices:
                 if isinstance(choices, list):
                     var_info["choices"] = [
-                        {"value": c.get("value", c), "label": c.get("label", c.get("text", c))}
+                        {
+                            "value": c.get("value", c),
+                            "label": c.get("label", c.get("text", c)),
+                        }
                         for c in choices
                     ]
                 else:
                     var_info["choices"] = choices
-            
+
             variables.append(var_info)
 
         # Sort variables: mandatory first, then by name
@@ -173,16 +180,18 @@ def servicenow_get_catalog_item_details(
 
         # Convert description HTML to markdown
         description_html = item_data.get("description", "")
-        description_md = convert_html_to_markdown(description_html) if description_html else ""
+        description_md = (
+            convert_html_to_markdown(description_html) if description_html else ""
+        )
 
         # Build URL
         url = f"{SERVICENOW_BASE_URL}/sp?id=sc_cat_item&sys_id={item_id}"
-        
+
         # Analyze automation feasibility
         automation_analysis = analyze_automation_feasibility(item_data)
 
         emit_success(f"Found catalog item: {item_data.get('name', item_id)}")
-        
+
         # Emit warning if form is not automatable
         if not automation_analysis["automatable"]:
             emit_warning(
@@ -196,7 +205,9 @@ def servicenow_get_catalog_item_details(
             "name": item_data.get("name", ""),
             "short_description": item_data.get("short_description", ""),
             "description": description_md,
-            "category": item_data.get("category", {}).get("name", "") if isinstance(item_data.get("category"), dict) else item_data.get("category", ""),
+            "category": item_data.get("category", {}).get("name", "")
+            if isinstance(item_data.get("category"), dict)
+            else item_data.get("category", ""),
             "price": item_data.get("price", item_data.get("recurring_price", "")),
             "delivery_time": item_data.get("delivery_time", ""),
             "variables": variables,
@@ -245,7 +256,7 @@ def servicenow_submit_catalog_request(
     emit_info(
         Text.from_markup(
             f"\n[bold white on purple] SERVICENOW {mode_label} [/bold white on purple] "
-            f"\U0001F4E6 [bold cyan]Item: {item_id[:20]}...[/bold cyan]"
+            f"\U0001f4e6 [bold cyan]Item: {item_id[:20]}...[/bold cyan]"
         )
     )
 
@@ -273,7 +284,9 @@ def servicenow_submit_catalog_request(
         )
 
         request_data = result.get("result", {})
-        request_number = request_data.get("number", request_data.get("request_number", ""))
+        request_number = request_data.get(
+            "number", request_data.get("request_number", "")
+        )
         sys_id = request_data.get("sys_id", request_data.get("request_id", ""))
 
         url = f"{SERVICENOW_BASE_URL}/nav_to.do?uri=sc_request.do?sys_id={sys_id}"
@@ -319,7 +332,7 @@ def servicenow_get_request_status(
     emit_info(
         Text.from_markup(
             f"\n[bold white on purple] SERVICENOW REQUEST STATUS [/bold white on purple] "
-            f"\U0001F4CB [bold cyan]{request_id}[/bold cyan]"
+            f"\U0001f4cb [bold cyan]{request_id}[/bold cyan]"
         )
     )
 
@@ -328,7 +341,7 @@ def servicenow_get_request_status(
         result = client.get_request_status(request_id)
 
         request_data = result.get("result", {})
-        
+
         if isinstance(request_data, list):
             if not request_data:
                 return {

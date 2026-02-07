@@ -618,9 +618,7 @@ def register_msgraph_create_online_meeting(agent: Any) -> Tool:
 # =============================================================================
 
 
-def msgraph_list_chats(
-    ctx: RunContext, limit: int = 20, item_offset: int = 0
-) -> dict:
+def msgraph_list_chats(ctx: RunContext, limit: int = 20, item_offset: int = 0) -> dict:
     """List recent chats (1:1 and group chats).
 
     Args:
