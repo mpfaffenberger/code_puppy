@@ -359,11 +359,12 @@ register_callback("get_motd", get_walmart_motd)
 
 # NOTE: Signature stripping callback was removed.
 #
-# pydantic-ai already handles cross-provider signatures correctly via
-# the `provider_name` field on ThinkingPart.  When serializing messages
-# for the API, pydantic-ai only sends a signature back if
-# `provider_name == self.system` — so Gemini-originated ThinkingParts
-# are automatically converted to safe <thinking> text blocks when sent
-# to Claude, and vice-versa.  The old callback was stripping Claude's
-# OWN valid signatures between turns, forcing all prior thinking to
-# become bloated XML text blocks and wasting tokens.
+# Cross-provider signature handling is now done at the model layer:
+# - pydantic-ai's built-in Anthropic model checks provider_name and only
+#   sends signatures back when they match (Gemini parts become text).
+# - Our custom GeminiModel._map_model_response checks provider_name and
+#   converts foreign ThinkingParts to <thinking> XML text blocks.
+#
+# The old callback was destructive — it stripped Claude's OWN valid
+# signatures between turns, forcing all prior thinking to become
+# bloated XML text blocks and wasting tokens.

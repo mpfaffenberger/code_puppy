@@ -1,6 +1,7 @@
 """Base agent configuration class for defining agent properties."""
 
 import asyncio
+import dataclasses
 import json
 import math
 import pathlib
@@ -1487,17 +1488,13 @@ class BaseAgent(ABC):
             elif any(
                 isinstance(p, ThinkingPart) and not p.content for p in msg.parts
             ):
-                msg = type(msg)(
+                msg = dataclasses.replace(
+                    msg,
                     parts=[
                         p
                         for p in msg.parts
                         if not (isinstance(p, ThinkingPart) and not p.content)
                     ],
-                    **{
-                        k: v
-                        for k, v in msg.__dict__.items()
-                        if k != "parts"
-                    },
                 )
                 if not msg.parts:
                     filtered_count += 1
