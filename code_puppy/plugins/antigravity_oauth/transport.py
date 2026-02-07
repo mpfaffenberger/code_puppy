@@ -404,7 +404,7 @@ class AntigravityClient(httpx.AsyncClient):
 
             try:
                 # Run the synchronous refresh in a thread pool to avoid blocking
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 new_tokens = await loop.run_in_executor(
                     None, refresh_access_token, self._refresh_token
                 )
