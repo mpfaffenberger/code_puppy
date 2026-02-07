@@ -450,7 +450,18 @@ class GeminiModel(Model):
                     pending_signature = None
                 parts.append(part_dict)
             elif isinstance(item, ThinkingPart):
-                if item.content:
+                # Check if this thinking part belongs to this model provider
+                # If provider_name is set and doesn't match, treat as text (XML wrapped)
+                # This prevents sending invalid signatures (e.g. Anthropic's) to Gemini
+                is_foreign = (
+                    item.provider_name is not None
+                    and item.provider_name != self._model_name
+                    and item.provider_name != "google"
+                )
+
+                if is_foreign and item.content:
+                    parts.append({"text": f"<thinking>{item.content}</thinking>"})
+                elif item.content:
                     part_dict = {"text": item.content, "thought": True}
                     if item.signature:
                         part_dict["thoughtSignature"] = item.signature
@@ -713,13 +724,19 @@ class GeminiStreamingResponse(StreamedResponse):
 
             for part in parts:
                 # Handle thinking part
-                if part.get("thought") and part.get("text") is not None:
-                    event = self._parts_manager.handle_thinking_delta(
-                        vendor_part_id=None,
-                        content=part["text"],
-                    )
-                    if event:
-                        yield event
+                if part.get("thought"):
+                    text = part.get("text")
+                    signature = part.get("thoughtSignature")
+                    
+                    if text is not None or signature is not None:
+                        event = self._parts_manager.handle_thinking_delta(
+                            vendor_part_id=None,
+                            content=text or "",
+                            signature=signature,
+                            provider_name=self._model_name_str,
+                        )
+                        if event:
+                            yield event
 
                 # Handle regular text
                 elif part.get("text") is not None and not part.get("thought"):
