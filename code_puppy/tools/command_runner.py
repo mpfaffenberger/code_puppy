@@ -971,6 +971,7 @@ async def run_shell_command(
             suffix=".log",
             delete=False,  # Keep file so agent can read it later
         )
+        log_file_path = log_file.name
 
         try:
             # Platform-specific process detachment
@@ -1028,7 +1029,15 @@ async def run_shell_command(
                 pid=process.pid,
             )
         except Exception as e:
-            log_file.close()
+            try:
+                log_file.close()
+            except Exception:
+                pass
+            # Clean up the temp file on error since no process will write to it
+            try:
+                os.unlink(log_file_path)
+            except OSError:
+                pass
             # Emit error message so user sees what happened
             emit_error(f"❌ Failed to start background process: {e}")
             return ShellCommandOutput(
