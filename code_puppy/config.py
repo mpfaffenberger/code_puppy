@@ -213,19 +213,6 @@ def get_git_auto_commit_prompt_enabled() -> bool:
     return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def get_enable_streaming() -> bool:
-    """
-    Get the enable_streaming configuration value.
-    Controls whether streaming (SSE) is used for model responses.
-    Returns True if streaming is enabled, False otherwise.
-    Defaults to True.
-    """
-    val = get_value("enable_streaming")
-    if val is None:
-        return True  # Default to True for better UX
-    return str(val).lower() in ("1", "true", "yes", "on")
-
-
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
 

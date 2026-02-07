@@ -11,7 +11,7 @@ from code_puppy.command_line.command_registry import register_command
 from code_puppy.command_line.model_picker_completion import update_model_in_input
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
-from code_puppy.config import finalize_autosave_session
+from code_puppy.config import finalize_autosave_session, is_wiggum_unlocked
 from code_puppy.messaging import emit_error, emit_info
 from code_puppy.tools.tools_content import tools_content
 
@@ -707,9 +707,6 @@ def handle_generate_pr_description_command(command: str) -> str:
     # Return the prompt to be processed by the main chat system
     return pr_prompt
 
-
-# Import for wiggum availability check
-from code_puppy.config import is_wiggum_unlocked
 
 
 @register_command(

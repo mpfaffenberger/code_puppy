@@ -6,7 +6,7 @@ All the actual logic lives in cli_runner.py.
 
 print("Code Puppy is loading! 🐶")
 
-from code_puppy.cli_runner import main_entry
+from code_puppy.cli_runner import main_entry  # noqa: E402
 
 if __name__ == "__main__":
     main_entry()

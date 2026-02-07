@@ -6,8 +6,6 @@ Contains the main application logic, interactive mode, and entry point.
 # Apply pydantic-ai patches BEFORE any pydantic-ai imports
 from code_puppy.pydantic_patches import apply_all_patches
 
-apply_all_patches()
-
 import argparse
 import asyncio
 import os
@@ -49,6 +47,7 @@ from code_puppy.terminal_utils import (
 from code_puppy.tools.common import console
 from code_puppy.version_checker import default_version_mismatch_behavior
 
+apply_all_patches()
 plugins.load_plugin_callbacks()
 
 
