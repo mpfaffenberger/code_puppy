@@ -25,7 +25,6 @@ from code_puppy.tools.jira_tools import (
 from code_puppy.plugins.walmart_specific.jira_client import (
     JiraAPIError,
     JiraAuthError,
-    JiraError,
     JiraNotFoundError,
 )
 
