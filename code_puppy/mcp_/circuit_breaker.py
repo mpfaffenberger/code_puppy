@@ -10,6 +10,7 @@ failures when MCP servers become unhealthy. The circuit breaker has three states
 
 import asyncio
 import logging
+import threading
 import time
 from enum import Enum
 from typing import Any, Callable
@@ -70,6 +71,7 @@ class CircuitBreaker:
         self._success_count = 0
         self._last_failure_time = None
         self._lock = asyncio.Lock()
+        self._sync_lock = threading.Lock()
 
         logger.info(
             f"Circuit breaker initialized: failure_threshold={failure_threshold}, "
@@ -118,11 +120,13 @@ class CircuitBreaker:
 
     def record_success(self) -> None:
         """Record a successful operation (synchronous)."""
-        self._on_success_sync()
+        with self._sync_lock:
+            self._on_success_sync()
 
     def record_failure(self) -> None:
         """Record a failed operation (synchronous)."""
-        self._on_failure_sync()
+        with self._sync_lock:
+            self._on_failure_sync()
 
     def get_state(self) -> CircuitState:
         """Get current circuit breaker state."""
@@ -142,25 +146,28 @@ class CircuitBreaker:
 
     def reset(self) -> None:
         """Reset circuit breaker to CLOSED state and clear counters."""
-        logger.info("Resetting circuit breaker to CLOSED state")
-        self._state = CircuitState.CLOSED
-        self._failure_count = 0
-        self._success_count = 0
-        self._last_failure_time = None
+        with self._sync_lock:
+            logger.info("Resetting circuit breaker to CLOSED state")
+            self._state = CircuitState.CLOSED
+            self._failure_count = 0
+            self._success_count = 0
+            self._last_failure_time = None
 
     def force_open(self) -> None:
         """Force circuit breaker to OPEN state."""
-        logger.warning("Forcing circuit breaker to OPEN state")
-        self._state = CircuitState.OPEN
-        self._last_failure_time = time.time()
+        with self._sync_lock:
+            logger.warning("Forcing circuit breaker to OPEN state")
+            self._state = CircuitState.OPEN
+            self._last_failure_time = time.time()
 
     def force_close(self) -> None:
         """Force circuit breaker to CLOSED state and reset counters."""
-        logger.info("Forcing circuit breaker to CLOSED state")
-        self._state = CircuitState.CLOSED
-        self._failure_count = 0
-        self._success_count = 0
-        self._last_failure_time = None
+        with self._sync_lock:
+            logger.info("Forcing circuit breaker to CLOSED state")
+            self._state = CircuitState.CLOSED
+            self._failure_count = 0
+            self._success_count = 0
+            self._last_failure_time = None
 
     def _get_current_state(self) -> CircuitState:
         """
