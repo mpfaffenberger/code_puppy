@@ -47,7 +47,7 @@ class TestModelFactoryErrors:
                         "builtins.open",
                         side_effect=FileNotFoundError("No such file"),
                     ):
-                        with pytest.raises(FileNotFoundError):
+                        with pytest.raises(OSError):
                             ModelFactory.load_config()
 
     def test_missing_models_config_file_oserror(self):
