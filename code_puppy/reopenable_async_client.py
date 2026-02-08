@@ -6,6 +6,7 @@ to support reopening after being closed, which the standard httpx.AsyncClient
 doesn't support.
 """
 
+import asyncio
 from typing import Optional, Union
 
 import httpx
@@ -66,6 +67,7 @@ class ReopenableAsyncClient:
         self._client_kwargs = kwargs.copy()
         self._client: Optional[httpx.AsyncClient] = None
         self._is_closed = True
+        self._lock = asyncio.Lock()
 
     async def _ensure_client_open(self) -> httpx.AsyncClient:
         """
@@ -77,9 +79,10 @@ class ReopenableAsyncClient:
         Raises:
             RuntimeError: If client cannot be opened
         """
-        if self._is_closed or self._client is None:
-            await self._create_client()
-        return self._client
+        async with self._lock:
+            if self._is_closed or self._client is None:
+                await self._create_client()
+            return self._client
 
     async def _create_client(self) -> None:
         """Create a new client with the stored configuration."""
@@ -96,7 +99,8 @@ class ReopenableAsyncClient:
 
         This is useful when you want to reuse a client that was previously closed.
         """
-        await self._create_client()
+        async with self._lock:
+            await self._create_client()
 
     async def aclose(self) -> None:
         """
@@ -105,9 +109,10 @@ class ReopenableAsyncClient:
         After calling this, the client can be reopened using reopen() or
         automatically when making the next request.
         """
-        if self._client is not None and not self._is_closed:
-            await self._client.aclose()
-            self._is_closed = True
+        async with self._lock:
+            if self._client is not None and not self._is_closed:
+                await self._client.aclose()
+                self._is_closed = True
 
     @property
     def is_closed(self) -> bool:
