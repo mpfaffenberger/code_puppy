@@ -465,12 +465,18 @@ def _read_file(
         # This is common on Windows when files contain emojis or were created by
         # applications that don't properly encode Unicode
         with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
+            if start_line is not None and start_line < 1:
+                error_msg = "start_line must be >= 1 (1-based indexing)"
+                return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+            if num_lines is not None and num_lines < 1:
+                error_msg = "num_lines must be >= 1"
+                return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
             if start_line is not None and num_lines is not None:
                 # Read only the specified lines efficiently using itertools.islice
                 # to avoid loading the entire file into memory
                 import itertools
 
-                start_idx = max(0, start_line - 1) if start_line > 0 else 0
+                start_idx = start_line - 1
                 selected_lines = list(
                     itertools.islice(f, start_idx, start_idx + num_lines)
                 )
