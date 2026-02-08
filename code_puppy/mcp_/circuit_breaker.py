@@ -70,6 +70,11 @@ class CircuitBreaker:
         self._failure_count = 0
         self._success_count = 0
         self._last_failure_time = None
+        # NOTE: We use threading.Lock (not asyncio.Lock) because this lock is shared
+        # between synchronous callers (record_success/record_failure) and async callers
+        # (_on_success/_on_failure called from call()). This is safe because the critical
+        # sections are very short and CPU-bound only (counter increments, state transitions)
+        # — no I/O or awaits occur while the lock is held, so event loop blocking is negligible.
         self._sync_lock = threading.Lock()
         self._half_open_in_flight = False
 
@@ -263,11 +268,23 @@ class CircuitBreaker:
             self._half_open_in_flight = False
 
     async def _on_success(self, checked_state: CircuitState | None = None) -> None:
-        """Handle successful operation."""
+        """Handle successful operation.
+
+        This method is async to match the await call-site in call(), but the
+        underlying work is purely synchronous. We acquire threading.Lock (not
+        asyncio.Lock) because the same state is accessed from sync contexts
+        (record_success). The critical section is short and CPU-bound, so
+        holding a threading.Lock in an async method does not meaningfully
+        block the event loop.
+        """
         with self._sync_lock:
             self._on_success_sync(checked_state=checked_state)
 
     async def _on_failure(self, checked_state: CircuitState | None = None) -> None:
-        """Handle failed operation."""
+        """Handle failed operation.
+
+        See _on_success docstring for rationale on threading.Lock usage in
+        an async method.
+        """
         with self._sync_lock:
             self._on_failure_sync(checked_state=checked_state)
