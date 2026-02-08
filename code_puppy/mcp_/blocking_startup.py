@@ -77,33 +77,43 @@ class StderrFileCapture:
         if not self.log_path:
             return
 
-        # Start reading from current position (end of file before we started)
         try:
-            self._last_read_pos = os.path.getsize(self.log_path)
-        except OSError:
-            self._last_read_pos = 0
-
-        while not self.stop_monitoring.is_set():
+            # Start reading from current position (end of file before we started)
             try:
-                with open(self.log_path, "r", encoding="utf-8", errors="replace") as f:
-                    f.seek(self._last_read_pos)
-                    new_content = f.read()
-                    if new_content:
-                        self._last_read_pos = f.tell()
-                        # Process new lines
-                        for line in new_content.splitlines():
-                            if line.strip():
-                                self.captured_lines.append(line)
-                                if self.emit_to_user:
-                                    emit_info(
-                                        f"MCP {self.server_name}: {line}",
-                                        message_group=self.message_group,
-                                    )
+                self._last_read_pos = os.path.getsize(self.log_path)
+            except OSError:
+                self._last_read_pos = 0
 
-            except Exception:
-                pass  # File might not exist yet or be deleted
+            while not self.stop_monitoring.is_set():
+                try:
+                    with open(
+                        self.log_path, "r", encoding="utf-8", errors="replace"
+                    ) as f:
+                        f.seek(self._last_read_pos)
+                        new_content = f.read()
+                        if new_content:
+                            self._last_read_pos = f.tell()
+                            # Process new lines
+                            for line in new_content.splitlines():
+                                if line.strip():
+                                    self.captured_lines.append(line)
+                                    if self.emit_to_user:
+                                        emit_info(
+                                            f"MCP {self.server_name}: {line}",
+                                            message_group=self.message_group,
+                                        )
 
-            self.stop_monitoring.wait(0.1)  # Check every 100ms
+                except Exception:
+                    pass  # File might not exist yet or be deleted
+
+                self.stop_monitoring.wait(0.1)  # Check every 100ms
+        finally:
+            if self.log_file is not None:
+                try:
+                    self.log_file.close()
+                except Exception:
+                    pass
+                self.log_file = None
 
     def stop(self):
         """Stop monitoring and clean up."""
