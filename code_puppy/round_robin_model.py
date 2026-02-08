@@ -1,3 +1,4 @@
+import threading
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, List
@@ -40,6 +41,7 @@ class RoundRobinModel(Model):
     _model_name: str = field(repr=False)
     _rotate_every: int = field(default=1, repr=False)
     _request_count: int = field(default=0, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def __init__(
         self,
@@ -63,6 +65,7 @@ class RoundRobinModel(Model):
         self._current_index = 0
         self._request_count = 0
         self._rotate_every = rotate_every
+        self._lock = threading.Lock()
 
     @property
     def model_name(self) -> str:
@@ -84,12 +87,13 @@ class RoundRobinModel(Model):
 
     def _get_next_model(self) -> Model:
         """Get the next model in the round-robin sequence and update the index."""
-        model = self.models[self._current_index]
-        self._request_count += 1
-        if self._request_count >= self._rotate_every:
-            self._current_index = (self._current_index + 1) % len(self.models)
-            self._request_count = 0
-        return model
+        with self._lock:
+            model = self.models[self._current_index]
+            self._request_count += 1
+            if self._request_count >= self._rotate_every:
+                self._current_index = (self._current_index + 1) % len(self.models)
+                self._request_count = 0
+            return model
 
     async def request(
         self,
