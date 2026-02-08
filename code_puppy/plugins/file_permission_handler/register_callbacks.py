@@ -162,13 +162,18 @@ def _preview_replace_in_file(
                 return None
 
             start, end = loc
-            modified = (
-                "\n".join(orig_lines[:start])
-                + "\n"
-                + new_snippet.rstrip("\n")
-                + "\n"
-                + "\n".join(orig_lines[end:])
-            )
+            had_trailing_newline = modified.endswith("\n")
+            prefix = "\n".join(orig_lines[:start])
+            suffix = "\n".join(orig_lines[end:])
+            parts = []
+            if prefix:
+                parts.append(prefix)
+            parts.append(new_snippet.rstrip("\n"))
+            if suffix:
+                parts.append(suffix)
+            modified = "\n".join(parts)
+            if had_trailing_newline and not modified.endswith("\n"):
+                modified += "\n"
 
         if modified == original:
             return None
