@@ -712,11 +712,10 @@ class GeminiStreamingResponse(StreamedResponse):
             for part in parts:
                 # Handle thinking part
                 if part.get("thought") and part.get("text") is not None:
-                    event = self._parts_manager.handle_thinking_delta(
+                    for event in self._parts_manager.handle_thinking_delta(
                         vendor_part_id=None,
                         content=part["text"],
-                    )
-                    if event:
+                    ):
                         yield event
 
                 # Handle regular text
@@ -724,23 +723,21 @@ class GeminiStreamingResponse(StreamedResponse):
                     text = part["text"]
                     if len(text) == 0:
                         continue
-                    event = self._parts_manager.handle_text_delta(
+                    for event in self._parts_manager.handle_text_delta(
                         vendor_part_id=None,
                         content=text,
-                    )
-                    if event:
+                    ):
                         yield event
 
                 # Handle function call
                 elif part.get("functionCall"):
                     fc = part["functionCall"]
-                    event = self._parts_manager.handle_tool_call_delta(
+                    for event in self._parts_manager.handle_tool_call_delta(
                         vendor_part_id=uuid.uuid4(),
                         tool_name=fc.get("name"),
                         args=fc.get("args"),
                         tool_call_id=fc.get("id") or generate_tool_call_id(),
-                    )
-                    if event:
+                    ):
                         yield event
 
     @property
