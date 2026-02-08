@@ -285,6 +285,7 @@ def _replace_in_file(
             modified = modified.replace(old_snippet, new_snippet, 1)
             continue
 
+        had_trailing_newline = modified.endswith("\n")
         orig_lines = modified.splitlines()
         loc, score = _find_best_window(orig_lines, old_snippet)
 
@@ -306,6 +307,8 @@ def _replace_in_file(
         if suffix:
             parts.append(suffix)
         modified = "\n".join(parts)
+        if had_trailing_newline and not modified.endswith("\n"):
+            modified += "\n"
 
     if modified == original:
         emit_warning(
