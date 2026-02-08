@@ -402,7 +402,11 @@ class PTYManager:
             if session.pid is not None:
                 try:
                     os.kill(session.pid, signal.SIGTERM)
-                    os.waitpid(session.pid, 0)
+                    # Use WNOHANG to avoid blocking the event loop
+                    try:
+                        os.waitpid(session.pid, os.WNOHANG)
+                    except ChildProcessError:
+                        pass
                 except (OSError, ChildProcessError):
                     pass
 
