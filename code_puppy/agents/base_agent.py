@@ -333,6 +333,7 @@ class BaseAgent(ABC):
             List of messages guaranteed to end with ModelRequest, or empty list
             if no ModelRequest is found.
         """
+        messages = list(messages)  # defensive copy
         if not messages:
             return messages
 
