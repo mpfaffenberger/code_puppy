@@ -21,6 +21,15 @@ def _version_tuple(version_str):
         return None
 
 
+def version_is_newer(latest, current):
+    """Return True if latest version is strictly newer than current."""
+    latest_tuple = _version_tuple(normalize_version(latest))
+    current_tuple = _version_tuple(normalize_version(current))
+    if latest_tuple is None or current_tuple is None:
+        return False
+    return latest_tuple > current_tuple
+
+
 def versions_are_equal(current, latest):
     current_norm = normalize_version(current)
     latest_norm = normalize_version(latest)
@@ -53,7 +62,7 @@ def default_version_mismatch_behavior(current_version):
     latest_version = fetch_latest_version("code-puppy")
 
     update_available = bool(
-        latest_version and not versions_are_equal(latest_version, current_version)
+        latest_version and version_is_newer(latest_version, current_version)
     )
 
     # Emit structured version check message
