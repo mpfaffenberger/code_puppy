@@ -104,7 +104,6 @@ async def event_stream_handler(
             pass  # Just consume events without rendering
         return
 
-
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
 

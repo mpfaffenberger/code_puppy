@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-
 from code_puppy.api.pty_manager import PTYSession
 
 
@@ -11,7 +10,9 @@ class TestPTYSessionIsAlive:
 
     @patch("code_puppy.api.pty_manager.IS_WINDOWS", False)
     @patch("os.waitpid", return_value=(0, 0))
-    def test_is_alive_returns_true_when_process_running(self, mock_waitpid: MagicMock) -> None:
+    def test_is_alive_returns_true_when_process_running(
+        self, mock_waitpid: MagicMock
+    ) -> None:
         """is_alive() returns True when os.waitpid reports process still running."""
         session = PTYSession(session_id="test-1", pid=12345)
         assert session.is_alive() is True
@@ -19,7 +20,9 @@ class TestPTYSessionIsAlive:
 
     @patch("code_puppy.api.pty_manager.IS_WINDOWS", False)
     @patch("os.waitpid", return_value=(12345, 9))
-    def test_is_alive_returns_false_when_process_exited(self, mock_waitpid: MagicMock) -> None:
+    def test_is_alive_returns_false_when_process_exited(
+        self, mock_waitpid: MagicMock
+    ) -> None:
         """is_alive() returns False when os.waitpid reports process exited."""
         session = PTYSession(session_id="test-2", pid=12345)
         assert session.is_alive() is False
@@ -27,7 +30,9 @@ class TestPTYSessionIsAlive:
 
     @patch("code_puppy.api.pty_manager.IS_WINDOWS", False)
     @patch("os.waitpid", side_effect=ChildProcessError("No child processes"))
-    def test_is_alive_returns_false_on_child_process_error(self, mock_waitpid: MagicMock) -> None:
+    def test_is_alive_returns_false_on_child_process_error(
+        self, mock_waitpid: MagicMock
+    ) -> None:
         """is_alive() returns False when the child process was already reaped."""
         session = PTYSession(session_id="test-3", pid=12345)
         assert session.is_alive() is False
