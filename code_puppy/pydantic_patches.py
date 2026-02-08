@@ -9,6 +9,7 @@ Usage:
 """
 
 import importlib.metadata
+from typing import Any
 
 
 def _get_code_puppy_version() -> str:
@@ -142,6 +143,7 @@ def patch_tool_call_json_repair() -> None:
             allow_partial: bool,
             wrap_validation_errors: bool,
             approved: bool,
+            metadata: Any = None,
         ):
             """Patched _call_tool that repairs malformed JSON before validation."""
             # Only attempt repair if args is a string (JSON)
@@ -161,6 +163,7 @@ def patch_tool_call_json_repair() -> None:
                 allow_partial=allow_partial,
                 wrap_validation_errors=wrap_validation_errors,
                 approved=approved,
+                metadata=metadata,
             )
 
         # Apply the patch

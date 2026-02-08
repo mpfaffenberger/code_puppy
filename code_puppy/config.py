@@ -64,14 +64,14 @@ DBOS_DATABASE_URL = os.environ.get(
     "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
 )
 # DBOS enable switch is controlled solely via puppy.cfg using key 'enable_dbos'.
-# Default: False (DBOS disabled) unless explicitly enabled.
+# Default: True (DBOS enabled) unless explicitly disabled.
 
 
 def get_use_dbos() -> bool:
-    """Return True if DBOS should be used based on 'enable_dbos' (default False)."""
+    """Return True if DBOS should be used based on 'enable_dbos' (default True)."""
     cfg_val = get_value("enable_dbos")
     if cfg_val is None:
-        return False
+        return True
     return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 

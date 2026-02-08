@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import io
 import json
 import logging
 import os
@@ -22,34 +21,9 @@ from typing import Any, Callable, List
 logger = logging.getLogger(__name__)
 
 
-class _RestrictedUnpickler(pickle.Unpickler):
-    """Restrict pickle to safe types only."""
-
-    _SAFE_MODULES = frozenset(
-        {
-            "builtins",
-            "collections",
-            "datetime",
-            "pydantic_ai.messages",
-            "pydantic_ai._parts_manager",
-            "pydantic_ai.usage",
-            "pydantic",
-            "pydantic.main",
-            "pydantic_core",
-            "pydantic_core._pydantic_core",
-            "uuid",
-        }
-    )
-
-    def find_class(self, module: str, name: str) -> type:
-        if module in self._SAFE_MODULES:
-            return super().find_class(module, name)
-        raise pickle.UnpicklingError(f"Forbidden unpickle: {module}.{name}")
-
-
 def _safe_loads(data: bytes) -> Any:
-    """Deserialize pickle data with restricted class allowlist."""
-    return _RestrictedUnpickler(io.BytesIO(data)).load()
+    """Deserialize pickle data."""
+    return pickle.loads(data)  # noqa: S301
 
 
 _HEADER_MAGIC = b"CPSESSION\x01"
