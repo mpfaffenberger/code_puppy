@@ -105,11 +105,9 @@ def hello():
 
         # Error responses may have different structures
         assert "success" not in result or result["success"] is False
-        # The error is in the message field for this case
-        assert (
-            "does not exist" in result.get("message", "").lower()
-            or "no such file" in result.get("message", "").lower()
-        )
+        # The error may be in the 'error' or 'message' field
+        error_text = (result.get("error", "") + result.get("message", "")).lower()
+        assert "does not exist" in error_text or "no such file" in error_text
 
     def test_invalid_patch_snippet_not_found(self, tmp_path):
         """Test error handling when snippet to delete is not found."""
