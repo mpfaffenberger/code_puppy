@@ -53,7 +53,13 @@ class RetryManager:
     def __init__(self):
         """Initialize the retry manager."""
         self._stats: Dict[str, RetryStats] = defaultdict(RetryStats)
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Lazily create the asyncio.Lock to avoid issues with event loop timing."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def retry_with_backoff(
         self,
@@ -217,7 +223,7 @@ class RetryManager:
             attempts: Number of attempts made
             success: Whether the retry was successful
         """
-        async with self._lock:
+        async with self._get_lock():
             stats = self._stats[server_id]
             stats.last_retry = datetime.now()
 
@@ -239,7 +245,7 @@ class RetryManager:
         Returns:
             RetryStats object with current statistics
         """
-        async with self._lock:
+        async with self._get_lock():
             # Return a copy to avoid external modification
             stats = self._stats[server_id]
             return RetryStats(
@@ -257,7 +263,7 @@ class RetryManager:
         Returns:
             Dictionary mapping server IDs to their retry statistics
         """
-        async with self._lock:
+        async with self._get_lock():
             return {
                 server_id: RetryStats(
                     total_retries=stats.total_retries,
@@ -276,13 +282,13 @@ class RetryManager:
         Args:
             server_id: ID of the server
         """
-        async with self._lock:
+        async with self._get_lock():
             if server_id in self._stats:
                 del self._stats[server_id]
 
     async def clear_all_stats(self) -> None:
         """Clear retry statistics for all servers."""
-        async with self._lock:
+        async with self._get_lock():
             self._stats.clear()
 
 
