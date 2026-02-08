@@ -1,4 +1,5 @@
 import asyncio
+import atexit
 from concurrent.futures import ThreadPoolExecutor
 from typing import List
 
@@ -28,6 +29,16 @@ def _ensure_thread_pool():
             max_workers=1, thread_name_prefix="summarizer-loop"
         )
     return _thread_pool
+
+
+def _shutdown_thread_pool():
+    global _thread_pool
+    if _thread_pool is not None:
+        _thread_pool.shutdown(wait=False)
+        _thread_pool = None
+
+
+atexit.register(_shutdown_thread_pool)
 
 
 async def _run_agent_async(agent: Agent, prompt: str, message_history: List):
