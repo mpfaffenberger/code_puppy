@@ -781,9 +781,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
-                display_console.file.flush() if hasattr(
-                    display_console.file, "flush"
-                ) else None
+                if hasattr(display_console.file, "flush"):
+                    display_console.file.flush()
 
                 await asyncio.sleep(
                     0.1
@@ -862,9 +861,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         current_agent.set_message_history(list(result.all_messages()))
 
                     # Flush console
-                    display_console.file.flush() if hasattr(
-                        display_console.file, "flush"
-                    ) else None
+                    if hasattr(display_console.file, "flush"):
+                        display_console.file.flush()
                     await asyncio.sleep(0.1)
 
                     # Auto-save
