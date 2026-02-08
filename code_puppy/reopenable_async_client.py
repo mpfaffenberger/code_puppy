@@ -7,6 +7,7 @@ doesn't support.
 """
 
 import asyncio
+import threading
 from typing import Optional, Union
 
 import httpx
@@ -68,6 +69,7 @@ class ReopenableAsyncClient:
         self._client: Optional[httpx.AsyncClient] = None
         self._is_closed = True
         self._lock = asyncio.Lock()
+        self._sync_lock = threading.Lock()
 
     async def _ensure_client_open(self) -> httpx.AsyncClient:
         """
@@ -176,13 +178,14 @@ class ReopenableAsyncClient:
 
         Note: This creates a temporary client if none exists, but doesn't keep it open.
         """
-        if self._client is None or self._is_closed:
-            # Create a temporary client just for building the request
-            # Store as self._client so it gets reused and properly closed later
-            self._client = self._client_class(**self._client_kwargs)
-            self._is_closed = False
+        with self._sync_lock:
+            if self._client is None or self._is_closed:
+                # Create a temporary client just for building the request
+                # Store as self._client so it gets reused and properly closed later
+                self._client = self._client_class(**self._client_kwargs)
+                self._is_closed = False
+                return self._client.build_request(method, url, **kwargs)
             return self._client.build_request(method, url, **kwargs)
-        return self._client.build_request(method, url, **kwargs)
 
     def stream(self, method: str, url: Union[str, httpx.URL], **kwargs):
         """Stream a request. Returns an async context manager."""
