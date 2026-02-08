@@ -533,9 +533,11 @@ def _read_file(
             get_message_bus().emit(file_content_msg)
 
         return ReadFileOutput(content=content, num_tokens=num_tokens)
-    except (FileNotFoundError, PermissionError):
-        # For backward compatibility with tests, return "FILE NOT FOUND" for these specific errors
+    except FileNotFoundError:
         error_msg = "FILE NOT FOUND"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+    except PermissionError:
+        error_msg = "PERMISSION DENIED"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     except Exception as e:
         message = f"An error occurred trying to read the file: {e}"
