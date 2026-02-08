@@ -207,16 +207,17 @@ def _list_files(
                 DIR_IGNORE_PATTERNS,
             )
 
-            with tempfile.NamedTemporaryFile(
-                mode="w", delete=False, suffix=".ignore"
-            ) as f:
-                ignore_file = f.name
+            f = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore")
+            ignore_file = f.name
+            try:
                 for pattern in DIR_IGNORE_PATTERNS:
                     # Skip patterns that would match the search directory itself
                     # For example, if searching in /tmp/test-dir, skip **/tmp/**
                     if would_match_directory(pattern, directory):
                         continue
                     f.write(f"{pattern}\n")
+            finally:
+                f.close()
 
             cmd.extend(["--ignore-file", ignore_file])
             cmd.append(directory)
@@ -629,10 +630,13 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         # Add ignore patterns to the command via a temporary file
         from code_puppy.tools.common import DIR_IGNORE_PATTERNS
 
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore") as f:
-            ignore_file = f.name
+        f = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore")
+        ignore_file = f.name
+        try:
             for pattern in DIR_IGNORE_PATTERNS:
                 f.write(f"{pattern}\n")
+        finally:
+            f.close()
 
         cmd.extend(["--ignore-file", ignore_file])
         # Split search_string to support ripgrep flags like --ignore-case
