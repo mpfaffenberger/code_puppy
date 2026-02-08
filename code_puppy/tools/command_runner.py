@@ -97,7 +97,7 @@ else:
         return False
 
 
-_AWAITING_USER_INPUT = False
+_AWAITING_USER_INPUT = threading.Event()
 
 _CONFIRMATION_LOCK = threading.Lock()
 
@@ -255,15 +255,16 @@ def get_running_shell_process_count() -> int:
 # Function to check if user input is awaited
 def is_awaiting_user_input():
     """Check if command_runner is waiting for user input."""
-    global _AWAITING_USER_INPUT
-    return _AWAITING_USER_INPUT
+    return _AWAITING_USER_INPUT.is_set()
 
 
 # Function to set user input flag
 def set_awaiting_user_input(awaiting=True):
     """Set the flag indicating if user input is awaited."""
-    global _AWAITING_USER_INPUT
-    _AWAITING_USER_INPUT = awaiting
+    if awaiting:
+        _AWAITING_USER_INPUT.set()
+    else:
+        _AWAITING_USER_INPUT.clear()
 
     # When we're setting this flag, also pause/resume all active spinners
     if awaiting:
