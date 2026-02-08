@@ -94,7 +94,7 @@ class RetryManager:
                         f"Non-retryable error for server {server_id}: {type(e).__name__}: {e}"
                     )
                     await self.record_retry(server_id, attempt + 1, success=False)
-                    raise e
+                    raise
 
                 # If this is the last attempt, don't wait
                 if attempt == max_attempts - 1:

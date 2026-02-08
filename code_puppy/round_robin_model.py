@@ -110,10 +110,10 @@ class RoundRobinModel(Model):
             )
             self._set_span_attributes(current_model)
             return response
-        except Exception as exc:
+        except Exception:
             # Unlike FallbackModel, we don't try other models here
             # The round-robin strategy is about distribution, not failover
-            raise exc
+            raise
 
     @asynccontextmanager
     async def request_stream(
