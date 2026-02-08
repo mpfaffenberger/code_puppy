@@ -50,6 +50,18 @@ class TestModelFactoryErrors:
                         with pytest.raises(OSError):
                             ModelFactory.load_config()
 
+    def test_missing_models_config_file_oserror(self):
+        """Test load_config() when models config directory mkdir raises OSError."""
+        with patch("code_puppy.config.MODELS_FILE", "/nonexistent/path/models.json"):
+            with patch("pathlib.Path.exists", return_value=False):
+                with patch(
+                    "pathlib.Path.mkdir", side_effect=OSError("Permission denied")
+                ):
+                    with pytest.raises(
+                        OSError, match="Cannot initialize models config"
+                    ):
+                        ModelFactory.load_config()
+
     def test_malformed_json_models_file(self):
         """Test load_config() with malformed JSON in models.json."""
         with patch("code_puppy.config.MODELS_FILE", "/fake/path/models.json"):

@@ -289,9 +289,9 @@ def _replace_in_file(
                 modified = modified.replace(old_snippet, new_snippet, 1)
                 continue
 
-        had_trailing_newline = modified.endswith("\n")
-        orig_lines = modified.splitlines()
-        loc, score = _find_best_window(orig_lines, old_snippet)
+            had_trailing_newline = modified.endswith("\n")
+            orig_lines = modified.splitlines()
+            loc, score = _find_best_window(orig_lines, old_snippet)
 
             if score < 0.95 or loc is None:
                 return {
@@ -327,18 +327,7 @@ def _replace_in_file(
                 "diff": "",
             }
 
-        start, end = loc
-        prefix = "\n".join(orig_lines[:start])
-        suffix = "\n".join(orig_lines[end:])
-        parts = []
-        if prefix:
-            parts.append(prefix)
-        parts.append(new_snippet.rstrip("\n"))
-        if suffix:
-            parts.append(suffix)
-        modified = "\n".join(parts)
-        if had_trailing_newline and not modified.endswith("\n"):
-            modified += "\n"
+        from code_puppy.config import get_diff_context_lines
 
         diff_text = "".join(
             difflib.unified_diff(
