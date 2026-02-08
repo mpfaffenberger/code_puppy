@@ -28,10 +28,7 @@ _antigravity_prompt_lock = threading.Lock()
 def _load_antigravity_prompt() -> str:
     """Load the Antigravity system prompt from file, with caching."""
     global _antigravity_prompt_cache
-    if _antigravity_prompt_cache is not None:
-        return _antigravity_prompt_cache
     with _antigravity_prompt_lock:
-        # Double-check after acquiring lock
         if _antigravity_prompt_cache is None:
             if _ANTIGRAVITY_PROMPT_PATH.exists():
                 _antigravity_prompt_cache = _ANTIGRAVITY_PROMPT_PATH.read_text(
