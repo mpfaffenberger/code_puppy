@@ -732,12 +732,13 @@ class GeminiStreamingResponse(StreamedResponse):
                 # Handle function call
                 elif part.get("functionCall"):
                     fc = part["functionCall"]
-                    for event in self._parts_manager.handle_tool_call_delta(
+                    event = self._parts_manager.handle_tool_call_delta(
                         vendor_part_id=uuid.uuid4(),
                         tool_name=fc.get("name"),
                         args=fc.get("args"),
                         tool_call_id=fc.get("id") or generate_tool_call_id(),
-                    ):
+                    )
+                    if event is not None:
                         yield event
 
     @property
