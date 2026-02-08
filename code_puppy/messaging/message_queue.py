@@ -77,6 +77,7 @@ class MessageQueue:
         self._has_active_renderer = False
         self._event_loop = None  # Store reference to the event loop
         self._prompt_responses = {}  # Store responses to human input requests
+        self._prompt_events = {}  # threading.Event per prompt_id
         self._prompt_id_counter = 0  # Counter for unique prompt IDs
 
     def start(self):
@@ -203,6 +204,9 @@ class MessageQueue:
         self._prompt_id_counter += 1
         prompt_id = f"prompt_{self._prompt_id_counter}"
 
+        # Create event for this prompt
+        self._prompt_events[prompt_id] = threading.Event()
+
         # Emit the human input request message
         message = UIMessage(
             type=MessageType.HUMAN_INPUT_REQUEST,
@@ -215,28 +219,33 @@ class MessageQueue:
 
     def wait_for_prompt_response(self, prompt_id: str, timeout: float = None) -> str:
         """Wait for a response to a human input request."""
-        import time
+        # If response is already available, return immediately
+        if prompt_id in self._prompt_responses:
+            self._prompt_events.pop(prompt_id, None)
+            return self._prompt_responses.pop(prompt_id)
 
-        start_time = time.time()
+        event = self._prompt_events.get(prompt_id)
+        if event is None:
+            # Fallback: create event if not already present
+            event = threading.Event()
+            self._prompt_events[prompt_id] = event
 
-        # TUI mode has been removed, use standard sleep interval
-        sleep_interval = 0.1
+        signaled = event.wait(timeout=timeout)
 
-        while True:
-            if prompt_id in self._prompt_responses:
-                response = self._prompt_responses.pop(prompt_id)
-                return response
+        # Clean up the event
+        self._prompt_events.pop(prompt_id, None)
 
-            if timeout and (time.time() - start_time) > timeout:
-                raise TimeoutError(
-                    f"No response for prompt {prompt_id} within {timeout}s"
-                )
+        if not signaled:
+            raise TimeoutError(f"No response for prompt {prompt_id} within {timeout}s")
 
-            time.sleep(sleep_interval)
+        return self._prompt_responses.pop(prompt_id)
 
     def provide_prompt_response(self, prompt_id: str, response: str):
         """Provide a response to a human input request."""
         self._prompt_responses[prompt_id] = response
+        event = self._prompt_events.get(prompt_id)
+        if event is not None:
+            event.set()
 
 
 # Global message queue instance
