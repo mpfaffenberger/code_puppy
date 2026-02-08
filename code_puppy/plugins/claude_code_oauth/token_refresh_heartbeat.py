@@ -142,7 +142,7 @@ class TokenRefreshHeartbeat:
                 refresh_access_token,
             )
 
-            tokens = load_stored_tokens()
+            tokens = await asyncio.to_thread(load_stored_tokens)
             if not tokens:
                 logger.debug("No stored tokens found")
                 return False
@@ -153,7 +153,7 @@ class TokenRefreshHeartbeat:
 
             # Token is expiring soon, refresh it
             logger.info("Heartbeat: Token expiring soon, refreshing proactively")
-            refreshed_token = refresh_access_token(force=False)
+            refreshed_token = await asyncio.to_thread(refresh_access_token, force=False)
 
             if refreshed_token:
                 logger.info("Heartbeat: Successfully refreshed token")
