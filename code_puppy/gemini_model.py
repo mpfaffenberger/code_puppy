@@ -672,6 +672,7 @@ class GeminiModel(Model):
             _chunks=stream_chunks(),
             _model_name_str=self._model_name,
             _provider_name_str=self.system,
+            _provider_url_str=self._base_url,
         )
 
 
@@ -682,6 +683,7 @@ class GeminiStreamingResponse(StreamedResponse):
     _chunks: AsyncIterator[dict[str, Any]]
     _model_name_str: str
     _provider_name_str: str = "google"
+    _provider_url_str: str | None = None
     _timestamp_val: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
@@ -748,6 +750,10 @@ class GeminiStreamingResponse(StreamedResponse):
     @property
     def provider_name(self) -> str | None:
         return self._provider_name_str
+
+    @property
+    def provider_url(self) -> str | None:
+        return self._provider_url_str
 
     @property
     def timestamp(self) -> datetime:
