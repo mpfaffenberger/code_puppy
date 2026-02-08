@@ -411,9 +411,10 @@ class PTYManager:
 
     async def close_all(self) -> None:
         """Close all PTY sessions."""
-        session_ids = list(self._sessions.keys())
-        for session_id in session_ids:
-            await self.close_session(session_id)
+        async with self._lock:
+            session_ids = list(self._sessions.keys())
+            for session_id in session_ids:
+                await self._close_session_internal(session_id)
         logger.info("Closed all PTY sessions")
 
     def get_session(self, session_id: str) -> Optional[PTYSession]:
