@@ -25,31 +25,32 @@ logger = logging.getLogger(__name__)
 class _RestrictedUnpickler(pickle.Unpickler):
     """Restrict pickle to safe types only."""
 
-    _SAFE_MODULES = frozenset({
-        "builtins",
-        "collections",
-        "datetime",
-        "pydantic_ai.messages",
-        "pydantic_ai._parts_manager",
-        "pydantic_ai.usage",
-        "pydantic",
-        "pydantic.main",
-        "pydantic_core",
-        "pydantic_core._pydantic_core",
-        "uuid",
-    })
+    _SAFE_MODULES = frozenset(
+        {
+            "builtins",
+            "collections",
+            "datetime",
+            "pydantic_ai.messages",
+            "pydantic_ai._parts_manager",
+            "pydantic_ai.usage",
+            "pydantic",
+            "pydantic.main",
+            "pydantic_core",
+            "pydantic_core._pydantic_core",
+            "uuid",
+        }
+    )
 
     def find_class(self, module: str, name: str) -> type:
         if module in self._SAFE_MODULES:
             return super().find_class(module, name)
-        raise pickle.UnpicklingError(
-            f"Forbidden unpickle: {module}.{name}"
-        )
+        raise pickle.UnpicklingError(f"Forbidden unpickle: {module}.{name}")
 
 
 def _safe_loads(data: bytes) -> Any:
     """Deserialize pickle data with restricted class allowlist."""
     return _RestrictedUnpickler(io.BytesIO(data)).load()
+
 
 _HEADER_MAGIC = b"CPSESSION\x01"
 _HMAC_SIZE = 32  # SHA-256 digest size
@@ -136,8 +137,10 @@ def save_session(
 
     pickle_data = pickle.dumps(history)
     signature = _sign_data(pickle_data)
-    with paths.pickle_path.open("wb") as pickle_file:
+    tmp_pickle = paths.pickle_path.with_suffix(".tmp")
+    with tmp_pickle.open("wb") as pickle_file:
         pickle_file.write(_HEADER_MAGIC + signature + pickle_data)
+    tmp_pickle.replace(paths.pickle_path)
 
     total_tokens = sum(token_estimator(message) for message in history)
     metadata = SessionMetadata(
@@ -150,8 +153,10 @@ def save_session(
         auto_saved=auto_saved,
     )
 
-    with paths.metadata_path.open("w", encoding="utf-8") as metadata_file:
+    tmp_metadata = paths.metadata_path.with_suffix(".tmp")
+    with tmp_metadata.open("w", encoding="utf-8") as metadata_file:
         json.dump(metadata.as_serialisable(), metadata_file, indent=2)
+    tmp_metadata.replace(paths.metadata_path)
 
     return metadata
 
