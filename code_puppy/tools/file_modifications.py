@@ -264,85 +264,88 @@ def _replace_in_file(
 ) -> Dict[str, Any]:
     """Robust replacement engine with explicit edge‑case reporting."""
     file_path = os.path.abspath(path)
-
-    with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-        original = f.read()
-
-    # Sanitize any surrogate characters from reading
+    diff_text = ""
     try:
-        original = original.encode("utf-8", errors="surrogatepass").decode(
-            "utf-8", errors="replace"
-        )
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        pass
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
 
-    modified = original
-    for rep in replacements:
-        old_snippet = rep.get("old_str", "")
-        new_snippet = rep.get("new_str", "")
+        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
+            original = f.read()
 
-        if old_snippet and old_snippet in modified:
-            modified = modified.replace(old_snippet, new_snippet, 1)
-            continue
+        # Sanitize any surrogate characters from reading
+        try:
+            original = original.encode("utf-8", errors="surrogatepass").decode(
+                "utf-8", errors="replace"
+            )
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
 
-        had_trailing_newline = modified.endswith("\n")
-        orig_lines = modified.splitlines()
-        loc, score = _find_best_window(orig_lines, old_snippet)
+        modified = original
+        for rep in replacements:
+            old_snippet = rep.get("old_str", "")
+            new_snippet = rep.get("new_str", "")
 
-        if score < 0.95 or loc is None:
+            if old_snippet and old_snippet in modified:
+                modified = modified.replace(old_snippet, new_snippet, 1)
+                continue
+
+            orig_lines = modified.splitlines()
+            loc, score = _find_best_window(orig_lines, old_snippet)
+
+            if score < 0.95 or loc is None:
+                return {
+                    "error": "No suitable match in file (JW < 0.95)",
+                    "jw_score": score,
+                    "received": old_snippet,
+                    "diff": "",
+                }
+
+            start, end = loc
+            prefix = "\n".join(orig_lines[:start])
+            suffix = "\n".join(orig_lines[end:])
+            parts = []
+            if prefix:
+                parts.append(prefix)
+            parts.append(new_snippet.rstrip("\n"))
+            if suffix:
+                parts.append(suffix)
+            modified = "\n".join(parts)
+
+        if modified == original:
+            emit_warning(
+                "No changes to apply – proposed content is identical.",
+                message_group=message_group,
+            )
             return {
-                "error": "No suitable match in file (JW < 0.95)",
-                "jw_score": score,
-                "received": old_snippet,
+                "success": False,
+                "path": file_path,
+                "message": "No changes to apply.",
+                "changed": False,
                 "diff": "",
             }
 
-        start, end = loc
-        prefix = "\n".join(orig_lines[:start])
-        suffix = "\n".join(orig_lines[end:])
-        parts = []
-        if prefix:
-            parts.append(prefix)
-        parts.append(new_snippet.rstrip("\n"))
-        if suffix:
-            parts.append(suffix)
-        modified = "\n".join(parts)
-        if had_trailing_newline and not modified.endswith("\n"):
-            modified += "\n"
+        from code_puppy.config import get_diff_context_lines
 
-    if modified == original:
-        emit_warning(
-            "No changes to apply – proposed content is identical.",
-            message_group=message_group,
+        diff_text = "".join(
+            difflib.unified_diff(
+                original.splitlines(keepends=True),
+                modified.splitlines(keepends=True),
+                fromfile=f"a/{os.path.basename(file_path)}",
+                tofile=f"b/{os.path.basename(file_path)}",
+                n=get_diff_context_lines(),
+            )
         )
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(modified)
         return {
-            "success": False,
+            "success": True,
             "path": file_path,
-            "message": "No changes to apply.",
-            "changed": False,
-            "diff": "",
+            "message": "Replacements applied.",
+            "changed": True,
+            "diff": diff_text,
         }
-
-    from code_puppy.config import get_diff_context_lines
-
-    diff_text = "".join(
-        difflib.unified_diff(
-            original.splitlines(keepends=True),
-            modified.splitlines(keepends=True),
-            fromfile=f"a/{os.path.basename(file_path)}",
-            tofile=f"b/{os.path.basename(file_path)}",
-            n=get_diff_context_lines(),
-        )
-    )
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(modified)
-    return {
-        "success": True,
-        "path": file_path,
-        "message": "Replacements applied.",
-        "changed": True,
-        "diff": diff_text,
-    }
+    except Exception as exc:
+        return {"error": str(exc), "diff": diff_text}
 
 
 def _write_to_file(
