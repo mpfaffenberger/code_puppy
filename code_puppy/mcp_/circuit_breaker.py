@@ -105,6 +105,8 @@ class CircuitBreaker:
                 # In half-open state, we're testing recovery
                 logger.info("Circuit breaker is HALF_OPEN, allowing test call")
 
+            checked_state = current_state
+
         # Execute the function outside the lock to avoid blocking other calls
         try:
             result = (
@@ -112,10 +114,10 @@ class CircuitBreaker:
                 if asyncio.iscoroutinefunction(func)
                 else func(*args, **kwargs)
             )
-            await self._on_success()
+            await self._on_success(checked_state=checked_state)
             return result
         except Exception:
-            await self._on_failure()
+            await self._on_failure(checked_state=checked_state)
             raise
 
     def record_success(self) -> None:
@@ -194,9 +196,11 @@ class CircuitBreaker:
 
         return time.time() - self._last_failure_time >= self.timeout
 
-    def _on_success_sync(self) -> None:
+    def _on_success_sync(self, checked_state: CircuitState | None = None) -> None:
         """Handle successful operation (synchronous, no lock)."""
-        current_state = self._get_current_state()
+        current_state = (
+            checked_state if checked_state is not None else self._get_current_state()
+        )
 
         if current_state == CircuitState.CLOSED:
             if self._failure_count > 0:
@@ -218,9 +222,11 @@ class CircuitBreaker:
                 self._success_count = 0
                 self._last_failure_time = None
 
-    def _on_failure_sync(self) -> None:
+    def _on_failure_sync(self, checked_state: CircuitState | None = None) -> None:
         """Handle failed operation (synchronous, no lock)."""
-        current_state = self._get_current_state()
+        current_state = (
+            checked_state if checked_state is not None else self._get_current_state()
+        )
 
         if current_state == CircuitState.CLOSED:
             self._failure_count += 1
@@ -241,12 +247,12 @@ class CircuitBreaker:
             self._success_count = 0
             self._last_failure_time = time.time()
 
-    async def _on_success(self) -> None:
+    async def _on_success(self, checked_state: CircuitState | None = None) -> None:
         """Handle successful operation."""
         async with self._async_lock:
-            self._on_success_sync()
+            self._on_success_sync(checked_state=checked_state)
 
-    async def _on_failure(self) -> None:
+    async def _on_failure(self, checked_state: CircuitState | None = None) -> None:
         """Handle failed operation."""
         async with self._async_lock:
-            self._on_failure_sync()
+            self._on_failure_sync(checked_state=checked_state)
