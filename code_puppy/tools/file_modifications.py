@@ -311,6 +311,8 @@ def _replace_in_file(
             if suffix:
                 parts.append(suffix)
             modified = "\n".join(parts)
+            if had_trailing_newline and not modified.endswith("\n"):
+                modified += "\n"
 
         if modified == original:
             emit_warning(
