@@ -301,19 +301,20 @@ class BaseAgent(ABC):
         return pinned
 
     def _clean_binaries(self, messages: List[ModelMessage]) -> List[ModelMessage]:
-        cleaned = []
+        """Remove BinaryContent items from message parts.
+
+        Note: This mutates the messages in-place by modifying part.content.
+        The return value is the same list for API consistency.
+        """
         for message in messages:
-            parts = []
             for part in message.parts:
                 if hasattr(part, "content") and isinstance(part.content, list):
-                    content = []
-                    for item in part.content:
-                        if not isinstance(item, BinaryContent):
-                            content.append(item)
-                    part.content = content
-                parts.append(part)
-            cleaned.append(message)
-        return cleaned
+                    part.content = [
+                        item
+                        for item in part.content
+                        if not isinstance(item, BinaryContent)
+                    ]
+        return messages
 
     def ensure_history_ends_with_request(
         self, messages: List[ModelMessage]
