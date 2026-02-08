@@ -72,6 +72,7 @@ class CircuitBreaker:
         self._last_failure_time = None
         self._sync_lock = threading.Lock()
         self._async_lock = asyncio.Lock()
+        self._half_open_in_flight = False
 
         logger.info(
             f"Circuit breaker initialized: failure_threshold={failure_threshold}, "
@@ -102,8 +103,16 @@ class CircuitBreaker:
                 raise CircuitOpenError("Circuit breaker is open")
 
             if current_state == CircuitState.HALF_OPEN:
+                if self._half_open_in_flight:
+                    logger.warning(
+                        "Circuit breaker HALF_OPEN with call already in flight, failing fast"
+                    )
+                    raise CircuitOpenError(
+                        "Circuit breaker half-open test call already in flight"
+                    )
                 # In half-open state, we're testing recovery
                 logger.info("Circuit breaker is HALF_OPEN, allowing test call")
+                self._half_open_in_flight = True
 
             checked_state = current_state
 
@@ -158,6 +167,7 @@ class CircuitBreaker:
             self._failure_count = 0
             self._success_count = 0
             self._last_failure_time = None
+            self._half_open_in_flight = False
 
     def force_open(self) -> None:
         """Force circuit breaker to OPEN state."""
@@ -165,6 +175,7 @@ class CircuitBreaker:
             logger.warning("Forcing circuit breaker to OPEN state")
             self._state = CircuitState.OPEN
             self._last_failure_time = time.time()
+            self._half_open_in_flight = False
 
     def force_close(self) -> None:
         """Force circuit breaker to CLOSED state and reset counters."""
@@ -174,6 +185,7 @@ class CircuitBreaker:
             self._failure_count = 0
             self._success_count = 0
             self._last_failure_time = None
+            self._half_open_in_flight = False
 
     def _get_current_state(self) -> CircuitState:
         """
@@ -213,6 +225,8 @@ class CircuitBreaker:
                 f"Success in HALF_OPEN state: {self._success_count}/{self.success_threshold}"
             )
 
+            self._half_open_in_flight = False
+
             if self._success_count >= self.success_threshold:
                 logger.info(
                     "Success threshold reached, transitioning from HALF_OPEN to CLOSED"
@@ -221,6 +235,7 @@ class CircuitBreaker:
                 self._failure_count = 0
                 self._success_count = 0
                 self._last_failure_time = None
+                self._half_open_in_flight = False
 
     def _on_failure_sync(self, checked_state: CircuitState | None = None) -> None:
         """Handle failed operation (synchronous, no lock)."""
@@ -246,6 +261,7 @@ class CircuitBreaker:
             self._state = CircuitState.OPEN
             self._success_count = 0
             self._last_failure_time = time.time()
+            self._half_open_in_flight = False
 
     async def _on_success(self, checked_state: CircuitState | None = None) -> None:
         """Handle successful operation."""
