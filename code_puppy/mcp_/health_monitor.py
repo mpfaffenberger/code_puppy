@@ -546,6 +546,27 @@ class HealthMonitor:
         except Exception as e:
             return HealthCheckResult(success=False, latency_ms=0.0, error=str(e))
 
+    async def close(self) -> None:
+        """Close the health monitor, stopping all monitoring tasks."""
+        await self.shutdown()
+
+    async def __aenter__(self) -> "HealthMonitor":
+        """Enter async context manager."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit async context manager, ensuring all tasks are cleaned up."""
+        await self.close()
+
+    def __del__(self) -> None:
+        """Warn if there are still running monitoring tasks on garbage collection."""
+        if self.monitoring_tasks:
+            logger.warning(
+                f"HealthMonitor garbage collected with {len(self.monitoring_tasks)} "
+                f"active monitoring tasks. Use 'async with' or call close() to "
+                f"prevent orphaned tasks."
+            )
+
     async def shutdown(self) -> None:
         """
         Shutdown all monitoring tasks gracefully.
