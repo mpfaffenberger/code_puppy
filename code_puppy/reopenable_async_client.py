@@ -180,10 +180,13 @@ class ReopenableAsyncClient:
         """
         with self._sync_lock:
             if self._client is None or self._is_closed:
-                # Create temporary client for building request only
-                # Don't mutate shared state to avoid race with async methods
-                temp_client = self._client_class(**self._client_kwargs)
-                return temp_client.build_request(method, url, **kwargs)
+                # Create temporary sync client for building request only
+                # Use httpx.Client (sync) so we can properly close it
+                temp_client = httpx.Client(**self._client_kwargs)
+                try:
+                    return temp_client.build_request(method, url, **kwargs)
+                finally:
+                    temp_client.close()
             return self._client.build_request(method, url, **kwargs)
 
     def stream(self, method: str, url: Union[str, httpx.URL], **kwargs):
