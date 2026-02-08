@@ -47,17 +47,13 @@ class RetryManager:
     error types. Tracks retry statistics per server for monitoring.
 
     Note: This class is designed for async-only usage. The ``_stats`` dict is
-    protected by an ``asyncio.Lock`` for coroutine-safe access and additionally
-    by a ``threading.Lock`` for defensive thread-safety in case synchronous
-    callers are introduced in the future. It is **not** safe to mix sync and
-    async access without careful coordination.
+    protected by an ``asyncio.Lock`` for coroutine-safe access.
     """
 
     def __init__(self):
         """Initialize the retry manager."""
         self._stats: Dict[str, RetryStats] = defaultdict(RetryStats)
         self._lock = asyncio.Lock()
-        self._sync_lock = threading.Lock()
 
     async def retry_with_backoff(
         self,
@@ -222,17 +218,16 @@ class RetryManager:
             success: Whether the retry was successful
         """
         async with self._lock:
-            with self._sync_lock:
-                stats = self._stats[server_id]
-                stats.last_retry = datetime.now()
+            stats = self._stats[server_id]
+            stats.last_retry = datetime.now()
 
-                if success:
-                    stats.successful_retries += 1
-                else:
-                    stats.failed_retries += 1
+            if success:
+                stats.successful_retries += 1
+            else:
+                stats.failed_retries += 1
 
-                stats.calculate_average(attempts)
-                stats.total_retries += 1
+            stats.calculate_average(attempts)
+            stats.total_retries += 1
 
     async def get_retry_stats(self, server_id: str) -> RetryStats:
         """
