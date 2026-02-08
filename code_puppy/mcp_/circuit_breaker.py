@@ -8,6 +8,7 @@ failures when MCP servers become unhealthy. The circuit breaker has three states
 - HALF_OPEN: Limited calls allowed to test recovery
 """
 
+import asyncio
 import logging
 import threading
 import time
@@ -70,6 +71,7 @@ class CircuitBreaker:
         self._success_count = 0
         self._last_failure_time = None
         self._sync_lock = threading.Lock()
+        self._async_lock = asyncio.Lock()
 
         logger.info(
             f"Circuit breaker initialized: failure_threshold={failure_threshold}, "
@@ -92,7 +94,7 @@ class CircuitBreaker:
             CircuitOpenError: If circuit is in OPEN state
             Exception: Any exception raised by the wrapped function
         """
-        with self._sync_lock:
+        async with self._async_lock:
             current_state = self._get_current_state()
 
             if current_state == CircuitState.OPEN:
@@ -105,8 +107,6 @@ class CircuitBreaker:
 
         # Execute the function outside the lock to avoid blocking other calls
         try:
-            import asyncio
-
             result = (
                 await func(*args, **kwargs)
                 if asyncio.iscoroutinefunction(func)
@@ -243,10 +243,10 @@ class CircuitBreaker:
 
     async def _on_success(self) -> None:
         """Handle successful operation."""
-        with self._sync_lock:
+        async with self._async_lock:
             self._on_success_sync()
 
     async def _on_failure(self) -> None:
         """Handle failed operation."""
-        with self._sync_lock:
+        async with self._async_lock:
             self._on_failure_sync()
