@@ -50,8 +50,7 @@ class TestFileOperationsExtended:
 
         assert result.error is not None
         assert result.num_tokens == 0
-        # Should return "FILE NOT FOUND" for permission errors (backward compatibility)
-        assert result.content == "FILE NOT FOUND"
+        assert result.content == "PERMISSION DENIED"
 
     def test_read_file_line_range_valid(self, tmp_path):
         """Test reading specific line ranges."""
