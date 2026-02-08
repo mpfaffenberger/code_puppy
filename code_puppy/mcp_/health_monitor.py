@@ -76,6 +76,7 @@ class HealthMonitor:
         self.custom_health_checks: Dict[str, Callable] = {}
         self.consecutive_failures: Dict[str, int] = defaultdict(int)
         self.last_check_time: Dict[str, datetime] = {}
+        self._lock = asyncio.Lock()
 
         # Register default health checks for each server type
         self._register_default_health_checks()
@@ -111,7 +112,7 @@ class HealthMonitor:
         # Perform initial health check
         try:
             health_status = await self.check_health(server)
-            self._record_health_status(server_id, health_status)
+            await self._record_health_status(server_id, health_status)
         except Exception as e:
             logger.error(f"Initial health check failed for {server_id}: {e}")
             error_status = HealthStatus(
@@ -121,7 +122,7 @@ class HealthMonitor:
                 error=str(e),
                 check_type="initial",
             )
-            self._record_health_status(server_id, error_status)
+            await self._record_health_status(server_id, error_status)
 
     async def stop_monitoring(self, server_id: str) -> None:
         """
@@ -140,7 +141,8 @@ class HealthMonitor:
                 pass
 
             # Clean up tracking data
-            self.consecutive_failures.pop(server_id, None)
+            async with self._lock:
+                self.consecutive_failures.pop(server_id, None)
             self.last_check_time.pop(server_id, None)
         else:
             logger.warning(f"No monitoring task found for server {server_id}")
@@ -248,7 +250,7 @@ class HealthMonitor:
         self.custom_health_checks[server_type.lower()] = check_func
         logger.info(f"Registered health check for server type: {server_type}")
 
-    def get_health_history(
+    async def get_health_history(
         self, server_id: str, limit: int = 100
     ) -> List[HealthStatus]:
         """
@@ -261,14 +263,15 @@ class HealthMonitor:
         Returns:
             List of HealthStatus objects, most recent first
         """
-        history = self.health_history.get(server_id, deque())
-        # Convert deque to list and limit results
-        result = list(history)[-limit:] if limit > 0 else list(history)
+        async with self._lock:
+            history = self.health_history.get(server_id, deque())
+            # Convert deque to list and limit results
+            result = list(history)[-limit:] if limit > 0 else list(history)
         # Reverse to get most recent first
         result.reverse()
         return result
 
-    def is_healthy(self, server_id: str) -> bool:
+    async def is_healthy(self, server_id: str) -> bool:
         """
         Check if a server is currently healthy based on latest status.
 
@@ -278,13 +281,14 @@ class HealthMonitor:
         Returns:
             True if server is healthy, False otherwise
         """
-        history = self.health_history.get(server_id)
-        if not history:
-            return False
+        async with self._lock:
+            history = self.health_history.get(server_id)
+            if not history:
+                return False
 
-        # Get most recent health status
-        latest_status = history[-1]
-        return latest_status.is_healthy
+            # Get most recent health status
+            latest_status = history[-1]
+            return latest_status.is_healthy
 
     async def _monitoring_loop(self, server_id: str, server: ManagedMCPServer) -> None:
         """
@@ -307,25 +311,27 @@ class HealthMonitor:
 
                 # Perform health check
                 health_status = await self.check_health(server)
-                self._record_health_status(server_id, health_status)
+                await self._record_health_status(server_id, health_status)
 
                 # Handle consecutive failures
-                if not health_status.is_healthy:
-                    self.consecutive_failures[server_id] += 1
-                    logger.warning(
-                        f"Health check failed for {server_id}: {health_status.error} "
-                        f"(consecutive failures: {self.consecutive_failures[server_id]})"
-                    )
-
-                    # Trigger recovery on consecutive failures
-                    await self._handle_consecutive_failures(server_id, server)
-                else:
-                    # Reset consecutive failure count on success
-                    if self.consecutive_failures[server_id] > 0:
-                        logger.info(
-                            f"Server {server_id} recovered after health check success"
+                async with self._lock:
+                    if not health_status.is_healthy:
+                        self.consecutive_failures[server_id] += 1
+                        logger.warning(
+                            f"Health check failed for {server_id}: {health_status.error} "
+                            f"(consecutive failures: {self.consecutive_failures[server_id]})"
                         )
-                        self.consecutive_failures[server_id] = 0
+                    else:
+                        # Reset consecutive failure count on success
+                        if self.consecutive_failures[server_id] > 0:
+                            logger.info(
+                                f"Server {server_id} recovered after health check success"
+                            )
+                            self.consecutive_failures[server_id] = 0
+
+                # Trigger recovery on consecutive failures (outside lock)
+                if not health_status.is_healthy:
+                    await self._handle_consecutive_failures(server_id, server)
 
                 self.last_check_time[server_id] = datetime.now()
 
@@ -337,7 +343,7 @@ class HealthMonitor:
                 # Continue monitoring despite errors
                 await asyncio.sleep(5)  # Brief delay before retrying
 
-    def _record_health_status(self, server_id: str, status: HealthStatus) -> None:
+    async def _record_health_status(self, server_id: str, status: HealthStatus) -> None:
         """
         Record a health status in the history.
 
@@ -345,7 +351,8 @@ class HealthMonitor:
             server_id: Unique identifier for the server
             status: The health status to record
         """
-        self.health_history[server_id].append(status)
+        async with self._lock:
+            self.health_history[server_id].append(status)
 
         # Log health status changes
         if status.is_healthy:
@@ -365,7 +372,8 @@ class HealthMonitor:
             server_id: Unique identifier for the server
             server: The managed MCP server
         """
-        failure_count = self.consecutive_failures[server_id]
+        async with self._lock:
+            failure_count = self.consecutive_failures[server_id]
 
         # Trigger recovery actions based on failure count
         if failure_count >= 3:
