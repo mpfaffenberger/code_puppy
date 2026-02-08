@@ -96,25 +96,26 @@ class CircuitBreaker:
             Exception: Any exception raised by the wrapped function
         """
         async with self._async_lock:
-            current_state = self._get_current_state()
+            with self._sync_lock:
+                current_state = self._get_current_state()
 
-            if current_state == CircuitState.OPEN:
-                logger.warning("Circuit breaker is OPEN, failing fast")
-                raise CircuitOpenError("Circuit breaker is open")
+                if current_state == CircuitState.OPEN:
+                    logger.warning("Circuit breaker is OPEN, failing fast")
+                    raise CircuitOpenError("Circuit breaker is open")
 
-            if current_state == CircuitState.HALF_OPEN:
-                if self._half_open_in_flight:
-                    logger.warning(
-                        "Circuit breaker HALF_OPEN with call already in flight, failing fast"
-                    )
-                    raise CircuitOpenError(
-                        "Circuit breaker half-open test call already in flight"
-                    )
-                # In half-open state, we're testing recovery
-                logger.info("Circuit breaker is HALF_OPEN, allowing test call")
-                self._half_open_in_flight = True
+                if current_state == CircuitState.HALF_OPEN:
+                    if self._half_open_in_flight:
+                        logger.warning(
+                            "Circuit breaker HALF_OPEN with call already in flight, failing fast"
+                        )
+                        raise CircuitOpenError(
+                            "Circuit breaker half-open test call already in flight"
+                        )
+                    # In half-open state, we're testing recovery
+                    logger.info("Circuit breaker is HALF_OPEN, allowing test call")
+                    self._half_open_in_flight = True
 
-            checked_state = current_state
+                checked_state = current_state
 
         # Execute the function outside the lock to avoid blocking other calls
         try:
@@ -265,10 +266,10 @@ class CircuitBreaker:
 
     async def _on_success(self, checked_state: CircuitState | None = None) -> None:
         """Handle successful operation."""
-        async with self._async_lock:
+        with self._sync_lock:
             self._on_success_sync(checked_state=checked_state)
 
     async def _on_failure(self, checked_state: CircuitState | None = None) -> None:
         """Handle failed operation."""
-        async with self._async_lock:
+        with self._sync_lock:
             self._on_failure_sync(checked_state=checked_state)
