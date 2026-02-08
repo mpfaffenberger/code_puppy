@@ -9,11 +9,28 @@ from code_puppy.messaging.messages import VersionCheckMessage
 def normalize_version(version_str):
     if not version_str:
         return version_str
-    return version_str.lstrip("v")
+    version_str = version_str.lstrip("v")
+    return version_str
+
+
+def _version_tuple(version_str):
+    """Convert version string to tuple of ints for proper comparison."""
+    try:
+        return tuple(int(x) for x in version_str.split("."))
+    except (ValueError, AttributeError):
+        return None
 
 
 def versions_are_equal(current, latest):
-    return normalize_version(current) == normalize_version(latest)
+    current_norm = normalize_version(current)
+    latest_norm = normalize_version(latest)
+    # Try numeric tuple comparison first
+    current_tuple = _version_tuple(current_norm)
+    latest_tuple = _version_tuple(latest_norm)
+    if current_tuple is not None and latest_tuple is not None:
+        return current_tuple == latest_tuple
+    # Fallback to string comparison
+    return current_norm == latest_norm
 
 
 def fetch_latest_version(package_name):
