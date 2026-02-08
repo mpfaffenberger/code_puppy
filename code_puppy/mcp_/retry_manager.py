@@ -8,6 +8,7 @@ communication with intelligent backoff strategies to prevent overwhelming failed
 import asyncio
 import logging
 import random
+import threading
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -283,6 +284,7 @@ class RetryManager:
 
 
 # Global retry manager instance
+_retry_manager_lock = threading.Lock()
 _retry_manager_instance: Optional[RetryManager] = None
 
 
@@ -295,7 +297,9 @@ def get_retry_manager() -> RetryManager:
     """
     global _retry_manager_instance
     if _retry_manager_instance is None:
-        _retry_manager_instance = RetryManager()
+        with _retry_manager_lock:
+            if _retry_manager_instance is None:
+                _retry_manager_instance = RetryManager()
     return _retry_manager_instance
 
 
