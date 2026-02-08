@@ -628,7 +628,11 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
 
         cmd.extend(["--ignore-file", ignore_file])
         # Split search_string to support ripgrep flags like --ignore-case
-        parts = shlex.split(search_string)
+        try:
+            parts = shlex.split(search_string)
+        except ValueError:
+            # Fallback for unmatched quotes (e.g., apostrophes in search terms)
+            parts = [search_string]
         cmd.extend(parts)
         cmd.append(directory)
         # Use encoding with error handling to handle files with invalid UTF-8
