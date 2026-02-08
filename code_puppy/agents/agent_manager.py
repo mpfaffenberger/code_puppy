@@ -5,6 +5,7 @@ import json
 import os
 import pkgutil
 import re
+import threading
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Type, Union
@@ -24,6 +25,7 @@ _CURRENT_AGENT: Optional[BaseAgent] = None
 # Terminal session-based agent selection
 _SESSION_AGENTS_CACHE: dict[str, str] = {}
 _SESSION_FILE_LOADED: bool = False
+_SESSION_LOCK = threading.Lock()
 
 
 # Session persistence file path
@@ -180,9 +182,10 @@ def _save_session_data(sessions: dict[str, str]) -> None:
 def _ensure_session_cache_loaded() -> None:
     """Ensure the session cache is loaded from disk."""
     global _SESSION_AGENTS_CACHE, _SESSION_FILE_LOADED
-    if not _SESSION_FILE_LOADED:
-        _SESSION_AGENTS_CACHE.update(_load_session_data())
-        _SESSION_FILE_LOADED = True
+    with _SESSION_LOCK:
+        if not _SESSION_FILE_LOADED:
+            _SESSION_AGENTS_CACHE.update(_load_session_data())
+            _SESSION_FILE_LOADED = True
 
 
 def _discover_agents(message_group_id: Optional[str] = None):
@@ -378,7 +381,8 @@ def get_current_agent_name() -> str:
     session_id = get_terminal_session_id()
 
     # First check for session-specific agent
-    session_agent = _SESSION_AGENTS_CACHE.get(session_id)
+    with _SESSION_LOCK:
+        session_agent = _SESSION_AGENTS_CACHE.get(session_id)
     if session_agent:
         return session_agent
 
@@ -415,8 +419,10 @@ def set_current_agent(agent_name: str) -> bool:
     # Update session-based agent selection and persist to disk
     _ensure_session_cache_loaded()
     session_id = get_terminal_session_id()
-    _SESSION_AGENTS_CACHE[session_id] = agent_name
-    _save_session_data(_SESSION_AGENTS_CACHE)
+    with _SESSION_LOCK:
+        _SESSION_AGENTS_CACHE[session_id] = agent_name
+        cache_snapshot = dict(_SESSION_AGENTS_CACHE)
+    _save_session_data(cache_snapshot)
     if agent_obj.name in _AGENT_HISTORIES:
         # Restore a copy to avoid sharing the same list instance
         agent_obj.set_message_history(list(_AGENT_HISTORIES[agent_obj.name]))
