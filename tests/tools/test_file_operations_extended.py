@@ -79,7 +79,7 @@ class TestFileOperationsExtended:
         assert result.num_tokens == 0
 
     def test_read_file_line_range_negative_start(self, tmp_path):
-        """Test reading with negative start line (should be treated as 0)."""
+        """Test reading with negative start line is rejected."""
         test_file = tmp_path / "negative_test.txt"
         lines = [f"Line {i}\n" for i in range(1, 6)]
         test_file.write_text("".join(lines))
@@ -87,9 +87,8 @@ class TestFileOperationsExtended:
         # Test with negative start line
         result = _read_file(None, str(test_file), start_line=-2, num_lines=3)
 
-        assert result.error is None
-        # Should start from beginning (treated as 0 index)
-        assert result.content == "Line 1\nLine 2\nLine 3\n"
+        assert result.error is not None
+        assert "start_line must be >= 1" in result.error
 
     def test_read_file_encoding_utf8(self, tmp_path):
         """Test reading UTF-8 encoded files with special characters."""
