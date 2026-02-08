@@ -566,6 +566,7 @@ def _sanitize_string(text: str) -> str:
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
     import json
     import os
+    import shlex
     import shutil
     import subprocess
     import sys
@@ -626,7 +627,14 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                 f.write(f"{pattern}\n")
 
         cmd.extend(["--ignore-file", ignore_file])
-        cmd.extend([search_string, directory])
+        # Split search_string to support ripgrep flags like --ignore-case
+        try:
+            parts = shlex.split(search_string)
+        except ValueError:
+            # Fallback for unmatched quotes (e.g., apostrophes in search terms)
+            parts = [search_string]
+        cmd.extend(parts)
+        cmd.append(directory)
         # Use encoding with error handling to handle files with invalid UTF-8
         result = subprocess.run(
             cmd,
