@@ -282,7 +282,7 @@ def _replace_in_file(
         new_snippet = rep.get("new_str", "")
 
         if old_snippet and old_snippet in modified:
-            modified = modified.replace(old_snippet, new_snippet)
+            modified = modified.replace(old_snippet, new_snippet, 1)
             continue
 
         orig_lines = modified.splitlines()
