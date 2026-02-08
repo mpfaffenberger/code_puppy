@@ -911,7 +911,8 @@ class TestRunAddWizard:
 
         with patch.object(MCPConfigWizard, "run_wizard", return_value=config):
             with patch("code_puppy.config.MCP_SERVERS_FILE", "/tmp/mcp_servers.json"):
-                result = run_add_wizard()
+                with patch("pathlib.Path.replace"):
+                    result = run_add_wizard()
 
         assert result is True
         mock_manager.register_server.assert_called_once_with(config)
