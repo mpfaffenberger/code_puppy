@@ -420,6 +420,12 @@ class AntigravityStreamingResponse(StreamedResponse):
     _chunks: AsyncIterator[dict[str, Any]]
     _model_name_str: str
     _provider_name_str: str = "google"
+
+    @property
+    def provider_url(self) -> str | None:
+        """Antigravity uses a custom proxy; no standard provider URL."""
+        return None
+
     _timestamp_val: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
