@@ -114,9 +114,9 @@ class CircuitBreaker:
             )
             await self._on_success()
             return result
-        except Exception as e:
+        except Exception:
             await self._on_failure()
-            raise e
+            raise
 
     def record_success(self) -> None:
         """Record a successful operation (synchronous)."""
