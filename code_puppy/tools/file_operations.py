@@ -466,15 +466,15 @@ def _read_file(
         # applications that don't properly encode Unicode
         with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
             if start_line is not None and num_lines is not None:
-                # Read only the specified lines
-                lines = f.readlines()
-                # Adjust for 1-based line numbering and handle negative values
-                start_idx = start_line - 1 if start_line > 0 else 0
-                end_idx = start_idx + num_lines
-                # Ensure indices are within bounds
-                start_idx = max(0, start_idx)
-                end_idx = min(len(lines), end_idx)
-                content = "".join(lines[start_idx:end_idx])
+                # Read only the specified lines efficiently using itertools.islice
+                # to avoid loading the entire file into memory
+                import itertools
+
+                start_idx = max(0, start_line - 1) if start_line > 0 else 0
+                selected_lines = list(
+                    itertools.islice(f, start_idx, start_idx + num_lines)
+                )
+                content = "".join(selected_lines)
             else:
                 # Read the entire file
                 content = f.read()
