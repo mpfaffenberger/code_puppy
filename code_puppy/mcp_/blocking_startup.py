@@ -140,6 +140,14 @@ class StderrFileCapture:
 
         # Note: We do NOT delete the log file - it's persistent now!
 
+    def __del__(self):
+        """Safety net to close log file handle if stop() was never called."""
+        if getattr(self, "log_file", None) is not None:
+            try:
+                self.log_file.close()
+            except Exception:
+                pass
+
     def get_captured_lines(self) -> List[str]:
         """Get all captured lines from this session."""
         return list(self.captured_lines)
