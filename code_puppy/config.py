@@ -936,10 +936,23 @@ def normalize_command_history():
 
         # Write the updated content back to the file only if changes were made
         if content != updated_content:
-            with open(
-                COMMAND_HISTORY_FILE, "w", encoding="utf-8", errors="surrogateescape"
-            ) as f:
-                f.write(updated_content)
+            import tempfile
+
+            fd, tmp_path = tempfile.mkstemp(
+                dir=os.path.dirname(COMMAND_HISTORY_FILE), suffix=".tmp"
+            )
+            try:
+                with os.fdopen(
+                    fd, "w", encoding="utf-8", errors="surrogateescape"
+                ) as f:
+                    f.write(updated_content)
+                os.replace(tmp_path, COMMAND_HISTORY_FILE)
+            except BaseException:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
     except Exception as e:
         from code_puppy.messaging import emit_error
 
