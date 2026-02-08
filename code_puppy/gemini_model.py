@@ -306,6 +306,7 @@ class GeminiModel(Model):
         return {
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "x-goog-api-key": self.api_key,
         }
 
     async def _map_user_prompt(self, part: UserPromptPart) -> list[dict[str, Any]]:
@@ -544,7 +545,7 @@ class GeminiModel(Model):
 
         # Make request
         client = await self._get_client()
-        url = f"{self._base_url}/models/{self._model_name}:generateContent?key={self.api_key}"
+        url = f"{self._base_url}/models/{self._model_name}:generateContent"
         headers = self._get_headers()
 
         response = await client.post(url, json=body, headers=headers)
@@ -635,7 +636,9 @@ class GeminiModel(Model):
 
         # Make streaming request
         client = await self._get_client()
-        url = f"{self._base_url}/models/{self._model_name}:streamGenerateContent?alt=sse&key={self.api_key}"
+        url = (
+            f"{self._base_url}/models/{self._model_name}:streamGenerateContent?alt=sse"
+        )
         headers = self._get_headers()
 
         async def stream_chunks() -> AsyncIterator[dict[str, Any]]:
