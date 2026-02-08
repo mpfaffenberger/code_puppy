@@ -142,7 +142,7 @@ def make_model_settings(
     effective_settings = get_effective_model_settings(model_name)
     model_settings_dict.update(effective_settings)
 
-    # Disable parallel tool calls when yolo_mode is off (for safer, sequential tool execution)
+    # Disable parallel tool calls when yolo_mode is off (sequential so user can review each call)
     if not get_yolo_mode():
         model_settings_dict["parallel_tool_calls"] = False
 

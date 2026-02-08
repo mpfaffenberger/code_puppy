@@ -476,7 +476,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.command_line.onboarding_wizard import should_show_onboarding
 
         if should_show_onboarding():
-            import asyncio
             import concurrent.futures
 
             from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
@@ -566,8 +565,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             continue
         except EOFError:
             # Handle Ctrl+D - exit the application
-            import asyncio
-
             from code_puppy.messaging import emit_success
 
             emit_success("\nGoodbye! (Ctrl+D)")
@@ -588,8 +585,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             "/exit",
             "/quit",
         ]:
-            import asyncio
-
             from code_puppy.messaging import emit_success
 
             emit_success("Goodbye!")
