@@ -56,18 +56,18 @@ class StderrFileCapture:
         # Write startup marker
         write_log(self.server_name, "--- Server starting ---", "INFO")
 
-        # Open log file for appending stderr
-        self.log_file = open(self.log_path, "a", encoding="utf-8")
-
         # Start monitoring thread only if we need to emit to user or capture lines
         try:
+            # Open log file for appending stderr (inside try for proper cleanup)
+            self.log_file = open(self.log_path, "a", encoding="utf-8")
             self.stop_monitoring.clear()
             self.monitor_thread = threading.Thread(target=self._monitor_file)
             self.monitor_thread.daemon = True
             self.monitor_thread.start()
         except Exception:
-            self.log_file.close()
-            self.log_file = None
+            if self.log_file is not None:
+                self.log_file.close()
+                self.log_file = None
             raise
 
         return self.log_file
