@@ -1,6 +1,17 @@
 from code_puppy.tools import file_modifications
 
 
+def test_replace_in_file_missing_file(tmp_path):
+    """_replace_in_file returns an error dict for a nonexistent file."""
+    missing = str(tmp_path / "nonexistent.txt")
+    res = file_modifications._replace_in_file(
+        None, missing, [{"old_str": "a", "new_str": "b"}]
+    )
+    assert "error" in res
+    assert "does not exist" in res["error"]
+    assert res["diff"] == ""
+
+
 def test_replace_in_file_multiple_replacements(tmp_path):
     path = tmp_path / "multi.txt"
     path.write_text("foo bar baz bar foo")
