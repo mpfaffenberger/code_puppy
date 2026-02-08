@@ -80,10 +80,12 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
                             # Ensure Content-Length matches the new body
                             request.headers["Content-Length"] = str(len(updated))
 
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to rebuild request with Codex fields: %s", e
+                            )
+        except Exception as e:
+            logger.debug("Failed to inject Codex fields into request: %s", e)
 
         # Make the actual request
         response = await super().send(request, *args, **kwargs)
