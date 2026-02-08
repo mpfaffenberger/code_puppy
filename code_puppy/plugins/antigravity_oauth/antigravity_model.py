@@ -7,6 +7,7 @@ Claude thinking signatures for Gemini 3 models.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -55,7 +56,9 @@ FunctionCallDict = dict[str, Any]
 BlobDict = dict[str, Any]
 
 # Bypass signature for when no real thought signature is available.
-BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
+BYPASS_THOUGHT_SIGNATURE = hashlib.sha256(
+    b"code_puppy_bypass_thought_signature"
+).hexdigest()[:32]
 
 
 def _is_signature_error(error_text: str) -> bool:
