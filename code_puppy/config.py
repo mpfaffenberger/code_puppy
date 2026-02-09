@@ -277,6 +277,8 @@ def get_config_keys():
     plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy", "message_limit", "allow_recursion").
     """
     default_keys = [
+        "alert_bell_enabled",
+        "alert_bell_threshold",
         "yolo_mode",
         "model",
         "compaction_strategy",
@@ -1710,3 +1712,53 @@ def get_frontend_emitter_queue_size() -> int:
         return int(val)
     except ValueError:
         return 100
+
+
+# --- ALERT BELL CONFIGURATION ---
+def get_alert_bell_enabled() -> bool:
+    """Check if the alert bell feature is enabled.
+
+    When enabled, a system bell will ring after the spinner has been
+    running for longer than the configured threshold, prompting the
+    user to check back on their terminal.
+
+    Returns:
+        bool: True if alert bell is enabled, False otherwise (default: False)
+    """
+    val = get_value("alert_bell_enabled")
+    if val is None:
+        return False  # Disabled by default
+    return val.lower() in ("true", "1", "yes", "on")
+
+
+def set_alert_bell_enabled(enabled: bool) -> None:
+    """Enable or disable the alert bell feature.
+
+    Args:
+        enabled: True to enable the alert bell, False to disable
+    """
+    set_config_value("alert_bell_enabled", "true" if enabled else "false")
+
+
+def get_alert_bell_threshold() -> int:
+    """Get the threshold in seconds before the alert bell rings.
+
+    Returns:
+        int: Threshold in seconds (default: 30, minimum: 1)
+    """
+    val = get_value("alert_bell_threshold")
+    if val is None:
+        return 30  # Default to 30 seconds
+    try:
+        return max(1, int(val))  # Minimum 1 second
+    except ValueError:
+        return 30
+
+
+def set_alert_bell_threshold(seconds: int) -> None:
+    """Set the threshold in seconds before the alert bell rings.
+
+    Args:
+        seconds: Threshold in seconds (minimum: 1)
+    """
+    set_config_value("alert_bell_threshold", str(max(1, seconds)))
