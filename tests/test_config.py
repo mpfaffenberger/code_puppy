@@ -491,8 +491,8 @@ class TestModelName:
         def get_section_or_create(name):
             if name == DEFAULT_SECTION_NAME:
                 # Ensure subsequent checks for section existence pass
-                mock_parser_instance.__contains__ = (
-                    lambda s_name: s_name == DEFAULT_SECTION_NAME
+                mock_parser_instance.__contains__ = lambda s_name: (
+                    s_name == DEFAULT_SECTION_NAME
                 )
                 return section_dict
             raise KeyError(name)
