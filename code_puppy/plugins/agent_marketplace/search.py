@@ -129,7 +129,7 @@ def _format_rating(rating: Optional[float]) -> str:
     Returns:
         Formatted rating string.
     """
-    if rating is None:
+    if rating is None or rating == 0:
         return "N/A"
     return f"{rating:.1f}"
 
@@ -203,10 +203,10 @@ def _build_results_table(results: list[dict]) -> Table:
             str(idx),
             _truncate(agent.get("name", "Unknown"), 20),
             _truncate(agent.get("description", "No description"), 27),
-            _format_access(agent.get("access_type")),
-            _format_number(agent.get("downloads", 0)),
-            _format_rating(agent.get("rating")),
-            _truncate(agent.get("author", "Anonymous"), 12),
+            _format_access(agent.get("access_level")),
+            _format_number(agent.get("download_count", 0)),
+            _format_rating(agent.get("average_rating")),
+            _truncate(agent.get("owner_name", "Anonymous"), 12),
         )
 
     return table
