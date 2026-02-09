@@ -1728,7 +1728,7 @@ def get_alert_bell_enabled() -> bool:
     val = get_value("alert_bell_enabled")
     if val is None:
         return False  # Disabled by default
-    return val.lower() in ("true", "1", "yes", "on")
+    return str(val).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def set_alert_bell_enabled(enabled: bool) -> None:

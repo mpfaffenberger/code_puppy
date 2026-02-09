@@ -6,12 +6,14 @@ from code_puppy.messaging.spinner.console_spinner import ConsoleSpinner
 
 
 def test_get_elapsed_str_empty_when_not_started():
+    """Test that elapsed string is empty when spinner hasn't started."""
     spinner = ConsoleSpinner()
     spinner._start_time = None
     assert spinner._get_elapsed_str() == ""
 
 
 def test_get_elapsed_str_formats_seconds_under_minute():
+    """Test elapsed time formatting for durations under one minute."""
     spinner = ConsoleSpinner()
     spinner._start_time = 0
     with patch("code_puppy.messaging.spinner.console_spinner.time.time", return_value=45):
@@ -19,6 +21,7 @@ def test_get_elapsed_str_formats_seconds_under_minute():
 
 
 def test_get_elapsed_str_formats_minutes_and_seconds():
+    """Test elapsed time formatting for durations with minutes and seconds."""
     spinner = ConsoleSpinner()
     spinner._start_time = 0
     with patch("code_puppy.messaging.spinner.console_spinner.time.time", return_value=125):
@@ -26,6 +29,7 @@ def test_get_elapsed_str_formats_minutes_and_seconds():
 
 
 def test_get_elapsed_str_formats_hours_minutes_seconds():
+    """Test elapsed time formatting for durations exceeding one hour."""
     spinner = ConsoleSpinner()
     spinner._start_time = 0
     with patch("code_puppy.messaging.spinner.console_spinner.time.time", return_value=3725):
@@ -33,6 +37,7 @@ def test_get_elapsed_str_formats_hours_minutes_seconds():
 
 
 def test_check_bell_alert_does_nothing_when_disabled():
+    """Test that bell alert does not trigger when feature is disabled."""
     spinner = ConsoleSpinner()
     spinner._start_time = 0
     spinner._bell_triggered = False
@@ -45,6 +50,7 @@ def test_check_bell_alert_does_nothing_when_disabled():
 
 
 def test_check_bell_alert_does_nothing_before_threshold():
+    """Test that bell alert does not trigger before threshold is reached."""
     spinner = ConsoleSpinner()
     spinner._start_time = 0
     spinner._bell_triggered = False
@@ -59,6 +65,7 @@ def test_check_bell_alert_does_nothing_before_threshold():
 
 
 def test_check_bell_alert_rings_once_after_threshold():
+    """Test that bell alert triggers exactly once when threshold is reached."""
     spinner = ConsoleSpinner()
     spinner._start_time = 0
     spinner._bell_triggered = False
@@ -74,6 +81,7 @@ def test_check_bell_alert_rings_once_after_threshold():
 
 
 def test_check_bell_alert_only_triggers_once_per_session():
+    """Test that bell alert only triggers once per spinner session."""
     spinner = ConsoleSpinner()
     spinner._start_time = 0
     spinner._bell_triggered = False
