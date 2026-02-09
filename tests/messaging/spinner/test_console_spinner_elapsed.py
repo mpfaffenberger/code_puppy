@@ -16,7 +16,9 @@ def test_get_elapsed_str_formats_seconds_under_minute():
     """Test elapsed time formatting for durations under one minute."""
     spinner = ConsoleSpinner()
     spinner._start_time = 0
-    with patch("code_puppy.messaging.spinner.console_spinner.time.time", return_value=45):
+    with patch(
+        "code_puppy.messaging.spinner.console_spinner.time.time", return_value=45
+    ):
         assert spinner._get_elapsed_str() == "[0:45]"
 
 
@@ -24,7 +26,9 @@ def test_get_elapsed_str_formats_minutes_and_seconds():
     """Test elapsed time formatting for durations with minutes and seconds."""
     spinner = ConsoleSpinner()
     spinner._start_time = 0
-    with patch("code_puppy.messaging.spinner.console_spinner.time.time", return_value=125):
+    with patch(
+        "code_puppy.messaging.spinner.console_spinner.time.time", return_value=125
+    ):
         assert spinner._get_elapsed_str() == "[2:05]"
 
 
@@ -32,7 +36,9 @@ def test_get_elapsed_str_formats_hours_minutes_seconds():
     """Test elapsed time formatting for durations exceeding one hour."""
     spinner = ConsoleSpinner()
     spinner._start_time = 0
-    with patch("code_puppy.messaging.spinner.console_spinner.time.time", return_value=3725):
+    with patch(
+        "code_puppy.messaging.spinner.console_spinner.time.time", return_value=3725
+    ):
         assert spinner._get_elapsed_str() == "[1:02:05]"
 
 
@@ -57,7 +63,10 @@ def test_check_bell_alert_does_nothing_before_threshold():
 
     with patch("code_puppy.config.get_alert_bell_enabled", return_value=True):
         with patch("code_puppy.config.get_alert_bell_threshold", return_value=30):
-            with patch("code_puppy.messaging.spinner.console_spinner.time.time", return_value=29):
+            with patch(
+                "code_puppy.messaging.spinner.console_spinner.time.time",
+                return_value=29,
+            ):
                 with patch("sys.stdout") as mock_stdout:
                     spinner._check_bell_alert()
                     mock_stdout.write.assert_not_called()
@@ -72,7 +81,10 @@ def test_check_bell_alert_rings_once_after_threshold():
 
     with patch("code_puppy.config.get_alert_bell_enabled", return_value=True):
         with patch("code_puppy.config.get_alert_bell_threshold", return_value=30):
-            with patch("code_puppy.messaging.spinner.console_spinner.time.time", return_value=30):
+            with patch(
+                "code_puppy.messaging.spinner.console_spinner.time.time",
+                return_value=30,
+            ):
                 with patch("sys.stdout") as mock_stdout:
                     spinner._check_bell_alert()
                     mock_stdout.write.assert_called_once_with("\a")
@@ -88,7 +100,10 @@ def test_check_bell_alert_only_triggers_once_per_session():
 
     with patch("code_puppy.config.get_alert_bell_enabled", return_value=True):
         with patch("code_puppy.config.get_alert_bell_threshold", return_value=30):
-            with patch("code_puppy.messaging.spinner.console_spinner.time.time", return_value=35):
+            with patch(
+                "code_puppy.messaging.spinner.console_spinner.time.time",
+                return_value=35,
+            ):
                 with patch("sys.stdout") as mock_stdout:
                     spinner._check_bell_alert()
                     spinner._check_bell_alert()
