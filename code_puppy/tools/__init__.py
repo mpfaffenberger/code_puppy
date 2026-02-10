@@ -96,6 +96,27 @@ from code_puppy.tools.databricks_tools import (
     register_databricks_get_table_schema,
     register_databricks_list_warehouses,
     register_databricks_execute_query,
+    # Workspace / Notebook tools
+    register_databricks_list_workspace,
+    register_databricks_get_notebook,
+    register_databricks_upload_notebook,
+    # Job tools
+    register_databricks_list_jobs,
+    register_databricks_get_job,
+    register_databricks_create_job,
+    register_databricks_run_job,
+    register_databricks_get_run_status,
+    register_databricks_list_runs,
+    # Pipeline tools
+    register_databricks_list_pipelines,
+    register_databricks_get_pipeline,
+    register_databricks_create_pipeline,
+    register_databricks_start_pipeline,
+    register_databricks_stop_pipeline,
+    # Cluster / Execution tools
+    register_databricks_list_clusters,
+    register_databricks_run_notebook,
+    register_databricks_execute_code,
 )
 from code_puppy.tools.confluence_tools import (
     register_confluence_search,
@@ -247,13 +268,34 @@ TOOL_REGISTRY = {
     "bigquery_execute_query": register_bigquery_execute_query,
     "bigquery_get_table_schema": register_bigquery_get_table_schema,
     "bigquery_search_tables": register_bigquery_search_tables,
-    # Databricks Tools
+    # Databricks Tools - SQL / Unity Catalog
     "databricks_list_catalogs": register_databricks_list_catalogs,
     "databricks_list_schemas": register_databricks_list_schemas,
     "databricks_list_tables": register_databricks_list_tables,
     "databricks_get_table_schema": register_databricks_get_table_schema,
     "databricks_list_warehouses": register_databricks_list_warehouses,
     "databricks_execute_query": register_databricks_execute_query,
+    # Databricks Tools - Workspace / Notebooks
+    "databricks_list_workspace": register_databricks_list_workspace,
+    "databricks_get_notebook": register_databricks_get_notebook,
+    "databricks_upload_notebook": register_databricks_upload_notebook,
+    # Databricks Tools - Jobs
+    "databricks_list_jobs": register_databricks_list_jobs,
+    "databricks_get_job": register_databricks_get_job,
+    "databricks_create_job": register_databricks_create_job,
+    "databricks_run_job": register_databricks_run_job,
+    "databricks_get_run_status": register_databricks_get_run_status,
+    "databricks_list_runs": register_databricks_list_runs,
+    # Databricks Tools - Pipelines (Delta Live Tables)
+    "databricks_list_pipelines": register_databricks_list_pipelines,
+    "databricks_get_pipeline": register_databricks_get_pipeline,
+    "databricks_create_pipeline": register_databricks_create_pipeline,
+    "databricks_start_pipeline": register_databricks_start_pipeline,
+    "databricks_stop_pipeline": register_databricks_stop_pipeline,
+    # Databricks Tools - Clusters / Execution
+    "databricks_list_clusters": register_databricks_list_clusters,
+    "databricks_run_notebook": register_databricks_run_notebook,
+    "databricks_execute_code": register_databricks_execute_code,
     # Marketplace Tools
     "marketplace_search_agents": register_marketplace_search_agents,
     "marketplace_download_agent": register_marketplace_download_agent,
