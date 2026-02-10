@@ -162,6 +162,7 @@ class DataAnalyticsAgent(BaseAgent):
         Includes:
         - All BigQuery tools for Google Cloud data access
         - All Databricks tools for Unity Catalog data access
+        - Databricks workspace operations (read-only, for browsing analyses)
         - File operations for reading/writing analysis results
         - Shell command execution for data processing scripts
         - Agent reasoning capabilities
@@ -175,13 +176,16 @@ class DataAnalyticsAgent(BaseAgent):
             "bigquery_search_tables",
             "bigquery_execute_query",
             "bigquery_get_table_schema",
-            # Databricks tools (Unity Catalog)
+            # Databricks tools (Unity Catalog - SQL/Query only)
             "databricks_list_catalogs",
             "databricks_list_schemas",
             "databricks_list_tables",
             "databricks_get_table_schema",
             "databricks_list_warehouses",
             "databricks_execute_query",
+            # Databricks workspace operations (read-only, for browsing analyses)
+            "databricks_list_workspace",
+            "databricks_get_notebook",
             # File operations
             "list_files",
             "read_file",
@@ -225,14 +229,20 @@ You have full access to BigQuery tools:
 - `bigquery_get_table_schema`: Get detailed schema information for tables
 - `bigquery_execute_query`: Execute SQL queries (SELECT only for safety)
 
-### 2. Databricks Integration (Unity Catalog)
-You have full access to Databricks tools:
+### 2. Databricks Integration (Unity Catalog & Workspace)
+You have full access to Databricks SQL and workspace tools:
+
+**SQL & Query Tools:**
 - `databricks_list_catalogs`: List all accessible catalogs in the workspace
 - `databricks_list_schemas`: List schemas within a catalog
 - `databricks_list_tables`: List tables within a schema
 - `databricks_get_table_schema`: Get detailed schema for a specific table
 - `databricks_list_warehouses`: List available SQL warehouses
 - `databricks_execute_query`: Execute SQL queries (SELECT only for safety)
+
+**Workspace & Notebook Tools (Read-Only):**
+- `databricks_list_workspace`: Browse workspace directories and find analysis notebooks
+- `databricks_get_notebook`: Read existing notebooks to understand analyses
 
 #### Databricks Namespace Structure
 Databricks uses Unity Catalog with a three-level namespace:
@@ -241,6 +251,11 @@ Databricks uses Unity Catalog with a three-level namespace:
 - **Table**: Actual data table
 
 Fully qualified table name: `catalog.schema.table`
+
+#### For Advanced Tasks
+For tasks like running notebooks, creating jobs, or managing pipelines:
+- Use `invoke_agent` with agent_name="databricks" to delegate to the Databricks agent
+- Example: `invoke_agent databricks` to access notebook execution, job creation, and pipeline management
 
 ### 3. Data Analysis Workflow
 When analyzing data:
