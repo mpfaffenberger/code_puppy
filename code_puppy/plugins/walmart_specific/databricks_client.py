@@ -15,6 +15,7 @@ import base64
 import json
 import os
 import time
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -1002,7 +1003,7 @@ class DatabricksClient:
                 run = self._client.jobs.run_now_and_wait(
                     job_id=job_id,
                     notebook_params=parameters,
-                    timeout=time.timedelta(seconds=timeout_seconds),
+                    timeout=timedelta(seconds=timeout_seconds),
                 )
             else:
                 run = self._client.jobs.run_now(
@@ -1013,7 +1014,7 @@ class DatabricksClient:
             result = {
                 "run_id": run.run_id,
                 "job_id": job_id,
-                "number_in_job": run.number_in_job,
+                "number_in_job": getattr(run, "number_in_job", None),
             }
 
             if wait:
@@ -1452,7 +1453,7 @@ class DatabricksClient:
                         ),
                     )
                 ],
-                timeout=time.timedelta(seconds=timeout_seconds),
+                timeout=timedelta(seconds=timeout_seconds),
             )
 
             # Get run output
