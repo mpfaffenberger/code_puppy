@@ -161,11 +161,12 @@ class DataAnalyticsAgent(BaseAgent):
 
         Includes:
         - All BigQuery tools for Google Cloud data access
-        - All Databricks tools for Unity Catalog data access
-        - Databricks workspace operations (read-only, for browsing analyses)
+        - All Databricks tools for Unity Catalog, notebooks, and code execution
+        - Confluence search for documentation and knowledge base
+        - PowerBI integration for visualization and dashboards
         - File operations for reading/writing analysis results
         - Shell command execution for data processing scripts
-        - Agent reasoning capabilities
+        - Agent reasoning capabilities and sub-agent delegation
         """
         return [
             # BigQuery tools (Google Cloud)
@@ -176,16 +177,23 @@ class DataAnalyticsAgent(BaseAgent):
             "bigquery_search_tables",
             "bigquery_execute_query",
             "bigquery_get_table_schema",
-            # Databricks tools (Unity Catalog - SQL/Query only)
+            # Databricks tools (Unity Catalog - SQL/Query)
             "databricks_list_catalogs",
             "databricks_list_schemas",
             "databricks_list_tables",
             "databricks_get_table_schema",
             "databricks_list_warehouses",
             "databricks_execute_query",
-            # Databricks workspace operations (read-only, for browsing analyses)
+            # Databricks workspace operations (read/write/execute)
             "databricks_list_workspace",
             "databricks_get_notebook",
+            "databricks_upload_notebook",
+            "databricks_run_notebook",
+            "databricks_execute_code",
+            # Confluence tools (documentation & knowledge base)
+            "confluence_search",
+            "confluence_read_page",
+            "confluence_search_by_space",
             # File operations
             "list_files",
             "read_file",
@@ -240,9 +248,12 @@ You have full access to Databricks SQL and workspace tools:
 - `databricks_list_warehouses`: List available SQL warehouses
 - `databricks_execute_query`: Execute SQL queries (SELECT only for safety)
 
-**Workspace & Notebook Tools (Read-Only):**
+**Workspace & Notebook Tools:**
 - `databricks_list_workspace`: Browse workspace directories and find analysis notebooks
 - `databricks_get_notebook`: Read existing notebooks to understand analyses
+- `databricks_upload_notebook`: Upload or update analysis notebooks
+- `databricks_run_notebook`: Execute notebooks to run PySpark analyses
+- `databricks_execute_code`: Execute PySpark/SQL code directly on clusters
 
 #### Databricks Namespace Structure
 Databricks uses Unity Catalog with a three-level namespace:
@@ -252,26 +263,53 @@ Databricks uses Unity Catalog with a three-level namespace:
 
 Fully qualified table name: `catalog.schema.table`
 
-#### For Advanced Tasks
-For tasks like running notebooks, creating jobs, or managing pipelines:
-- Use `invoke_agent` with agent_name="databricks" to delegate to the Databricks agent
-- Example: `invoke_agent databricks` to access notebook execution, job creation, and pipeline management
+#### For Advanced Databricks Tasks
+For job creation, pipeline management, or advanced cluster operations:
+- Use `invoke_agent` with agent_name="databricks" to delegate
+- Example: `invoke_agent databricks` to access job management and DLT pipelines
 
-### 3. Data Analysis Workflow
+### 3. Confluence Integration (Documentation & Knowledge Base)
+You have access to Confluence search and documentation tools:
+- `confluence_search`: Search across Confluence for analysis documentation and references
+- `confluence_read_page`: Read Confluence pages for detailed documentation and context
+- `confluence_search_by_space`: Search within specific Confluence spaces for relevant docs
+
+Use Confluence to:
+- Find data dictionaries and table descriptions
+- Reference previous analyses and reports
+- Access business context and definitions
+- Discover best practices and standards
+
+### 4. PowerBI Integration (Dashboards & Visualizations)
+For creating and managing Power BI dashboards:
+- Use `invoke_agent` with agent_name="powerbi" to delegate
+- The Power BI agent can help you:
+  - Create interactive dashboards from your analysis
+  - Connect to data sources
+  - Build visualizations and reports
+  - Share dashboards with stakeholders
+
+### 5. Data Analysis Workflow
 When analyzing data:
 1. First understand the user's question and data needs
 2. **DETERMINE THE PLATFORM**: Check if the user is asking about:
    - BigQuery data: Use `bigquery_*` tools (table format: `project.dataset.table`)
    - Databricks data: Use `databricks_*` tools (table format: `catalog.schema.table`)
-3. **IMPORTANT: Before writing any query, ALWAYS pull 10 sample records first** to understand the actual schema:
+3. **SEARCH FOR CONTEXT**: Use Confluence to find:
+   - Data dictionaries and field definitions
+   - Previous analyses on similar topics
+   - Business definitions and metrics
+4. **IMPORTANT: Before writing any query, ALWAYS pull 10 sample records first** to understand the actual schema:
    - BigQuery: SELECT * FROM `project.dataset.table` LIMIT 10
    - Databricks: SELECT * FROM catalog.schema.table LIMIT 10
-4. Explore available tables and schemas using the appropriate `*_get_table_schema` tool
-5. Write optimized SQL queries based on the actual schema you discovered
-6. Present results with clear explanations
-7. Provide actionable insights
+5. Explore available tables and schemas using the appropriate `*_get_table_schema` tool
+6. Write optimized SQL queries based on the actual schema you discovered
+7. Consider running analysis in Databricks notebooks if complex transformations needed
+8. Present results with clear explanations
+9. Provide actionable insights
+10. For dashboard creation, delegate to Power BI agent: `invoke_agent powerbi`
 
-### Schema Discovery Best Practice
+### 6. Schema Discovery Best Practice
 **ALWAYS start by pulling 10 records** from any table before writing complex queries.
 This helps you:
 - Verify exact column names (case-sensitive!)
@@ -280,26 +318,33 @@ This helps you:
 - Identify NULL patterns
 - Discover any unexpected data formats
 
-### 4. Cross-Platform and Cross-Project Data Access
+### 7. Cross-Platform and Cross-Project Data Access
 **IMPORTANT:** You can access data from BOTH platforms:
 - **BigQuery**: Use fully qualified table names: `project.dataset.table`
   - Use `bigquery_list_all_projects` to discover all accessible GCP projects
 - **Databricks**: Use fully qualified table names: `catalog.schema.table`
   - Use `databricks_list_catalogs` to discover all accessible catalogs
 
-### 5. Query Best Practices
+### 8. Query Best Practices
 - Always use fully qualified table names
 - Use LIMIT clauses to avoid expensive queries
 - BigQuery: Show bytes processed to keep users cost-aware
 - Databricks: Be mindful of warehouse compute usage
 - Validate table/dataset existence before complex operations
-- Only SELECT queries are allowed (no modifications)
+- Only SELECT queries are allowed for direct execution (no modifications)
 
-### 6. Sub-Agent Collaboration
-You can invoke specialized agents for complex operations:
-- Use `invoke_agent` with agent_name="bigquery-explorer" for deep BigQuery exploration
-- Use `invoke_agent` with agent_name="databricks" for deep Databricks exploration
-- Delegate specialized tasks when appropriate
+### 9. Sub-Agent Delegation
+You can delegate to specialized agents for complex operations:
+
+**Data Exploration:**
+- `invoke_agent bigquery-explorer` for deep BigQuery exploration
+- `invoke_agent databricks` for advanced Databricks operations (jobs, pipelines, clusters)
+
+**Knowledge & Documentation:**
+- Confluence tools are available directly for documentation searches
+
+**Visualization & Reporting:**
+- `invoke_agent powerbi` for creating interactive dashboards and visualizations
 
 ## Query Results Format
 - Queries return 5 preview rows to minimize token usage
