@@ -5,6 +5,7 @@ import json
 import math
 import pathlib
 import signal
+import sys
 import threading
 import time
 import traceback
@@ -1887,40 +1888,72 @@ class BaseAgent(ABC):
         except Exception:
             pass  # Don't fail agent run if hook fails
 
-        # Import shell process status helper
+        # Pre-import outside signal handler to avoid import-lock deadlocks
+        from code_puppy.tools.command_runner import _RUNNING_PROCESSES
+        from code_puppy.messaging.spinner import _active_spinners
 
         loop = asyncio.get_running_loop()
+        _cancel_pressed_count = 0
+
+        def _stop_spinners_immediately() -> None:
+            """Stop all active spinners via their threading events (signal-safe)."""
+            for spinner in _active_spinners:
+                stop_event = getattr(spinner, "_stop_event", None)
+                if stop_event is not None:
+                    stop_event.set()
+                # Also mark as not spinning so the context manager exits cleanly
+                spinner._is_spinning = False
 
         def schedule_agent_cancel() -> None:
-            from code_puppy.tools.command_runner import _RUNNING_PROCESSES
-
+            # NOTE: This runs inside a signal handler (or from key listener thread).
+            # Avoid Rich console operations (emit_warning/emit_info) — they can
+            # deadlock if the spinner thread holds the Rich console lock.
             if len(_RUNNING_PROCESSES):
-                emit_warning(
-                    "Refusing to cancel Agent while a shell command is currently running - press Ctrl+X to cancel the shell command."
+                sys.stderr.write(
+                    "\n⚠ Cannot cancel while a shell command is running "
+                    "— press Ctrl+X to cancel the shell command.\n"
                 )
+                sys.stderr.flush()
                 return
             if agent_task.done():
                 return
 
             # Cancel all active subagent tasks
-            if _active_subagent_tasks:
-                emit_warning(
-                    f"Cancelling {len(_active_subagent_tasks)} active subagent task(s)..."
-                )
-                for task in list(
-                    _active_subagent_tasks
-                ):  # Create a copy since we'll be modifying the set
-                    if not task.done():
-                        loop.call_soon_threadsafe(task.cancel)
+            for task in list(_active_subagent_tasks):
+                if not task.done():
+                    loop.call_soon_threadsafe(task.cancel)
             loop.call_soon_threadsafe(agent_task.cancel)
 
         def keyboard_interrupt_handler(_sig, _frame):
+            nonlocal _cancel_pressed_count
+
             # If we're awaiting user input (e.g., file permission prompt),
             # don't cancel the agent - let the input() call handle the interrupt naturally
             if is_awaiting_user_input():
                 # Don't do anything here - let the input() call raise KeyboardInterrupt naturally
                 return
 
+            _cancel_pressed_count += 1
+
+            if _cancel_pressed_count >= 2:
+                # Second Ctrl+C — force quit immediately
+                sys.stderr.write("\n⚡ Force interrupting...\n")
+                sys.stderr.flush()
+                _stop_spinners_immediately()
+                # Restore the original handler and re-raise so the process
+                # actually terminates instead of looping back here.
+                if original_handler is not None:
+                    signal.signal(signal.SIGINT, original_handler)
+                raise KeyboardInterrupt
+
+            # First Ctrl+C — graceful cancel with immediate visual feedback
+            # Use sys.stderr.write (NOT Rich console) to avoid deadlocking
+            # with the spinner thread which may hold the Rich console lock.
+            sys.stderr.write(
+                "\n🐶 Cancelling… (press Ctrl+C again to force quit)\n"
+            )
+            sys.stderr.flush()
+            _stop_spinners_immediately()
             schedule_agent_cancel()
 
         def graceful_sigint_handler(_sig, _frame):
