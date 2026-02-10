@@ -45,7 +45,7 @@ class DataAnalyticsAgent(BaseAgent):
 
     @property
     def description(self) -> str:
-        return "Data analyst agent with custom knowledge base, BigQuery and Databricks integration"
+        return "Data analyst agent with BigQuery, Databricks, Confluence search, PowerBI, and custom knowledge base"
 
     @staticmethod
     def get_configured_knowledge_path() -> Optional[str]:
