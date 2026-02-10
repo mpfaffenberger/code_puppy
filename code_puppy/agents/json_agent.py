@@ -145,27 +145,43 @@ class JSONAgent(BaseAgent):
 
 
 def discover_json_agents() -> Dict[str, str]:
-    """Discover JSON agent files in the user's agents directory.
+    """Discover JSON agent files in the user's and project's agents directories.
+
+    Searches two locations:
+    1. User agents directory (~/.code_puppy/agents/)
+    2. Project agents directory (<CWD>/.code_puppy/agents/) - if it exists
+
+    Project agents take priority over user agents when names collide.
 
     Returns:
         Dict mapping agent names to their JSON file paths.
     """
-    from code_puppy.config import get_user_agents_directory
+    from code_puppy.config import (
+        get_project_agents_directory,
+        get_user_agents_directory,
+    )
 
-    agents = {}
-    agents_dir = Path(get_user_agents_directory())
+    agents: Dict[str, str] = {}
 
-    if not agents_dir.exists() or not agents_dir.is_dir():
-        return agents
+    # 1. Discover user-level agents first
+    user_agents_dir = Path(get_user_agents_directory())
+    if user_agents_dir.exists() and user_agents_dir.is_dir():
+        for json_file in user_agents_dir.glob("*.json"):
+            try:
+                agent = JSONAgent(str(json_file))
+                agents[agent.name] = str(json_file)
+            except Exception:
+                continue
 
-    # Find all .json files in the agents directory
-    for json_file in agents_dir.glob("*.json"):
-        try:
-            # Try to load and validate the agent
-            agent = JSONAgent(str(json_file))
-            agents[agent.name] = str(json_file)
-        except Exception:
-            # Skip invalid JSON agent files
-            continue
+    # 2. Discover project-level agents (overrides user agents on name collision)
+    project_agents_dir_str = get_project_agents_directory()
+    if project_agents_dir_str is not None:
+        project_agents_dir = Path(project_agents_dir_str)
+        for json_file in project_agents_dir.glob("*.json"):
+            try:
+                agent = JSONAgent(str(json_file))
+                agents[agent.name] = str(json_file)
+            except Exception:
+                continue
 
     return agents

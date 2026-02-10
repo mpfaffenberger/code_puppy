@@ -374,17 +374,28 @@ class TestDiscoverJsonAgents:
         agent1_file.write_text(json.dumps(config1))
         agent2_file.write_text(json.dumps(config2))
 
-        # Mock the user agents directory to point to our tmp_path
-        with patch("code_puppy.config.get_user_agents_directory") as mock_get_dir:
-            mock_get_dir.return_value = str(tmp_path)
+        # Change to tmp_path so no project .code_puppy directory is found
+        # Mock only the user agents directory to point to our tmp_path
+        with patch("code_puppy.config.get_user_agents_directory") as mock_get_user_dir:
+            mock_get_user_dir.return_value = str(tmp_path)
 
-            agents = discover_json_agents()
+            # Use a temp directory without .code_puppy to isolate from project directory
+            import os
+            original_cwd = os.getcwd()
+            isolated_dir = tmp_path / "isolated"
+            isolated_dir.mkdir()
+            os.chdir(str(isolated_dir))
 
-            assert len(agents) == 2
-            assert "agent1" in agents
-            assert "agent2" in agents
-            assert agents["agent1"] == str(agent1_file)
-            assert agents["agent2"] == str(agent2_file)
+            try:
+                agents = discover_json_agents()
+
+                assert len(agents) == 2
+                assert "agent1" in agents
+                assert "agent2" in agents
+                assert agents["agent1"] == str(agent1_file)
+                assert agents["agent2"] == str(agent2_file)
+            finally:
+                os.chdir(original_cwd)
 
     def test_discover_skip_invalid_agents(self, tmp_path):
         """Test that invalid agent files are skipped during discovery."""
@@ -410,31 +421,57 @@ class TestDiscoverJsonAgents:
         not_json = tmp_path / "not_json.txt"
         not_json.write_text("Not a JSON file")
 
-        with patch("code_puppy.config.get_user_agents_directory") as mock_get_dir:
-            mock_get_dir.return_value = str(tmp_path)
+        with patch("code_puppy.config.get_user_agents_directory") as mock_get_user_dir:
+            mock_get_user_dir.return_value = str(tmp_path)
 
-            agents = discover_json_agents()
+            # Change to isolated directory to avoid project .code_puppy
+            import os
+            original_cwd = os.getcwd()
+            isolated_dir = tmp_path / "isolated"
+            isolated_dir.mkdir()
+            os.chdir(str(isolated_dir))
 
-            # Should only include the valid agent
-            assert len(agents) == 1
-            assert "valid_agent" in agents
-            assert agents["valid_agent"] == str(valid_file)
+            try:
+                agents = discover_json_agents()
 
-    def test_discover_no_agents_directory(self):
+                # Should only include the valid agent
+                assert len(agents) == 1
+                assert "valid_agent" in agents
+                assert agents["valid_agent"] == str(valid_file)
+            finally:
+                os.chdir(original_cwd)
+
+    def test_discover_no_agents_directory(self, tmp_path):
         """Test discovery when agents directory doesn't exist."""
-        with patch("code_puppy.config.get_user_agents_directory") as mock_get_dir:
-            mock_get_dir.return_value = "/nonexistent/directory"
+        with patch("code_puppy.config.get_user_agents_directory") as mock_get_user_dir:
+            mock_get_user_dir.return_value = "/nonexistent/directory"
 
-            agents = discover_json_agents()
-            assert agents == {}
+            # Change to isolated directory to avoid project .code_puppy
+            import os
+            original_cwd = os.getcwd()
+            os.chdir(str(tmp_path))
+
+            try:
+                agents = discover_json_agents()
+                assert agents == {}
+            finally:
+                os.chdir(original_cwd)
 
     def test_discover_empty_directory(self, tmp_path):
         """Test discovery when agents directory is empty."""
-        with patch("code_puppy.config.get_user_agents_directory") as mock_get_dir:
-            mock_get_dir.return_value = str(tmp_path)
+        with patch("code_puppy.config.get_user_agents_directory") as mock_get_user_dir:
+            mock_get_user_dir.return_value = str(tmp_path)
 
-            agents = discover_json_agents()
-            assert agents == {}
+            # Change to isolated directory to avoid project .code_puppy
+            import os
+            original_cwd = os.getcwd()
+            os.chdir(str(tmp_path))
+
+            try:
+                agents = discover_json_agents()
+                assert agents == {}
+            finally:
+                os.chdir(original_cwd)
 
     def test_discover_duplicate_names(self, tmp_path):
         """Test discovery with duplicate agent names (last one wins)."""
@@ -459,13 +496,167 @@ class TestDiscoverJsonAgents:
         agent1_file.write_text(json.dumps(config1))
         agent2_file.write_text(json.dumps(config2))
 
-        with patch("code_puppy.config.get_user_agents_directory") as mock_get_dir:
-            mock_get_dir.return_value = str(tmp_path)
+        with patch("code_puppy.config.get_user_agents_directory") as mock_get_user_dir:
+            mock_get_user_dir.return_value = str(tmp_path)
 
+            # Change to isolated directory to avoid project .code_puppy
+            import os
+            original_cwd = os.getcwd()
+            isolated_dir = tmp_path / "isolated"
+            isolated_dir.mkdir()
+            os.chdir(str(isolated_dir))
+
+            try:
+                agents = discover_json_agents()
+
+                # Should only have one entry (last one processed wins)
+                assert len(agents) == 1
+                assert "duplicate" in agents
+                # The path should be one of our files
+                assert agents["duplicate"] in [str(agent1_file), str(agent2_file)]
+            finally:
+                os.chdir(original_cwd)
+
+
+class TestDiscoverProjectJsonAgents:
+    """Tests for project-level JSON agent discovery."""
+
+    def _make_agent_file(self, directory, name, description="Test agent"):
+        """Helper to create a valid agent JSON file."""
+        config = {
+            "name": name,
+            "description": description,
+            "system_prompt": f"You are {name}",
+            "tools": ["list_files"],
+        }
+        agent_file = directory / f"{name}.json"
+        agent_file.write_text(json.dumps(config))
+        return agent_file
+
+    def test_discover_project_agents(self, tmp_path):
+        """Test that project-only agents are discovered."""
+        project_dir = tmp_path / "project" / ".code_puppy" / "agents"
+        project_dir.mkdir(parents=True)
+        user_dir = tmp_path / "user_agents"
+        user_dir.mkdir()
+
+        project_file = self._make_agent_file(project_dir, "proj-agent")
+
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch(
+                "code_puppy.config.get_project_agents_directory",
+                return_value=str(project_dir),
+            ),
+        ):
             agents = discover_json_agents()
 
-            # Should only have one entry (last one processed wins)
-            assert len(agents) == 1
-            assert "duplicate" in agents
-            # The path should be one of our files
-            assert agents["duplicate"] in [str(agent1_file), str(agent2_file)]
+        assert len(agents) == 1
+        assert "proj-agent" in agents
+        assert agents["proj-agent"] == str(project_file)
+
+    def test_project_agents_override_user_agents(self, tmp_path):
+        """Test that project agents override user agents on name collision."""
+        user_dir = tmp_path / "user_agents"
+        user_dir.mkdir()
+        project_dir = tmp_path / "project_agents"
+        project_dir.mkdir()
+
+        self._make_agent_file(user_dir, "shared-agent", "User version")
+        project_file = self._make_agent_file(
+            project_dir, "shared-agent", "Project version"
+        )
+
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch(
+                "code_puppy.config.get_project_agents_directory",
+                return_value=str(project_dir),
+            ),
+        ):
+            agents = discover_json_agents()
+
+        assert len(agents) == 1
+        assert agents["shared-agent"] == str(project_file)
+
+    def test_no_project_directory(self, tmp_path):
+        """Test graceful no-op when project agents directory is absent."""
+        user_dir = tmp_path / "user_agents"
+        user_dir.mkdir()
+        user_file = self._make_agent_file(user_dir, "user-agent")
+
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch(
+                "code_puppy.config.get_project_agents_directory",
+                return_value=None,
+            ),
+        ):
+            agents = discover_json_agents()
+
+        assert len(agents) == 1
+        assert agents["user-agent"] == str(user_file)
+
+    def test_both_directories_combined(self, tmp_path):
+        """Test agents from both user and project directories are merged."""
+        user_dir = tmp_path / "user_agents"
+        user_dir.mkdir()
+        project_dir = tmp_path / "project_agents"
+        project_dir.mkdir()
+
+        user_file = self._make_agent_file(user_dir, "user-only")
+        project_file = self._make_agent_file(project_dir, "project-only")
+
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch(
+                "code_puppy.config.get_project_agents_directory",
+                return_value=str(project_dir),
+            ),
+        ):
+            agents = discover_json_agents()
+
+        assert len(agents) == 2
+        assert agents["user-only"] == str(user_file)
+        assert agents["project-only"] == str(project_file)
+
+    def test_invalid_project_agents_skipped(self, tmp_path):
+        """Test that invalid JSON files in project directory are skipped."""
+        user_dir = tmp_path / "user_agents"
+        user_dir.mkdir()
+        project_dir = tmp_path / "project_agents"
+        project_dir.mkdir()
+
+        # Create a valid project agent
+        valid_file = self._make_agent_file(project_dir, "valid-proj")
+
+        # Create invalid files
+        (project_dir / "bad-syntax.json").write_text("{invalid json}")
+        (project_dir / "missing-fields.json").write_text('{"name": "incomplete"}')
+
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch(
+                "code_puppy.config.get_project_agents_directory",
+                return_value=str(project_dir),
+            ),
+        ):
+            agents = discover_json_agents()
+
+        assert len(agents) == 1
+        assert agents["valid-proj"] == str(valid_file)

@@ -959,6 +959,22 @@ def get_user_agents_directory() -> str:
     return AGENTS_DIR
 
 
+def get_project_agents_directory() -> Optional[str]:
+    """Get the project-local agents directory path.
+
+    Looks for a .code_puppy/agents/ directory in the current working directory.
+    Unlike get_user_agents_directory(), this does NOT create the directory
+    if it doesn't exist -- the team must create it intentionally.
+
+    Returns:
+        Path to the project's agents directory if it exists, or None.
+    """
+    project_agents_dir = os.path.join(os.getcwd(), ".code_puppy", "agents")
+    if os.path.isdir(project_agents_dir):
+        return project_agents_dir
+    return None
+
+
 def initialize_command_history_file():
     """Create the command history file if it doesn't exist.
     Handles migration from the old history file location for backward compatibility.
