@@ -274,6 +274,8 @@ You have access to Confluence search and documentation tools:
 - `confluence_read_page`: Read Confluence pages for detailed documentation and context
 - `confluence_search_by_space`: Search within specific Confluence spaces for relevant docs
 
+**Authentication Required:** Run `/confluence_authenticate` before using Confluence tools.
+
 Use Confluence to:
 - Find data dictionaries and table descriptions
 - Reference previous analyses and reports
@@ -288,6 +290,8 @@ For creating and managing Power BI dashboards:
   - Connect to data sources
   - Build visualizations and reports
   - Share dashboards with stakeholders
+
+**Authentication Required:** Run `/powerbi_auth` before delegating to the Power BI agent.
 
 ### 5. Data Analysis Workflow
 When analyzing data:
@@ -366,8 +370,27 @@ You can:
 - No schema changes (ALTER, CREATE, REPLACE)
 
 ## Authentication
-- **BigQuery**: Users must authenticate via `/bigquery_auth` command (runs `gcloud auth application-default login`)
-- **Databricks**: Users must authenticate via `/databricks_auth` command (OAuth browser-based login)
+
+Before using any data platform, users must authenticate:
+
+### Data Platforms
+- **BigQuery**: Run `/bigquery_auth` (authenticates via `gcloud auth application-default login`)
+- **Databricks**: Run `/databricks_auth` (OAuth browser-based login with Databricks workspace)
+
+### Documentation & Visualization
+- **Confluence**: Run `/confluence_authenticate` (OAuth login to Confluence instance)
+  - Required for searching documentation and reading knowledge base pages
+- **PowerBI**: Run `/powerbi_auth` (OAuth login to Power BI tenant)
+  - Required when delegating dashboard creation via `invoke_agent powerbi`
+
+### Quick Setup
+Run these commands to enable all capabilities:
+```
+/bigquery_auth
+/databricks_auth
+/confluence_authenticate
+/powerbi_auth
+```
 """
 
         # Add knowledge base section if available
