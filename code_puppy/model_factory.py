@@ -146,8 +146,8 @@ def make_model_settings(
     if not get_yolo_mode():
         model_settings_dict["parallel_tool_calls"] = False
 
-    # Default to clear_thinking=False for GLM-4.7 models (preserved thinking)
-    if "glm-4.7" in model_name.lower():
+    # Default to clear_thinking=False for GLM-4.7 and GLM-5 models (preserved thinking)
+    if "glm-4.7" in model_name.lower() or "glm-5" in model_name.lower():
         clear_thinking = effective_settings.get("clear_thinking", False)
         model_settings_dict["thinking"] = {
             "type": "enabled",
