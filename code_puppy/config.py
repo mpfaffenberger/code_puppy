@@ -487,8 +487,10 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
-    # GLM-4.7 models always support clear_thinking setting
-    if setting == "clear_thinking" and "glm-4.7" in model_name.lower():
+    # GLM-4.7 and GLM-5 models always support clear_thinking setting
+    if setting == "clear_thinking" and (
+        "glm-4.7" in model_name.lower() or "glm-5" in model_name.lower()
+    ):
         return True
 
     try:
