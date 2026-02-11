@@ -1,11 +1,8 @@
 """Integration tests for project-level agent discovery using real filesystem."""
 
 import json
-import os
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from code_puppy.agents.json_agent import discover_json_agents
 
@@ -13,7 +10,7 @@ from code_puppy.agents.json_agent import discover_json_agents
 class TestProjectAgentIntegration:
     """Integration tests that use real CWD changes instead of mocking."""
 
-    def test_discover_project_agent_via_cwd(self, tmp_path):
+    def test_discover_project_agent_via_cwd(self, tmp_path, monkeypatch):
         """Test that changing to a directory with .code_puppy discovers agents."""
         # Create project structure: project/.code_puppy/agents/
         project_dir = tmp_path / "myproject"
@@ -35,24 +32,20 @@ class TestProjectAgentIntegration:
         empty_user_dir = tmp_path / "empty_user"
         empty_user_dir.mkdir()
 
-        original_cwd = os.getcwd()
-        try:
-            # Change to project directory
-            os.chdir(str(project_dir))
+        # Change to project directory
+        monkeypatch.chdir(project_dir)
 
-            with patch(
-                "code_puppy.config.get_user_agents_directory",
-                return_value=str(empty_user_dir),
-            ):
-                agents = discover_json_agents()
+        with patch(
+            "code_puppy.config.get_user_agents_directory",
+            return_value=str(empty_user_dir),
+        ):
+            agents = discover_json_agents()
 
-            # Should discover the project agent
-            assert "project-agent" in agents
-            assert agents["project-agent"] == str(agent_file)
-        finally:
-            os.chdir(original_cwd)
+        # Should discover the project agent
+        assert "project-agent" in agents
+        assert agents["project-agent"] == str(agent_file)
 
-    def test_no_project_agent_when_outside_project(self, tmp_path):
+    def test_no_project_agent_when_outside_project(self, tmp_path, monkeypatch):
         """Test that project agents are NOT discovered when outside project dir."""
         # Create project with agent
         project_dir = tmp_path / "myproject"
@@ -76,23 +69,19 @@ class TestProjectAgentIntegration:
         empty_user_dir = tmp_path / "empty_user"
         empty_user_dir.mkdir()
 
-        original_cwd = os.getcwd()
-        try:
-            # Change to OTHER directory (not project)
-            os.chdir(str(other_dir))
+        # Change to OTHER directory (not project)
+        monkeypatch.chdir(other_dir)
 
-            with patch(
-                "code_puppy.config.get_user_agents_directory",
-                return_value=str(empty_user_dir),
-            ):
-                agents = discover_json_agents()
+        with patch(
+            "code_puppy.config.get_user_agents_directory",
+            return_value=str(empty_user_dir),
+        ):
+            agents = discover_json_agents()
 
-            # Should NOT find the project agent
-            assert "project-agent" not in agents
-        finally:
-            os.chdir(original_cwd)
+        # Should NOT find the project agent
+        assert "project-agent" not in agents
 
-    def test_project_agent_overrides_user_agent_via_cwd(self, tmp_path):
+    def test_project_agent_overrides_user_agent_via_cwd(self, tmp_path, monkeypatch):
         """Test that project agent overrides user agent with same name."""
         # Create project with agent
         project_dir = tmp_path / "myproject"
@@ -121,24 +110,20 @@ class TestProjectAgentIntegration:
         user_file = user_dir / "shared-name.json"
         user_file.write_text(json.dumps(user_config))
 
-        original_cwd = os.getcwd()
-        try:
-            # Change to project directory
-            os.chdir(str(project_dir))
+        # Change to project directory
+        monkeypatch.chdir(project_dir)
 
-            with patch(
-                "code_puppy.config.get_user_agents_directory",
-                return_value=str(user_dir),
-            ):
-                agents = discover_json_agents()
+        with patch(
+            "code_puppy.config.get_user_agents_directory",
+            return_value=str(user_dir),
+        ):
+            agents = discover_json_agents()
 
-            # Should have project version (not user version)
-            assert "shared-name" in agents
-            assert agents["shared-name"] == str(project_file)
-        finally:
-            os.chdir(original_cwd)
+        # Should have project version (not user version)
+        assert "shared-name" in agents
+        assert agents["shared-name"] == str(project_file)
 
-    def test_nested_project_discovery(self, tmp_path):
+    def test_nested_project_discovery(self, tmp_path, monkeypatch):
         """Test that .code_puppy is found from nested subdirectories."""
         # Create project/.code_puppy/agents/
         project_dir = tmp_path / "myproject"
@@ -162,21 +147,17 @@ class TestProjectAgentIntegration:
         empty_user_dir = tmp_path / "empty_user"
         empty_user_dir.mkdir()
 
-        original_cwd = os.getcwd()
-        try:
-            # Change to NESTED directory (not root)
-            os.chdir(str(nested_dir))
+        # Change to NESTED directory (not root)
+        monkeypatch.chdir(nested_dir)
 
-            with patch(
-                "code_puppy.config.get_user_agents_directory",
-                return_value=str(empty_user_dir),
-            ):
-                agents = discover_json_agents()
+        with patch(
+            "code_puppy.config.get_user_agents_directory",
+            return_value=str(empty_user_dir),
+        ):
+            agents = discover_json_agents()
 
-            # NOTE: Current implementation uses os.getcwd(), so it should NOT find
-            # the agent from nested directories (would need to walk up to find .code_puppy)
-            # This test documents current behavior - may need updating if we add
-            # parent directory searching later
-            assert "nested-agent" not in agents
-        finally:
-            os.chdir(original_cwd)
+        # NOTE: Current implementation uses os.getcwd(), so it should NOT find
+        # the agent from nested directories (would need to walk up to find .code_puppy)
+        # This test documents current behavior - may need updating if we add
+        # parent directory searching later
+        assert "nested-agent" not in agents

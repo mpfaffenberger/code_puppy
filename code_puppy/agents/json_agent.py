@@ -1,10 +1,13 @@
 """JSON-based agent configuration system."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from .base_agent import BaseAgent
+
+logger = logging.getLogger(__name__)
 
 
 class JSONAgent(BaseAgent):
@@ -170,7 +173,13 @@ def discover_json_agents() -> Dict[str, str]:
             try:
                 agent = JSONAgent(str(json_file))
                 agents[agent.name] = str(json_file)
-            except Exception:
+            except Exception as e:
+                logger.debug(
+                    "Skipping invalid user agent file: %s (reason: %s: %s)",
+                    json_file,
+                    type(e).__name__,
+                    str(e),
+                )
                 continue
 
     # 2. Discover project-level agents (overrides user agents on name collision)
@@ -181,7 +190,13 @@ def discover_json_agents() -> Dict[str, str]:
             try:
                 agent = JSONAgent(str(json_file))
                 agents[agent.name] = str(json_file)
-            except Exception:
+            except Exception as e:
+                logger.debug(
+                    "Skipping invalid project agent file: %s (reason: %s: %s)",
+                    json_file,
+                    type(e).__name__,
+                    str(e),
+                )
                 continue
 
     return agents
