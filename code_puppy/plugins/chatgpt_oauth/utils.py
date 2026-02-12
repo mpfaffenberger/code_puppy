@@ -344,10 +344,17 @@ def exchange_code_for_tokens(
 # These are the known models that work with ChatGPT OAuth tokens
 # Based on codex-rs CLI and shell-scripts/codex-call.sh
 DEFAULT_CODEX_MODELS = [
+    "gpt-5.3-codex-spark",
     "gpt-5.3-codex",
     "gpt-5.2-codex",
     "gpt-5.2",
 ]
+
+# Per-model context length overrides (tokens).
+# Models not listed here use CHATGPT_OAUTH_CONFIG["default_context_length"] (272,000).
+CODEX_MODEL_CONTEXT_LENGTHS = {
+    "gpt-5.3-codex-spark": 131000,
+}
 
 
 def fetch_chatgpt_models(access_token: str, account_id: str) -> Optional[List[str]]:
@@ -457,7 +464,9 @@ def add_models_to_extra_config(models: List[str]) -> bool:
                     # Codex API uses chatgpt.com/backend-api/codex, not api.openai.com
                     "url": CHATGPT_OAUTH_CONFIG["api_base_url"],
                 },
-                "context_length": CHATGPT_OAUTH_CONFIG["default_context_length"],
+                "context_length": CODEX_MODEL_CONTEXT_LENGTHS.get(
+                    model_name, CHATGPT_OAUTH_CONFIG["default_context_length"]
+                ),
                 "oauth_source": "chatgpt-oauth-plugin",
                 "supported_settings": supported_settings,
                 "supports_xhigh_reasoning": is_codex,
