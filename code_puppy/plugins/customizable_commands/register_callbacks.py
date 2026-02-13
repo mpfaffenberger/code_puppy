@@ -7,6 +7,7 @@ from code_puppy.messaging import emit_error, emit_info
 # Global cache for loaded commands
 _custom_commands: Dict[str, str] = {}
 _command_descriptions: Dict[str, str] = {}
+_commands_loaded: bool = False  # Sentinel to track if commands have been loaded
 
 # Directories to scan for commands (in priority order - later directories override earlier)
 _COMMAND_DIRECTORIES = [
@@ -37,10 +38,11 @@ def _load_markdown_commands() -> None:
     as custom commands. Later directories override earlier ones with the
     same command name (project commands override global).
     """
-    global _custom_commands, _command_descriptions
+    global _custom_commands, _command_descriptions, _commands_loaded
 
     _custom_commands.clear()
     _command_descriptions.clear()
+    _commands_loaded = True  # Mark as loaded even if directories are empty
 
     # Process directories in order - later directories override earlier ones
     for directory in _COMMAND_DIRECTORIES:
@@ -72,10 +74,10 @@ def _load_markdown_commands() -> None:
 
                 # Try to get description from first non-empty line that's not a heading
                 for line in lines:
-                    line = line.strip()
-                    if line and not line.startswith("#"):
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("#"):
                         # Truncate long descriptions
-                        description = line[:50] + ("..." if len(line) > 50 else "")
+                        description = stripped[:50] + ("..." if len(stripped) > 50 else "")
                         break
 
                 # Later directories override earlier ones (project > global)
@@ -113,8 +115,8 @@ def _handle_custom_command(command: str, name: str) -> Optional[Any]:
     if not name:
         return None
 
-    # Ensure commands are loaded
-    if not _custom_commands:
+    # Ensure commands are loaded (use sentinel, not dict emptiness)
+    if not _commands_loaded:
         _load_markdown_commands()
 
     # Look up the command

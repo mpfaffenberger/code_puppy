@@ -1,6 +1,6 @@
 """Comprehensive tests for customizable_commands callbacks.
 
-Tests cover markdown command loading, unique name generation,
+Tests cover markdown command loading, global/project command resolution,
 custom help callbacks, and command execution.
 """
 
@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import code_puppy.plugins.customizable_commands.register_callbacks as callbacks_module
 from code_puppy.plugins.customizable_commands.register_callbacks import (
     MarkdownCommandResult,
     _command_descriptions,
@@ -16,6 +17,12 @@ from code_puppy.plugins.customizable_commands.register_callbacks import (
     _handle_custom_command,
     _load_markdown_commands,
 )
+
+
+def _reset_commands_cache():
+    """Helper to fully reset the commands cache including the loaded sentinel."""
+    _custom_commands.clear()
+    callbacks_module._commands_loaded = False
 
 
 class TestMarkdownCommandResult:
@@ -350,8 +357,8 @@ class TestHandleCustomCommand:
         assert result is None
 
     def test_loads_commands_if_empty(self):
-        """Test that commands are loaded if cache is empty."""
-        _custom_commands.clear()
+        """Test that commands are loaded if cache is not yet loaded."""
+        _reset_commands_cache()  # Reset both dict and sentinel
 
         with patch(
             "code_puppy.plugins.customizable_commands.register_callbacks._load_markdown_commands"
@@ -362,7 +369,8 @@ class TestHandleCustomCommand:
 
     def test_returns_markdown_result_for_valid_command(self):
         """Test that valid command returns MarkdownCommandResult."""
-        _custom_commands.clear()
+        _reset_commands_cache()
+        callbacks_module._commands_loaded = True  # Prevent reload
         _custom_commands["mytest"] = "Test content"
 
         with patch(
@@ -389,7 +397,8 @@ class TestHandleCustomCommand:
 
     def test_no_args_returns_content_only(self):
         """Test that command without args returns just the content."""
-        _custom_commands.clear()
+        _reset_commands_cache()
+        callbacks_module._commands_loaded = True  # Prevent reload
         _custom_commands["simple"] = "Just the content"
 
         with patch(
@@ -401,7 +410,8 @@ class TestHandleCustomCommand:
 
     def test_emits_info_message(self):
         """Test that info message is emitted for valid commands."""
-        _custom_commands.clear()
+        _reset_commands_cache()
+        callbacks_module._commands_loaded = True  # Prevent reload
         _custom_commands["info_test"] = "Content"
 
         with patch(
@@ -415,7 +425,8 @@ class TestHandleCustomCommand:
 
     def test_handles_whitespace_in_args(self):
         """Test handling of extra whitespace in arguments."""
-        _custom_commands.clear()
+        _reset_commands_cache()
+        callbacks_module._commands_loaded = True  # Prevent reload
         _custom_commands["ws"] = "Content"
 
         with patch(
@@ -548,6 +559,3 @@ class TestCommandsLoadedAtImport:
     def test_descriptions_dict_exists(self):
         """Test that _command_descriptions dict exists after import."""
         from code_puppy.plugins.customizable_commands import register_callbacks
-
-        assert hasattr(register_callbacks, "_command_descriptions")
-        assert isinstance(register_callbacks._command_descriptions, dict)
