@@ -535,9 +535,11 @@ class AddModelMenu:
             # Ensure directory exists
             extra_models_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Save updated configuration
-            with open(extra_models_path, "w", encoding="utf-8") as f:
+            # Save updated configuration (atomic write)
+            temp_path = extra_models_path.with_suffix(".tmp")
+            with open(temp_path, "w", encoding="utf-8") as f:
                 json.dump(extra_models, f, indent=4, ensure_ascii=False)
+            temp_path.replace(extra_models_path)
 
             emit_info(f"Added {model_key} to extra_models.json")
             return True

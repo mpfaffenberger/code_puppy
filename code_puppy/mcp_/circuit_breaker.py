@@ -10,6 +10,7 @@ failures when MCP servers become unhealthy. The circuit breaker has three states
 
 import asyncio
 import logging
+import threading
 import time
 from enum import Enum
 from typing import Any, Callable
@@ -69,7 +70,13 @@ class CircuitBreaker:
         self._failure_count = 0
         self._success_count = 0
         self._last_failure_time = None
-        self._lock = asyncio.Lock()
+        # NOTE: We use threading.Lock (not asyncio.Lock) because this lock is shared
+        # between synchronous callers (record_success/record_failure) and async callers
+        # (_on_success/_on_failure called from call()). This is safe because the critical
+        # sections are very short and CPU-bound only (counter increments, state transitions)
+        # — no I/O or awaits occur while the lock is held, so event loop blocking is negligible.
+        self._sync_lock = threading.Lock()
+        self._half_open_in_flight = False
 
         logger.info(
             f"Circuit breaker initialized: failure_threshold={failure_threshold}, "
@@ -92,7 +99,7 @@ class CircuitBreaker:
             CircuitOpenError: If circuit is in OPEN state
             Exception: Any exception raised by the wrapped function
         """
-        async with self._lock:
+        with self._sync_lock:
             current_state = self._get_current_state()
 
             if current_state == CircuitState.OPEN:
@@ -100,8 +107,18 @@ class CircuitBreaker:
                 raise CircuitOpenError("Circuit breaker is open")
 
             if current_state == CircuitState.HALF_OPEN:
+                if self._half_open_in_flight:
+                    logger.warning(
+                        "Circuit breaker HALF_OPEN with call already in flight, failing fast"
+                    )
+                    raise CircuitOpenError(
+                        "Circuit breaker half-open test call already in flight"
+                    )
                 # In half-open state, we're testing recovery
                 logger.info("Circuit breaker is HALF_OPEN, allowing test call")
+                self._half_open_in_flight = True
+
+            checked_state = current_state
 
         # Execute the function outside the lock to avoid blocking other calls
         try:
@@ -110,57 +127,69 @@ class CircuitBreaker:
                 if asyncio.iscoroutinefunction(func)
                 else func(*args, **kwargs)
             )
-            await self._on_success()
+            await self._on_success(checked_state=checked_state)
             return result
-        except Exception as e:
-            await self._on_failure()
-            raise e
+        except Exception:
+            await self._on_failure(checked_state=checked_state)
+            raise
 
     def record_success(self) -> None:
-        """Record a successful operation."""
-        asyncio.create_task(self._on_success())
+        """Record a successful operation (synchronous)."""
+        with self._sync_lock:
+            self._on_success_sync()
 
     def record_failure(self) -> None:
-        """Record a failed operation."""
-        asyncio.create_task(self._on_failure())
+        """Record a failed operation (synchronous)."""
+        with self._sync_lock:
+            self._on_failure_sync()
 
     def get_state(self) -> CircuitState:
         """Get current circuit breaker state."""
-        return self._get_current_state()
+        with self._sync_lock:
+            return self._get_current_state()
 
     def is_open(self) -> bool:
         """Check if circuit breaker is in OPEN state."""
-        return self._get_current_state() == CircuitState.OPEN
+        with self._sync_lock:
+            return self._get_current_state() == CircuitState.OPEN
 
     def is_half_open(self) -> bool:
         """Check if circuit breaker is in HALF_OPEN state."""
-        return self._get_current_state() == CircuitState.HALF_OPEN
+        with self._sync_lock:
+            return self._get_current_state() == CircuitState.HALF_OPEN
 
     def is_closed(self) -> bool:
         """Check if circuit breaker is in CLOSED state."""
-        return self._get_current_state() == CircuitState.CLOSED
+        with self._sync_lock:
+            return self._get_current_state() == CircuitState.CLOSED
 
     def reset(self) -> None:
         """Reset circuit breaker to CLOSED state and clear counters."""
-        logger.info("Resetting circuit breaker to CLOSED state")
-        self._state = CircuitState.CLOSED
-        self._failure_count = 0
-        self._success_count = 0
-        self._last_failure_time = None
+        with self._sync_lock:
+            logger.info("Resetting circuit breaker to CLOSED state")
+            self._state = CircuitState.CLOSED
+            self._failure_count = 0
+            self._success_count = 0
+            self._last_failure_time = None
+            self._half_open_in_flight = False
 
     def force_open(self) -> None:
         """Force circuit breaker to OPEN state."""
-        logger.warning("Forcing circuit breaker to OPEN state")
-        self._state = CircuitState.OPEN
-        self._last_failure_time = time.time()
+        with self._sync_lock:
+            logger.warning("Forcing circuit breaker to OPEN state")
+            self._state = CircuitState.OPEN
+            self._last_failure_time = time.time()
+            self._half_open_in_flight = False
 
     def force_close(self) -> None:
         """Force circuit breaker to CLOSED state and reset counters."""
-        logger.info("Forcing circuit breaker to CLOSED state")
-        self._state = CircuitState.CLOSED
-        self._failure_count = 0
-        self._success_count = 0
-        self._last_failure_time = None
+        with self._sync_lock:
+            logger.info("Forcing circuit breaker to CLOSED state")
+            self._state = CircuitState.CLOSED
+            self._failure_count = 0
+            self._success_count = 0
+            self._last_failure_time = None
+            self._half_open_in_flight = False
 
     def _get_current_state(self) -> CircuitState:
         """
@@ -183,52 +212,79 @@ class CircuitBreaker:
 
         return time.time() - self._last_failure_time >= self.timeout
 
-    async def _on_success(self) -> None:
-        """Handle successful operation."""
-        async with self._lock:
-            current_state = self._get_current_state()
+    def _on_success_sync(self, checked_state: CircuitState | None = None) -> None:
+        """Handle successful operation (synchronous, no lock)."""
+        current_state = (
+            checked_state if checked_state is not None else self._get_current_state()
+        )
 
-            if current_state == CircuitState.CLOSED:
-                # Reset failure count on success in closed state
-                if self._failure_count > 0:
-                    logger.debug("Resetting failure count after success")
-                    self._failure_count = 0
+        if current_state == CircuitState.CLOSED:
+            if self._failure_count > 0:
+                logger.debug("Resetting failure count after success")
+                self._failure_count = 0
 
-            elif current_state == CircuitState.HALF_OPEN:
-                self._success_count += 1
-                logger.debug(
-                    f"Success in HALF_OPEN state: {self._success_count}/{self.success_threshold}"
+        elif current_state == CircuitState.HALF_OPEN:
+            self._success_count += 1
+            logger.debug(
+                f"Success in HALF_OPEN state: {self._success_count}/{self.success_threshold}"
+            )
+
+            self._half_open_in_flight = False
+
+            if self._success_count >= self.success_threshold:
+                logger.info(
+                    "Success threshold reached, transitioning from HALF_OPEN to CLOSED"
                 )
-
-                if self._success_count >= self.success_threshold:
-                    logger.info(
-                        "Success threshold reached, transitioning from HALF_OPEN to CLOSED"
-                    )
-                    self._state = CircuitState.CLOSED
-                    self._failure_count = 0
-                    self._success_count = 0
-                    self._last_failure_time = None
-
-    async def _on_failure(self) -> None:
-        """Handle failed operation."""
-        async with self._lock:
-            current_state = self._get_current_state()
-
-            if current_state == CircuitState.CLOSED:
-                self._failure_count += 1
-                logger.debug(
-                    f"Failure in CLOSED state: {self._failure_count}/{self.failure_threshold}"
-                )
-
-                if self._failure_count >= self.failure_threshold:
-                    logger.warning(
-                        "Failure threshold reached, transitioning from CLOSED to OPEN"
-                    )
-                    self._state = CircuitState.OPEN
-                    self._last_failure_time = time.time()
-
-            elif current_state == CircuitState.HALF_OPEN:
-                logger.warning("Failure in HALF_OPEN state, transitioning back to OPEN")
-                self._state = CircuitState.OPEN
+                self._state = CircuitState.CLOSED
+                self._failure_count = 0
                 self._success_count = 0
+                self._last_failure_time = None
+                self._half_open_in_flight = False
+
+    def _on_failure_sync(self, checked_state: CircuitState | None = None) -> None:
+        """Handle failed operation (synchronous, no lock)."""
+        current_state = (
+            checked_state if checked_state is not None else self._get_current_state()
+        )
+
+        if current_state == CircuitState.CLOSED:
+            self._failure_count += 1
+            logger.debug(
+                f"Failure in CLOSED state: {self._failure_count}/{self.failure_threshold}"
+            )
+
+            if self._failure_count >= self.failure_threshold:
+                logger.warning(
+                    "Failure threshold reached, transitioning from CLOSED to OPEN"
+                )
+                self._state = CircuitState.OPEN
                 self._last_failure_time = time.time()
+
+        elif current_state == CircuitState.HALF_OPEN:
+            logger.warning("Failure in HALF_OPEN state, transitioning back to OPEN")
+            self._state = CircuitState.OPEN
+            self._success_count = 0
+            self._last_failure_time = time.time()
+            self._half_open_in_flight = False
+
+    async def _on_success(self, checked_state: CircuitState | None = None) -> None:
+        """Handle successful operation.
+
+        This method is async to match the await call-site in call(), but the
+        underlying work is purely synchronous. We acquire threading.Lock (not
+        asyncio.Lock) because the same state is accessed from sync contexts
+        (record_success). The critical section is short and CPU-bound, so
+        holding a threading.Lock in an async method does not meaningfully
+        block the event loop.
+        """
+        with self._sync_lock:
+            self._on_success_sync(checked_state=checked_state)
+
+    async def _on_failure(self, checked_state: CircuitState | None = None) -> None:
+        """Handle failed operation.
+
+        See _on_success docstring for rationale on threading.Lock usage in
+        an async method.
+        """
+        with self._sync_lock:
+            self._on_failure_sync(checked_state=checked_state)

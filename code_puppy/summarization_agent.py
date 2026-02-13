@@ -1,4 +1,6 @@
 import asyncio
+import atexit
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import List
 
@@ -12,6 +14,7 @@ from code_puppy.model_factory import ModelFactory, make_model_settings
 
 # Keep a module-level agent reference to avoid rebuilding per call
 _summarization_agent = None
+_agent_lock = threading.Lock()
 
 # Safe sync runner for async agent.run calls
 # Avoids "event loop is already running" by offloading to a separate thread loop when needed
@@ -28,6 +31,16 @@ def _ensure_thread_pool():
             max_workers=1, thread_name_prefix="summarizer-loop"
         )
     return _thread_pool
+
+
+def _shutdown_thread_pool():
+    global _thread_pool
+    if _thread_pool is not None:
+        _thread_pool.shutdown(wait=False)
+        _thread_pool = None
+
+
+atexit.register(_shutdown_thread_pool)
 
 
 async def _run_agent_async(agent: Agent, prompt: str, message_history: List):
@@ -122,6 +135,7 @@ def get_summarization_agent(force_reload=True):
     Forces a reload if the model has changed, or if force_reload is passed.
     """
     global _summarization_agent
-    if force_reload or _summarization_agent is None:
-        _summarization_agent = reload_summarization_agent()
-    return _summarization_agent
+    with _agent_lock:
+        if force_reload or _summarization_agent is None:
+            _summarization_agent = reload_summarization_agent()
+        return _summarization_agent

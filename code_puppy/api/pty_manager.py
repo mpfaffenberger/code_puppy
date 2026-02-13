@@ -58,10 +58,12 @@ class PTYSession:
             if self.pid is None:
                 return False
             try:
-                os.waitpid(self.pid, os.WNOHANG)
-                return True
+                pid_result, status = os.waitpid(self.pid, os.WNOHANG)
+                if pid_result == 0:
+                    return True  # Still running
+                return False  # Exited
             except ChildProcessError:
-                return False
+                return False  # Already reaped
 
 
 class PTYManager:
@@ -216,7 +218,7 @@ class PTYManager:
 
     async def _unix_reader_loop(self, session: PTYSession) -> None:
         """Read output from Unix PTY and forward to callback."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         try:
             while session._running and session.master_fd is not None:
@@ -261,7 +263,7 @@ class PTYManager:
 
     async def _windows_reader_loop(self, session: PTYSession) -> None:
         """Read output from Windows PTY and forward to callback."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         try:
             while (
@@ -400,7 +402,11 @@ class PTYManager:
             if session.pid is not None:
                 try:
                     os.kill(session.pid, signal.SIGTERM)
-                    os.waitpid(session.pid, 0)
+                    # Use WNOHANG to avoid blocking the event loop
+                    try:
+                        os.waitpid(session.pid, os.WNOHANG)
+                    except ChildProcessError:
+                        pass
                 except (OSError, ChildProcessError):
                     pass
 
@@ -409,9 +415,10 @@ class PTYManager:
 
     async def close_all(self) -> None:
         """Close all PTY sessions."""
-        session_ids = list(self._sessions.keys())
-        for session_id in session_ids:
-            await self.close_session(session_id)
+        async with self._lock:
+            session_ids = list(self._sessions.keys())
+            for session_id in session_ids:
+                await self._close_session_internal(session_id)
         logger.info("Closed all PTY sessions")
 
     def get_session(self, session_id: str) -> Optional[PTYSession]:

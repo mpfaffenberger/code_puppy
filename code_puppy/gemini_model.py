@@ -8,6 +8,7 @@ SDK dependency.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import uuid
@@ -40,9 +41,12 @@ from pydantic_ai.usage import RequestUsage
 
 logger = logging.getLogger(__name__)
 
-# Bypass thought signature for Gemini when no pending signature is available
-# This allows function calls to work with thinking models
-BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
+# Bypass thought signature for Gemini when no pending signature is available.
+# This allows function calls to work with thinking models.
+# Uses a stable hash to avoid leaking readable implementation details to the API.
+BYPASS_THOUGHT_SIGNATURE = hashlib.sha256(
+    b"code_puppy_bypass_thought_signature"
+).hexdigest()[:32]
 
 
 def generate_tool_call_id() -> str:
@@ -306,6 +310,7 @@ class GeminiModel(Model):
         return {
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "x-goog-api-key": self.api_key,
         }
 
     async def _map_user_prompt(self, part: UserPromptPart) -> list[dict[str, Any]]:
@@ -544,7 +549,7 @@ class GeminiModel(Model):
 
         # Make request
         client = await self._get_client()
-        url = f"{self._base_url}/models/{self._model_name}:generateContent?key={self.api_key}"
+        url = f"{self._base_url}/models/{self._model_name}:generateContent"
         headers = self._get_headers()
 
         response = await client.post(url, json=body, headers=headers)
@@ -635,7 +640,9 @@ class GeminiModel(Model):
 
         # Make streaming request
         client = await self._get_client()
-        url = f"{self._base_url}/models/{self._model_name}:streamGenerateContent?alt=sse&key={self.api_key}"
+        url = (
+            f"{self._base_url}/models/{self._model_name}:streamGenerateContent?alt=sse"
+        )
         headers = self._get_headers()
 
         async def stream_chunks() -> AsyncIterator[dict[str, Any]]:
@@ -665,6 +672,7 @@ class GeminiModel(Model):
             _chunks=stream_chunks(),
             _model_name_str=self._model_name,
             _provider_name_str=self.system,
+            _provider_url_str=self._base_url,
         )
 
 
@@ -675,6 +683,7 @@ class GeminiStreamingResponse(StreamedResponse):
     _chunks: AsyncIterator[dict[str, Any]]
     _model_name_str: str
     _provider_name_str: str = "google"
+    _provider_url_str: str | None = None
     _timestamp_val: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
@@ -703,11 +712,10 @@ class GeminiStreamingResponse(StreamedResponse):
             for part in parts:
                 # Handle thinking part
                 if part.get("thought") and part.get("text") is not None:
-                    event = self._parts_manager.handle_thinking_delta(
+                    for event in self._parts_manager.handle_thinking_delta(
                         vendor_part_id=None,
                         content=part["text"],
-                    )
-                    if event:
+                    ):
                         yield event
 
                 # Handle regular text
@@ -715,11 +723,10 @@ class GeminiStreamingResponse(StreamedResponse):
                     text = part["text"]
                     if len(text) == 0:
                         continue
-                    event = self._parts_manager.handle_text_delta(
+                    for event in self._parts_manager.handle_text_delta(
                         vendor_part_id=None,
                         content=text,
-                    )
-                    if event:
+                    ):
                         yield event
 
                 # Handle function call
@@ -731,7 +738,7 @@ class GeminiStreamingResponse(StreamedResponse):
                         args=fc.get("args"),
                         tool_call_id=fc.get("id") or generate_tool_call_id(),
                     )
-                    if event:
+                    if event is not None:
                         yield event
 
     @property
@@ -741,6 +748,10 @@ class GeminiStreamingResponse(StreamedResponse):
     @property
     def provider_name(self) -> str | None:
         return self._provider_name_str
+
+    @property
+    def provider_url(self) -> str | None:
+        return self._provider_url_str
 
     @property
     def timestamp(self) -> datetime:

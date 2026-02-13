@@ -6,6 +6,7 @@ unwraps responses (including streaming SSE events).
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -374,7 +375,7 @@ class AntigravityClient(httpx.AsyncClient):
         self._refresh_token = refresh_token
         self._expires_at = expires_at
         self._on_token_refreshed = on_token_refreshed
-        self._refresh_lock = None  # Lazy init for async lock
+        self._refresh_lock = asyncio.Lock()
 
     async def _ensure_valid_token(self) -> None:
         """Proactively refresh the access token if it's expired or about to expire.
@@ -394,10 +395,6 @@ class AntigravityClient(httpx.AsyncClient):
         if not is_token_expired(self._expires_at):
             return
 
-        # Lazy init the async lock
-        if self._refresh_lock is None:
-            self._refresh_lock = asyncio.Lock()
-
         async with self._refresh_lock:
             # Double-check after acquiring lock (another coroutine may have refreshed)
             if not is_token_expired(self._expires_at):
@@ -407,7 +404,7 @@ class AntigravityClient(httpx.AsyncClient):
 
             try:
                 # Run the synchronous refresh in a thread pool to avoid blocking
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 new_tokens = await loop.run_in_executor(
                     None, refresh_access_token, self._refresh_token
                 )

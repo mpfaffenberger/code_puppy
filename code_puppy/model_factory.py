@@ -44,8 +44,8 @@ def _load_plugin_model_providers():
         for result in results:
             if isinstance(result, dict):
                 _CUSTOM_MODEL_PROVIDERS.update(result)
-    except Exception:
-        pass  # Don't break if plugins fail
+    except Exception as e:
+        logger.warning("Failed to load plugin model providers: %s", e)
 
 
 # Load plugin model providers at module initialization
@@ -142,7 +142,7 @@ def make_model_settings(
     effective_settings = get_effective_model_settings(model_name)
     model_settings_dict.update(effective_settings)
 
-    # Disable parallel tool calls when yolo_mode is off (for safer, sequential tool execution)
+    # Disable parallel tool calls when yolo_mode is off (sequential so user can review each call)
     if not get_yolo_mode():
         model_settings_dict["parallel_tool_calls"] = False
 
@@ -301,9 +301,20 @@ class ModelFactory:
         else:
             from code_puppy.config import MODELS_FILE
 
-            with open(pathlib.Path(__file__).parent / "models.json", "r") as src:
-                with open(pathlib.Path(MODELS_FILE), "w") as target:
-                    target.write(src.read())
+            models_path = pathlib.Path(MODELS_FILE)
+            if not models_path.exists():
+                try:
+                    models_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(
+                        pathlib.Path(__file__).parent / "models.json", "r"
+                    ) as src:
+                        with open(models_path, "w") as target:
+                            target.write(src.read())
+                except OSError as e:
+                    raise OSError(
+                        f"Cannot initialize models config at {models_path}: {e}. "
+                        f"Please check directory permissions or set MODELS_FILE to a writable path."
+                    ) from e
 
             with open(MODELS_FILE, "r") as f:
                 config = json.load(f)
@@ -421,7 +432,7 @@ class ModelFactory:
                 model = OpenAIResponsesModel(
                     model_name=model_config["name"], provider=provider
                 )
-            setattr(model, "provider", provider)
+            model.provider = provider
             return model
 
         elif model_type == "anthropic":
@@ -571,7 +582,7 @@ class ModelFactory:
             )
             provider = OpenAIProvider(openai_client=azure_client)
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
-            setattr(model, "provider", provider)
+            model.provider = provider
             return model
 
         elif model_type == "custom_openai":
@@ -587,7 +598,7 @@ class ModelFactory:
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             if model_name == "chatgpt-gpt-5-codex":
                 model = OpenAIResponsesModel(model_config["name"], provider=provider)
-            setattr(model, "provider", provider)
+            model.provider = provider
             return model
         elif model_type == "zai_coding":
             api_key = get_api_key("ZAI_API_KEY")
@@ -604,7 +615,7 @@ class ModelFactory:
                 model_name=model_config["name"],
                 provider=provider,
             )
-            setattr(zai_model, "provider", provider)
+            zai_model.provider = provider
             return zai_model
         elif model_type == "zai_api":
             api_key = get_api_key("ZAI_API_KEY")
@@ -621,7 +632,7 @@ class ModelFactory:
                 model_name=model_config["name"],
                 provider=provider,
             )
-            setattr(zai_model, "provider", provider)
+            zai_model.provider = provider
             return zai_model
         # NOTE: 'antigravity' model type is now handled by the antigravity_oauth plugin
         # via the register_model_type callback. See plugins/antigravity_oauth/register_callbacks.py
@@ -706,7 +717,7 @@ class ModelFactory:
             provider = ZaiCerebrasProvider(**provider_args)
 
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
-            setattr(model, "provider", provider)
+            model.provider = provider
             return model
 
         elif model_type == "openrouter":
@@ -739,7 +750,7 @@ class ModelFactory:
             provider = OpenRouterProvider(api_key=api_key)
 
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
-            setattr(model, "provider", provider)
+            model.provider = provider
             return model
 
         elif model_type == "gemini_oauth":

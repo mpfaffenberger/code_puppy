@@ -51,16 +51,16 @@
     "context_length": 1000000,
     "supported_settings": ["temperature", "top_p", "thinking_enabled", "thinking_level"]
   },
-  "gpt-5.1": {
+  "gpt-5.2": {
     "type": "openai",
     "name": "gpt-5.1",
     "context_length": 272000,
     "supported_settings": ["temperature", "top_p", "reasoning_effort", "verbosity"],
     "supports_xhigh_reasoning": false
   },
-  "gpt-5.1-codex-api": {
+  "gpt-5.2-codex-api": {
     "type": "openai",
-    "name": "gpt-5.1-codex",
+    "name": "gpt-5.2-codex",
     "context_length": 272000,
     "supported_settings": ["temperature", "top_p", "reasoning_effort", "verbosity"],
     "supports_xhigh_reasoning": true
@@ -103,7 +103,7 @@
     "type": "zai_api",
     "name": "glm-4.7",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": ["temperature", "extended_thinking", "budget_tokens", "interleaved_thinking"]
   },
   "zai-glm-5-coding": {
     "type": "zai_coding",

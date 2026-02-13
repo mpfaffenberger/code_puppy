@@ -65,7 +65,7 @@ class TestEnsureConfigExists:
 
         # Now 4 directories are created (CONFIG, DATA, CACHE, STATE)
         assert mock_makedirs.call_count == 4
-        m_open.assert_called_once_with(mock_cfg_file, "w")
+        m_open.assert_called_once_with(mock_cfg_file, "w", encoding="utf-8")
 
         # Check what was written to file
         # The configparser object's write method is called with a file-like object
@@ -102,7 +102,7 @@ class TestEnsureConfigExists:
             config_parser = cp_config.ensure_config_exists()
 
         mock_makedirs.assert_not_called()  # All dirs already exist
-        m_open.assert_called_once_with(mock_cfg_file, "w")
+        m_open.assert_called_once_with(mock_cfg_file, "w", encoding="utf-8")
 
         assert config_parser.sections() == [DEFAULT_SECTION_NAME]
         assert config_parser.get(DEFAULT_SECTION_NAME, "puppy_name") == "DirExistsPuppy"
@@ -185,7 +185,7 @@ class TestEnsureConfigExists:
             returned_config_parser = cp_config.ensure_config_exists()
 
         mock_input.assert_called_once()  # Only called for the missing key
-        m_open.assert_called_once_with(mock_cfg_file, "w")
+        m_open.assert_called_once_with(mock_cfg_file, "w", encoding="utf-8")
         mock_config_instance.read.assert_called_once_with(mock_cfg_file)
 
         assert (
@@ -394,7 +394,7 @@ class TestSetConfigValue:
         cp_config.set_config_value("a_new_key", "a_new_value")
 
         assert section_dict["a_new_key"] == "a_new_value"
-        mock_file_open.assert_called_once_with(mock_cfg_file, "w")
+        mock_file_open.assert_called_once_with(mock_cfg_file, "w", encoding="utf-8")
         mock_parser_instance.write.assert_called_once_with(mock_file_open())
 
     @patch("configparser.ConfigParser")
@@ -414,7 +414,7 @@ class TestSetConfigValue:
         cp_config.set_config_value("existing_key", "updated_value")
 
         assert section_dict["existing_key"] == "updated_value"
-        mock_file_open.assert_called_once_with(mock_cfg_file, "w")
+        mock_file_open.assert_called_once_with(mock_cfg_file, "w", encoding="utf-8")
         mock_parser_instance.write.assert_called_once_with(mock_file_open())
 
     @patch("configparser.ConfigParser")
@@ -451,7 +451,7 @@ class TestSetConfigValue:
             == "value_in_new_section"
         )
 
-        mock_file_open.assert_called_once_with(mock_cfg_file, "w")
+        mock_file_open.assert_called_once_with(mock_cfg_file, "w", encoding="utf-8")
         mock_parser_instance.write.assert_called_once_with(mock_file_open())
 
 
@@ -523,7 +523,7 @@ class TestModelName:
         cp_config.set_model_name("super_model_7000")
 
         assert section_dict["model"] == "super_model_7000"
-        mock_file_open.assert_called_once_with(mock_cfg_file, "w")
+        mock_file_open.assert_called_once_with(mock_cfg_file, "w", encoding="utf-8")
         mock_parser_instance.write.assert_called_once_with(mock_file_open())
 
 

@@ -103,7 +103,8 @@ class TestAsyncServerLifecycleManagerStartServer:
             new_callable=AsyncMock,
         ) as mock_task:
             # Prevent the task from exiting immediately
-            async def fake_lifecycle():
+            async def fake_lifecycle(server_id, server, ready_event):
+                ready_event.set()
                 await asyncio.sleep(10)  # Sleep to keep it alive
 
             mock_task.side_effect = fake_lifecycle
@@ -166,7 +167,13 @@ class TestAsyncServerLifecycleManagerStartServer:
             manager,
             "_server_lifecycle_task",
             new_callable=AsyncMock,
-        ):
+        ) as mock_task:
+
+            async def fake_lifecycle(server_id, server, ready_event):
+                ready_event.set()
+                await asyncio.sleep(10)
+
+            mock_task.side_effect = fake_lifecycle
             await manager.start_server("test-server", server)
 
         # Cleanup
@@ -229,7 +236,9 @@ class TestAsyncServerLifecycleTaskLifecycle:
             with patch.object(AsyncExitStack, "aclose", mock_aclose):
                 # Create a task that will be immediately cancelled
                 task = asyncio.create_task(
-                    manager._server_lifecycle_task("test-server", server)
+                    manager._server_lifecycle_task(
+                        "test-server", server, asyncio.Event()
+                    )
                 )
 
                 # Give it a moment to start
@@ -255,7 +264,7 @@ class TestAsyncServerLifecycleTaskLifecycle:
         server.is_running = True
 
         task = asyncio.create_task(
-            manager._server_lifecycle_task("test-server", server)
+            manager._server_lifecycle_task("test-server", server, asyncio.Event())
         )
 
         # Give it time to store
@@ -282,7 +291,7 @@ class TestAsyncServerLifecycleTaskLifecycle:
         server.is_running = True
 
         task = asyncio.create_task(
-            manager._server_lifecycle_task("test-server", server)
+            manager._server_lifecycle_task("test-server", server, asyncio.Event())
         )
 
         # Let it run for a bit
@@ -307,7 +316,9 @@ class TestAsyncServerLifecycleTaskLifecycle:
         # Start with running
         server.is_running = True
 
-        asyncio.create_task(manager._server_lifecycle_task("test-server", server))
+        asyncio.create_task(
+            manager._server_lifecycle_task("test-server", server, asyncio.Event())
+        )
 
         # Give it time to start
         await asyncio.sleep(0.2)
@@ -330,7 +341,7 @@ class TestAsyncServerLifecycleTaskLifecycle:
         server.is_running = True
 
         task = asyncio.create_task(
-            manager._server_lifecycle_task("test-server", server)
+            manager._server_lifecycle_task("test-server", server, asyncio.Event())
         )
 
         # Give it time to start
@@ -360,7 +371,7 @@ class TestAsyncServerLifecycleTaskLifecycle:
         server.__aexit__ = AsyncMock()
 
         task = asyncio.create_task(
-            manager._server_lifecycle_task("test-server", server)
+            manager._server_lifecycle_task("test-server", server, asyncio.Event())
         )
 
         # Wait for it to complete
@@ -656,7 +667,13 @@ class TestConcurrentOperations:
             manager,
             "_server_lifecycle_task",
             new_callable=AsyncMock,
-        ):
+        ) as mock_task:
+
+            async def fake_lifecycle(server_id, server, ready_event):
+                ready_event.set()
+                await asyncio.sleep(10)
+
+            mock_task.side_effect = fake_lifecycle
             results = await asyncio.gather(
                 manager.start_server("test-server", server),
                 manager.start_server("test-server", server),
@@ -679,7 +696,13 @@ class TestConcurrentOperations:
                 manager,
                 "_server_lifecycle_task",
                 new_callable=AsyncMock,
-            ):
+            ) as mock_task:
+
+                async def fake_lifecycle(sid, srv, ready_event):
+                    ready_event.set()
+                    await asyncio.sleep(10)
+
+                mock_task.side_effect = fake_lifecycle
                 await manager.start_server(server_id, server)
                 await asyncio.sleep(0.1)
                 await manager.stop_server(server_id)

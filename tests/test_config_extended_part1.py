@@ -170,7 +170,7 @@ class TestConfigExtendedPart1:
             assert result is True  # Default should be True
 
     def test_get_use_dbos_default(self, temp_config_dir):
-        """Test get_use_dbos returns False when not set"""
+        """Test get_use_dbos returns True when not set (DBOS enabled by default)"""
         temp_dir, config_file = temp_config_dir
 
         # Create config without enable_dbos key
@@ -181,7 +181,7 @@ class TestConfigExtendedPart1:
 
         with patch("code_puppy.config.CONFIG_FILE", config_file):
             result = get_use_dbos()
-            assert result is False  # Default should be False
+            assert result is True  # Default should be True
 
     def test_integer_conversion_message_limit(self, mock_config_file):
         """Test integer conversion for message_limit"""

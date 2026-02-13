@@ -168,7 +168,7 @@ class TestMakeModelSettings:
             assert settings["max_tokens"] <= 65536
 
     def test_make_model_settings_parallel_tool_calls_disabled_when_yolo_off(self):
-        """Test parallel_tool_calls=False when yolo_mode is disabled."""
+        """Test parallel_tool_calls=False when yolo_mode is off (user reviews sequentially)."""
         from code_puppy.model_factory import make_model_settings
 
         with patch("code_puppy.model_factory.get_yolo_mode", return_value=False):
@@ -177,13 +177,12 @@ class TestMakeModelSettings:
             assert settings["parallel_tool_calls"] is False
 
     def test_make_model_settings_parallel_tool_calls_not_set_when_yolo_on(self):
-        """Test parallel_tool_calls is not explicitly set when yolo_mode is enabled."""
+        """Test parallel_tool_calls is not explicitly set when yolo_mode is on."""
         from code_puppy.model_factory import make_model_settings
 
         with patch("code_puppy.model_factory.get_yolo_mode", return_value=True):
             settings = make_model_settings("gpt-4o", max_tokens=5000)
-            # When yolo_mode=True, we don't explicitly set parallel_tool_calls
-            # to let the model use its default (usually allows parallel calls)
+            # When yolo_mode=True, parallel calls are fine — let the model go fast
             assert "parallel_tool_calls" not in settings
 
 

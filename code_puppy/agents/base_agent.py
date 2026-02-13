@@ -104,7 +104,9 @@ def _log_error_to_file(exc: Exception) -> Optional[str]:
         The path to the log file if successful, None otherwise.
     """
     try:
-        error_logs_dir = pathlib.Path.home() / ".code_puppy" / "error_logs"
+        from code_puppy.error_logging import get_logs_dir
+
+        error_logs_dir = pathlib.Path(get_logs_dir())
         error_logs_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -299,19 +301,20 @@ class BaseAgent(ABC):
         return pinned
 
     def _clean_binaries(self, messages: List[ModelMessage]) -> List[ModelMessage]:
-        cleaned = []
+        """Remove BinaryContent items from message parts.
+
+        Note: This mutates the messages in-place by modifying part.content.
+        The return value is the same list for API consistency.
+        """
         for message in messages:
-            parts = []
             for part in message.parts:
                 if hasattr(part, "content") and isinstance(part.content, list):
-                    content = []
-                    for item in part.content:
-                        if not isinstance(item, BinaryContent):
-                            content.append(item)
-                    part.content = content
-                parts.append(part)
-            cleaned.append(message)
-        return cleaned
+                    part.content = [
+                        item
+                        for item in part.content
+                        if not isinstance(item, BinaryContent)
+                    ]
+        return messages
 
     def ensure_history_ends_with_request(
         self, messages: List[ModelMessage]
@@ -331,6 +334,7 @@ class BaseAgent(ABC):
             List of messages guaranteed to end with ModelRequest, or empty list
             if no ModelRequest is found.
         """
+        messages = list(messages)  # defensive copy
         if not messages:
             return messages
 

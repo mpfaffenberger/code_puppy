@@ -415,7 +415,7 @@ class TestOAuthSecurityScenarios:
                 mock_post.side_effect = ValueError("Invalid JSON")
             else:
                 mock_post.side_effect = None
-                mock_response = Mock(status_code=200, json=lambda: response_data)
+                mock_response = Mock(status_code=200, json=lambda rd=response_data: rd)
                 mock_response.raise_for_status.return_value = None
                 mock_post.return_value = mock_response
 

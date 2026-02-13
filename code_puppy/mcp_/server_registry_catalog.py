@@ -62,7 +62,7 @@ class MCPServerTemplate:
 
         # Also check config for env vars (existing logic)
         if "env" in self.config:
-            for key, value in self.config["env"].items():
+            for _key, value in self.config["env"].items():
                 if isinstance(value, str) and value.startswith("$"):
                     var_name = value[1:]
                     if var_name not in env_vars:

@@ -476,7 +476,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.command_line.onboarding_wizard import should_show_onboarding
 
         if should_show_onboarding():
-            import asyncio
             import concurrent.futures
 
             from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
@@ -566,8 +565,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             continue
         except EOFError:
             # Handle Ctrl+D - exit the application
-            import asyncio
-
             from code_puppy.messaging import emit_success
 
             emit_success("\nGoodbye! (Ctrl+D)")
@@ -588,8 +585,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             "/exit",
             "/quit",
         ]:
-            import asyncio
-
             from code_puppy.messaging import emit_success
 
             emit_success("Goodbye!")
@@ -781,12 +776,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
-                display_console.file.flush() if hasattr(
-                    display_console.file, "flush"
-                ) else None
-                import time
+                if hasattr(display_console.file, "flush"):
+                    display_console.file.flush()
 
-                time.sleep(0.1)  # Brief pause to ensure all messages are rendered
+                await asyncio.sleep(
+                    0.1
+                )  # Brief pause to ensure all messages are rendered
 
             except Exception:
                 from code_puppy.messaging.queue_console import get_queue_console
@@ -829,9 +824,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
 
                 # Small delay to let user see the debug message
-                import time
 
-                time.sleep(0.5)
+                await asyncio.sleep(0.5)
 
                 try:
                     # Re-run the wiggum prompt
@@ -862,10 +856,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         current_agent.set_message_history(list(result.all_messages()))
 
                     # Flush console
-                    display_console.file.flush() if hasattr(
-                        display_console.file, "flush"
-                    ) else None
-                    time.sleep(0.1)
+                    if hasattr(display_console.file, "flush"):
+                        display_console.file.flush()
+                    await asyncio.sleep(0.1)
 
                     # Auto-save
                     auto_save_session_if_enabled()

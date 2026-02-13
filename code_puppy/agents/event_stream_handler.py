@@ -104,8 +104,6 @@ async def event_stream_handler(
             pass  # Just consume events without rendering
         return
 
-    import time
-
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
 
@@ -127,12 +125,12 @@ async def event_stream_handler(
     termflow_renderers: dict[int, TermflowRenderer] = {}
     termflow_line_buffers: dict[int, str] = {}  # Buffer incomplete lines
 
-    def _print_thinking_banner() -> None:
+    async def _print_thinking_banner() -> None:
         """Print the THINKING banner with spinner pause and line clear."""
         nonlocal did_stream_anything
 
         pause_all_spinners()
-        time.sleep(0.1)  # Delay to let spinner fully clear
+        await asyncio.sleep(0.1)  # Delay to let spinner fully clear
         # Clear line and print newline before banner
         console.print(" " * 50, end="\r")
         console.print()  # Newline before banner
@@ -146,12 +144,12 @@ async def event_stream_handler(
         )
         did_stream_anything = True
 
-    def _print_response_banner() -> None:
+    async def _print_response_banner() -> None:
         """Print the AGENT RESPONSE banner with spinner pause and line clear."""
         nonlocal did_stream_anything
 
         pause_all_spinners()
-        time.sleep(0.1)  # Delay to let spinner fully clear
+        await asyncio.sleep(0.1)  # Delay to let spinner fully clear
         # Clear line and print newline before banner
         console.print(" " * 50, end="\r")
         console.print()  # Newline before banner
@@ -182,7 +180,7 @@ async def event_stream_handler(
                 thinking_parts.add(event.index)
                 # If there's initial content, print banner + content now
                 if part.content and part.content.strip():
-                    _print_thinking_banner()
+                    await _print_thinking_banner()
                     escaped = escape(part.content)
                     console.print(f"[dim]{escaped}[/dim]", end="")
                     banner_printed.add(event.index)
@@ -197,7 +195,7 @@ async def event_stream_handler(
                 termflow_line_buffers[event.index] = ""
                 # Handle initial content if present
                 if part.content and part.content.strip():
-                    _print_response_banner()
+                    await _print_response_banner()
                     banner_printed.add(event.index)
                     termflow_line_buffers[event.index] = part.content
             elif isinstance(part, ToolCallPart):
@@ -231,7 +229,7 @@ async def event_stream_handler(
                         if event.index in text_parts:
                             # Print banner on first content
                             if event.index not in banner_printed:
-                                _print_response_banner()
+                                await _print_response_banner()
                                 banner_printed.add(event.index)
 
                             # Add content to line buffer
@@ -251,7 +249,7 @@ async def event_stream_handler(
                         else:
                             # For thinking parts, stream immediately (dim)
                             if event.index not in banner_printed:
-                                _print_thinking_banner()
+                                await _print_thinking_banner()
                                 banner_printed.add(event.index)
                             escaped = escape(delta.content_delta)
                             console.print(f"[dim]{escaped}[/dim]", end="")

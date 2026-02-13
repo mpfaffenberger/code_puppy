@@ -4,8 +4,8 @@ Provides a split-panel interface for browsing and managing UC tools
 with live preview of tool details and inline source code viewing.
 """
 
+import asyncio
 import sys
-import time
 import unicodedata
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -783,7 +783,7 @@ async def interactive_uc_picker() -> Optional[str]:
     sys.stdout.write("\033[?1049h")
     sys.stdout.write("\033[2J\033[H")
     sys.stdout.flush()
-    time.sleep(0.05)
+    await asyncio.sleep(0.05)
 
     try:
         while True:
@@ -874,9 +874,12 @@ def handle_uc_command(command: str) -> bool:
     import asyncio
 
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # We're already in an async context - create a task
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
             import concurrent.futures
 
             with concurrent.futures.ThreadPoolExecutor() as pool:
