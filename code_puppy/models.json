@@ -93,12 +93,6 @@
     "context_length": 200000,
     "supported_settings": ["temperature", "extended_thinking", "budget_tokens", "interleaved_thinking"]
   },
-  "claude-4-6-opus": {
-    "type": "anthropic",
-    "name": "claude-opus-4-5",
-    "context_length": 200000,
-    "supported_settings": ["temperature", "extended_thinking", "budget_tokens", "interleaved_thinking"]
-  },
   "zai-glm-4.7-coding": {
     "type": "zai_coding",
     "name": "glm-4.7",
@@ -108,6 +102,18 @@
   "zai-glm-4.7-api": {
     "type": "zai_api",
     "name": "glm-4.7",
+    "context_length": 200000,
+    "supported_settings": ["temperature", "extended_thinking", "budget_tokens", "interleaved_thinking"]
+  },
+  "zai-glm-5-coding": {
+    "type": "zai_coding",
+    "name": "glm-5",
+    "context_length": 200000,
+    "supported_settings": ["temperature", "top_p"]
+  },
+  "zai-glm-5-api": {
+    "type": "zai_api",
+    "name": "glm-5",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   }

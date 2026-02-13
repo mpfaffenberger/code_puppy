@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 
 import requests
 
+from code_puppy.plugins.chatgpt_oauth import config
 from code_puppy.plugins.chatgpt_oauth.config import (
     CHATGPT_OAUTH_CONFIG,
     get_chatgpt_models_path,
@@ -110,6 +111,24 @@ class TestModelManagement:
         )
         assert "supported_settings" in model_config
         assert "oauth_source" in model_config
+
+    def test_add_models_spark_context_length(self, tmp_path):
+        """Test that gpt-5.3-codex-spark gets its custom 131k context length."""
+        with patch.object(
+            config,
+            "get_chatgpt_models_path",
+            return_value=tmp_path / "chatgpt_models.json",
+        ):
+            with patch(
+                "code_puppy.plugins.chatgpt_oauth.utils.get_chatgpt_models_path",
+                return_value=tmp_path / "chatgpt_models.json",
+            ):
+                result = add_models_to_extra_config(["gpt-5.3-codex-spark"])
+                assert result is True
+                models = load_chatgpt_models()
+                spark_config = models["chatgpt-gpt-5.3-codex-spark"]
+                assert spark_config["context_length"] == 131000
+                assert spark_config["supports_xhigh_reasoning"] is True
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.get_chatgpt_models_path")
     def test_remove_chatgpt_models(self, mock_path, tmp_path):
