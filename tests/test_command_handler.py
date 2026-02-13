@@ -716,6 +716,87 @@ class TestCompactCommand:
             assert result is True
             mock_agent.truncation.assert_called_once()
 
+    def test_compact_resets_delayed_flag(self):
+        """/compact should clear _delayed_compaction_requested if set.
+
+        Regression test for: session_commands.py:111 - flag reset in /compact
+        Ensures that when a user manually runs /compact, any pending delayed
+        compaction flag is cleared to avoid double-compaction attempts.
+        """
+        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+        mock_agent = MagicMock(spec=CodePuppyAgent)
+        mock_agent.get_message_history.return_value = [
+            {"role": "system", "content": "You are a helper"},
+            {"role": "user", "content": "Hello"},
+        ]
+        mock_agent.estimate_tokens_for_message.return_value = 10
+        mock_agent.summarize_messages.return_value = (
+            [{"role": "system", "content": "summarized"}],
+            [],
+        )
+        # Simulate flag being set from previous delayed compaction request
+        mock_agent._delayed_compaction_requested = True
+
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=mock_agent,
+            ),
+            patch(
+                "code_puppy.config.get_compaction_strategy",
+                return_value="summarization",
+            ),
+            patch("code_puppy.config.get_protected_token_count", return_value=1000),
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.messaging.emit_success"),
+        ):
+            result = handle_command("/compact")
+
+        assert result is True
+        # Critical assertion: /compact MUST reset the flag
+        assert mock_agent._delayed_compaction_requested is False
+
+    def test_compact_idempotent_when_flag_not_set(self):
+        """/compact should work when delayed flag is already False.
+
+        Verifies idempotency: if flag is already False (no pending delayed compaction),
+        running /compact doesn't cause any errors and flag remains False.
+        """
+        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+        mock_agent = MagicMock(spec=CodePuppyAgent)
+        mock_agent.get_message_history.return_value = [
+            {"role": "system", "content": "System"},
+            {"role": "user", "content": "Hello"},
+        ]
+        mock_agent.estimate_tokens_for_message.return_value = 5
+        mock_agent.summarize_messages.return_value = (
+            [{"role": "system", "content": "summarized"}],
+            [],
+        )
+        # Flag already False (no pending delayed compaction)
+        mock_agent._delayed_compaction_requested = False
+
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=mock_agent,
+            ),
+            patch(
+                "code_puppy.config.get_compaction_strategy",
+                return_value="summarization",
+            ),
+            patch("code_puppy.config.get_protected_token_count", return_value=1000),
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.messaging.emit_success"),
+        ):
+            result = handle_command("/compact")
+
+        assert result is True
+        # Flag should remain False (idempotent)
+        assert mock_agent._delayed_compaction_requested is False
+
 
 class TestReasoningCommand:
     """Tests for /reasoning command."""
