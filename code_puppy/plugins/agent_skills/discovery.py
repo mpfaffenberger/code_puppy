@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+from code_puppy.plugins.agent_skills.config import get_skill_directories
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,10 +28,12 @@ def get_default_skill_directories() -> List[Path]:
 
     Returns:
         - ~/.code_puppy/skills (user skills)
+        - ./.code_puppy/skills (project config skills)
         - ./skills (project skills)
     """
     return [
         Path.home() / ".code_puppy" / "skills",
+        Path.cwd() / ".code_puppy" / "skills",
         Path.cwd() / "skills",
     ]
 
@@ -54,7 +58,8 @@ def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]
     """Scan directories for valid skills.
 
     Args:
-        directories: Directories to scan. If None, uses defaults.
+        directories: Directories to scan. If None, uses configured
+                     directories (which includes user-added ones from /skills menu).
 
     Returns:
         List of discovered SkillInfo objects.
@@ -62,7 +67,16 @@ def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]
     global _skill_cache
 
     if directories is None:
-        directories = get_default_skill_directories()
+        # Use configured directories (respects user-added dirs from /skills menu)
+        # then merge with defaults to ensure we always check the standard locations
+        configured = [Path(d) for d in get_skill_directories()]
+        defaults = get_default_skill_directories()
+        # Merge: configured first, then any defaults not already covered
+        seen = {p.resolve() for p in configured}
+        directories = list(configured)
+        for d in defaults:
+            if d.resolve() not in seen:
+                directories.append(d)
 
     discovered_skills: List[SkillInfo] = []
 
