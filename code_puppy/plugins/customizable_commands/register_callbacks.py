@@ -8,8 +8,13 @@ from code_puppy.messaging import emit_error, emit_info
 _custom_commands: Dict[str, str] = {}
 _command_descriptions: Dict[str, str] = {}
 
-# Directories to scan for commands
-_COMMAND_DIRECTORIES = [".claude/commands", ".github/prompts", ".agents/commands"]
+# Directories to scan for commands (in priority order - later directories override earlier)
+_COMMAND_DIRECTORIES = [
+    "~/.code-puppy/commands",  # Global commands (all projects)
+    ".claude/commands",
+    ".github/prompts",
+    ".agents/commands",
+]
 
 
 class MarkdownCommandResult:
@@ -29,15 +34,15 @@ def _load_markdown_commands() -> None:
     """Load markdown command files from the configured directories.
 
     Scans for *.md files in the configured directories and loads them
-    as custom commands. Handles duplicates by appending numeric suffixes.
+    as custom commands. Later directories override earlier ones with the
+    same command name (project commands override global).
     """
     global _custom_commands, _command_descriptions
 
     _custom_commands.clear()
     _command_descriptions.clear()
 
-    loaded_files = []
-
+    # Process directories in order - later directories override earlier ones
     for directory in _COMMAND_DIRECTORIES:
         dir_path = Path(directory).expanduser()
         if not dir_path.exists():
@@ -45,45 +50,40 @@ def _load_markdown_commands() -> None:
 
         # Look for markdown files
         pattern = "*.md" if directory != ".github/prompts" else "*.prompt.md"
-        for md_file in dir_path.glob(pattern):
-            loaded_files.append(md_file)
+        # Sort within directory for consistent ordering
+        md_files = sorted(dir_path.glob(pattern))
 
-    # Sort for consistent ordering
-    loaded_files.sort()
+        for md_file in md_files:
+            try:
+                # Extract command name from filename
+                if md_file.name.endswith(".prompt.md"):
+                    base_name = md_file.name[: -len(".prompt.md")]
+                else:
+                    base_name = md_file.stem
 
-    for md_file in loaded_files:
-        try:
-            # Extract command name from filename
-            if md_file.name.endswith(".prompt.md"):
-                base_name = md_file.name[: -len(".prompt.md")]
-            else:
-                base_name = md_file.stem
+                # Read file content
+                content = md_file.read_text(encoding="utf-8").strip()
+                if not content:
+                    continue
 
-            # Generate unique command name
-            command_name = _generate_unique_command_name(base_name)
+                # Extract first line as description (or use filename)
+                lines = content.split("\n")
+                description = base_name.replace("_", " ").replace("-", " ").title()
 
-            # Read file content
-            content = md_file.read_text(encoding="utf-8").strip()
-            if not content:
-                continue
+                # Try to get description from first non-empty line that's not a heading
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        # Truncate long descriptions
+                        description = line[:50] + ("..." if len(line) > 50 else "")
+                        break
 
-            # Extract first line as description (or use filename)
-            lines = content.split("\n")
-            description = base_name.replace("_", " ").replace("-", " ").title()
+                # Later directories override earlier ones (project > global)
+                _custom_commands[base_name] = content
+                _command_descriptions[base_name] = description
 
-            # Try to get description from first non-empty line that's not a heading
-            for line in lines:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    # Truncate long descriptions
-                    description = line[:50] + ("..." if len(line) > 50 else "")
-                    break
-
-            _custom_commands[command_name] = content
-            _command_descriptions[command_name] = description
-
-        except Exception as e:
-            emit_error(f"Failed to load command from {md_file}: {e}")
+            except Exception as e:
+                emit_error(f"Failed to load command from {md_file}: {e}")
 
 
 def _generate_unique_command_name(base_name: str) -> str:

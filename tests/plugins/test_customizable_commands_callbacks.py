@@ -260,17 +260,18 @@ class TestLoadMarkdownCommands:
             # Command should not be loaded
             assert "error_test" not in _custom_commands
 
-    def test_handles_duplicate_filenames(self):
-        """Test that duplicate filenames get unique names."""
+    def test_later_directory_overrides_earlier(self):
+        """Test that later directories override earlier ones (project > global)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create two directories with same-named files
-            dir1 = Path(tmpdir) / "dir1"
-            dir2 = Path(tmpdir) / "dir2"
+            # Simulates global (dir1) and project (dir2)
+            dir1 = Path(tmpdir) / "global"
+            dir2 = Path(tmpdir) / "project"
             dir1.mkdir()
             dir2.mkdir()
 
-            (dir1 / "dupe.md").write_text("Content 1")
-            (dir2 / "dupe.md").write_text("Content 2")
+            (dir1 / "dupe.md").write_text("Global content")
+            (dir2 / "dupe.md").write_text("Project content")
 
             with patch(
                 "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
@@ -278,9 +279,11 @@ class TestLoadMarkdownCommands:
             ):
                 _load_markdown_commands()
 
-            # Both should be loaded with unique names
+            # Later directory (project) should override earlier (global)
             assert "dupe" in _custom_commands
-            assert "dupe2" in _custom_commands
+            assert _custom_commands["dupe"] == "Project content"
+            # Should NOT have a dupe2 - we override, not suffix
+            assert "dupe2" not in _custom_commands
 
     def test_uses_filename_for_description_fallback(self):
         """Test that filename is used as description when all lines are headings."""
@@ -496,6 +499,75 @@ class TestModuleExports:
         from code_puppy.plugins.customizable_commands import register_callbacks
 
         assert "MarkdownCommandResult" in register_callbacks.__all__
+
+
+class TestGlobalCommands:
+    """Test global commands functionality."""
+
+    def test_global_directory_in_command_directories(self):
+        """Test that global directory is included in _COMMAND_DIRECTORIES."""
+        from code_puppy.plugins.customizable_commands.register_callbacks import (
+            _COMMAND_DIRECTORIES,
+        )
+
+        assert "~/.code-puppy/commands" in _COMMAND_DIRECTORIES
+        # Global should be first (lowest priority, gets overridden by project)
+        assert _COMMAND_DIRECTORIES[0] == "~/.code-puppy/commands"
+
+    def test_global_commands_work_with_expanduser(self):
+        """Test that global path with ~ expands correctly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a fake global commands directory
+            global_dir = Path(tmpdir) / "global"
+            global_dir.mkdir()
+            (global_dir / "global_cmd.md").write_text("Global command content")
+
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                [str(global_dir)],
+            ):
+                _load_markdown_commands()
+
+            assert "global_cmd" in _custom_commands
+            assert _custom_commands["global_cmd"] == "Global command content"
+
+    def test_project_overrides_global_same_name(self):
+        """Test that project command overrides global with same name."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            global_dir = Path(tmpdir) / "global"
+            project_dir = Path(tmpdir) / "project"
+            global_dir.mkdir()
+            project_dir.mkdir()
+
+            # Same command name in both
+            (global_dir / "deploy.md").write_text("Global deploy")
+            (project_dir / "deploy.md").write_text("Project-specific deploy")
+
+            # Global first, project second (project wins)
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                [str(global_dir), str(project_dir)],
+            ):
+                _load_markdown_commands()
+
+            assert "deploy" in _custom_commands
+            assert _custom_commands["deploy"] == "Project-specific deploy"
+
+    def test_missing_global_directory_skipped(self):
+        """Test that missing global directory doesn't cause errors."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir) / "project"
+            project_dir.mkdir()
+            (project_dir / "test.md").write_text("Test content")
+
+            # Non-existent global dir, existing project dir
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                ["/nonexistent/path/commands", str(project_dir)],
+            ):
+                _load_markdown_commands()  # Should not raise
+
+            assert "test" in _custom_commands
 
 
 class TestCommandsLoadedAtImport:
