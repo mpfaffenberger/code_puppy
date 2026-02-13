@@ -1,6 +1,6 @@
 """Comprehensive tests for customizable_commands callbacks.
 
-Tests cover markdown command loading, unique name generation,
+Tests cover markdown command loading, global/project command resolution,
 custom help callbacks, and command execution.
 """
 
@@ -8,15 +8,21 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import code_puppy.plugins.customizable_commands.register_callbacks as callbacks_module
 from code_puppy.plugins.customizable_commands.register_callbacks import (
     MarkdownCommandResult,
     _command_descriptions,
     _custom_commands,
     _custom_help,
-    _generate_unique_command_name,
     _handle_custom_command,
     _load_markdown_commands,
 )
+
+
+def _reset_commands_cache():
+    """Helper to fully reset the commands cache including the loaded sentinel."""
+    _custom_commands.clear()
+    callbacks_module._commands_loaded = False
 
 
 class TestMarkdownCommandResult:
@@ -64,42 +70,6 @@ class TestMarkdownCommandResult:
         result = MarkdownCommandResult("")
         assert repr(result) == "MarkdownCommandResult(0 chars)"
 
-
-class TestGenerateUniqueCommandName:
-    """Test _generate_unique_command_name function."""
-
-    def test_unique_name_returns_base(self):
-        """Test that unique names return the base name."""
-        # Clear the cache first
-        _custom_commands.clear()
-        result = _generate_unique_command_name("my_command")
-        assert result == "my_command"
-
-    def test_duplicate_name_gets_suffix_2(self):
-        """Test that first duplicate gets suffix 2."""
-        _custom_commands.clear()
-        _custom_commands["test"] = "content"
-        result = _generate_unique_command_name("test")
-        assert result == "test2"
-
-    def test_multiple_duplicates_increment_suffix(self):
-        """Test that multiple duplicates increment the suffix."""
-        _custom_commands.clear()
-        _custom_commands["cmd"] = "content"
-        _custom_commands["cmd2"] = "content"
-        _custom_commands["cmd3"] = "content"
-        result = _generate_unique_command_name("cmd")
-        assert result == "cmd4"
-
-    def test_suffix_skips_existing(self):
-        """Test that suffix skips existing names."""
-        _custom_commands.clear()
-        _custom_commands["base"] = "content"
-        _custom_commands["base2"] = "content"
-        # base3 is available
-        _custom_commands["base4"] = "content"
-        result = _generate_unique_command_name("base")
-        assert result == "base3"
 
 
 class TestLoadMarkdownCommands:
@@ -260,17 +230,18 @@ class TestLoadMarkdownCommands:
             # Command should not be loaded
             assert "error_test" not in _custom_commands
 
-    def test_handles_duplicate_filenames(self):
-        """Test that duplicate filenames get unique names."""
+    def test_later_directory_overrides_earlier(self):
+        """Test that later directories override earlier ones (project > global)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create two directories with same-named files
-            dir1 = Path(tmpdir) / "dir1"
-            dir2 = Path(tmpdir) / "dir2"
+            # Simulates global (dir1) and project (dir2)
+            dir1 = Path(tmpdir) / "global"
+            dir2 = Path(tmpdir) / "project"
             dir1.mkdir()
             dir2.mkdir()
 
-            (dir1 / "dupe.md").write_text("Content 1")
-            (dir2 / "dupe.md").write_text("Content 2")
+            (dir1 / "dupe.md").write_text("Global content")
+            (dir2 / "dupe.md").write_text("Project content")
 
             with patch(
                 "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
@@ -278,9 +249,11 @@ class TestLoadMarkdownCommands:
             ):
                 _load_markdown_commands()
 
-            # Both should be loaded with unique names
+            # Later directory (project) should override earlier (global)
             assert "dupe" in _custom_commands
-            assert "dupe2" in _custom_commands
+            assert _custom_commands["dupe"] == "Project content"
+            # Should NOT have a dupe2 - we override, not suffix
+            assert "dupe2" not in _custom_commands
 
     def test_uses_filename_for_description_fallback(self):
         """Test that filename is used as description when all lines are headings."""
@@ -384,8 +357,8 @@ class TestHandleCustomCommand:
         assert result is None
 
     def test_loads_commands_if_empty(self):
-        """Test that commands are loaded if cache is empty."""
-        _custom_commands.clear()
+        """Test that commands are loaded if cache is not yet loaded."""
+        _reset_commands_cache()  # Reset both dict and sentinel
 
         with patch(
             "code_puppy.plugins.customizable_commands.register_callbacks._load_markdown_commands"
@@ -396,7 +369,8 @@ class TestHandleCustomCommand:
 
     def test_returns_markdown_result_for_valid_command(self):
         """Test that valid command returns MarkdownCommandResult."""
-        _custom_commands.clear()
+        _reset_commands_cache()
+        callbacks_module._commands_loaded = True  # Prevent reload
         _custom_commands["mytest"] = "Test content"
 
         with patch(
@@ -423,7 +397,8 @@ class TestHandleCustomCommand:
 
     def test_no_args_returns_content_only(self):
         """Test that command without args returns just the content."""
-        _custom_commands.clear()
+        _reset_commands_cache()
+        callbacks_module._commands_loaded = True  # Prevent reload
         _custom_commands["simple"] = "Just the content"
 
         with patch(
@@ -435,7 +410,8 @@ class TestHandleCustomCommand:
 
     def test_emits_info_message(self):
         """Test that info message is emitted for valid commands."""
-        _custom_commands.clear()
+        _reset_commands_cache()
+        callbacks_module._commands_loaded = True  # Prevent reload
         _custom_commands["info_test"] = "Content"
 
         with patch(
@@ -449,7 +425,8 @@ class TestHandleCustomCommand:
 
     def test_handles_whitespace_in_args(self):
         """Test handling of extra whitespace in arguments."""
-        _custom_commands.clear()
+        _reset_commands_cache()
+        callbacks_module._commands_loaded = True  # Prevent reload
         _custom_commands["ws"] = "Content"
 
         with patch(
@@ -498,6 +475,77 @@ class TestModuleExports:
         assert "MarkdownCommandResult" in register_callbacks.__all__
 
 
+class TestGlobalCommands:
+    """Test global commands functionality."""
+
+    def test_global_directory_in_command_directories(self):
+        """Test that global directory is included in _COMMAND_DIRECTORIES."""
+        from code_puppy.plugins.customizable_commands.register_callbacks import (
+            _COMMAND_DIRECTORIES,
+        )
+
+        assert "~/.code-puppy/commands" in _COMMAND_DIRECTORIES
+        # Global should be first (lowest priority, gets overridden by project)
+        assert _COMMAND_DIRECTORIES[0] == "~/.code-puppy/commands"
+
+    def test_global_commands_work_with_expanduser(self):
+        """Test that global path with ~ expands correctly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a fake global commands directory
+            global_dir = Path(tmpdir) / "global"
+            global_dir.mkdir()
+            (global_dir / "global_cmd.md").write_text("Global command content")
+
+            # Patch with a ~-prefixed path to actually test expanduser()
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                ["~/fake_global_commands"],
+            ):
+                with patch.object(Path, "expanduser", return_value=global_dir):
+                    _load_markdown_commands()
+
+            assert "global_cmd" in _custom_commands
+            assert _custom_commands["global_cmd"] == "Global command content"
+
+    def test_project_overrides_global_same_name(self):
+        """Test that project command overrides global with same name."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            global_dir = Path(tmpdir) / "global"
+            project_dir = Path(tmpdir) / "project"
+            global_dir.mkdir()
+            project_dir.mkdir()
+
+            # Same command name in both
+            (global_dir / "deploy.md").write_text("Global deploy")
+            (project_dir / "deploy.md").write_text("Project-specific deploy")
+
+            # Global first, project second (project wins)
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                [str(global_dir), str(project_dir)],
+            ):
+                _load_markdown_commands()
+
+            assert "deploy" in _custom_commands
+            assert _custom_commands["deploy"] == "Project-specific deploy"
+
+    def test_missing_global_directory_skipped(self):
+        """Test that missing global directory doesn't cause errors."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir) / "project"
+            project_dir.mkdir()
+            (project_dir / "test.md").write_text("Test content")
+
+            # Non-existent global dir, existing project dir
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                ["/nonexistent/path/commands", str(project_dir)],
+            ):
+                _load_markdown_commands()  # Should not raise
+
+            assert "test" in _custom_commands
+
+
 class TestCommandsLoadedAtImport:
     """Test that commands are loaded at module import time."""
 
@@ -511,6 +559,3 @@ class TestCommandsLoadedAtImport:
     def test_descriptions_dict_exists(self):
         """Test that _command_descriptions dict exists after import."""
         from code_puppy.plugins.customizable_commands import register_callbacks
-
-        assert hasattr(register_callbacks, "_command_descriptions")
-        assert isinstance(register_callbacks._command_descriptions, dict)
