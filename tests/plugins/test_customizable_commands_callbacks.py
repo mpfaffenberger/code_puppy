@@ -13,7 +13,6 @@ from code_puppy.plugins.customizable_commands.register_callbacks import (
     _command_descriptions,
     _custom_commands,
     _custom_help,
-    _generate_unique_command_name,
     _handle_custom_command,
     _load_markdown_commands,
 )
@@ -64,42 +63,6 @@ class TestMarkdownCommandResult:
         result = MarkdownCommandResult("")
         assert repr(result) == "MarkdownCommandResult(0 chars)"
 
-
-class TestGenerateUniqueCommandName:
-    """Test _generate_unique_command_name function."""
-
-    def test_unique_name_returns_base(self):
-        """Test that unique names return the base name."""
-        # Clear the cache first
-        _custom_commands.clear()
-        result = _generate_unique_command_name("my_command")
-        assert result == "my_command"
-
-    def test_duplicate_name_gets_suffix_2(self):
-        """Test that first duplicate gets suffix 2."""
-        _custom_commands.clear()
-        _custom_commands["test"] = "content"
-        result = _generate_unique_command_name("test")
-        assert result == "test2"
-
-    def test_multiple_duplicates_increment_suffix(self):
-        """Test that multiple duplicates increment the suffix."""
-        _custom_commands.clear()
-        _custom_commands["cmd"] = "content"
-        _custom_commands["cmd2"] = "content"
-        _custom_commands["cmd3"] = "content"
-        result = _generate_unique_command_name("cmd")
-        assert result == "cmd4"
-
-    def test_suffix_skips_existing(self):
-        """Test that suffix skips existing names."""
-        _custom_commands.clear()
-        _custom_commands["base"] = "content"
-        _custom_commands["base2"] = "content"
-        # base3 is available
-        _custom_commands["base4"] = "content"
-        result = _generate_unique_command_name("base")
-        assert result == "base3"
 
 
 class TestLoadMarkdownCommands:
@@ -522,11 +485,13 @@ class TestGlobalCommands:
             global_dir.mkdir()
             (global_dir / "global_cmd.md").write_text("Global command content")
 
+            # Patch with a ~-prefixed path to actually test expanduser()
             with patch(
                 "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
-                [str(global_dir)],
+                ["~/fake_global_commands"],
             ):
-                _load_markdown_commands()
+                with patch.object(Path, "expanduser", return_value=global_dir):
+                    _load_markdown_commands()
 
             assert "global_cmd" in _custom_commands
             assert _custom_commands["global_cmd"] == "Global command content"

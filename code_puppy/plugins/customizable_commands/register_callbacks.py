@@ -86,26 +86,6 @@ def _load_markdown_commands() -> None:
                 emit_error(f"Failed to load command from {md_file}: {e}")
 
 
-def _generate_unique_command_name(base_name: str) -> str:
-    """Generate a unique command name, handling duplicates.
-
-    Args:
-        base_name: The base command name from filename
-
-    Returns:
-        Unique command name (may have numeric suffix)
-    """
-    if base_name not in _custom_commands:
-        return base_name
-
-    # Try numeric suffixes
-    counter = 2
-    while True:
-        candidate = f"{base_name}{counter}"
-        if candidate not in _custom_commands:
-            return candidate
-        counter += 1
-
 
 def _custom_help() -> List[Tuple[str, str]]:
     """Return help entries for loaded markdown commands."""
