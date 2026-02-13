@@ -25,10 +25,12 @@ from code_puppy.messaging import (  # Structured messaging types
     DiffLine,
     DiffMessage,
     emit_error,
-    emit_warning,
     get_message_bus,
 )
-from code_puppy.tools.common import _find_best_window, generate_group_id
+from code_puppy.tools.common import generate_group_id
+from code_puppy.tools.hashline import (
+    apply_hashline_edits,
+)
 
 
 def _create_rejection_response(file_path: str) -> Dict[str, Any]:
@@ -77,23 +79,29 @@ class DeleteSnippetPayload(BaseModel):
     delete_snippet: str
 
 
-class Replacement(BaseModel):
-    old_str: str
-    new_str: str
-
-
-class ReplacementsPayload(BaseModel):
-    file_path: str
-    replacements: List[Replacement]
-
-
 class ContentPayload(BaseModel):
     file_path: str
     content: str
     overwrite: bool = False
 
 
-EditFilePayload = Union[DeleteSnippetPayload, ReplacementsPayload, ContentPayload]
+class HashlineEdit(BaseModel):
+    """A single hashline edit operation."""
+
+    operation: (
+        str  # "replace" | "replace_range" | "insert_after" | "delete" | "delete_range"
+    )
+    start_ref: str  # e.g. "2:f1"
+    end_ref: str | None = None  # for range operations
+    new_content: str = ""  # new lines (empty for delete)
+
+
+class HashlineEditPayload(BaseModel):
+    file_path: str
+    edits: List[HashlineEdit]
+
+
+EditFilePayload = Union[DeleteSnippetPayload, ContentPayload, HashlineEditPayload]
 
 
 def _parse_diff_lines(diff_text: str) -> List[DiffLine]:
@@ -256,101 +264,6 @@ def _delete_snippet_from_file(
         return {"error": str(exc), "diff": diff_text}
 
 
-def _replace_in_file(
-    context: RunContext | None,
-    path: str,
-    replacements: List[Dict[str, str]],
-    message_group: str | None = None,
-) -> Dict[str, Any]:
-    """Robust replacement engine with explicit edge‑case reporting."""
-    file_path = os.path.abspath(path)
-    diff_text = ""
-    try:
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
-            return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
-
-        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            original = f.read()
-
-        # Sanitize any surrogate characters from reading
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
-
-        modified = original
-        for rep in replacements:
-            old_snippet = rep.get("old_str", "")
-            new_snippet = rep.get("new_str", "")
-
-            if old_snippet and old_snippet in modified:
-                modified = modified.replace(old_snippet, new_snippet, 1)
-                continue
-
-            had_trailing_newline = modified.endswith("\n")
-            orig_lines = modified.splitlines()
-            loc, score = _find_best_window(orig_lines, old_snippet)
-
-            if score < 0.95 or loc is None:
-                return {
-                    "error": "No suitable match in file (JW < 0.95)",
-                    "jw_score": score,
-                    "received": old_snippet,
-                    "diff": "",
-                }
-
-            start, end = loc
-            prefix = "\n".join(orig_lines[:start])
-            suffix = "\n".join(orig_lines[end:])
-            parts = []
-            if prefix:
-                parts.append(prefix)
-            parts.append(new_snippet.rstrip("\n"))
-            if suffix:
-                parts.append(suffix)
-            modified = "\n".join(parts)
-            if had_trailing_newline and not modified.endswith("\n"):
-                modified += "\n"
-
-        if modified == original:
-            emit_warning(
-                "No changes to apply – proposed content is identical.",
-                message_group=message_group,
-            )
-            return {
-                "success": False,
-                "path": file_path,
-                "message": "No changes to apply.",
-                "changed": False,
-                "diff": "",
-            }
-
-        from code_puppy.config import get_diff_context_lines
-
-        diff_text = "".join(
-            difflib.unified_diff(
-                original.splitlines(keepends=True),
-                modified.splitlines(keepends=True),
-                fromfile=f"a/{os.path.basename(file_path)}",
-                tofile=f"b/{os.path.basename(file_path)}",
-                n=get_diff_context_lines(),
-            )
-        )
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(modified)
-        return {
-            "success": True,
-            "path": file_path,
-            "message": "Replacements applied.",
-            "changed": True,
-            "diff": diff_text,
-        }
-    except Exception as exc:
-        return {"error": str(exc), "diff": diff_text}
-
-
 def _write_to_file(
     context: RunContext | None,
     path: str,
@@ -471,33 +384,6 @@ def write_to_file(
     return res
 
 
-def replace_in_file(
-    context: RunContext,
-    path: str,
-    replacements: List[Dict[str, str]],
-    message_group: str | None = None,
-) -> Dict[str, Any]:
-    # Use the plugin system for permission handling with operation data
-    from code_puppy.callbacks import on_file_permission
-
-    operation_data = {"replacements": replacements}
-    permission_results = on_file_permission(
-        context, path, "replace text in", None, message_group, operation_data
-    )
-
-    # If any permission handler denies the operation, return cancelled result
-    if permission_results and any(
-        not result for result in permission_results if result is not None
-    ):
-        return _create_rejection_response(path)
-
-    res = _replace_in_file(context, path, replacements, message_group=message_group)
-    diff = res.get("diff", "")
-    if diff:
-        _emit_diff_message(path, "modify", diff)
-    return res
-
-
 def _edit_file(
     context: RunContext, payload: EditFilePayload, group_id: str | None = None
 ) -> Dict[str, Any]:
@@ -511,7 +397,7 @@ def _edit_file(
     Supported payload variants
     --------------------------
     • **ContentPayload** – full file write / overwrite.
-    • **ReplacementsPayload** – targeted in-file replacements.
+    • **HashlineEditPayload** – edit by line-hash reference (preferred).
     • **DeleteSnippetPayload** – remove an exact snippet.
 
     The helper decides which low-level routine to delegate to and ensures the resulting unified
@@ -543,15 +429,52 @@ def _edit_file(
             return delete_snippet_from_file(
                 context, file_path, payload.delete_snippet, message_group=group_id
             )
-        elif isinstance(payload, ReplacementsPayload):
-            # Convert Pydantic Replacement models to dict format for legacy compatibility
-            replacements_dict = [
-                {"old_str": rep.old_str, "new_str": rep.new_str}
-                for rep in payload.replacements
-            ]
-            return replace_in_file(
-                context, file_path, replacements_dict, message_group=group_id
+        elif isinstance(payload, HashlineEditPayload):
+            file_path_abs = os.path.abspath(payload.file_path)
+            try:
+                with open(
+                    file_path_abs, "r", encoding="utf-8", errors="surrogateescape"
+                ) as f:
+                    old_content = f.read()
+            except OSError as exc:
+                return {
+                    "success": False,
+                    "path": file_path_abs,
+                    "message": str(exc),
+                    "changed": False,
+                }
+
+            result = apply_hashline_edits(
+                file_path_abs, [e.model_dump() for e in payload.edits]
             )
+            if not result["success"]:
+                return {
+                    "success": False,
+                    "path": file_path_abs,
+                    "message": "; ".join(result["errors"]),
+                    "changed": False,
+                }
+
+            from code_puppy.config import get_diff_context_lines
+
+            diff_text = "".join(
+                difflib.unified_diff(
+                    old_content.splitlines(keepends=True),
+                    result["content"].splitlines(keepends=True),
+                    fromfile=f"a/{os.path.basename(file_path_abs)}",
+                    tofile=f"b/{os.path.basename(file_path_abs)}",
+                    n=get_diff_context_lines(),
+                )
+            )
+            if diff_text:
+                _emit_diff_message(file_path_abs, "modify", diff_text)
+            return {
+                "success": True,
+                "path": file_path_abs,
+                "message": "Hashline edits applied.",
+                "changed": bool(diff_text),
+                "diff": diff_text,
+            }
         elif isinstance(payload, ContentPayload):
             file_exists = os.path.exists(file_path)
             if file_exists and not payload.overwrite:
@@ -667,20 +590,21 @@ def register_edit_file(agent):
 
         Args:
             context (RunContext): The PydanticAI runtime context for the agent.
-            payload: One of three payload types:
+            payload: One of four payload types:
+
+                HashlineEditPayload (PREFERRED — use when you read files with hashline=True):
+                    - file_path (str): Path to file
+                    - edits (List[HashlineEdit]): List of edits where each HashlineEdit contains:
+                      - operation (str): "replace" | "replace_range" | "insert_after" | "delete" | "delete_range"
+                      - start_ref (str): Line hash reference e.g. "2:f1" (from hashline-tagged read output)
+                      - end_ref (str | None): End reference for range operations
+                      - new_content (str): Replacement text (empty for deletes)
 
                 ContentPayload:
                     - file_path (str): Path to file
                     - content (str): Full file content to write
                     - overwrite (bool, optional): Whether to overwrite existing files.
                       Defaults to False (safe mode).
-
-                ReplacementsPayload:
-                    - file_path (str): Path to file
-                    - replacements (List[Replacement]): List of text replacements where
-                      each Replacement contains:
-                      - old_str (str): Exact text to find and replace
-                      - new_str (str): Replacement text
 
                 DeleteSnippetPayload:
                     - file_path (str): Path to file
@@ -750,8 +674,15 @@ def register_edit_file(agent):
             try:
                 # Fallback for weird models that just can't help but send json strings...
                 payload_dict = json.loads(json_repair.repair_json(payload))
-                if "replacements" in payload_dict:
-                    payload = ReplacementsPayload(**payload_dict)
+                if "edits" in payload_dict:
+                    payload = HashlineEditPayload(**payload_dict)
+                elif "replacements" in payload_dict:
+                    return {
+                        "success": False,
+                        "path": payload_dict.get("file_path", "Unknown"),
+                        "message": "'replacements' is no longer supported. Use 'edits' with HashlineEditPayload instead.",
+                        "changed": False,
+                    }
                 elif "delete_snippet" in payload_dict:
                     payload = DeleteSnippetPayload(**payload_dict)
                 elif "content" in payload_dict:
@@ -763,7 +694,7 @@ def register_edit_file(agent):
                     return {
                         "success": False,
                         "path": file_path,
-                        "message": f"One of 'content', 'replacements', or 'delete_snippet' must be provided in payload. Refer to the following examples: {parse_error_message}",
+                        "message": f"One of 'edits', 'content', or 'delete_snippet' must be provided in payload. Refer to the following examples: {parse_error_message}",
                         "changed": False,
                     }
             except Exception as e:

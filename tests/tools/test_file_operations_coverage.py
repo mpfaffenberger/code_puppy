@@ -414,7 +414,7 @@ class TestReadFileUnicodeHandling:
         # File without trailing newline
         test_file.write_text("line1\nline2\nline3")
 
-        result = _read_file(None, str(test_file))
+        result = _read_file(None, str(test_file), hashline=False)
 
         assert result.error is None
         assert result.content == "line1\nline2\nline3"
@@ -424,7 +424,7 @@ class TestReadFileUnicodeHandling:
         test_file = tmp_path / "trailing.txt"
         test_file.write_text("line1\nline2\n")
 
-        result = _read_file(None, str(test_file))
+        result = _read_file(None, str(test_file), hashline=False)
 
         assert result.error is None
         assert result.content == "line1\nline2\n"
