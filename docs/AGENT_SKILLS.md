@@ -102,7 +102,7 @@ Code Puppy provides an interactive TUI (Text User Interface) for managing skills
 ### Launching the Menu
 
 ```
-/skills
+/skills tui
 ```
 
 This opens an interactive menu where you can browse, enable, disable, and configure skills.
@@ -111,20 +111,17 @@ This opens an interactive menu where you can browse, enable, disable, and config
 
 | Command | Description |
 |---------|-------------|
-| `/skills` | Launch the interactive TUI menu |
-| `/skills list` | List all discovered skills |
-| `/skills enable <name>` | Enable a specific skill |
-| `/skills disable <name>` | Disable a specific skill |
-| `/skills toggle` | Toggle skills integration on/off |
-| `/skills directories` | Manage skill directories |
-| `/skills add <path>` | Add a skill directory |
-| `/skills remove <num>` | Remove a skill directory by number |
-| `/skills refresh` | Refresh skill cache |
-| `/skills help` | Show help message |
+| `/skills` | Show skills overview (status + commands) |
+| `/skills tui` | Launch the interactive TUI manager |
+| `/skills list` | List installed skills (quick text output) |
+| `/skills install` | Browse & install skills from bundled catalog |
+| `/skills install <id>` | Install a specific bundled skill |
+| `/skills enable` | Enable skills integration globally |
+| `/skills disable` | Disable skills integration globally |
 
 ### Interactive Menu Options
 
-When you run `/skills`, you'll see:
+When you run `/skills tui`, you'll see:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

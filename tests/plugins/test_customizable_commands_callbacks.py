@@ -71,7 +71,6 @@ class TestMarkdownCommandResult:
         assert repr(result) == "MarkdownCommandResult(0 chars)"
 
 
-
 class TestLoadMarkdownCommands:
     """Test _load_markdown_commands function."""
 
@@ -559,3 +558,6 @@ class TestCommandsLoadedAtImport:
     def test_descriptions_dict_exists(self):
         """Test that _command_descriptions dict exists after import."""
         from code_puppy.plugins.customizable_commands import register_callbacks
+
+        assert hasattr(register_callbacks, "_command_descriptions")
+        assert isinstance(register_callbacks._command_descriptions, dict)
