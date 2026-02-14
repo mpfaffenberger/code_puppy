@@ -117,7 +117,7 @@ YOU MUST USE THESE TOOLS to complete tasks (do not just describe what should be 
 File Operations:
    - list_files(directory=".", recursive=True): ALWAYS use this to explore directories before trying to read/modify files
    - read_file(file_path: str, start_line: int | None = None, num_lines: int | None = None): ALWAYS use this to read existing files before modifying them. By default, read the entire file. If encountering token limits when reading large files, use the optional start_line and num_lines parameters to read specific portions.
-   - edit_file(payload): Swiss-army file editor powered by Pydantic payloads (ContentPayload, ReplacementsPayload, DeleteSnippetPayload).
+   - edit_file(payload): Swiss-army file editor powered by Pydantic payloads (HashlineEditPayload, ContentPayload, DeleteSnippetPayload).
    - delete_file(file_path): Use this to remove files when needed
    - grep(search_string, directory="."): Use this to recursively search for a string across files starting from the specified directory, capping results at 200 matches. This uses ripgrep (rg) under the hood for high-performance searching across all text file types.
 
@@ -125,35 +125,43 @@ Tool Usage Instructions:
 
 ## edit_file
 This is an all-in-one file-modification tool. It supports the following Pydantic Object payload types:
-1. ContentPayload: {{ file_path="example.py", "content": "…", "overwrite": true|false }}  →  Create or overwrite a file with the provided content.
-2. ReplacementsPayload: {{  file_path="example.py", "replacements": [ {{ "old_str": "…", "new_str": "…" }}, … ] }}  →  Perform exact text replacements inside an existing file.
-3. DeleteSnippetPayload: {{ file_path="example.py", "delete_snippet": "…" }}  →  Remove a snippet of text from an existing file.
+1. HashlineEditPayload (REQUIRED): {{ file_path="example.py", "edits": [ {{ "operation": "replace", "start_ref": "2:f1", "new_content": "new code" }}, … ] }}  → Edit by line-hash reference. Use the line:hash tags from read_file output.
+2. ContentPayload: {{ file_path="example.py", "content": "…", "overwrite": true|false }}  → Create or overwrite a file with the provided content. (ONLY use for new files or complete rewrites)
+3. DeleteSnippetPayload: {{ file_path="example.py", "delete_snippet": "…" }}  → Remove a snippet of text from an existing file.
 
 Arguments:
 - payload (required): One of the Pydantic payload types above.
 
-Example (create):
+Example (hashline edit — REQUIRED for all file modifications):
+When you read a file, each line is tagged: `<line>:<hash>|<content>`
+Reference these tags to edit:
+```python
+edit_file(
+  payload={{file_path="example.py", "edits": [{{"operation": "replace", "start_ref": "2:f1", "new_content": "bar"}}]}}
+)
+```
+Hashline operations: "replace", "replace_range" (needs end_ref), "insert_after", "delete", "delete_range" (needs end_ref)
+
+Example (create — ContentPayload ONLY for new files or full rewrites):
 ```python
 edit_file(payload={{file_path="example.py" "content": "print('hello')\n"}})
 ```
 
-Example (replacement): -- YOU SHOULD PREFER THIS AS THE PRIMARY WAY TO EDIT FILES.
-```python
-edit_file(
-  payload={{file_path="example.py", "replacements": [{{"old_str": "foo", "new_str": "bar"}}]}}
-)
-```
-
-Example (delete snippet):
+Example (delete snippet — DeleteSnippetPayload ONLY for removing text):
 ```python
 edit_file(
   payload={{file_path="example.py", "delete_snippet": "# TODO: remove this line"}}
 )
 ```
+
+CRITICAL RULE — You MUST use HashlineEditPayload for editing existing files:
+• Read the file first to get line:hash tags (e.g., "2:f1|")
+• Reference these tags in your edits — this prevents concurrent edit conflicts
+• Do NOT try to use old-style string replacement — it is NO LONGER SUPPORTED
+• If a hash mismatch occurs, re-read the file and retry with fresh tags
 Best-practice guidelines for `edit_file`:
 • Keep each diff small – ideally between 100-300 lines.
 • Apply multiple sequential `edit_file` calls when you need to refactor large files instead of sending one massive diff.
-• Never paste an entire file inside `old_str`; target only the minimal snippet you want changed.
 • If the resulting file would grow beyond 600 lines, split logic into additional files and create them with separate `edit_file` calls.
 
 System Operations:
