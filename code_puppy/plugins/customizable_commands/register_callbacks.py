@@ -77,7 +77,9 @@ def _load_markdown_commands() -> None:
                     stripped = line.strip()
                     if stripped and not stripped.startswith("#"):
                         # Truncate long descriptions
-                        description = stripped[:50] + ("..." if len(stripped) > 50 else "")
+                        description = stripped[:50] + (
+                            "..." if len(stripped) > 50 else ""
+                        )
                         break
 
                 # Later directories override earlier ones (project > global)
@@ -86,7 +88,6 @@ def _load_markdown_commands() -> None:
 
             except Exception as e:
                 emit_error(f"Failed to load command from {md_file}: {e}")
-
 
 
 def _custom_help() -> List[Tuple[str, str]]:
