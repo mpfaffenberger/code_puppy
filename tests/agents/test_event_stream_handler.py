@@ -511,9 +511,15 @@ class TestEventStreamHandler:
         console = MagicMock(spec=Console)
         set_streaming_console(console)
 
-        with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
-            with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
-                await event_stream_handler(mock_ctx, event_stream())
+        with patch(
+            "code_puppy.agents.event_stream_handler.get_global_model_name",
+            return_value="openai:gpt-4o",
+        ):
+            with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+                with patch(
+                    "code_puppy.agents.event_stream_handler.resume_all_spinners"
+                ):
+                    await event_stream_handler(mock_ctx, event_stream())
 
         # Console should show token counts
         assert console.print.called

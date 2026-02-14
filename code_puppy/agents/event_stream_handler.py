@@ -18,8 +18,13 @@ from rich.console import Console
 from rich.markup import escape
 from rich.text import Text
 
-from code_puppy.config import get_banner_color, get_subagent_verbose
+from code_puppy.config import (
+    get_banner_color,
+    get_global_model_name,
+    get_subagent_verbose,
+)
 from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
+from code_puppy.model_utils import is_claude_code_model
 from code_puppy.tools.subagent_context import is_subagent
 
 logger = logging.getLogger(__name__)
@@ -110,6 +115,9 @@ async def event_stream_handler(
     # Use the module-level console (set via set_streaming_console)
     console = get_streaming_console()
 
+    model_name = get_global_model_name()
+    use_cumulative_tool_arg_length = is_claude_code_model(model_name)
+
     # Track which part indices we're currently streaming (for Text/Thinking/Tool parts)
     streaming_parts: set[int] = set()
     thinking_parts: set[int] = set()  # Track which parts are thinking (for dim style)
@@ -118,6 +126,7 @@ async def event_stream_handler(
     banner_printed: set[int] = set()  # Track if banner was already printed
     token_count: dict[int, int] = {}  # Track token count per text/tool part
     tool_names: dict[int, str] = {}  # Track tool name per tool part index
+    tool_arg_lengths: dict[int, int] = {}
     did_stream_anything = False  # Track if we streamed any content
 
     # Termflow streaming state for text parts
@@ -257,12 +266,18 @@ async def event_stream_handler(
                     # For tool calls, estimate tokens from args_delta content
                     # args_delta contains the streaming JSON arguments
                     args_delta = getattr(delta, "args_delta", "") or ""
-                    if args_delta:
+                    if use_cumulative_tool_arg_length:
+                        # Claude Code: track cumulative arg character length
+                        tool_arg_lengths[event.index] = (
+                            tool_arg_lengths.get(event.index, 0) + len(args_delta)
+                        )
+                        token_count[event.index] = tool_arg_lengths[event.index]
+                    elif args_delta:
                         # Rough estimate: 4 chars ≈ 1 token (same heuristic as subagent_stream_handler)
                         estimated_tokens = max(1, len(args_delta) // 4)
                         token_count[event.index] += estimated_tokens
                     else:
-                        # Even empty deltas count as activity
+                        # Even empty deltas count as activity for non-Claude-Code models
                         token_count[event.index] += 1
 
                     # Update tool name if delta provides more of it
@@ -276,14 +291,15 @@ async def event_stream_handler(
                     tool_name = tool_names.get(event.index, "")
                     count = token_count[event.index]
                     # Display with tool wrench icon and tool name
+                    unit = "char(s)" if use_cumulative_tool_arg_length else "token(s)"
                     if tool_name:
                         console.print(
-                            f"  \U0001f527 Calling {tool_name}... {count} token(s)   ",
+                            f"  \U0001f527 Calling {tool_name}... {count} {unit}   ",
                             end="\r",
                         )
                     else:
                         console.print(
-                            f"  \U0001f527 Calling tool... {count} token(s)   ",
+                            f"  \U0001f527 Calling tool... {count} {unit}   ",
                             end="\r",
                         )
 
@@ -331,6 +347,7 @@ async def event_stream_handler(
                 # Clean up token count and tool names
                 token_count.pop(event.index, None)
                 tool_names.pop(event.index, None)
+                tool_arg_lengths.pop(event.index, None)
                 # Clean up all tracking sets
                 streaming_parts.discard(event.index)
                 thinking_parts.discard(event.index)
