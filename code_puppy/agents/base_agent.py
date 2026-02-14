@@ -1806,7 +1806,10 @@ class BaseAgent(ABC):
 
         # Determine if streaming is enabled:
         # - Streaming must be enabled in config
-        # - Gemini models cannot stream (proxy doesn't support SSE)
+        # - Gemini models cannot stream via the normal SSE path
+        # Note: When DBOS is active, DBOSModel always calls the construction-time
+        # event_stream_handler internally, so we must NOT also pass the runtime
+        # handler or display the non-streamed response (see guard below).
         use_streaming = get_enable_streaming() and not is_gemini_model(
             self.get_model_name()
         )
@@ -2212,8 +2215,10 @@ class BaseAgent(ABC):
             # Wait for the task to complete or be cancelled
             result = await agent_task
 
-            # Display response for non-streaming mode (e.g., Gemini or streaming disabled)
-            if not use_streaming and result is not None:
+            # Display response for non-streaming mode (e.g., Gemini or streaming disabled).
+            # Skip when DBOS is active — DBOSModel's construction-time
+            # event_stream_handler already rendered the streamed output.
+            if not use_streaming and not get_use_dbos() and result is not None:
                 await self._display_non_streamed_response(result)
 
             # Update MCP tool cache after successful run for accurate token estimation

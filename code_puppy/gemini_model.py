@@ -621,9 +621,32 @@ class GeminiModel(Model):
 
         response_parts: list[ModelResponsePart] = []
 
-        for part in parts:
-            if part.get("thought") and part.get("text") is not None:
-                # Thinking part — signature lives on the same part
+        # Detect if any part has a thoughtSignature — if so, preceding
+        # text-only parts are thinking content. The LLM Gateway strips
+        # the "thought": true field, so we infer it positionally.
+        has_thought_signature = any(
+            p.get("thoughtSignature") for p in parts
+        )
+        # Index of the first part with thoughtSignature (the actual response)
+        first_sig_idx = next(
+            (i for i, p in enumerate(parts) if p.get("thoughtSignature")),
+            len(parts),
+        ) if has_thought_signature else len(parts)
+
+        for idx, part in enumerate(parts):
+            is_thinking = (
+                part.get("thought")
+                or (
+                    has_thought_signature
+                    and idx < first_sig_idx
+                    and "text" in part
+                    and not part.get("thoughtSignature")
+                    and "functionCall" not in part
+                )
+            )
+
+            if is_thinking and part.get("text") is not None:
+                # Thinking part — signature may be on same part or inferred
                 signature = part.get("thoughtSignature")
                 response_parts.append(
                     ThinkingPart(
