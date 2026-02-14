@@ -280,7 +280,6 @@ name = "code-puppy"
 version = "0.0.404"
 source = { editable = "." }
 dependencies = [
-    { name = "atomacos", marker = "sys_platform == 'darwin'" },
     { name = "camoufox" },
     { name = "dbos" },
     { name = "fastapi" },
@@ -323,6 +322,11 @@ dependencies = [
     { name = "winrt-windows-storage-streams", marker = "sys_platform == 'win32'" },
 ]
 
+[package.optional-dependencies]
+macos-gui = [
+    { name = "atomacos", marker = "sys_platform == 'darwin'" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "pexpect" },
@@ -334,7 +338,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "atomacos", marker = "sys_platform == 'darwin'", specifier = ">=3.2.0" },
+    { name = "atomacos", marker = "sys_platform == 'darwin' and extra == 'macos-gui'", specifier = ">=3.2.0" },
     { name = "camoufox", specifier = ">=0.4.11" },
     { name = "dbos", specifier = ">=2.11.0" },
     { name = "fastapi", specifier = ">=0.109.0" },
@@ -377,6 +381,7 @@ requires-dist = [
     { name = "winrt-windows-media-ocr", marker = "sys_platform == 'win32'", specifier = ">=3.2.1" },
     { name = "winrt-windows-storage-streams", marker = "sys_platform == 'win32'", specifier = ">=3.2.1" },
 ]
+provides-extras = ["macos-gui"]
 
 [package.metadata.requires-dev]
 dev = [

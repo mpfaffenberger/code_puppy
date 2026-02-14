@@ -46,13 +46,37 @@ except ImportError:
     NUMPY_AVAILABLE = False
 
 # atomacos - macOS accessibility API (macOS-only)
+# atomacos 3.3.0 is dead (last release Jan 2019) and declares pyscreeze<0.1.20
+# in its metadata despite not using pyscreeze at all. We can't put it in hard
+# dependencies without conflicting with our pyscreeze==0.1.28 pin, so we
+# auto-install it --no-deps on macOS when missing.
 if IS_MACOS:
     try:
         import atomacos  # noqa: F401
 
         ATOMACOS_AVAILABLE = True
     except ImportError:
-        ATOMACOS_AVAILABLE = False
+        import logging
+        import subprocess
+
+        _log = logging.getLogger(__name__)
+        try:
+            _log.info("atomacos not found — installing --no-deps for macOS accessibility…")
+            subprocess.check_call(
+                [
+                    sys.executable, "-m", "pip", "install",
+                    "--no-deps", "--quiet", "atomacos>=3.2.0",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            import atomacos  # noqa: F811, F401
+
+            ATOMACOS_AVAILABLE = True
+            _log.info("atomacos installed successfully.")
+        except Exception as exc:
+            _log.debug("Failed to auto-install atomacos: %s", exc)
+            ATOMACOS_AVAILABLE = False
 else:
     ATOMACOS_AVAILABLE = False  # Not available on non-macOS platforms
 

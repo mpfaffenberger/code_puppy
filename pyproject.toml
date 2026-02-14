@@ -31,10 +31,11 @@ dependencies = [
     "sqlparse>=0.4.0",
     "google-cloud-bigquery>=3.0.0",
     # GUI-Cub dependencies
-    # NOTE: atomacos 3.3.0 (dead since Jan 2019) over-constrains pyscreeze<0.1.20
-    # and pyautogui<0.9.42, but doesn't actually USE pyscreeze internally.
-    # We override its constraints via [tool.uv] override-dependencies below.
-    "atomacos>=3.2.0; sys_platform == 'darwin'",
+    # NOTE: atomacos moved to [project.optional-dependencies] "macos-gui" extra
+    # because atomacos 3.3.0 (dead since 2019) pins pyscreeze<0.1.20, which
+    # conflicts with our pyscreeze==0.1.28 pin. override-dependencies only works
+    # locally with uv, not in published package metadata — so downstream resolvers
+    # choke. Since atomacos is already imported via try/except, it's truly optional.
     "pillow>=12.0.0", # Updated from 11.0.0 - latest with security fixes
     "pyautogui>=0.9.40,<0.9.42", # Kept at 0.9.41 — imports `grab` from pyscreeze (removed in pyscreeze >=0.1.29)
     "pyscreeze==0.1.28", # Exact pin: 0.1.28 has DPI-aware Windows screenshots + grab alias for pyautogui 0.9.41. 0.1.29+ removed grab (breaks pyautogui 0.9.41), 1.0+ is a full rewrite.
@@ -86,8 +87,10 @@ url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/
 trusted-host = "pypi.ci.artifacts.walmart.com"
 
 [project.optional-dependencies]
-# BigQuery dependencies are now core dependencies
-# bigquery = []
+# macOS GUI automation (atomacos conflicts with pyscreeze==0.1.28 in hard deps)
+macos-gui = [
+    "atomacos>=3.2.0; sys_platform == 'darwin'",
+]
 
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
@@ -125,12 +128,9 @@ omit = ["code_puppy/main.py"]
 [tool.uv]
 python-preference = "only-managed"
 
-# Override atomacos 3.3.0's overly restrictive transitive dependency constraints.
-# atomacos (dead since 2019) pins pyscreeze<0.1.20 and pygetwindow<0.0.5,
-# but doesn't even use pyscreeze internally. We've verified atomacos only
-# imports basic mouse/keyboard APIs from pyautogui (click, moveTo, press, etc.)
-# which are stable across all 0.9.x versions.
-# See: gui-cub version audit (pyscreeze 0.1.28 adds critical Windows DPI fix).
+# Override atomacos 3.3.0's overly restrictive transitive dependency constraints
+# when installing the macos-gui extra locally. atomacos (dead since 2019) pins
+# pyscreeze<0.1.20, but doesn't even use pyscreeze internally.
 override-dependencies = [
     "pyscreeze==0.1.28",
 ]
