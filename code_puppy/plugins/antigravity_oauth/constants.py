@@ -95,54 +95,39 @@ ANTIGRAVITY_MODELS: Dict[str, Dict[str, Any]] = {
         "context_length": 1048576,
         "max_output": 65536,
     },
-    # Claude models (non-thinking)
-    "claude-sonnet-4-5": {
-        "name": "Claude Sonnet 4.5 (Antigravity)",
-        "family": "claude",
-        "context_length": 200000,
-        "max_output": 64000,
-    },
     # Claude thinking models
-    "claude-sonnet-4-5-thinking-low": {
-        "name": "Claude Sonnet 4.5 Thinking Low (Antigravity)",
+    # Opus 4.6 has 128K output limit. Adaptive thinking is NOT supported on
+    # Google endpoints, so we use thinkingBudget mapped from effort levels.
+    "claude-opus-4-6-thinking-low": {
+        "name": "Claude Opus 4.6 Thinking Low Effort (Antigravity)",
         "family": "claude",
         "context_length": 200000,
         "max_output": 64000,
         "thinking_budget": 8192,
+        "effort": "low",
     },
-    "claude-sonnet-4-5-thinking-medium": {
-        "name": "Claude Sonnet 4.5 Thinking Medium (Antigravity)",
+    "claude-opus-4-6-thinking-medium": {
+        "name": "Claude Opus 4.6 Thinking Medium Effort (Antigravity)",
         "family": "claude",
         "context_length": 200000,
         "max_output": 64000,
         "thinking_budget": 16384,
+        "effort": "medium",
     },
-    "claude-sonnet-4-5-thinking-high": {
-        "name": "Claude Sonnet 4.5 Thinking High (Antigravity)",
+    "claude-opus-4-6-thinking-high": {
+        "name": "Claude Opus 4.6 Thinking High Effort (Antigravity)",
         "family": "claude",
         "context_length": 200000,
         "max_output": 64000,
         "thinking_budget": 32768,
+        "effort": "high",
     },
-    "claude-opus-4-5-thinking-low": {
-        "name": "Claude Opus 4.5 Thinking Low (Antigravity)",
+    "claude-opus-4-6-thinking-max": {
+        "name": "Claude Opus 4.6 Thinking Max Effort (Antigravity)",
         "family": "claude",
         "context_length": 200000,
         "max_output": 64000,
-        "thinking_budget": 8192,
-    },
-    "claude-opus-4-5-thinking-medium": {
-        "name": "Claude Opus 4.5 Thinking Medium (Antigravity)",
-        "family": "claude",
-        "context_length": 200000,
-        "max_output": 64000,
-        "thinking_budget": 16384,
-    },
-    "claude-opus-4-5-thinking-high": {
-        "name": "Claude Opus 4.5 Thinking High (Antigravity)",
-        "family": "claude",
-        "context_length": 200000,
-        "max_output": 64000,
-        "thinking_budget": 32768,
+        "thinking_budget": 65536,
+        "effort": "max",
     },
 }
