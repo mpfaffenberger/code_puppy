@@ -1,13 +1,11 @@
 import asyncio
 import fnmatch
-import functools
 import hashlib
-import logging
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable, Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 from prompt_toolkit import Application
 from prompt_toolkit.formatted_text import HTML
@@ -947,7 +945,6 @@ def arrow_select(message: str, choices: list[str]) -> str:
     Raises:
         KeyboardInterrupt: If user cancels with Ctrl-C
     """
-    import asyncio
 
     selected_index = [0]  # Mutable container for selected index
     result = [None]  # Mutable container for result
@@ -1217,7 +1214,6 @@ async def get_user_approval_async(
         - confirmed: True if approved, False if rejected
         - user_feedback: Optional feedback text if user provided it
     """
-    import asyncio
 
     from code_puppy.tools.command_runner import set_awaiting_user_input
 
@@ -1412,174 +1408,3 @@ def generate_group_id(tool_name: str, extra_context: str = "") -> str:
 
     return f"{tool_name}_{short_hash}"
 
-
-# =============================================================================
-# TOOL CALLBACK WRAPPER
-# =============================================================================
-
-logger = logging.getLogger(__name__)
-
-
-def with_tool_callbacks(tool_name: str) -> Callable:
-    """Decorator that wraps tool functions with pre/post callback hooks.
-
-    This decorator enables plugins to hook into tool execution for:
-    - Logging and analytics
-    - Pre-execution validation or modification
-    - Post-execution result processing
-    - Performance monitoring
-
-    Args:
-        tool_name: The name of the tool being wrapped (e.g., 'edit_file', 'list_files')
-
-    Returns:
-        A decorator function that wraps the tool with callbacks.
-
-    Example:
-        @with_tool_callbacks('my_tool')
-        async def my_tool_impl(ctx, **kwargs):
-            return result
-    """
-
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs) -> Any:
-            # Extract context from args if available (usually first arg is RunContext)
-            context = None
-            tool_args = kwargs.copy()
-
-            # Try to get session context
-            try:
-                from code_puppy.messaging import get_session_context
-
-                context = get_session_context()
-            except ImportError:
-                pass
-
-            # Fire pre-tool callback (non-blocking)
-            try:
-                from code_puppy import callbacks
-
-                asyncio.create_task(
-                    callbacks.on_pre_tool_call(tool_name, tool_args, context)
-                )
-            except ImportError:
-                logger.debug("callbacks module not available for pre_tool_call")
-            except Exception as e:
-                logger.debug(f"Error in pre_tool_call callback: {e}")
-
-            # Execute the tool and measure duration
-            start_time = time.perf_counter()
-            result = None
-            error = None
-
-            try:
-                result = await func(*args, **kwargs)
-                return result
-            except Exception as e:
-                error = e
-                raise
-            finally:
-                end_time = time.perf_counter()
-                duration_ms = (end_time - start_time) * 1000
-
-                # Fire post-tool callback (non-blocking)
-                final_result = result if error is None else {"error": str(error)}
-                try:
-                    from code_puppy import callbacks
-
-                    asyncio.create_task(
-                        callbacks.on_post_tool_call(
-                            tool_name, tool_args, final_result, duration_ms, context
-                        )
-                    )
-                except ImportError:
-                    logger.debug("callbacks module not available for post_tool_call")
-                except Exception as e:
-                    logger.debug(f"Error in post_tool_call callback: {e}")
-
-        @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs) -> Any:
-            """Sync wrapper for non-async tool functions."""
-            # Extract context
-            context = None
-            tool_args = kwargs.copy()
-
-            try:
-                from code_puppy.messaging import get_session_context
-
-                context = get_session_context()
-            except ImportError:
-                pass
-
-            # For sync functions, we can't use asyncio.create_task directly
-            # Instead, we'll try to schedule it if there's a running loop
-            def fire_pre_callback():
-                try:
-                    from code_puppy import callbacks
-
-                    loop = asyncio.get_running_loop()
-                    asyncio.run_coroutine_threadsafe(
-                        callbacks.on_pre_tool_call(tool_name, tool_args, context),
-                        loop,
-                    )
-                except RuntimeError:
-                    # No running loop - skip async callback
-                    pass
-                except ImportError:
-                    pass
-                except Exception as e:
-                    logger.debug(f"Error in sync pre_tool_call: {e}")
-
-            fire_pre_callback()
-
-            # Execute the tool
-            start_time = time.perf_counter()
-            result = None
-            error = None
-
-            try:
-                result = func(*args, **kwargs)
-                return result
-            except Exception as e:
-                error = e
-                raise
-            finally:
-                end_time = time.perf_counter()
-                duration_ms = (end_time - start_time) * 1000
-
-                # Fire post-tool callback
-                final_result = result if error is None else {"error": str(error)}
-
-                def fire_post_callback():
-                    try:
-                        from code_puppy import callbacks
-
-                        loop = asyncio.get_running_loop()
-                        asyncio.run_coroutine_threadsafe(
-                            callbacks.on_post_tool_call(
-                                tool_name,
-                                tool_args,
-                                final_result,
-                                duration_ms,
-                                context,
-                            ),
-                            loop,
-                        )
-                    except RuntimeError:
-                        # No running loop - skip async callback
-                        pass
-                    except ImportError:
-                        pass
-                    except Exception as e:
-                        logger.debug(f"Error in sync post_tool_call: {e}")
-
-                fire_post_callback()
-
-        # Return appropriate wrapper based on function type
-        if asyncio.iscoroutinefunction(func):
-            return async_wrapper
-        else:
-            return sync_wrapper
-
-    return decorator
