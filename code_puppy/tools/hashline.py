@@ -1,6 +1,6 @@
 """Hashline engine for file editing.
 
-Each line gets tagged with a 2-char content hash so models can reference
+Each line gets tagged with a 4-char content hash so models can reference
 lines by hash instead of reproducing exact text. This eliminates the
 fragile "find exact string" pattern and makes edits robust to whitespace
 or minor content drift.
@@ -32,8 +32,23 @@ class HashlineMismatchError(Exception):
 
 
 def line_hash(content: str) -> str:
-    """Return a 2-char hex hash of *content* (SHA-256, first byte)."""
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()[:2]
+    """Return a 4-char hex hash of *content* using FNV-1a.
+    
+    FNV-1a (Fowler-Noll-Vo) is chosen for speed and good distribution on short strings.
+    The 4-char hex (65536 values) provides strong collision resistance even in
+    multi-thousand line files. Paired with line numbers, collisions are near-zero.
+    """
+    # FNV-1a 32-bit parameters
+    FNV_32_PRIME = 0x01000193
+    FNV1_32A_INIT = 0x811c9dc5
+    
+    h = FNV1_32A_INIT
+    for byte in content.encode("utf-8"):
+        h ^= byte
+        h = (h * FNV_32_PRIME) & 0xffffffff
+    
+    # Take lowest 2 bytes, format as 4-char hex
+    return f"{h & 0xffff:04x}"
 
 
 def compute_file_hashes(content: str) -> dict[int, str]:
@@ -46,29 +61,41 @@ def compute_file_hashes(content: str) -> dict[int, str]:
 # ---------------------------------------------------------------------------
 
 
-def format_hashlines(content: str, start_line: int = 1) -> str:
+def format_hashlines(content: str, start_line: int = 1, max_line_len: int = 2000) -> str:
     """Convert file content to hashline display format.
 
     Args:
         content: Raw file content.
         start_line: Line number offset (1-based). Use this when formatting
             a partial read so line numbers match the actual file.
+        max_line_len: Maximum line length before truncation (default: 2000).
 
     Example output::
 
-        1:a3|function hello() {
-        2:f1|  return "world";
+        1:a3f1|function hello() {
+        2:f10e|  return "world";
     """
     lines = content.splitlines()
     parts: list[str] = []
+    truncated = False
+    
     for i, raw in enumerate(lines, start=start_line):
-        h = line_hash(raw)
-        parts.append(f"{i}:{h}|{raw}")
-    return "\n".join(parts)
+        line_content = raw
+        if len(raw) > max_line_len:
+            line_content = raw[:max_line_len] + "...[truncated]"
+            truncated = True
+        h = line_hash(raw)  # Hash the original content, not truncated
+        parts.append(f"{i}:{h}|{line_content}")
+    
+    result = "\n".join(parts)
+    if truncated:
+        result = f"[Some lines truncated at {max_line_len} chars]\n" + result
+    
+    return result
 
 
 def parse_hashline_ref(ref: str) -> tuple[int, str]:
-    """Parse ``"2:f1"`` → ``(2, "f1")``.  Raises *ValueError* on bad format."""
+    """Parse ``"42:a3f1"`` → ``(42, "a3f1")``.  Raises *ValueError* on bad format."""
     if ":" not in ref:
         raise ValueError(f"Invalid hashline ref (missing ':'): {ref!r}")
     line_str, hash_str = ref.split(":", maxsplit=1)
@@ -78,9 +105,9 @@ def parse_hashline_ref(ref: str) -> tuple[int, str]:
         raise ValueError(f"Invalid line number in ref: {ref!r}") from None
     if line_num < 1:
         raise ValueError(f"Line number must be >= 1, got {line_num} in ref: {ref!r}")
-    if len(hash_str) != 2:
+    if len(hash_str) != 4:
         raise ValueError(
-            f"Hash must be exactly 2 hex chars, got {hash_str!r} in ref: {ref!r}"
+            f"Hash must be exactly 4 hex chars, got {hash_str!r} in ref: {ref!r}"
         )
     return line_num, hash_str
 
@@ -99,6 +126,7 @@ def validate_hashes(
     Returns a list of human-readable error messages (empty == all valid).
     """
     file_hashes = compute_file_hashes(current_content)
+    lines = current_content.splitlines()
     total_lines = len(file_hashes)
     errors: list[str] = []
 
@@ -108,10 +136,19 @@ def validate_hashes(
                 f"Line {line_num} out of range (file has {total_lines} lines)"
             )
             continue
+        if line_num < 1:
+            errors.append(
+                f"Line {line_num} is invalid (must be >= 1)"
+            )
+            continue
         actual = file_hashes[line_num]
         if actual != expected:
+            # Get actual content for better error message
+            actual_content = lines[line_num - 1] if line_num <= len(lines) else ""
+            content_preview = actual_content[:50] + "..." if len(actual_content) > 50 else actual_content
             errors.append(
-                f"Line {line_num}: expected hash '{expected}', got '{actual}'"
+                f"Hash mismatch at line {line_num}: expected '{expected}' but file has '{actual}' "
+                f"(file may have changed since last read). Content: {content_preview!r}"
             )
     return errors
 
@@ -152,20 +189,23 @@ def invalidate_cache(file_path: str) -> None:
 
 
 def _resolve_edit_range(edit: dict) -> tuple[int, int, str, str]:
-    """Return ``(start_line, end_line, start_hash, end_hash)`` for an edit."""
+    """Return ``(start_line, end_line, start_hash, end_hash)`` for an edit.
+    
+    All operations support optional end_ref for range operations.
+    """
     start_line, start_hash = parse_hashline_ref(edit["start_ref"])
     operation = edit["operation"]
-
-    if operation in ("replace_range", "delete_range"):
-        if not edit.get("end_ref"):
-            raise ValueError(f"'{operation}' requires 'end_ref'")
+    
+    # Check if this is a range operation (has end_ref)
+    if edit.get("end_ref"):
         end_line, end_hash = parse_hashline_ref(edit["end_ref"])
         if end_line < start_line:
             raise ValueError(
                 f"end_ref line ({end_line}) < start_ref line ({start_line})"
             )
         return start_line, end_line, start_hash, end_hash
-
+    
+    # Single-line operation
     return start_line, start_line, start_hash, start_hash
 
 
@@ -192,11 +232,15 @@ def apply_hashline_edits(
 
     Each *edit* dict must contain:
 
-    - ``operation``: ``"replace"`` | ``"replace_range"`` | ``"insert_after"``
-      | ``"delete"`` | ``"delete_range"``
-    - ``start_ref``: e.g. ``"2:f1"``
-    - ``end_ref``:  required for range operations, else ``None``
-    - ``new_content``: replacement text (empty string for deletes)
+    - ``operation``: ``"replace"`` | ``"insert"`` | ``"delete"``
+    - ``start_ref``: e.g. ``"42:a3f1"`` (line:hash reference)
+    - ``end_ref``:  optional, for range operations (e.g., delete lines 5-10)
+    - ``new_content``: replacement text (required for replace/insert, empty for delete)
+
+    Operations:
+    - **replace**: Replace line(s) with new content. With end_ref, replaces a range.
+    - **insert**: Insert new content after the line. With end_ref, inserts after end_ref line.
+    - **delete**: Delete line(s). With end_ref, deletes the range start_ref to end_ref.
 
     Returns ``{"success": bool, "content": str, "errors": list[str]}``.
     """
@@ -215,16 +259,12 @@ def apply_hashline_edits(
     all_refs: list[tuple[int, str]] = []
 
     for i, edit in enumerate(edits):
-        valid_ops = (
-            "replace",
-            "replace_range",
-            "insert_after",
-            "delete",
-            "delete_range",
-        )
+        valid_ops = ("replace", "insert", "delete")
         op = edit.get("operation", "")
         if op not in valid_ops:
-            errors.append(f"Edit {i}: unknown operation '{op}'")
+            errors.append(
+                f"Edit {i}: unknown operation '{op}'. Must be one of: {', '.join(valid_ops)}"
+            )
             continue
         try:
             start, end, s_hash, e_hash = _resolve_edit_range(edit)
@@ -248,8 +288,8 @@ def apply_hashline_edits(
     # 3. Check for overlapping edits
     ranges_for_overlap = []
     for i, (start, end, edit) in enumerate(parsed):
-        if edit["operation"] == "insert_after":
-            # Inserts don't occupy a range; they go *after* the line
+        if edit["operation"] == "insert" and not edit.get("end_ref"):
+            # Single-line inserts don't occupy a range; they go *after* the line
             continue
         ranges_for_overlap.append((start, end, i))
 
@@ -269,15 +309,15 @@ def apply_hashline_edits(
         end_idx = end  # exclusive upper bound for slice replacement
 
         if op == "replace":
-            lines[start_idx : start_idx + 1] = new_lines
-        elif op == "replace_range":
-            lines[start_idx:end_idx] = new_lines
-        elif op == "insert_after":
-            lines[start_idx + 1 : start_idx + 1] = new_lines
+            # Replace single line or range
+            lines[start_idx : end_idx + 1] = new_lines
+        elif op == "insert":
+            # Insert after start_idx (or after end_idx if range specified)
+            insert_pos = end_idx + 1 if end != start else start_idx + 1
+            lines[insert_pos:insert_pos] = new_lines
         elif op == "delete":
-            del lines[start_idx]
-        elif op == "delete_range":
-            del lines[start_idx:end_idx]
+            # Delete single line or range
+            del lines[start_idx : end_idx + 1]
 
     new_content = "\n".join(lines)
     # Preserve trailing newline if original had one

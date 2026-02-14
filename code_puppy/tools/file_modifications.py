@@ -86,12 +86,13 @@ class ContentPayload(BaseModel):
 
 
 class HashlineEdit(BaseModel):
-    """A single hashline edit operation."""
+    """A single hashline edit operation.
+    
+    Simplified to 3 core operations that all support optional range editing.
+    """
 
-    operation: (
-        str  # "replace" | "replace_range" | "insert_after" | "delete" | "delete_range"
-    )
-    start_ref: str  # e.g. "2:f1"
+    operation: str  # "replace" | "insert" | "delete"
+    start_ref: str  # e.g. "42:a3f1" (4-char hash)
     end_ref: str | None = None  # for range operations
     new_content: str = ""  # new lines (empty for delete)
 
@@ -595,9 +596,9 @@ def register_edit_file(agent):
                 HashlineEditPayload (PREFERRED — use when you read files with hashline=True):
                     - file_path (str): Path to file
                     - edits (List[HashlineEdit]): List of edits where each HashlineEdit contains:
-                      - operation (str): "replace" | "replace_range" | "insert_after" | "delete" | "delete_range"
-                      - start_ref (str): Line hash reference e.g. "2:f1" (from hashline-tagged read output)
-                      - end_ref (str | None): End reference for range operations
+                      - operation (str): "replace" | "insert" | "delete"
+                      - start_ref (str): Line hash reference e.g. "42:a3f1" (from hashline-tagged read output)
+                      - end_ref (str | None): End reference for range operations (optional)
                       - new_content (str): Replacement text (empty for deletes)
 
                 ContentPayload:

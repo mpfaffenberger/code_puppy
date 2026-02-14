@@ -866,8 +866,8 @@ def register_read_file(agent):
 
         Hashline Mode (default: enabled):
             When hashline=True, file content is returned with line-hash tags:
-                1:a3|function hello() {
-                2:f1|  return "world";
+                1:a3f1|function hello() {
+                2:f10e|  return "world";
             Use these tags with HashlineEditPayload to edit by reference.
             Set hashline=False to get raw content without tags.
 
