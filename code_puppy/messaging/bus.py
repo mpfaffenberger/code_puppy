@@ -110,18 +110,21 @@ class MessageBus:
 
             if not self._has_active_renderer:
                 self._startup_buffer.append(message)
+                # Prevent unbounded buffer growth in headless mode
+                if len(self._startup_buffer) > self._maxsize:
+                    self._startup_buffer = self._startup_buffer[-self._maxsize :]
                 return
 
-        # Direct put into thread-safe queue
-        try:
-            self._outgoing.put_nowait(message)
-        except queue.Full:
-            # Drop oldest and retry
+            # Direct put into thread-safe queue - inside lock to prevent race
             try:
-                self._outgoing.get_nowait()
                 self._outgoing.put_nowait(message)
-            except queue.Empty:
-                pass
+            except queue.Full:
+                # Drop oldest and retry
+                try:
+                    self._outgoing.get_nowait()
+                    self._outgoing.put_nowait(message)
+                except queue.Empty:
+                    pass
 
     def emit_text(
         self,

@@ -186,6 +186,8 @@ class TestJSONAgentDiscovery:
             monkeypatch.setattr(
                 "code_puppy.config.get_user_agents_directory", lambda: temp_dir
             )
+            # Change to temp directory to avoid finding project .code_puppy
+            monkeypatch.chdir(temp_dir)
 
             # Create valid JSON agent
             agent1_config = {
@@ -233,13 +235,15 @@ class TestJSONAgentDiscovery:
             assert agents["agent1"] == str(agent1_path)
             assert agents["agent2"] == str(agent2_path)
 
-    def test_discover_nonexistent_directory(self, monkeypatch):
+    def test_discover_nonexistent_directory(self, monkeypatch, tmp_path):
         """Test discovering agents when directory doesn't exist."""
         # Mock the agents directory to point to non-existent directory
         monkeypatch.setattr(
             "code_puppy.config.get_user_agents_directory",
             lambda: "/nonexistent/directory",
         )
+        # Change to temp directory to avoid finding project .code_puppy
+        monkeypatch.chdir(tmp_path)
         agents = discover_json_agents()
         assert agents == {}
 

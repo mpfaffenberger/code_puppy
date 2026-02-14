@@ -73,30 +73,43 @@ class AsyncServerLifecycleManager:
                     )
                     await self._stop_server_internal(server_id)
 
+            # Create an event so we know when the server is actually registered
+            ready_event = asyncio.Event()
+
             # Create a task that will manage this server's lifecycle
             task = asyncio.create_task(
-                self._server_lifecycle_task(server_id, server),
+                self._server_lifecycle_task(server_id, server, ready_event),
                 name=f"mcp_server_{server_id}",
             )
 
-            # Wait briefly for the server to start
-            await asyncio.sleep(0.1)
-
-            # Check if task failed immediately
+        # Release the lock while waiting for the server to become ready
+        try:
+            await asyncio.wait_for(ready_event.wait(), timeout=10.0)
+        except asyncio.TimeoutError:
+            logger.error(f"Timed out waiting for server {server_id} to start")
             if task.done():
                 try:
                     await task
                 except Exception as e:
-                    logger.error(f"Failed to start server {server_id}: {e}")
-                    return False
+                    logger.error(f"Server {server_id} task failed: {e}")
+            return False
 
-            logger.info(f"Server {server_id} starting in background task")
-            return True
+        # Check if task failed during startup
+        if task.done():
+            try:
+                await task
+            except Exception as e:
+                logger.error(f"Failed to start server {server_id}: {e}")
+                return False
+
+        logger.info(f"Server {server_id} started successfully")
+        return True
 
     async def _server_lifecycle_task(
         self,
         server_id: str,
         server: Union[MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP],
+        ready_event: asyncio.Event,
     ) -> None:
         """
         Task that manages a server's lifecycle.
@@ -128,6 +141,9 @@ class AsyncServerLifecycleManager:
                     start_time=datetime.now(),
                     task=asyncio.current_task(),
                 )
+
+            # Signal that the server is registered and ready
+            ready_event.set()
 
             logger.info(
                 f"Server {server_id} started successfully and stored in _servers"

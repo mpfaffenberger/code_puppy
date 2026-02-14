@@ -4,9 +4,9 @@ Now using the fixed arrow_select_async with proper HTML escaping.
 Supports cycling through all supported languages with left/right arrows!
 """
 
+import asyncio
 import io
 import sys
-import time
 from typing import Callable, Optional
 
 from prompt_toolkit import Application
@@ -405,7 +405,7 @@ async def interactive_diff_picker() -> Optional[dict]:
     sys.stdout.write("\033[?1049h")  # Enter alternate buffer
     sys.stdout.write("\033[2J\033[H")  # Clear and home
     sys.stdout.flush()
-    time.sleep(0.1)  # Minimal delay for state sync
+    await asyncio.sleep(0.1)  # Minimal delay for state sync
 
     try:
         # Main menu loop

@@ -252,7 +252,7 @@ class TestHealthMonitor:
         assert result.latency_ms > 0
         assert result.error == "Check failed"
 
-    def test_get_health_history(self, health_monitor):
+    async def test_get_health_history(self, health_monitor):
         """Test retrieving health history."""
         server_id = "test-server"
 
@@ -283,27 +283,27 @@ class TestHealthMonitor:
         health_monitor.health_history[server_id].extend([status1, status2, status3])
 
         # Test unlimited history
-        history = health_monitor.get_health_history(server_id, limit=0)
+        history = await health_monitor.get_health_history(server_id, limit=0)
         assert len(history) == 3
         assert history[0].timestamp == status3.timestamp  # Most recent first
         assert history[-1].timestamp == status1.timestamp
 
         # Test limited history
-        history = health_monitor.get_health_history(server_id, limit=2)
+        history = await health_monitor.get_health_history(server_id, limit=2)
         assert len(history) == 2
         assert history[0].timestamp == status3.timestamp
         assert history[1].timestamp == status2.timestamp
 
         # Test empty history
-        empty_history = health_monitor.get_health_history("non-existent")
+        empty_history = await health_monitor.get_health_history("non-existent")
         assert empty_history == []
 
-    def test_is_healthy(self, health_monitor):
+    async def test_is_healthy(self, health_monitor):
         """Test checking if server is healthy."""
         server_id = "test-server"
 
         # Test no history
-        assert health_monitor.is_healthy(server_id) is False
+        assert await health_monitor.is_healthy(server_id) is False
 
         # Test healthy latest status
         status = HealthStatus(
@@ -314,7 +314,7 @@ class TestHealthMonitor:
             check_type="test",
         )
         health_monitor.health_history[server_id].append(status)
-        assert health_monitor.is_healthy(server_id) is True
+        assert await health_monitor.is_healthy(server_id) is True
 
         # Test unhealthy latest status
         status_unhealthy = HealthStatus(
@@ -325,7 +325,7 @@ class TestHealthMonitor:
             check_type="test",
         )
         health_monitor.health_history[server_id].append(status_unhealthy)
-        assert health_monitor.is_healthy(server_id) is False
+        assert await health_monitor.is_healthy(server_id) is False
 
     async def test_monitoring_loop_basic(self, health_monitor, mock_server):
         """Test basic monitoring loop functionality."""
@@ -620,7 +620,7 @@ class TestHealthMonitor:
 
             await health_monitor.stop_monitoring(server_id)
 
-    def test_record_health_status(self, health_monitor):
+    async def test_record_health_status(self, health_monitor):
         """Test recording health status with logging."""
         server_id = "test-server"
         status_healthy = HealthStatus(
@@ -639,10 +639,10 @@ class TestHealthMonitor:
         )
 
         with patch("code_puppy.mcp_.health_monitor.logger") as mock_logger:
-            health_monitor._record_health_status(server_id, status_healthy)
+            await health_monitor._record_health_status(server_id, status_healthy)
             mock_logger.debug.assert_called()
 
-            health_monitor._record_health_status(server_id, status_unhealthy)
+            await health_monitor._record_health_status(server_id, status_unhealthy)
             mock_logger.warning.assert_called()
 
         assert len(health_monitor.health_history[server_id]) == 2

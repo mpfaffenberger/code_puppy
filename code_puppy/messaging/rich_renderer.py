@@ -558,10 +558,12 @@ class RichConsoleRenderer:
                 for match in file_matches:
                     line = match.line_content
                     # Extract the actual search term (not ripgrep flags)
-                    search_term = msg.search_term.split()[-1]
-                    if search_term.startswith("-"):
-                        parts = msg.search_term.split()
-                        search_term = parts[0] if parts else msg.search_term
+                    parts = msg.search_term.split()
+                    search_term = msg.search_term  # fallback
+                    for part in parts:
+                        if not part.startswith("-"):
+                            search_term = part
+                            break
 
                     # Case-insensitive highlighting
                     if search_term and not search_term.startswith("-"):

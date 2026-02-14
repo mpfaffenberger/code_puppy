@@ -6,6 +6,7 @@ Note: This module imports ServerConfig and get_mcp_manager directly from
 """
 
 import re
+from pathlib import Path
 from typing import Dict, Optional
 from urllib.parse import urlparse
 
@@ -485,8 +486,10 @@ def run_add_wizard(group_id: str = None) -> bool:
 
             # Save back
             os.makedirs(os.path.dirname(MCP_SERVERS_FILE), exist_ok=True)
-            with open(MCP_SERVERS_FILE, "w") as f:
+            temp_path = Path(MCP_SERVERS_FILE).with_suffix(".tmp")
+            with open(temp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+            temp_path.replace(MCP_SERVERS_FILE)
 
             emit_info(
                 Text.from_markup(

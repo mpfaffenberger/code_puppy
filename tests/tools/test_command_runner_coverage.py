@@ -407,11 +407,14 @@ class TestKillAllRunningShellProcesses:
         with _RUNNING_PROCESSES_LOCK:
             _RUNNING_PROCESSES.clear()
         _USER_KILLED_PROCESSES.clear()
-        command_runner._READER_STOP_EVENT = None
+        with command_runner._ACTIVE_STOP_EVENTS_LOCK:
+            command_runner._ACTIVE_STOP_EVENTS.clear()
         yield
         with _RUNNING_PROCESSES_LOCK:
             _RUNNING_PROCESSES.clear()
         _USER_KILLED_PROCESSES.clear()
+        with command_runner._ACTIVE_STOP_EVENTS_LOCK:
+            command_runner._ACTIVE_STOP_EVENTS.clear()
 
     def test_kill_all_empty_set(self):
         """Test killing when no processes registered."""
@@ -437,14 +440,18 @@ class TestKillAllRunningShellProcesses:
         assert count == 1
         assert mock_proc.pid in _USER_KILLED_PROCESSES
 
-    def test_kill_all_sets_reader_stop_event(self):
-        """Test that kill_all sets the reader stop event."""
-        command_runner._READER_STOP_EVENT = threading.Event()
+    def test_kill_all_sets_active_stop_events(self):
+        """Test that kill_all sets all active stop events."""
+        evt1 = threading.Event()
+        evt2 = threading.Event()
+        with command_runner._ACTIVE_STOP_EVENTS_LOCK:
+            command_runner._ACTIVE_STOP_EVENTS.add(evt1)
+            command_runner._ACTIVE_STOP_EVENTS.add(evt2)
 
         kill_all_running_shell_processes()
 
-        # The event should be set
-        assert command_runner._READER_STOP_EVENT.is_set()
+        assert evt1.is_set()
+        assert evt2.is_set()
 
     def test_kill_all_closes_pipes(self):
         """Test that kill_all closes process pipes."""

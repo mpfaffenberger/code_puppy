@@ -167,9 +167,9 @@ class TestIsAwaitingUserInput:
     @pytest.fixture(autouse=True)
     def reset_state(self):
         """Reset global state."""
-        command_runner_module._AWAITING_USER_INPUT = False
+        command_runner_module._AWAITING_USER_INPUT.clear()
         yield
-        command_runner_module._AWAITING_USER_INPUT = False
+        command_runner_module._AWAITING_USER_INPUT.clear()
 
     def test_is_awaiting_user_input_default_false(self):
         """Test that default state is False."""

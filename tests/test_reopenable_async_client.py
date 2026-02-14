@@ -387,10 +387,10 @@ class TestBuildRequest:
     def test_build_request_with_closed_client(self):
         """Test build_request creates temporary client when closed."""
         mock_request = Mock(spec=httpx.Request)
-        mock_temp_client = MagicMock(spec=httpx.AsyncClient)
+        mock_temp_client = MagicMock(spec=httpx.Client)
         mock_temp_client.build_request.return_value = mock_request
 
-        with patch("httpx.AsyncClient", return_value=mock_temp_client):
+        with patch("httpx.Client", return_value=mock_temp_client):
             client = ReopenableAsyncClient()
             result = client.build_request("GET", "https://example.com")
 
@@ -779,10 +779,10 @@ class TestEdgeCases:
     async def test_build_request_preserves_configuration(self):
         """Test build_request uses stored configuration."""
         mock_request = Mock(spec=httpx.Request)
-        mock_temp_client = MagicMock(spec=httpx.AsyncClient)
+        mock_temp_client = MagicMock(spec=httpx.Client)
         mock_temp_client.build_request.return_value = mock_request
 
-        with patch("httpx.AsyncClient", return_value=mock_temp_client) as mock_class:
+        with patch("httpx.Client", return_value=mock_temp_client) as mock_class:
             custom_headers = {"X-Auth": "token123"}
             client = ReopenableAsyncClient(
                 timeout=42.0,

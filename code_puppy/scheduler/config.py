@@ -9,6 +9,7 @@ import os
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 # Import from existing config
@@ -71,8 +72,10 @@ def load_tasks() -> List[ScheduledTask]:
 def save_tasks(tasks: List[ScheduledTask]) -> None:
     """Save all scheduled tasks to JSON file."""
     ensure_scheduler_dirs()
-    with open(SCHEDULES_FILE, "w") as f:
-        json.dump([t.to_dict() for t in tasks], f, indent=2)
+    temp_path = Path(SCHEDULES_FILE).with_suffix(".tmp")
+    with open(temp_path, "w", encoding="utf-8") as f:
+        json.dump([t.to_dict() for t in tasks], f, indent=2, ensure_ascii=False)
+    temp_path.replace(SCHEDULES_FILE)
 
 
 def add_task(task: ScheduledTask) -> None:

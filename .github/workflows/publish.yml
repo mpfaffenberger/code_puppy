@@ -108,7 +108,7 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: uv run twine upload dist/*
+        run: uv run twine upload --verbose dist/*
 
       - name: Push version bump to GitHub
         if: ${{ success() }}

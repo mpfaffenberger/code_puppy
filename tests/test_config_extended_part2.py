@@ -111,11 +111,11 @@ class TestConfigExtendedPart2:
 
     def test_get_use_dbos(self, mock_config_file):
         """Test getting DBOS usage flag"""
-        # Test default (False)
+        # Test default (True - DBOS enabled by default)
         with patch("code_puppy.config.get_value") as mock_get:
             mock_get.return_value = None
             result = get_use_dbos()
-            assert result is False
+            assert result is True
             mock_get.assert_called_once_with("enable_dbos")
 
         # Test various true values

@@ -6,7 +6,6 @@ Target functions:
 - should_ignore_dir_path()
 - Syntax highlighting functions (_get_lexer_for_extension, _get_token_color, _highlight_code_line)
 - Diff utilities (brighten_hex, _extract_file_extension_from_diff, _format_diff_with_syntax_highlighting)
-- with_tool_callbacks decorator
 """
 
 import importlib.util
@@ -37,7 +36,6 @@ _format_diff_with_syntax_highlighting = (
     common_module._format_diff_with_syntax_highlighting
 )
 format_diff_with_colors = common_module.format_diff_with_colors
-with_tool_callbacks = common_module.with_tool_callbacks
 PYGMENTS_AVAILABLE = common_module.PYGMENTS_AVAILABLE
 EXTENSION_TO_LEXER_NAME = common_module.EXTENSION_TO_LEXER_NAME
 
@@ -556,130 +554,3 @@ class TestFormatDiffWithColors:
 +x = 2"""
         result = format_diff_with_colors(diff)
         assert isinstance(result, Text)
-
-
-# =============================================================================
-# TESTS FOR with_tool_callbacks DECORATOR
-# =============================================================================
-
-
-class TestWithToolCallbacks:
-    """Test the with_tool_callbacks() decorator."""
-
-    @pytest.mark.asyncio
-    async def test_wraps_async_function(self):
-        """Test decorator wraps async functions correctly."""
-
-        @with_tool_callbacks("test_async_tool")
-        async def my_async_tool(x, y):
-            return x + y
-
-        result = await my_async_tool(1, 2)
-        assert result == 3
-
-    @pytest.mark.asyncio
-    async def test_async_wrapper_preserves_kwargs(self):
-        """Test async wrapper preserves keyword arguments."""
-
-        @with_tool_callbacks("test_tool")
-        async def tool_with_kwargs(a, b=10):
-            return a * b
-
-        result = await tool_with_kwargs(5, b=3)
-        assert result == 15
-
-    @pytest.mark.asyncio
-    async def test_async_wrapper_handles_exceptions(self):
-        """Test async wrapper handles exceptions properly."""
-
-        @with_tool_callbacks("test_error_tool")
-        async def failing_tool():
-            raise ValueError("test error")
-
-        with pytest.raises(ValueError, match="test error"):
-            await failing_tool()
-
-    def test_wraps_sync_function(self):
-        """Test decorator wraps sync functions correctly."""
-
-        @with_tool_callbacks("test_sync_tool")
-        def my_sync_tool(x, y):
-            return x * y
-
-        result = my_sync_tool(3, 4)
-        assert result == 12
-
-    def test_sync_wrapper_preserves_kwargs(self):
-        """Test sync wrapper preserves keyword arguments."""
-
-        @with_tool_callbacks("test_tool")
-        def tool_with_kwargs(a, b=5):
-            return a + b
-
-        result = tool_with_kwargs(10, b=7)
-        assert result == 17
-
-    def test_sync_wrapper_handles_exceptions(self):
-        """Test sync wrapper handles exceptions properly."""
-
-        @with_tool_callbacks("test_error_tool")
-        def failing_sync_tool():
-            raise RuntimeError("sync error")
-
-        with pytest.raises(RuntimeError, match="sync error"):
-            failing_sync_tool()
-
-    def test_preserves_function_name(self):
-        """Test decorator preserves original function name."""
-
-        @with_tool_callbacks("my_tool")
-        def original_function():
-            pass
-
-        assert original_function.__name__ == "original_function"
-
-    @pytest.mark.asyncio
-    async def test_async_preserves_function_name(self):
-        """Test decorator preserves async function name."""
-
-        @with_tool_callbacks("my_tool")
-        async def async_original():
-            pass
-
-        assert async_original.__name__ == "async_original"
-
-    def test_decorated_function_is_callable(self):
-        """Test decorated function remains callable."""
-
-        @with_tool_callbacks("tool")
-        def simple_tool():
-            return "result"
-
-        assert callable(simple_tool)
-        assert simple_tool() == "result"
-
-    @pytest.mark.asyncio
-    async def test_async_with_no_return_value(self):
-        """Test async function that returns None."""
-        side_effect = []
-
-        @with_tool_callbacks("void_tool")
-        async def void_tool():
-            side_effect.append("called")
-            return None
-
-        result = await void_tool()
-        assert result is None
-        assert side_effect == ["called"]
-
-    def test_sync_with_no_return_value(self):
-        """Test sync function that returns None."""
-        side_effect = []
-
-        @with_tool_callbacks("void_sync_tool")
-        def void_sync_tool():
-            side_effect.append("called")
-
-        result = void_sync_tool()
-        assert result is None
-        assert side_effect == ["called"]
