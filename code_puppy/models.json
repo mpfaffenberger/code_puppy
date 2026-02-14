@@ -26,7 +26,7 @@
       "url": "https://api.synthetic.new/openai/v1/",
       "api_key": "$SYN_API_KEY"
     },
-    "context_length": 262144,
+    "context_length": 256000,
     "supported_settings": ["temperature", "seed", "top_p"]
   },
   "synthetic-Kimi-K2.5-Thinking": {
@@ -36,7 +36,17 @@
       "url": "https://api.synthetic.new/openai/v1/",
       "api_key": "$SYN_API_KEY"
     },
-    "context_length": 262144,
+    "context_length": 256000,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  },
+  "synthetic-Kimi-K2.5-Thinking-NVFP4": {
+    "type": "custom_openai",
+    "name": "hf:nvidia/Kimi-K2.5-NVFP4",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 256000,
     "supported_settings": ["temperature", "seed", "top_p"]
   },
   "Gemini-3": {
