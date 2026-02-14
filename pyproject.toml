@@ -71,6 +71,8 @@ build_data = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["code_puppy"]
+# Include bundled skill catalog (non-Python files) in the built wheel
+artifacts = ["code_puppy/bundled_skills/**"]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "code_puppy/models.json" = "code_puppy/models.json"
