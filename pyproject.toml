@@ -69,6 +69,9 @@ ignore_no_config = true
 packages = ["code_puppy"]
 build_data = true
 
+[tool.hatch.build.targets.wheel]
+packages = ["code_puppy"]
+
 [tool.hatch.build.targets.wheel.shared-data]
 "code_puppy/models.json" = "code_puppy/models.json"
 "code_puppy/models_dev_api.json" = "code_puppy/models_dev_api.json"
@@ -78,6 +81,7 @@ path = "code_puppy/models.json"
 
 [[tool.hatch.build.targets.sdist.include]]
 path = "code_puppy/models_dev_api.json"
+
 [tool.ruff.lint.per-file-ignores]
 "code_puppy/main.py" = ["E402"]
 "code_puppy/cli_runner.py" = ["E402"]

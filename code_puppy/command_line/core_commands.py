@@ -856,23 +856,30 @@ def handle_wiggum_stop_command(command: str) -> bool:
 @register_command(
     name="skills",
     description="Manage agent skills - browse, enable, disable skills",
-    usage="/skills [list|enable|disable]",
+    usage="/skills [list|install [<id>]|enable|disable|tui]",
     category="core",
-    detailed_help="""Launch the skills TUI menu or manage skills with subcommands:
-    /skills        - Launch interactive TUI menu
-    /skills list   - Quick text list of all skills
-    /skills enable - Enable skills integration globally
-    /skills disable - Disable skills integration globally""",
+    detailed_help="""Skills management commands:
+    /skills                 - Show skills overview (status + commands)
+    /skills list            - Quick text list of installed skills
+    /skills install         - Browse and install skills from bundled catalog
+    /skills install <id>    - Install a specific bundled skill by id
+    /skills enable          - Enable skills integration globally
+    /skills disable         - Disable skills integration globally
+    /skills tui             - Launch interactive TUI manager""",
 )
 def handle_skills_command(command: str) -> bool:
     """Handle the /skills command.
 
     Subcommands:
-        /skills         - Launch interactive TUI menu
-        /skills list    - Quick text list of all skills (no TUI)
+        /skills         - Show skills overview (no TUI)
+        /skills tui     - Launch interactive TUI manager
+        /skills list    - Quick text list of installed skills (no TUI)
         /skills enable  - Enable skills globally
         /skills disable - Disable skills globally
+        /skills install - Browse/install bundled skills
     """
+    from rich.text import Text
+
     from code_puppy.command_line.skills_menu import show_skills_menu
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
     from code_puppy.plugins.agent_skills.config import (
@@ -882,11 +889,103 @@ def handle_skills_command(command: str) -> bool:
     from code_puppy.plugins.agent_skills.discovery import discover_skills
     from code_puppy.plugins.agent_skills.metadata import parse_skill_metadata
 
+    def _show_skills_overview() -> None:
+        enabled = get_skills_enabled()
+
+        try:
+            discovered = discover_skills()
+            installed_count = sum(
+                1 for s in discovered if getattr(s, "has_skill_md", False)
+            )
+        except Exception:
+            installed_count = 0
+
+        try:
+            from code_puppy.plugins.agent_skills.skill_catalog import catalog
+
+            catalog_count = len(catalog.get_all())
+        except Exception:
+            catalog_count = 0
+
+        help_lines: list[Text] = []
+
+        help_lines.append(Text("🛠️ Skills Management", style="bold magenta"))
+        help_lines.append(Text(""))
+
+        status_line = Text("  Status: ", style="dim")
+        status_line += (
+            Text("✓ Enabled", style="bold green")
+            if enabled
+            else Text("✗ Disabled", style="bold red")
+        )
+        status_line += Text(
+            f" ({installed_count} installed, {catalog_count} available in catalog)",
+            style="dim",
+        )
+        help_lines.append(status_line)
+        help_lines.append(Text(""))
+
+        help_lines.append(Text("  Commands:", style="bold cyan"))
+        help_lines.append(
+            Text("    /skills", style="cyan") + Text("              Show this overview")
+        )
+        help_lines.append(
+            Text("    /skills list", style="cyan")
+            + Text("         List all installed skills")
+        )
+        help_lines.append(
+            Text("    /skills install", style="cyan")
+            + Text("      Browse & install from catalog")
+        )
+        help_lines.append(
+            Text("    /skills install <id>", style="cyan")
+            + Text(" Install a specific skill")
+        )
+        help_lines.append(
+            Text("    /skills enable", style="cyan")
+            + Text("       Enable skills integration")
+        )
+        help_lines.append(
+            Text("    /skills disable", style="cyan")
+            + Text("      Disable skills integration")
+        )
+        help_lines.append(Text(""))
+
+        help_lines.append(Text("  Interactive:", style="bold cyan"))
+        help_lines.append(
+            Text("    /skills tui", style="cyan")
+            + Text("          Launch interactive TUI manager")
+        )
+        help_lines.append(Text(""))
+
+        help_lines.append(
+            Text("  Tip: ", style="bold yellow")
+            + Text("Type '/skills install' to browse available skills", style="dim")
+        )
+
+        final_text = Text()
+        for i, line in enumerate(help_lines):
+            if i > 0:
+                final_text.append("\n")
+            final_text.append_text(line)
+
+        emit_info(final_text)
+
     tokens = command.split()
+
+    # No args: show overview (don’t hijack the user into a TUI)
+    if len(tokens) == 1:
+        _show_skills_overview()
+        return True
 
     # Handle subcommands
     if len(tokens) > 1:
         subcommand = tokens[1].lower()
+
+        if subcommand == "tui":
+            # Launch interactive TUI manager
+            show_skills_menu()
+            return True
 
         if subcommand == "list":
             # Quick text list of all skills
@@ -940,14 +1039,62 @@ def handle_skills_command(command: str) -> bool:
             emit_warning("🔴 Skills integration disabled globally")
             return True
 
-        else:
-            emit_error(f"Unknown subcommand: {subcommand}")
-            emit_info("Usage: /skills [list|enable|disable]")
+        elif subcommand == "install":
+            # /skills install [<name>]
+            if len(tokens) == 2:
+                from code_puppy.command_line.skills_install_menu import (
+                    run_skills_install_menu,
+                )
+
+                run_skills_install_menu()
+                return True
+
+            query = " ".join(tokens[2:]).strip()
+            if not query:
+                from code_puppy.command_line.skills_install_menu import (
+                    run_skills_install_menu,
+                )
+
+                run_skills_install_menu()
+                return True
+
+            from code_puppy.plugins.agent_skills.skill_catalog import catalog
+
+            entry = catalog.get_by_id(query)
+            if entry is None:
+                matches = catalog.search(query)
+                if not matches:
+                    emit_error(f"No bundled skill found matching '{query}'.")
+                    emit_info("Try: /skills install")
+                    return True
+
+                emit_warning(f"No exact skill id match for '{query}'. Matches:")
+                for m in matches[:10]:
+                    emit_info(f"  - {m.id}  ({m.display_name})")
+                if len(matches) > 10:
+                    emit_info(f"  ... and {len(matches) - 10} more")
+                emit_info("Install with: /skills install <id>")
+                return True
+
+            from code_puppy.plugins.agent_skills.installer import install_skill
+
+            result = install_skill(entry)
+            if result.success:
+                emit_success(f"✓ Installed skill '{entry.id}' at {result.install_path}")
+            else:
+                emit_error(result.error or f"Failed to install skill '{entry.id}'")
+
             return True
 
-    # No subcommand - launch TUI menu
-    # Always return True so the command is consumed and not passed to LLM
-    show_skills_menu()
+        else:
+            emit_error(f"Unknown subcommand: {subcommand}")
+            emit_info("Type '/skills' for an overview of available commands")
+            emit_info("Usage: /skills [list|install [<id>]|enable|disable|tui]")
+            return True
+
+    # Should be unreachable because we return early on len(tokens) == 1,
+    # but keep a safe fallback.
+    _show_skills_overview()
     return True
 
 

@@ -3,7 +3,7 @@
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from code_puppy.plugins.agent_skills.config import get_skill_directories
 
@@ -79,6 +79,9 @@ def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]
                 directories.append(d)
 
     discovered_skills: List[SkillInfo] = []
+    # Deduplicate skills across all scanned directories.
+    # Keyed by resolved path so symlinks / duplicate directory entries collapse.
+    seen_skills: Set[Path] = set()
 
     for directory in directories:
         if not directory.exists():
@@ -97,6 +100,19 @@ def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]
             # Skip hidden directories
             if skill_dir.name.startswith("."):
                 continue
+
+            try:
+                resolved_skill_dir = skill_dir.resolve()
+            except OSError:
+                # Best-effort: still dedup within this run without crashing discovery.
+                resolved_skill_dir = skill_dir.absolute()
+
+            if resolved_skill_dir in seen_skills:
+                logger.debug(
+                    f"Skipping duplicate skill directory: {skill_dir} (resolved: {resolved_skill_dir})"
+                )
+                continue
+            seen_skills.add(resolved_skill_dir)
 
             has_skill_md = is_valid_skill_directory(skill_dir)
 
