@@ -15,8 +15,8 @@ import pytest
 
 from code_puppy import session_storage
 from code_puppy.session_storage import (
-    _HEADER_MAGIC,
-    _sign_data,
+    _LEGACY_SIGNATURE_SIZE,
+    _LEGACY_SIGNED_HEADER,
     restore_autosave_interactively,
 )
 
@@ -323,7 +323,7 @@ class TestRestoreAutosaveUserSelection:
         history = [{"role": "user", "content": "test message"}]
         _pkl = pickle.dumps(history)
         (tmp_path / "test_session.pkl").write_bytes(
-            _HEADER_MAGIC + _sign_data(_pkl) + _pkl
+            _LEGACY_SIGNED_HEADER + (b"x" * _LEGACY_SIGNATURE_SIZE) + _pkl
         )
         (tmp_path / "test_session_meta.json").write_text(
             json.dumps({"timestamp": "2024-01-01T00:00:00", "message_count": 1}),
@@ -349,7 +349,7 @@ class TestRestoreAutosaveUserSelection:
         history = [{"role": "user", "content": "named session"}]
         _pkl = pickle.dumps(history)
         (tmp_path / "my_specific_session.pkl").write_bytes(
-            _HEADER_MAGIC + _sign_data(_pkl) + _pkl
+            _LEGACY_SIGNED_HEADER + (b"x" * _LEGACY_SIGNATURE_SIZE) + _pkl
         )
         (tmp_path / "my_specific_session_meta.json").write_text(
             json.dumps({"timestamp": "2024-01-01T00:00:00", "message_count": 1}),
@@ -532,7 +532,9 @@ class TestRestoreAutosaveErrorHandling:
 
         history = [{"role": "user", "content": "test"}]
         _pkl = pickle.dumps(history)
-        (tmp_path / "session.pkl").write_bytes(_HEADER_MAGIC + _sign_data(_pkl) + _pkl)
+        (tmp_path / "session.pkl").write_bytes(
+            _LEGACY_SIGNED_HEADER + (b"x" * _LEGACY_SIGNATURE_SIZE) + _pkl
+        )
         (tmp_path / "session_meta.json").write_text(
             json.dumps({"timestamp": "2024-01-01T00:00:00", "message_count": 1}),
             encoding="utf-8",
@@ -609,7 +611,9 @@ class TestRestoreAutosaveSuccessPath:
             {"role": "assistant", "content": "Hi there!"},
         ]
         _pkl = pickle.dumps(history)
-        (tmp_path / "success.pkl").write_bytes(_HEADER_MAGIC + _sign_data(_pkl) + _pkl)
+        (tmp_path / "success.pkl").write_bytes(
+            _LEGACY_SIGNED_HEADER + (b"x" * _LEGACY_SIGNATURE_SIZE) + _pkl
+        )
         (tmp_path / "success_meta.json").write_text(
             json.dumps({"timestamp": "2024-01-01T00:00:00", "message_count": 2}),
             encoding="utf-8",

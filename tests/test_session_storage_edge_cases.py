@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 
 from code_puppy import session_storage
-from code_puppy.session_storage import _HEADER_MAGIC, _sign_data
+from code_puppy.session_storage import _LEGACY_SIGNATURE_SIZE, _LEGACY_SIGNED_HEADER
 
 
 class TestSessionPathEdgeCases:
@@ -174,7 +174,9 @@ class TestSessionLoadEdgeCases:
         """Test loading empty pickle file."""
         pkl_data = pickle.dumps([])
         pickle_path = tmp_path / "empty.pkl"
-        pickle_path.write_bytes(_HEADER_MAGIC + _sign_data(pkl_data) + pkl_data)
+        pickle_path.write_bytes(
+            _LEGACY_SIGNED_HEADER + (b"x" * _LEGACY_SIGNATURE_SIZE) + pkl_data
+        )
 
         loaded = session_storage.load_session("empty", tmp_path)
         assert loaded == []
@@ -190,7 +192,9 @@ class TestSessionLoadEdgeCases:
 
         pkl_data = pickle.dumps(original)
         pickle_path = tmp_path / "test.pkl"
-        pickle_path.write_bytes(_HEADER_MAGIC + _sign_data(pkl_data) + pkl_data)
+        pickle_path.write_bytes(
+            _LEGACY_SIGNED_HEADER + (b"x" * _LEGACY_SIGNATURE_SIZE) + pkl_data
+        )
 
         loaded = session_storage.load_session("test", tmp_path)
         assert loaded == original
