@@ -8,7 +8,6 @@ SDK dependency.
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import logging
 import uuid
@@ -41,12 +40,11 @@ from pydantic_ai.usage import RequestUsage
 
 logger = logging.getLogger(__name__)
 
+
 # Bypass thought signature for Gemini when no pending signature is available.
-# This allows function calls to work with thinking models.
-# Uses a stable hash to avoid leaking readable implementation details to the API.
-BYPASS_THOUGHT_SIGNATURE = hashlib.sha256(
-    b"code_puppy_bypass_thought_signature"
-).hexdigest()[:32]
+# Gemini thinking models REQUIRE a thoughtSignature on every function_call part,
+# even when the model didn't emit a ThinkingPart (e.g. the LLM Gateway strips them).
+BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
 
 
 def generate_tool_call_id() -> str:
@@ -439,8 +437,8 @@ class GeminiModel(Model):
                         "id": item.tool_call_id,
                     }
                 }
-                # Gemini thinking models REQUIRE thoughtSignature on function calls
-                # Use pending signature from thinking or bypass signature
+                # Gemini thinking models REQUIRE thoughtSignature on function calls.
+                # Use pending signature from a preceding ThinkingPart, or the bypass.
                 part_dict["thoughtSignature"] = (
                     pending_signature
                     if pending_signature is not None
@@ -467,13 +465,15 @@ class GeminiModel(Model):
                 if is_foreign and item.content:
                     parts.append({"text": f"<thinking>{item.content}</thinking>"})
                 elif item.content:
-                    part_dict = {"text": item.content, "thought": True}
+                    part_dict: dict[str, Any] = {
+                        "text": item.content,
+                        "thought": True,
+                    }
                     if item.signature:
                         part_dict["thoughtSignature"] = item.signature
-                        # Store signature for subsequent parts
+                        # Store signature for subsequent function_call parts
                         pending_signature = item.signature
                     else:
-                        # No signature on thinking part, use bypass
                         pending_signature = BYPASS_THOUGHT_SIGNATURE
                     parts.append(part_dict)
 
@@ -624,14 +624,18 @@ class GeminiModel(Model):
         # Detect if any part has a thoughtSignature — if so, preceding
         # text-only parts are thinking content. The LLM Gateway strips
         # the "thought": true field, so we infer it positionally.
-        has_thought_signature = any(
-            p.get("thoughtSignature") for p in parts
-        )
-        # Index of the first part with thoughtSignature (the actual response)
-        first_sig_idx = next(
-            (i for i, p in enumerate(parts) if p.get("thoughtSignature")),
-            len(parts),
-        ) if has_thought_signature else len(parts)
+        # Also collect the first real signature for thinking parts that
+        # lack one (the API attaches it to the NEXT part, not the thinking).
+        first_real_signature: str | None = None
+        first_sig_idx = len(parts)
+        for i, p in enumerate(parts):
+            sig = p.get("thoughtSignature")
+            if sig:
+                first_real_signature = sig
+                first_sig_idx = i
+                break
+
+        has_thought_signature = first_real_signature is not None
 
         for idx, part in enumerate(parts):
             is_thinking = (
@@ -646,8 +650,13 @@ class GeminiModel(Model):
             )
 
             if is_thinking and part.get("text") is not None:
-                # Thinking part — signature may be on same part or inferred
-                signature = part.get("thoughtSignature")
+                # Thinking part — the LLM Gateway puts the signature on
+                # the NEXT part (text or functionCall), not the thinking
+                # part itself. Use the part's own signature if present,
+                # otherwise grab it from the first signed part.
+                signature = (
+                    part.get("thoughtSignature") or first_real_signature
+                )
                 response_parts.append(
                     ThinkingPart(
                         content=part["text"],
