@@ -456,7 +456,7 @@ class AntigravityClient(httpx.AsyncClient):
             # claude-opus-4-5-thinking-high -> claude-opus-4-5-thinking
             claude_tier = None
             if "claude" in model and "-thinking-" in model:
-                for tier in ["low", "medium", "high"]:
+                for tier in ["low", "medium", "high", "max"]:
                     if model.endswith(f"-{tier}"):
                         claude_tier = tier
                         model = model.rsplit(f"-{tier}", 1)[0]  # Remove tier suffix
@@ -526,7 +526,12 @@ class AntigravityClient(httpx.AsyncClient):
                     # Add thinkingConfig for Claude thinking models (uses thinkingBudget number)
                     elif claude_tier and "thinking" in model:
                         # Claude thinking budgets by tier
-                        claude_budgets = {"low": 8192, "medium": 16384, "high": 32768}
+                        claude_budgets = {
+                            "low": 8192,
+                            "medium": 16384,
+                            "high": 32768,
+                            "max": 65536,
+                        }
                         thinking_budget = claude_budgets.get(claude_tier, 8192)
 
                         gen_config["thinkingConfig"] = {
@@ -540,9 +545,11 @@ class AntigravityClient(httpx.AsyncClient):
                     if "topP" not in gen_config:
                         gen_config["topP"] = 0.95
 
-                    # Set maxOutputTokens to 64000 for all models
-                    # This ensures it's always > thinkingBudget for thinking models
-                    gen_config["maxOutputTokens"] = 64000
+                    # Set maxOutputTokens: 128K for Claude Opus, 64K for others
+                    if "claude" in model and "opus" in model:
+                        gen_config["maxOutputTokens"] = 128000
+                    else:
+                        gen_config["maxOutputTokens"] = 64000
 
                     original_body["generationConfig"] = gen_config
 
