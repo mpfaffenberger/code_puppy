@@ -8,17 +8,11 @@ is better than complex, nested side effects are worse than deliberate helpers.
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
-import logging
-import os
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List
-
-logger = logging.getLogger(__name__)
 
 
 def _safe_loads(data: bytes) -> Any:
@@ -26,8 +20,10 @@ def _safe_loads(data: bytes) -> Any:
     return pickle.loads(data)  # noqa: S301
 
 
-_HEADER_MAGIC = b"CPSESSION\x01"
-_HMAC_SIZE = 32  # SHA-256 digest size
+_LEGACY_SIGNED_HEADER = b"CPSESSION\x01"
+_LEGACY_SIGNATURE_SIZE = (
+    32  # legacy signature bytes, retained only for backward-compat parsing
+)
 
 SessionHistory = List[Any]
 TokenEstimator = Callable[[Any], int]
@@ -60,30 +56,17 @@ class SessionMetadata:
         }
 
 
-def _get_signing_key() -> bytes:
-    """Return a machine-specific HMAC signing key, creating one on first use."""
-    config_dir = Path.home() / ".config" / "code_puppy"
-    key_path = config_dir / ".session_key"
-    try:
-        if key_path.exists():
-            key = key_path.read_bytes()
-            if len(key) >= 32:
-                return key
-    except OSError:
-        pass
-    key = os.urandom(64)
-    try:
-        config_dir.mkdir(parents=True, exist_ok=True)
-        key_path.write_bytes(key)
-        os.chmod(key_path, 0o600)
-    except OSError:
-        pass
-    return key
+def _extract_pickle_payload(raw: bytes) -> bytes:
+    """Return the pickle payload from raw session file bytes.
 
-
-def _sign_data(data: bytes) -> bytes:
-    """Return HMAC-SHA256 signature for *data*."""
-    return hmac.new(_get_signing_key(), data, hashlib.sha256).digest()
+    New format is raw pickle bytes.
+    Legacy format was: header + 32-byte signature + pickle payload.
+    We no longer verify or generate signatures.
+    """
+    if raw.startswith(_LEGACY_SIGNED_HEADER):
+        offset = len(_LEGACY_SIGNED_HEADER) + _LEGACY_SIGNATURE_SIZE
+        return raw[offset:]
+    return raw
 
 
 def ensure_directory(path: Path) -> Path:
@@ -110,10 +93,9 @@ def save_session(
     paths = build_session_paths(base_dir, session_name)
 
     pickle_data = pickle.dumps(history)
-    signature = _sign_data(pickle_data)
     tmp_pickle = paths.pickle_path.with_suffix(".tmp")
     with tmp_pickle.open("wb") as pickle_file:
-        pickle_file.write(_HEADER_MAGIC + signature + pickle_data)
+        pickle_file.write(pickle_data)
     tmp_pickle.replace(paths.pickle_path)
 
     total_tokens = sum(token_estimator(message) for message in history)
@@ -138,32 +120,16 @@ def save_session(
 def load_session(
     session_name: str, base_dir: Path, *, allow_legacy: bool = False
 ) -> SessionHistory:
+    # Kept for API compatibility; legacy loading is always supported now.
+    _ = allow_legacy
+
     paths = build_session_paths(base_dir, session_name)
     if not paths.pickle_path.exists():
         raise FileNotFoundError(paths.pickle_path)
+
     raw = paths.pickle_path.read_bytes()
-
-    if raw.startswith(_HEADER_MAGIC):
-        offset = len(_HEADER_MAGIC)
-        stored_sig = raw[offset : offset + _HMAC_SIZE]
-        pickle_data = raw[offset + _HMAC_SIZE :]
-        expected_sig = _sign_data(pickle_data)
-        if not hmac.compare_digest(stored_sig, expected_sig):
-            raise ValueError(
-                f"HMAC verification failed for session '{session_name}' – "
-                "file may have been tampered with"
-            )
-        return _safe_loads(pickle_data)
-
-    # Legacy file without HMAC header
-    if not allow_legacy:
-        raise ValueError("Unsigned session file - run migration to re-sign")
-    logger.warning(
-        "Session '%s' has no HMAC signature (legacy format). "
-        "Re-save to add integrity protection.",
-        session_name,
-    )
-    return _safe_loads(raw)
+    pickle_data = _extract_pickle_payload(raw)
+    return _safe_loads(pickle_data)
 
 
 def list_sessions(base_dir: Path) -> List[str]:
