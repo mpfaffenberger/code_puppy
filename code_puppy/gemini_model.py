@@ -8,7 +8,6 @@ SDK dependency.
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import logging
 import uuid
@@ -43,10 +42,7 @@ logger = logging.getLogger(__name__)
 
 # Bypass thought signature for Gemini when no pending signature is available.
 # This allows function calls to work with thinking models.
-# Uses a stable hash to avoid leaking readable implementation details to the API.
-BYPASS_THOUGHT_SIGNATURE = hashlib.sha256(
-    b"code_puppy_bypass_thought_signature"
-).hexdigest()[:32]
+BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
 
 
 def generate_tool_call_id() -> str:
