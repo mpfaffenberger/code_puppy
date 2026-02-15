@@ -1,6 +1,6 @@
 import json
 import os
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import mock_open, patch
 
 import pytest
 
@@ -38,39 +38,20 @@ class TestModelFactoryErrors:
         ):
             ModelFactory.get_model("bad-model", config)
 
-    def test_missing_models_config_file(self):
-        """Test load_config() when models config directory is not writable."""
-        with patch("code_puppy.config.MODELS_FILE", "/nonexistent/path/models.json"):
-            with patch("pathlib.Path.exists", return_value=False):
-                with patch("pathlib.Path.mkdir"):
-                    with patch(
-                        "builtins.open",
-                        side_effect=FileNotFoundError("No such file"),
-                    ):
-                        with pytest.raises(OSError):
-                            ModelFactory.load_config()
-
-    def test_missing_models_config_file_oserror(self):
-        """Test load_config() when models config directory mkdir raises OSError."""
-        with patch("code_puppy.config.MODELS_FILE", "/nonexistent/path/models.json"):
-            with patch("pathlib.Path.exists", return_value=False):
-                with patch(
-                    "pathlib.Path.mkdir", side_effect=OSError("Permission denied")
-                ):
-                    with pytest.raises(
-                        OSError, match="Cannot initialize models config"
-                    ):
-                        ModelFactory.load_config()
+    def test_missing_bundled_models_file(self):
+        """Test load_config() when the bundled models.json can't be opened."""
+        with patch(
+            "builtins.open",
+            side_effect=FileNotFoundError("No such file"),
+        ):
+            with pytest.raises(FileNotFoundError):
+                ModelFactory.load_config()
 
     def test_malformed_json_models_file(self):
-        """Test load_config() with malformed JSON in models.json."""
-        with patch("code_puppy.config.MODELS_FILE", "/fake/path/models.json"):
-            with patch("pathlib.Path.exists", return_value=True):
-                with patch(
-                    "builtins.open", mock_open(read_data="{ invalid json content }")
-                ):
-                    with pytest.raises(json.JSONDecodeError):
-                        ModelFactory.load_config()
+        """Test load_config() with malformed JSON in bundled models.json."""
+        with patch("builtins.open", mock_open(read_data="{ invalid json content }")):
+            with pytest.raises(json.JSONDecodeError):
+                ModelFactory.load_config()
 
     def test_malformed_json_extra_models_file(self):
         """Test load_config() handles JSON decode errors gracefully."""
@@ -324,88 +305,28 @@ class TestModelFactoryErrors:
 
     def test_load_config_file_permission_error(self):
         """Test load_config() when there's a file permission error."""
-        with patch("code_puppy.config.MODELS_FILE", "/permission/denied/models.json"):
-            with patch("pathlib.Path.exists", return_value=True):
-                with patch(
-                    "builtins.open", side_effect=PermissionError("Permission denied")
-                ):
-                    with pytest.raises(PermissionError):
-                        ModelFactory.load_config()
+        with patch("builtins.open", side_effect=PermissionError("Permission denied")):
+            with pytest.raises(PermissionError):
+                ModelFactory.load_config()
 
     def test_load_config_general_exception_handling(self):
         """Test load_config() handles general exceptions gracefully for extra models."""
-        valid_models_json = '{"test-model": {"type": "openai", "name": "gpt-4"}}'
+        import tempfile
 
-        with patch("code_puppy.config.MODELS_FILE", "/fake/path/models.json"):
-            with patch("builtins.open", mock_open(read_data=valid_models_json)):
-                with patch(
-                    "code_puppy.config.EXTRA_MODELS_FILE",
-                    "/fake/path/extra_models.json",
-                ):
-                    with patch(
-                        "code_puppy.config.CHATGPT_MODELS_FILE",
-                        "/fake/path/chatgpt.json",
-                    ):
-                        with patch(
-                            "code_puppy.config.CLAUDE_MODELS_FILE",
-                            "/fake/path/claude.json",
-                        ):
-                            with patch(
-                                "code_puppy.plugins.claude_code_oauth.utils.load_claude_models_filtered",
-                                return_value={},
-                            ):
-                                # Mock Path to control existence
-                                mock_path_class = MagicMock()
-                                mock_main_path = MagicMock()
-                                mock_extra_path = MagicMock()
-                                mock_other_path = MagicMock()
+        # Create a malformed extra-models file
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+            tmp.write("not valid json")
+            bad_extra = tmp.name
 
-                                mock_main_path.exists.return_value = True
-                                mock_extra_path.exists.return_value = True
-                                mock_other_path.exists.return_value = False
-
-                                def path_side_effect(path_arg):
-                                    path_str = str(path_arg)
-                                    if "extra_models.json" in path_str:
-                                        return mock_extra_path
-                                    elif (
-                                        "models.json" in path_str
-                                        and "extra" not in path_str
-                                    ):
-                                        return mock_main_path
-                                    else:
-                                        return mock_other_path
-
-                                mock_path_class.side_effect = path_side_effect
-
-                                with patch(
-                                    "code_puppy.model_factory.pathlib.Path",
-                                    mock_path_class,
-                                ):
-                                    with patch("json.load") as mock_json_load:
-                                        # First call succeeds (main models.json), second fails with general exception
-                                        mock_json_load.side_effect = [
-                                            json.loads(
-                                                valid_models_json
-                                            ),  # Success for main config
-                                            Exception(
-                                                "General error"
-                                            ),  # Fail for extra models
-                                        ]
-
-                                        with patch("logging.getLogger") as mock_logger:
-                                            config = ModelFactory.load_config()
-                                            # Should still load basic config despite extra models error
-                                            assert isinstance(config, dict)
-                                            assert "test-model" in config
-                                            # Should log warning about the error
-                                            mock_logger.return_value.warning.assert_called()
-                                            warning_call_args = mock_logger.return_value.warning.call_args[
-                                                0
-                                            ]
-                                            assert (
-                                                "Failed to load" in warning_call_args[0]
-                                            )
+        try:
+            with patch("code_puppy.config.EXTRA_MODELS_FILE", bad_extra):
+                # Should load bundled models successfully despite bad extra file
+                config = ModelFactory.load_config()
+                assert isinstance(config, dict)
+                # Bundled models.json has entries
+                assert len(config) > 0
+        finally:
+            os.unlink(bad_extra)
 
     def test_config_callback_exception_handling(self):
         """Test load_config() when callbacks raise exceptions."""

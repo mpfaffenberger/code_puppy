@@ -299,24 +299,11 @@ class ModelFactory:
                 )
             config = callbacks.on_load_model_config()[0]
         else:
-            from code_puppy.config import MODELS_FILE
-
-            models_path = pathlib.Path(MODELS_FILE)
-            if not models_path.exists():
-                try:
-                    models_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(
-                        pathlib.Path(__file__).parent / "models.json", "r"
-                    ) as src:
-                        with open(models_path, "w") as target:
-                            target.write(src.read())
-                except OSError as e:
-                    raise OSError(
-                        f"Cannot initialize models config at {models_path}: {e}. "
-                        f"Please check directory permissions or set MODELS_FILE to a writable path."
-                    ) from e
-
-            with open(MODELS_FILE, "r") as f:
+            # Always load from the bundled models.json so upstream
+            # updates propagate automatically.  User additions belong
+            # in extra_models.json (overlay loaded below).
+            bundled_models = pathlib.Path(__file__).parent / "models.json"
+            with open(bundled_models, "r") as f:
                 config = json.load(f)
 
         # Import OAuth model file paths from main config

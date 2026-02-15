@@ -3,11 +3,12 @@
 This plugin:
 1. Injects available skills into system prompts
 2. Registers skill-related tools
+3. Provides /skills slash command (and alias /skill)
 """
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from code_puppy.callbacks import register_callback
 
@@ -115,8 +116,126 @@ def _register_skills_tools() -> List[Dict[str, Any]]:
     ]
 
 
-# Register callbacks when plugin is loaded
+# ---------------------------------------------------------------------------
+# Slash command: /skills (and alias /skill)
+# ---------------------------------------------------------------------------
+
+_COMMAND_NAME = "skills"
+_ALIASES = ("skill",)
+
+
+def _skills_command_help() -> List[Tuple[str, str]]:
+    """Advertise /skills in the /help menu."""
+    return [
+        ("skills", "Manage agent skills – browse, enable, disable, install"),
+        ("skill", "Alias for /skills"),
+    ]
+
+
+def _handle_skills_command(command: str, name: str) -> Optional[Any]:
+    """Handle /skills and /skill slash commands.
+
+    Sub-commands:
+        /skills          – Launch interactive TUI menu
+        /skills list     – Quick text list of all skills
+        /skills install  – Browse & install from remote catalog
+        /skills enable   – Enable skills integration globally
+        /skills disable  – Disable skills integration globally
+    """
+    if name not in (_COMMAND_NAME, *_ALIASES):
+        return None
+
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+    from code_puppy.plugins.agent_skills.config import (
+        get_disabled_skills,
+        get_skills_enabled,
+        set_skills_enabled,
+    )
+    from code_puppy.plugins.agent_skills.discovery import discover_skills
+    from code_puppy.plugins.agent_skills.metadata import parse_skill_metadata
+    from code_puppy.plugins.agent_skills.skills_menu import show_skills_menu
+
+    tokens = command.split()
+
+    if len(tokens) > 1:
+        subcommand = tokens[1].lower()
+
+        if subcommand == "list":
+            disabled_skills = get_disabled_skills()
+            skills = discover_skills()
+            enabled = get_skills_enabled()
+
+            if not skills:
+                emit_info("No skills found.")
+                emit_info("Create skills in:")
+                emit_info("  - ~/.code_puppy/skills/")
+                emit_info("  - ./skills/")
+                return True
+
+            emit_info(
+                f"\U0001f6e0\ufe0f Skills (integration: {'enabled' if enabled else 'disabled'})"
+            )
+            emit_info(f"Found {len(skills)} skill(s):\n")
+
+            for skill in skills:
+                metadata = parse_skill_metadata(skill.path)
+                if metadata:
+                    status = (
+                        "\U0001f534 disabled"
+                        if metadata.name in disabled_skills
+                        else "\U0001f7e2 enabled"
+                    )
+                    version_str = f" v{metadata.version}" if metadata.version else ""
+                    author_str = f" by {metadata.author}" if metadata.author else ""
+                    emit_info(f"  {status} {metadata.name}{version_str}{author_str}")
+                    emit_info(f"      {metadata.description}")
+                    if metadata.tags:
+                        emit_info(f"      tags: {', '.join(metadata.tags)}")
+                else:
+                    status = (
+                        "\U0001f534 disabled"
+                        if skill.name in disabled_skills
+                        else "\U0001f7e2 enabled"
+                    )
+                    emit_info(f"  {status} {skill.name}")
+                    emit_info("      (no SKILL.md metadata found)")
+                emit_info("")
+            return True
+
+        elif subcommand == "install":
+            from code_puppy.plugins.agent_skills.skills_install_menu import (
+                run_skills_install_menu,
+            )
+
+            run_skills_install_menu()
+            return True
+
+        elif subcommand == "enable":
+            set_skills_enabled(True)
+            emit_success("\u2705 Skills integration enabled globally")
+            return True
+
+        elif subcommand == "disable":
+            set_skills_enabled(False)
+            emit_warning("\U0001f534 Skills integration disabled globally")
+            return True
+
+        else:
+            emit_error(f"Unknown subcommand: {subcommand}")
+            emit_info("Usage: /skills [list|install|enable|disable]")
+            return True
+
+    # No subcommand – launch TUI menu
+    show_skills_menu()
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Register all callbacks
+# ---------------------------------------------------------------------------
 register_callback("get_model_system_prompt", _inject_skills_into_prompt)
 register_callback("register_tools", _register_skills_tools)
+register_callback("custom_command_help", _skills_command_help)
+register_callback("custom_command", _handle_skills_command)
 
 logger.info("Agent Skills plugin loaded")

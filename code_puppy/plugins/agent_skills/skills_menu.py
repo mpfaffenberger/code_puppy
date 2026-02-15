@@ -578,7 +578,7 @@ def show_skills_menu() -> bool:
             continue
 
         elif result == "install":
-            from code_puppy.command_line.skills_install_menu import (
+            from code_puppy.plugins.agent_skills.skills_install_menu import (
                 run_skills_install_menu,
             )
 
