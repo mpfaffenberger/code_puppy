@@ -783,12 +783,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     0.1
                 )  # Brief pause to ensure all messages are rendered
 
-            except KeyboardInterrupt:
-                # Force-quit from second Ctrl+C — return gracefully to prompt
-                from code_puppy.messaging import emit_info
-
-                emit_info("Interrupted")
-                continue
             except Exception:
                 from code_puppy.messaging.queue_console import get_queue_console
 
