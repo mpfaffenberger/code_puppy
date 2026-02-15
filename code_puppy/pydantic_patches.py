@@ -175,6 +175,87 @@ def patch_tool_call_json_repair() -> None:
         pass  # Don't crash on patch failure
 
 
+def patch_tool_call_callbacks() -> None:
+    """Patch pydantic-ai's _call_tool to fire pre/post tool callbacks.
+
+    This wraps ToolManager._call_tool so that every tool invocation
+    automatically triggers the ``pre_tool_call`` and ``post_tool_call``
+    callback hooks defined in ``code_puppy.callbacks``, without needing
+    to decorate each tool function individually.
+    """
+    import time
+
+    try:
+        from pydantic_ai._tool_manager import ToolManager
+
+        _original_call_tool = ToolManager._call_tool
+
+        async def _patched_call_tool(
+            self,
+            call,
+            *,
+            allow_partial: bool,
+            wrap_validation_errors: bool,
+            approved: bool,
+            metadata: Any = None,
+        ):
+            tool_name = call.tool_name
+            # Normalise args to a dict for the callback contract
+            tool_args: dict = {}
+            if isinstance(call.args, dict):
+                tool_args = call.args
+            elif isinstance(call.args, str):
+                try:
+                    import json
+
+                    tool_args = json.loads(call.args)
+                except Exception:
+                    tool_args = {"raw": call.args}
+
+            # --- pre_tool_call ---
+            try:
+                from code_puppy import callbacks
+
+                await callbacks.on_pre_tool_call(tool_name, tool_args)
+            except Exception:
+                pass  # never block tool execution
+
+            start = time.perf_counter()
+            error: Exception | None = None
+            result = None
+            try:
+                result = await _original_call_tool(
+                    self,
+                    call,
+                    allow_partial=allow_partial,
+                    wrap_validation_errors=wrap_validation_errors,
+                    approved=approved,
+                    metadata=metadata,
+                )
+                return result
+            except Exception as exc:
+                error = exc
+                raise
+            finally:
+                duration_ms = (time.perf_counter() - start) * 1000
+                final_result = result if error is None else {"error": str(error)}
+                try:
+                    from code_puppy import callbacks
+
+                    await callbacks.on_post_tool_call(
+                        tool_name, tool_args, final_result, duration_ms
+                    )
+                except Exception:
+                    pass  # never block tool execution
+
+        ToolManager._call_tool = _patched_call_tool
+
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+
 def apply_all_patches() -> None:
     """Apply all pydantic-ai monkey patches.
 
@@ -184,3 +265,4 @@ def apply_all_patches() -> None:
     patch_message_history_cleaning()
     patch_process_message_history()
     patch_tool_call_json_repair()
+    patch_tool_call_callbacks()

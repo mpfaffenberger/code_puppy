@@ -530,30 +530,34 @@ class TestAntigravityClientWrapRequest:
         assert wrapped["userAgent"] == "antigravity"
 
     def test_wrap_request_claude_model_extraction(self):
-        """Test Claude model name extraction and tier handling."""
+        """Test Claude Opus 4.6 model name extraction and effort handling."""
         content = b'{"contents": []}'
-        url = "/v1/models/claude-sonnet-4-5-thinking-low:generateContent"
+        url = "/v1/models/claude-opus-4-6-thinking-medium:generateContent"
 
         new_content, new_path, new_query, is_claude_thinking = (
             self.client._wrap_request(content, url)
         )
 
         wrapped = json.loads(new_content)
-        assert wrapped["model"] == "claude-sonnet-4-5-thinking"
+        assert wrapped["model"] == "claude-opus-4-6-thinking"
         assert is_claude_thinking is True
-        assert "thinkingConfig" in wrapped["request"]["generationConfig"]
+        thinking_config = wrapped["request"]["generationConfig"]["thinkingConfig"]
+        assert thinking_config["includeThoughts"] is True
+        assert thinking_config["thinkingBudget"] == 16384
+        # Opus 4.6 gets 128K output tokens
+        assert wrapped["request"]["generationConfig"]["maxOutputTokens"] == 128000
 
-    def test_wrap_request_claude_different_tiers(self):
-        """Test Claude tier extraction for low/medium/high."""
-        test_cases = [
-            ("claude-sonnet-4-5-thinking-low", 8192),
-            ("claude-sonnet-4-5-thinking-medium", 16384),
-            ("claude-sonnet-4-5-thinking-high", 32768),
-        ]
-
-        for model_name, expected_budget in test_cases:
+    def test_wrap_request_claude_different_efforts(self):
+        """Test Claude Opus 4.6 effort-to-thinkingBudget mapping."""
+        expected_budgets = {
+            "low": 8192,
+            "medium": 16384,
+            "high": 32768,
+            "max": 65536,
+        }
+        for effort, expected_budget in expected_budgets.items():
             content = b'{"contents": []}'
-            url = f"/v1/models/{model_name}:generateContent"
+            url = f"/v1/models/claude-opus-4-6-thinking-{effort}:generateContent"
 
             new_content, _, _, _ = self.client._wrap_request(content, url)
 
@@ -718,7 +722,7 @@ class TestAntigravityClientWrapRequest:
     def test_wrap_request_claude_non_thinking_model(self):
         """Test non-thinking Claude model handling."""
         content = b'{"contents": []}'
-        url = "/v1/models/claude-sonnet-4-5:generateContent"
+        url = "/v1/models/claude-opus-4-6:generateContent"
 
         new_content, _, _, is_claude_thinking = self.client._wrap_request(content, url)
 

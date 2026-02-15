@@ -650,6 +650,30 @@ async def get_input_with_combined_completion(
         else:
             event.current_buffer.validate_and_handle()
 
+    # Backspace/Delete: trigger completions after deletion
+    # By default, complete_while_typing only triggers on character insertion,
+    # not deletion. This fixes completions not reappearing after backspace.
+    @bindings.add("c-h", eager=True)  # Backspace (Ctrl+H)
+    @bindings.add("backspace", eager=True)
+    def handle_backspace_with_completion(event):
+        buffer = event.app.current_buffer
+        # Perform the deletion first
+        buffer.delete_before_cursor(count=1)
+        # Then trigger completion if text starts with '/'
+        text = buffer.text.lstrip()
+        if text.startswith("/"):
+            buffer.start_completion(select_first=False)
+
+    @bindings.add("delete", eager=True)
+    def handle_delete_with_completion(event):
+        buffer = event.app.current_buffer
+        # Perform the deletion first
+        buffer.delete(count=1)
+        # Then trigger completion if text starts with '/'
+        text = buffer.text.lstrip()
+        if text.startswith("/"):
+            buffer.start_completion(select_first=False)
+
     # Handle bracketed paste - smart detection for text vs images.
     # Most terminals (Windows included!) send Ctrl+V through bracketed paste.
     # - If there's meaningful text content → paste as text (drag-and-drop file paths, copied text)
