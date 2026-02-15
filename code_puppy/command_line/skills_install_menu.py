@@ -580,6 +580,17 @@ class SkillsInstallMenu:
         finally:
             sys.stdout.write("\033[?1049l")
             sys.stdout.flush()
+
+            # Flush any buffered input to prevent stale keypresses
+            try:
+                import termios
+
+                termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+            except (ImportError, termios.error, OSError):
+                pass  # Windows or not a tty
+
+            # Small delay to let terminal settle before any output
+            time.sleep(0.1)
             set_awaiting_user_input(False)
 
         # Handle install after TUI exits
