@@ -1893,8 +1893,8 @@ class BaseAgent(ABC):
             pass  # Don't fail agent run if hook fails
 
         # Pre-import outside signal handler to avoid import-lock deadlocks
-        from code_puppy.tools.command_runner import _RUNNING_PROCESSES
         from code_puppy.messaging.spinner import _active_spinners
+        from code_puppy.tools.command_runner import _RUNNING_PROCESSES
 
         loop = asyncio.get_running_loop()
         _cancel_pressed_count = 0
@@ -1953,9 +1953,7 @@ class BaseAgent(ABC):
             # First Ctrl+C — graceful cancel with immediate visual feedback
             # Use sys.stderr.write (NOT Rich console) to avoid deadlocking
             # with the spinner thread which may hold the Rich console lock.
-            sys.stderr.write(
-                "\n🐶 Cancelling… (press Ctrl+C again to force quit)\n"
-            )
+            sys.stderr.write("\n🐶 Cancelling… (press Ctrl+C again to force quit)\n")
             sys.stderr.flush()
             _stop_spinners_immediately()
             schedule_agent_cancel()
