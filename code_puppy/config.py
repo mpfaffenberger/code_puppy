@@ -641,17 +641,16 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
                 if "opus-4-6" in lower or "4-6-opus" in lower:
                     base.append("effort")
                 return setting in base
-            return setting in ["temperature", "seed"]
 
             # For Gemini models, include thinking settings
             if model_config.get("type") == "custom_gemini" or "gemini" in model_name:
                 gemini_settings = [
-                    "thinkingenabled",
-                    "thinkinglevel",
+                    "thinking_enabled",
+                    "thinking_level",
                     "temperature",
                     "seed",
                 ]
-                return setting_lower in gemini_settings
+                return setting_lower in [s.lower() for s in gemini_settings]
 
             return setting_lower in ["temperature", "seed"]
 

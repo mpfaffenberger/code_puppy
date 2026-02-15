@@ -155,13 +155,12 @@ class _SyntheticStreamedResponse(StreamedResponse):
 
         for part in self.model_response.parts:
             if isinstance(part, ThinkingPart):
-                event = self._parts_manager.handle_thinking_delta(
+                for event in self._parts_manager.handle_thinking_delta(
                     vendor_part_id=None,
                     content=part.content or "",
                     signature=part.signature,
                     provider_name=self._model_name_str,
-                )
-                if event:
+                ):
                     yield event
 
             elif isinstance(part, TextPart):
