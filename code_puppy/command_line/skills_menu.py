@@ -188,6 +188,8 @@ class SkillsMenu:
         lines.append(("", "Add Dir  "))
         lines.append(("fg:ansiyellow", "  Ctrl+D  "))
         lines.append(("", "Show Dirs\n"))
+        lines.append(("fg:ansimagenta", "  i  "))
+        lines.append(("", "Install from catalog\n"))
         lines.append(("fg:ansiyellow", "  r  "))
         lines.append(("", "Refresh  "))
         lines.append(("fg:ansired", "  q  "))
@@ -412,6 +414,12 @@ class SkillsMenu:
             self.result = "show_directories"
             event.app.exit()
 
+        @kb.add("i")
+        def _(event):
+            """Install skills from catalog."""
+            self.result = "install"
+            event.app.exit()
+
         @kb.add("q")
         @kb.add("escape")
         def _(event):
@@ -568,6 +576,16 @@ def show_skills_menu() -> bool:
                 changes_made = True
             # Re-run the menu
             continue
+
+        elif result == "install":
+            from code_puppy.command_line.skills_install_menu import (
+                run_skills_install_menu,
+            )
+
+            install_result = run_skills_install_menu()
+            if install_result:
+                changes_made = True
+            continue  # Re-run the skills menu after install
 
         elif result == "changed":
             changes_made = True
