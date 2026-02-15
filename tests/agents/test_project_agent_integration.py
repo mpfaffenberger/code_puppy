@@ -3,7 +3,6 @@
 import json
 from unittest.mock import patch
 
-
 from code_puppy.agents.json_agent import discover_json_agents
 
 

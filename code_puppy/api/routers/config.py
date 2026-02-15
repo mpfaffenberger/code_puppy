@@ -1,8 +1,9 @@
 """Configuration management API endpoints."""
 
+from typing import Any, Dict, List
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Any, Dict, List
 
 router = APIRouter()
 

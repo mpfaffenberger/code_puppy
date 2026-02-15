@@ -1407,4 +1407,3 @@ def generate_group_id(tool_name: str, extra_context: str = "") -> str:
     short_hash = hash_obj.hexdigest()[:8]
 
     return f"{tool_name}_{short_hash}"
-

@@ -1891,8 +1891,6 @@ class BaseAgent(ABC):
         except Exception:
             pass  # Don't fail agent run if hook fails
 
-        # Import shell process status helper
-
         loop = asyncio.get_running_loop()
 
         def schedule_agent_cancel() -> None:

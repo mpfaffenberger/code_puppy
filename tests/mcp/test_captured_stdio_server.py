@@ -18,12 +18,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
+from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
 from code_puppy.mcp_.captured_stdio_server import (
     CapturedMCPServerStdio,
     StderrCapture,
     StderrCollector,
 )
-from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
 
 
 class TestStderrCapture:
