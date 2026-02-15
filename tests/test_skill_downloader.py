@@ -12,6 +12,8 @@ import code_puppy.plugins.agent_skills.downloader as dl
 
 @pytest.fixture(autouse=True)
 def _no_refresh(monkeypatch):
+    """Fixture that prevents catalog refresh during tests."""
+
     monkeypatch.setattr(dl, "refresh_skill_cache", lambda: None)
 
 
@@ -24,6 +26,8 @@ def _make_zip(path: Path, files: dict[str, str]) -> None:
 
 
 def test_download_and_install_success(tmp_path: Path, monkeypatch) -> None:
+    """Test successful download and installation of a skill."""
+
     skill_name = "test-skill"
     skills_dir = tmp_path / "skills"
 
@@ -37,6 +41,8 @@ def test_download_and_install_success(tmp_path: Path, monkeypatch) -> None:
     )
 
     def fake_download(url: str, dest: Path) -> bool:
+        """Fake download function for testing."""
+
         dest.write_bytes(src_zip.read_bytes())
         return True
 
@@ -55,6 +61,8 @@ def test_download_and_install_success(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_download_fails(tmp_path: Path, monkeypatch) -> None:
+    """Test graceful handling when download fails."""
+
     monkeypatch.setattr(dl, "_download_to_file", lambda url, dest: False)
 
     result = dl.download_and_install_skill(
@@ -68,6 +76,8 @@ def test_download_fails(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_already_installed_no_force(tmp_path: Path, monkeypatch) -> None:
+    """Test that already-installed skills are skipped without force."""
+
     skill_name = "test-skill"
     skills_dir = tmp_path / "skills"
 
@@ -75,6 +85,8 @@ def test_already_installed_no_force(tmp_path: Path, monkeypatch) -> None:
     _make_zip(src_zip, {"SKILL.md": "---\nname: test-skill\ndescription: hi\n---\n"})
 
     def fake_download(url: str, dest: Path) -> bool:
+        """Fake download function for testing."""
+
         dest.write_bytes(src_zip.read_bytes())
         return True
 
@@ -99,6 +111,8 @@ def test_already_installed_no_force(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_already_installed_with_force(tmp_path: Path, monkeypatch) -> None:
+    """Test that force flag replaces already-installed skills."""
+
     skill_name = "test-skill"
     skills_dir = tmp_path / "skills"
 
@@ -109,6 +123,8 @@ def test_already_installed_with_force(tmp_path: Path, monkeypatch) -> None:
     _make_zip(src_zip_2, {"SKILL.md": "---\nname: test-skill\ndescription: v2\n---\n"})
 
     def fake_download_v1(url: str, dest: Path) -> bool:
+        """Fake download function for testing."""
+
         dest.write_bytes(src_zip_1.read_bytes())
         return True
 
@@ -123,6 +139,8 @@ def test_already_installed_with_force(tmp_path: Path, monkeypatch) -> None:
 
     # Now reinstall with different zip
     def fake_download_v2(url: str, dest: Path) -> bool:
+        """Fake download function for testing."""
+
         dest.write_bytes(src_zip_2.read_bytes())
         return True
 
@@ -141,11 +159,15 @@ def test_already_installed_with_force(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_invalid_zip(tmp_path: Path, monkeypatch) -> None:
+    """Test handling of corrupted zip archives."""
+
     skills_dir = tmp_path / "skills"
     garbage = tmp_path / "garbage.zip"
     garbage.write_bytes(b"not a zip")
 
     def fake_download(url: str, dest: Path) -> bool:
+        """Fake download function for testing."""
+
         dest.write_bytes(garbage.read_bytes())
         return True
 
@@ -162,11 +184,15 @@ def test_invalid_zip(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_missing_skill_md_in_zip(tmp_path: Path, monkeypatch) -> None:
+    """Test handling of zip archives missing SKILL.md."""
+
     skills_dir = tmp_path / "skills"
     src_zip = tmp_path / "src.zip"
     _make_zip(src_zip, {"README.md": "no skill md"})
 
     def fake_download(url: str, dest: Path) -> bool:
+        """Fake download function for testing."""
+
         dest.write_bytes(src_zip.read_bytes())
         return True
 
@@ -197,6 +223,8 @@ def test_zip_with_subdirectory(tmp_path: Path, monkeypatch) -> None:
     )
 
     def fake_download(url: str, dest: Path) -> bool:
+        """Fake download function for testing."""
+
         dest.write_bytes(src_zip.read_bytes())
         return True
 

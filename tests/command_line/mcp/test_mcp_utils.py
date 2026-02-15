@@ -16,7 +16,6 @@ from code_puppy.command_line.mcp.utils import (
 )
 from code_puppy.mcp_.managed_server import ServerState
 
-
 # =============================================================================
 # Tests for format_state_indicator
 # =============================================================================

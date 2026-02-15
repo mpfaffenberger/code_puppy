@@ -128,6 +128,8 @@ class SkillCatalog:
     """
 
     def __init__(self) -> None:
+        """Initialize the skill catalog with empty indices."""
+
         self._entries: list[SkillCatalogEntry] = []
         self._by_id: dict[str, SkillCatalogEntry] = {}
         self._by_category: dict[str, list[SkillCatalogEntry]] = {}
@@ -174,6 +176,8 @@ class SkillCatalog:
         )
 
     def _rebuild_indices(self, entries: list[SkillCatalogEntry]) -> None:
+        """Rebuild internal lookup indices from the loaded entries."""
+
         self._entries = list(entries)
         self._by_id = {}
         self._by_category = {}

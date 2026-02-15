@@ -41,6 +41,8 @@ def _zip_entry_parts(name: str) -> list[str]:
 
 
 def _safe_rmtree(path: Path) -> bool:
+    """Remove a directory tree, logging errors instead of raising."""
+
     try:
         if not path.exists():
             return True
@@ -52,6 +54,8 @@ def _safe_rmtree(path: Path) -> bool:
 
 
 def _download_to_file(url: str, dest: Path) -> bool:
+    """Download a URL to a local file path with streaming."""
+
     headers = {
         "Accept": "application/zip, application/octet-stream, */*",
         "User-Agent": "code-puppy/skill-downloader",
@@ -87,6 +91,8 @@ def _download_to_file(url: str, dest: Path) -> bool:
 
 
 def _is_within_directory(base_dir: Path, candidate: Path) -> bool:
+    """Check that a path is safely contained within a directory."""
+
     try:
         base_resolved = base_dir.resolve()
         candidate_resolved = candidate.resolve()

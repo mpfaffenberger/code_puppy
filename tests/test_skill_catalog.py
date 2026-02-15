@@ -19,6 +19,8 @@ def _load_skill_catalog():
     """
 
     def _no_fetch(*args, **kwargs):
+        """Fixture that prevents real HTTP fetches during tests."""
+
         return None
 
     rc.fetch_remote_catalog = _no_fetch  # type: ignore[assignment]
@@ -31,6 +33,8 @@ def _mk_remote(
     base_url: str = "https://example.test",
     entries: list[RemoteSkillEntry],
 ) -> RemoteCatalogData:
+    """Create a minimal RemoteSkillEntry for testing."""
+
     return RemoteCatalogData(
         version="1.0.0",
         base_url=base_url,
@@ -41,6 +45,8 @@ def _mk_remote(
 
 
 def test_format_display_name() -> None:
+    """Test that skill IDs are formatted into readable display names."""
+
     sc_module = _load_skill_catalog()
 
     assert sc_module._format_display_name("data-exploration") == "Data Exploration"
@@ -50,6 +56,8 @@ def test_format_display_name() -> None:
 
 
 def test_catalog_with_remote_data(monkeypatch) -> None:
+    """Test catalog loads and indexes remote skill data correctly."""
+
     sc_module = _load_skill_catalog()
 
     remote = _mk_remote(
@@ -117,6 +125,8 @@ def test_catalog_with_remote_data(monkeypatch) -> None:
 
 
 def test_catalog_empty_when_fetch_fails(monkeypatch) -> None:
+    """Test catalog returns empty results when remote fetch fails."""
+
     sc_module = _load_skill_catalog()
 
     monkeypatch.setattr(sc_module, "fetch_remote_catalog", lambda: None)
@@ -128,6 +138,8 @@ def test_catalog_empty_when_fetch_fails(monkeypatch) -> None:
 
 
 def test_search_case_insensitive(monkeypatch) -> None:
+    """Test that catalog search is case-insensitive."""
+
     sc_module = _load_skill_catalog()
 
     remote = _mk_remote(
@@ -154,6 +166,8 @@ def test_search_case_insensitive(monkeypatch) -> None:
 
 
 def test_get_by_category_case_insensitive(monkeypatch) -> None:
+    """Test that category lookup is case-insensitive."""
+
     sc_module = _load_skill_catalog()
 
     remote = _mk_remote(
@@ -179,6 +193,8 @@ def test_get_by_category_case_insensitive(monkeypatch) -> None:
 
 
 def test_catalog_entry_fields(monkeypatch) -> None:
+    """Test that catalog entry fields are correctly populated."""
+
     sc_module = _load_skill_catalog()
 
     remote = _mk_remote(

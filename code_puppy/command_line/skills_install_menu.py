@@ -97,6 +97,8 @@ class SkillsInstallMenu:
     """Interactive TUI for browsing and installing remote skills."""
 
     def __init__(self):
+        """Initialize the skills install menu with catalog data."""
+
         self.catalog = catalog
         self.categories: List[str] = []
         self.current_category: Optional[str] = None
@@ -126,6 +128,8 @@ class SkillsInstallMenu:
             self.categories = []
 
     def _get_category_icon(self, category: str) -> str:
+        """Return an emoji icon for a skill category name."""
+
         icons = {
             "data": "📊",
             "finance": "💰",
@@ -138,17 +142,23 @@ class SkillsInstallMenu:
         return icons.get(_category_key(category), "📁")
 
     def _get_current_category(self) -> Optional[str]:
+        """Get the currently highlighted category name."""
+
         if 0 <= self.selected_category_idx < len(self.categories):
             return self.categories[self.selected_category_idx]
         return None
 
     def _get_current_skill(self) -> Optional[SkillCatalogEntry]:
+        """Get the currently highlighted skill entry."""
+
         if self.view_mode == "skills" and self.current_skills:
             if 0 <= self.selected_skill_idx < len(self.current_skills):
                 return self.current_skills[self.selected_skill_idx]
         return None
 
     def _render_navigation_hints(self, lines: List) -> None:
+        """Render keyboard shortcut hints at the bottom."""
+
         lines.append(("", "\n"))
         lines.append(("fg:ansibrightblack", "  ↑/↓ "))
         lines.append(("", "Navigate  "))
@@ -168,6 +178,8 @@ class SkillsInstallMenu:
         lines.append(("", "Cancel"))
 
     def _render_category_list(self) -> List:
+        """Render the left panel with category navigation."""
+
         lines = []
 
         lines.append(("bold cyan", " 📂 CATEGORIES"))
@@ -221,6 +233,8 @@ class SkillsInstallMenu:
         return lines
 
     def _render_skill_list(self) -> List:
+        """Render the middle panel with skills in the selected category."""
+
         lines = []
 
         if not self.current_category:
@@ -272,6 +286,8 @@ class SkillsInstallMenu:
         return lines
 
     def _render_details(self) -> List:
+        """Render the right panel with details for the selected skill."""
+
         lines = []
 
         lines.append(("bold cyan", " 📋 DETAILS"))
@@ -378,6 +394,8 @@ class SkillsInstallMenu:
         return lines
 
     def update_display(self) -> None:
+        """Refresh all three panels of the TUI display."""
+
         if self.view_mode == "categories":
             self.menu_control.text = self._render_category_list()
         else:
@@ -386,6 +404,8 @@ class SkillsInstallMenu:
         self.preview_control.text = self._render_details()
 
     def _enter_category(self) -> None:
+        """Enter the currently highlighted category to browse skills."""
+
         category = self._get_current_category()
         if not category or not self.catalog:
             return
@@ -402,6 +422,8 @@ class SkillsInstallMenu:
         self.update_display()
 
     def _go_back_to_categories(self) -> None:
+        """Navigate back from skill list to category list."""
+
         self.view_mode = "categories"
         self.current_category = None
         self.current_skills = []
@@ -410,6 +432,8 @@ class SkillsInstallMenu:
         self.update_display()
 
     def _select_current_skill(self) -> None:
+        """Download and install the currently highlighted skill."""
+
         entry = self._get_current_skill()
         if entry:
             self.pending_entry = entry
@@ -444,6 +468,8 @@ class SkillsInstallMenu:
 
         @kb.add("up")
         def _(event):
+            """Move cursor up."""
+
             if self.view_mode == "categories":
                 if self.selected_category_idx > 0:
                     self.selected_category_idx -= 1
@@ -456,6 +482,8 @@ class SkillsInstallMenu:
 
         @kb.add("down")
         def _(event):
+            """Move cursor down."""
+
             if self.view_mode == "categories":
                 if self.selected_category_idx < len(self.categories) - 1:
                     self.selected_category_idx += 1
@@ -468,6 +496,8 @@ class SkillsInstallMenu:
 
         @kb.add("left")
         def _(event):
+            """Navigate to previous page."""
+
             if self.current_page > 0:
                 self.current_page -= 1
                 if self.view_mode == "categories":
@@ -478,6 +508,8 @@ class SkillsInstallMenu:
 
         @kb.add("right")
         def _(event):
+            """Navigate to next page."""
+
             if self.view_mode == "categories":
                 total_items = len(self.categories)
             else:
@@ -494,6 +526,8 @@ class SkillsInstallMenu:
 
         @kb.add("enter")
         def _(event):
+            """Select/enter the current item."""
+
             if self.view_mode == "categories":
                 self._enter_category()
             else:
@@ -502,16 +536,22 @@ class SkillsInstallMenu:
 
         @kb.add("escape")
         def _(event):
+            """Go back."""
+
             if self.view_mode == "skills":
                 self._go_back_to_categories()
 
         @kb.add("backspace")
         def _(event):
+            """Go back."""
+
             if self.view_mode == "skills":
                 self._go_back_to_categories()
 
         @kb.add("c-c")
         def _(event):
+            """Quit the menu."""
+
             event.app.exit()
 
         layout = Layout(root_container)

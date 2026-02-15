@@ -67,6 +67,8 @@ class RemoteCatalogData:
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
+    """Convert value to int, returning default on failure."""
+
     try:
         if value is None:
             return default
@@ -76,12 +78,16 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 
 def _safe_bool(value: Any, default: bool = False) -> bool:
+    """Convert value to bool, returning default on failure."""
+
     if value is None:
         return default
     return bool(value)
 
 
 def _cache_is_fresh(cache_path: Path, ttl_seconds: int) -> bool:
+    """Check whether the on-disk catalog cache is within TTL."""
+
     try:
         if not cache_path.exists():
             return False
@@ -93,6 +99,8 @@ def _cache_is_fresh(cache_path: Path, ttl_seconds: int) -> bool:
 
 
 def _read_cache(cache_path: Path) -> Optional[dict[str, Any]]:
+    """Read and deserialize the cached catalog JSON from disk."""
+
     try:
         if not cache_path.exists():
             return None
@@ -108,6 +116,8 @@ def _read_cache(cache_path: Path) -> Optional[dict[str, Any]]:
 
 
 def _write_cache(cache_path: Path, data: dict[str, Any]) -> bool:
+    """Serialize and write catalog JSON to the disk cache."""
+
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         # Stable formatting so diffs are readable when debugging.
@@ -121,6 +131,8 @@ def _write_cache(cache_path: Path, data: dict[str, Any]) -> bool:
 
 
 def _fetch_remote_json(url: str) -> Optional[dict[str, Any]]:
+    """Fetch the skills catalog JSON from the remote URL."""
+
     headers = {
         "Accept": "application/json",
         "User-Agent": "code-puppy/remote-catalog",
@@ -156,6 +168,8 @@ def _fetch_remote_json(url: str) -> Optional[dict[str, Any]]:
 
 
 def _parse_catalog(raw: dict[str, Any]) -> Optional[RemoteCatalogData]:
+    """Parse raw JSON dicts into a list of RemoteSkillEntry objects."""
+
     try:
         version = str(raw.get("version") or "")
         base_url = str(raw.get("base_url") or "")

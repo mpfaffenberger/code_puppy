@@ -36,13 +36,21 @@ class SkillsCompleter(Completer):
     """Completer for /skills subcommands."""
 
     def __init__(self, trigger: str = "/skills"):
+        """Initialize the skills completer.
+
+        Args:
+            trigger: The slash command prefix to trigger completion.
+        """
+
         self.trigger = trigger
         self.subcommands = {
             "list": "List all installed skills",
             "install": "Browse & install from catalog",
             "enable": "Enable skills integration globally",
             "disable": "Disable skills integration globally",
-            "tui": "Launch interactive TUI manager",
+            "toggle": "Toggle skills system on/off",
+            "refresh": "Refresh skill cache",
+            "help": "Show skills help",
         }
 
         self._skill_ids_cache: List[str] | None = None
@@ -65,6 +73,8 @@ class SkillsCompleter(Completer):
     def get_completions(
         self, document: Document, complete_event
     ) -> Iterable[Completion]:
+        """Yield completions for /skills subcommands and skill ids."""
+
         text = document.text
         cursor_position = document.cursor_position
         text_before_cursor = text[:cursor_position]
