@@ -657,7 +657,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         session_path = (base_dir / f"{session_name}.pkl").resolve()
 
                         # Security: Prevent path traversal attacks
-                        if base_dir not in session_path.parents and session_path.parent != base_dir:
+                        if (
+                            base_dir not in session_path.parents
+                            and session_path.parent != base_dir
+                        ):
                             emit_error(f"❌ Invalid session name: {session_name}")
                             emit_info("💡 Use /resume to open the session picker.")
                             continue
