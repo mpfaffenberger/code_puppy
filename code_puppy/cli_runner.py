@@ -653,8 +653,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         from code_puppy.messaging import emit_error, emit_success
                         from code_puppy.session_storage import load_session
 
-                        base_dir = Path(AUTOSAVE_DIR)
-                        session_path = base_dir / f"{session_name}.pkl"
+                        base_dir = Path(AUTOSAVE_DIR).resolve()
+                        session_path = (base_dir / f"{session_name}.pkl").resolve()
+
+                        # Security: Prevent path traversal attacks
+                        if base_dir not in session_path.parents and session_path.parent != base_dir:
+                            emit_error(f"❌ Invalid session name: {session_name}")
+                            emit_info("💡 Use /resume to open the session picker.")
+                            continue
 
                         # Check if session exists
                         if not session_path.exists():

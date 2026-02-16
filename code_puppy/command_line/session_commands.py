@@ -200,11 +200,14 @@ def handle_truncate_command(command: str) -> bool:
       /resume auto_session_20260214_175543
     """,
 )
-def handle_autosave_load_command(command: str) -> bool:
+def handle_autosave_load_command(command: str) -> "bool | str":
     """Load an autosave session.
 
     If no session name is provided, opens interactive picker.
     If session name is provided, loads that session directly.
+
+    Returns:
+        "__AUTOSAVE_LOAD__" for picker, "__AUTOSAVE_LOAD_DIRECT__:<name>" for direct load.
     """
     tokens = command.split()
 
