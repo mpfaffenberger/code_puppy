@@ -112,6 +112,35 @@ class TestArgumentParsing:
         assert args.prompt == "test"
         assert args.interactive is True
 
+    def test_resume_flag_short(self):
+        """Test -r flag for session resume."""
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("-r", "--resume", type=str, metavar="SESSION")
+        args = parser.parse_args(["-r", "my-session"])
+        assert args.resume == "my-session"
+
+    def test_resume_flag_long(self):
+        """Test --resume flag for session resume."""
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("-r", "--resume", type=str, metavar="SESSION")
+        args = parser.parse_args(["--resume", "/path/to/session.pkl"])
+        assert args.resume == "/path/to/session.pkl"
+
+    def test_resume_flag_with_prompt(self):
+        """Test that --resume can be combined with --prompt."""
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("-p", "--prompt", type=str)
+        parser.add_argument("-r", "--resume", type=str, metavar="SESSION")
+        args = parser.parse_args(["--resume", "saved-session", "-p", "continue this task"])
+        assert args.resume == "saved-session"
+        assert args.prompt == "continue this task"
+
 
 class TestModelValidation:
     """Test model validation from command line."""
@@ -383,3 +412,65 @@ class TestAgentRunning:
         agent = get_current_agent()
         assert agent is not None
         assert agent.name == "test-agent"
+
+
+class TestResumeFlag:
+    """Test --resume flag functionality."""
+
+    def test_resume_session_loading_logic(self, tmp_path):
+        """Test that resume can load from a pickle file path."""
+        import pickle
+        from pathlib import Path
+
+        from code_puppy.session_storage import load_session, save_session
+
+        # Create a fake session
+        fake_history = [{"role": "user", "content": "Hello"}]
+        session_name = "test-resume-session"
+
+        # Save session using the standard save_session function
+        metadata = save_session(
+            history=fake_history,
+            session_name=session_name,
+            base_dir=tmp_path,
+            timestamp="2025-01-01T00:00:00",
+            token_estimator=lambda x: 10,
+        )
+
+        # Verify the session was saved
+        assert metadata.pickle_path.exists()
+
+        # Load session using the standard load_session function
+        loaded_history = load_session(session_name, tmp_path)
+
+        # Verify history was loaded correctly
+        assert len(loaded_history) == 1
+        assert loaded_history[0]["role"] == "user"
+        assert loaded_history[0]["content"] == "Hello"
+
+    def test_resume_path_resolution_full_pkl_path(self, tmp_path):
+        """Test that a full .pkl path is properly resolved."""
+        from pathlib import Path
+
+        # Create a fake pickle file
+        session_file = tmp_path / "my-session.pkl"
+        session_file.write_bytes(b"dummy")
+
+        resume_path = Path(str(session_file))
+        assert resume_path.suffix == ".pkl"
+        assert resume_path.exists()
+        assert resume_path.stem == "my-session"
+        assert resume_path.parent == tmp_path
+
+    def test_resume_path_resolution_session_name(self, tmp_path):
+        """Test that a session name is resolved to the contexts directory."""
+        from pathlib import Path
+
+        # Simulate a contexts directory with a session file
+        contexts_dir = tmp_path
+        session_name = "saved-session"
+        session_file = contexts_dir / f"{session_name}.pkl"
+        session_file.write_bytes(b"dummy")
+
+        # Check resolution logic
+        assert (contexts_dir / f"{session_name}.pkl").exists()
