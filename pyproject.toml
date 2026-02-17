@@ -31,6 +31,7 @@ dependencies = [
     "websockets>=12.0",
     "termflow-md>=0.1.8",
     "Pillow>=10.0.0",
+    "anthropic==0.79.0"
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
