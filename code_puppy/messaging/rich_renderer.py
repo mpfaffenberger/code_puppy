@@ -98,6 +98,17 @@ DIFF_STYLES = {
     "context": "dim",
 }
 
+GROUPABLE_TYPES = frozenset(
+    {
+        FileContentMessage,
+        GrepResultMessage,
+        DiffMessage,
+        FileListingMessage,
+        ShellStartMessage,
+    }
+)
+TRANSPARENT_TYPES = frozenset({SpinnerControl})
+
 
 # =============================================================================
 # Rich Console Renderer
@@ -112,10 +123,10 @@ class RichConsoleRenderer:
     """
 
     # Message types that support consecutive grouping under a single banner
-    _GROUPABLE_TYPES: set = set()  # Populated after message imports are available
+    _GROUPABLE_TYPES = GROUPABLE_TYPES
 
     # Message types that are "transparent" - they don't break an active group
-    _TRANSPARENT_TYPES: set = set()  # Populated after message imports are available
+    _TRANSPARENT_TYPES = TRANSPARENT_TYPES
 
     def __init__(
         self,
@@ -249,6 +260,7 @@ class RichConsoleRenderer:
             if msg_type not in self._TRANSPARENT_TYPES:
                 self._last_rendered_type = msg_type
         except Exception as e:
+            self._last_rendered_type = None
             safe_error = escape_rich_markup(str(e))
             self._console.print(f"[dim red]Render error: {safe_error}[/dim red]")
 
@@ -347,8 +359,8 @@ class RichConsoleRenderer:
         elif isinstance(message, SelectionRequest):
             await self._render_selection_request(message)
         else:
-            # Use sync render for everything else
-            self._do_render(message)
+            # Use sync renderer for shared rendering and grouping behavior
+            self._render_sync(message)
 
     # =========================================================================
     # Text Messages
@@ -1159,17 +1171,6 @@ class RichConsoleRenderer:
             self._console.print("  [red]Activation failed[/red]")
 
         self._console.print()
-
-
-# Populate groupable/transparent types now that message classes are imported
-RichConsoleRenderer._GROUPABLE_TYPES = {
-    FileContentMessage,
-    GrepResultMessage,
-    DiffMessage,
-    FileListingMessage,
-    ShellStartMessage,
-}
-RichConsoleRenderer._TRANSPARENT_TYPES = {SpinnerControl}
 
 
 # =============================================================================

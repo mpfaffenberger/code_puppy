@@ -705,3 +705,38 @@ def test_grouping_resets_across_different_groupable_types() -> None:
     # Should have both banners
     assert any("READ FILE" in p for p in printed), "Missing READ FILE banner"
     assert any("GREP" in p for p in printed), "Missing GREP banner"
+
+
+@pytest.mark.asyncio
+async def test_async_render_grouping_resets_across_different_groupable_types() -> None:
+    """Async render path should also reset grouping when type changes."""
+    renderer, console = _make_renderer()
+    renderer._get_banner_color = Mock(return_value="blue")
+
+    file_msg = FileContentMessage(
+        path="/src/a.py",
+        content="a",
+        start_line=None,
+        num_lines=None,
+        total_lines=1,
+        num_tokens=1,
+    )
+    grep_msg = GrepResultMessage(
+        search_term="needle",
+        directory="/src",
+        matches=[],
+        total_matches=0,
+        files_searched=1,
+    )
+
+    await renderer.render(file_msg)
+    await renderer.render(grep_msg)
+
+    printed = [
+        call.args[0]
+        for call in console.print.call_args_list
+        if call.args and isinstance(call.args[0], str)
+    ]
+
+    assert any("READ FILE" in p for p in printed), "Missing READ FILE banner"
+    assert any("GREP" in p for p in printed), "Missing GREP banner"
