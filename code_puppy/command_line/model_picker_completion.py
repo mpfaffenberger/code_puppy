@@ -101,7 +101,7 @@ def _find_matching_model(rest: str, model_names: list[str]) -> Optional[str]:
 
     # Check for prefix match
     for model in sorted_models:
-        if rest_lower.startswith(model.lower()):
+        if model.lower().startswith(rest_lower):
             return model
 
     return None
