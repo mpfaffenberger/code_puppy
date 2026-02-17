@@ -81,6 +81,32 @@ class ModelNameCompleter(Completer):
             )
 
 
+def _find_matching_model(rest: str, model_names: list[str]) -> Optional[str]:
+    """
+    Find the best matching model for the given input.
+
+    Priority:
+    1. Exact match (case-insensitive)
+    2. Prefix match, with longer models checked first (most specific wins)
+    """
+    rest_lower = rest.lower()
+
+    # First check for exact match
+    for model in model_names:
+        if rest_lower == model.lower():
+            return model
+
+    # Sort by length (longest first) so more specific matches win
+    sorted_models = sorted(model_names, key=len, reverse=True)
+
+    # Check for prefix match
+    for model in sorted_models:
+        if rest_lower.startswith(model.lower()):
+            return model
+
+    return None
+
+
 def update_model_in_input(text: str) -> Optional[str]:
     # If input starts with /model or /m and a model name, set model and strip it out
     content = text.strip()
@@ -92,25 +118,25 @@ def update_model_in_input(text: str) -> Optional[str]:
         model_cmd = content.split(" ", 1)[0]  # Get the command part
         rest = content[len(model_cmd) :].strip()  # Remove the actual command
 
-        # Look for a model name at the start of rest (case-insensitive)
-        for model in model_names:
-            if rest.lower().startswith(model.lower()):
-                # Found a matching model - now extract it properly
-                set_active_model(model)
+        # Find the best matching model
+        model = _find_matching_model(rest, model_names)
+        if model:
+            # Found a matching model - now extract it properly
+            set_active_model(model)
 
-                # Find the actual model name in the original text (preserving case)
-                # We need to find where the model ends in the original rest string
-                model_end_idx = len(model)
+            # Find the actual model name in the original text (preserving case)
+            # We need to find where the model ends in the original rest string
+            model_end_idx = len(model)
 
-                # Build the full command+model part to remove
-                cmd_and_model_pattern = model_cmd + " " + rest[:model_end_idx]
-                idx = text.find(cmd_and_model_pattern)
-                if idx != -1:
-                    new_text = (
-                        text[:idx] + text[idx + len(cmd_and_model_pattern) :]
-                    ).strip()
-                    return new_text
-                return None
+            # Build the full command+model part to remove
+            cmd_and_model_pattern = model_cmd + " " + rest[:model_end_idx]
+            idx = text.find(cmd_and_model_pattern)
+            if idx != -1:
+                new_text = (
+                    text[:idx] + text[idx + len(cmd_and_model_pattern) :]
+                ).strip()
+                return new_text
+            return None
 
     # Check for /m command (case-insensitive)
     elif content.lower().startswith("/m ") and not content.lower().startswith(
@@ -120,26 +146,26 @@ def update_model_in_input(text: str) -> Optional[str]:
         m_cmd = content.split(" ", 1)[0]  # Get the command part
         rest = content[len(m_cmd) :].strip()  # Remove the actual command
 
-        # Look for a model name at the start of rest (case-insensitive)
-        for model in model_names:
-            if rest.lower().startswith(model.lower()):
-                # Found a matching model - now extract it properly
-                set_active_model(model)
+        # Find the best matching model
+        model = _find_matching_model(rest, model_names)
+        if model:
+            # Found a matching model - now extract it properly
+            set_active_model(model)
 
-                # Find the actual model name in the original text (preserving case)
-                # We need to find where the model ends in the original rest string
-                model_end_idx = len(model)
+            # Find the actual model name in the original text (preserving case)
+            # We need to find where the model ends in the original rest string
+            model_end_idx = len(model)
 
-                # Build the full command+model part to remove
-                # Handle space variations in the original text
-                cmd_and_model_pattern = m_cmd + " " + rest[:model_end_idx]
-                idx = text.find(cmd_and_model_pattern)
-                if idx != -1:
-                    new_text = (
-                        text[:idx] + text[idx + len(cmd_and_model_pattern) :]
-                    ).strip()
-                    return new_text
-                return None
+            # Build the full command+model part to remove
+            # Handle space variations in the original text
+            cmd_and_model_pattern = m_cmd + " " + rest[:model_end_idx]
+            idx = text.find(cmd_and_model_pattern)
+            if idx != -1:
+                new_text = (
+                    text[:idx] + text[idx + len(cmd_and_model_pattern) :]
+                ).strip()
+                return new_text
+            return None
 
     return None
 
