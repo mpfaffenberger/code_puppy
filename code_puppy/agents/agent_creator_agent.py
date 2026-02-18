@@ -1,7 +1,5 @@
 """Agent Creator - helps users create new JSON agents."""
 
-import json
-import os
 from typing import Dict, List, Optional
 
 from code_puppy.config import get_user_agents_directory, get_project_agents_directory
@@ -29,6 +27,7 @@ class AgentCreatorAgent(BaseAgent):
     def get_system_prompt(self) -> str:
         available_tools = get_available_tool_names()
         agents_dir = get_user_agents_directory()
+        project_agents_dir = get_project_agents_directory() or ".code_puppy/agents"
 
         # Also get Universal Constructor tools (custom tools created by users)
         uc_tools_info = []
@@ -425,7 +424,7 @@ This detailed documentation should be copied verbatim into any agent that will b
 - If no `.code_puppy/agents/` directory exists, only include the User directory option
 - THEN use `edit_file` to create the JSON file at the chosen location:
   - If user chose "User directory": save to `{agents_dir}/agent-name.json`
-  - If user chose "Project directory": save to `.code_puppy/agents/agent-name.json`
+  - If user chose "Project directory": save to `{project_agents_dir}/agent-name.json`
 - IMPORTANT: Never use `~` in file paths. Always use the fully expanded paths shown above
 - Always notify user of successful creation with full file path
 - Explain how to use the new agent with `/agent agent-name`
@@ -605,90 +604,6 @@ Your goal is to take users from idea to working agent in one smooth conversation
                     errors.append("All items in 'system_prompt' list must be strings")
 
         return errors
-
-    def ask_save_location(self) -> Optional[str]:
-        """Ask user where to save the agent (user vs project directory).
-
-        Returns:
-            Directory path, or None if user cancelled.
-        """
-        from code_puppy.tools.ask_user_question.handler import ask_user_question
-
-        project_dir = get_project_agents_directory()
-        options = [
-            {
-                "label": "User directory",
-                "description": "~/.code_puppy/agents/ (available in all projects)"
-            }
-        ]
-
-        if project_dir:
-            options.append({
-                "label": "Project directory",
-                "description": ".code_puppy/agents/ (version controlled with project)"
-            })
-
-        result = ask_user_question([{
-            "question": "Where should this agent be saved?",
-            "header": "Location",
-            "multi_select": False,
-            "options": options
-        }])
-
-        if result.cancelled or not result.answers:
-            return None
-
-        choice = result.answers[0].selected_options[0]
-        return project_dir if choice == "Project directory" else get_user_agents_directory()
-
-    def get_agent_file_path(self, agent_name: str, directory: Optional[str] = None) -> str:
-        """Get the full file path for an agent JSON file.
-
-        Args:
-            agent_name: Name of the agent
-            directory: Target directory (if None, asks user)
-
-        Returns:
-            Full path to the agent JSON file
-        """
-        if directory is None:
-            directory = self.ask_save_location()
-            if directory is None:
-                raise ValueError("No save location selected")
-
-        return os.path.join(directory, f"{agent_name}.json")
-
-    def create_agent_json(self, agent_config: Dict) -> tuple[bool, str]:
-        """Create a JSON agent file.
-
-        Args:
-            agent_config: The agent configuration dictionary
-
-        Returns:
-            Tuple of (success, message)
-        """
-        # Validate the configuration
-        errors = self.validate_agent_json(agent_config)
-        if errors:
-            return False, "Validation errors:\n" + "\n".join(
-                f"- {error}" for error in errors
-            )
-
-        # Get file path
-        agent_name = agent_config["name"]
-        file_path = self.get_agent_file_path(agent_name)
-
-        # Check if file already exists
-        if os.path.exists(file_path):
-            return False, f"Agent '{agent_name}' already exists at {file_path}"
-
-        # Create the JSON file
-        try:
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(agent_config, f, indent=2, ensure_ascii=False)
-            return True, f"Successfully created agent '{agent_name}' at {file_path}"
-        except Exception as e:
-            return False, f"Failed to create agent file: {e}"
 
     def get_user_prompt(self) -> Optional[str]:
         """Get the initial user prompt."""
