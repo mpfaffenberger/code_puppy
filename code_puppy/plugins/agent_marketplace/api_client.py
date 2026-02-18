@@ -3,7 +3,9 @@
 Provides async functions to interact with the Walmart Agent Marketplace backend.
 """
 
+import json
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -90,6 +92,37 @@ def _get_marketplace_token() -> Optional[str]:
         return None
 
 
+def _get_user_groups() -> List[str]:
+    """Retrieve the user's AD groups from the saved token file.
+
+    The groups are saved during authentication in marketplace_token.json
+    under the 'user.groups' field. These are needed for the server to
+    filter AD-group-restricted agents.
+
+    Returns:
+        List of AD group names the user belongs to, or empty list if not available.
+    """
+    try:
+        from code_puppy.config import CONFIG_DIR
+
+        token_file = Path(CONFIG_DIR) / "marketplace_token.json"
+        if not token_file.exists():
+            return []
+
+        with open(token_file, "r") as f:
+            data = json.load(f)
+
+        # Groups are stored under user.groups
+        user_info = data.get("user", {})
+        groups = user_info.get("groups", [])
+
+        if isinstance(groups, list):
+            return groups
+        return []
+    except Exception:
+        return []
+
+
 def is_marketplace_token_valid() -> bool:
     """Check if the marketplace token exists and is not expired.
 
@@ -137,6 +170,9 @@ def _get_auth_headers() -> dict:
     Uses marketplace_token from config (set by /puppy_auth command).
     This is different from puppy_token which is for the backend.
 
+    Also includes the user's AD groups as a custom header so the server
+    can filter AD-group-restricted agents appropriately.
+
     Returns empty headers if the token is missing or expired,
     so callers know authentication is needed.
     """
@@ -150,8 +186,18 @@ def _get_auth_headers() -> dict:
     if is_token_expired(token, silent=True):
         return {}
 
-    # Token exists and is valid - return auth headers
-    return {"Authorization": f"Bearer {token}"}
+    # Token exists and is valid - build auth headers
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Include user's AD groups for filtering AD-restricted agents
+    # The server uses this to determine which restricted agents to show
+    groups = _get_user_groups()
+    if groups:
+        # Send groups as comma-separated header value
+        # Limit to first 100 groups to avoid header size issues
+        headers["X-User-Groups"] = ",".join(groups[:100])
+
+    return headers
 
 
 def _normalize_response(
