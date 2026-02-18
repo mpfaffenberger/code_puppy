@@ -713,11 +713,13 @@ def _ask_clone_location() -> Optional[Path]:
     if result.cancelled or not result.answers:
         return None
 
-    choice = result.answers[0].selected_options[0]
-    target = (
-        project_dir if choice == _PROJECT_DIR_LABEL else get_user_agents_directory()
-    )
-    return Path(target)
+    selected = result.answers[0].selected_options
+    if not selected:
+        return None
+    choice = selected[0]
+    if choice == _PROJECT_DIR_LABEL and project_dir:
+        return Path(project_dir)
+    return Path(get_user_agents_directory())
 
 
 def clone_agent(agent_name: str, target_dir: Optional[Path] = None) -> Optional[str]:

@@ -45,6 +45,7 @@ class TestAgentCloneProjectDirectory:
         # Mock agent registry
         from code_puppy.agents.agent_manager import _AGENT_REGISTRY
 
+        _AGENT_REGISTRY.clear()
         _AGENT_REGISTRY["source-agent"] = str(source_agent_path)
 
         # Mock get_available_tool_names from tools module
@@ -86,6 +87,9 @@ class TestAgentCloneProjectDirectory:
             json.dump(source_config, f)
 
         # Mock config functions in the config module
+        monkeypatch.setattr(
+            "code_puppy.config.get_project_agents_directory", lambda: None
+        )
         monkeypatch.setattr(
             "code_puppy.config.get_user_agents_directory", lambda: str(user_agents_dir)
         )
@@ -138,6 +142,11 @@ class TestAgentCloneProjectDirectory:
 
         _AGENT_REGISTRY.clear()
         _AGENT_REGISTRY["source-agent"] = str(source_agent_path)
+
+        # Disable project agent discovery to avoid non-deterministic CWD reads
+        monkeypatch.setattr(
+            "code_puppy.config.get_project_agents_directory", lambda: None
+        )
 
         # Mock: User cancels
         monkeypatch.setattr(
