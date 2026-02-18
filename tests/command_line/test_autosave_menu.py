@@ -1234,8 +1234,9 @@ class TestDisplayResumedHistory:
         display_resumed_history([msg1, msg2], num_messages=10)
 
         captured = capsys.readouterr()
-        # Should show USER header
-        assert "USER" in captured.out
+        # Should show user message with > prefix and contain the X's
+        assert ">" in captured.out
+        assert "X" in captured.out
 
     def test_renders_different_roles_correctly(self, capsys):
         """Should render user, assistant, and tool messages with correct styling."""
@@ -1276,6 +1277,10 @@ class TestDisplayResumedHistory:
         )
 
         captured = capsys.readouterr()
-        assert "USER" in captured.out
-        assert "ASSISTANT" in captured.out
-        assert "TOOL" in captured.out
+        # User message shown with > prefix
+        assert "Hello from user" in captured.out
+        # Assistant message has AGENT RESPONSE banner
+        assert "AGENT RESPONSE" in captured.out
+        assert "Hello from assistant" in captured.out
+        # Tool output shown
+        assert "Tool result" in captured.out or "test_tool" in captured.out

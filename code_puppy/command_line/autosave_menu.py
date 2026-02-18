@@ -418,6 +418,8 @@ def display_resumed_history(
     from rich.markdown import Markdown
     from rich.rule import Rule
 
+    from code_puppy.config import get_banner_color
+
     if not history:
         return
 
@@ -454,24 +456,27 @@ def display_resumed_history(
         )
         console.print()
 
+    # Get banner color for agent responses
+    response_color = get_banner_color("agent_response")
+
     # Render each message in the same style as normal chat
     for msg in messages_to_show:
         role, content = _extract_message_content(msg)
 
-        # Print role header matching normal chat style
+        # Print banner matching normal chat style
         if role == "user":
-            console.print("[bold cyan]🧑 USER[/bold cyan]")
+            # User messages don't have a banner in normal chat,
+            # but we add one for clarity in resumed history
+            console.print("[dim]> [/dim]", end="")
+            console.print(f"[bold]{content}[/bold]")
         elif role == "tool":
-            console.print("[bold yellow]🔧 TOOL[/bold yellow]")
-        else:  # assistant
-            console.print("[bold green]🤖 ASSISTANT[/bold green]")
-
-        # Render content as markdown (same as normal chat)
-        if role == "tool":
-            # Tool output rendered as-is with dim styling
+            # Tool output is typically dim/collapsed
             console.print(f"[dim]{content}[/dim]")
-        else:
-            # User and assistant messages rendered as markdown
+        else:  # assistant
+            # Use the exact same banner format as normal AGENT RESPONSE
+            banner = f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
+            console.print(f"\n{banner}")
+            # Render content as markdown (same as normal chat)
             md = Markdown(content)
             console.print(md)
 
