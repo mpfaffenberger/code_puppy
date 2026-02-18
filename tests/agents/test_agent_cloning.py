@@ -1,10 +1,6 @@
 """Tests for agent cloning functionality."""
 
 import json
-from pathlib import Path
-from unittest.mock import Mock
-
-import pytest
 
 from code_puppy.agents.agent_manager import clone_agent
 
@@ -26,7 +22,7 @@ class TestAgentCloneProjectDirectory:
             "name": "source-agent",
             "description": "Source agent for cloning",
             "system_prompt": "Test prompt",
-            "tools": ["read_file"]
+            "tools": ["read_file"],
         }
         with open(source_agent_path, "w") as f:
             json.dump(source_config, f)
@@ -34,27 +30,27 @@ class TestAgentCloneProjectDirectory:
         # Mock config functions in the config module
         monkeypatch.setattr(
             "code_puppy.config.get_project_agents_directory",
-            lambda: str(project_agents_dir)
+            lambda: str(project_agents_dir),
         )
         monkeypatch.setattr(
-            "code_puppy.config.get_user_agents_directory",
-            lambda: str(user_agents_dir)
+            "code_puppy.config.get_user_agents_directory", lambda: str(user_agents_dir)
         )
 
         # Mock _ask_clone_location to return project directory
         monkeypatch.setattr(
             "code_puppy.agents.agent_manager._ask_clone_location",
-            lambda: project_agents_dir
+            lambda: project_agents_dir,
         )
 
         # Mock agent registry
         from code_puppy.agents.agent_manager import _AGENT_REGISTRY
+
         _AGENT_REGISTRY["source-agent"] = str(source_agent_path)
 
         # Mock get_available_tool_names from tools module
         monkeypatch.setattr(
             "code_puppy.tools.get_available_tool_names",
-            lambda: ["read_file", "edit_file"]
+            lambda: ["read_file", "edit_file"],
         )
 
         # Test clone
@@ -84,32 +80,32 @@ class TestAgentCloneProjectDirectory:
             "name": "source-agent",
             "description": "Source agent",
             "system_prompt": "Test",
-            "tools": ["read_file"]
+            "tools": ["read_file"],
         }
         with open(source_agent_path, "w") as f:
             json.dump(source_config, f)
 
         # Mock config functions in the config module
         monkeypatch.setattr(
-            "code_puppy.config.get_user_agents_directory",
-            lambda: str(user_agents_dir)
+            "code_puppy.config.get_user_agents_directory", lambda: str(user_agents_dir)
         )
 
         # Mock _ask_clone_location to return user directory
         monkeypatch.setattr(
             "code_puppy.agents.agent_manager._ask_clone_location",
-            lambda: user_agents_dir
+            lambda: user_agents_dir,
         )
 
         # Mock agent registry
         from code_puppy.agents.agent_manager import _AGENT_REGISTRY
+
         _AGENT_REGISTRY.clear()
         _AGENT_REGISTRY["source-agent"] = str(source_agent_path)
 
         # Mock get_available_tool_names from tools module
         monkeypatch.setattr(
             "code_puppy.tools.get_available_tool_names",
-            lambda: ["read_file", "edit_file"]
+            lambda: ["read_file", "edit_file"],
         )
 
         # Test clone
@@ -132,20 +128,20 @@ class TestAgentCloneProjectDirectory:
             "name": "source-agent",
             "description": "Source",
             "system_prompt": "Test",
-            "tools": []
+            "tools": [],
         }
         with open(source_agent_path, "w") as f:
             json.dump(source_config, f)
 
         # Mock agent registry
         from code_puppy.agents.agent_manager import _AGENT_REGISTRY
+
         _AGENT_REGISTRY.clear()
         _AGENT_REGISTRY["source-agent"] = str(source_agent_path)
 
         # Mock: User cancels
         monkeypatch.setattr(
-            "code_puppy.agents.agent_manager._ask_clone_location",
-            lambda: None
+            "code_puppy.agents.agent_manager._ask_clone_location", lambda: None
         )
 
         # Test
@@ -158,12 +154,12 @@ class TestAgentCloneProjectDirectory:
         """Test cloning a non-existent agent."""
         # Mock empty registry
         from code_puppy.agents.agent_manager import _AGENT_REGISTRY
+
         _AGENT_REGISTRY.clear()
 
         # Mock _ask_clone_location (shouldn't be called)
         monkeypatch.setattr(
-            "code_puppy.agents.agent_manager._ask_clone_location",
-            lambda: None
+            "code_puppy.agents.agent_manager._ask_clone_location", lambda: None
         )
 
         # Test
