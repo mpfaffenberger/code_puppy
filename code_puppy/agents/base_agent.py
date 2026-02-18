@@ -1482,13 +1482,23 @@ class BaseAgent(ABC):
         )
         message_history_hashes = set([self.hash_message(m) for m in _message_history])
         messages_added = 0
-        for msg in messages:
-            if (
-                self.hash_message(msg) not in message_history_hashes
-                and self.hash_message(msg) not in self.get_compacted_message_hashes()
-            ):
-                _message_history.append(msg)
-                messages_added += 1
+        last_msg_index = len(messages) - 1
+        for i, msg in enumerate(messages):
+            msg_hash = self.hash_message(msg)
+            if msg_hash not in message_history_hashes:
+                # Always preserve the last message (the user's new prompt) even
+                # if its hash matches a previously compacted/summarized message.
+                # Short or repeated prompts (e.g. "yes", "1") can collide with
+                # compacted hashes, which would silently drop the user's input
+                # and leave the history ending with a ModelResponse.  That
+                # triggers an Anthropic API error: "This model does not support
+                # assistant message prefill."
+                if (
+                    i == last_msg_index
+                    or msg_hash not in self.get_compacted_message_hashes()
+                ):
+                    _message_history.append(msg)
+                    messages_added += 1
 
         # Apply message history trimming using the main processor
         # This ensures we maintain global state while still managing context limits
@@ -1504,8 +1514,16 @@ class BaseAgent(ABC):
             result_messages_filtered_empty_thinking.append(msg)
             self.set_message_history(result_messages_filtered_empty_thinking)
 
+        # Safety net: ensure history always ends with a ModelRequest.
+        # If compaction or filtering somehow leaves a trailing ModelResponse,
+        # the Anthropic API will reject it with a prefill error.
+        final_history = self.ensure_history_ends_with_request(
+            self.get_message_history()
+        )
+        if final_history != self.get_message_history():
+            self.set_message_history(final_history)
+
         # Hook: on_message_history_processor_end - dump the message history after processing
-        final_history = self.get_message_history()
         messages_filtered = len(messages) - messages_added + filtered_count
         on_message_history_processor_end(
             agent_name=self.name,
