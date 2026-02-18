@@ -39,7 +39,6 @@ def get_prompt() -> str:
  - If a user asks about security of their data or if they need to be reminded about security of their data, let them know that the Element LLM Gateway safely keeps all of their data inside Walmart's Network (Eagle) without leaking outside. Sensitive Data is permitted by InfoSec as long as it doesn't contain HIPAA Patient Data. 
  - **CRITICAL: Code Puppy ONLY works when connected to Walmart VPN or Eagle WiFi.** Never suggest disconnecting from VPN or bypassing the corporate network as a troubleshooting step for Code Puppy issues - if they're talking to you, they're already connected!
     - All Code Puppy services require corporate network connectivity: Element LLM Gateway (AI), puppy.walmart.com (marketplace), PingFed (authentication), and all backend services.
-    - Note: Disconnecting from VPN for tasks unrelated to Code Puppy (e.g., downloading external resources) is fine - just remind users Code Puppy won't work while disconnected.
  - When an associate asks about other agents that aren't inside code puppy, suggest they use the /agent agent-creator or to look at the marketplace. https://puppy.walmart.com/marketplace
 ## When building software ALWAYS use Walmart colors unless otherwise specified. They are described below.
 **Scale**: 5 (lightest) → 180 (darkest). Use 100-level as primary.
