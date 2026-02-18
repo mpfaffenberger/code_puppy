@@ -397,6 +397,106 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
     return lines
 
 
+# Default number of messages to display when resuming a session
+DEFAULT_RESUME_DISPLAY_COUNT = 10
+
+
+def display_resumed_history(
+    history: list,
+    num_messages: int = DEFAULT_RESUME_DISPLAY_COUNT,
+) -> None:
+    """Display recent message history after resuming a session.
+
+    Shows the last N messages from the conversation so users have context
+    about where they left off. Uses Rich for beautiful terminal rendering.
+
+    Args:
+        history: The full message history list
+        num_messages: Maximum number of messages to display (default 10)
+    """
+    from rich.console import Console
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+    from rich.text import Text
+
+    if not history:
+        return
+
+    console = Console()
+    total_messages = len(history)
+
+    # Skip if only system message exists
+    if total_messages <= 1:
+        return
+
+    # Determine which messages to show (skip first system message)
+    # We want to show the last N non-system messages
+    displayable_history = history[1:]  # Skip system message
+    total_displayable = len(displayable_history)
+
+    if total_displayable == 0:
+        return
+
+    messages_to_show = (
+        displayable_history[-num_messages:]
+        if total_displayable > num_messages
+        else displayable_history
+    )
+    hidden_count = total_displayable - len(messages_to_show)
+
+    # Print header with hidden count if applicable
+    console.print()
+    if hidden_count > 0:
+        console.print(
+            Text(f"──────── {hidden_count} earlier messages ────────", style="dim")
+        )
+        console.print()
+
+    # Render each message
+    for msg in messages_to_show:
+        role, content = _extract_message_content(msg)
+
+        # Determine style and icon based on role
+        if role == "user":
+            icon = "🧑"
+            title = "USER"
+            border_style = "cyan"
+        elif role == "tool":
+            icon = "🔧"
+            title = "TOOL"
+            border_style = "yellow"
+        else:  # assistant
+            icon = "🤖"
+            title = "ASSISTANT"
+            border_style = "green"
+
+        # Truncate very long content for display
+        max_content_length = 500
+        if len(content) > max_content_length:
+            content = content[:max_content_length] + "\n... (truncated)"
+
+        # Render content as markdown for user/assistant, plain for tool
+        if role == "tool":
+            panel_content = Text(content, style="yellow")
+        else:
+            panel_content = Markdown(content)
+
+        # Create panel for each message
+        panel = Panel(
+            panel_content,
+            title=f"{icon} {title}",
+            title_align="left",
+            border_style=border_style,
+            padding=(0, 1),
+        )
+        console.print(panel)
+
+    # Print footer separator
+    console.print()
+    console.print(Text("──────── Session Resumed ────────", style="bold green"))
+    console.print()
+
+
 async def interactive_autosave_picker() -> Optional[str]:
     """Show interactive terminal UI to select an autosave session.
 

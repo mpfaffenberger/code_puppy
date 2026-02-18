@@ -702,6 +702,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
                                 f"📁 From: {session_path}"
                             )
+
+                            # Display recent message history for context
+                            from code_puppy.command_line.autosave_menu import (
+                                display_resumed_history,
+                            )
+
+                            display_resumed_history(history)
                         else:
                             # Fall back to old text-based picker for tests/non-TTY environments
                             await restore_autosave_interactively(Path(AUTOSAVE_DIR))
