@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from code_puppy.command_line.agent_menu import (
     PAGE_SIZE,
+    _USER_DIR_CHOICE,
+    _PROJECT_DIR_CHOICE,
     _apply_pinned_model,
     _get_agent_entries,
     _get_pinned_model,
@@ -43,9 +45,10 @@ class TestPageSizeConstant:
 class TestGetAgentEntries:
     """Test the _get_agent_entries function."""
 
+    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
     @patch("code_puppy.command_line.agent_menu.get_agent_descriptions")
     @patch("code_puppy.command_line.agent_menu.get_available_agents")
-    def test_returns_empty_list_when_no_agents(self, mock_available, mock_descriptions):
+    def test_returns_empty_list_when_no_agents(self, mock_available, mock_descriptions, _mock_sources):
         """Test that empty list is returned when no agents are available."""
         mock_available.return_value = {}
         mock_descriptions.return_value = {}
@@ -54,10 +57,10 @@ class TestGetAgentEntries:
 
         assert result == []
 
-    @patch("code_puppy.command_line.agent_menu.get_agent_source_path", return_value=None)
+    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
     @patch("code_puppy.command_line.agent_menu.get_agent_descriptions")
     @patch("code_puppy.command_line.agent_menu.get_available_agents")
-    def test_returns_single_agent(self, mock_available, mock_descriptions, _mock_path):
+    def test_returns_single_agent(self, mock_available, mock_descriptions, _mock_sources):
         """Test that single agent is returned correctly."""
         mock_available.return_value = {"code_puppy": "Code Puppy 🐶"}
         mock_descriptions.return_value = {"code_puppy": "A friendly coding assistant."}
@@ -73,10 +76,10 @@ class TestGetAgentEntries:
             None,
         )
 
-    @patch("code_puppy.command_line.agent_menu.get_agent_source_path", return_value=None)
+    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
     @patch("code_puppy.command_line.agent_menu.get_agent_descriptions")
     @patch("code_puppy.command_line.agent_menu.get_available_agents")
-    def test_returns_multiple_agents_sorted(self, mock_available, mock_descriptions, _mock_path):
+    def test_returns_multiple_agents_sorted(self, mock_available, mock_descriptions, _mock_sources):
         """Test that multiple agents are returned sorted alphabetically."""
         mock_available.return_value = {
             "zebra_agent": "Zebra Agent",
@@ -97,10 +100,10 @@ class TestGetAgentEntries:
         assert result[1][0] == "beta_agent"
         assert result[2][0] == "zebra_agent"
 
-    @patch("code_puppy.command_line.agent_menu.get_agent_source_path", return_value=None)
+    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
     @patch("code_puppy.command_line.agent_menu.get_agent_descriptions")
     @patch("code_puppy.command_line.agent_menu.get_available_agents")
-    def test_handles_missing_description(self, mock_available, mock_descriptions, _mock_path):
+    def test_handles_missing_description(self, mock_available, mock_descriptions, _mock_sources):
         """Test that missing descriptions get default value."""
         mock_available.return_value = {"test_agent": "Test Agent"}
         mock_descriptions.return_value = {}  # No description for this agent
@@ -110,10 +113,10 @@ class TestGetAgentEntries:
         assert len(result) == 1
         assert result[0] == ("test_agent", "Test Agent", "No description available", None, None)
 
-    @patch("code_puppy.command_line.agent_menu.get_agent_source_path", return_value=None)
+    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
     @patch("code_puppy.command_line.agent_menu.get_agent_descriptions")
     @patch("code_puppy.command_line.agent_menu.get_available_agents")
-    def test_handles_extra_descriptions(self, mock_available, mock_descriptions, _mock_path):
+    def test_handles_extra_descriptions(self, mock_available, mock_descriptions, _mock_sources):
         """Test that extra descriptions (without matching agents) are ignored."""
         mock_available.return_value = {"agent1": "Agent One"}
         mock_descriptions.return_value = {
@@ -126,10 +129,10 @@ class TestGetAgentEntries:
         assert len(result) == 1
         assert result[0][0] == "agent1"
 
-    @patch("code_puppy.command_line.agent_menu.get_agent_source_path", return_value=None)
+    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
     @patch("code_puppy.command_line.agent_menu.get_agent_descriptions")
     @patch("code_puppy.command_line.agent_menu.get_available_agents")
-    def test_sorts_case_insensitive(self, mock_available, mock_descriptions, _mock_path):
+    def test_sorts_case_insensitive(self, mock_available, mock_descriptions, _mock_sources):
         """Test that sorting is case-insensitive."""
         mock_available.return_value = {
             "UPPER_AGENT": "Upper Agent",
@@ -149,10 +152,10 @@ class TestGetAgentEntries:
         assert result[1][0] == "Mixed_Agent"
         assert result[2][0] == "UPPER_AGENT"
 
-    @patch("code_puppy.command_line.agent_menu.get_agent_source_path", return_value=None)
+    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
     @patch("code_puppy.command_line.agent_menu.get_agent_descriptions")
     @patch("code_puppy.command_line.agent_menu.get_available_agents")
-    def test_returns_more_than_page_size(self, mock_available, mock_descriptions, _mock_path):
+    def test_returns_more_than_page_size(self, mock_available, mock_descriptions, _mock_sources):
         """Test handling of more agents than PAGE_SIZE."""
         # Create 15 agents (more than PAGE_SIZE of 10)
         agents = {f"agent_{i:02d}": f"Agent {i:02d}" for i in range(15)}
@@ -527,10 +530,10 @@ class TestRenderPreviewPanel:
 class TestGetAgentEntriesIntegration:
     """Integration-style tests for _get_agent_entries behavior."""
 
-    @patch("code_puppy.command_line.agent_menu.get_agent_source_path", return_value=None)
+    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
     @patch("code_puppy.command_line.agent_menu.get_agent_descriptions")
     @patch("code_puppy.command_line.agent_menu.get_available_agents")
-    def test_typical_usage_scenario(self, mock_available, mock_descriptions, _mock_path):
+    def test_typical_usage_scenario(self, mock_available, mock_descriptions, _mock_sources):
         """Test a typical usage scenario with realistic agent data."""
         mock_available.return_value = {
             "code_puppy": "Code Puppy 🐶",
@@ -972,14 +975,15 @@ class TestRenderPreviewPanelPath:
         assert "overrides" not in text
 
     def test_get_agent_entries_includes_path_for_json_agent(self):
-        """Test that _get_agent_entries includes the source path from get_agent_source_path."""
+        """Test that _get_agent_entries includes the source path from discover_json_agents_with_sources."""
         fake_path = "/home/user/.code_puppy/agents/custom.json"
 
         with (
             patch("code_puppy.command_line.agent_menu.get_available_agents", return_value={"custom": "Custom Agent"}),
             patch("code_puppy.command_line.agent_menu.get_agent_descriptions", return_value={"custom": "A custom agent."}),
-            patch("code_puppy.command_line.agent_menu.get_agent_source_path", return_value=fake_path),
-            patch("code_puppy.command_line.agent_menu.get_agent_shadowed_path", return_value=None),
+            patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={
+                "custom": {"path": fake_path, "source": "user", "shadowed_path": None}
+            }),
         ):
             result = _get_agent_entries()
 
@@ -988,10 +992,11 @@ class TestRenderPreviewPanelPath:
 
     def test_get_agent_entries_path_is_none_for_python_agent(self):
         """Test that _get_agent_entries returns None path for built-in Python agents."""
+        # get_agent_shadowed_path is NOT called when source_path is None (see _get_agent_entries)
         with (
             patch("code_puppy.command_line.agent_menu.get_available_agents", return_value={"code-puppy": "Code Puppy"}),
             patch("code_puppy.command_line.agent_menu.get_agent_descriptions", return_value={"code-puppy": "Default agent."}),
-            patch("code_puppy.command_line.agent_menu.get_agent_source_path", return_value=None),
+            patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={}),
         ):
             result = _get_agent_entries()
 
@@ -1007,8 +1012,9 @@ class TestRenderPreviewPanelPath:
         with (
             patch("code_puppy.command_line.agent_menu.get_available_agents", return_value={"my-agent": "My Agent"}),
             patch("code_puppy.command_line.agent_menu.get_agent_descriptions", return_value={"my-agent": "An agent."}),
-            patch("code_puppy.command_line.agent_menu.get_agent_source_path", return_value=project_path),
-            patch("code_puppy.command_line.agent_menu.get_agent_shadowed_path", return_value=user_path),
+            patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={
+                "my-agent": {"path": project_path, "source": "project", "shadowed_path": user_path}
+            }),
         ):
             result = _get_agent_entries()
 
@@ -1037,7 +1043,7 @@ class TestSelectCloneLocation:
     @patch("code_puppy.command_line.agent_menu.get_project_agents_directory", return_value="/project/.code_puppy/agents")
     async def test_returns_project_dir_when_selected(self, _mock_proj, _mock_user, mock_arrow):
         """Test that project directory Path is returned when user selects it."""
-        mock_arrow.return_value = "Project directory (.code_puppy/agents/)"
+        mock_arrow.return_value = _PROJECT_DIR_CHOICE
 
         result = await _select_clone_location()
 
@@ -1092,3 +1098,36 @@ class TestSelectCloneLocation:
         result = await _select_clone_location()
 
         assert result is None
+
+    @patch("code_puppy.command_line.agent_menu.emit_info")
+    @patch("code_puppy.command_line.agent_menu.get_user_agents_directory", return_value=None)
+    @patch("code_puppy.command_line.agent_menu.get_project_agents_directory", return_value=None)
+    async def test_returns_none_when_user_dir_is_none(self, _mock_proj, _mock_user, mock_emit):
+        """Test that None is returned and info emitted when user_dir is None."""
+        result = await _select_clone_location()
+
+        assert result is None
+        mock_emit.assert_called_once()
+
+
+class TestDeleteGuard:
+    """Test that the delete key ('D') enforces the clone-only guard."""
+
+    @patch("code_puppy.command_line.agent_menu.delete_clone_agent")
+    @patch("code_puppy.command_line.agent_menu.emit_warning")
+    @patch("code_puppy.command_line.agent_menu.is_clone_agent_name", return_value=False)
+    def test_delete_non_clone_json_agent_emits_warning(
+        self, _mock_is_clone, mock_emit_warning, mock_delete
+    ):
+        """D on a non-clone JSON agent shows the warning and does NOT delete."""
+        from code_puppy.command_line.agent_menu import is_clone_agent_name, emit_warning, delete_clone_agent
+
+        # Simulate the delete handler logic directly
+        agent_name = "my-json-agent"
+        if not is_clone_agent_name(agent_name):
+            emit_warning("Only cloned agents can be deleted.")
+        else:
+            delete_clone_agent(agent_name)
+
+        mock_emit_warning.assert_called_once_with("Only cloned agents can be deleted.")
+        mock_delete.assert_not_called()

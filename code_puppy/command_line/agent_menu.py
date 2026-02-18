@@ -20,8 +20,6 @@ from code_puppy.agents import (
     clone_agent,
     delete_clone_agent,
     get_agent_descriptions,
-    get_agent_shadowed_path,
-    get_agent_source_path,
     get_available_agents,
     get_current_agent,
     is_clone_agent_name,
@@ -39,6 +37,9 @@ from code_puppy.tools.command_runner import set_awaiting_user_input
 from code_puppy.tools.common import arrow_select_async
 
 PAGE_SIZE = 10  # Agents per page
+
+_USER_DIR_CHOICE = "User directory (~/.code_puppy/agents/)"
+_PROJECT_DIR_CHOICE = "Project directory (.code_puppy/agents/)"
 
 
 def _sanitize_display_text(text: str) -> str:
@@ -196,9 +197,13 @@ async def _select_clone_location() -> Optional[Path]:
     project_dir = get_project_agents_directory()
     user_dir = get_user_agents_directory()
 
-    choices = ["User directory (~/.code_puppy/agents/)"]
+    if user_dir is None:
+        emit_info("No user agents directory configured — clone cancelled.")
+        return None
+
+    choices = [_USER_DIR_CHOICE]
     if project_dir:
-        choices.append("Project directory (.code_puppy/agents/)")
+        choices.append(_PROJECT_DIR_CHOICE)
 
     try:
         choice = await arrow_select_async("Where should the cloned agent be saved?", choices)
@@ -209,7 +214,7 @@ async def _select_clone_location() -> Optional[Path]:
     if choice is None:
         return None
 
-    if project_dir and choice.startswith("Project"):
+    if choice == _PROJECT_DIR_CHOICE and project_dir:
         return Path(project_dir)
     return Path(user_dir)
 
@@ -302,11 +307,15 @@ def _get_agent_entries() -> List[Tuple[str, str, str, Optional[str], Optional[st
     available = get_available_agents()
     descriptions = get_agent_descriptions()
 
+    from code_puppy.agents.json_agent import discover_json_agents_with_sources
+    source_info = discover_json_agents_with_sources()  # one scan total
+
     entries = []
     for name, display_name in available.items():
         description = descriptions.get(name, "No description available")
-        source_path = get_agent_source_path(name)
-        shadowed_path = get_agent_shadowed_path(name) if source_path else None
+        info = source_info.get(name)
+        source_path = info["path"] if info else None
+        shadowed_path = info.get("shadowed_path") if info else None
         entries.append((name, display_name, description, source_path, shadowed_path))
 
     # Sort alphabetically by agent name
@@ -534,7 +543,7 @@ async def interactive_agent_picker() -> Optional[str]:
             return
 
         if selected_name:
-            for idx, (name, _, _) in enumerate(entries):
+            for idx, (name, *_) in enumerate(entries):
                 if name == selected_name:
                     selected_idx[0] = idx
                     break
@@ -694,8 +703,8 @@ async def interactive_agent_picker() -> Optional[str]:
                 if entry:
                     agent_name = entry[0]
                     selected_name = agent_name
-                    if not get_agent_source_path(agent_name):
-                        emit_warning("Built-in agents cannot be deleted.")
+                    if not is_clone_agent_name(agent_name):
+                        emit_warning("Only cloned agents can be deleted.")
                     elif agent_name == current_agent_name:
                         emit_warning("Cannot delete the active agent. Switch first.")
                     else:
