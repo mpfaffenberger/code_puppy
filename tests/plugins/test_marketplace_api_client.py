@@ -4,10 +4,7 @@ Tests the authentication headers and user groups functionality.
 """
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
-
-import pytest
+from unittest.mock import patch
 
 
 class TestGetUserGroups:
@@ -22,17 +19,19 @@ class TestGetUserGroups:
             "accessToken": "test-token",
             "user": {
                 "id": "test@walmart.com",
-                "groups": ["group1", "group2", "ad-test-group"]
-            }
+                "groups": ["group1", "group2", "ad-test-group"],
+            },
         }
         token_file = tmp_path / "marketplace_token.json"
         token_file.write_text(json.dumps(token_data))
 
         # Patch CONFIG_DIR at the point of use
         with patch.object(api_client, "Path") as mock_path_cls:
-            mock_path_cls.return_value.__truediv__ = lambda self, x: token_file if x == "marketplace_token.json" else tmp_path / x
+            mock_path_cls.return_value.__truediv__ = lambda self, x: (
+                token_file if x == "marketplace_token.json" else tmp_path / x
+            )
             mock_path_cls.return_value = tmp_path
-            
+
             # Actually, let's patch the config module import
             with patch("code_puppy.config.CONFIG_DIR", str(tmp_path)):
                 groups = api_client._get_user_groups()
@@ -57,7 +56,7 @@ class TestGetUserGroups:
             "user": {
                 "id": "test@walmart.com"
                 # No groups field
-            }
+            },
         }
         token_file = tmp_path / "marketplace_token.json"
         token_file.write_text(json.dumps(token_data))
@@ -87,8 +86,8 @@ class TestGetUserGroups:
             "accessToken": "test-token",
             "user": {
                 "id": "test@walmart.com",
-                "groups": "not-a-list"  # Wrong type
-            }
+                "groups": "not-a-list",  # Wrong type
+            },
         }
         token_file = tmp_path / "marketplace_token.json"
         token_file.write_text(json.dumps(token_data))
@@ -111,21 +110,28 @@ class TestGetAuthHeaders:
             "accessToken": "test-token",
             "user": {
                 "id": "test@walmart.com",
-                "groups": ["colony-agent-builders", "element.users", "gcp-all-users"]
-            }
+                "groups": ["colony-agent-builders", "element.users", "gcp-all-users"],
+            },
         }
         token_file = tmp_path / "marketplace_token.json"
         token_file.write_text(json.dumps(token_data))
 
-        with patch("code_puppy.config.CONFIG_DIR", str(tmp_path)), \
-             patch.object(api_client, "_get_marketplace_token", return_value="valid-token"), \
-             patch.object(api_client, "is_token_expired", return_value=False):
+        with (
+            patch("code_puppy.config.CONFIG_DIR", str(tmp_path)),
+            patch.object(
+                api_client, "_get_marketplace_token", return_value="valid-token"
+            ),
+            patch.object(api_client, "is_token_expired", return_value=False),
+        ):
             headers = api_client._get_auth_headers()
 
         assert "Authorization" in headers
         assert headers["Authorization"] == "Bearer valid-token"
         assert "X-User-Groups" in headers
-        assert headers["X-User-Groups"] == "colony-agent-builders,element.users,gcp-all-users"
+        assert (
+            headers["X-User-Groups"]
+            == "colony-agent-builders,element.users,gcp-all-users"
+        )
 
     def test_no_groups_header_when_no_groups(self, tmp_path):
         """Should not include X-User-Groups header when no groups available."""
@@ -136,9 +142,13 @@ class TestGetAuthHeaders:
         token_file = tmp_path / "marketplace_token.json"
         token_file.write_text(json.dumps(token_data))
 
-        with patch("code_puppy.config.CONFIG_DIR", str(tmp_path)), \
-             patch.object(api_client, "_get_marketplace_token", return_value="valid-token"), \
-             patch.object(api_client, "is_token_expired", return_value=False):
+        with (
+            patch("code_puppy.config.CONFIG_DIR", str(tmp_path)),
+            patch.object(
+                api_client, "_get_marketplace_token", return_value="valid-token"
+            ),
+            patch.object(api_client, "is_token_expired", return_value=False),
+        ):
             headers = api_client._get_auth_headers()
 
         assert "Authorization" in headers
@@ -152,17 +162,18 @@ class TestGetAuthHeaders:
         many_groups = [f"group-{i}" for i in range(150)]
         token_data = {
             "accessToken": "test-token",
-            "user": {
-                "id": "test@walmart.com",
-                "groups": many_groups
-            }
+            "user": {"id": "test@walmart.com", "groups": many_groups},
         }
         token_file = tmp_path / "marketplace_token.json"
         token_file.write_text(json.dumps(token_data))
 
-        with patch("code_puppy.config.CONFIG_DIR", str(tmp_path)), \
-             patch.object(api_client, "_get_marketplace_token", return_value="valid-token"), \
-             patch.object(api_client, "is_token_expired", return_value=False):
+        with (
+            patch("code_puppy.config.CONFIG_DIR", str(tmp_path)),
+            patch.object(
+                api_client, "_get_marketplace_token", return_value="valid-token"
+            ),
+            patch.object(api_client, "is_token_expired", return_value=False),
+        ):
             headers = api_client._get_auth_headers()
 
         # Should only have 100 groups
@@ -183,8 +194,12 @@ class TestGetAuthHeaders:
         """Should return empty dict when token is expired."""
         from code_puppy.plugins.agent_marketplace import api_client
 
-        with patch.object(api_client, "_get_marketplace_token", return_value="expired-token"), \
-             patch.object(api_client, "is_token_expired", return_value=True):
+        with (
+            patch.object(
+                api_client, "_get_marketplace_token", return_value="expired-token"
+            ),
+            patch.object(api_client, "is_token_expired", return_value=True),
+        ):
             headers = api_client._get_auth_headers()
 
         assert headers == {}

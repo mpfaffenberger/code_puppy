@@ -20,7 +20,9 @@ class TestReadSeenVersions:
         from code_puppy.command_line.motd import _read_seen_versions
 
         with patch("code_puppy.command_line.motd.os.path.exists", return_value=True):
-            with patch("builtins.open", mock_open(read_data="2025-12-01\n2026-01-01\n")):
+            with patch(
+                "builtins.open", mock_open(read_data="2025-12-01\n2026-01-01\n")
+            ):
                 result = _read_seen_versions()
 
         assert result == {"2025-12-01", "2026-01-01"}
@@ -41,7 +43,9 @@ class TestHasSeenMotd:
     def test_returns_false_when_file_does_not_exist(self):
         from code_puppy.command_line.motd import has_seen_motd
 
-        with patch("code_puppy.command_line.motd._read_seen_versions", return_value=set()):
+        with patch(
+            "code_puppy.command_line.motd._read_seen_versions", return_value=set()
+        ):
             assert has_seen_motd("2026-01-01") is False
 
     def test_returns_true_when_version_in_file(self):

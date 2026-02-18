@@ -287,9 +287,7 @@ def servicenow_close_task(
 
     try:
         client = get_servicenow_client()
-        client.close_task(
-            task_id=task_id, close_notes=close_notes, table=table
-        )
+        client.close_task(task_id=task_id, close_notes=close_notes, table=table)
 
         emit_success(f"Closed task: {task_id}")
 

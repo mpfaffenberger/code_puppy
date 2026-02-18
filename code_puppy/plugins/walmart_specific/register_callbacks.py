@@ -80,7 +80,6 @@ from code_puppy.mcp_.server_registry_catalog import (
 )
 from code_puppy.plugins.walmart_specific.walmart_gemini_model import WalmartGeminiModel
 from code_puppy.plugins.walmart_specific.enterprise_tools import get_enterprise_tools
-from code_puppy.model_utils import is_gemini_model
 
 
 def get_walmart_mcp_servers():

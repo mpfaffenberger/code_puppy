@@ -1489,9 +1489,7 @@ class BaseAgent(ABC):
                     filtered_count += 1
                     continue
             # For multi-part messages, strip empty ThinkingParts but keep the message
-            elif any(
-                isinstance(p, ThinkingPart) and not p.content for p in msg.parts
-            ):
+            elif any(isinstance(p, ThinkingPart) and not p.content for p in msg.parts):
                 msg = dataclasses.replace(
                     msg,
                     parts=[

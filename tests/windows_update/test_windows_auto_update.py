@@ -19,13 +19,9 @@ Strategy:
   - emit_system_message is mocked to keep test output clean.
 """
 
-import sys
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import httpx
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -104,9 +100,7 @@ class TestFetchLatestVersion:
 
     def test_http_status_error_returns_none(self):
         """HTTP 5xx → None, never raises."""
-        err = httpx.HTTPStatusError(
-            "500", request=MagicMock(), response=MagicMock()
-        )
+        err = httpx.HTTPStatusError("500", request=MagicMock(), response=MagicMock())
         assert self._run(side_effect=err) is None
 
     def test_request_error_returns_none(self):
@@ -142,16 +136,19 @@ class TestGetSetupWindowsUrl:
 
     def test_returns_string(self):
         from code_puppy.plugins.walmart_specific.urls import get_setup_windows_url
+
         assert isinstance(get_setup_windows_url(), str)
 
     def test_contains_correct_path(self):
         """URL must point to the setup_windows.bat endpoint."""
         from code_puppy.plugins.walmart_specific.urls import get_setup_windows_url
+
         url = get_setup_windows_url()
         assert "/api/releases/setup_windows.bat" in url
 
     def test_default_is_not_empty(self):
         from code_puppy.plugins.walmart_specific.urls import get_setup_windows_url
+
         assert get_setup_windows_url().startswith("https://")
 
     def test_stage_environment_contains_stg(self):
@@ -160,6 +157,7 @@ class TestGetSetupWindowsUrl:
             Environment,
             get_setup_windows_url,
         )
+
         assert "stg" in get_setup_windows_url(Environment.STAGE)
 
     def test_prod_environment_does_not_contain_stg(self):
@@ -168,6 +166,7 @@ class TestGetSetupWindowsUrl:
             Environment,
             get_setup_windows_url,
         )
+
         assert "stg" not in get_setup_windows_url(Environment.PROD)
 
 
@@ -298,7 +297,9 @@ class TestHandleUpdateWindowsPath:
         URL and asserting the sentinel appears in the bat content.  If the code
         used a hardcoded string, the sentinel would NOT appear.
         """
-        SENTINEL_URL = "https://puppy.sentinel-test.walmart.com/api/releases/setup_windows.bat"
+        SENTINEL_URL = (
+            "https://puppy.sentinel-test.walmart.com/api/releases/setup_windows.bat"
+        )
 
         from code_puppy.plugins.walmart_specific.auto_update import _handle_update
 
@@ -371,8 +372,7 @@ class TestHandleUpdateWindowsPath:
 
         full_content = " ".join(written_content)
         assert expected_url in full_content, (
-            f"Expected URL {expected_url!r} not found in bat. "
-            f"Content: {full_content!r}"
+            f"Expected URL {expected_url!r} not found in bat. Content: {full_content!r}"
         )
 
     # --- FIX 3: bat content has proxy-aware curl flags ---
@@ -417,3 +417,135 @@ class TestHandleUpdateWindowsPath:
         assert "curl.exe" in full_content or "curl" in full_content, (
             f"curl missing from bat. Content: {full_content!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# macOS / Linux update path
+# ---------------------------------------------------------------------------
+
+
+class TestHandleUpdateMacLinux:
+    """Cover the non-Windows branch of _handle_update."""
+
+    def _run_macos(
+        self,
+        curl_returncode: int = 0,
+        bash_returncode: int = 0,
+        latest_version: str = "2.0.0",
+    ):
+        from code_puppy.plugins.walmart_specific.auto_update import _handle_update
+
+        curl_result = MagicMock(
+            returncode=curl_returncode, stdout="#!/bin/bash\necho ok", stderr=""
+        )
+        bash_result = MagicMock(returncode=bash_returncode)
+
+        def fake_subprocess_run(cmd, **kwargs):
+            if isinstance(cmd, list) and "curl" in cmd[0]:
+                return curl_result
+            return bash_result
+
+        emitted = []
+        with (
+            patch(f"{MODULE}.fetch_latest_version", return_value=latest_version),
+            patch(
+                f"{MODULE}.emit_system_message",
+                side_effect=lambda m, **k: emitted.append(str(m)),
+            ),
+            patch(f"{MODULE}.subprocess.run", side_effect=fake_subprocess_run),
+            patch("sys.platform", "darwin"),
+            patch("sys.exit") as mock_exit,
+        ):
+            _handle_update("1.0.0")
+
+        return {"emitted": emitted, "exit": mock_exit}
+
+    def test_successful_mac_update_calls_sys_exit(self):
+        """Happy path on macOS: curl + bash succeed -> sys.exit(0)."""
+        result = self._run_macos()
+        result["exit"].assert_called_once_with(0)
+
+    def test_successful_mac_update_emits_success_message(self):
+        result = self._run_macos()
+        combined = " ".join(result["emitted"])
+        assert "successfully" in combined.lower() or "completed" in combined.lower()
+
+    def test_curl_failure_no_sys_exit(self):
+        """If curl fails, we bail without calling sys.exit."""
+        result = self._run_macos(curl_returncode=1)
+        result["exit"].assert_not_called()
+
+    def test_curl_failure_emits_error(self):
+        result = self._run_macos(curl_returncode=1)
+        combined = " ".join(result["emitted"])
+        assert (
+            "failed" in combined.lower()
+            or "error" in combined.lower()
+            or "download" in combined.lower()
+        )
+
+    def test_bash_failure_no_sys_exit(self):
+        """Curl works but bash script returns non-zero -> no sys.exit."""
+        result = self._run_macos(bash_returncode=1)
+        result["exit"].assert_not_called()
+
+    def test_bash_failure_emits_error(self):
+        result = self._run_macos(bash_returncode=1)
+        combined = " ".join(result["emitted"])
+        assert "failed" in combined.lower() or "error" in combined.lower()
+
+
+# ---------------------------------------------------------------------------
+# Exception handlers in _handle_update
+# ---------------------------------------------------------------------------
+
+
+class TestHandleUpdateExceptions:
+    """Ensure TimeoutExpired and bare Exception are swallowed gracefully."""
+
+    def _run_with_exception(self, exc, platform: str = "win32"):
+        from code_puppy.plugins.walmart_specific.auto_update import _handle_update
+
+        emitted = []
+        with (
+            patch(f"{MODULE}.fetch_latest_version", return_value="2.0.0"),
+            patch(
+                f"{MODULE}.emit_system_message",
+                side_effect=lambda m, **k: emitted.append(str(m)),
+            ),
+            patch("builtins.input", return_value="y"),
+            patch(f"{MODULE}.subprocess.run", side_effect=exc),
+            patch("sys.platform", platform),
+            patch("sys.exit"),
+        ):
+            _handle_update("1.0.0")
+
+        return emitted
+
+    def test_timeout_win32_emits_message(self):
+        import subprocess as _sp
+
+        emitted = self._run_with_exception(
+            _sp.TimeoutExpired(cmd="update", timeout=30), "win32"
+        )
+        combined = " ".join(emitted)
+        assert "timed out" in combined.lower() or "timeout" in combined.lower()
+
+    def test_timeout_linux_emits_message(self):
+        import subprocess as _sp
+
+        emitted = self._run_with_exception(
+            _sp.TimeoutExpired(cmd="update", timeout=30), "linux"
+        )
+        combined = " ".join(emitted)
+        assert "timed out" in combined.lower() or "timeout" in combined.lower()
+
+    def test_generic_exception_win32_emits_message(self):
+        emitted = self._run_with_exception(RuntimeError("something broke"), "win32")
+        combined = " ".join(emitted)
+        assert "error" in combined.lower() or "unexpected" in combined.lower()
+
+    def test_generic_exception_linux_emits_message(self):
+        emitted = self._run_with_exception(RuntimeError("something broke"), "linux")
+        combined = " ".join(emitted)
+        assert "error" in combined.lower() or "unexpected" in combined.lower()
