@@ -309,6 +309,8 @@ def get_config_keys():
     # Add banner color keys
     for banner_name in DEFAULT_BANNER_COLORS:
         default_keys.append(f"banner_color_{banner_name}")
+    # Add resume message count configuration
+    default_keys.append("resume_message_count")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -1117,6 +1119,23 @@ def get_protected_token_count():
         model_context_length = get_model_context_length()
         max_protected_tokens = int(model_context_length * 0.75)
         return min(50000, max_protected_tokens)
+
+
+def get_resume_message_count() -> int:
+    """
+    Returns the number of messages to display when resuming a session.
+    Defaults to 30 if unset or misconfigured.
+    Configurable by 'resume_message_count' key via /set command.
+
+    Example: /set resume_message_count=50
+    """
+    val = get_value("resume_message_count")
+    try:
+        configured_value = int(val) if val else 30
+        # Enforce reasonable bounds: minimum 1, maximum 100
+        return max(1, min(configured_value, 100))
+    except (ValueError, TypeError):
+        return 30
 
 
 def get_compaction_threshold():

@@ -398,12 +398,13 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
 
 
 # Default number of messages to display when resuming a session
+# This is overridden by the user config 'resume_message_count'
 DEFAULT_RESUME_DISPLAY_COUNT = 30
 
 
 def display_resumed_history(
     history: list,
-    num_messages: int = DEFAULT_RESUME_DISPLAY_COUNT,
+    num_messages: int | None = None,
 ) -> None:
     """Display recent message history after resuming a session.
 
@@ -412,16 +413,22 @@ def display_resumed_history(
 
     Args:
         history: The full message history list
-        num_messages: Maximum number of messages to display (default 30)
+        num_messages: Number of messages to display. If None, uses the
+                      'resume_message_count' config value (default 30).
+                      Configurable via: /set resume_message_count=50
     """
     from rich.console import Console
     from rich.markdown import Markdown
     from rich.rule import Rule
 
-    from code_puppy.config import get_banner_color
+    from code_puppy.config import get_banner_color, get_resume_message_count
 
     if not history:
         return
+
+    # Use config value if num_messages not explicitly provided
+    if num_messages is None:
+        num_messages = get_resume_message_count()
 
     console = Console()
     total_messages = len(history)
