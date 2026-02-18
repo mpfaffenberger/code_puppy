@@ -477,6 +477,40 @@ def load_agent(agent_name: str) -> BaseAgent:
         return agent_ref()
 
 
+def get_agent_source_path(agent_name: str) -> Optional[str]:
+    """Get the file path for a JSON agent, or None for Python agents.
+
+    Args:
+        agent_name: The agent name to look up.
+
+    Returns:
+        File path string if agent is JSON-based, None otherwise.
+    """
+    ref = _AGENT_REGISTRY.get(agent_name)
+    return ref if isinstance(ref, str) else None
+
+
+def get_agent_shadowed_path(agent_name: str) -> Optional[str]:
+    """Get the user-level path that a project agent is shadowing, if any.
+
+    Returns the path of the user-level JSON agent that was overridden by a
+    project-level agent with the same name, or None if there is no conflict.
+
+    Args:
+        agent_name: The agent name to look up.
+
+    Returns:
+        File path of the shadowed user agent, or None.
+    """
+    from code_puppy.agents.json_agent import discover_json_agents_with_sources
+
+    sources = discover_json_agents_with_sources()
+    info = sources.get(agent_name)
+    if info is None:
+        return None
+    return info.get("shadowed_path")
+
+
 def get_agent_descriptions() -> Dict[str, str]:
     """Get descriptions for all available agents.
 
@@ -593,11 +627,53 @@ def _next_clone_index(
         next_index += 1
 
 
-def clone_agent(agent_name: str) -> Optional[str]:
-    """Clone an agent definition into the user agents directory.
+def _ask_clone_location() -> Optional[Path]:
+    """Ask user where to save the cloned agent.
+
+    Returns:
+        Directory Path, or None if cancelled.
+    """
+    from code_puppy.tools.ask_user_question.handler import ask_user_question
+    from ..config import get_user_agents_directory, get_project_agents_directory
+
+    project_dir = get_project_agents_directory()
+    options = [
+        {
+            "label": "User directory",
+            "description": "~/.code_puppy/agents/ (available in all projects)"
+        }
+    ]
+
+    if project_dir:
+        options.append({
+            "label": "Project directory",
+            "description": ".code_puppy/agents/ (version controlled)"
+        })
+
+    result = ask_user_question([{
+        "question": "Where should the cloned agent be saved?",
+        "header": "Location",
+        "multi_select": False,
+        "options": options
+    }])
+
+    if result.cancelled or not result.answers:
+        return None
+
+    choice = result.answers[0].selected_options[0]
+    target = project_dir if choice == "Project directory" else get_user_agents_directory()
+    return Path(target)
+
+
+def clone_agent(agent_name: str, target_dir: Optional[Path] = None) -> Optional[str]:
+    """Clone an agent definition.
 
     Args:
         agent_name: Source agent name to clone.
+        target_dir: Directory to save the clone. If None, asks the user
+            interactively (only works outside of a TUI context).
+            When called from the agent menu, pass the source agent's
+            parent directory to avoid nested TUI conflicts.
 
     Returns:
         The cloned agent name, or None if cloning failed.
@@ -611,9 +687,17 @@ def clone_agent(agent_name: str) -> Optional[str]:
         emit_warning(f"Agent '{agent_name}' not found for cloning.")
         return None
 
-    from ..config import get_agent_pinned_model, get_user_agents_directory
+    from ..config import get_agent_pinned_model
 
-    agents_dir = Path(get_user_agents_directory())
+    # Determine target directory
+    if target_dir is not None:
+        agents_dir = target_dir
+    else:
+        # Interactive prompt - only works outside of a TUI context
+        agents_dir = _ask_clone_location()
+        if agents_dir is None:
+            emit_warning("Clone cancelled - no location selected.")
+            return None
     base_name = _strip_clone_suffix(agent_name)
     existing_names = set(_AGENT_REGISTRY.keys())
     clone_index = _next_clone_index(base_name, existing_names, agents_dir)
@@ -676,7 +760,7 @@ def clone_agent(agent_name: str) -> Optional[str]:
     try:
         with open(clone_path, "w", encoding="utf-8") as f:
             json.dump(clone_config, f, indent=2, ensure_ascii=False)
-        emit_success(f"Cloned '{agent_name}' to '{clone_name}'.")
+        emit_success(f"Cloned '{agent_name}' to '{clone_name}' at {clone_path}")
         return clone_name
     except Exception as exc:
         emit_warning(f"Failed to write clone file '{clone_path}': {exc}")
@@ -695,10 +779,6 @@ def delete_clone_agent(agent_name: str) -> bool:
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
 
-    if not is_clone_agent_name(agent_name):
-        emit_warning(f"Agent '{agent_name}' is not a clone.")
-        return False
-
     if get_current_agent_name() == agent_name:
         emit_warning("Cannot delete the active agent. Switch agents first.")
         return False
@@ -715,13 +795,6 @@ def delete_clone_agent(agent_name: str) -> bool:
     clone_path = Path(agent_ref)
     if not clone_path.exists():
         emit_warning(f"Clone file for '{agent_name}' does not exist.")
-        return False
-
-    from ..config import get_user_agents_directory
-
-    agents_dir = Path(get_user_agents_directory()).resolve()
-    if clone_path.resolve().parent != agents_dir:
-        emit_warning(f"Refusing to delete non-user clone '{agent_name}'.")
         return False
 
     try:
