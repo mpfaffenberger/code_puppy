@@ -1,7 +1,6 @@
 import subprocess
 import sys
 import tempfile
-import time
 import httpx
 
 from rich.text import Text
@@ -11,6 +10,7 @@ from code_puppy.messaging import emit_system_message
 from code_puppy.plugins.walmart_specific.urls import (
     get_latest_version_url,
     get_setup_url,
+    get_setup_windows_url,
 )
 from code_puppy.version_checker import normalize_version, versions_are_equal
 
@@ -67,12 +67,20 @@ def _handle_update(current_version):
     """Handle the auto-update process if a new version is available."""
     latest_version = fetch_latest_version("code-puppy")
     version_msg = f"Current version: {current_version}"
-    latest_msg = f"Latest version: {latest_version}"
-
     emit_system_message(version_msg)
-    emit_system_message(latest_msg)
-    if latest_version and versions_are_equal(current_version, latest_version):
+
+    # Guard: if the version API is unreachable we cannot determine whether
+    # an update exists, so bail out silently rather than prompting for an
+    # update to an unknown version.
+    if latest_version is None:
         return
+
+    latest_msg = f"Latest version: {latest_version}"
+    emit_system_message(latest_msg)
+
+    if versions_are_equal(current_version, latest_version):
+        return
+
     update_available_msg = f"A new version of code puppy is available: {latest_version}"
     emit_system_message(
         Text.from_markup(f"[bold yellow]{update_available_msg}[/bold yellow]")
@@ -83,11 +91,10 @@ def _handle_update(current_version):
 
     try:
         if sys.platform == "win32":
-            # Windows update command
+            # Windows update path.
             emit_system_message(
                 Text.from_markup("[bold yellow]Running Windows update...[/bold yellow]")
             )
-            time.sleep(2)
             proceed = input(
                 "This will stop *ALL* other running instances of Code Puppy on your computer. Proceed (y/n)? "
             )
@@ -96,30 +103,30 @@ def _handle_update(current_version):
                     Text.from_markup("[yellow]Update cancelled by user.[/yellow]")
                 )
                 return
-            # Write the batch file to the temp directory to avoid permission issues in System32
+
+            # Write the bootstrap bat to %TEMP% to avoid System32 permission issues.
+            # FIX: use get_setup_windows_url() — no hardcoded domain.
+            # FIX: use curl.exe -Lk --proxy-insecure for Walmart network compat.
+            setup_url = get_setup_windows_url()
             temp_dir = tempfile.gettempdir()
             update_bat_path = f"{temp_dir}\\update.bat"
+            bat_content = (
+                f"curl.exe -Lk --proxy-insecure {setup_url} "
+                f"-o %TEMP%\\setup.bat && %TEMP%\\setup.bat && del %TEMP%\\setup.bat"
+            )
             with open(update_bat_path, "w") as f:
-                f.write(
-                    "curl -L https://puppy.stg.walmart.com/api/releases/setup_windows.bat -o %TEMP%\\setup.bat && %TEMP%\\setup.bat && del %TEMP%\\setup.bat"
-                )
+                f.write(bat_content)
 
             update_command = f"start cmd.exe /k {update_bat_path}"
             emit_system_message(
                 Text.from_markup(f"[dim]Running: {update_command}[/dim]")
             )
-            result = subprocess.run(update_command, shell=True)
             emit_system_message("This instance of Code Puppy will close.")
-            time.sleep(20)
-            error_msg = (
-                f"❌ Update failed with exit code: {result.returncode}\n{result.stderr}"
-            )
-            emit_system_message(Text.from_markup(f"[bold red]{error_msg}[/bold red]"))
-            emit_system_message(
-                Text.from_markup(
-                    "[yellow]Try running code-puppy in PowerShell or reinstall from https://puppy.walmart.com[/yellow]"
-                )
-            )
+            # FIX: launch the updater in its own CMD window (independent process),
+            # then exit immediately.  The old code slept 20 s then always printed
+            # an error because start(1) always returns 0 — never an error code.
+            subprocess.run(update_command, shell=True)
+            sys.exit(0)
 
         else:
             # macOS and Linux update
