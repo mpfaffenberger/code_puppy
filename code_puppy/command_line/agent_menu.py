@@ -7,6 +7,7 @@ with live preview of agent details.
 import asyncio
 import sys
 import unicodedata
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from prompt_toolkit.application import Application
@@ -19,6 +20,8 @@ from code_puppy.agents import (
     clone_agent,
     delete_clone_agent,
     get_agent_descriptions,
+    get_agent_shadowed_path,
+    get_agent_source_path,
     get_available_agents,
     get_current_agent,
     is_clone_agent_name,
@@ -27,6 +30,8 @@ from code_puppy.command_line.model_picker_completion import load_model_names
 from code_puppy.config import (
     clear_agent_pinned_model,
     get_agent_pinned_model,
+    get_project_agents_directory,
+    get_user_agents_directory,
     set_agent_pinned_model,
 )
 from code_puppy.messaging import emit_info, emit_success, emit_warning
@@ -182,6 +187,33 @@ async def _select_pinned_model(agent_name: str) -> Optional[str]:
     return _normalize_model_choice(choice)
 
 
+async def _select_clone_location() -> Optional[Path]:
+    """Prompt the user to choose a directory for the cloned agent.
+
+    Returns:
+        Path to the chosen agents directory, or None if cancelled.
+    """
+    project_dir = get_project_agents_directory()
+    user_dir = get_user_agents_directory()
+
+    choices = ["User directory (~/.code_puppy/agents/)"]
+    if project_dir:
+        choices.append("Project directory (.code_puppy/agents/)")
+
+    try:
+        choice = await arrow_select_async("Where should the cloned agent be saved?", choices)
+    except KeyboardInterrupt:
+        emit_info("Clone cancelled")
+        return None
+
+    if choice is None:
+        return None
+
+    if project_dir and choice.startswith("Project"):
+        return Path(project_dir)
+    return Path(user_dir)
+
+
 def _reload_agent_if_current(
     agent_name: str,
     pinned_model: Optional[str],
@@ -258,11 +290,14 @@ def _apply_pinned_model(agent_name: str, model_choice: str) -> None:
         emit_warning(f"Failed to apply pinned model: {exc}")
 
 
-def _get_agent_entries() -> List[Tuple[str, str, str]]:
-    """Get all agents with their display names and descriptions.
+def _get_agent_entries() -> List[Tuple[str, str, str, Optional[str], Optional[str]]]:
+    """Get all agents with their display names, descriptions, and source paths.
 
     Returns:
-        List of tuples (agent_name, display_name, description) sorted by name.
+        List of tuples (agent_name, display_name, description, source_path,
+        shadowed_path) sorted by name. source_path and shadowed_path are None
+        for built-in Python agents. shadowed_path is set when a project agent
+        overrides a user agent with the same name.
     """
     available = get_available_agents()
     descriptions = get_agent_descriptions()
@@ -270,7 +305,9 @@ def _get_agent_entries() -> List[Tuple[str, str, str]]:
     entries = []
     for name, display_name in available.items():
         description = descriptions.get(name, "No description available")
-        entries.append((name, display_name, description))
+        source_path = get_agent_source_path(name)
+        shadowed_path = get_agent_shadowed_path(name) if source_path else None
+        entries.append((name, display_name, description, source_path, shadowed_path))
 
     # Sort alphabetically by agent name
     entries.sort(key=lambda x: x[0].lower())
@@ -309,7 +346,7 @@ def _render_menu_panel(
     else:
         # Show agents for current page
         for i in range(start_idx, end_idx):
-            name, display_name, _ = entries[i]
+            name, display_name, _, source_path, shadowed_path = entries[i]
             is_selected = i == selected_idx
             is_current = name == current_agent_name
             pinned_model = _get_pinned_model(name)
@@ -356,13 +393,16 @@ def _render_menu_panel(
 
 
 def _render_preview_panel(
-    entry: Optional[Tuple[str, str, str]],
+    entry: Optional[Tuple[str, str, str, Optional[str], Optional[str]]],
     current_agent_name: str,
 ) -> List:
     """Render the right preview panel with agent details.
 
     Args:
-        entry: Tuple of (name, display_name, description) or None
+        entry: Tuple of (name, display_name, description, source_path,
+               shadowed_path) or None. source_path is None for built-in Python
+               agents. shadowed_path is set when a project agent overrides a
+               user agent with the same name.
         current_agent_name: Name of the current active agent
 
     Returns:
@@ -378,7 +418,7 @@ def _render_preview_panel(
         lines.append(("", "\n"))
         return lines
 
-    name, display_name, description = entry
+    name, display_name, description, source_path, shadowed_path = entry
     is_current = name == current_agent_name
     pinned_model = _get_pinned_model(name)
 
@@ -394,6 +434,19 @@ def _render_preview_panel(
     # Display name
     lines.append(("bold", "Display Name: "))
     lines.append(("fg:ansicyan", safe_display_name))
+    lines.append(("", "\n\n"))
+
+    # Source path
+    lines.append(("bold", "Path: "))
+    if source_path:
+        lines.append(("fg:ansibrightblack", source_path))
+        if shadowed_path:
+            lines.append(("fg:ansiyellow", "  [!] overrides user agent"))
+            lines.append(("", "\n"))
+            lines.append(("bold", "      "))
+            lines.append(("fg:ansibrightblack", f"(shadows: {shadowed_path})"))
+    else:
+        lines.append(("fg:ansibrightblack", "built-in"))
     lines.append(("", "\n\n"))
 
     # Pinned model
@@ -626,8 +679,12 @@ async def interactive_agent_picker() -> Optional[str]:
                 entry = get_current_entry()
                 selected_name = None
                 if entry:
-                    cloned_name = clone_agent(entry[0])
-                    selected_name = cloned_name or entry[0]
+                    target_dir = await _select_clone_location()
+                    if target_dir is not None:
+                        cloned_name = clone_agent(entry[0], target_dir=target_dir)
+                        selected_name = cloned_name or entry[0]
+                    else:
+                        selected_name = entry[0]
                 refresh_entries(selected_name=selected_name)
                 continue
 
@@ -637,8 +694,8 @@ async def interactive_agent_picker() -> Optional[str]:
                 if entry:
                     agent_name = entry[0]
                     selected_name = agent_name
-                    if not is_clone_agent_name(agent_name):
-                        emit_warning("Only cloned agents can be deleted.")
+                    if not get_agent_source_path(agent_name):
+                        emit_warning("Built-in agents cannot be deleted.")
                     elif agent_name == current_agent_name:
                         emit_warning("Cannot delete the active agent. Switch first.")
                     else:
