@@ -1215,8 +1215,8 @@ class TestDisplayResumedHistory:
         # Should NOT show hidden count (all displayed)
         assert "earlier messages" not in captured.out
 
-    def test_truncates_long_content(self, capsys):
-        """Should truncate very long message content."""
+    def test_renders_long_content_as_markdown(self, capsys):
+        """Should render long message content as markdown without truncation."""
         from code_puppy.command_line.autosave_menu import display_resumed_history
 
         # Create message with very long content
@@ -1234,8 +1234,8 @@ class TestDisplayResumedHistory:
         display_resumed_history([msg1, msg2], num_messages=10)
 
         captured = capsys.readouterr()
-        # Should show truncated indicator
-        assert "truncated" in captured.out
+        # Should show USER header
+        assert "USER" in captured.out
 
     def test_renders_different_roles_correctly(self, capsys):
         """Should render user, assistant, and tool messages with correct styling."""

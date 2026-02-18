@@ -398,7 +398,7 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
 
 
 # Default number of messages to display when resuming a session
-DEFAULT_RESUME_DISPLAY_COUNT = 10
+DEFAULT_RESUME_DISPLAY_COUNT = 30
 
 
 def display_resumed_history(
@@ -408,16 +408,15 @@ def display_resumed_history(
     """Display recent message history after resuming a session.
 
     Shows the last N messages from the conversation so users have context
-    about where they left off. Uses Rich for beautiful terminal rendering.
+    about where they left off. Uses the same rendering style as normal chat.
 
     Args:
         history: The full message history list
-        num_messages: Maximum number of messages to display (default 10)
+        num_messages: Maximum number of messages to display (default 30)
     """
     from rich.console import Console
     from rich.markdown import Markdown
-    from rich.panel import Panel
-    from rich.text import Text
+    from rich.rule import Rule
 
     if not history:
         return
@@ -448,52 +447,38 @@ def display_resumed_history(
     console.print()
     if hidden_count > 0:
         console.print(
-            Text(f"──────── {hidden_count} earlier messages ────────", style="dim")
+            Rule(
+                f"{hidden_count} earlier messages",
+                style="dim",
+            )
         )
         console.print()
 
-    # Render each message
+    # Render each message in the same style as normal chat
     for msg in messages_to_show:
         role, content = _extract_message_content(msg)
 
-        # Determine style and icon based on role
+        # Print role header matching normal chat style
         if role == "user":
-            icon = "🧑"
-            title = "USER"
-            border_style = "cyan"
+            console.print("[bold cyan]🧑 USER[/bold cyan]")
         elif role == "tool":
-            icon = "🔧"
-            title = "TOOL"
-            border_style = "yellow"
+            console.print("[bold yellow]🔧 TOOL[/bold yellow]")
         else:  # assistant
-            icon = "🤖"
-            title = "ASSISTANT"
-            border_style = "green"
+            console.print("[bold green]🤖 ASSISTANT[/bold green]")
 
-        # Truncate very long content for display
-        max_content_length = 500
-        if len(content) > max_content_length:
-            content = content[:max_content_length] + "\n... (truncated)"
-
-        # Render content as markdown for user/assistant, plain for tool
+        # Render content as markdown (same as normal chat)
         if role == "tool":
-            panel_content = Text(content, style="yellow")
+            # Tool output rendered as-is with dim styling
+            console.print(f"[dim]{content}[/dim]")
         else:
-            panel_content = Markdown(content)
+            # User and assistant messages rendered as markdown
+            md = Markdown(content)
+            console.print(md)
 
-        # Create panel for each message
-        panel = Panel(
-            panel_content,
-            title=f"{icon} {title}",
-            title_align="left",
-            border_style=border_style,
-            padding=(0, 1),
-        )
-        console.print(panel)
+        console.print()  # Blank line between messages
 
     # Print footer separator
-    console.print()
-    console.print(Text("──────── Session Resumed ────────", style="bold green"))
+    console.print(Rule("Session Resumed", style="bold green"))
     console.print()
 
 
