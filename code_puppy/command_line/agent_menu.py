@@ -206,9 +206,15 @@ async def _select_clone_location() -> Optional[Path]:
     project_dir = get_project_agents_directory()
     user_dir = get_user_agents_directory()
 
-    choices = [_USER_DIR_CHOICE]
+    choices = []
+    if user_dir:
+        choices.append(_USER_DIR_CHOICE)
     if project_dir:
         choices.append(_PROJECT_DIR_CHOICE)
+
+    if not choices:
+        emit_info("No agent directory available for cloning.")
+        return None
 
     try:
         choice = await arrow_select_async(
