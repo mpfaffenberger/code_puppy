@@ -684,28 +684,36 @@ def _ask_clone_location() -> Optional[Path]:
     options = [
         {
             "label": _USER_DIR_LABEL,
-            "description": "~/.code_puppy/agents/ (available in all projects)"
+            "description": "~/.code_puppy/agents/ (available in all projects)",
         }
     ]
 
     if project_dir:
-        options.append({
-            "label": _PROJECT_DIR_LABEL,
-            "description": ".code_puppy/agents/ (version controlled)"
-        })
+        options.append(
+            {
+                "label": _PROJECT_DIR_LABEL,
+                "description": ".code_puppy/agents/ (version controlled)",
+            }
+        )
 
-    result = ask_user_question([{
-        "question": "Where should the cloned agent be saved?",
-        "header": "Location",
-        "multi_select": False,
-        "options": options
-    }])
+    result = ask_user_question(
+        [
+            {
+                "question": "Where should the cloned agent be saved?",
+                "header": "Location",
+                "multi_select": False,
+                "options": options,
+            }
+        ]
+    )
 
     if result.cancelled or not result.answers:
         return None
 
     choice = result.answers[0].selected_options[0]
-    target = project_dir if choice == _PROJECT_DIR_LABEL else get_user_agents_directory()
+    target = (
+        project_dir if choice == _PROJECT_DIR_LABEL else get_user_agents_directory()
+    )
     return Path(target)
 
 
@@ -851,9 +859,9 @@ def delete_clone_agent(agent_name: str) -> bool:
     from ..config import get_user_agents_directory, get_project_agents_directory
 
     allowed_dirs: set[Path] = set()
-    if (u := get_user_agents_directory()):
+    if u := get_user_agents_directory():
         allowed_dirs.add(Path(u).resolve())
-    if (p := get_project_agents_directory()):
+    if p := get_project_agents_directory():
         allowed_dirs.add(Path(p).resolve())
 
     if agent_path.resolve().parent not in allowed_dirs:

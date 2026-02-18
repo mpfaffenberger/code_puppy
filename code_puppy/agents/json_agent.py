@@ -165,7 +165,9 @@ def discover_json_agents() -> Dict[str, str]:
     Returns:
         Dict mapping agent names to their JSON file paths.
     """
-    return {name: info["path"] for name, info in discover_json_agents_with_sources().items()}
+    return {
+        name: info["path"] for name, info in discover_json_agents_with_sources().items()
+    }
 
 
 def discover_json_agents_with_sources() -> Dict[str, AgentSourceInfo]:

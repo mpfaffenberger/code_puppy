@@ -46,7 +46,10 @@ class TestPageSizeConstant:
 class TestGetAgentEntries:
     """Test the _get_agent_entries function."""
 
-    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
+    @patch(
+        "code_puppy.agents.json_agent.discover_json_agents_with_sources",
+        return_value={},
+    )
     @patch("code_puppy.command_line.agent_menu.get_available_agents_with_descriptions")
     def test_returns_empty_list_when_no_agents(self, mock_combined, _mock_sources):
         """Test that empty list is returned when no agents are available."""
@@ -56,11 +59,16 @@ class TestGetAgentEntries:
 
         assert result == []
 
-    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
+    @patch(
+        "code_puppy.agents.json_agent.discover_json_agents_with_sources",
+        return_value={},
+    )
     @patch("code_puppy.command_line.agent_menu.get_available_agents_with_descriptions")
     def test_returns_single_agent(self, mock_combined, _mock_sources):
         """Test that single agent is returned correctly."""
-        mock_combined.return_value = {"code_puppy": ("Code Puppy 🐶", "A friendly coding assistant.")}
+        mock_combined.return_value = {
+            "code_puppy": ("Code Puppy 🐶", "A friendly coding assistant.")
+        }
 
         result = _get_agent_entries()
 
@@ -73,7 +81,10 @@ class TestGetAgentEntries:
             None,
         )
 
-    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
+    @patch(
+        "code_puppy.agents.json_agent.discover_json_agents_with_sources",
+        return_value={},
+    )
     @patch("code_puppy.command_line.agent_menu.get_available_agents_with_descriptions")
     def test_returns_multiple_agents_sorted(self, mock_combined, _mock_sources):
         """Test that multiple agents are returned sorted alphabetically."""
@@ -91,18 +102,28 @@ class TestGetAgentEntries:
         assert result[1][0] == "beta_agent"
         assert result[2][0] == "zebra_agent"
 
-    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
+    @patch(
+        "code_puppy.agents.json_agent.discover_json_agents_with_sources",
+        return_value={},
+    )
     @patch("code_puppy.command_line.agent_menu.get_available_agents_with_descriptions")
     def test_handles_missing_description(self, mock_combined, _mock_sources):
         """Test that 'No description available' comes from the manager, not this function."""
-        mock_combined.return_value = {"test_agent": ("Test Agent", "No description available")}
+        mock_combined.return_value = {
+            "test_agent": ("Test Agent", "No description available")
+        }
 
         result = _get_agent_entries()
 
         assert len(result) == 1
-        assert result[0] == AgentEntry("test_agent", "Test Agent", "No description available", None, None)
+        assert result[0] == AgentEntry(
+            "test_agent", "Test Agent", "No description available", None, None
+        )
 
-    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
+    @patch(
+        "code_puppy.agents.json_agent.discover_json_agents_with_sources",
+        return_value={},
+    )
     @patch("code_puppy.command_line.agent_menu.get_available_agents_with_descriptions")
     def test_handles_single_agent(self, mock_combined, _mock_sources):
         """Test that only agents present in combined metadata are returned."""
@@ -113,7 +134,10 @@ class TestGetAgentEntries:
         assert len(result) == 1
         assert result[0][0] == "agent1"
 
-    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
+    @patch(
+        "code_puppy.agents.json_agent.discover_json_agents_with_sources",
+        return_value={},
+    )
     @patch("code_puppy.command_line.agent_menu.get_available_agents_with_descriptions")
     def test_sorts_case_insensitive(self, mock_combined, _mock_sources):
         """Test that sorting is case-insensitive."""
@@ -130,13 +154,17 @@ class TestGetAgentEntries:
         assert result[1][0] == "Mixed_Agent"
         assert result[2][0] == "UPPER_AGENT"
 
-    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
+    @patch(
+        "code_puppy.agents.json_agent.discover_json_agents_with_sources",
+        return_value={},
+    )
     @patch("code_puppy.command_line.agent_menu.get_available_agents_with_descriptions")
     def test_returns_more_than_page_size(self, mock_combined, _mock_sources):
         """Test handling of more agents than PAGE_SIZE."""
         # Create 15 agents (more than PAGE_SIZE of 10)
         mock_combined.return_value = {
-            f"agent_{i:02d}": (f"Agent {i:02d}", f"Description {i:02d}") for i in range(15)
+            f"agent_{i:02d}": (f"Agent {i:02d}", f"Description {i:02d}")
+            for i in range(15)
         }
 
         result = _get_agent_entries()
@@ -165,7 +193,11 @@ class TestRenderMenuPanel:
 
         Note: Emojis are stripped from display names for clean terminal rendering.
         """
-        entries = [AgentEntry("code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None)]
+        entries = [
+            AgentEntry(
+                "code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None
+            )
+        ]
 
         result = _render_menu_panel(
             entries, page=0, selected_idx=0, current_agent_name=""
@@ -241,7 +273,8 @@ class TestRenderMenuPanel:
         """Test pagination shows correct info for page 0."""
         # Create 25 agents for multiple pages
         entries = [
-            AgentEntry(f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}", None, None) for i in range(25)
+            AgentEntry(f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}", None, None)
+            for i in range(25)
         ]
 
         result = _render_menu_panel(
@@ -257,7 +290,8 @@ class TestRenderMenuPanel:
     def test_pagination_page_one(self):
         """Test pagination shows correct info for page 1."""
         entries = [
-            AgentEntry(f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}", None, None) for i in range(25)
+            AgentEntry(f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}", None, None)
+            for i in range(25)
         ]
 
         result = _render_menu_panel(
@@ -273,7 +307,8 @@ class TestRenderMenuPanel:
     def test_pagination_last_page(self):
         """Test pagination shows correct info for last page."""
         entries = [
-            AgentEntry(f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}", None, None) for i in range(25)
+            AgentEntry(f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}", None, None)
+            for i in range(25)
         ]
 
         result = _render_menu_panel(
@@ -314,7 +349,8 @@ class TestRenderMenuPanel:
     def test_selected_agent_on_second_page(self):
         """Test selection highlighting works on second page."""
         entries = [
-            AgentEntry(f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}", None, None) for i in range(15)
+            AgentEntry(f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}", None, None)
+            for i in range(15)
         ]
 
         # Select agent 12 on page 1 (indices 10-14)
@@ -356,7 +392,9 @@ class TestRenderPreviewPanel:
 
     def test_renders_agent_name(self):
         """Test that agent name is displayed."""
-        entry = AgentEntry("code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None)
+        entry = AgentEntry(
+            "code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None
+        )
 
         result = _render_preview_panel(entry, current_agent_name="")
 
@@ -369,7 +407,9 @@ class TestRenderPreviewPanel:
 
         Note: Emojis are stripped from display names for clean terminal rendering.
         """
-        entry = AgentEntry("code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None)
+        entry = AgentEntry(
+            "code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None
+        )
 
         result = _render_preview_panel(entry, current_agent_name="")
 
@@ -382,7 +422,9 @@ class TestRenderPreviewPanel:
     def test_renders_pinned_model(self, mock_pinned_model):
         """Test that pinned model is shown in the preview panel."""
         mock_pinned_model.return_value = "gpt-4"
-        entry = AgentEntry("code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None)
+        entry = AgentEntry(
+            "code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None
+        )
 
         result = _render_preview_panel(entry, current_agent_name="")
 
@@ -394,7 +436,9 @@ class TestRenderPreviewPanel:
     def test_renders_unpinned_model_shows_default(self, mock_pinned_model):
         """Test that unpinned model shows 'default' in preview."""
         mock_pinned_model.return_value = None
-        entry = AgentEntry("code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None)
+        entry = AgentEntry(
+            "code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None
+        )
 
         result = _render_preview_panel(entry, current_agent_name="")
 
@@ -404,7 +448,13 @@ class TestRenderPreviewPanel:
 
     def test_renders_description(self):
         """Test that description is displayed."""
-        entry = AgentEntry("code_puppy", "Code Puppy 🐶", "A friendly coding assistant dog.", None, None)
+        entry = AgentEntry(
+            "code_puppy",
+            "Code Puppy 🐶",
+            "A friendly coding assistant dog.",
+            None,
+            None,
+        )
 
         result = _render_preview_panel(entry, current_agent_name="")
 
@@ -414,7 +464,9 @@ class TestRenderPreviewPanel:
 
     def test_renders_status_not_active(self):
         """Test that status shows 'Not active' for non-current agent."""
-        entry = AgentEntry("code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None)
+        entry = AgentEntry(
+            "code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None
+        )
 
         result = _render_preview_panel(entry, current_agent_name="other_agent")
 
@@ -424,7 +476,9 @@ class TestRenderPreviewPanel:
 
     def test_renders_status_currently_active(self):
         """Test that status shows active for current agent."""
-        entry = AgentEntry("code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None)
+        entry = AgentEntry(
+            "code_puppy", "Code Puppy 🐶", "A friendly assistant.", None, None
+        )
 
         result = _render_preview_panel(entry, current_agent_name="code_puppy")
 
@@ -505,14 +559,23 @@ class TestRenderPreviewPanel:
 class TestGetAgentEntriesIntegration:
     """Integration-style tests for _get_agent_entries behavior."""
 
-    @patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={})
+    @patch(
+        "code_puppy.agents.json_agent.discover_json_agents_with_sources",
+        return_value={},
+    )
     @patch("code_puppy.command_line.agent_menu.get_available_agents_with_descriptions")
     def test_typical_usage_scenario(self, mock_combined, _mock_sources):
         """Test a typical usage scenario with realistic agent data."""
         mock_combined.return_value = {
             "code_puppy": ("Code Puppy 🐶", "A friendly AI coding assistant."),
-            "pack_leader": ("Pack Leader 🦮", "Coordinates the pack of specialized agents."),
-            "code_reviewer": ("Code Reviewer 🔍", "Reviews code for quality and best practices."),
+            "pack_leader": (
+                "Pack Leader 🦮",
+                "Coordinates the pack of specialized agents.",
+            ),
+            "code_reviewer": (
+                "Code Reviewer 🔍",
+                "Reviews code for quality and best practices.",
+            ),
         }
 
         result = _get_agent_entries()
@@ -569,7 +632,8 @@ class TestRenderPanelEdgeCases:
     def test_menu_panel_last_item_on_page_selected(self):
         """Test selection of last item on a page."""
         entries = [
-            AgentEntry(f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}", None, None) for i in range(15)
+            AgentEntry(f"agent_{i:02d}", f"Agent {i:02d}", f"Desc {i:02d}", None, None)
+            for i in range(15)
         ]
 
         # Select the last item on page 0 (index 9)
@@ -583,7 +647,9 @@ class TestRenderPanelEdgeCases:
 
     def test_preview_panel_with_no_description_default(self):
         """Test preview panel shows default description."""
-        entry = AgentEntry("minimal_agent", "Minimal Agent", "No description available", None, None)
+        entry = AgentEntry(
+            "minimal_agent", "Minimal Agent", "No description available", None, None
+        )
 
         result = _render_preview_panel(entry, current_agent_name="")
 
@@ -861,7 +927,13 @@ class TestRenderPreviewPanelPath:
 
     def test_shows_path_field_for_json_agent(self):
         """Test that Path: field is displayed for JSON agents."""
-        entry = AgentEntry("my-agent", "My Agent", "Does things.", "/home/user/.code_puppy/agents/my-agent.json", None)
+        entry = AgentEntry(
+            "my-agent",
+            "My Agent",
+            "Does things.",
+            "/home/user/.code_puppy/agents/my-agent.json",
+            None,
+        )
 
         result = _render_preview_panel(entry, current_agent_name="")
 
@@ -881,7 +953,9 @@ class TestRenderPreviewPanelPath:
 
     def test_path_field_between_display_name_and_pinned_model(self):
         """Test that Path: appears after Display Name and before Pinned Model."""
-        entry = AgentEntry("my-agent", "My Agent", "Does things.", "/some/path/my-agent.json", None)
+        entry = AgentEntry(
+            "my-agent", "My Agent", "Does things.", "/some/path/my-agent.json", None
+        )
 
         result = _render_preview_panel(entry, current_agent_name="")
 
@@ -910,7 +984,9 @@ class TestRenderPreviewPanelPath:
         """Test that both paths and a warning are shown when a project agent shadows a user agent."""
         user_path = "/home/user/.code_puppy/agents/readme-writer.json"
         project_path = "/project/.code_puppy/agents/readme-writer.json"
-        entry = AgentEntry("readme-writer", "Readme Writer", "Writes readmes.", project_path, user_path)
+        entry = AgentEntry(
+            "readme-writer", "Readme Writer", "Writes readmes.", project_path, user_path
+        )
 
         result = _render_preview_panel(entry, current_agent_name="")
 
@@ -922,7 +998,13 @@ class TestRenderPreviewPanelPath:
 
     def test_no_shadow_warning_when_no_conflict(self):
         """Test that no shadow warning appears when there is no override."""
-        entry = AgentEntry("my-agent", "My Agent", "Does things.", "/home/user/.code_puppy/agents/my-agent.json", None)
+        entry = AgentEntry(
+            "my-agent",
+            "My Agent",
+            "Does things.",
+            "/home/user/.code_puppy/agents/my-agent.json",
+            None,
+        )
 
         result = _render_preview_panel(entry, current_agent_name="")
 
@@ -933,12 +1015,18 @@ class TestRenderPreviewPanelPath:
     def test_menu_row_no_warning_badge_for_shadowed_agent(self):
         """Test that the menu row does NOT show a warning badge (warning is details-only)."""
         entries = [
-            AgentEntry("readme-writer", "Readme Writer", "desc",
-                       "/project/.code_puppy/agents/readme-writer.json",
-                       "/home/user/.code_puppy/agents/readme-writer.json"),
+            AgentEntry(
+                "readme-writer",
+                "Readme Writer",
+                "desc",
+                "/project/.code_puppy/agents/readme-writer.json",
+                "/home/user/.code_puppy/agents/readme-writer.json",
+            ),
         ]
 
-        result = _render_menu_panel(entries, page=0, selected_idx=0, current_agent_name="")
+        result = _render_menu_panel(
+            entries, page=0, selected_idx=0, current_agent_name=""
+        )
 
         text = _get_text_from_formatted(result)
         assert "overrides" not in text
@@ -948,23 +1036,39 @@ class TestRenderPreviewPanelPath:
         fake_path = "/home/user/.code_puppy/agents/custom.json"
 
         with (
-            patch("code_puppy.command_line.agent_menu.get_available_agents_with_descriptions",
-                  return_value={"custom": ("Custom Agent", "A custom agent.")}),
-            patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={
-                "custom": {"path": fake_path, "source": "user", "shadowed_path": None}
-            }),
+            patch(
+                "code_puppy.command_line.agent_menu.get_available_agents_with_descriptions",
+                return_value={"custom": ("Custom Agent", "A custom agent.")},
+            ),
+            patch(
+                "code_puppy.agents.json_agent.discover_json_agents_with_sources",
+                return_value={
+                    "custom": {
+                        "path": fake_path,
+                        "source": "user",
+                        "shadowed_path": None,
+                    }
+                },
+            ),
         ):
             result = _get_agent_entries()
 
         assert len(result) == 1
-        assert result[0] == AgentEntry("custom", "Custom Agent", "A custom agent.", fake_path, None)
+        assert result[0] == AgentEntry(
+            "custom", "Custom Agent", "A custom agent.", fake_path, None
+        )
 
     def test_get_agent_entries_path_is_none_for_python_agent(self):
         """Test that _get_agent_entries returns None path for built-in Python agents."""
         with (
-            patch("code_puppy.command_line.agent_menu.get_available_agents_with_descriptions",
-                  return_value={"code-puppy": ("Code Puppy", "Default agent.")}),
-            patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={}),
+            patch(
+                "code_puppy.command_line.agent_menu.get_available_agents_with_descriptions",
+                return_value={"code-puppy": ("Code Puppy", "Default agent.")},
+            ),
+            patch(
+                "code_puppy.agents.json_agent.discover_json_agents_with_sources",
+                return_value={},
+            ),
         ):
             result = _get_agent_entries()
 
@@ -978,11 +1082,20 @@ class TestRenderPreviewPanelPath:
         user_path = "/home/user/.code_puppy/agents/my-agent.json"
 
         with (
-            patch("code_puppy.command_line.agent_menu.get_available_agents_with_descriptions",
-                  return_value={"my-agent": ("My Agent", "An agent.")}),
-            patch("code_puppy.agents.json_agent.discover_json_agents_with_sources", return_value={
-                "my-agent": {"path": project_path, "source": "project", "shadowed_path": user_path}
-            }),
+            patch(
+                "code_puppy.command_line.agent_menu.get_available_agents_with_descriptions",
+                return_value={"my-agent": ("My Agent", "An agent.")},
+            ),
+            patch(
+                "code_puppy.agents.json_agent.discover_json_agents_with_sources",
+                return_value={
+                    "my-agent": {
+                        "path": project_path,
+                        "source": "project",
+                        "shadowed_path": user_path,
+                    }
+                },
+            ),
         ):
             result = _get_agent_entries()
 
@@ -995,33 +1108,59 @@ class TestSelectCloneLocation:
     """Test the _select_clone_location async function."""
 
     @patch("code_puppy.command_line.agent_menu.arrow_select_async")
-    @patch("code_puppy.command_line.agent_menu.get_user_agents_directory", return_value="/home/user/.code_puppy/agents")
-    @patch("code_puppy.command_line.agent_menu.get_project_agents_directory", return_value=None)
-    async def test_returns_user_dir_when_selected(self, _mock_proj, _mock_user, mock_arrow):
+    @patch(
+        "code_puppy.command_line.agent_menu.get_user_agents_directory",
+        return_value="/home/user/.code_puppy/agents",
+    )
+    @patch(
+        "code_puppy.command_line.agent_menu.get_project_agents_directory",
+        return_value=None,
+    )
+    async def test_returns_user_dir_when_selected(
+        self, _mock_proj, _mock_user, mock_arrow
+    ):
         """Test that user directory Path is returned when user selects it."""
         mock_arrow.return_value = "User directory (~/.code_puppy/agents/)"
 
         result = await _select_clone_location()
 
         from pathlib import Path
+
         assert result == Path("/home/user/.code_puppy/agents")
 
     @patch("code_puppy.command_line.agent_menu.arrow_select_async")
-    @patch("code_puppy.command_line.agent_menu.get_user_agents_directory", return_value="/home/user/.code_puppy/agents")
-    @patch("code_puppy.command_line.agent_menu.get_project_agents_directory", return_value="/project/.code_puppy/agents")
-    async def test_returns_project_dir_when_selected(self, _mock_proj, _mock_user, mock_arrow):
+    @patch(
+        "code_puppy.command_line.agent_menu.get_user_agents_directory",
+        return_value="/home/user/.code_puppy/agents",
+    )
+    @patch(
+        "code_puppy.command_line.agent_menu.get_project_agents_directory",
+        return_value="/project/.code_puppy/agents",
+    )
+    async def test_returns_project_dir_when_selected(
+        self, _mock_proj, _mock_user, mock_arrow
+    ):
         """Test that project directory Path is returned when user selects it."""
         mock_arrow.return_value = _PROJECT_DIR_CHOICE
 
         result = await _select_clone_location()
 
         from pathlib import Path
+
         assert result == Path("/project/.code_puppy/agents")
 
     @patch("code_puppy.command_line.agent_menu.arrow_select_async")
-    @patch("code_puppy.command_line.agent_menu.get_user_agents_directory", return_value="/home/user/.code_puppy/agents")
-    @patch("code_puppy.command_line.agent_menu.get_project_agents_directory", return_value=None)
-    async def test_only_user_dir_offered_without_project_dir(self, _mock_proj, _mock_user, mock_arrow):
+    @patch(
+        "code_puppy.command_line.agent_menu.get_user_agents_directory",
+        return_value="/home/user/.code_puppy/agents",
+    )
+    @patch(
+        "code_puppy.command_line.agent_menu.get_project_agents_directory",
+        return_value=None,
+    )
+    async def test_only_user_dir_offered_without_project_dir(
+        self, _mock_proj, _mock_user, mock_arrow
+    ):
         """Test that project directory option is not offered when project dir doesn't exist."""
         mock_arrow.return_value = "User directory (~/.code_puppy/agents/)"
 
@@ -1033,9 +1172,17 @@ class TestSelectCloneLocation:
         assert not any("Project" in c for c in choices_passed)
 
     @patch("code_puppy.command_line.agent_menu.arrow_select_async")
-    @patch("code_puppy.command_line.agent_menu.get_user_agents_directory", return_value="/home/user/.code_puppy/agents")
-    @patch("code_puppy.command_line.agent_menu.get_project_agents_directory", return_value="/project/.code_puppy/agents")
-    async def test_both_options_offered_with_project_dir(self, _mock_proj, _mock_user, mock_arrow):
+    @patch(
+        "code_puppy.command_line.agent_menu.get_user_agents_directory",
+        return_value="/home/user/.code_puppy/agents",
+    )
+    @patch(
+        "code_puppy.command_line.agent_menu.get_project_agents_directory",
+        return_value="/project/.code_puppy/agents",
+    )
+    async def test_both_options_offered_with_project_dir(
+        self, _mock_proj, _mock_user, mock_arrow
+    ):
         """Test that both options are offered when project dir exists."""
         mock_arrow.return_value = "User directory (~/.code_puppy/agents/)"
 
@@ -1048,10 +1195,21 @@ class TestSelectCloneLocation:
         assert any("Project" in c for c in choices_passed)
 
     @patch("code_puppy.command_line.agent_menu.emit_info")
-    @patch("code_puppy.command_line.agent_menu.arrow_select_async", side_effect=KeyboardInterrupt)
-    @patch("code_puppy.command_line.agent_menu.get_user_agents_directory", return_value="/home/user/.code_puppy/agents")
-    @patch("code_puppy.command_line.agent_menu.get_project_agents_directory", return_value=None)
-    async def test_returns_none_on_keyboard_interrupt(self, _mock_proj, _mock_user, _mock_arrow, mock_emit):
+    @patch(
+        "code_puppy.command_line.agent_menu.arrow_select_async",
+        side_effect=KeyboardInterrupt,
+    )
+    @patch(
+        "code_puppy.command_line.agent_menu.get_user_agents_directory",
+        return_value="/home/user/.code_puppy/agents",
+    )
+    @patch(
+        "code_puppy.command_line.agent_menu.get_project_agents_directory",
+        return_value=None,
+    )
+    async def test_returns_none_on_keyboard_interrupt(
+        self, _mock_proj, _mock_user, _mock_arrow, mock_emit
+    ):
         """Test that None is returned and info emitted when user cancels with Ctrl+C."""
         result = await _select_clone_location()
 
@@ -1059,18 +1217,34 @@ class TestSelectCloneLocation:
         mock_emit.assert_called_once()
 
     @patch("code_puppy.command_line.agent_menu.arrow_select_async", return_value=None)
-    @patch("code_puppy.command_line.agent_menu.get_user_agents_directory", return_value="/home/user/.code_puppy/agents")
-    @patch("code_puppy.command_line.agent_menu.get_project_agents_directory", return_value=None)
-    async def test_returns_none_when_no_choice_made(self, _mock_proj, _mock_user, _mock_arrow):
+    @patch(
+        "code_puppy.command_line.agent_menu.get_user_agents_directory",
+        return_value="/home/user/.code_puppy/agents",
+    )
+    @patch(
+        "code_puppy.command_line.agent_menu.get_project_agents_directory",
+        return_value=None,
+    )
+    async def test_returns_none_when_no_choice_made(
+        self, _mock_proj, _mock_user, _mock_arrow
+    ):
         """Test that None is returned when arrow_select_async returns None."""
         result = await _select_clone_location()
 
         assert result is None
 
     @patch("code_puppy.command_line.agent_menu.emit_info")
-    @patch("code_puppy.command_line.agent_menu.get_user_agents_directory", return_value=None)
-    @patch("code_puppy.command_line.agent_menu.get_project_agents_directory", return_value=None)
-    async def test_returns_none_when_user_dir_is_none(self, _mock_proj, _mock_user, mock_emit):
+    @patch(
+        "code_puppy.command_line.agent_menu.get_user_agents_directory",
+        return_value=None,
+    )
+    @patch(
+        "code_puppy.command_line.agent_menu.get_project_agents_directory",
+        return_value=None,
+    )
+    async def test_returns_none_when_user_dir_is_none(
+        self, _mock_proj, _mock_user, mock_emit
+    ):
         """Test that None is returned and info emitted when user_dir is None."""
         result = await _select_clone_location()
 

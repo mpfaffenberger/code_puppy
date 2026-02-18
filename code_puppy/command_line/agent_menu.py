@@ -215,7 +215,9 @@ async def _select_clone_location() -> Optional[Path]:
         choices.append(_PROJECT_DIR_CHOICE)
 
     try:
-        choice = await arrow_select_async("Where should the cloned agent be saved?", choices)
+        choice = await arrow_select_async(
+            "Where should the cloned agent be saved?", choices
+        )
     except KeyboardInterrupt:
         emit_info("Clone cancelled")
         return None
@@ -326,7 +328,9 @@ def _get_agent_entries() -> List[AgentEntry]:
         info = source_info.get(name)
         source_path = info["path"] if info else None
         shadowed_path = info.get("shadowed_path") if info else None
-        entries.append(AgentEntry(name, display_name, description, source_path, shadowed_path))
+        entries.append(
+            AgentEntry(name, display_name, description, source_path, shadowed_path)
+        )
 
     entries.sort(key=lambda e: e.name.lower())
     return entries

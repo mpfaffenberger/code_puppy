@@ -27,8 +27,13 @@ class TestDiscoverJsonAgentsWithSources:
         user_dir.mkdir()
         user_file = _make_agent_file(user_dir, "my-agent")
 
-        with patch("code_puppy.config.get_user_agents_directory", return_value=str(user_dir)), \
-             patch("code_puppy.config.get_project_agents_directory", return_value=None):
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch("code_puppy.config.get_project_agents_directory", return_value=None),
+        ):
             result = discover_json_agents_with_sources()
 
         assert "my-agent" in result
@@ -45,8 +50,16 @@ class TestDiscoverJsonAgentsWithSources:
         project_dir.mkdir()
         project_file = _make_agent_file(project_dir, "team-agent")
 
-        with patch("code_puppy.config.get_user_agents_directory", return_value=str(user_dir)), \
-             patch("code_puppy.config.get_project_agents_directory", return_value=str(project_dir)):
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch(
+                "code_puppy.config.get_project_agents_directory",
+                return_value=str(project_dir),
+            ),
+        ):
             result = discover_json_agents_with_sources()
 
         assert "team-agent" in result
@@ -65,8 +78,16 @@ class TestDiscoverJsonAgentsWithSources:
         user_file = _make_agent_file(user_dir, "shared-agent", "User version")
         project_file = _make_agent_file(project_dir, "shared-agent", "Project version")
 
-        with patch("code_puppy.config.get_user_agents_directory", return_value=str(user_dir)), \
-             patch("code_puppy.config.get_project_agents_directory", return_value=str(project_dir)):
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch(
+                "code_puppy.config.get_project_agents_directory",
+                return_value=str(project_dir),
+            ),
+        ):
             result = discover_json_agents_with_sources()
 
         assert "shared-agent" in result
@@ -85,8 +106,16 @@ class TestDiscoverJsonAgentsWithSources:
         user_file = _make_agent_file(user_dir, "user-only")
         project_file = _make_agent_file(project_dir, "project-only")
 
-        with patch("code_puppy.config.get_user_agents_directory", return_value=str(user_dir)), \
-             patch("code_puppy.config.get_project_agents_directory", return_value=str(project_dir)):
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch(
+                "code_puppy.config.get_project_agents_directory",
+                return_value=str(project_dir),
+            ),
+        ):
             result = discover_json_agents_with_sources()
 
         assert len(result) == 2
@@ -106,8 +135,13 @@ class TestDiscoverJsonAgentsWithSources:
         (user_dir / "bad-syntax.json").write_text("{invalid json}")
         (user_dir / "missing-fields.json").write_text('{"name": "incomplete"}')
 
-        with patch("code_puppy.config.get_user_agents_directory", return_value=str(user_dir)), \
-             patch("code_puppy.config.get_project_agents_directory", return_value=None):
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch("code_puppy.config.get_project_agents_directory", return_value=None),
+        ):
             result = discover_json_agents_with_sources()
 
         assert len(result) == 1
@@ -124,8 +158,16 @@ class TestDiscoverJsonAgentsWithSources:
         _make_agent_file(project_dir, "valid-proj")
         (project_dir / "bad.json").write_text("{not valid}")
 
-        with patch("code_puppy.config.get_user_agents_directory", return_value=str(user_dir)), \
-             patch("code_puppy.config.get_project_agents_directory", return_value=str(project_dir)):
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch(
+                "code_puppy.config.get_project_agents_directory",
+                return_value=str(project_dir),
+            ),
+        ):
             result = discover_json_agents_with_sources()
 
         assert len(result) == 1
@@ -139,8 +181,16 @@ class TestDiscoverJsonAgentsWithSources:
         project_dir = tmp_path / "project_agents"
         project_dir.mkdir()
 
-        with patch("code_puppy.config.get_user_agents_directory", return_value=str(user_dir)), \
-             patch("code_puppy.config.get_project_agents_directory", return_value=str(project_dir)):
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch(
+                "code_puppy.config.get_project_agents_directory",
+                return_value=str(project_dir),
+            ),
+        ):
             result = discover_json_agents_with_sources()
 
         assert result == {}
@@ -151,8 +201,13 @@ class TestDiscoverJsonAgentsWithSources:
         user_dir.mkdir()
         user_file = _make_agent_file(user_dir, "user-agent")
 
-        with patch("code_puppy.config.get_user_agents_directory", return_value=str(user_dir)), \
-             patch("code_puppy.config.get_project_agents_directory", return_value=None):
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value=str(user_dir),
+            ),
+            patch("code_puppy.config.get_project_agents_directory", return_value=None),
+        ):
             result = discover_json_agents_with_sources()
 
         assert list(result.keys()) == ["user-agent"]
@@ -165,8 +220,16 @@ class TestDiscoverJsonAgentsWithSources:
         project_dir.mkdir()
         _make_agent_file(project_dir, "proj-agent")
 
-        with patch("code_puppy.config.get_user_agents_directory", return_value="/nonexistent/path"), \
-             patch("code_puppy.config.get_project_agents_directory", return_value=str(project_dir)):
+        with (
+            patch(
+                "code_puppy.config.get_user_agents_directory",
+                return_value="/nonexistent/path",
+            ),
+            patch(
+                "code_puppy.config.get_project_agents_directory",
+                return_value=str(project_dir),
+            ),
+        ):
             result = discover_json_agents_with_sources()
 
         assert list(result.keys()) == ["proj-agent"]
