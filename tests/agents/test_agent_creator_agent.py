@@ -242,6 +242,14 @@ class TestAgentCreatorProjectDirectory:
             "code_puppy.agents.agent_creator_agent.get_available_tool_names",
             lambda: ["read_file", "edit_file"],
         )
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_user_agents_directory",
+            lambda: "/mock/user/agents",
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.ModelFactory.load_config",
+            lambda: {},
+        )
 
         creator = AgentCreatorAgent()
         prompt = creator.get_system_prompt()
@@ -260,6 +268,14 @@ class TestAgentCreatorProjectDirectory:
         monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.get_available_tool_names",
             lambda: ["read_file"],
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_user_agents_directory",
+            lambda: "/mock/user/agents",
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.ModelFactory.load_config",
+            lambda: {},
         )
 
         creator = AgentCreatorAgent()

@@ -406,7 +406,7 @@ This detailed documentation should be copied verbatim into any agent that will b
       {{
         "question": "Where should this agent be saved?",
         "header": "Location",
-        "multiSelect": false,
+        "multi_select": false,
         "options": [
           {{
             "label": "User directory",

@@ -206,10 +206,6 @@ async def _select_clone_location() -> Optional[Path]:
     project_dir = get_project_agents_directory()
     user_dir = get_user_agents_directory()
 
-    if user_dir is None:
-        emit_info("No user agents directory configured — clone cancelled.")
-        return None
-
     choices = [_USER_DIR_CHOICE]
     if project_dir:
         choices.append(_PROJECT_DIR_CHOICE)

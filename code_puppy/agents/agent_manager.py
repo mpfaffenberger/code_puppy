@@ -486,6 +486,9 @@ def get_agent_source_path(agent_name: str) -> Optional[str]:
     Returns:
         File path string if agent is JSON-based, None otherwise.
     """
+    if agent_name not in _AGENT_REGISTRY:
+        message_group_id = str(uuid.uuid4())
+        _discover_agents(message_group_id=message_group_id)
     ref = _AGENT_REGISTRY.get(agent_name)
     return ref if isinstance(ref, str) else None
 
