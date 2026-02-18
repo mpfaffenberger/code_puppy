@@ -79,7 +79,8 @@ class TestAgentCreatorAgent:
         prompt = agent.get_system_prompt()
 
         # Verify the agents directory is mentioned in file creation section
-        assert f"Save to the agents directory: `{mock_dir}`" in prompt
+        assert mock_dir in prompt
+        assert ".code_puppy/agents/" in prompt
 
     def test_get_system_prompt_injects_model_inventory(self, monkeypatch):
         """Test that get_system_prompt() injects model inventory from ModelFactory.load_config()."""
@@ -152,8 +153,9 @@ class TestAgentCreatorAgent:
         for tool in mock_tools:
             assert f"**{tool}**" in prompt
 
-        # Verify agents directory is injected
-        assert f"Save to the agents directory: `{mock_agents_dir}`" in prompt
+        # Verify agents directory is injected (now mentions both user and project)
+        assert mock_agents_dir in prompt
+        assert ".code_puppy/agents/" in prompt
 
         # Verify models are injected
         for model_name, model_info in mock_models_config.items():
@@ -211,3 +213,121 @@ class TestAgentCreatorAgent:
         agent = AgentCreatorAgent()
         expected = "Hi! I'm the Agent Creator 🏗️ Let's build an awesome agent together!"
         assert agent.get_user_prompt() == expected
+
+
+class TestAgentCreatorProjectDirectory:
+    """Tests for agent creation in project directories."""
+
+    def test_create_agent_in_project_directory(self, tmp_path, monkeypatch):
+        """Test creating an agent in the project directory."""
+        # Setup: Create project structure
+        project_dir = tmp_path / "myproject"
+        project_agents_dir = project_dir / ".code_puppy" / "agents"
+        project_agents_dir.mkdir(parents=True)
+
+        # Mock config to return project directory
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_project_agents_directory",
+            lambda: str(project_agents_dir)
+        )
+
+        # Mock ask_user_question to select project directory
+        from unittest.mock import Mock
+        mock_result = Mock()
+        mock_result.cancelled = False
+        mock_answer = Mock()
+        mock_answer.selected_options = ["Project directory"]
+        mock_result.answers = [mock_answer]
+
+        monkeypatch.setattr(
+            "code_puppy.tools.ask_user_question.handler.ask_user_question",
+            lambda questions: mock_result
+        )
+
+        # Mock other dependencies
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_available_tool_names",
+            lambda: ["read_file", "edit_file"]
+        )
+
+        # Test: Create agent
+        creator = AgentCreatorAgent()
+
+        agent_config = {
+            "name": "test-agent",
+            "description": "Test agent",
+            "system_prompt": "Test prompt",
+            "tools": ["read_file"]
+        }
+
+        success, message = creator.create_agent_json(agent_config)
+
+        # Verify
+        assert success is True
+        assert (project_agents_dir / "test-agent.json").exists()
+        assert "test-agent" in message
+
+    def test_create_agent_no_project_directory(self, tmp_path, monkeypatch):
+        """Test that only user directory is offered when no project dir exists."""
+        # Mock: No project directory
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_project_agents_directory",
+            lambda: None
+        )
+
+        # Mock: User selects user directory (only option)
+        from unittest.mock import Mock
+        mock_result = Mock()
+        mock_result.cancelled = False
+        mock_answer = Mock()
+        mock_answer.selected_options = ["User directory"]
+        mock_result.answers = [mock_answer]
+
+        captured_questions = []
+        def capture_questions(questions):
+            captured_questions.append(questions)
+            return mock_result
+
+        monkeypatch.setattr(
+            "code_puppy.tools.ask_user_question.handler.ask_user_question",
+            capture_questions
+        )
+
+        # Mock user directory
+        user_dir = tmp_path / "user_agents"
+        user_dir.mkdir()
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_user_agents_directory",
+            lambda: str(user_dir)
+        )
+
+        # Test
+        creator = AgentCreatorAgent()
+        result = creator.ask_save_location()
+
+        # Verify only user directory option was offered
+        assert len(captured_questions) == 1
+        options = captured_questions[0][0]["options"]
+        assert len(options) == 1
+        assert options[0]["label"] == "User directory"
+        assert result == str(user_dir)
+
+    def test_create_agent_user_cancels_location(self, monkeypatch):
+        """Test handling when user cancels directory selection."""
+        # Mock: User cancels
+        from unittest.mock import Mock
+        mock_result = Mock()
+        mock_result.cancelled = True
+        mock_result.answers = []
+
+        monkeypatch.setattr(
+            "code_puppy.tools.ask_user_question.handler.ask_user_question",
+            lambda questions: mock_result
+        )
+
+        # Test
+        creator = AgentCreatorAgent()
+
+        import pytest
+        with pytest.raises(ValueError, match="No save location selected"):
+            creator.get_agent_file_path("test-agent")

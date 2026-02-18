@@ -4,7 +4,7 @@ import json
 import os
 from typing import Dict, List, Optional
 
-from code_puppy.config import get_user_agents_directory
+from code_puppy.config import get_user_agents_directory, get_project_agents_directory
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools import get_available_tool_names
 
@@ -400,9 +400,34 @@ This detailed documentation should be copied verbatim into any agent that will b
 - ✅ NEVER ask permission to create the file after confirmation is given
 
 **File Creation:**
-- ALWAYS use the `edit_file` tool to create the JSON file
-- Save to the agents directory: `{agents_dir}`
-- Always notify user of successful creation with file path
+- BEFORE creating the file, you MUST ask where to save it using `ask_user_question` with this EXACT format:
+  ```json
+  {{
+    "questions": [
+      {{
+        "question": "Where should this agent be saved?",
+        "header": "Location",
+        "multiSelect": false,
+        "options": [
+          {{
+            "label": "User directory",
+            "description": "{agents_dir} (available in all projects)"
+          }},
+          {{
+            "label": "Project directory",
+            "description": ".code_puppy/agents/ (version controlled)"
+          }}
+        ]
+      }}
+    ]
+  }}
+  ```
+- If no `.code_puppy/agents/` directory exists, only include the User directory option
+- THEN use `edit_file` to create the JSON file at the chosen location:
+  - If user chose "User directory": save to `{agents_dir}/agent-name.json`
+  - If user chose "Project directory": save to `.code_puppy/agents/agent-name.json`
+- IMPORTANT: Never use `~` in file paths. Always use the fully expanded paths shown above
+- Always notify user of successful creation with full file path
 - Explain how to use the new agent with `/agent agent-name`
 
 ## Tool Suggestion Examples:
@@ -581,17 +606,57 @@ Your goal is to take users from idea to working agent in one smooth conversation
 
         return errors
 
-    def get_agent_file_path(self, agent_name: str) -> str:
+    def ask_save_location(self) -> Optional[str]:
+        """Ask user where to save the agent (user vs project directory).
+
+        Returns:
+            Directory path, or None if user cancelled.
+        """
+        from code_puppy.tools.ask_user_question.handler import ask_user_question
+
+        project_dir = get_project_agents_directory()
+        options = [
+            {
+                "label": "User directory",
+                "description": "~/.code_puppy/agents/ (available in all projects)"
+            }
+        ]
+
+        if project_dir:
+            options.append({
+                "label": "Project directory",
+                "description": ".code_puppy/agents/ (version controlled with project)"
+            })
+
+        result = ask_user_question([{
+            "question": "Where should this agent be saved?",
+            "header": "Location",
+            "multi_select": False,
+            "options": options
+        }])
+
+        if result.cancelled or not result.answers:
+            return None
+
+        choice = result.answers[0].selected_options[0]
+        return project_dir if choice == "Project directory" else get_user_agents_directory()
+
+    def get_agent_file_path(self, agent_name: str, directory: Optional[str] = None) -> str:
         """Get the full file path for an agent JSON file.
 
         Args:
-            agent_name: The agent name
+            agent_name: Name of the agent
+            directory: Target directory (if None, asks user)
 
         Returns:
             Full path to the agent JSON file
         """
-        agents_dir = get_user_agents_directory()
-        return os.path.join(agents_dir, f"{agent_name}.json")
+        if directory is None:
+            directory = self.ask_save_location()
+            if directory is None:
+                raise ValueError("No save location selected")
+
+        return os.path.join(directory, f"{agent_name}.json")
 
     def create_agent_json(self, agent_config: Dict) -> tuple[bool, str]:
         """Create a JSON agent file.
