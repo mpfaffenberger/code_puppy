@@ -691,7 +691,9 @@ class BaseAgent(ABC):
 
         # Scan backwards from split point to find any tool_uses that match protected returns
         adjusted_idx = initial_split_idx
-        for i in range(initial_split_idx - 1, 0, -1):  # Don't include system message at 0
+        for i in range(
+            initial_split_idx - 1, 0, -1
+        ):  # Don't include system message at 0
             msg = messages[i]
             has_matching_tool_use = False
             for part in getattr(msg, "parts", []) or []:
@@ -866,7 +868,9 @@ class BaseAgent(ABC):
             # Catch-all for unexpected errors
             error_type = type(e).__name__
             error_msg = str(e) if str(e) else "(no error details)"
-            emit_error(f"Unexpected error during compaction: [{error_type}] {error_msg}")
+            emit_error(
+                f"Unexpected error during compaction: [{error_type}] {error_msg}"
+            )
             return messages, []  # Return original messages on failure
 
     def get_model_context_length(self) -> int:
@@ -1588,11 +1592,24 @@ class BaseAgent(ABC):
         result_messages_filtered_empty_thinking = []
         filtered_count = 0
         for msg in self.get_message_history():
-            if len(msg.parts) == 1:
-                if isinstance(msg.parts[0], ThinkingPart):
-                    if msg.parts[0].content == "":
-                        filtered_count += 1
-                        continue
+            # Filter out single-part messages that are empty ThinkingParts
+            if len(msg.parts) == 1 and isinstance(msg.parts[0], ThinkingPart):
+                if not msg.parts[0].content:
+                    filtered_count += 1
+                    continue
+            # For multi-part messages, strip empty ThinkingParts but keep the message
+            elif any(isinstance(p, ThinkingPart) and not p.content for p in msg.parts):
+                msg = dataclasses.replace(
+                    msg,
+                    parts=[
+                        p
+                        for p in msg.parts
+                        if not (isinstance(p, ThinkingPart) and not p.content)
+                    ],
+                )
+                if not msg.parts:
+                    filtered_count += 1
+                    continue
             result_messages_filtered_empty_thinking.append(msg)
             self.set_message_history(result_messages_filtered_empty_thinking)
 

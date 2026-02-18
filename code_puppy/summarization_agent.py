@@ -8,7 +8,6 @@ from pydantic_ai import Agent
 
 from code_puppy.config import (
     get_global_model_name,
-    get_use_dbos,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
 
@@ -47,7 +46,7 @@ atexit.register(_shutdown_thread_pool)
 def _run_async_safely(coro):
     """
     Run an async coroutine in a fresh event loop without affecting global state.
-    
+
     Unlike asyncio.run(), this:
     - Doesn't call shutdown_default_executor() (which breaks DBOS)
     - Doesn't modify the global event loop reference
@@ -129,7 +128,9 @@ def run_summarization_sync(prompt: str, message_history: List) -> List:
                 for task in pending:
                     task.cancel()
                 if pending:
-                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                    loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
                 loop.run_until_complete(loop.shutdown_asyncgens())
             finally:
                 loop.close()
