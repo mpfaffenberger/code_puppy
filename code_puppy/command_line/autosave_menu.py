@@ -399,7 +399,7 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
 
 # Default number of messages to display when resuming a session
 # This is overridden by the user config 'resume_message_count'
-DEFAULT_RESUME_DISPLAY_COUNT = 30
+DEFAULT_RESUME_DISPLAY_COUNT = 50
 
 
 def display_resumed_history(
