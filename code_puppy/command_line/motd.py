@@ -65,7 +65,9 @@ def mark_motd_seen(version: str) -> None:
             f.write(f"{version}\n")
 
 
-def print_motd(console=None, force: bool = False) -> bool:
+def print_motd(
+    console=None, force: bool = False
+) -> bool:
     """Print the message of the day to the user.
 
     Args:

@@ -1046,9 +1046,7 @@ def databricks_list_pipelines(
 
     try:
         client = DatabricksClient()
-        pipelines = client.list_pipelines(
-            name_filter=name_filter, max_results=max_results
-        )
+        pipelines = client.list_pipelines(name_filter=name_filter, max_results=max_results)
 
         emit_success(f"Found {len(pipelines)} pipeline(s)")
 
@@ -1349,7 +1347,9 @@ def databricks_run_notebook(
             timeout_seconds=timeout_seconds,
         )
 
-        emit_success(f"Notebook run completed: {result.get('result_state', 'UNKNOWN')}")
+        emit_success(
+            f"Notebook run completed: {result.get('result_state', 'UNKNOWN')}"
+        )
 
         return {
             "success": True,

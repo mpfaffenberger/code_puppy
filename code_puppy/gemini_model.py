@@ -638,12 +638,15 @@ class GeminiModel(Model):
         has_thought_signature = first_real_signature is not None
 
         for idx, part in enumerate(parts):
-            is_thinking = part.get("thought") or (
-                has_thought_signature
-                and idx < first_sig_idx
-                and "text" in part
-                and not part.get("thoughtSignature")
-                and "functionCall" not in part
+            is_thinking = (
+                part.get("thought")
+                or (
+                    has_thought_signature
+                    and idx < first_sig_idx
+                    and "text" in part
+                    and not part.get("thoughtSignature")
+                    and "functionCall" not in part
+                )
             )
 
             if is_thinking and part.get("text") is not None:
@@ -651,7 +654,9 @@ class GeminiModel(Model):
                 # the NEXT part (text or functionCall), not the thinking
                 # part itself. Use the part's own signature if present,
                 # otherwise grab it from the first signed part.
-                signature = part.get("thoughtSignature") or first_real_signature
+                signature = (
+                    part.get("thoughtSignature") or first_real_signature
+                )
                 response_parts.append(
                     ThinkingPart(
                         content=part["text"],
@@ -799,7 +804,9 @@ class GeminiStreamingResponse(StreamedResponse):
             # safety blocks / token limits from normal completion.
             gemini_finish = candidate.get("finishReason")
             if gemini_finish:
-                self.finish_reason = GeminiModel._map_finish_reason(gemini_finish)
+                self.finish_reason = GeminiModel._map_finish_reason(
+                    gemini_finish
+                )
 
             content = candidate.get("content", {})
             parts = content.get("parts", [])

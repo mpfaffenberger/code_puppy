@@ -708,6 +708,7 @@ def handle_generate_pr_description_command(command: str) -> str:
     return pr_prompt
 
 
+
 @register_command(
     name="wiggum",
     description="Loop mode: re-run the same prompt when agent finishes (like Wiggum chasing donuts 🍩)",

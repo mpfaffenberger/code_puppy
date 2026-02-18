@@ -83,9 +83,7 @@ def powerbi_list_datasets(
         has_more = len(datasets) == top
         next_skip = skip + len(datasets) if has_more else None
 
-        emit_success(
-            f"Found {len(datasets)} datasets (skip={skip}, has_more={has_more})"
-        )
+        emit_success(f"Found {len(datasets)} datasets (skip={skip}, has_more={has_more})")
 
         formatted = []
         for ds in datasets:
@@ -607,9 +605,7 @@ def powerbi_get_refresh_history(
         has_more = len(refreshes) == top
         next_skip = skip + len(refreshes) if has_more else None
 
-        emit_success(
-            f"Found {len(refreshes)} refresh entries (skip={skip}, has_more={has_more})"
-        )
+        emit_success(f"Found {len(refreshes)} refresh entries (skip={skip}, has_more={has_more})")
 
         formatted = []
         for ref in refreshes:

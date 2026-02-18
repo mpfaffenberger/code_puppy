@@ -61,18 +61,11 @@ if IS_MACOS:
 
         _log = logging.getLogger(__name__)
         try:
-            _log.info(
-                "atomacos not found — installing --no-deps for macOS accessibility…"
-            )
+            _log.info("atomacos not found — installing --no-deps for macOS accessibility…")
             subprocess.check_call(
                 [
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    "--no-deps",
-                    "--quiet",
-                    "atomacos>=3.2.0",
+                    sys.executable, "-m", "pip", "install",
+                    "--no-deps", "--quiet", "atomacos>=3.2.0",
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,

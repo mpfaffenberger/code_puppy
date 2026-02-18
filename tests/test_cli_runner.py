@@ -137,9 +137,7 @@ class TestArgumentParsing:
         parser = argparse.ArgumentParser()
         parser.add_argument("-p", "--prompt", type=str)
         parser.add_argument("-r", "--resume", type=str, metavar="SESSION")
-        args = parser.parse_args(
-            ["--resume", "saved-session", "-p", "continue this task"]
-        )
+        args = parser.parse_args(["--resume", "saved-session", "-p", "continue this task"])
         assert args.resume == "saved-session"
         assert args.prompt == "continue this task"
 
@@ -421,6 +419,8 @@ class TestResumeFlag:
 
     def test_resume_session_loading_logic(self, tmp_path):
         """Test that resume can load from a pickle file path."""
+        import pickle
+        from pathlib import Path
 
         from code_puppy.session_storage import load_session, save_session
 
@@ -464,6 +464,7 @@ class TestResumeFlag:
 
     def test_resume_path_resolution_session_name(self, tmp_path):
         """Test that a session name is resolved to the contexts directory."""
+        from pathlib import Path
 
         # Simulate a contexts directory with a session file
         contexts_dir = tmp_path
