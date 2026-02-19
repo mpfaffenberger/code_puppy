@@ -1161,15 +1161,14 @@ class TestSelectCloneLocation:
     async def test_only_user_dir_offered_without_project_dir(
         self, _mock_proj, _mock_user, mock_arrow
     ):
-        """Test that project directory option is not offered when project dir doesn't exist."""
-        mock_arrow.return_value = "User directory (~/.code_puppy/agents/)"
+        """Test that no prompt is shown and user dir is returned directly when project dir doesn't exist."""
+        from pathlib import Path
 
-        await _select_clone_location()
+        result = await _select_clone_location()
 
-        _call_args = mock_arrow.call_args
-        choices_passed = _call_args[0][1]
-        assert len(choices_passed) == 1
-        assert not any("Project" in c for c in choices_passed)
+        # The picker should be skipped entirely — no question asked
+        mock_arrow.assert_not_called()
+        assert result == Path("/home/user/.code_puppy/agents")
 
     @patch("code_puppy.command_line.agent_menu.arrow_select_async")
     @patch(
@@ -1205,7 +1204,7 @@ class TestSelectCloneLocation:
     )
     @patch(
         "code_puppy.command_line.agent_menu.get_project_agents_directory",
-        return_value=None,
+        return_value="/project/.code_puppy/agents",
     )
     async def test_returns_none_on_keyboard_interrupt(
         self, _mock_proj, _mock_user, _mock_arrow, mock_emit
@@ -1223,7 +1222,7 @@ class TestSelectCloneLocation:
     )
     @patch(
         "code_puppy.command_line.agent_menu.get_project_agents_directory",
-        return_value=None,
+        return_value="/project/.code_puppy/agents",
     )
     async def test_returns_none_when_no_choice_made(
         self, _mock_proj, _mock_user, _mock_arrow

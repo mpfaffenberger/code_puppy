@@ -684,20 +684,21 @@ def _ask_clone_location() -> Optional[Path]:
     from ..config import get_user_agents_directory, get_project_agents_directory
 
     project_dir = get_project_agents_directory()
+
+    # Skip the prompt entirely when there is no project directory — no choice to make.
+    if not project_dir:
+        return Path(get_user_agents_directory())
+
     options = [
         {
             "label": _USER_DIR_LABEL,
             "description": "~/.code_puppy/agents/ (available in all projects)",
-        }
+        },
+        {
+            "label": _PROJECT_DIR_LABEL,
+            "description": ".code_puppy/agents/ (version controlled)",
+        },
     ]
-
-    if project_dir:
-        options.append(
-            {
-                "label": _PROJECT_DIR_LABEL,
-                "description": ".code_puppy/agents/ (version controlled)",
-            }
-        )
 
     result = ask_user_question(
         [

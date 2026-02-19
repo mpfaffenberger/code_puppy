@@ -206,19 +206,18 @@ async def _select_clone_location() -> Optional[Path]:
     project_dir = get_project_agents_directory()
     user_dir = get_user_agents_directory()
 
-    choices = []
-    if user_dir:
-        choices.append(_USER_DIR_CHOICE)
-    if project_dir:
-        choices.append(_PROJECT_DIR_CHOICE)
-
-    if not choices:
+    if not user_dir:
         emit_info("No agent directory available for cloning.")
         return None
 
+    # Skip the prompt entirely when there is no project directory — no choice to make.
+    if not project_dir:
+        return Path(user_dir)
+
     try:
         choice = await arrow_select_async(
-            "Where should the cloned agent be saved?", choices
+            "Where should the cloned agent be saved?",
+            [_USER_DIR_CHOICE, _PROJECT_DIR_CHOICE],
         )
     except KeyboardInterrupt:
         emit_info("Clone cancelled")
@@ -227,7 +226,7 @@ async def _select_clone_location() -> Optional[Path]:
     if choice is None:
         return None
 
-    if choice == _PROJECT_DIR_CHOICE and project_dir:
+    if choice == _PROJECT_DIR_CHOICE:
         return Path(project_dir)
     return Path(user_dir)
 

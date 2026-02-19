@@ -27,7 +27,7 @@ class AgentCreatorAgent(BaseAgent):
     def get_system_prompt(self) -> str:
         available_tools = get_available_tool_names()
         agents_dir = get_user_agents_directory()
-        project_agents_dir = get_project_agents_directory() or ".code_puppy/agents"
+        project_agents_dir = get_project_agents_directory()
 
         # Also get Universal Constructor tools (custom tools created by users)
         uc_tools_info = []
@@ -63,6 +63,41 @@ class AgentCreatorAgent(BaseAgent):
             )
 
         available_models_str = "\n".join(model_descriptions)
+
+        # Build the file-creation instructions for the system prompt.
+        # When a project agents directory exists, ask the user where to save.
+        # When only the user directory is available, skip the question entirely.
+        if project_agents_dir:
+            _file_creation_instructions = f"""**File Creation:**
+- BEFORE creating the file, you MUST ask where to save it using `ask_user_question` with this EXACT format:
+  ```json
+  {{{{
+    "questions": [
+      {{{{
+        "question": "Where should this agent be saved?",
+        "header": "Location",
+        "multi_select": false,
+        "options": [
+          {{{{
+            "label": "User directory",
+            "description": "{agents_dir} (available in all projects)"
+          }}}},
+          {{{{
+            "label": "Project directory",
+            "description": "{project_agents_dir} (version controlled)"
+          }}}}
+        ]
+      }}}}
+    ]
+  }}}}
+  ```
+- THEN use `edit_file` to create the JSON file at the chosen location:
+  - If user chose "User directory": save to `{agents_dir}/agent-name.json`
+  - If user chose "Project directory": save to `{project_agents_dir}/agent-name.json`"""
+        else:
+            _file_creation_instructions = f"""**File Creation:**
+- Do NOT ask the user where to save — save directly to the user agents directory.
+- Use `edit_file` to create the JSON file at: `{agents_dir}/agent-name.json`"""
 
         return f"""You are the Agent Creator! 🏗️ Your mission is to help users create awesome JSON agent files through an interactive process.
 
@@ -398,33 +433,7 @@ This detailed documentation should be copied verbatim into any agent that will b
 - ✅ If changes needed: gather feedback and regenerate
 - ✅ NEVER ask permission to create the file after confirmation is given
 
-**File Creation:**
-- BEFORE creating the file, you MUST ask where to save it using `ask_user_question` with this EXACT format:
-  ```json
-  {{
-    "questions": [
-      {{
-        "question": "Where should this agent be saved?",
-        "header": "Location",
-        "multi_select": false,
-        "options": [
-          {{
-            "label": "User directory",
-            "description": "{agents_dir} (available in all projects)"
-          }},
-          {{
-            "label": "Project directory",
-            "description": ".code_puppy/agents/ (version controlled)"
-          }}
-        ]
-      }}
-    ]
-  }}
-  ```
-- If no `.code_puppy/agents/` directory exists, only include the User directory option
-- THEN use `edit_file` to create the JSON file at the chosen location:
-  - If user chose "User directory": save to `{agents_dir}/agent-name.json`
-  - If user chose "Project directory": save to `{project_agents_dir}/agent-name.json`
+{_file_creation_instructions}
 - IMPORTANT: Never use `~` in file paths. Always use the fully expanded paths shown above
 - Always notify user of successful creation with full file path
 - Explain how to use the new agent with `/agent agent-name`
