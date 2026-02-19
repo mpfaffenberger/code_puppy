@@ -87,7 +87,8 @@ def _find_matching_model(rest: str, model_names: list[str]) -> Optional[str]:
 
     Priority:
     1. Exact match (case-insensitive)
-    2. Prefix match, with longer models checked first (most specific wins)
+    2. Input starts with a model name (longest/most specific wins)
+    3. Model starts with input (prefix/completion match, longest wins)
     """
     rest_lower = rest.lower()
 
@@ -99,7 +100,15 @@ def _find_matching_model(rest: str, model_names: list[str]) -> Optional[str]:
     # Sort by length (longest first) so more specific matches win
     sorted_models = sorted(model_names, key=len, reverse=True)
 
-    # Check for prefix match
+    # Check if input starts with a model name (e.g. "gpt-5 tell me a joke")
+    for model in sorted_models:
+        model_lower = model.lower()
+        if rest_lower.startswith(model_lower) and (
+            len(rest_lower) == len(model_lower) or rest_lower[len(model_lower)] == " "
+        ):
+            return model
+
+    # Check for prefix/completion match (input is partial model name)
     for model in sorted_models:
         if model.lower().startswith(rest_lower):
             return model

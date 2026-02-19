@@ -43,7 +43,6 @@ def _shutdown_thread_pool():
 atexit.register(_shutdown_thread_pool)
 
 
-
 async def _run_agent_async(agent: Agent, prompt: str, message_history: List):
     return await agent.run(prompt, message_history=message_history)
 
