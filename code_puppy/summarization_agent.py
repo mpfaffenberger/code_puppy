@@ -8,7 +8,6 @@ from pydantic_ai import Agent
 
 from code_puppy.config import (
     get_global_model_name,
-    get_use_dbos,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
 
@@ -26,7 +25,8 @@ _reload_count = 0
 
 def _ensure_thread_pool():
     global _thread_pool
-    if _thread_pool is None:
+    # Check if pool is None OR if it's been shutdown
+    if _thread_pool is None or _thread_pool._shutdown:
         _thread_pool = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="summarizer-loop"
         )
@@ -47,8 +47,27 @@ async def _run_agent_async(agent: Agent, prompt: str, message_history: List):
     return await agent.run(prompt, message_history=message_history)
 
 
+class SummarizationError(Exception):
+    """Raised when summarization fails with details about the failure."""
+
+    def __init__(self, message: str, original_error: Exception | None = None):
+        self.original_error = original_error
+        super().__init__(message)
+
+
 def run_summarization_sync(prompt: str, message_history: List) -> List:
-    agent = get_summarization_agent()
+    """Run the summarization agent synchronously.
+
+    Raises:
+        SummarizationError: If summarization fails for any reason.
+    """
+    try:
+        agent = get_summarization_agent()
+    except Exception as e:
+        raise SummarizationError(
+            f"Failed to initialize summarization agent: {type(e).__name__}: {e}",
+            original_error=e,
+        ) from e
 
     # Handle claude-code models: prepend system prompt to user prompt
     from code_puppy.model_utils import prepare_prompt_for_model
@@ -59,24 +78,44 @@ def run_summarization_sync(prompt: str, message_history: List) -> List:
     )
     prompt = prepared.user_prompt
 
+    def _run_in_thread():
+        """
+        Run the async agent in a dedicated thread with its own event loop.
+        Uses run_until_complete instead of asyncio.run to avoid shutting down
+        the default executor (which breaks DBOS in the main thread).
+        Does NOT touch global event loop state.
+        """
+        loop = asyncio.new_event_loop()
+        try:
+            coro = agent.run(prompt, message_history=message_history)
+            return loop.run_until_complete(coro)
+        finally:
+            # Clean up without shutting down the default executor
+            try:
+                # Cancel pending tasks
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            finally:
+                loop.close()
+
     try:
-        # Try to detect if we're already in an event loop
-        asyncio.get_running_loop()
-
-        # We're in an event loop: offload to a dedicated thread with its own loop
-        def _worker(prompt_: str):
-            return asyncio.run(
-                _run_agent_async(agent, prompt_, message_history=message_history)
-            )
-
+        # Always use thread pool since we're likely in an existing event loop
         pool = _ensure_thread_pool()
-        result = pool.submit(_worker, prompt).result()
-    except RuntimeError:
-        # No running loop, safe to run directly
-        result = asyncio.run(
-            _run_agent_async(agent, prompt, message_history=message_history)
-        )
-    return result.new_messages()
+        result = pool.submit(_run_in_thread).result()
+        return result.new_messages()
+    except Exception as e:
+        error_type = type(e).__name__
+        error_msg = str(e) if str(e) else "(no details available)"
+        raise SummarizationError(
+            f"LLM call failed during summarization: [{error_type}] {error_msg}",
+            original_error=e,
+        ) from e
 
 
 def _get_summarization_instructions() -> str:
@@ -119,13 +158,9 @@ def reload_summarization_agent():
         retries=1,  # Fewer retries for summarization
         model_settings=model_settings,
     )
-    if get_use_dbos():
-        from pydantic_ai.durable_exec.dbos import DBOSAgent
-
-        global _reload_count
-        _reload_count += 1
-        dbos_agent = DBOSAgent(agent, name=f"summarization-agent-{_reload_count}")
-        return dbos_agent
+    # NOTE: We intentionally DON'T wrap in DBOSAgent here.
+    # Summarization is a simple one-shot call that doesn't need durable execution,
+    # and DBOSAgent causes async event loop conflicts with run_sync().
     return agent
 
 

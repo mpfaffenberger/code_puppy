@@ -1,6 +1,7 @@
 """Base agent configuration class for defining agent properties."""
 
 import asyncio
+import dataclasses
 import json
 import math
 import pathlib
@@ -82,7 +83,7 @@ from code_puppy.messaging.spinner import (
     update_spinner_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
-from code_puppy.summarization_agent import run_summarization_sync
+from code_puppy.summarization_agent import run_summarization_sync, SummarizationError
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
     is_awaiting_user_input,
@@ -657,6 +658,63 @@ class BaseAgent(ABC):
         pruned = self.prune_interrupted_tool_calls(filtered)
         return pruned
 
+    def _find_safe_split_index(
+        self, messages: List[ModelMessage], initial_split_idx: int
+    ) -> int:
+        """
+        Adjust split index to avoid breaking tool_use/tool_result pairs.
+
+        Ensures that if a tool_result is in the protected zone, its corresponding
+        tool_use is also included. Otherwise the LLM will error with
+        'tool_use ids found without tool_result blocks'.
+
+        Args:
+            messages: Full message list
+            initial_split_idx: The initial split point (messages before this go to summarize)
+
+        Returns:
+            Adjusted split index that doesn't break tool pairs
+        """
+        if initial_split_idx <= 1:
+            return initial_split_idx
+
+        # Collect tool_call_ids from messages AFTER the split (protected zone)
+        protected_tool_return_ids: Set[str] = set()
+        for msg in messages[initial_split_idx:]:
+            for part in getattr(msg, "parts", []) or []:
+                if getattr(part, "part_kind", None) == "tool-return":
+                    tool_call_id = getattr(part, "tool_call_id", None)
+                    if tool_call_id:
+                        protected_tool_return_ids.add(tool_call_id)
+
+        if not protected_tool_return_ids:
+            return initial_split_idx
+
+        # Scan backwards from split point to find any tool_uses that match protected returns
+        adjusted_idx = initial_split_idx
+        for i in range(
+            initial_split_idx - 1, 0, -1
+        ):  # Don't include system message at 0
+            msg = messages[i]
+            has_matching_tool_use = False
+            for part in getattr(msg, "parts", []) or []:
+                if getattr(part, "part_kind", None) == "tool-call":
+                    tool_call_id = getattr(part, "tool_call_id", None)
+                    if tool_call_id and tool_call_id in protected_tool_return_ids:
+                        has_matching_tool_use = True
+                        break
+
+            if has_matching_tool_use:
+                # This message has a tool_use whose return is in protected zone
+                # Move the split point back to include this message in protected zone
+                adjusted_idx = i
+            else:
+                # Once we find a message without matching tool_use, we can stop
+                # (tool calls and returns should be adjacent)
+                break
+
+        return adjusted_idx
+
     def split_messages_for_protected_summarization(
         self,
         messages: List[ModelMessage],
@@ -710,6 +768,11 @@ class BaseAgent(ABC):
         # Messages to summarize are everything between the system message and the
         # protected tail zone we just constructed.
         protected_start_idx = max(1, len(messages) - (len(protected_messages) - 1))
+
+        # IMPORTANT: Adjust split point to avoid breaking tool_use/tool_result pairs
+        # The LLM requires every tool_use to have its tool_result immediately after
+        protected_start_idx = self._find_safe_split_index(messages, protected_start_idx)
+
         messages_to_summarize = messages[1:protected_start_idx]
 
         # Emit info messages
@@ -763,8 +826,18 @@ class BaseAgent(ABC):
         )
 
         try:
+            # Prune any orphaned tool calls from messages before sending to LLM
+            # The LLM requires every tool_use to have a matching tool_result
+            pruned_messages_to_summarize = self.prune_interrupted_tool_calls(
+                messages_to_summarize
+            )
+
+            if not pruned_messages_to_summarize:
+                # After pruning, nothing left to summarize
+                return self.prune_interrupted_tool_calls(messages), []
+
             new_messages = run_summarization_sync(
-                instructions, message_history=messages_to_summarize
+                instructions, message_history=pruned_messages_to_summarize
             )
 
             if not isinstance(new_messages, list):
@@ -783,8 +856,22 @@ class BaseAgent(ABC):
             compacted.extend(protected_tail)
 
             return self.prune_interrupted_tool_calls(compacted), messages_to_summarize
+        except SummarizationError as e:
+            # SummarizationError has detailed error info
+            emit_error(f"Summarization failed: {e}")
+            if e.original_error:
+                emit_warning(
+                    f"💡 Tip: Underlying error was {type(e.original_error).__name__}. "
+                    "Consider using '/set compaction_strategy=truncation' as a fallback."
+                )
+            return messages, []  # Return original messages on failure
         except Exception as e:
-            emit_error(f"Summarization failed during compaction: {e}")
+            # Catch-all for unexpected errors
+            error_type = type(e).__name__
+            error_msg = str(e) if str(e) else "(no error details)"
+            emit_error(
+                f"Unexpected error during compaction: [{error_type}] {error_msg}"
+            )
             return messages, []  # Return original messages on failure
 
     def get_model_context_length(self) -> int:
@@ -1482,13 +1569,23 @@ class BaseAgent(ABC):
         )
         message_history_hashes = set([self.hash_message(m) for m in _message_history])
         messages_added = 0
-        for msg in messages:
-            if (
-                self.hash_message(msg) not in message_history_hashes
-                and self.hash_message(msg) not in self.get_compacted_message_hashes()
-            ):
-                _message_history.append(msg)
-                messages_added += 1
+        last_msg_index = len(messages) - 1
+        for i, msg in enumerate(messages):
+            msg_hash = self.hash_message(msg)
+            if msg_hash not in message_history_hashes:
+                # Always preserve the last message (the user's new prompt) even
+                # if its hash matches a previously compacted/summarized message.
+                # Short or repeated prompts (e.g. "yes", "1") can collide with
+                # compacted hashes, which would silently drop the user's input
+                # and leave the history ending with a ModelResponse.  That
+                # triggers an Anthropic API error: "This model does not support
+                # assistant message prefill."
+                if (
+                    i == last_msg_index
+                    or msg_hash not in self.get_compacted_message_hashes()
+                ):
+                    _message_history.append(msg)
+                    messages_added += 1
 
         # Apply message history trimming using the main processor
         # This ensures we maintain global state while still managing context limits
@@ -1496,16 +1593,37 @@ class BaseAgent(ABC):
         result_messages_filtered_empty_thinking = []
         filtered_count = 0
         for msg in self.get_message_history():
-            if len(msg.parts) == 1:
-                if isinstance(msg.parts[0], ThinkingPart):
-                    if msg.parts[0].content == "":
-                        filtered_count += 1
-                        continue
+            # Filter out single-part messages that are empty ThinkingParts
+            if len(msg.parts) == 1 and isinstance(msg.parts[0], ThinkingPart):
+                if not msg.parts[0].content:
+                    filtered_count += 1
+                    continue
+            # For multi-part messages, strip empty ThinkingParts but keep the message
+            elif any(isinstance(p, ThinkingPart) and not p.content for p in msg.parts):
+                msg = dataclasses.replace(
+                    msg,
+                    parts=[
+                        p
+                        for p in msg.parts
+                        if not (isinstance(p, ThinkingPart) and not p.content)
+                    ],
+                )
+                if not msg.parts:
+                    filtered_count += 1
+                    continue
             result_messages_filtered_empty_thinking.append(msg)
-            self.set_message_history(result_messages_filtered_empty_thinking)
+        self.set_message_history(result_messages_filtered_empty_thinking)
+
+        # Safety net: ensure history always ends with a ModelRequest.
+        # If compaction or filtering somehow leaves a trailing ModelResponse,
+        # the Anthropic API will reject it with a prefill error.
+        final_history = self.ensure_history_ends_with_request(
+            self.get_message_history()
+        )
+        if final_history != self.get_message_history():
+            self.set_message_history(final_history)
 
         # Hook: on_message_history_processor_end - dump the message history after processing
-        final_history = self.get_message_history()
         messages_filtered = len(messages) - messages_added + filtered_count
         on_message_history_processor_end(
             agent_name=self.name,

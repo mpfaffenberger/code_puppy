@@ -1141,3 +1141,146 @@ class TestBrowseModeNavigation:
         # Should not have changed
         assert message_idx[0] == 3
         assert cached_history[0] == original_history
+
+
+class TestDisplayResumedHistory:
+    """Test the display_resumed_history function."""
+
+    def test_empty_history_returns_early(self):
+        """Empty history should return without output."""
+        from code_puppy.command_line.autosave_menu import display_resumed_history
+
+        # Should not raise
+        display_resumed_history([])
+
+    def test_single_system_message_returns_early(self):
+        """History with only system message should return without output."""
+        from code_puppy.command_line.autosave_menu import display_resumed_history
+
+        mock_msg = MagicMock()
+        mock_msg.kind = "request"
+        mock_msg.parts = []
+
+        # Should not raise
+        display_resumed_history([mock_msg])
+
+    def test_displays_last_n_messages(self, capsys):
+        """Should display the last N messages from history."""
+        from code_puppy.command_line.autosave_menu import display_resumed_history
+
+        # Create mock messages
+        messages = []
+        for i in range(5):
+            msg = MagicMock()
+            msg.kind = "request"
+            part = MagicMock()
+            part.part_kind = "user-prompt"
+            part.content = f"Message {i}"
+            msg.parts = [part]
+            messages.append(msg)
+
+        display_resumed_history(messages, num_messages=3)
+
+        captured = capsys.readouterr()
+        # Should show messages 2, 3, 4 (last 3)
+        assert "Message 2" in captured.out
+        assert "Message 3" in captured.out
+        assert "Message 4" in captured.out
+        # Should show hidden count
+        assert "1 earlier messages" in captured.out
+        # Should show session resumed footer
+        assert "Session Resumed" in captured.out
+
+    def test_shows_all_messages_when_under_limit(self, capsys):
+        """Should show all messages when count is under limit."""
+        from code_puppy.command_line.autosave_menu import display_resumed_history
+
+        # Create mock messages (system + 2 user)
+        messages = []
+        for i in range(3):
+            msg = MagicMock()
+            msg.kind = "request"
+            part = MagicMock()
+            part.part_kind = "user-prompt"
+            part.content = f"Message {i}"
+            msg.parts = [part]
+            messages.append(msg)
+
+        display_resumed_history(messages, num_messages=10)
+
+        captured = capsys.readouterr()
+        # Should show messages 1 and 2 (skipping system message at index 0)
+        assert "Message 1" in captured.out
+        assert "Message 2" in captured.out
+        # Should NOT show hidden count (all displayed)
+        assert "earlier messages" not in captured.out
+
+    def test_renders_long_content_as_markdown(self, capsys):
+        """Should render long message content as markdown without truncation."""
+        from code_puppy.command_line.autosave_menu import display_resumed_history
+
+        # Create message with very long content
+        msg1 = MagicMock()
+        msg1.kind = "request"
+        msg1.parts = []
+
+        msg2 = MagicMock()
+        msg2.kind = "request"
+        part = MagicMock()
+        part.part_kind = "user-prompt"
+        part.content = "X" * 1000  # Very long content
+        msg2.parts = [part]
+
+        display_resumed_history([msg1, msg2], num_messages=10)
+
+        captured = capsys.readouterr()
+        # Should show user message with > prefix and contain the X's
+        assert ">" in captured.out
+        assert "X" in captured.out
+
+    def test_renders_different_roles_correctly(self, capsys):
+        """Should render user, assistant, and tool messages with correct styling."""
+        from code_puppy.command_line.autosave_menu import display_resumed_history
+
+        # System message (skipped)
+        sys_msg = MagicMock()
+        sys_msg.kind = "request"
+        sys_msg.parts = []
+
+        # User message
+        user_msg = MagicMock()
+        user_msg.kind = "request"
+        user_part = MagicMock()
+        user_part.part_kind = "user-prompt"
+        user_part.content = "Hello from user"
+        user_msg.parts = [user_part]
+
+        # Assistant message
+        assistant_msg = MagicMock()
+        assistant_msg.kind = "response"
+        assistant_part = MagicMock()
+        assistant_part.part_kind = "text"
+        assistant_part.content = "Hello from assistant"
+        assistant_msg.parts = [assistant_part]
+
+        # Tool message
+        tool_msg = MagicMock()
+        tool_msg.kind = "request"
+        tool_part = MagicMock()
+        tool_part.part_kind = "tool-return"
+        tool_part.tool_name = "test_tool"
+        tool_part.content = "Tool result"
+        tool_msg.parts = [tool_part]
+
+        display_resumed_history(
+            [sys_msg, user_msg, assistant_msg, tool_msg], num_messages=10
+        )
+
+        captured = capsys.readouterr()
+        # User message shown with > prefix
+        assert "Hello from user" in captured.out
+        # Assistant message has AGENT RESPONSE banner
+        assert "AGENT RESPONSE" in captured.out
+        assert "Hello from assistant" in captured.out
+        # Tool output shown
+        assert "Tool result" in captured.out or "test_tool" in captured.out

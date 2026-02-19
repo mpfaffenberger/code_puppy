@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.410"
+version = "0.0.413"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -31,6 +31,7 @@ dependencies = [
     "websockets>=12.0",
     "termflow-md>=0.1.8",
     "Pillow>=10.0.0",
+    "anthropic==0.79.0"
 ]
 dev-dependencies = [
     "pytest>=8.3.4",

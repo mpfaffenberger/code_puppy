@@ -69,19 +69,21 @@ class TestBaseAgentAccumulator:
         msg1 = ModelRequest(parts=[TextPart(content="First message")])
         agent.set_message_history([msg1])
 
-        # Add a new different message
+        # Add a response followed by a new request (valid history pattern)
         msg2 = ModelResponse(parts=[TextPart(content="Second message")])
-        result = agent.message_history_accumulator(mock_run_context, [msg2])
+        msg3 = ModelRequest(parts=[TextPart(content="Third message")])
+        result = agent.message_history_accumulator(mock_run_context, [msg2, msg3])
 
-        # Should have both messages
-        assert len(result) == 2
+        # Should have all three messages
+        assert len(result) == 3
 
-        # Check content of both messages
+        # Check content of all messages
         contents = [
             p.content for m in result for p in m.parts if isinstance(p, TextPart)
         ]
         assert "First message" in contents
         assert "Second message" in contents
+        assert "Third message" in contents
 
     def test_message_history_accumulator_filters_empty_thinking(
         self, agent, mock_run_context
@@ -94,13 +96,16 @@ class TestBaseAgentAccumulator:
             parts=[ThinkingPart(content="Valid thinking")]
         )
 
-        agent.set_message_history([text_msg, empty_thinking_msg, valid_thinking_msg])
+        trailing_request = ModelRequest(parts=[TextPart(content="Follow up")])
+        agent.set_message_history(
+            [text_msg, empty_thinking_msg, valid_thinking_msg, trailing_request]
+        )
 
         # Run accumulator (should filter empty thinking)
         result = agent.message_history_accumulator(mock_run_context, [])
 
-        # Should only have 2 messages (text + valid thinking)
-        assert len(result) == 2
+        # Should have 3 messages (text + valid thinking + trailing request, empty thinking filtered)
+        assert len(result) == 3
 
         # Check that empty thinking was filtered
         has_empty_thinking = any(
@@ -131,19 +136,37 @@ class TestBaseAgentAccumulator:
     def test_message_history_accumulator_respects_compacted_hashes(
         self, agent, mock_run_context
     ):
-        """Test that messages with compacted hashes are not added."""
-        # Create a message
-        msg = ModelRequest(parts=[TextPart(content="Should be compacted")])
-        msg_hash = agent.hash_message(msg)
+        """Test that non-last messages with compacted hashes are skipped,
+        but the last message (user's prompt) is always preserved."""
+        # Create two messages, first one is compacted
+        msg1 = ModelRequest(parts=[TextPart(content="Should be compacted")])
+        msg2 = ModelRequest(parts=[TextPart(content="User prompt")])
+        msg1_hash = agent.hash_message(msg1)
 
         # Add the hash to compacted hashes set
+        agent._compacted_message_hashes.add(msg1_hash)
+
+        # Try to add both messages via accumulator
+        result = agent.message_history_accumulator(mock_run_context, [msg1, msg2])
+
+        # Only msg2 should be added (msg1 is compacted and not last)
+        assert len(result) == 1
+        assert result[0].parts[0].content == "User prompt"
+
+    def test_message_history_accumulator_preserves_last_msg_even_if_compacted(
+        self, agent, mock_run_context
+    ):
+        """Test that the last message is always preserved even if its hash
+        matches a compacted message — prevents dropping the user's prompt."""
+        msg = ModelRequest(parts=[TextPart(content="yes")])
+        msg_hash = agent.hash_message(msg)
         agent._compacted_message_hashes.add(msg_hash)
 
-        # Try to add the message via accumulator
         result = agent.message_history_accumulator(mock_run_context, [msg])
 
-        # Message should not be added (hash is in compacted set)
-        assert len(result) == 0
+        # Last message must be preserved to avoid prefill errors
+        assert len(result) == 1
+        assert result[0].parts[0].content == "yes"
 
     def test_message_history_accumulator_multi_part_messages(
         self, agent, mock_run_context
@@ -175,12 +198,13 @@ class TestBaseAgentAccumulator:
         # Set initial history
         agent.set_message_history([request_msg])
 
-        # Add mixed new messages
-        new_messages = [response_msg, thinking_msg, request_msg]  # Include duplicate
+        # Add mixed new messages (response, thinking, then a new request)
+        new_request = ModelRequest(parts=[TextPart(content="Follow up")])
+        new_messages = [response_msg, thinking_msg, new_request]
         result = agent.message_history_accumulator(mock_run_context, new_messages)
 
-        # Should have 3 unique messages (request, response, thinking)
-        assert len(result) == 3
+        # Should have 4 messages: original request, response, thinking, new request
+        assert len(result) == 4
 
         # Verify all expected message types are present
         has_request = any(isinstance(m, ModelRequest) for m in result)
@@ -287,15 +311,22 @@ class TestBaseAgentAccumulator:
             ]
         )
 
+        trailing_request = ModelRequest(parts=[TextPart(content="next")])
         agent.set_message_history(
-            [text_empty, thinking_empty, thinking_content, multi_with_thinking]
+            [
+                text_empty,
+                thinking_empty,
+                thinking_content,
+                multi_with_thinking,
+                trailing_request,
+            ]
         )
 
         # Run accumulator
         result = agent.message_history_accumulator(mock_run_context, [])
 
-        # Should have 3 messages (empty thinking filtered, others kept)
-        assert len(result) == 3
+        # Should have 4 messages (empty thinking filtered, others kept including trailing request)
+        assert len(result) == 4
 
         # Verify specific messages are kept/filtered
         has_empty_text = any(

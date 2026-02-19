@@ -189,9 +189,10 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.410"
+version = "0.0.413"
 source = { editable = "." }
 dependencies = [
+    { name = "anthropic" },
     { name = "dbos" },
     { name = "fastapi" },
     { name = "httpx", extra = ["http2"] },
@@ -227,6 +228,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic", specifier = "==0.79.0" },
     { name = "dbos", specifier = ">=2.11.0" },
     { name = "fastapi", specifier = ">=0.109.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
