@@ -206,10 +206,6 @@ async def _select_clone_location() -> Optional[Path]:
     project_dir = get_project_agents_directory()
     user_dir = get_user_agents_directory()
 
-    if not user_dir:
-        emit_info("No agent directory available for cloning.")
-        return None
-
     # Skip the prompt entirely when there is no project directory — no choice to make.
     if not project_dir:
         return Path(user_dir)
@@ -327,7 +323,7 @@ def _get_agent_entries() -> List[AgentEntry]:
     entries = []
     for name, (display_name, description) in agents_metadata.items():
         info = source_info.get(name)
-        source_path = info["path"] if info else None
+        source_path = info.get("path") if info else None
         shadowed_path = info.get("shadowed_path") if info else None
         entries.append(
             AgentEntry(name, display_name, description, source_path, shadowed_path)
