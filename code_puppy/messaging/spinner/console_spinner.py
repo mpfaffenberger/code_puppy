@@ -29,6 +29,8 @@ class ConsoleSpinner(SpinnerBase):
         self._stop_event = threading.Event()
         self._paused = False
         self._live = None
+        self._start_time = None  # Track when spinner started for elapsed time
+        self._bell_triggered = False  # Only ring bell once per spinner session
 
         # Register this spinner for global management
         from . import register_spinner
@@ -39,6 +41,8 @@ class ConsoleSpinner(SpinnerBase):
         """Start the spinner animation."""
         super().start()
         self._stop_event.clear()
+        self._start_time = time.time()  # Record start time for elapsed display
+        self._bell_triggered = False  # Reset bell state for new spinner session
 
         # Don't start a new thread if one is already running
         if self._thread and self._thread.is_alive():
@@ -115,6 +119,50 @@ class ConsoleSpinner(SpinnerBase):
         """Update to the next frame."""
         super().update_frame()
 
+    def _get_elapsed_str(self) -> str:
+        """Format elapsed time as M:SS or H:MM:SS.
+
+        Returns:
+            str: Formatted elapsed time string, or empty string if not started
+        """
+        if self._start_time is None:
+            return ""
+        elapsed = int(time.time() - self._start_time)
+        minutes, seconds = divmod(elapsed, 60)
+        if minutes >= 60:
+            hours, minutes = divmod(minutes, 60)
+            return f"[{hours}:{minutes:02d}:{seconds:02d}]"
+        return f"[{minutes}:{seconds:02d}]"
+
+    def _check_bell_alert(self):
+        """Ring system bell if threshold exceeded (once only).
+
+        This alerts the user that the task is taking a long time,
+        prompting them to check back on the terminal.
+        """
+        if self._bell_triggered or self._start_time is None:
+            return
+
+        try:
+            from code_puppy.config import (
+                get_alert_bell_enabled,
+                get_alert_bell_threshold,
+            )
+
+            if not get_alert_bell_enabled():
+                return
+
+            elapsed = time.time() - self._start_time
+            if elapsed >= get_alert_bell_threshold():
+                # Ring the system bell
+                import sys
+
+                sys.stdout.write("\a")
+                sys.stdout.flush()
+                self._bell_triggered = True
+        except Exception:
+            pass  # Fail silently - bell is a nice-to-have, not critical
+
     def _generate_spinner_panel(self):
         """Generate a Rich panel containing the spinner text."""
         # Check if we're awaiting user input - show nothing during input prompts
@@ -128,6 +176,12 @@ class ConsoleSpinner(SpinnerBase):
         # Show thinking message during normal processing
         text.append(SpinnerBase.THINKING_MESSAGE, style="bold cyan")
         text.append(self.current_frame, style="bold cyan")
+
+        # Add elapsed time display
+        elapsed_str = self._get_elapsed_str()
+        if elapsed_str:
+            text.append(" ", style="dim")
+            text.append(elapsed_str, style="dim cyan")
 
         context_info = SpinnerBase.get_context_info()
         if context_info:
@@ -143,6 +197,9 @@ class ConsoleSpinner(SpinnerBase):
             while not self._stop_event.is_set():
                 # Update the frame
                 self.update_frame()
+
+                # Check if we should ring the alert bell
+                self._check_bell_alert()
 
                 # Check if we're awaiting user input before updating the display
                 from code_puppy.tools.command_runner import is_awaiting_user_input
