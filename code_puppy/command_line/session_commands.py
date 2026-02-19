@@ -293,4 +293,10 @@ def handle_load_context_command(command: str) -> bool:
     )
     success_msg.append_text(autosave_info)
     emit_success(success_msg)
+
+    # Display recent message history for context
+    from code_puppy.command_line.autosave_menu import display_resumed_history
+
+    display_resumed_history(history)
+
     return True
