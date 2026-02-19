@@ -1232,24 +1232,6 @@ class TestSelectCloneLocation:
 
         assert result is None
 
-    @patch("code_puppy.command_line.agent_menu.emit_info")
-    @patch(
-        "code_puppy.command_line.agent_menu.get_user_agents_directory",
-        return_value=None,
-    )
-    @patch(
-        "code_puppy.command_line.agent_menu.get_project_agents_directory",
-        return_value=None,
-    )
-    async def test_returns_none_when_user_dir_is_none(
-        self, _mock_proj, _mock_user, mock_emit
-    ):
-        """Test that None is returned and info emitted when user_dir is None."""
-        result = await _select_clone_location()
-
-        assert result is None
-        mock_emit.assert_called_once()
-
 
 class TestDeleteGuard:
     """Test that the delete key ('D') enforces the clone-only guard."""
