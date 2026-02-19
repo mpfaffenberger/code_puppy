@@ -24,6 +24,16 @@ class TestACPConfigDefaults:
         cfg = ACPConfig.from_env()
         assert cfg.port == 9001
 
+    @patch.dict(os.environ, {}, clear=True)
+    def test_default_auth_required(self):
+        cfg = ACPConfig.from_env()
+        assert cfg.auth_required is False
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_default_auth_token(self):
+        cfg = ACPConfig.from_env()
+        assert cfg.auth_token == ""
+
 
 class TestACPConfigEnvironmentOverrides:
     """Test environment variable overrides."""
@@ -83,23 +93,78 @@ class TestACPConfigEnvironmentOverrides:
         assert cfg.host == "localhost"
         assert cfg.port == 3000
 
+    @patch.dict(os.environ, {"ACP_AUTH_REQUIRED": "true"})
+    def test_auth_required_true(self):
+        cfg = ACPConfig.from_env()
+        assert cfg.auth_required is True
+
+    @patch.dict(os.environ, {"ACP_AUTH_REQUIRED": "1"})
+    def test_auth_required_one(self):
+        cfg = ACPConfig.from_env()
+        assert cfg.auth_required is True
+
+    @patch.dict(os.environ, {"ACP_AUTH_REQUIRED": "false"})
+    def test_auth_required_false(self):
+        cfg = ACPConfig.from_env()
+        assert cfg.auth_required is False
+
+    @patch.dict(os.environ, {"ACP_AUTH_TOKEN": "my-secret-token"})
+    def test_auth_token(self):
+        cfg = ACPConfig.from_env()
+        assert cfg.auth_token == "my-secret-token"
+
+    @patch.dict(
+        os.environ,
+        {"ACP_AUTH_REQUIRED": "true", "ACP_AUTH_TOKEN": "secret"},
+    )
+    def test_auth_config_together(self):
+        cfg = ACPConfig.from_env()
+        assert cfg.auth_required is True
+        assert cfg.auth_token == "secret"
+
 
 class TestACPConfigImmutability:
     """Test that config is frozen."""
 
     def test_frozen(self):
-        cfg = ACPConfig(enabled=True, transport="http", host="0.0.0.0", port=9001)
+        cfg = ACPConfig(
+            enabled=True, transport="http", host="0.0.0.0", port=9001,
+            auth_required=False, auth_token="",
+        )
         import pytest
 
         with pytest.raises(AttributeError):
             cfg.enabled = False  # type: ignore[misc]
 
     def test_equality(self):
-        a = ACPConfig(enabled=True, transport="http", host="0.0.0.0", port=9001)
-        b = ACPConfig(enabled=True, transport="http", host="0.0.0.0", port=9001)
+        a = ACPConfig(
+            enabled=True, transport="http", host="0.0.0.0", port=9001,
+            auth_required=False, auth_token="",
+        )
+        b = ACPConfig(
+            enabled=True, transport="http", host="0.0.0.0", port=9001,
+            auth_required=False, auth_token="",
+        )
         assert a == b
 
     def test_inequality(self):
-        a = ACPConfig(enabled=True, transport="http", host="0.0.0.0", port=9001)
-        b = ACPConfig(enabled=False, transport="http", host="0.0.0.0", port=9001)
+        a = ACPConfig(
+            enabled=True, transport="http", host="0.0.0.0", port=9001,
+            auth_required=False, auth_token="",
+        )
+        b = ACPConfig(
+            enabled=False, transport="http", host="0.0.0.0", port=9001,
+            auth_required=False, auth_token="",
+        )
+        assert a != b
+
+    def test_auth_inequality(self):
+        a = ACPConfig(
+            enabled=True, transport="http", host="0.0.0.0", port=9001,
+            auth_required=False, auth_token="",
+        )
+        b = ACPConfig(
+            enabled=True, transport="http", host="0.0.0.0", port=9001,
+            auth_required=True, auth_token="secret",
+        )
         assert a != b

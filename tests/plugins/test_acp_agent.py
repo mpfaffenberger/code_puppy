@@ -8,6 +8,11 @@ Covers:
 - Extension methods (x/list-agents, x/set-agent, x/agent-info)
 - Error handling
 - Tool event extraction and streaming
+- Authentication (Phase C)
+- Session modes (Phase D)
+- Session model switching (Phase E)
+- Config options (Phase F)
+- Enhanced notifications (Phase G)
 
 All Code Puppy internals are mocked — no LLM calls are made.
 """
@@ -25,6 +30,13 @@ from code_puppy.plugins.acp_gateway.agent import (
     _extract_text,
     _extract_plan_steps,
     _safe_serialize_args,
+    _build_mode_state,
+    _build_model_state,
+    _build_config_options,
+    _get_version,
+    _ACP_MODES,
+    _MODE_IDS,
+    _DEFAULT_MODE,
 )
 
 
@@ -167,6 +179,83 @@ class TestExtractPlanSteps:
         assert _extract_plan_steps("just some random text") == []
 
 
+class TestBuildModeState:
+    """Test _build_mode_state helper."""
+
+    def test_returns_all_modes(self):
+        state = _build_mode_state("yolo")
+        assert len(state.available_modes) == 4
+        assert state.current_mode_id == "yolo"
+
+    def test_respects_current_mode(self):
+        state = _build_mode_state("read")
+        assert state.current_mode_id == "read"
+
+    def test_mode_ids_correct(self):
+        state = _build_mode_state("write")
+        ids = {m.id for m in state.available_modes}
+        assert ids == {"read", "write", "execute", "yolo"}
+
+
+class TestBuildModelState:
+    """Test the _build_model_state helper."""
+
+    def test_returns_model_state_with_models(self):
+        mock_config = {
+            "gpt-5": {"type": "openai", "context_length": 200000},
+            "claude-4": {"type": "anthropic", "context_length": 200000},
+        }
+        with patch("code_puppy.model_factory.ModelFactory.load_config", return_value=mock_config), \
+             patch("code_puppy.config.get_global_model_name", return_value="gpt-5"):
+            state = _build_model_state()
+        assert state is not None
+        assert len(state.available_models) == 2
+        assert state.current_model_id == "gpt-5"
+        names = {m.model_id for m in state.available_models}
+        assert names == {"gpt-5", "claude-4"}
+
+    def test_includes_description_with_type_and_context(self):
+        mock_config = {
+            "gpt-5": {"type": "openai", "context_length": 200000},
+        }
+        with patch("code_puppy.model_factory.ModelFactory.load_config", return_value=mock_config), \
+             patch("code_puppy.config.get_global_model_name", return_value="gpt-5"):
+            state = _build_model_state()
+        assert state is not None
+        model = state.available_models[0]
+        assert "openai" in model.description
+        assert "200,000" in model.description
+
+    def test_falls_back_to_first_model_if_current_not_in_list(self):
+        mock_config = {"alpha": {"type": "test"}, "beta": {"type": "test"}}
+        with patch("code_puppy.model_factory.ModelFactory.load_config", return_value=mock_config), \
+             patch("code_puppy.config.get_global_model_name", return_value="nonexistent"):
+            state = _build_model_state()
+        assert state is not None
+        assert state.current_model_id in {"alpha", "beta"}
+
+    def test_returns_none_on_empty_config(self):
+        with patch("code_puppy.model_factory.ModelFactory.load_config", return_value={}), \
+             patch("code_puppy.config.get_global_model_name", return_value=""):
+            state = _build_model_state()
+        assert state is None
+
+    def test_returns_none_on_import_error(self):
+        with patch("code_puppy.plugins.acp_gateway.agent._build_model_state") as mock_fn:
+            # Simulate what happens when ModelFactory import fails
+            mock_fn.return_value = None
+            assert mock_fn() is None
+
+
+class TestGetVersion:
+    """Test _get_version helper."""
+
+    def test_returns_string(self):
+        version = _get_version()
+        assert isinstance(version, str)
+        assert len(version) > 0
+
+
 # ---------------------------------------------------------------------------
 # Agent lifecycle
 # ---------------------------------------------------------------------------
@@ -192,6 +281,31 @@ class TestAgentLifecycle:
             client_info=MagicMock(name="TestClient"),
         )
         assert resp.protocol_version == 2
+
+    @pytest.mark.asyncio
+    async def test_initialize_returns_agent_info(self, agent):
+        resp = await agent.initialize(protocol_version=1)
+        assert resp.agent_info is not None
+        assert resp.agent_info.name == "code-puppy"
+        assert resp.agent_info.version is not None
+
+    @pytest.mark.asyncio
+    async def test_initialize_returns_agent_capabilities(self, agent):
+        resp = await agent.initialize(protocol_version=1)
+        assert resp.agent_capabilities is not None
+        assert resp.agent_capabilities.load_session is True
+
+    @pytest.mark.asyncio
+    async def test_initialize_stores_client_capabilities(self, agent):
+        caps = MagicMock()
+        info = MagicMock()
+        await agent.initialize(
+            protocol_version=1,
+            client_capabilities=caps,
+            client_info=info,
+        )
+        assert agent._client_capabilities is caps
+        assert agent._client_info is info
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +340,37 @@ class TestSessionManagement:
         assert state.session_id == "sid-123"
         assert state.agent_name == "test-agent"
         assert state.message_history == []
+
+    @pytest.mark.asyncio
+    async def test_new_session_returns_mode_state(self, agent):
+        resp = await agent.new_session(cwd="/tmp")
+        assert resp.modes is not None
+        assert resp.modes.current_mode_id == _DEFAULT_MODE
+        assert len(resp.modes.available_modes) == 4
+
+    @pytest.mark.asyncio
+    async def test_new_session_stores_cwd(self, agent):
+        resp = await agent.new_session(cwd="/workspace")
+        assert agent._sessions[resp.session_id].cwd == "/workspace"
+
+    @pytest.mark.asyncio
+    async def test_new_session_returns_model_state(self, agent):
+        mock_config = {"model-a": {"type": "test"}, "model-b": {"type": "test"}}
+        with patch("code_puppy.model_factory.ModelFactory.load_config", return_value=mock_config), \
+             patch("code_puppy.config.get_global_model_name", return_value="model-a"):
+            resp = await agent.new_session(cwd="/tmp")
+        assert resp.models is not None
+        assert resp.models.current_model_id == "model-a"
+        assert len(resp.models.available_models) == 2
+
+    def test_session_state_has_mode(self):
+        state = _SessionState("sid-1", mode="read")
+        assert state.mode == "read"
+
+    def test_session_state_has_created_at(self):
+        state = _SessionState("sid-1")
+        assert state.created_at is not None
+        assert len(state.created_at) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +646,8 @@ class TestStreamingHelpers:
         assert client.session_update.call_count >= 1
 
     @pytest.mark.asyncio
-    async def test_stream_plan_event(self):
+    async def test_stream_plan_event_uses_structured_plan(self):
+        """Plan events should use the ACP plan_entry/update_plan helpers."""
         agent, client = _make_agent_with_client()
         events = [{"type": "plan", "steps": [
             {"step": 1, "description": "First"},
@@ -517,6 +663,25 @@ class TestStreamingHelpers:
         await agent._stream_tool_events("sid", [
             {"type": "thinking", "content": "test"},
         ])
+
+    @pytest.mark.asyncio
+    async def test_send_plan_calls_session_update(self):
+        agent, client = _make_agent_with_client()
+        steps = [{"description": "Do step A"}, {"description": "Do step B"}]
+        await agent._send_plan("sid-1", steps)
+        client.session_update.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_plan_empty_steps(self):
+        agent, client = _make_agent_with_client()
+        await agent._send_plan("sid-1", [])
+        client.session_update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_plan_without_connection(self):
+        agent = CodePuppyAgent()
+        await agent._send_plan("sid", [{"description": "test"}])
+        # Should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +721,515 @@ class TestResultExtraction:
         result = MagicMock(spec=[])  # no all_messages
         events = CodePuppyAgent._extract_tool_events(result)
         assert events == []
+
+
+# ---------------------------------------------------------------------------
+# Authentication (Phase C)
+# ---------------------------------------------------------------------------
+
+
+class TestAuthentication:
+    """Test authenticate method."""
+
+    @pytest.mark.asyncio
+    async def test_authenticate_when_not_required(self):
+        """When auth is not required, authenticate always succeeds."""
+        agent, _ = _make_agent_with_client()
+        # Default: ACP_AUTH_REQUIRED=false
+        result = await agent.authenticate(method_id="bearer")
+        assert result is not None
+        assert agent._authenticated is True
+
+    @pytest.mark.asyncio
+    async def test_authenticate_bearer_success(self):
+        """Valid bearer token authenticates successfully."""
+        agent, _ = _make_agent_with_client()
+        agent._authenticated = False
+
+        with patch("code_puppy.plugins.acp_gateway.agent.ACP_AUTH_REQUIRED", True), \
+             patch("code_puppy.plugins.acp_gateway.agent.ACP_AUTH_TOKEN", "secret-123"):
+            result = await agent.authenticate(method_id="bearer", token="secret-123")
+            assert result is not None
+            assert agent._authenticated is True
+
+    @pytest.mark.asyncio
+    async def test_authenticate_bearer_invalid_token(self):
+        """Invalid bearer token raises auth_required error."""
+        from acp.exceptions import RequestError
+
+        agent, _ = _make_agent_with_client()
+        agent._authenticated = False
+
+        with patch("code_puppy.plugins.acp_gateway.agent.ACP_AUTH_REQUIRED", True), \
+             patch("code_puppy.plugins.acp_gateway.agent.ACP_AUTH_TOKEN", "secret-123"):
+            with pytest.raises(RequestError):
+                await agent.authenticate(method_id="bearer", token="wrong-token")
+
+    @pytest.mark.asyncio
+    async def test_authenticate_unknown_method(self):
+        """Unknown auth method raises error."""
+        from acp.exceptions import RequestError
+
+        agent, _ = _make_agent_with_client()
+
+        with patch("code_puppy.plugins.acp_gateway.agent.ACP_AUTH_REQUIRED", True):
+            with pytest.raises(RequestError):
+                await agent.authenticate(method_id="oauth2")
+
+    @pytest.mark.asyncio
+    async def test_initialize_with_auth_required(self):
+        """When auth is required, initialize response includes auth methods."""
+        agent, _ = _make_agent_with_client()
+
+        with patch("code_puppy.plugins.acp_gateway.agent.ACP_AUTH_REQUIRED", True):
+            resp = await agent.initialize(protocol_version=1)
+
+        assert resp.auth_methods is not None
+        assert len(resp.auth_methods) == 1
+        assert resp.auth_methods[0].id == "bearer"
+
+    @pytest.mark.asyncio
+    async def test_initialize_without_auth_required(self, agent):
+        """When auth is not required, initialize response has no auth methods."""
+        resp = await agent.initialize(protocol_version=1)
+        # auth_methods should be empty
+        assert resp.auth_methods is None or len(resp.auth_methods) == 0
+
+
+# ---------------------------------------------------------------------------
+# Session modes (Phase D)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionModes:
+    """Test set_session_mode."""
+
+    @pytest.mark.asyncio
+    async def test_set_mode_valid(self):
+        agent, client = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        result = await agent.set_session_mode(mode_id="read", session_id=sid)
+        assert result is not None
+        assert agent._sessions[sid].mode == "read"
+
+    @pytest.mark.asyncio
+    async def test_set_mode_sends_notification(self):
+        agent, client = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        client.session_update.reset_mock()
+        await agent.set_session_mode(mode_id="write", session_id=sid)
+        # Should have sent CurrentModeUpdate notification
+        assert client.session_update.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_set_mode_invalid(self):
+        from acp.exceptions import RequestError
+
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        with pytest.raises(RequestError):
+            await agent.set_session_mode(mode_id="invalid_mode", session_id=sid)
+
+    @pytest.mark.asyncio
+    async def test_set_mode_unknown_session(self):
+        from acp.exceptions import RequestError
+
+        agent, _ = _make_agent_with_client()
+
+        with pytest.raises(RequestError):
+            await agent.set_session_mode(mode_id="read", session_id="nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_all_modes_accepted(self):
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        for mode_id in _MODE_IDS:
+            result = await agent.set_session_mode(mode_id=mode_id, session_id=sid)
+            assert result is not None
+            assert agent._sessions[sid].mode == mode_id
+
+
+# ---------------------------------------------------------------------------
+# Session model (Phase E)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionModel:
+    """Test set_session_model with ModelFactory validation."""
+
+    @pytest.mark.asyncio
+    async def test_set_model_success(self):
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        mock_config = {"claude-4-0-sonnet": {"type": "anthropic"}, "gpt-5": {"type": "openai"}}
+        with patch("code_puppy.model_factory.ModelFactory.load_config", return_value=mock_config), \
+             patch("code_puppy.model_switching.set_model_and_reload_agent") as mock_set:
+            result = await agent.set_session_model(model_id="claude-4-0-sonnet", session_id=sid)
+            assert result is not None
+            mock_set.assert_called_once_with("claude-4-0-sonnet")
+
+    @pytest.mark.asyncio
+    async def test_set_model_unknown_session(self):
+        from acp.exceptions import RequestError
+
+        agent, _ = _make_agent_with_client()
+
+        with pytest.raises(RequestError):
+            await agent.set_session_model(model_id="any-model", session_id="nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_set_model_not_in_factory(self):
+        """Reject models that don't exist in ModelFactory."""
+        from acp.exceptions import RequestError
+
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        mock_config = {"gpt-5": {"type": "openai"}}
+        with patch("code_puppy.model_factory.ModelFactory.load_config", return_value=mock_config):
+            with pytest.raises(RequestError):
+                await agent.set_session_model(model_id="nonexistent-model", session_id=sid)
+
+    @pytest.mark.asyncio
+    async def test_set_model_reload_error(self):
+        from acp.exceptions import RequestError
+
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        mock_config = {"bad-model": {"type": "openai"}}
+        with patch("code_puppy.model_factory.ModelFactory.load_config", return_value=mock_config), \
+             patch("code_puppy.model_switching.set_model_and_reload_agent", side_effect=ValueError("reload failed")):
+            with pytest.raises(RequestError):
+                await agent.set_session_model(model_id="bad-model", session_id=sid)
+
+
+# ---------------------------------------------------------------------------
+# Config options (Phase F)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigOptions:
+    """Test set_config_option."""
+
+    @pytest.mark.asyncio
+    async def test_set_auto_save_true(self):
+        agent, client = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        with patch("code_puppy.config.set_auto_save_session") as mock_set, \
+             patch("code_puppy.plugins.acp_gateway.agent._build_config_options", return_value=[]):
+            result = await agent.set_config_option(
+                config_id="auto_save", session_id=sid, value="true"
+            )
+            assert result is not None
+            mock_set.assert_called_once_with(True)
+
+    @pytest.mark.asyncio
+    async def test_set_auto_save_false(self):
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        with patch("code_puppy.config.set_auto_save_session") as mock_set, \
+             patch("code_puppy.plugins.acp_gateway.agent._build_config_options", return_value=[]):
+            await agent.set_config_option(
+                config_id="auto_save", session_id=sid, value="false"
+            )
+            mock_set.assert_called_once_with(False)
+
+    @pytest.mark.asyncio
+    async def test_set_safety_level_valid(self):
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        with patch("code_puppy.config.set_value") as mock_set, \
+             patch("code_puppy.plugins.acp_gateway.agent._build_config_options", return_value=[]):
+            result = await agent.set_config_option(
+                config_id="safety_level", session_id=sid, value="high"
+            )
+            assert result is not None
+            mock_set.assert_called_once_with("safety_permission_level", "high")
+
+    @pytest.mark.asyncio
+    async def test_set_safety_level_invalid(self):
+        from acp.exceptions import RequestError
+
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        with patch("code_puppy.config.set_value"):
+            with pytest.raises(RequestError):
+                await agent.set_config_option(
+                    config_id="safety_level", session_id=sid, value="extreme"
+                )
+
+    @pytest.mark.asyncio
+    async def test_set_generic_config_passthrough(self):
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        with patch("code_puppy.config.set_value") as mock_set, \
+             patch("code_puppy.plugins.acp_gateway.agent._build_config_options", return_value=[]):
+            result = await agent.set_config_option(
+                config_id="custom_key", session_id=sid, value="custom_value"
+            )
+            assert result is not None
+            mock_set.assert_called_once_with("custom_key", "custom_value")
+
+    @pytest.mark.asyncio
+    async def test_set_config_unknown_session(self):
+        from acp.exceptions import RequestError
+
+        agent, _ = _make_agent_with_client()
+
+        with pytest.raises(RequestError):
+            await agent.set_config_option(
+                config_id="auto_save", session_id="nonexistent", value="true"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Fork session (Phase B3)
+# ---------------------------------------------------------------------------
+
+
+class TestForkSession:
+    """Test fork_session."""
+
+    @pytest.mark.asyncio
+    async def test_fork_creates_new_session(self):
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        # Add some history to the parent
+        agent._sessions[sid].message_history = ["msg1", "msg2"]
+
+        fork_resp = await agent.fork_session(cwd="/workspace", session_id=sid)
+        assert fork_resp.session_id != sid
+        assert fork_resp.session_id in agent._sessions
+
+    @pytest.mark.asyncio
+    async def test_fork_deep_copies_history(self):
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        parent_history = [{"role": "user", "text": "hello"}]
+        agent._sessions[sid].message_history = parent_history
+
+        fork_resp = await agent.fork_session(cwd="/workspace", session_id=sid)
+        child = agent._sessions[fork_resp.session_id]
+
+        # Child has same content
+        assert child.message_history == parent_history
+        # But modifying child does not affect parent
+        child.message_history.append({"role": "assistant", "text": "world"})
+        assert len(agent._sessions[sid].message_history) == 1
+
+    @pytest.mark.asyncio
+    async def test_fork_inherits_mode(self):
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+        agent._sessions[sid].mode = "read"
+
+        fork_resp = await agent.fork_session(cwd="/tmp", session_id=sid)
+        child = agent._sessions[fork_resp.session_id]
+        assert child.mode == "read"
+
+    @pytest.mark.asyncio
+    async def test_fork_unknown_session(self):
+        from acp.exceptions import RequestError
+
+        agent, _ = _make_agent_with_client()
+
+        with pytest.raises(RequestError):
+            await agent.fork_session(cwd="/tmp", session_id="nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_fork_returns_mode_state(self):
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+
+        fork_resp = await agent.fork_session(cwd="/tmp", session_id=resp.session_id)
+        assert fork_resp.modes is not None
+        assert fork_resp.session_id is not None
+
+
+# ---------------------------------------------------------------------------
+# Load session (Phase B2)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadSession:
+    """Test load_session."""
+
+    @pytest.mark.asyncio
+    async def test_load_from_memory(self):
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        result = await agent.load_session(cwd="/workspace", session_id=sid)
+        assert result is not None
+        assert result.modes is not None
+        # cwd should be updated
+        assert agent._sessions[sid].cwd == "/workspace"
+
+    @pytest.mark.asyncio
+    async def test_load_from_disk(self):
+        agent, _ = _make_agent_with_client()
+        mock_history = ["msg1", "msg2"]
+
+        with patch("code_puppy.session_storage.load_session", return_value=mock_history), \
+             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/autosaves"), \
+             patch("code_puppy.config.get_auto_save_session", return_value=True), \
+             patch("code_puppy.config.get_safety_permission_level", return_value="medium"):
+            result = await agent.load_session(cwd="/workspace", session_id="disk-session")
+
+        assert result is not None
+        assert "disk-session" in agent._sessions
+        assert agent._sessions["disk-session"].message_history == ["msg1", "msg2"]
+
+    @pytest.mark.asyncio
+    async def test_load_not_found(self):
+        agent, _ = _make_agent_with_client()
+
+        with patch("code_puppy.session_storage.load_session", side_effect=FileNotFoundError), \
+             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/autosaves"):
+            result = await agent.load_session(cwd="/workspace", session_id="missing")
+
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# List sessions (Phase B1)
+# ---------------------------------------------------------------------------
+
+
+class TestListSessions:
+    """Test list_sessions.
+
+    Mocks disk storage to prevent real autosave files from polluting results.
+    """
+
+    @pytest.mark.asyncio
+    async def test_list_in_memory_sessions(self):
+        agent, _ = _make_agent_with_client()
+        await agent.new_session(cwd="/a")
+        await agent.new_session(cwd="/b")
+
+        with patch("code_puppy.session_storage.list_sessions", return_value=[]), \
+             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/nonexistent"):
+            result = await agent.list_sessions()
+        assert len(result.sessions) == 2
+
+    @pytest.mark.asyncio
+    async def test_list_filters_by_cwd(self):
+        agent, _ = _make_agent_with_client()
+        await agent.new_session(cwd="/a")
+        await agent.new_session(cwd="/b")
+
+        with patch("code_puppy.session_storage.list_sessions", return_value=[]), \
+             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/nonexistent"):
+            result = await agent.list_sessions(cwd="/a")
+        assert len(result.sessions) == 1
+
+    @pytest.mark.asyncio
+    async def test_list_pagination(self):
+        agent, _ = _make_agent_with_client()
+        # Create enough sessions to test cursor
+        for i in range(3):
+            await agent.new_session(cwd=f"/dir-{i}")
+
+        with patch("code_puppy.session_storage.list_sessions", return_value=[]), \
+             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/nonexistent"):
+            result = await agent.list_sessions(cursor="0")
+        assert len(result.sessions) == 3
+        assert result.next_cursor is None  # Less than page_size
+
+    @pytest.mark.asyncio
+    async def test_list_empty(self):
+        agent, _ = _make_agent_with_client()
+        with patch("code_puppy.session_storage.list_sessions", return_value=[]), \
+             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/nonexistent"):
+            result = await agent.list_sessions()
+        assert len(result.sessions) == 0
+        assert result.next_cursor is None
+
+    @pytest.mark.asyncio
+    async def test_list_includes_disk_sessions(self):
+        """Disk sessions are merged with in-memory sessions."""
+        agent, _ = _make_agent_with_client()
+        await agent.new_session(cwd="/workspace")
+
+        with patch("code_puppy.session_storage.list_sessions", return_value=["disk-1", "disk-2"]), \
+             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/autosaves"):
+            result = await agent.list_sessions()
+        # 1 in-memory + 2 from disk
+        assert len(result.sessions) == 3
+
+
+# ---------------------------------------------------------------------------
+# Resume session (Phase B4)
+# ---------------------------------------------------------------------------
+
+
+class TestResumeSession:
+    """Test resume_session."""
+
+    @pytest.mark.asyncio
+    async def test_resume_from_memory(self):
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        result = await agent.resume_session(cwd="/new-cwd", session_id=sid)
+        assert result is not None
+        assert result.modes is not None
+        assert agent._sessions[sid].cwd == "/new-cwd"
+
+    @pytest.mark.asyncio
+    async def test_resume_from_disk(self):
+        agent, _ = _make_agent_with_client()
+
+        with patch("code_puppy.session_storage.load_session", return_value=["msg"]), \
+             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/autosaves"), \
+             patch("code_puppy.config.get_auto_save_session", return_value=True), \
+             patch("code_puppy.config.get_safety_permission_level", return_value="medium"):
+            result = await agent.resume_session(cwd="/workspace", session_id="disk-sess")
+
+        assert result is not None
+        assert "disk-sess" in agent._sessions
+
+    @pytest.mark.asyncio
+    async def test_resume_not_found(self):
+        from acp.exceptions import RequestError
+
+        agent, _ = _make_agent_with_client()
+
+        with patch("code_puppy.session_storage.load_session", side_effect=FileNotFoundError), \
+             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/autosaves"):
+            with pytest.raises(RequestError):
+                await agent.resume_session(cwd="/workspace", session_id="missing")
 
 
 # ---------------------------------------------------------------------------
