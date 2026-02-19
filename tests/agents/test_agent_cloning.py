@@ -147,6 +147,10 @@ class TestAgentCloneProjectDirectory:
         monkeypatch.setattr(
             "code_puppy.config.get_project_agents_directory", lambda: None
         )
+        monkeypatch.setattr(
+            "code_puppy.config.get_user_agents_directory",
+            lambda: str(user_agents_dir),
+        )
 
         # Mock: User cancels
         monkeypatch.setattr(
