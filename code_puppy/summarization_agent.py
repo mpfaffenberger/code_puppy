@@ -43,36 +43,6 @@ def _shutdown_thread_pool():
 atexit.register(_shutdown_thread_pool)
 
 
-def _run_async_safely(coro):
-    """
-    Run an async coroutine in a fresh event loop without affecting global state.
-
-    Unlike asyncio.run(), this:
-    - Doesn't call shutdown_default_executor() (which breaks DBOS)
-    - Doesn't modify the global event loop reference
-    """
-    # Create a new loop but DON'T set it as the current loop
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        # Clean up this loop only, don't touch global state
-        try:
-            _cancel_all_tasks(loop)
-            loop.run_until_complete(loop.shutdown_asyncgens())
-        finally:
-            loop.close()
-
-
-def _cancel_all_tasks(loop):
-    """Cancel all pending tasks in the loop."""
-    to_cancel = asyncio.all_tasks(loop)
-    if not to_cancel:
-        return
-    for task in to_cancel:
-        task.cancel()
-    loop.run_until_complete(asyncio.gather(*to_cancel, return_exceptions=True))
-
 
 async def _run_agent_async(agent: Agent, prompt: str, message_history: List):
     return await agent.run(prompt, message_history=message_history)
