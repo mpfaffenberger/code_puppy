@@ -414,7 +414,7 @@ def display_resumed_history(
     Args:
         history: The full message history list
         num_messages: Number of messages to display. If None, uses the
-                      'resume_message_count' config value (default 30).
+                      'resume_message_count' config value (default 50).
                       Configurable via: /set resume_message_count=50
     """
     from rich.console import Console
