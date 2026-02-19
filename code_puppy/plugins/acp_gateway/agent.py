@@ -11,7 +11,7 @@ what the SDK already provides.
 
 Usage:
     from code_puppy.plugins.acp_gateway.agent import CodePuppyAgent
-    await run_agent(CodePuppyAgent())
+    await run_agent(CodePuppyAgent(), use_unstable_protocol=True)
 """
 
 from __future__ import annotations
@@ -239,10 +239,11 @@ def _build_mode_state(current_mode: str) -> SessionModeState:
     )
 
 
-def _build_config_options() -> List[SessionConfigOption]:
+def _build_config_options(current_agent: str = "") -> List[SessionConfigOption]:
     """Build the list of configurable session options exposed via ACP.
 
     Each option maps to a Code Puppy ``config.py`` primitive.
+    The ``current_agent`` parameter reflects the session's active agent.
     """
     options: List[SessionConfigOption] = []
     try:
@@ -288,6 +289,43 @@ def _build_config_options() -> List[SessionConfigOption]:
         )
     except Exception:
         logger.debug("Could not read Code Puppy config for ACP options", exc_info=True)
+
+    # active_agent selector — populated from discovered agents
+    try:
+        from code_puppy.plugins.acp_gateway.agent_adapter import (
+            discover_agents_sync,
+        )
+
+        agents = discover_agents_sync()
+        if agents:
+            agent_options = [
+                SessionConfigSelectOption(
+                    name=a.display_name or a.name,
+                    value=a.name,
+                    description=a.description or "",
+                )
+                for a in agents
+            ]
+            effective = current_agent or DEFAULT_AGENT_NAME
+            # Ensure current value exists in the list
+            valid_values = {o.value for o in agent_options}
+            if effective not in valid_values:
+                effective = agent_options[0].value
+
+            options.append(
+                SessionConfigOption(
+                    root=SessionConfigOptionSelect(
+                        id="active_agent",
+                        name="Active agent",
+                        type="select",
+                        description="Select the AI agent personality and capabilities",
+                        current_value=effective,
+                        options=agent_options,
+                    )
+                )
+            )
+    except Exception:
+        logger.debug("Could not discover agents for config options", exc_info=True)
 
     return options
 
@@ -480,7 +518,7 @@ class CodePuppyAgent(Agent):
             session_id=session_id,
             modes=_build_mode_state(session.mode),
             models=_build_model_state(),
-            config_options=_build_config_options() or None,
+            config_options=_build_config_options(current_agent=session.agent_name) or None,
         )
         _log_wire("new_session RESPONSE", response)
         return response
@@ -505,7 +543,7 @@ class CodePuppyAgent(Agent):
             return LoadSessionResponse(
                 modes=_build_mode_state(session.mode),
                 models=_build_model_state(),
-                config_options=_build_config_options() or None,
+                config_options=_build_config_options(current_agent=session.agent_name) or None,
             )
 
         # Disk persistence
@@ -531,7 +569,7 @@ class CodePuppyAgent(Agent):
             return LoadSessionResponse(
                 modes=_build_mode_state(session.mode),
                 models=_build_model_state(),
-                config_options=_build_config_options() or None,
+                config_options=_build_config_options(current_agent=session.agent_name) or None,
             )
 
         except Exception:
@@ -711,14 +749,26 @@ class CodePuppyAgent(Agent):
                         f"Invalid safety level: {value}. Valid: {', '.join(sorted(valid_levels))}"
                     )
                 cp_config.set_value("safety_permission_level", value.lower())
+            elif config_id == "active_agent":
+                from code_puppy.agents import get_available_agents
+
+                available = get_available_agents()
+                if value not in available:
+                    raise RequestError.invalid_params(
+                        f"Unknown agent: {value}. "
+                        f"Available: {', '.join(sorted(available.keys())[:10])}"
+                    )
+                session.agent_name = value
             else:
                 # Generic passthrough for unknown config keys
                 cp_config.set_value(config_id, value)
 
             logger.info("[%s] config '%s' set to '%s'", session_id, config_id, value)
 
-            # Build updated options for the response
-            updated_options = _build_config_options()
+            # Build updated options for the response (pass current agent)
+            updated_options = _build_config_options(
+                current_agent=session.agent_name,
+            )
 
             # Notify client of the config change
             if self._conn is not None:
@@ -740,7 +790,9 @@ class CodePuppyAgent(Agent):
             logger.exception("[%s] failed to set config '%s'", session_id, config_id)
             raise RequestError.internal_error(f"Failed to set config: {config_id}")
 
-        return SetSessionConfigOptionResponse(config_options=_build_config_options())
+        return SetSessionConfigOptionResponse(
+            config_options=_build_config_options(current_agent=session.agent_name),
+        )
 
     async def fork_session(
         self,
@@ -773,7 +825,7 @@ class CodePuppyAgent(Agent):
             session_id=new_id,
             modes=_build_mode_state(child.mode),
             models=_build_model_state(),
-            config_options=_build_config_options() or None,
+            config_options=_build_config_options(current_agent=child.agent_name) or None,
         )
 
     async def resume_session(
@@ -796,7 +848,7 @@ class CodePuppyAgent(Agent):
             return ResumeSessionResponse(
                 modes=_build_mode_state(session.mode),
                 models=_build_model_state(),
-                config_options=_build_config_options() or None,
+                config_options=_build_config_options(current_agent=session.agent_name) or None,
             )
 
         # Try loading from disk
@@ -1122,9 +1174,10 @@ class CodePuppyAgent(Agent):
     async def _send_available_commands(self, session_id: str) -> None:
         """Send the list of available slash commands to the client.
 
-        Called after ``new_session`` returns so the IDE can populate its
-        command palette.  Mode / model switching is handled by native
-        ACP selectors (``modes``, ``models``) — not slash commands.
+        Agent switching is handled by the ``active_agent`` config option
+        (dropdown selector).  Mode / model switching uses native ACP
+        selectors.  This notification is reserved for actual slash
+        commands that the user types inline.
         """
         if self._conn is None:
             return
@@ -1132,21 +1185,7 @@ class CodePuppyAgent(Agent):
             from acp.schema import AvailableCommandsUpdate
 
             commands: List[AvailableCommand] = []
-
-            # Discover agents and expose each one as a selectable command
-            try:
-                from code_puppy.plugins.acp_gateway.agent_adapter import discover_agents
-
-                agents = await discover_agents()
-                for a in agents:
-                    commands.append(
-                        AvailableCommand(
-                            name=f"/agent:{a.name}",
-                            description=a.description or f"Switch to {a.display_name}",
-                        )
-                    )
-            except Exception:
-                logger.debug("Could not discover agents for commands", exc_info=True)
+            # Future: add real slash commands here (e.g. /help, /clear)
 
             update = AvailableCommandsUpdate(
                 session_update="available_commands_update",
@@ -1266,4 +1305,7 @@ async def run_code_puppy_agent(agent_name: str = DEFAULT_AGENT_NAME) -> None:
     stdio JSON-RPC transport — we just provide the Agent implementation.
     """
     logger.info("Starting Code Puppy ACP agent (default_agent=%s)", agent_name)
-    await run_agent(CodePuppyAgent(default_agent=agent_name))
+    await run_agent(
+        CodePuppyAgent(default_agent=agent_name),
+        use_unstable_protocol=True,
+    )

@@ -994,6 +994,41 @@ class TestConfigOptions:
             mock_set.assert_called_once_with("custom_key", "custom_value")
 
     @pytest.mark.asyncio
+    async def test_set_active_agent_success(self):
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        mock_agents = {"code-puppy": "Code Puppy", "python-programmer": "Python Pro"}
+        # Mock at the module level that set_config_option imports from
+        mock_mod = MagicMock()
+        mock_mod.get_available_agents = MagicMock(return_value=mock_agents)
+        with patch.dict("sys.modules", {"code_puppy.agents": mock_mod}), \
+             patch("code_puppy.plugins.acp_gateway.agent._build_config_options", return_value=[]):
+            result = await agent.set_config_option(
+                config_id="active_agent", session_id=sid, value="python-programmer"
+            )
+            assert result is not None
+            assert agent._sessions[sid].agent_name == "python-programmer"
+
+    @pytest.mark.asyncio
+    async def test_set_active_agent_invalid(self):
+        from acp.exceptions import RequestError
+
+        agent, _ = _make_agent_with_client()
+        resp = await agent.new_session(cwd="/tmp")
+        sid = resp.session_id
+
+        mock_agents = {"code-puppy": "Code Puppy"}
+        mock_mod = MagicMock()
+        mock_mod.get_available_agents = MagicMock(return_value=mock_agents)
+        with patch.dict("sys.modules", {"code_puppy.agents": mock_mod}):
+            with pytest.raises(RequestError):
+                await agent.set_config_option(
+                    config_id="active_agent", session_id=sid, value="nonexistent-agent"
+                )
+
+    @pytest.mark.asyncio
     async def test_set_config_unknown_session(self):
         from acp.exceptions import RequestError
 

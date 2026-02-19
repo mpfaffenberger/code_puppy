@@ -67,6 +67,31 @@ async def discover_agents() -> List[AgentInfo]:
     return agents
 
 
+def discover_agents_sync() -> List[AgentInfo]:
+    """Synchronous variant of :func:`discover_agents`.
+
+    Used by helpers that run outside an async context (e.g.
+    ``_build_config_options``).  The underlying registry calls are
+    already synchronous — the async version only adds a retry sleep.
+    """
+    try:
+        from code_puppy.agents import get_available_agents, get_agent_descriptions
+
+        agents_map: Dict[str, str] = get_available_agents()
+        descriptions_map: Dict[str, str] = get_agent_descriptions()
+    except Exception:
+        logger.debug("Failed to query agent registry (sync)", exc_info=True)
+        return []
+
+    agents: List[AgentInfo] = []
+    for name, display_name in agents_map.items():
+        description = descriptions_map.get(name, "No description available.")
+        agents.append(
+            AgentInfo(name=name, display_name=display_name, description=description)
+        )
+    return agents
+
+
 def build_agent_metadata(agent_name: str) -> Optional[dict]:
     """Return ACP-compatible metadata for a single agent.
 
