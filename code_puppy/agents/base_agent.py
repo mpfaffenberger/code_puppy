@@ -1,6 +1,7 @@
 """Base agent configuration class for defining agent properties."""
 
 import asyncio
+import dataclasses
 import json
 import math
 import pathlib
@@ -1611,7 +1612,7 @@ class BaseAgent(ABC):
                     filtered_count += 1
                     continue
             result_messages_filtered_empty_thinking.append(msg)
-            self.set_message_history(result_messages_filtered_empty_thinking)
+        self.set_message_history(result_messages_filtered_empty_thinking)
 
         # Safety net: ensure history always ends with a ModelRequest.
         # If compaction or filtering somehow leaves a trailing ModelResponse,
