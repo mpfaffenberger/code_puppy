@@ -83,7 +83,7 @@ from code_puppy.messaging.spinner import (
     update_spinner_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
-from code_puppy.summarization_agent import run_summarization_sync, SummarizationError
+from code_puppy.summarization_agent import SummarizationError, run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
     is_awaiting_user_input,
@@ -1956,6 +1956,22 @@ class BaseAgent(ABC):
                 emit_info(f"Interrupted: {str(ie)}")
                 if get_use_dbos():
                     await DBOS.cancel_workflow_async(group_id)
+            except* RuntimeError as rt_error:
+                # Handle executor shutdown race condition gracefully
+                # This happens when DBOS tries to persist state via asyncio.to_thread()
+                # after the event loop's default ThreadPoolExecutor has been shut down
+                # rt_error is an ExceptionGroup, so check each nested exception
+                is_shutdown_error = False
+                for exc in rt_error.exceptions:
+                    if "cannot schedule new futures after shutdown" in str(exc).lower():
+                        is_shutdown_error = True
+                        break
+                if is_shutdown_error:
+                    emit_info("Agent task cancelled during shutdown")
+                    # Don't try to cancel DBOS workflow - the executor is already gone
+                else:
+                    # Re-raise other RuntimeErrors to be handled by the general handler
+                    raise
             except* Exception as other_error:
                 # Filter out CancelledError and UsageLimitExceeded from the exception group - let it propagate
                 remaining_exceptions = []
