@@ -212,13 +212,28 @@ def patch_tool_call_callbacks() -> None:
                 except Exception:
                     tool_args = {"raw": call.args}
 
-            # --- pre_tool_call ---
+            # --- pre_tool_call (with blocking support) ---
+            # Returns a string tool-result on block so pydantic-ai sees a clean
+            # "BLOCKED: ..." message and the agent can react gracefully, without
+            # triggering UnexpectedModelBehavior crashes.
             try:
                 from code_puppy import callbacks
+                from code_puppy.messaging import emit_warning
 
-                await callbacks.on_pre_tool_call(tool_name, tool_args)
+                callback_results = await callbacks.on_pre_tool_call(tool_name, tool_args)
+
+                for callback_result in callback_results:
+                    if callback_result and isinstance(callback_result, dict) and callback_result.get("blocked"):
+                        raw_reason = callback_result.get("error_message") or callback_result.get("reason") or ""
+                        if "[BLOCKED]" in raw_reason:
+                            clean_reason = raw_reason[raw_reason.index("[BLOCKED]"):].strip()
+                        else:
+                            clean_reason = raw_reason.strip() or "Tool execution blocked by hook"
+                        block_msg = f"🚫 Hook blocked this tool call: {clean_reason}"
+                        emit_warning(block_msg)
+                        return f"ERROR: {block_msg}\n\nThe hook policy prevented this tool from running. Please inform the user and do not retry this specific command."
             except Exception:
-                pass  # never block tool execution
+                pass  # other errors don't block tool execution
 
             start = time.perf_counter()
             error: Exception | None = None
