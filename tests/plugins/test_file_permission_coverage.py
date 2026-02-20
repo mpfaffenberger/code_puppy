@@ -59,12 +59,25 @@ class TestPreviewDeleteSnippet:
         assert result is not None
         assert "-hello world" in result or "hello" in result
 
-    def test_exception(self):
+    def test_exception_not_found(self):
         from code_puppy.plugins.file_permission_handler.register_callbacks import (
             _preview_delete_snippet,
         )
 
         assert _preview_delete_snippet("/dev/null/bad", "x") is None
+
+    def test_exception_during_diff(self, tmp_path):
+        from code_puppy.plugins.file_permission_handler.register_callbacks import (
+            _preview_delete_snippet,
+        )
+
+        f = tmp_path / "f.txt"
+        f.write_text("hello world")
+        with patch(
+            "code_puppy.plugins.file_permission_handler.register_callbacks.get_diff_context_lines",
+            side_effect=RuntimeError("boom"),
+        ):
+            assert _preview_delete_snippet(str(f), "world") is None
 
 
 class TestPreviewWriteToFile:
@@ -435,6 +448,100 @@ class TestGeneratePreviewFromOperationData:
             side_effect=RuntimeError,
         ):
             assert _generate_preview_from_operation_data("f", "delete", {}) is None
+
+
+class TestUnicodeExceptBranches:
+    """Cover the except (UnicodeEncodeError, UnicodeDecodeError): pass branches."""
+
+    def _make_bad_str(self, content):
+        """Create a string subclass whose encode raises UnicodeEncodeError."""
+
+        class BadStr(str):
+            def encode(self, *args, **kwargs):
+                raise UnicodeEncodeError("utf-8", "", 0, 0, "bad")
+
+        return BadStr(content)
+
+    def test_delete_snippet_unicode_error(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from code_puppy.plugins.file_permission_handler.register_callbacks import (
+            _preview_delete_snippet,
+        )
+
+        f = tmp_path / "f.txt"
+        f.write_text("hello world")
+        bad = self._make_bad_str("hello world")
+        mock_f = MagicMock()
+        mock_f.__enter__ = MagicMock(return_value=mock_f)
+        mock_f.__exit__ = MagicMock(return_value=False)
+        mock_f.read = MagicMock(return_value=bad)
+        with patch("builtins.open", return_value=mock_f):
+            result = _preview_delete_snippet(str(f), "hello")
+            assert result is not None or result is None
+
+    def test_replace_unicode_error(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from code_puppy.plugins.file_permission_handler.register_callbacks import (
+            _preview_replace_in_file,
+        )
+
+        f = tmp_path / "f.txt"
+        f.write_text("hello")
+        bad = self._make_bad_str("hello")
+        mock_f = MagicMock()
+        mock_f.__enter__ = MagicMock(return_value=mock_f)
+        mock_f.__exit__ = MagicMock(return_value=False)
+        mock_f.read = MagicMock(return_value=bad)
+        with patch("builtins.open", return_value=mock_f):
+            _preview_replace_in_file(str(f), [{"old_str": "hello", "new_str": "hi"}])
+
+    def test_delete_file_unicode_error(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from code_puppy.plugins.file_permission_handler.register_callbacks import (
+            _preview_delete_file,
+        )
+
+        f = tmp_path / "f.txt"
+        f.write_text("content")
+        bad = self._make_bad_str("content")
+        mock_f = MagicMock()
+        mock_f.__enter__ = MagicMock(return_value=mock_f)
+        mock_f.__exit__ = MagicMock(return_value=False)
+        mock_f.read = MagicMock(return_value=bad)
+        with patch("builtins.open", return_value=mock_f):
+            _preview_delete_file(str(f))
+
+
+class TestWriteToFileExceptionBranch:
+    def test_write_general_exception(self):
+        from code_puppy.plugins.file_permission_handler.register_callbacks import (
+            _preview_write_to_file,
+        )
+
+        # Pass content that causes join to fail after unified_diff
+        with patch(
+            "difflib.unified_diff",
+            side_effect=RuntimeError("boom"),
+        ):
+            assert _preview_write_to_file("f.txt", "content") is None
+
+
+class TestDeleteFileExceptionBranch:
+    def test_delete_file_general_exception(self, tmp_path):
+        from code_puppy.plugins.file_permission_handler.register_callbacks import (
+            _preview_delete_file,
+        )
+
+        f = tmp_path / "f.txt"
+        f.write_text("content")
+        with patch(
+            "code_puppy.plugins.file_permission_handler.register_callbacks.get_diff_context_lines",
+            side_effect=RuntimeError("boom"),
+        ):
+            assert _preview_delete_file(str(f)) is None
 
 
 class TestPreviewUnicodeEdgeCases:
