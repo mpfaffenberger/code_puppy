@@ -47,7 +47,7 @@ class PowerBIAgent(BaseAgent):
             "powerbi_get_measures", -- Added 02/19/2026
             "powerbi_get_calculation_group_items", -- Added 02/19/2026
             "powerbi_execute_dax_query",
-            "powerbi_get_table_data",
+            # "powerbi_get_table_data",
             # "powerbi_refresh_dataset", -- Disabling the ability to refresh a dataset for a user.
             "powerbi_get_refresh_history",
             "powerbi_get_datasources",
