@@ -4,7 +4,6 @@ import os
 from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
-
 MODULE = "code_puppy.command_line.mcp.install_command"
 UTILS = "code_puppy.command_line.mcp.utils"
 WIZARD = "code_puppy.command_line.mcp.wizard_utils"
@@ -287,46 +286,5 @@ class TestInstallFromCatalog:
         mock_catalog.search.return_value = [FakeServer(name=f"s{i}") for i in range(8)]
 
         with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
-            result = cmd._install_from_catalog("test", "grp")
-        assert result is False
- ):
-        """Test cmd arg that is not required and has no default - should be skipped."""
-        cmd = make_cmd()
-        mock_catalog = MagicMock()
-        server = FakeServer()
-        server.get_command_line_args = lambda: [
-            {"name": "opt", "prompt": "Optional", "default": "", "required": False},
-        ]
-        mock_catalog.get_by_id.return_value = server
-        mock_prompt.return_value = ""
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "code_puppy.mcp_.server_registry_catalog": MagicMock(
-                    catalog=mock_catalog
-                )
-            },
-        ):
-            with patch(f"{UTILS}.find_server_id_by_name", return_value=None):
-                result = cmd._install_from_catalog("test-server", "grp")
-        assert result is True
-
-    @patch(f"{MODULE}.emit_info")
-    def test_more_than_5_search_results(self, mock_info):
-        """Test that only first 5 results are shown."""
-        cmd = make_cmd()
-        mock_catalog = MagicMock()
-        mock_catalog.get_by_id.return_value = None
-        mock_catalog.search.return_value = [FakeServer(name=f"s{i}") for i in range(8)]
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "code_puppy.mcp_.server_registry_catalog": MagicMock(
-                    catalog=mock_catalog
-                )
-            },
-        ):
             result = cmd._install_from_catalog("test", "grp")
         assert result is False
