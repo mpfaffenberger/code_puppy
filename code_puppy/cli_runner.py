@@ -406,7 +406,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     cancel_key = get_cancel_agent_display_name()
     emit_system_message(
-        f"Type /help for commands · /resume to continue a session · {cancel_key} to cancel · /exit to quit",
+        f"Type /help for commands · /model to switch models · /resume to continue a session · {cancel_key} to cancel · /exit to quit",
     )
     try:
         from code_puppy.command_line.motd import print_motd
