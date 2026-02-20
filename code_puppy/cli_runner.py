@@ -642,8 +642,60 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             if command_result is True:
                 continue
             elif isinstance(command_result, str):
-                if command_result == "__AUTOSAVE_LOAD__":
-                    # Handle async autosave loading
+                if command_result.startswith("__AUTOSAVE_LOAD_DIRECT__:"):
+                    # Handle direct session load by name
+                    session_name = command_result.split(":", 1)[1]
+                    try:
+                        from code_puppy.agents.agent_manager import get_current_agent
+                        from code_puppy.config import (
+                            set_current_autosave_from_session_name,
+                        )
+                        from code_puppy.messaging import emit_error, emit_success
+                        from code_puppy.session_storage import load_session
+
+                        base_dir = Path(AUTOSAVE_DIR).resolve()
+                        session_path = (base_dir / f"{session_name}.pkl").resolve()
+
+                        # Security: Prevent path traversal attacks
+                        if (
+                            base_dir not in session_path.parents
+                            and session_path.parent != base_dir
+                        ):
+                            emit_error(f"❌ Invalid session name: {session_name}")
+                            emit_info("💡 Use /resume to open the session picker.")
+                            continue
+
+                        # Check if session exists
+                        if not session_path.exists():
+                            emit_error(f"❌ Session not found: {session_name}")
+                            emit_info("💡 Use /resume to open the session picker.")
+                            continue
+
+                        # Load the session
+                        history = load_session(session_name, base_dir)
+
+                        agent = get_current_agent()
+                        agent.set_message_history(history)
+
+                        # Set current autosave session
+                        set_current_autosave_from_session_name(session_name)
+
+                        total_tokens = sum(
+                            agent.estimate_tokens_for_message(msg) for msg in history
+                        )
+
+                        emit_success(
+                            f"✅ Resumed: {session_name}\n"
+                            f"📊 {len(history)} messages ({total_tokens:,} tokens)"
+                        )
+                    except Exception as e:
+                        from code_puppy.messaging import emit_error
+
+                        emit_error(f"Failed to load session: {e}")
+                        emit_info("💡 Use /resume to open the session picker.")
+                    continue
+                elif command_result == "__AUTOSAVE_LOAD__":
+                    # Handle async autosave loading (interactive picker)
                     try:
                         # Check if we're in a real interactive terminal
                         # (not pexpect/tests) - interactive picker requires proper TTY
