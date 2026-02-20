@@ -181,6 +181,7 @@ def register_powerbi_get_dataset(agent: Any) -> Tool:
 # =============================================================================
 
 
+
 def powerbi_get_dataset_tables(
     ctx: RunContext,
     dataset_id: str,
@@ -188,7 +189,7 @@ def powerbi_get_dataset_tables(
 ) -> dict:
     """Get the tables in a Power BI dataset using DAX.
 
-    Uses DAX INFO.TABLES() to retrieve table metadata from the dataset.
+    Uses DAX INFO.VIEW.TABLES() to retrieve table metadata from the dataset.
 
     Args:
         dataset_id: The ID of the dataset.
@@ -207,8 +208,20 @@ def powerbi_get_dataset_tables(
     try:
         client = get_powerbi_client()
 
-        # Use DAX INFO.TABLES() to get table metadata
-        dax_query = "EVALUATE INFO.TABLES()"
+        # Use DAX INFO.VIEW.TABLES() to get table metadata
+        dax_query = """
+        EVALUATE
+        SELECTCOLUMNS (
+            FILTER (
+                INFO.VIEW.TABLES (),
+                [454Calendar- Title] <> \"DirectQuery\" && [IsHidden] = FALSE
+                    && ISBLANK ( [CalculationGroupPrecedence] )
+            ),
+            [ID],
+            [Name],
+            [Description]
+        )
+        """
         result = client.execute_dax_query(dataset_id, dax_query, workspace_id)
 
         tables = []
@@ -218,7 +231,7 @@ def powerbi_get_dataset_tables(
                 # Extract table info - skip internal tables
                 table_id = row.get("[ID]")
                 name = row.get("[Name]", "")
-                is_hidden = row.get("[IsHidden]", False)
+                descr = row.get("[Description]", "")
 
                 # Skip system tables (usually negative IDs or $ prefix)
                 if table_id and table_id >= 0 and not name.startswith("$"):
@@ -226,8 +239,7 @@ def powerbi_get_dataset_tables(
                         {
                             "id": table_id,
                             "name": name,
-                            "is_hidden": is_hidden,
-                            "description": row.get("[Description]", ""),
+                            "description": descr,
                         }
                     )
 
@@ -276,12 +288,43 @@ def powerbi_get_table_columns(
         client = get_powerbi_client()
 
         # Get columns and filter by table
-        dax_query = """
-        EVALUATE 
-        FILTER(
-            INFO.COLUMNS(),
-            [ExplicitName] <> BLANK()
-        )
+        dax_query = f"""
+        EVALUATE
+        VAR _columns =
+            SELECTCOLUMNS (
+                FILTER ( INFO.VIEW.COLUMNS (), [Table] == \"{table_name}\" && [IsHidden] = FALSE ),
+                \"TableName\", [Table],
+                \"ColumnId\", [ID],
+                \"ColumnName\", [Name],
+                \"ColumnDescription\", [Description],
+                \"ColumnType\", [DataType]
+            )
+        VAR _samplevalues =
+            SELECTCOLUMNS (
+                FILTER ( INFO.ANNOTATIONS (), [Name] = \"SampleValues\" && [ObjectType] = 4 ),
+                \"ColumnId\", [ObjectID],
+                \"SampleValues\", [Value]
+            )
+        VAR _tables =
+            SELECTCOLUMNS (
+                FILTER (
+                    INFO.VIEW.TABLES (),
+                    ISBLANK ( [CalculationGroupPrecedence] ) && [IsHidden] = FALSE
+                ),
+                \"TableName\", [Name]
+            )
+        VAR column_output =
+            SELECTCOLUMNS (
+                NATURALINNERJOIN ( NATURALLEFTOUTERJOIN ( _columns, _samplevalues ), _tables ),
+                \"ColumnFQN\",
+                    \"'\" & [TableName] & \"'[\" & [ColumnName] & \"]\",
+                [TableName],
+                [ColumnDescription],
+                [ColumnType],
+                [SampleValues]
+            )
+        RETURN
+            column_output
         """
         result = client.execute_dax_query(dataset_id, dax_query, workspace_id)
 
@@ -290,14 +333,15 @@ def powerbi_get_table_columns(
             raw_rows = result["results"][0]["tables"][0].get("rows", [])
             for row in raw_rows:
                 # Get column info
-                col_name = row.get("[ExplicitName]") or row.get("[InferredName]")
+                col_name = row.get("[ColumnFQN]")
                 if col_name:
                     columns.append(
                         {
                             "name": col_name,
-                            "table_id": row.get("[TableID]"),
-                            "data_type": row.get("[ExplicitDataType]"),
-                            "is_hidden": row.get("[IsHidden]", False),
+                            "table": row.get("[TableName]"),
+                            "data_type": row.get("[ColumnType]"),
+                            "description": row.get("[ColumnDescription]", ""),
+                            "sample_values": row.get("[SampleValues]", []),
                         }
                     )
 
@@ -318,6 +362,189 @@ def register_powerbi_get_table_columns(agent: Any) -> Tool:
     """Register the powerbi_get_table_columns tool."""
     return agent.tool(powerbi_get_table_columns)
 
+def powerbi_get_measures(
+    ctx: RunContext,
+    dataset_id: str,
+    workspace_id: str | None = None,
+) -> dict:
+    """Get all measures in the dataset using DAX INFO.VIEW.MEASURES().
+
+    Args:
+        dataset_id: The ID of the dataset.
+        workspace_id: Optional workspace ID containing the dataset.
+
+    Returns:
+        Dict with list of measures and their properties.
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            f"📊 [bold cyan]Getting measures for dataset...[/bold cyan]"
+        )
+    )
+
+    try:
+        client = get_powerbi_client()
+
+        # Get measures
+        dax_query = f"""
+        EVALUATE
+        SELECTCOLUMNS (
+            FILTER ( INFO.VIEW.MEASURES (), [IsHidden] = FALSE ),
+            "MeasureFQN",
+                "[" & [Name] & "]",
+            "MeasureDescription", [Description],
+            "MeasureFormatString", [FormatString],
+            "MeasureExpression", [Expression]
+        )
+        """
+        result = client.execute_dax_query(dataset_id, dax_query, workspace_id)
+
+        measures = []
+        if "results" in result:
+            raw_rows = result["results"][0]["tables"][0].get("rows", [])
+            for row in raw_rows:
+                # Get measure info
+                measure_name = row.get("[MeasureFQN]")
+                if measure_name:
+                    measures.append(
+                        {
+                            "name": measure_name,
+                            "description": row.get("[MeasureDescription]", ""),
+                            "format_string": row.get("[MeasureFormatString]", ""),
+                            "expression": row.get("[MeasureExpression]", ""),
+                        }
+                    )
+
+        emit_success(f"Found {len(measures)} measures")
+
+        return {
+            "success": True,
+            "count": len(measures),
+            "measures": measures,
+        }
+
+    except Exception as e:
+        return handle_powerbi_error(e)
+
+
+def register_powerbi_get_measures(agent: Any) -> Tool:
+    """Register the powerbi_get_measures tool."""
+    return agent.tool(powerbi_get_measures)
+
+def powerbi_get_calculation_group_items(
+    ctx: RunContext,
+    dataset_id: str,
+    workspace_id: str | None = None,
+) -> dict:
+    """Get all calculation group items in the dataset using DAX INFO.CALCULATIONGROUPS().
+
+    Args:
+        dataset_id: The ID of the dataset.
+        workspace_id: Optional workspace ID containing the dataset.
+
+    Returns:
+        Dict with list of calculation group items and their properties.
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            f"📊 [bold cyan]Getting calculation group items for dataset...[/bold cyan]"
+        )
+    )
+
+    try:
+        client = get_powerbi_client()
+
+        # Get calculation group items
+        dax_query = f"""
+        EVALUATE
+        VAR _calcgroups =
+            SELECTCOLUMNS (
+                INFO.CALCULATIONGROUPS (),
+                [TableID],
+                \"CalculationGroupID\", [ID]
+            )
+        VAR _calcitems =
+            SELECTCOLUMNS (
+                INFO.CALCULATIONITEMS (),
+                [CalculationGroupID],
+                \"CalculationItemName\", [Name],
+                \"CalculationItemDescription\", [Description],
+                \"CalculationItemExpression\", [Expression],
+                \"CalculationItemOrdinal\", [Ordinal]
+            )
+        VAR _calcgrouptables =
+            SELECTCOLUMNS (
+                FILTER (
+                    INFO.VIEW.TABLES (),
+                    ( [IsHidden] = FALSE ) && NOT ( ISBLANK ( [CalculationGroupPrecedence] ) )
+                ),
+                \"TableID\", [ID],
+                \"TableName\", [Name]
+            )
+        VAR _columns =
+            SELECTCOLUMNS (
+                FILTER ( INFO.VIEW.COLUMNS (), [SourceColumn] = "Name" ),
+                \"TableName\", [Table],
+                \"ColumnName\", [Name]
+            )
+        VAR joined =
+            NATURALINNERJOIN (
+                _columns,
+                NATURALINNERJOIN (
+                    _calcgrouptables,
+                    NATURALINNERJOIN ( _calcitems, _calcgroups )
+                )
+            )
+        VAR results =
+            SELECTCOLUMNS (
+                joined,
+                \"CalculationGroupName\", [TableName],
+                \"CalculationGroupFQN\",
+                    \"'\" & [TableName] & \"'[\" & [ColumnName] & \"]\",
+                [CalculationItemName],
+                [CalculationItemDescription],
+                [CalculationItemExpression],
+                [CalculationItemOrdinal]
+            )
+        RETURN
+            results
+        """
+        result = client.execute_dax_query(dataset_id, dax_query, workspace_id)
+
+        calc_groups = []
+        if "results" in result:
+            raw_rows = result["results"][0]["tables"][0].get("rows", [])
+            for row in raw_rows:
+                # Get calculation group info
+                calculation_group_name = row.get("[CalculationGroupFQN]")
+                if calculation_group_name:
+                    calc_groups.append(
+                        {
+                            "name": calculation_group_name,
+                            "item_name": row.get("[CalculationItemName]", ""),
+                            "description": row.get("[CalculationItemDescription]", ""),
+                            "format_string": row.get("[CalculationItemFormatString]", ""),
+                            "expression": row.get("[CalculationItemExpression]", ""),
+                        }
+                    )
+
+        emit_success(f"Found {len(calc_groups)} calculation groups")
+
+        return {
+            "success": True,
+            "count": len(calc_groups),
+            "calculation_groups": calc_groups,
+        }
+
+    except Exception as e:
+        return handle_powerbi_error(e)
+
+
+def register_powerbi_get_calculation_group_items(agent: Any) -> Tool:
+    """Register the powerbi_get_calculation_group_items tool."""
+    return agent.tool(powerbi_get_calculation_group_items)
 
 # =============================================================================
 # DAX QUERY TOOLS

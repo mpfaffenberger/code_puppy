@@ -27,10 +27,12 @@ from code_puppy.tools.powerbi.reports import (
 
 # Datasets
 from code_puppy.tools.powerbi.datasets import (
+    register_powerbi_get_calculation_group_items,
     register_powerbi_list_datasets,
     register_powerbi_get_dataset,
     register_powerbi_get_dataset_tables,
     register_powerbi_get_table_columns,
+    register_powerbi_get_measures,
     register_powerbi_execute_dax_query,
     register_powerbi_get_table_data,
     register_powerbi_refresh_dataset,
@@ -75,6 +77,8 @@ POWERBI_TOOLS = {
     "powerbi_get_dataset": register_powerbi_get_dataset,
     "powerbi_get_dataset_tables": register_powerbi_get_dataset_tables,
     "powerbi_get_table_columns": register_powerbi_get_table_columns,
+    "powerbi_get_measures": register_powerbi_get_measures,
+    "powerbi_get_calculation_group_items": register_powerbi_get_calculation_group_items,
     "powerbi_execute_dax_query": register_powerbi_execute_dax_query,
     "powerbi_get_table_data": register_powerbi_get_table_data,
     "powerbi_refresh_dataset": register_powerbi_refresh_dataset,

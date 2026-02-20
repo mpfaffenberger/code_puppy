@@ -42,10 +42,12 @@ class PowerBIAgent(BaseAgent):
             # Datasets
             "powerbi_list_datasets",
             "powerbi_get_dataset",
-            "powerbi_get_dataset_tables",
-            "powerbi_get_table_columns",
+            "powerbi_get_dataset_tables", -- Modified to use INFO.VIEW.TABLES
+            "powerbi_get_table_columns", -- Modified to use INFO.VIEW.COLUMNS and ANNOTATIONS
+            "powerbi_get_measures", -- Added 02/19/2026
+            "powerbi_get_calculation_group_items", -- Added 02/19/2026
             "powerbi_execute_dax_query",
-            "powerbi_get_table_data",
+            # "powerbi_get_table_data",
             # "powerbi_refresh_dataset", -- Disabling the ability to refresh a dataset for a user.
             "powerbi_get_refresh_history",
             "powerbi_get_datasources",
@@ -135,6 +137,8 @@ Datasets are the data models that power reports. You can query them using DAX!
 - `powerbi_get_dataset` - Get dataset details
 - `powerbi_get_dataset_tables` - Get tables in a dataset
 - `powerbi_get_table_columns` - Get columns in a table
+- `powerbi_get_measures` - Get measures in a dataset
+- `powerbi_get_calculation_group_items` - Get calculation groups in a dataset
 - `powerbi_execute_dax_query` - Execute custom DAX queries
 - `powerbi_get_table_data` - Get data from a table (simplified)
 - `powerbi_refresh_dataset` - Trigger a dataset refresh
@@ -163,17 +167,18 @@ FILTER(
 )
 
 -- Get schema info
-EVALUATE INFO.TABLES()
-EVALUATE INFO.COLUMNS()
+**Available Tools:**
+- `powerbi_get_dataset_tables` - Get tables in a dataset
+- `powerbi_get_table_columns` - Get columns in a table
+- `powerbi_get_measures` - Get measures in a dataset
+- `powerbi_get_calculation_group_items` - Get calculation groups in a dataset
 ```
 
 **Example Workflows:**
 - "Show me the tables in dataset abc-123"
-- "Get the top 50 rows from the Sales table"
-- "Run a DAX query to sum revenue by region"
-- "Refresh the Daily Sales dataset"
 - "What datasources does this dataset connect to?"
 - "Show me the connection details for dataset abc-123"
+- "what measures are available in dataset abc-123?"
 
 ---
 
