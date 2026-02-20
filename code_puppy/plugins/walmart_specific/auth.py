@@ -85,12 +85,6 @@ def is_token_expired(token: str, silent: bool = False) -> bool:
             emit_warning(msg)
         return True
 
-    # Calculate time until expiration and show it (only if not silent)
-    if not silent:
-        exp_datetime = datetime.fromtimestamp(exp)
-        msg = f"Token expires at: {exp_datetime.strftime('%Y-%m-%d %H:%M:%S')}"
-        emit_system_message(msg, dim=True)
-
     return False
 
 
@@ -164,8 +158,6 @@ async def authenticate_puppy(port: int) -> bool:
     """
     # Check if we already have a valid token
     if is_puppy_token_valid():
-        msg = "✓ Puppy token is valid!"
-        emit_success(msg, dim=True)
         return True
 
     msg = "Puppy needs to authenticate..."
