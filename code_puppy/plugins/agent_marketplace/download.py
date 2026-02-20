@@ -503,6 +503,89 @@ async def _download_agent_async(name: str) -> dict:
     return data
 
 
+# ============================================================================
+# Bundled UC Tools Installation
+# ============================================================================
+
+
+def _install_bundled_uc_tools(agent_data: dict, agent_name: str) -> int:
+    """Install bundled UC (Universal Constructor) tools from agent data.
+
+    Marketplace agents can ship with custom UC tools embedded in their JSON
+    definition under the ``bundled_uc_tools`` key.  When present, each tool
+    file is extracted into the user's UC directory so the agent can use them
+    immediately after download — no separate installation step required.
+
+    The ``bundled_uc_tools`` value must be a dict mapping relative file paths
+    (e.g. ``"danny/ask.py"``) to their Python source code strings.
+
+    Example agent JSON snippet::
+
+        {
+            "name": "my-agent",
+            ...
+            "bundled_uc_tools": {
+                "myns/helper.py": "TOOL_META = {...}\n\ndef run(): ...",
+                "myns/utils.py":  "TOOL_META = {...}\n\ndef run(): ..."
+            }
+        }
+
+    Args:
+        agent_data: The downloaded agent definition dictionary.
+        agent_name: Name of the agent being downloaded (for logging).
+
+    Returns:
+        Number of UC tool files successfully installed.
+    """
+    bundled_tools = agent_data.get("bundled_uc_tools")
+    if not bundled_tools or not isinstance(bundled_tools, dict):
+        return 0
+
+    from code_puppy.plugins.universal_constructor import USER_UC_DIR
+
+    installed = 0
+
+    for file_path, source_code in bundled_tools.items():
+        # Only process Python files with string content
+        if not file_path.endswith(".py") or not isinstance(source_code, str):
+            continue
+
+        # Reject paths that try to escape the UC directory
+        if ".." in file_path or file_path.startswith("/"):
+            emit_warning(
+                f"Skipping bundled tool with unsafe path: {file_path}"
+            )
+            continue
+
+        target = USER_UC_DIR / file_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        # Create __init__.py in namespace directories if needed
+        init_file = target.parent / "__init__.py"
+        if not init_file.exists():
+            init_file.write_text("")
+
+        # Write tool file (overwrite to keep in sync with agent version)
+        try:
+            target.write_text(source_code, encoding="utf-8")
+            installed += 1
+        except OSError as e:
+            emit_warning(f"Failed to install UC tool {file_path}: {e}")
+
+    # Reload the UC registry so tools are available immediately
+    if installed > 0:
+        try:
+            from code_puppy.plugins.universal_constructor.registry import (
+                get_registry,
+            )
+
+            get_registry().reload()
+        except Exception:
+            pass  # Registry reload is best-effort
+
+    return installed
+
+
 def _display_success(name: str, path: Path, version: str, agent_hash: str) -> None:
     """Display success message with version/hash info.
 
@@ -683,8 +766,21 @@ def handle_download_agent(command: str) -> bool:
         # Compute hash from agent data
         agent_hash = _compute_hash(agent_data)
 
+        # Install bundled UC tools if the agent ships any
+        num_uc_tools = _install_bundled_uc_tools(agent_data, agent_name)
+        if num_uc_tools > 0:
+            console.print(
+                f"[green]🔧[/green] Installed {num_uc_tools} bundled "
+                f"tool{'s' if num_uc_tools != 1 else ''} automatically!"
+            )
+
+        # Strip bundled tool source from the saved JSON to keep it clean
+        save_data = {
+            k: v for k, v in agent_data.items() if k != "bundled_uc_tools"
+        }
+
         # Save the agent
-        path = _save_agent(agent_data, agent_name)
+        path = _save_agent(save_data, agent_name)
 
         # Update hash cache
         _update_local_hash(
