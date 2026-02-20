@@ -404,39 +404,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     display_console = message_renderer.console
     from code_puppy.messaging import emit_info, emit_system_message
 
-    emit_system_message(
-        "Type '/exit', '/quit', or press Ctrl+D to exit the interactive mode."
-    )
-    emit_system_message("Type 'clear' to reset the conversation history.")
-    emit_system_message("Type /help to view all commands")
-    emit_system_message(
-        "Type '/exit' or '/quit' to exit the interactive mode.", dim=True
-    )
-    emit_system_message("Type 'clear' to reset the conversation history.", dim=True)
-    emit_system_message("Type /help to view all commands", dim=True)
-    emit_system_message(
-        "Type @ for path completion, or /model to pick a model. Toggle multiline with Alt+M or F2; newline: Ctrl+J.",
-        dim=True,
-    )
-    emit_system_message("Paste images: Ctrl+V (even on Mac!), F3, or /paste command.")
-    import platform
-
-    if platform.system() == "Darwin":
-        emit_system_message(
-            "💡 macOS tip: Use Ctrl+V (not Cmd+V) to paste images in terminal."
-        )
     cancel_key = get_cancel_agent_display_name()
     emit_system_message(
-        f"Press {cancel_key} during processing to cancel the current task or inference. Use Ctrl+X to interrupt running shell commands.",
-        dim=True,
-    )
-    emit_system_message(
-        "Use /autosave_load to manually load a previous autosave session.",
-        dim=True,
-    )
-    emit_system_message(
-        "Use /diff to configure diff highlighting colors for file changes.",
-        dim=True,
+        f"Type /help for commands · {cancel_key} to cancel · Ctrl+X to stop shell · /exit to quit",
     )
     try:
         from code_puppy.command_line.motd import print_motd
