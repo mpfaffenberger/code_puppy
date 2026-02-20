@@ -4,8 +4,8 @@ Provides a split-panel interface for browsing and selecting agents
 with live preview of agent details.
 """
 
+import asyncio
 import sys
-import time
 import unicodedata
 from typing import List, Optional, Tuple
 
@@ -599,7 +599,7 @@ async def interactive_agent_picker() -> Optional[str]:
     sys.stdout.write("\033[?1049h")  # Enter alternate buffer
     sys.stdout.write("\033[2J\033[H")  # Clear and home
     sys.stdout.flush()
-    time.sleep(0.05)
+    await asyncio.sleep(0.05)
 
     try:
         while True:

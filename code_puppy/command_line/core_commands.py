@@ -350,8 +350,8 @@ async def interactive_model_picker() -> str | None:
     Returns:
         The selected model name, or None if cancelled
     """
+    import asyncio
     import sys
-    import time
 
     from rich.console import Console
     from rich.panel import Panel
@@ -392,7 +392,7 @@ async def interactive_model_picker() -> str | None:
 
     # Pause spinners BEFORE showing panel
     set_awaiting_user_input(True)
-    time.sleep(0.3)  # Let spinners fully stop
+    await asyncio.sleep(0.3)  # Let spinners fully stop
 
     local_console = Console()
     emit_info("")
@@ -402,7 +402,7 @@ async def interactive_model_picker() -> str | None:
     # Flush output before prompt_toolkit takes control
     sys.stdout.flush()
     sys.stderr.flush()
-    time.sleep(0.1)
+    await asyncio.sleep(0.1)
 
     selected_model = None
 

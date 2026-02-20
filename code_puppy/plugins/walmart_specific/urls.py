@@ -52,6 +52,17 @@ def get_setup_url(environment: Environment = Environment.STAGE) -> str:
     return f"{base_url}/api/releases/setup"
 
 
+def get_setup_windows_url(environment: Environment = Environment.STAGE) -> str:
+    """Get the Windows-specific setup bat download URL.
+
+    Defaults to STAGE to match the existing behaviour of all other release
+    endpoints.  The environment default is intentionally NOT changed here —
+    see the contrary review in docs/windows-update-review.md.
+    """
+    base_url = get_base_url(environment)
+    return f"{base_url}/api/releases/setup_windows.bat"
+
+
 def get_telemetry_url(environment: Environment = Environment.STAGE) -> str:
     """Get the telemetry endpoint URL for code generation events."""
     if environment == Environment.DEV:

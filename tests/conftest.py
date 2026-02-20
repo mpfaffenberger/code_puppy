@@ -15,15 +15,24 @@ import pytest
 
 from code_puppy import config as cp_config
 
-# Re-export integration fixtures so pytest discovers them project-wide
-# Expose the CLI harness fixtures globally
-from tests.integration.cli_expect.harness import cli_harness as cli_harness
-from tests.integration.cli_expect.harness import integration_env as integration_env
-from tests.integration.cli_expect.harness import log_dump as log_dump
-from tests.integration.cli_expect.harness import retry_policy as retry_policy
-from tests.integration.cli_expect.harness import (  # noqa: F401
-    spawned_cli as spawned_cli,
-)
+# Re-export integration fixtures so pytest discovers them project-wide.
+# Guard: pexpect.spawn is POSIX-only; on Windows the import fails silently
+# so the rest of the test suite (unit tests, windows_update tests) still runs.
+try:
+    from tests.integration.cli_expect.harness import cli_harness as cli_harness
+    from tests.integration.cli_expect.harness import integration_env as integration_env
+    from tests.integration.cli_expect.harness import log_dump as log_dump
+    from tests.integration.cli_expect.harness import retry_policy as retry_policy
+    from tests.integration.cli_expect.harness import (  # noqa: F401
+        spawned_cli as spawned_cli,
+    )
+except (AttributeError, ImportError):
+    # pexpect.spawn not available on Windows — integration fixtures unavailable.
+    cli_harness = None  # type: ignore[assignment]
+    integration_env = None  # type: ignore[assignment]
+    log_dump = None  # type: ignore[assignment]
+    retry_policy = None  # type: ignore[assignment]
+    spawned_cli = None  # type: ignore[assignment]
 
 
 @pytest.fixture(autouse=True)

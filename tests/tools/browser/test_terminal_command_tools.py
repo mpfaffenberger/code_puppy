@@ -7,6 +7,7 @@ with extensive mocking to avoid actual browser operations.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic_ai import ToolReturn
 
 from code_puppy.tools.browser.terminal_command_tools import (
     DEFAULT_COMMAND_TIMEOUT,
@@ -65,11 +66,14 @@ class TestRunTerminalCommand:
         mock_manager = AsyncMock()
         mock_manager.get_current_page.return_value = mock_page
 
-        mock_screenshot_result = {
-            "success": True,
-            "base64_image": "fake_base64",
-            "screenshot_path": "/tmp/screenshot.png",
-        }
+        mock_screenshot_result = ToolReturn(
+            return_value="Terminal screenshot captured. Saved to: /tmp/screenshot.png",
+            metadata={
+                "success": True,
+                "screenshot_path": "/tmp/screenshot.png",
+                "target": "viewport",
+            },
+        )
 
         with patch(
             "code_puppy.tools.browser.terminal_command_tools.get_session_manager",
@@ -95,8 +99,8 @@ class TestRunTerminalCommand:
 
                             assert result["success"] is True
                             assert result["command"] == "ls -la"
-                            assert "base64_image" in result
-                            assert result["base64_image"] == "fake_base64"
+                            assert result["screenshot_path"] == "/tmp/screenshot.png"
+                            assert result["media_type"] == "image/png"
 
                             # Verify keyboard interactions
                             mock_page.keyboard.type.assert_called_once_with("ls -la")

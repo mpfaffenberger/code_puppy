@@ -9,6 +9,7 @@ import os
 import re
 import signal
 import sys
+import tempfile
 import time
 from datetime import datetime, timedelta
 from typing import Optional
@@ -121,10 +122,24 @@ def run_scheduler_loop(check_interval: int = 60):
 
 
 def write_pid_file():
-    """Write the current PID to the PID file."""
-    os.makedirs(os.path.dirname(SCHEDULER_PID_FILE), exist_ok=True)
-    with open(SCHEDULER_PID_FILE, "w") as f:
-        f.write(str(os.getpid()))
+    """Write the current PID to the PID file atomically.
+
+    Writes to a temp file first, then atomically replaces the PID file.
+    This prevents corruption if a crash occurs mid-write.
+    """
+    pid_dir = os.path.dirname(SCHEDULER_PID_FILE)
+    os.makedirs(pid_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=pid_dir, prefix=".pid_tmp_")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(str(os.getpid()))
+        os.replace(tmp_path, SCHEDULER_PID_FILE)
+    except BaseException:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def remove_pid_file():
@@ -171,7 +186,11 @@ def get_daemon_pid() -> Optional[int]:
 
     try:
         with open(SCHEDULER_PID_FILE, "r") as f:
-            pid = int(f.read().strip())
+            content = f.read().strip()
+        if not content:
+            remove_pid_file()
+            return None
+        pid = int(content)
 
         # Check if process is actually running
         if sys.platform == "win32":
@@ -203,6 +222,9 @@ def start_daemon_background() -> bool:
     import subprocess
     import time
 
+    # NOTE: There is an inherent TOCTOU race between checking if the daemon
+    # is running and starting a new one. Full mitigation would require file
+    # locking (e.g., fcntl.flock). We mitigate by re-checking after start.
     pid = get_daemon_pid()
     if pid:
         return True  # Already running
@@ -225,6 +247,8 @@ def start_daemon_background() -> bool:
         )
 
     time.sleep(1)
+    # Re-check to confirm daemon actually started (also catches race where
+    # another process started the daemon between our check and Popen).
     return get_daemon_pid() is not None
 
 

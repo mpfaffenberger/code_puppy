@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.399"
+version = "0.0.408"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "pydantic-ai-slim[openai,anthropic,mcp]==1.26.0",
+    "pydantic-ai-slim[openai,anthropic,mcp]==1.56.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",
-    "httpx[http2]>=0.24.1",
+    "httpx[http2]>=0.24.1,<0.28",
     "requests>=2.28.0",
     "rich>=13.4.2",
     "pydantic>=2.4.0",
@@ -25,15 +25,20 @@ dependencies = [
     "ripgrep==14.1.0",
     "tenacity>=8.2.0",
     "playwright>=1.40.0",
-    "dbos>=2.5.0",
-    "fastapi>=0.111.0",
+    "dbos>=2.11.0",
+    "fastapi>=0.109.0",
     "markdownify>=0.11.0",
     "sqlparse>=0.4.0",
     "google-cloud-bigquery>=3.0.0",
     # GUI-Cub dependencies
-    "atomacos>=3.2.0; sys_platform == 'darwin'",
+    # NOTE: atomacos moved to [project.optional-dependencies] "macos-gui" extra
+    # because atomacos 3.3.0 (dead since 2019) pins pyscreeze<0.1.20, which
+    # conflicts with our pyscreeze==0.1.28 pin. override-dependencies only works
+    # locally with uv, not in published package metadata — so downstream resolvers
+    # choke. Since atomacos is already imported via try/except, it's truly optional.
     "pillow>=12.0.0", # Updated from 11.0.0 - latest with security fixes
-    "pyautogui>=0.9.40,<0.9.42", # Locked by atomacos 3.3.0 requirement (last update: Jan 2019)
+    "pyautogui>=0.9.40,<0.9.42", # Kept at 0.9.41 — imports `grab` from pyscreeze (removed in pyscreeze >=0.1.29)
+    "pyscreeze==0.1.28", # Exact pin: 0.1.28 has DPI-aware Windows screenshots + grab alias for pyautogui 0.9.41. 0.1.29+ removed grab (breaks pyautogui 0.9.41), 1.0+ is a full rewrite.
     # Vision Framework OCR dependencies (macOS 10.15+ native OCR)
     "pyobjc-framework-Cocoa>=12.1; sys_platform == 'darwin'", # Updated from 10.0 - macOS 15 support
     "pyobjc-framework-Quartz>=12.1; sys_platform == 'darwin'", # Updated from 10.0 - macOS 15 support
@@ -82,8 +87,10 @@ url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/
 trusted-host = "pypi.ci.artifacts.walmart.com"
 
 [project.optional-dependencies]
-# BigQuery dependencies are now core dependencies
-# bigquery = []
+# macOS GUI automation (atomacos conflicts with pyscreeze==0.1.28 in hard deps)
+macos-gui = [
+    "atomacos>=3.2.0; sys_platform == 'darwin'",
+]
 
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
@@ -120,6 +127,13 @@ omit = ["code_puppy/main.py"]
 
 [tool.uv]
 python-preference = "only-managed"
+
+# Override atomacos 3.3.0's overly restrictive transitive dependency constraints
+# when installing the macos-gui extra locally. atomacos (dead since 2019) pins
+# pyscreeze<0.1.20, but doesn't even use pyscreeze internally.
+override-dependencies = [
+    "pyscreeze==0.1.28",
+]
 
 [dependency-groups]
 dev = [

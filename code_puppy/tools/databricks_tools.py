@@ -561,3 +561,861 @@ def databricks_execute_query(
 def register_databricks_execute_query(agent: Any) -> Tool:
     """Register the databricks_execute_query tool."""
     return agent.tool(databricks_execute_query)
+
+
+# ============================================================================
+# Databricks Workspace / Notebook Tools
+# ============================================================================
+
+
+def databricks_list_workspace(
+    ctx: RunContext,
+    path: str = "/",
+    recursive: bool = False,
+) -> dict:
+    """List contents of a Databricks workspace directory.
+
+    Args:
+        ctx: PydanticAI run context
+        path: Workspace path to list (default: root "/")
+        recursive: If True, list recursively (flatten all subdirectories)
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - objects (list): List of workspace object dictionaries
+            - count (int): Number of objects found
+            - path (str): The path listed
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS LIST WORKSPACE [/bold white on blue] "
+            f"[bold cyan]{path}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        objects = client.list_workspace(path=path, recursive=recursive)
+
+        emit_success(f"Found {len(objects)} object(s)")
+
+        return {
+            "success": True,
+            "objects": objects,
+            "count": len(objects),
+            "path": path,
+            "recursive": recursive,
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_list_workspace(agent: Any) -> Tool:
+    """Register the databricks_list_workspace tool."""
+    return agent.tool(databricks_list_workspace)
+
+
+def databricks_get_notebook(
+    ctx: RunContext,
+    path: str,
+    format: str = "SOURCE",
+) -> dict:
+    """Read/export a notebook from the Databricks workspace.
+
+    Args:
+        ctx: PydanticAI run context
+        path: Full workspace path to the notebook
+        format: Export format - SOURCE (default), HTML, JUPYTER, DBC, R_MARKDOWN
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - content (str): Notebook content
+            - path (str): Notebook path
+            - language (str): Notebook language (PYTHON, SCALA, SQL, R)
+            - format (str): Export format used
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS GET NOTEBOOK [/bold white on blue] "
+            f"[bold cyan]{path}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        result = client.get_notebook(path=path, format=format)
+
+        emit_success(f"Retrieved notebook: {path}")
+
+        return {
+            "success": True,
+            **result,
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_get_notebook(agent: Any) -> Tool:
+    """Register the databricks_get_notebook tool."""
+    return agent.tool(databricks_get_notebook)
+
+
+def databricks_upload_notebook(
+    ctx: RunContext,
+    path: str,
+    content: str,
+    language: str = "PYTHON",
+    format: str = "SOURCE",
+    overwrite: bool = False,
+) -> dict:
+    """Upload/import a notebook to the Databricks workspace.
+
+    Args:
+        ctx: PydanticAI run context
+        path: Destination workspace path (e.g., /Users/user@example.com/my_notebook)
+        content: Notebook content (source code)
+        language: Notebook language - PYTHON (default), SCALA, SQL, R
+        format: Import format - SOURCE (default), HTML, JUPYTER, DBC, R_MARKDOWN
+        overwrite: If True, overwrite existing notebook
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - path (str): Notebook path
+            - language (str): Notebook language
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS UPLOAD NOTEBOOK [/bold white on blue] "
+            f"[bold cyan]{path}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        result = client.upload_notebook(
+            path=path,
+            content=content,
+            language=language,
+            format=format,
+            overwrite=overwrite,
+        )
+
+        emit_success(f"Uploaded notebook to: {path}")
+
+        return result
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_upload_notebook(agent: Any) -> Tool:
+    """Register the databricks_upload_notebook tool."""
+    return agent.tool(databricks_upload_notebook)
+
+
+# ============================================================================
+# Databricks Job Tools
+# ============================================================================
+
+
+def databricks_list_jobs(
+    ctx: RunContext,
+    name_filter: Optional[str] = None,
+    limit: int = 25,
+) -> dict:
+    """List all jobs in the Databricks workspace.
+
+    Args:
+        ctx: PydanticAI run context
+        name_filter: Optional filter by job name (contains)
+        limit: Maximum number of jobs to return (default: 25)
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - jobs (list): List of job dictionaries
+            - count (int): Number of jobs found
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            "\n[bold white on blue] DATABRICKS LIST JOBS [/bold white on blue]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        jobs = client.list_jobs(name_filter=name_filter, limit=limit)
+
+        emit_success(f"Found {len(jobs)} job(s)")
+
+        return {
+            "success": True,
+            "jobs": jobs,
+            "count": len(jobs),
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_list_jobs(agent: Any) -> Tool:
+    """Register the databricks_list_jobs tool."""
+    return agent.tool(databricks_list_jobs)
+
+
+def databricks_get_job(ctx: RunContext, job_id: int) -> dict:
+    """Get details of a specific Databricks job.
+
+    Args:
+        ctx: PydanticAI run context
+        job_id: The job ID
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - job details (various fields)
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS GET JOB [/bold white on blue] "
+            f"[bold cyan]Job ID: {job_id}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        job = client.get_job(job_id=job_id)
+
+        emit_success(f"Retrieved job: {job.get('name', job_id)}")
+
+        return {
+            "success": True,
+            **job,
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_get_job(agent: Any) -> Tool:
+    """Register the databricks_get_job tool."""
+    return agent.tool(databricks_get_job)
+
+
+def databricks_create_job(
+    ctx: RunContext,
+    name: str,
+    notebook_path: Optional[str] = None,
+    python_file: Optional[str] = None,
+    cluster_id: Optional[str] = None,
+    parameters: Optional[dict] = None,
+) -> dict:
+    """Create a new Databricks job.
+
+    Args:
+        ctx: PydanticAI run context
+        name: Job name
+        notebook_path: Path to notebook (for notebook tasks)
+        python_file: Path to Python file (for spark_python tasks)
+        cluster_id: Existing cluster ID to use (optional)
+        parameters: Base parameters for the job
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - job_id (int): Created job ID
+            - name (str): Job name
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS CREATE JOB [/bold white on blue] "
+            f"[bold cyan]{name}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        result = client.create_job(
+            name=name,
+            notebook_path=notebook_path,
+            python_file=python_file,
+            cluster_id=cluster_id,
+            parameters=parameters,
+        )
+
+        emit_success(f"Created job '{name}' with ID: {result['job_id']}")
+
+        return result
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_create_job(agent: Any) -> Tool:
+    """Register the databricks_create_job tool."""
+    return agent.tool(databricks_create_job)
+
+
+def databricks_run_job(
+    ctx: RunContext,
+    job_id: int,
+    parameters: Optional[dict] = None,
+    wait: bool = False,
+    timeout_seconds: int = 3600,
+) -> dict:
+    """Run a Databricks job immediately.
+
+    Args:
+        ctx: PydanticAI run context
+        job_id: The job ID to run
+        parameters: Optional notebook or job parameters
+        wait: If True, wait for job to complete (default: False)
+        timeout_seconds: Timeout for waiting (default: 3600 = 1 hour)
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - run_id (int): The run ID
+            - state (str): Run state (if wait=True)
+            - result_state (str): Result state (if wait=True)
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS RUN JOB [/bold white on blue] "
+            f"[bold cyan]Job ID: {job_id}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        result = client.run_job(
+            job_id=job_id,
+            parameters=parameters,
+            wait=wait,
+            timeout_seconds=timeout_seconds,
+        )
+
+        if wait:
+            emit_success(f"Job run completed: {result.get('result_state', 'UNKNOWN')}")
+        else:
+            emit_success(f"Job run started: Run ID {result['run_id']}")
+
+        return {
+            "success": True,
+            **result,
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_run_job(agent: Any) -> Tool:
+    """Register the databricks_run_job tool."""
+    return agent.tool(databricks_run_job)
+
+
+def databricks_get_run_status(ctx: RunContext, run_id: int) -> dict:
+    """Get the status of a Databricks job run.
+
+    Args:
+        ctx: PydanticAI run context
+        run_id: The run ID
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - run status details (various fields)
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS GET RUN STATUS [/bold white on blue] "
+            f"[bold cyan]Run ID: {run_id}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        result = client.get_run_status(run_id=run_id)
+
+        emit_success(f"Run state: {result.get('state', 'UNKNOWN')}")
+
+        return {
+            "success": True,
+            **result,
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_get_run_status(agent: Any) -> Tool:
+    """Register the databricks_get_run_status tool."""
+    return agent.tool(databricks_get_run_status)
+
+
+def databricks_list_runs(
+    ctx: RunContext,
+    job_id: Optional[int] = None,
+    active_only: bool = False,
+    limit: int = 25,
+) -> dict:
+    """List Databricks job runs.
+
+    Args:
+        ctx: PydanticAI run context
+        job_id: Optional filter by job ID
+        active_only: If True, only return active runs
+        limit: Maximum number of runs to return (default: 25)
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - runs (list): List of run dictionaries
+            - count (int): Number of runs found
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            "\n[bold white on blue] DATABRICKS LIST RUNS [/bold white on blue]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        runs = client.list_runs(job_id=job_id, active_only=active_only, limit=limit)
+
+        emit_success(f"Found {len(runs)} run(s)")
+
+        return {
+            "success": True,
+            "runs": runs,
+            "count": len(runs),
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_list_runs(agent: Any) -> Tool:
+    """Register the databricks_list_runs tool."""
+    return agent.tool(databricks_list_runs)
+
+
+# ============================================================================
+# Databricks Pipeline (Delta Live Tables) Tools
+# ============================================================================
+
+
+def databricks_list_pipelines(
+    ctx: RunContext,
+    name_filter: Optional[str] = None,
+    max_results: int = 25,
+) -> dict:
+    """List Delta Live Tables pipelines.
+
+    Args:
+        ctx: PydanticAI run context
+        name_filter: Optional filter by pipeline name
+        max_results: Maximum number of results (default: 25)
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - pipelines (list): List of pipeline dictionaries
+            - count (int): Number of pipelines found
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            "\n[bold white on blue] DATABRICKS LIST PIPELINES [/bold white on blue]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        pipelines = client.list_pipelines(name_filter=name_filter, max_results=max_results)
+
+        emit_success(f"Found {len(pipelines)} pipeline(s)")
+
+        return {
+            "success": True,
+            "pipelines": pipelines,
+            "count": len(pipelines),
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_list_pipelines(agent: Any) -> Tool:
+    """Register the databricks_list_pipelines tool."""
+    return agent.tool(databricks_list_pipelines)
+
+
+def databricks_get_pipeline(ctx: RunContext, pipeline_id: str) -> dict:
+    """Get details of a specific Delta Live Tables pipeline.
+
+    Args:
+        ctx: PydanticAI run context
+        pipeline_id: The pipeline ID
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - pipeline details (various fields)
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS GET PIPELINE [/bold white on blue] "
+            f"[bold cyan]{pipeline_id}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        pipeline = client.get_pipeline(pipeline_id=pipeline_id)
+
+        emit_success(f"Retrieved pipeline: {pipeline.get('name', pipeline_id)}")
+
+        return {
+            "success": True,
+            **pipeline,
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_get_pipeline(agent: Any) -> Tool:
+    """Register the databricks_get_pipeline tool."""
+    return agent.tool(databricks_get_pipeline)
+
+
+def databricks_create_pipeline(
+    ctx: RunContext,
+    name: str,
+    notebook_paths: list,
+    target_schema: Optional[str] = None,
+    catalog: Optional[str] = None,
+    continuous: bool = False,
+    development: bool = True,
+) -> dict:
+    """Create a Delta Live Tables pipeline.
+
+    Args:
+        ctx: PydanticAI run context
+        name: Pipeline name
+        notebook_paths: List of notebook paths for the pipeline
+        target_schema: Target schema for pipeline tables
+        catalog: Unity Catalog name (for UC-enabled pipelines)
+        continuous: If True, run in continuous mode (default: False)
+        development: If True, run in development mode (default: True)
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - pipeline_id (str): Created pipeline ID
+            - name (str): Pipeline name
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS CREATE PIPELINE [/bold white on blue] "
+            f"[bold cyan]{name}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        result = client.create_pipeline(
+            name=name,
+            notebook_paths=notebook_paths,
+            target_schema=target_schema,
+            catalog=catalog,
+            continuous=continuous,
+            development=development,
+        )
+
+        emit_success(f"Created pipeline '{name}' with ID: {result['pipeline_id']}")
+
+        return result
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_create_pipeline(agent: Any) -> Tool:
+    """Register the databricks_create_pipeline tool."""
+    return agent.tool(databricks_create_pipeline)
+
+
+def databricks_start_pipeline(
+    ctx: RunContext,
+    pipeline_id: str,
+    full_refresh: bool = False,
+    wait: bool = False,
+    timeout_seconds: int = 3600,
+) -> dict:
+    """Start a Delta Live Tables pipeline update.
+
+    Args:
+        ctx: PydanticAI run context
+        pipeline_id: The pipeline ID
+        full_refresh: If True, refresh all tables (default: False)
+        wait: If True, wait for pipeline to complete (default: False)
+        timeout_seconds: Timeout for waiting (default: 3600 = 1 hour)
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - update_id (str): The update ID
+            - state (str): Pipeline state
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS START PIPELINE [/bold white on blue] "
+            f"[bold cyan]{pipeline_id}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        result = client.start_pipeline(
+            pipeline_id=pipeline_id,
+            full_refresh=full_refresh,
+            wait=wait,
+            timeout_seconds=timeout_seconds,
+        )
+
+        if wait:
+            emit_success(f"Pipeline update completed: {result.get('state', 'UNKNOWN')}")
+        else:
+            emit_success(f"Pipeline update started: Update ID {result['update_id']}")
+
+        return {
+            "success": True,
+            **result,
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_start_pipeline(agent: Any) -> Tool:
+    """Register the databricks_start_pipeline tool."""
+    return agent.tool(databricks_start_pipeline)
+
+
+def databricks_stop_pipeline(ctx: RunContext, pipeline_id: str) -> dict:
+    """Stop a running Delta Live Tables pipeline.
+
+    Args:
+        ctx: PydanticAI run context
+        pipeline_id: The pipeline ID
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - pipeline_id (str): The pipeline ID
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS STOP PIPELINE [/bold white on blue] "
+            f"[bold cyan]{pipeline_id}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        result = client.stop_pipeline(pipeline_id=pipeline_id)
+
+        emit_success(f"Pipeline stop initiated: {pipeline_id}")
+
+        return result
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_stop_pipeline(agent: Any) -> Tool:
+    """Register the databricks_stop_pipeline tool."""
+    return agent.tool(databricks_stop_pipeline)
+
+
+# ============================================================================
+# Databricks Cluster / Execution Tools
+# ============================================================================
+
+
+def databricks_list_clusters(ctx: RunContext) -> dict:
+    """List all clusters in the Databricks workspace.
+
+    Args:
+        ctx: PydanticAI run context
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - clusters (list): List of cluster dictionaries
+            - count (int): Number of clusters found
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            "\n[bold white on blue] DATABRICKS LIST CLUSTERS [/bold white on blue]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        clusters = client.list_clusters()
+
+        emit_success(f"Found {len(clusters)} cluster(s)")
+
+        return {
+            "success": True,
+            "clusters": clusters,
+            "count": len(clusters),
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_list_clusters(agent: Any) -> Tool:
+    """Register the databricks_list_clusters tool."""
+    return agent.tool(databricks_list_clusters)
+
+
+def databricks_run_notebook(
+    ctx: RunContext,
+    notebook_path: str,
+    cluster_id: str,
+    parameters: Optional[dict] = None,
+    timeout_seconds: int = 3600,
+) -> dict:
+    """Run a notebook on a Databricks cluster.
+
+    This creates a one-time job run to execute the notebook and waits for completion.
+    Use this for running PySpark code in notebooks.
+
+    Args:
+        ctx: PydanticAI run context
+        notebook_path: Path to the notebook in the workspace
+        cluster_id: Cluster ID to run on (must be running)
+        parameters: Optional notebook parameters (dict of key-value pairs)
+        timeout_seconds: Timeout for the run (default: 3600 = 1 hour)
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - run_id (int): The run ID
+            - state (str): Run state
+            - result_state (str): Result state
+            - output (str): Notebook output if available
+            - error (str, optional): Error message if operation failed
+    """
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS RUN NOTEBOOK [/bold white on blue] "
+            f"[bold cyan]{notebook_path}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        result = client.run_notebook(
+            notebook_path=notebook_path,
+            cluster_id=cluster_id,
+            parameters=parameters,
+            timeout_seconds=timeout_seconds,
+        )
+
+        emit_success(
+            f"Notebook run completed: {result.get('result_state', 'UNKNOWN')}"
+        )
+
+        return {
+            "success": True,
+            **result,
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_run_notebook(agent: Any) -> Tool:
+    """Register the databricks_run_notebook tool."""
+    return agent.tool(databricks_run_notebook)
+
+
+def databricks_execute_code(
+    ctx: RunContext,
+    cluster_id: str,
+    code: str,
+    language: str = "python",
+) -> dict:
+    """Execute code directly on a Databricks cluster.
+
+    Note: This only works on all-purpose (interactive) clusters, not job clusters.
+    Use this for running quick PySpark code snippets.
+
+    Args:
+        ctx: PydanticAI run context
+        cluster_id: Cluster ID to execute on (must be running all-purpose cluster)
+        code: Code to execute (PySpark, SQL, Scala, or R)
+        language: Language - python (default), scala, sql, r
+
+    Returns:
+        Dict containing:
+            - success (bool): Whether the operation succeeded
+            - output: Command output
+            - status (str): Execution status
+            - error (str, optional): Error message if operation failed
+    """
+    code_preview = code[:100] + "..." if len(code) > 100 else code
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] DATABRICKS EXECUTE CODE [/bold white on blue]\n"
+            f"[dim]{code_preview}[/dim]"
+        )
+    )
+
+    try:
+        client = DatabricksClient()
+        result = client.execute_code(
+            cluster_id=cluster_id,
+            code=code,
+            language=language,
+        )
+
+        emit_success(f"Code execution completed: {result.get('status', 'UNKNOWN')}")
+
+        return {
+            "success": True,
+            **result,
+        }
+
+    except Exception as e:
+        return _handle_databricks_error(e)
+
+
+def register_databricks_execute_code(agent: Any) -> Tool:
+    """Register the databricks_execute_code tool."""
+    return agent.tool(databricks_execute_code)

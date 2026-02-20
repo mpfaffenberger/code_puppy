@@ -185,16 +185,11 @@ def _list_files(
             # Try to find it in the virtual environment
             # Use sys.executable to determine the Python environment path
             python_dir = os.path.dirname(sys.executable)
-            # Check both 'bin' (Unix) and 'Scripts' (Windows) directories
-            for rg_dir in ["bin", "Scripts"]:
-                venv_rg_path = os.path.join(python_dir, "rg")
-                if os.path.exists(venv_rg_path):
-                    rg_path = venv_rg_path
-                    break
-                # Also check with .exe extension for Windows
-                venv_rg_exe_path = os.path.join(python_dir, "rg.exe")
-                if os.path.exists(venv_rg_exe_path):
-                    rg_path = venv_rg_exe_path
+            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
+            for name in ["rg", "rg.exe"]:
+                candidate = os.path.join(python_dir, name)
+                if os.path.exists(candidate):
+                    rg_path = candidate
                     break
 
         if not rg_path and recursive:
@@ -212,16 +207,17 @@ def _list_files(
                 DIR_IGNORE_PATTERNS,
             )
 
-            with tempfile.NamedTemporaryFile(
-                mode="w", delete=False, suffix=".ignore"
-            ) as f:
-                ignore_file = f.name
+            f = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore")
+            ignore_file = f.name
+            try:
                 for pattern in DIR_IGNORE_PATTERNS:
                     # Skip patterns that would match the search directory itself
                     # For example, if searching in /tmp/test-dir, skip **/tmp/**
                     if would_match_directory(pattern, directory):
                         continue
                     f.write(f"{pattern}\n")
+            finally:
+                f.close()
 
             cmd.extend(["--ignore-file", ignore_file])
             cmd.append(directory)
@@ -470,16 +466,22 @@ def _read_file(
         # This is common on Windows when files contain emojis or were created by
         # applications that don't properly encode Unicode
         with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
+            if start_line is not None and start_line < 1:
+                error_msg = "start_line must be >= 1 (1-based indexing)"
+                return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+            if num_lines is not None and num_lines < 1:
+                error_msg = "num_lines must be >= 1"
+                return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
             if start_line is not None and num_lines is not None:
-                # Read only the specified lines
-                lines = f.readlines()
-                # Adjust for 1-based line numbering and handle negative values
-                start_idx = start_line - 1 if start_line > 0 else 0
-                end_idx = start_idx + num_lines
-                # Ensure indices are within bounds
-                start_idx = max(0, start_idx)
-                end_idx = min(len(lines), end_idx)
-                content = "".join(lines[start_idx:end_idx])
+                # Read only the specified lines efficiently using itertools.islice
+                # to avoid loading the entire file into memory
+                import itertools
+
+                start_idx = start_line - 1
+                selected_lines = list(
+                    itertools.islice(f, start_idx, start_idx + num_lines)
+                )
+                content = "".join(selected_lines)
             else:
                 # Read the entire file
                 content = f.read()
@@ -532,9 +534,11 @@ def _read_file(
             get_message_bus().emit(file_content_msg)
 
         return ReadFileOutput(content=content, num_tokens=num_tokens)
-    except (FileNotFoundError, PermissionError):
-        # For backward compatibility with tests, return "FILE NOT FOUND" for these specific errors
+    except FileNotFoundError:
         error_msg = "FILE NOT FOUND"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+    except PermissionError:
+        error_msg = "PERMISSION DENIED"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     except Exception as e:
         message = f"An error occurred trying to read the file: {e}"
@@ -571,6 +575,7 @@ def _sanitize_string(text: str) -> str:
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
     import json
     import os
+    import shlex
     import shutil
     import subprocess
     import sys
@@ -599,16 +604,11 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             # Try to find it in the virtual environment
             # Use sys.executable to determine the Python environment path
             python_dir = os.path.dirname(sys.executable)
-            # Check both 'bin' (Unix) and 'Scripts' (Windows) directories
-            for rg_dir in ["bin", "Scripts"]:
-                venv_rg_path = os.path.join(python_dir, "rg")
-                if os.path.exists(venv_rg_path):
-                    rg_path = venv_rg_path
-                    break
-                # Also check with .exe extension for Windows
-                venv_rg_exe_path = os.path.join(python_dir, "rg.exe")
-                if os.path.exists(venv_rg_exe_path):
-                    rg_path = venv_rg_exe_path
+            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
+            for name in ["rg", "rg.exe"]:
+                candidate = os.path.join(python_dir, name)
+                if os.path.exists(candidate):
+                    rg_path = candidate
                     break
 
         if not rg_path:
@@ -630,13 +630,23 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         # Add ignore patterns to the command via a temporary file
         from code_puppy.tools.common import DIR_IGNORE_PATTERNS
 
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore") as f:
-            ignore_file = f.name
+        f = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".ignore")
+        ignore_file = f.name
+        try:
             for pattern in DIR_IGNORE_PATTERNS:
                 f.write(f"{pattern}\n")
+        finally:
+            f.close()
 
         cmd.extend(["--ignore-file", ignore_file])
-        cmd.extend([search_string, directory])
+        # Split search_string to support ripgrep flags like --ignore-case
+        try:
+            parts = shlex.split(search_string)
+        except ValueError:
+            # Fallback for unmatched quotes (e.g., apostrophes in search terms)
+            parts = [search_string]
+        cmd.extend(parts)
+        cmd.append(directory)
         # Use encoding with error handling to handle files with invalid UTF-8
         result = subprocess.run(
             cmd,

@@ -107,7 +107,9 @@ def _log_error_to_file(exc: Exception) -> Optional[str]:
         The path to the log file if successful, None otherwise.
     """
     try:
-        error_logs_dir = pathlib.Path.home() / ".code_puppy" / "error_logs"
+        from code_puppy.error_logging import get_logs_dir
+
+        error_logs_dir = pathlib.Path(get_logs_dir())
         error_logs_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -302,19 +304,20 @@ class BaseAgent(ABC):
         return pinned
 
     def _clean_binaries(self, messages: List[ModelMessage]) -> List[ModelMessage]:
-        cleaned = []
+        """Remove BinaryContent items from message parts.
+
+        Note: This mutates the messages in-place by modifying part.content.
+        The return value is the same list for API consistency.
+        """
         for message in messages:
-            parts = []
             for part in message.parts:
                 if hasattr(part, "content") and isinstance(part.content, list):
-                    content = []
-                    for item in part.content:
-                        if not isinstance(item, BinaryContent):
-                            content.append(item)
-                    part.content = content
-                parts.append(part)
-            cleaned.append(message)
-        return cleaned
+                    part.content = [
+                        item
+                        for item in part.content
+                        if not isinstance(item, BinaryContent)
+                    ]
+        return messages
 
     def ensure_history_ends_with_request(
         self, messages: List[ModelMessage]
@@ -334,6 +337,7 @@ class BaseAgent(ABC):
             List of messages guaranteed to end with ModelRequest, or empty list
             if no ModelRequest is found.
         """
+        messages = list(messages)  # defensive copy
         if not messages:
             return messages
 
@@ -1802,7 +1806,10 @@ class BaseAgent(ABC):
 
         # Determine if streaming is enabled:
         # - Streaming must be enabled in config
-        # - Gemini models cannot stream (proxy doesn't support SSE)
+        # - Gemini models cannot stream via the normal SSE path
+        # Note: When DBOS is active, DBOSModel always calls the construction-time
+        # event_stream_handler internally, so we must NOT also pass the runtime
+        # handler or display the non-streamed response (see guard below).
         use_streaming = get_enable_streaming() and not is_gemini_model(
             self.get_model_name()
         )
@@ -2208,8 +2215,10 @@ class BaseAgent(ABC):
             # Wait for the task to complete or be cancelled
             result = await agent_task
 
-            # Display response for non-streaming mode (e.g., Gemini or streaming disabled)
-            if not use_streaming and result is not None:
+            # Display response for non-streaming mode (e.g., Gemini or streaming disabled).
+            # Skip when DBOS is active — DBOSModel's construction-time
+            # event_stream_handler already rendered the streamed output.
+            if not use_streaming and not get_use_dbos() and result is not None:
                 await self._display_non_streamed_response(result)
 
             # Update MCP tool cache after successful run for accurate token estimation

@@ -7,16 +7,31 @@ internal Vertex AI compatible proxy backend.
 from __future__ import annotations
 
 import json
+import logging
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic_ai._run_context import RunContext
-from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelResponse,
+    ModelResponsePart,
+    ModelResponseStreamEvent,
+    TextPart,
+    ThinkingPart,
+    ToolCallPart,
+)
 from pydantic_ai.models import ModelRequestParameters, StreamedResponse
 from pydantic_ai.settings import ModelSettings
+from pydantic_ai.usage import RequestUsage
 
-from code_puppy.gemini_model import GeminiModel, GeminiStreamingResponse
+from code_puppy.gemini_model import GeminiModel, generate_tool_call_id
+
+logger = logging.getLogger(__name__)
 
 
 class WalmartGeminiModel(GeminiModel):
@@ -28,6 +43,10 @@ class WalmartGeminiModel(GeminiModel):
 
     Authentication is via the X-Goog-Api-Key header (set on http_client),
     NOT via URL parameter.
+
+    Streaming is simulated: the backend converts streaming requests to
+    non-streaming under the hood, so this class calls request() and wraps
+    the result as a synthetic stream for pydantic_ai compatibility.
     """
 
     def _build_url(self, action: str, streaming: bool = False) -> str:
@@ -92,54 +111,88 @@ class WalmartGeminiModel(GeminiModel):
         model_request_parameters: ModelRequestParameters,
         run_context: RunContext[Any] | None = None,
     ) -> AsyncIterator[StreamedResponse]:
-        """Make a streaming request to the Gemini API (header auth only)."""
-        system_instruction, contents = await self._map_messages(
-            messages, model_request_parameters
+        """Simulate streaming by calling request() and wrapping the response.
+
+        Walmart's backend converts streaming requests to non-streaming
+        anyway, so this avoids SSE parsing issues and gives pydantic_ai
+        the StreamedResponse it expects from the DBOS agent path.
+        """
+        # Make the actual non-streaming request
+        response = await self.request(
+            messages, model_settings, model_request_parameters
         )
 
-        # Build request body
-        body: dict[str, Any] = {"contents": contents}
-
-        gen_config = self._build_generation_config(model_settings)
-        if gen_config:
-            body["generationConfig"] = gen_config
-        if system_instruction:
-            body["systemInstruction"] = system_instruction
-
-        # Add tools
-        if model_request_parameters.function_tools:
-            body["tools"] = self._build_tools(model_request_parameters.function_tools)
-
-        # Make streaming request using Walmart's Vertex AI compatible URL format
-        client = await self._get_client()
-        url = self._build_url("streamGenerateContent", streaming=True)
-        headers = self._get_headers()
-
-        async def stream_chunks() -> AsyncIterator[dict[str, Any]]:
-            async with client.stream(
-                "POST", url, json=body, headers=headers
-            ) as response:
-                if response.status_code != 200:
-                    text = await response.aread()
-                    raise RuntimeError(
-                        f"Gemini API error {response.status_code}: {text.decode()}"
-                    )
-
-                async for line in response.aiter_lines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if line.startswith("data: "):
-                        json_str = line[6:]
-                        if json_str:
-                            try:
-                                yield json.loads(json_str)
-                            except json.JSONDecodeError:
-                                continue
-
-        yield GeminiStreamingResponse(
+        yield _SyntheticStreamedResponse(
+            model_response=response,
             model_request_parameters=model_request_parameters,
-            _chunks=stream_chunks(),
             _model_name_str=self._model_name,
             _provider_name_str=self.system,
         )
+
+
+@dataclass
+class _SyntheticStreamedResponse(StreamedResponse):
+    """Wraps a complete ModelResponse as a StreamedResponse.
+
+    Used when the backend doesn't support real SSE streaming.
+    Emits all parts from the pre-fetched response as stream events.
+    """
+
+    model_response: ModelResponse
+    _model_name_str: str
+    _provider_name_str: str = "google"
+    _timestamp_val: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    async def _get_event_iterator(
+        self,
+    ) -> AsyncIterator[ModelResponseStreamEvent]:
+        """Emit pre-fetched response parts as stream events."""
+        self._usage = self.model_response.usage
+        self.finish_reason = self.model_response.finish_reason
+        self.provider_response_id = self.model_response.provider_response_id
+
+        for part in self.model_response.parts:
+            if isinstance(part, ThinkingPart):
+                for event in self._parts_manager.handle_thinking_delta(
+                    vendor_part_id=None,
+                    content=part.content or "",
+                    signature=part.signature,
+                    provider_name=self._model_name_str,
+                ):
+                    yield event
+
+            elif isinstance(part, TextPart):
+                for event in self._parts_manager.handle_text_delta(
+                    vendor_part_id=None,
+                    content=part.content,
+                ):
+                    yield event
+
+            elif isinstance(part, ToolCallPart):
+                event = self._parts_manager.handle_tool_call_delta(
+                    vendor_part_id=uuid.uuid4(),
+                    tool_name=part.tool_name,
+                    args=part.args,
+                    tool_call_id=part.tool_call_id
+                    or generate_tool_call_id(),
+                )
+                if event is not None:
+                    yield event
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name_str
+
+    @property
+    def provider_name(self) -> str | None:
+        return self._provider_name_str
+
+    @property
+    def provider_url(self) -> str | None:
+        return None
+
+    @property
+    def timestamp(self) -> datetime:
+        return self._timestamp_val

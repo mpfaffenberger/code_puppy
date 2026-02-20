@@ -14,7 +14,7 @@ def list_directory(path: str = None) -> Tuple[List[str], List[str]]:
     try:
         entries = [e for e in os.listdir(path)]
     except Exception as e:
-        raise RuntimeError(f"Error listing directory: {e}")
+        raise RuntimeError(f"Error listing directory: {e}") from e
     dirs = [e for e in entries if os.path.isdir(os.path.join(path, e))]
     files = [e for e in entries if not os.path.isdir(os.path.join(path, e))]
     return dirs, files

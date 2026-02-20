@@ -91,10 +91,10 @@ class TestSetAwaitingUserInput:
     def reset_global_state(self):
         """Reset global state before and after each test."""
         # Reset before test
-        command_runner_module._AWAITING_USER_INPUT = False
+        command_runner_module._AWAITING_USER_INPUT.clear()
         yield
         # Reset after test
-        command_runner_module._AWAITING_USER_INPUT = False
+        command_runner_module._AWAITING_USER_INPUT.clear()
 
     def test_set_awaiting_true_calls_pause_spinners(self, monkeypatch):
         """Test that setting awaiting=True calls pause_all_spinners."""
@@ -112,7 +112,7 @@ class TestSetAwaitingUserInput:
         ):
             set_awaiting_user_input(True)
 
-            assert command_runner_module._AWAITING_USER_INPUT is True
+            assert command_runner_module._AWAITING_USER_INPUT.is_set()
             mock_pause.assert_called_once()
             mock_resume.assert_not_called()
 
@@ -132,7 +132,7 @@ class TestSetAwaitingUserInput:
         ):
             set_awaiting_user_input(False)
 
-            assert command_runner_module._AWAITING_USER_INPUT is False
+            assert not command_runner_module._AWAITING_USER_INPUT.is_set()
             mock_pause.assert_not_called()
             mock_resume.assert_called_once()
 
@@ -148,10 +148,10 @@ class TestSetAwaitingUserInput:
 
         with patch("builtins.__import__", side_effect=mock_import):
             set_awaiting_user_input(True)
-            assert command_runner_module._AWAITING_USER_INPUT is True
+            assert command_runner_module._AWAITING_USER_INPUT.is_set()
 
             set_awaiting_user_input(False)
-            assert command_runner_module._AWAITING_USER_INPUT is False
+            assert not command_runner_module._AWAITING_USER_INPUT.is_set()
 
     def test_set_awaiting_default_true(self, monkeypatch):
         """Test that default parameter is True."""
@@ -165,7 +165,7 @@ class TestSetAwaitingUserInput:
 
         with patch("builtins.__import__", side_effect=mock_import):
             set_awaiting_user_input()
-            assert command_runner_module._AWAITING_USER_INPUT is True
+            assert command_runner_module._AWAITING_USER_INPUT.is_set()
 
 
 class TestKillAllRunningShellProcesses:

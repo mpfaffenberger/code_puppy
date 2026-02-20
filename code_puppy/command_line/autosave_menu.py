@@ -4,9 +4,9 @@ Provides a beautiful split-panel interface for browsing and loading
 autosave sessions with live preview of message content.
 """
 
+import asyncio
 import json
 import sys
-import time
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
@@ -579,7 +579,7 @@ async def interactive_autosave_picker() -> Optional[str]:
     sys.stdout.write("\033[?1049h")  # Enter alternate buffer
     sys.stdout.write("\033[2J\033[H")  # Clear and home
     sys.stdout.flush()
-    time.sleep(0.05)
+    await asyncio.sleep(0.05)
 
     try:
         # Initial display

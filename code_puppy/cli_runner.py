@@ -87,6 +87,13 @@ async def main():
         help="Specify which model to use (e.g., --model gpt-5)",
     )
     parser.add_argument(
+        "--resume",
+        "-r",
+        type=str,
+        help="Resume from a saved context (pickle file path or session name)",
+        metavar="SESSION",
+    )
+    parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
     args = parser.parse_args()
@@ -286,6 +293,54 @@ async def main():
             default_version_mismatch_behavior(current_version)
 
     await callbacks.on_startup()
+
+    # Handle --resume flag to load a saved context
+    if args.resume:
+        from code_puppy.agents.agent_manager import get_current_agent
+        from code_puppy.config import CONTEXTS_DIR, rotate_autosave_id
+        from code_puppy.messaging import emit_error, emit_info, emit_success
+        from code_puppy.session_storage import list_sessions, load_session
+
+        resume_target = args.resume
+        contexts_dir = Path(CONTEXTS_DIR)
+
+        # Check if it's a full path to a pickle file
+        resume_path = Path(resume_target)
+        if resume_path.suffix == ".pkl" and resume_path.exists():
+            # Full path to a pickle file - load directly
+            session_name = resume_path.stem
+            session_dir = resume_path.parent
+        elif (contexts_dir / f"{resume_target}.pkl").exists():
+            # Session name in the default contexts directory
+            session_name = resume_target
+            session_dir = contexts_dir
+        elif resume_path.exists():
+            # Path without .pkl extension but file exists
+            session_name = resume_path.stem
+            session_dir = resume_path.parent
+        else:
+            # Not found
+            emit_error(f"Resume target not found: {resume_target}")
+            available = list_sessions(contexts_dir)
+            if available:
+                emit_info(f"Available contexts: {', '.join(available[:10])}")
+            sys.exit(1)
+
+        try:
+            history = load_session(session_name, session_dir)
+            agent = get_current_agent()
+            agent.set_message_history(history)
+            total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
+
+            # Rotate autosave id to avoid overwriting existing autosave
+            new_id = rotate_autosave_id()
+            emit_success(
+                f"✅ Resumed: {len(history)} messages ({total_tokens} tokens) from {session_name}\n"
+                f"🔄 Autosave session: {new_id}"
+            )
+        except Exception as e:
+            emit_error(f"Failed to resume from {resume_target}: {e}")
+            sys.exit(1)
 
     # Initialize DBOS if not disabled
     if get_use_dbos():
@@ -535,8 +590,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             continue
         except EOFError:
             # Handle Ctrl+D - exit the application
-            import asyncio
-
             from code_puppy.messaging import emit_success
 
             emit_success("\nGoodbye! (Ctrl+D)")
@@ -557,8 +610,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             "/exit",
             "/quit",
         ]:
-            import asyncio
-
             from code_puppy.messaging import emit_success
 
             emit_success("Goodbye!")
@@ -787,12 +838,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
-                display_console.file.flush() if hasattr(
-                    display_console.file, "flush"
-                ) else None
-                import time
+                if hasattr(display_console.file, "flush"):
+                    display_console.file.flush()
 
-                time.sleep(0.1)  # Brief pause to ensure all messages are rendered
+                await asyncio.sleep(
+                    0.1
+                )  # Brief pause to ensure all messages are rendered
 
             except Exception:
                 from code_puppy.messaging.queue_console import get_queue_console
@@ -835,9 +886,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
 
                 # Small delay to let user see the debug message
-                import time
 
-                time.sleep(0.5)
+                await asyncio.sleep(0.5)
 
                 try:
                     # Re-run the wiggum prompt
@@ -868,10 +918,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         current_agent.set_message_history(list(result.all_messages()))
 
                     # Flush console
-                    display_console.file.flush() if hasattr(
-                        display_console.file, "flush"
-                    ) else None
-                    time.sleep(0.1)
+                    if hasattr(display_console.file, "flush"):
+                        display_console.file.flush()
+                    await asyncio.sleep(0.1)
 
                     # Auto-save
                     auto_save_session_if_enabled()

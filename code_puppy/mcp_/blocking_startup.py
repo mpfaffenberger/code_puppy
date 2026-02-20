@@ -11,6 +11,7 @@ import asyncio
 import os
 import threading
 import uuid
+from collections import deque
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
@@ -41,7 +42,7 @@ class StderrFileCapture:
         self.log_path = None
         self.monitor_thread = None
         self.stop_monitoring = threading.Event()
-        self.captured_lines = []
+        self.captured_lines: deque = deque(maxlen=1000)
         self._last_read_pos = 0
 
     def start(self):
@@ -55,14 +56,19 @@ class StderrFileCapture:
         # Write startup marker
         write_log(self.server_name, "--- Server starting ---", "INFO")
 
-        # Open log file for appending stderr
-        self.log_file = open(self.log_path, "a", encoding="utf-8")
-
         # Start monitoring thread only if we need to emit to user or capture lines
-        self.stop_monitoring.clear()
-        self.monitor_thread = threading.Thread(target=self._monitor_file)
-        self.monitor_thread.daemon = True
-        self.monitor_thread.start()
+        try:
+            # Open log file for appending stderr (inside try for proper cleanup)
+            self.log_file = open(self.log_path, "a", encoding="utf-8")
+            self.stop_monitoring.clear()
+            self.monitor_thread = threading.Thread(target=self._monitor_file)
+            self.monitor_thread.daemon = True
+            self.monitor_thread.start()
+        except Exception:
+            if self.log_file is not None:
+                self.log_file.close()
+                self.log_file = None
+            raise
 
         return self.log_file
 
@@ -71,33 +77,43 @@ class StderrFileCapture:
         if not self.log_path:
             return
 
-        # Start reading from current position (end of file before we started)
         try:
-            self._last_read_pos = os.path.getsize(self.log_path)
-        except OSError:
-            self._last_read_pos = 0
-
-        while not self.stop_monitoring.is_set():
+            # Start reading from current position (end of file before we started)
             try:
-                with open(self.log_path, "r", encoding="utf-8", errors="replace") as f:
-                    f.seek(self._last_read_pos)
-                    new_content = f.read()
-                    if new_content:
-                        self._last_read_pos = f.tell()
-                        # Process new lines
-                        for line in new_content.splitlines():
-                            if line.strip():
-                                self.captured_lines.append(line)
-                                if self.emit_to_user:
-                                    emit_info(
-                                        f"MCP {self.server_name}: {line}",
-                                        message_group=self.message_group,
-                                    )
+                self._last_read_pos = os.path.getsize(self.log_path)
+            except OSError:
+                self._last_read_pos = 0
 
-            except Exception:
-                pass  # File might not exist yet or be deleted
+            while not self.stop_monitoring.is_set():
+                try:
+                    with open(
+                        self.log_path, "r", encoding="utf-8", errors="replace"
+                    ) as f:
+                        f.seek(self._last_read_pos)
+                        new_content = f.read()
+                        if new_content:
+                            self._last_read_pos = f.tell()
+                            # Process new lines
+                            for line in new_content.splitlines():
+                                if line.strip():
+                                    self.captured_lines.append(line)
+                                    if self.emit_to_user:
+                                        emit_info(
+                                            f"MCP {self.server_name}: {line}",
+                                            message_group=self.message_group,
+                                        )
 
-            self.stop_monitoring.wait(0.1)  # Check every 100ms
+                except Exception:
+                    pass  # File might not exist yet or be deleted
+
+                self.stop_monitoring.wait(0.1)  # Check every 100ms
+        finally:
+            if self.log_file is not None:
+                try:
+                    self.log_file.close()
+                except Exception:
+                    pass
+                self.log_file = None
 
     def stop(self):
         """Stop monitoring and clean up."""
@@ -134,9 +150,17 @@ class StderrFileCapture:
 
         # Note: We do NOT delete the log file - it's persistent now!
 
+    def __del__(self):
+        """Safety net to close log file handle if stop() was never called."""
+        if getattr(self, "log_file", None) is not None:
+            try:
+                self.log_file.close()
+            except Exception:
+                pass
+
     def get_captured_lines(self) -> List[str]:
         """Get all captured lines from this session."""
-        return self.captured_lines.copy()
+        return list(self.captured_lines)
 
 
 class SimpleCapturedMCPServerStdio(MCPServerStdio):
@@ -272,7 +296,7 @@ class BlockingMCPServerStdio(SimpleCapturedMCPServerStdio):
             server_name = getattr(self, "tool_prefix", self.command)
             raise TimeoutError(
                 f"Server '{server_name}' initialization timeout after {timeout}s"
-            )
+            ) from None
 
     async def ensure_ready(self, timeout: float = 30.0):
         """
@@ -426,8 +450,10 @@ async def start_servers_with_blocking(
             await asyncio.sleep(0.1)  # Keep context alive briefly
             return server
 
-    # Start servers in parallel
-    [asyncio.create_task(start_server(server)) for server in servers]
+    # Store tasks to prevent garbage collection; note that server contexts
+    # will still close after the brief sleep - callers should manage server
+    # lifecycle separately
+    _startup_tasks = [asyncio.create_task(start_server(server)) for server in servers]
 
     # Wait for all to be ready
     results = await monitor.wait_all_ready(timeout)

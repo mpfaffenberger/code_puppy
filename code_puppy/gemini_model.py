@@ -40,8 +40,10 @@ from pydantic_ai.usage import RequestUsage
 
 logger = logging.getLogger(__name__)
 
-# Bypass thought signature for Gemini when no pending signature is available
-# This allows function calls to work with thinking models
+
+# Bypass thought signature for Gemini when no pending signature is available.
+# Gemini thinking models REQUIRE a thoughtSignature on every function_call part,
+# even when the model didn't emit a ThinkingPart (e.g. the LLM Gateway strips them).
 BYPASS_THOUGHT_SIGNATURE = "context_engineering_is_the_way_to_go"
 
 
@@ -309,6 +311,7 @@ class GeminiModel(Model):
         return {
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "x-goog-api-key": self.api_key,
         }
 
     async def _map_user_prompt(self, part: UserPromptPart) -> list[dict[str, Any]]:
@@ -434,8 +437,8 @@ class GeminiModel(Model):
                         "id": item.tool_call_id,
                     }
                 }
-                # Gemini thinking models REQUIRE thoughtSignature on function calls
-                # Use pending signature from thinking or bypass signature
+                # Gemini thinking models REQUIRE thoughtSignature on function calls.
+                # Use pending signature from a preceding ThinkingPart, or the bypass.
                 part_dict["thoughtSignature"] = (
                     pending_signature
                     if pending_signature is not None
@@ -462,13 +465,15 @@ class GeminiModel(Model):
                 if is_foreign and item.content:
                     parts.append({"text": f"<thinking>{item.content}</thinking>"})
                 elif item.content:
-                    part_dict = {"text": item.content, "thought": True}
+                    part_dict: dict[str, Any] = {
+                        "text": item.content,
+                        "thought": True,
+                    }
                     if item.signature:
                         part_dict["thoughtSignature"] = item.signature
-                        # Store signature for subsequent parts
+                        # Store signature for subsequent function_call parts
                         pending_signature = item.signature
                     else:
-                        # No signature on thinking part, use bypass
                         pending_signature = BYPASS_THOUGHT_SIGNATURE
                     parts.append(part_dict)
 
@@ -558,7 +563,7 @@ class GeminiModel(Model):
 
         # Make request
         client = await self._get_client()
-        url = f"{self._base_url}/models/{self._model_name}:generateContent?key={self.api_key}"
+        url = f"{self._base_url}/models/{self._model_name}:generateContent"
         headers = self._get_headers()
 
         response = await client.post(url, json=body, headers=headers)
@@ -571,11 +576,35 @@ class GeminiModel(Model):
         data = response.json()
         return self._parse_response(data)
 
+    @staticmethod
+    def _map_finish_reason(gemini_reason: str | None) -> str | None:
+        """Map Gemini finishReason to pydantic_ai's finish_reason.
+
+        Gemini API returns: STOP, MAX_TOKENS, SAFETY, RECITATION, OTHER, etc.
+        Pydantic AI expects: 'stop', 'length', 'content_filter', or None.
+        """
+        if not gemini_reason:
+            return None
+        mapping = {
+            "STOP": "stop",
+            "MAX_TOKENS": "length",
+            "SAFETY": "content_filter",
+            "RECITATION": "content_filter",
+            "BLOCKLIST": "content_filter",
+            "PROHIBITED_CONTENT": "content_filter",
+            "SPII": "content_filter",
+        }
+        return mapping.get(gemini_reason)
+
     def _parse_response(self, data: dict[str, Any]) -> ModelResponse:
         """Parse the Gemini API response.
 
         For Gemini with thinking enabled, the thoughtSignature is on the NEXT
         part after the thinking part. We need to look ahead to extract it.
+
+        Maps Gemini's finishReason to pydantic_ai's finish_reason so that
+        empty responses from safety filters or token limits are handled
+        correctly instead of silently retrying until exhaustion.
         """
         candidates = data.get("candidates", [])
         if not candidates:
@@ -586,15 +615,48 @@ class GeminiModel(Model):
             )
 
         candidate = candidates[0]
+        finish_reason = self._map_finish_reason(candidate.get("finishReason"))
         content = candidate.get("content", {})
         parts = content.get("parts", [])
 
         response_parts: list[ModelResponsePart] = []
 
-        for part in parts:
-            if part.get("thought") and part.get("text") is not None:
-                # Thinking part — signature lives on the same part
-                signature = part.get("thoughtSignature")
+        # Detect if any part has a thoughtSignature — if so, preceding
+        # text-only parts are thinking content. The LLM Gateway strips
+        # the "thought": true field, so we infer it positionally.
+        # Also collect the first real signature for thinking parts that
+        # lack one (the API attaches it to the NEXT part, not the thinking).
+        first_real_signature: str | None = None
+        first_sig_idx = len(parts)
+        for i, p in enumerate(parts):
+            sig = p.get("thoughtSignature")
+            if sig:
+                first_real_signature = sig
+                first_sig_idx = i
+                break
+
+        has_thought_signature = first_real_signature is not None
+
+        for idx, part in enumerate(parts):
+            is_thinking = (
+                part.get("thought")
+                or (
+                    has_thought_signature
+                    and idx < first_sig_idx
+                    and "text" in part
+                    and not part.get("thoughtSignature")
+                    and "functionCall" not in part
+                )
+            )
+
+            if is_thinking and part.get("text") is not None:
+                # Thinking part — the LLM Gateway puts the signature on
+                # the NEXT part (text or functionCall), not the thinking
+                # part itself. Use the part's own signature if present,
+                # otherwise grab it from the first signed part.
+                signature = (
+                    part.get("thoughtSignature") or first_real_signature
+                )
                 response_parts.append(
                     ThinkingPart(
                         content=part["text"],
@@ -614,6 +676,11 @@ class GeminiModel(Model):
                     )
                 )
 
+        # Guard against empty parts — ensures pydantic_ai doesn't enter
+        # its empty-response retry loop when we actually got a candidate back.
+        if not response_parts:
+            response_parts.append(TextPart(content=""))
+
         # Extract usage
         usage_meta = data.get("usageMetadata", {})
         usage = RequestUsage(
@@ -625,6 +692,7 @@ class GeminiModel(Model):
             parts=response_parts,
             model_name=self._model_name,
             usage=usage,
+            finish_reason=finish_reason,
             provider_response_id=data.get("requestId"),
             provider_name=self.system,
         )
@@ -657,7 +725,9 @@ class GeminiModel(Model):
 
         # Make streaming request
         client = await self._get_client()
-        url = f"{self._base_url}/models/{self._model_name}:streamGenerateContent?alt=sse&key={self.api_key}"
+        url = (
+            f"{self._base_url}/models/{self._model_name}:streamGenerateContent?alt=sse"
+        )
         headers = self._get_headers()
 
         async def stream_chunks() -> AsyncIterator[dict[str, Any]]:
@@ -687,6 +757,7 @@ class GeminiModel(Model):
             _chunks=stream_chunks(),
             _model_name_str=self._model_name,
             _provider_name_str=self.system,
+            _provider_url_str=self._base_url,
         )
 
 
@@ -697,10 +768,19 @@ class GeminiStreamingResponse(StreamedResponse):
     _chunks: AsyncIterator[dict[str, Any]]
     _model_name_str: str
     _provider_name_str: str = "google"
+    _provider_url_str: str | None = None
     _timestamp_val: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
-        """Process streaming chunks and yield events."""
+        """Process streaming chunks and yield events.
+
+        Extracts finishReason from each candidate chunk to set
+        self.finish_reason, so pydantic_ai can properly handle
+        safety-filtered or token-limited responses instead of
+        entering its empty-response retry loop.
+        """
+        yielded_any = False
+
         async for chunk in self._chunks:
             # Extract usage
             usage_meta = chunk.get("usageMetadata", {})
@@ -719,6 +799,15 @@ class GeminiStreamingResponse(StreamedResponse):
                 continue
 
             candidate = candidates[0]
+
+            # Map finishReason so pydantic_ai can distinguish
+            # safety blocks / token limits from normal completion.
+            gemini_finish = candidate.get("finishReason")
+            if gemini_finish:
+                self.finish_reason = GeminiModel._map_finish_reason(
+                    gemini_finish
+                )
+
             content = candidate.get("content", {})
             parts = content.get("parts", [])
 
@@ -727,7 +816,7 @@ class GeminiStreamingResponse(StreamedResponse):
                 if part.get("thought"):
                     text = part.get("text")
                     signature = part.get("thoughtSignature")
-                    
+
                     if text is not None or signature is not None:
                         event = self._parts_manager.handle_thinking_delta(
                             vendor_part_id=None,
@@ -736,6 +825,7 @@ class GeminiStreamingResponse(StreamedResponse):
                             provider_name=self._model_name_str,
                         )
                         if event:
+                            yielded_any = True
                             yield event
 
                 # Handle regular text
@@ -743,11 +833,11 @@ class GeminiStreamingResponse(StreamedResponse):
                     text = part["text"]
                     if len(text) == 0:
                         continue
-                    event = self._parts_manager.handle_text_delta(
+                    for event in self._parts_manager.handle_text_delta(
                         vendor_part_id=None,
                         content=text,
-                    )
-                    if event:
+                    ):
+                        yielded_any = True
                         yield event
 
                 # Handle function call
@@ -759,8 +849,19 @@ class GeminiStreamingResponse(StreamedResponse):
                         args=fc.get("args"),
                         tool_call_id=fc.get("id") or generate_tool_call_id(),
                     )
-                    if event:
+                    if event is not None:
+                        yielded_any = True
                         yield event
+
+        # Guard: if the entire stream yielded nothing (safety-filtered,
+        # empty response, etc.), emit a single empty text delta so
+        # pydantic_ai sees a non-empty parts list and doesn't retry.
+        if not yielded_any:
+            for event in self._parts_manager.handle_text_delta(
+                vendor_part_id=None,
+                content="",
+            ):
+                yield event
 
     @property
     def model_name(self) -> str:
@@ -769,6 +870,10 @@ class GeminiStreamingResponse(StreamedResponse):
     @property
     def provider_name(self) -> str | None:
         return self._provider_name_str
+
+    @property
+    def provider_url(self) -> str | None:
+        return self._provider_url_str
 
     @property
     def timestamp(self) -> datetime:

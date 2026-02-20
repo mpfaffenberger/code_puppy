@@ -32,7 +32,7 @@ class TestStderrFileCapture:
         assert capture.message_group is not None
         assert capture.log_file is None
         assert capture.log_path is None
-        assert capture.captured_lines == []
+        assert len(capture.captured_lines) == 0
 
     def test_initialization_with_custom_params(self):
         """Test initialization with custom parameters."""

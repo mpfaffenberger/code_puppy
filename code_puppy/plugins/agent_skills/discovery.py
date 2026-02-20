@@ -28,6 +28,7 @@ def get_default_skill_directories() -> List[Path]:
 
     Returns:
         - ~/.code_puppy/skills (user skills)
+        - ./.code_puppy/skills (project config skills)
         - ./skills (project skills)
     """
     return [
