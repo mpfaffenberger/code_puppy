@@ -345,6 +345,9 @@ TOOL_REGISTRY.update(MSGRAPH_TOOLS)
 # Merge in Power BI tools
 TOOL_REGISTRY.update(POWERBI_TOOLS)
 
+# DX Documentation tools are now registered via the dx_docs plugin
+# (code_puppy/plugins/dx_docs/register_callbacks.py)
+
 
 def _load_plugin_tools() -> None:
     """Load tools registered by plugins via the register_tools callback.
