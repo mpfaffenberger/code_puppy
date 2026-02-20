@@ -444,3 +444,299 @@ def test_start_stop_and_consume_buffer() -> None:
     renderer.stop()
 
     assert renderer._running is False
+
+
+def test_consecutive_file_content_groups_under_single_banner() -> None:
+    """Multiple consecutive FileContentMessage should share one banner."""
+    renderer, console = _make_renderer()
+    renderer._get_banner_color = Mock(return_value="blue")
+
+    msgs = [
+        FileContentMessage(
+            path=f"/src/file{i}.ts",
+            content=f"content{i}",
+            start_line=i * 50 + 1,
+            num_lines=50,
+            total_lines=100,
+            num_tokens=10,
+        )
+        for i in range(3)
+    ]
+
+    # Render all three via _render_sync so grouping state is tracked
+    for msg in msgs:
+        renderer._render_sync(msg)
+
+    # Collect all printed strings
+    printed = [
+        call.args[0]
+        for call in console.print.call_args_list
+        if call.args and isinstance(call.args[0], str)
+    ]
+
+    # Should have exactly ONE banner line (containing "READ FILE")
+    banner_lines = [p for p in printed if "READ FILE" in p]
+    assert len(banner_lines) == 1, (
+        f"Expected 1 banner, got {len(banner_lines)}: {banner_lines}"
+    )
+
+    # Should have exactly THREE tree-child lines (containing "├─")
+    tree_lines = [p for p in printed if "├─" in p]
+    assert len(tree_lines) == 3, (
+        f"Expected 3 tree lines, got {len(tree_lines)}: {tree_lines}"
+    )
+
+    # Each tree line should contain the file path
+    for i in range(3):
+        assert any(f"file{i}.ts" in line for line in tree_lines), (
+            f"file{i}.ts not found in tree lines"
+        )
+
+
+def test_single_file_content_still_has_banner_and_tree() -> None:
+    """A single FileContentMessage should still get banner + tree child."""
+    renderer, console = _make_renderer()
+    renderer._get_banner_color = Mock(return_value="blue")
+
+    msg = FileContentMessage(
+        path="/src/app.py",
+        content="hello",
+        start_line=None,
+        num_lines=None,
+        total_lines=10,
+        num_tokens=5,
+    )
+
+    renderer._render_sync(msg)
+
+    printed = [
+        call.args[0]
+        for call in console.print.call_args_list
+        if call.args and isinstance(call.args[0], str)
+    ]
+
+    # Should have banner
+    assert any("READ FILE" in p for p in printed), "Missing READ FILE banner"
+
+    # Should have tree child
+    assert any("├─" in p and "app.py" in p for p in printed), "Missing tree child line"
+
+
+def test_different_type_breaks_grouping() -> None:
+    """A different message type between same types should reset grouping."""
+    renderer, console = _make_renderer()
+    renderer._get_banner_color = Mock(return_value="blue")
+
+    msg1 = FileContentMessage(
+        path="/src/a.py",
+        content="a",
+        start_line=None,
+        num_lines=None,
+        total_lines=1,
+        num_tokens=1,
+    )
+    interruption = TextMessage(level=MessageLevel.INFO, text="some info")
+    msg2 = FileContentMessage(
+        path="/src/b.py",
+        content="b",
+        start_line=None,
+        num_lines=None,
+        total_lines=1,
+        num_tokens=1,
+    )
+
+    renderer._render_sync(msg1)
+    renderer._render_sync(interruption)
+    renderer._render_sync(msg2)
+
+    printed = [
+        call.args[0]
+        for call in console.print.call_args_list
+        if call.args and isinstance(call.args[0], str)
+    ]
+
+    # Should have TWO banners (grouping was broken by TextMessage)
+    banner_lines = [p for p in printed if "READ FILE" in p]
+    assert len(banner_lines) == 2, (
+        f"Expected 2 banners, got {len(banner_lines)}: {banner_lines}"
+    )
+
+
+def test_spinner_does_not_break_grouping() -> None:
+    """SpinnerControl is transparent and should not break grouping."""
+    renderer, console = _make_renderer()
+    renderer._get_banner_color = Mock(return_value="blue")
+
+    msg1 = FileContentMessage(
+        path="/src/a.py",
+        content="a",
+        start_line=None,
+        num_lines=None,
+        total_lines=1,
+        num_tokens=1,
+    )
+    spinner = SpinnerControl(action="start", spinner_id="s1", text="loading")
+    msg2 = FileContentMessage(
+        path="/src/b.py",
+        content="b",
+        start_line=None,
+        num_lines=None,
+        total_lines=1,
+        num_tokens=1,
+    )
+
+    renderer._render_sync(msg1)
+    renderer._render_sync(spinner)
+    renderer._render_sync(msg2)
+
+    printed = [
+        call.args[0]
+        for call in console.print.call_args_list
+        if call.args and isinstance(call.args[0], str)
+    ]
+
+    # Should have only ONE banner (spinner didn't break the group)
+    banner_lines = [p for p in printed if "READ FILE" in p]
+    assert len(banner_lines) == 1, (
+        f"Expected 1 banner, got {len(banner_lines)}: {banner_lines}"
+    )
+
+    # Should have TWO tree-child lines
+    tree_lines = [p for p in printed if "├─" in p]
+    assert len(tree_lines) == 2, (
+        f"Expected 2 tree lines, got {len(tree_lines)}: {tree_lines}"
+    )
+
+
+def test_consecutive_diff_groups() -> None:
+    """Multiple consecutive DiffMessage should share one banner."""
+    renderer, console = _make_renderer()
+    renderer._get_banner_color = Mock(return_value="blue")
+
+    msgs = [
+        DiffMessage(
+            path=f"/src/file{i}.py",
+            operation="modify",
+            diff_lines=[DiffLine(line_number=1, type="add", content=f"line{i}")],
+        )
+        for i in range(3)
+    ]
+
+    for msg in msgs:
+        renderer._render_sync(msg)
+
+    printed = [
+        call.args[0]
+        for call in console.print.call_args_list
+        if call.args and isinstance(call.args[0], str)
+    ]
+
+    banner_lines = [p for p in printed if "EDIT FILE" in p]
+    assert len(banner_lines) == 1, (
+        f"Expected 1 banner, got {len(banner_lines)}: {banner_lines}"
+    )
+
+    tree_lines = [p for p in printed if "├─" in p]
+    assert len(tree_lines) == 3, (
+        f"Expected 3 tree lines, got {len(tree_lines)}: {tree_lines}"
+    )
+
+
+def test_consecutive_shell_start_groups() -> None:
+    """Multiple consecutive ShellStartMessage should share one banner."""
+    renderer, console = _make_renderer()
+    renderer._get_banner_color = Mock(return_value="blue")
+
+    msgs = [
+        ShellStartMessage(command=f"echo {i}", cwd=None, timeout=30, background=False)
+        for i in range(3)
+    ]
+
+    for msg in msgs:
+        renderer._render_sync(msg)
+
+    printed = [
+        call.args[0]
+        for call in console.print.call_args_list
+        if call.args and isinstance(call.args[0], str)
+    ]
+
+    banner_lines = [p for p in printed if "SHELL COMMAND" in p]
+    assert len(banner_lines) == 1, (
+        f"Expected 1 banner, got {len(banner_lines)}: {banner_lines}"
+    )
+
+    tree_lines = [p for p in printed if "├─" in p]
+    assert len(tree_lines) == 3, (
+        f"Expected 3 tree lines, got {len(tree_lines)}: {tree_lines}"
+    )
+
+
+def test_grouping_resets_across_different_groupable_types() -> None:
+    """Switching between different groupable types should print new banners."""
+    renderer, console = _make_renderer()
+    renderer._get_banner_color = Mock(return_value="blue")
+
+    file_msg = FileContentMessage(
+        path="/src/a.py",
+        content="a",
+        start_line=None,
+        num_lines=None,
+        total_lines=1,
+        num_tokens=1,
+    )
+    grep_msg = GrepResultMessage(
+        search_term="needle",
+        directory="/src",
+        matches=[],
+        total_matches=0,
+        files_searched=1,
+    )
+
+    renderer._render_sync(file_msg)
+    renderer._render_sync(grep_msg)
+
+    printed = [
+        call.args[0]
+        for call in console.print.call_args_list
+        if call.args and isinstance(call.args[0], str)
+    ]
+
+    # Should have both banners
+    assert any("READ FILE" in p for p in printed), "Missing READ FILE banner"
+    assert any("GREP" in p for p in printed), "Missing GREP banner"
+
+
+@pytest.mark.asyncio
+async def test_async_render_grouping_resets_across_different_groupable_types() -> None:
+    """Async render path should also reset grouping when type changes."""
+    renderer, console = _make_renderer()
+    renderer._get_banner_color = Mock(return_value="blue")
+
+    file_msg = FileContentMessage(
+        path="/src/a.py",
+        content="a",
+        start_line=None,
+        num_lines=None,
+        total_lines=1,
+        num_tokens=1,
+    )
+    grep_msg = GrepResultMessage(
+        search_term="needle",
+        directory="/src",
+        matches=[],
+        total_matches=0,
+        files_searched=1,
+    )
+
+    await renderer.render(file_msg)
+    await renderer.render(grep_msg)
+
+    printed = [
+        call.args[0]
+        for call in console.print.call_args_list
+        if call.args and isinstance(call.args[0], str)
+    ]
+
+    assert any("READ FILE" in p for p in printed), "Missing READ FILE banner"
+    assert any("GREP" in p for p in printed), "Missing GREP banner"
