@@ -83,7 +83,7 @@ from code_puppy.messaging.spinner import (
     update_spinner_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
-from code_puppy.summarization_agent import run_summarization_sync, SummarizationError
+from code_puppy.summarization_agent import SummarizationError, run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
     is_awaiting_user_input,
@@ -1956,6 +1956,37 @@ class BaseAgent(ABC):
                 emit_info(f"Interrupted: {str(ie)}")
                 if get_use_dbos():
                     await DBOS.cancel_workflow_async(group_id)
+            except* RuntimeError as rt_error:
+                # Handle executor shutdown race condition gracefully.
+                # This happens when DBOS tries to persist state via asyncio.to_thread()
+                # after the event loop's default ThreadPoolExecutor has been shut down.
+                # NOTE: A bare `raise` inside except* does NOT propagate to later
+                # except* clauses (PEP 654), so we repackage non-shutdown errors
+                # into a new ExceptionGroup to ensure they reach the logging handler.
+                shutdown_errors = []
+                other_errors = []
+                for exc in rt_error.exceptions:
+                    # CPython 3.9+ raises RuntimeError with the message
+                    # "cannot schedule new futures after shutdown" from
+                    # concurrent.futures. Check type/module first, then
+                    # fall back to message matching in case the module
+                    # attribution changes.
+                    is_cf_shutdown = (
+                        isinstance(exc, RuntimeError)
+                        and "concurrent.futures" in (exc.__class__.__module__ or "")
+                    ) or "cannot schedule new futures after shutdown" in str(
+                        exc
+                    ).lower()
+                    if is_cf_shutdown:
+                        shutdown_errors.append(exc)
+                    else:
+                        other_errors.append(exc)
+                if shutdown_errors:
+                    emit_info("Agent task cancelled during shutdown")
+                    # Don't try to cancel DBOS workflow - the executor is already gone
+                if other_errors:
+                    # Repackage so they propagate to except* Exception for logging
+                    raise ExceptionGroup("runtime errors", other_errors)
             except* Exception as other_error:
                 # Filter out CancelledError and UsageLimitExceeded from the exception group - let it propagate
                 remaining_exceptions = []
