@@ -214,8 +214,8 @@ def powerbi_get_dataset_tables(
         SELECTCOLUMNS (
             FILTER (
                 INFO.VIEW.TABLES (),
-                [454Calendar- Title] <> \"DirectQuery\" && [IsHidden] = FALSE
-                    && ISBLANK ( [CalculationGroupPrecedence] )
+                [StorageMode] <> "DirectQuery"
+                    && [IsHidden] == FALSE && ISBLANK ( [CalculationGroupPrecedence] )
             ),
             [ID],
             [Name],
@@ -264,14 +264,14 @@ def register_powerbi_get_dataset_tables(agent: Any) -> Tool:
 def powerbi_get_table_columns(
     ctx: RunContext,
     dataset_id: str,
-    table_name: str,
+    # table_name: str,
     workspace_id: str | None = None,
 ) -> dict:
-    """Get columns in a specific table using DAX INFO.COLUMNS().
+    """Get columns in a all tables using DAX INFO.COLUMNS().
 
     Args:
         dataset_id: The ID of the dataset.
-        table_name: Name of the table to get columns for.
+        # table_name: Name of the table to get columns for.
         workspace_id: Optional workspace ID containing the dataset.
 
     Returns:
@@ -280,7 +280,7 @@ def powerbi_get_table_columns(
     emit_info(
         Text.from_markup(
             f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"📊 [bold cyan]Getting columns for table '{table_name}'...[/bold cyan]"
+            f"📊 [bold cyan]Getting columns for all tables...[/bold cyan]"
         )
     )
 
@@ -292,7 +292,7 @@ def powerbi_get_table_columns(
         EVALUATE
         VAR _columns =
             SELECTCOLUMNS (
-                FILTER ( INFO.VIEW.COLUMNS (), [Table] == \"{table_name}\" && [IsHidden] = FALSE ),
+                FILTER ( INFO.VIEW.COLUMNS (), [IsHidden] = FALSE ),
                 \"TableName\", [Table],
                 \"ColumnId\", [ID],
                 \"ColumnName\", [Name],
@@ -350,7 +350,6 @@ def powerbi_get_table_columns(
         return {
             "success": True,
             "count": len(columns),
-            "table_name": table_name,
             "columns": columns,
         }
 
