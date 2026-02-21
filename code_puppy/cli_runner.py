@@ -89,7 +89,68 @@ async def main():
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
+    parser.add_argument(
+        "--acp",
+        action="store_true",
+        help="Start ACP Gateway (Agent Communication Protocol) server",
+    )
+    parser.add_argument(
+        "--acp-transport",
+        choices=["http", "stdio"],
+        default="http",
+        help="ACP transport: http (port 9001) or stdio (stdin/stdout). Default: http",
+    )
     args = parser.parse_args()
+
+    # ACP stdio mode: early exit — skip banner, version check, renderers.
+    # stdio needs clean stdout (only JSON-RPC), all logs go to stderr.
+    if args.acp and args.acp_transport == 'stdio':
+        import logging
+        os.environ["ACP_ENABLED"] = "true"
+        os.environ["ACP_TRANSPORT"] = "stdio"
+        logging.basicConfig(
+            stream=sys.stderr,
+            level=logging.INFO,
+            format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        )
+
+        # Initialize DBOS — pydantic-ai's .run() goes through DBOS
+        # durable execution and will raise DBOSException if not launched.
+        if get_use_dbos():
+            dbos_app_version = os.environ.get(
+                "DBOS_APP_VERSION",
+                f"{__version__}-{int(time.time() * 1000)}",
+            )
+            dbos_config: DBOSConfig = {
+                "name": "dbos-code-puppy",
+                "system_database_url": DBOS_DATABASE_URL,
+                "run_admin_server": False,
+                "conductor_key": os.environ.get("DBOS_CONDUCTOR_KEY"),
+                "log_level": os.environ.get("DBOS_LOG_LEVEL", "ERROR"),
+                "application_version": dbos_app_version,
+            }
+            try:
+                DBOS(config=dbos_config)
+                DBOS.launch()
+            except Exception as e:
+                logging.getLogger(__name__).error("DBOS init failed: %s", e)
+                return
+
+        # Plugins already loaded at module level — no need to reload here.
+        # Do NOT call callbacks.on_startup() because that would start a
+        # SECOND stdio server in a background thread.
+        try:
+            from code_puppy.plugins.acp_gateway.agent import run_code_puppy_agent
+            await run_code_puppy_agent()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            if get_use_dbos():
+                try:
+                    DBOS.destroy()
+                except Exception:
+                    pass
+        return
 
     from code_puppy.messaging import (
         RichConsoleRenderer,
@@ -319,6 +380,11 @@ async def main():
     try:
         initial_command = None
         prompt_only_mode = False
+
+        if args.acp:
+            os.environ["ACP_ENABLED"] = "true"
+            os.environ["ACP_TRANSPORT"] = args.acp_transport
+            # http mode: falls through to interactive mode with ACP enabled in background
 
         if args.prompt:
             initial_command = args.prompt
