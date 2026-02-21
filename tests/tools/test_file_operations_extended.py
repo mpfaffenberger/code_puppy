@@ -59,7 +59,9 @@ class TestFileOperationsExtended:
         test_file.write_text("".join(lines))
 
         # Test reading lines 3-5
-        result = _read_file(None, str(test_file), start_line=3, num_lines=3)
+        result = _read_file(
+            None, str(test_file), start_line=3, num_lines=3, hashline=False
+        )
 
         assert result.error is None
         assert result.content == "Line 3\nLine 4\nLine 5\n"
@@ -95,7 +97,7 @@ class TestFileOperationsExtended:
         content = "Hello 世界! 🐾 é ñ ü"
         test_file.write_text(content, encoding="utf-8")
 
-        result = _read_file(None, str(test_file))
+        result = _read_file(None, str(test_file), hashline=False)
 
         assert result.error is None
         assert result.content == content
@@ -238,7 +240,7 @@ class TestFileOperationsExtended:
 
         with patch.dict(os.environ, {"HOME": str(home_sim)}):
             # Test with tilde path
-            result = _read_file(None, "~/test.txt")
+            result = _read_file(None, "~/test.txt", hashline=False)
 
             # Should find the file in the simulated home directory
             if result.error is None:
@@ -255,7 +257,7 @@ class TestFileOperationsExtended:
         symlink_file.symlink_to(real_file)
 
         # Test reading through symlink
-        result = _read_file(None, str(symlink_file))
+        result = _read_file(None, str(symlink_file), hashline=False)
 
         assert result.error is None
         assert result.content == "real content"
@@ -363,7 +365,7 @@ class TestFileOperationsExtended:
         test_file = tmp_path / special_filename
         test_file.write_text("special content")
 
-        result = _read_file(None, str(test_file))
+        result = _read_file(None, str(test_file), hashline=False)
 
         assert result.error is None
         assert result.content == "special content"
@@ -393,7 +395,9 @@ class TestFileOperationsExtended:
         test_file.write_text(content)
 
         # Read specific range including empty lines
-        result = _read_file(None, str(test_file), start_line=2, num_lines=3)
+        result = _read_file(
+            None, str(test_file), start_line=2, num_lines=3, hashline=False
+        )
 
         assert result.error is None
         assert result.content == "\nLine 3\n\n"
