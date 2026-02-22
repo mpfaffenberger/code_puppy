@@ -157,6 +157,11 @@ class BaseAgent(ABC):
         # This is populated after the first successful run when MCP tools are retrieved
         self._mcp_tool_definitions_cache: List[Dict[str, Any]] = []
 
+    @property
+    def code_generation_agent(self):
+        """Public accessor for the underlying pydantic-ai Agent."""
+        return self._code_generation_agent
+
     def get_identity(self) -> str:
         """Get a unique identity for this agent instance.
 
