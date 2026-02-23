@@ -395,19 +395,24 @@ def _build_model_state() -> SessionModelState | None:
     """Build a ``SessionModelState`` listing all available LLM models.
 
     Uses ``ModelFactory.load_config()`` to discover every model the user
-    can switch to, and ``get_global_model_name()`` for the current
-    selection.  Returns ``None`` if models cannot be loaded so the
-    response field is simply omitted rather than failing hard.
+    can switch to.  Reads the current model from the ``session_model``
+    ContextVar first (per-session override), falling back to the global
+    ``get_global_model_name()``.
+
+    Returns ``None`` if models cannot be loaded so the response field
+    is simply omitted rather than failing hard.
     """
     try:
         from code_puppy.model_factory import ModelFactory
         from code_puppy.config import get_global_model_name
+        from code_puppy.plugins.acp_gateway.session_context import get_session_model
 
         models_config = ModelFactory.load_config()
         if not models_config:
             return None
 
-        current_model = get_global_model_name() or ""
+        # Per-session model takes precedence over global
+        current_model = get_session_model() or get_global_model_name() or ""
 
         available: list[ModelInfo] = []
         for name, cfg in models_config.items():
