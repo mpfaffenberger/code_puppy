@@ -179,8 +179,7 @@ def ensure_config_exists():
     """
     # Create all XDG directories with 0700 permissions per XDG spec
     for directory in [CONFIG_DIR, DATA_DIR, CACHE_DIR, STATE_DIR]:
-        if not os.path.exists(directory):
-            os.makedirs(directory, mode=0o700, exist_ok=True)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
     exists = os.path.isfile(CONFIG_FILE)
     config = configparser.ConfigParser()
     if exists:
