@@ -10,13 +10,16 @@ def list_directory(path: str = None) -> Tuple[List[str], List[str]]:
     """
     if path is None:
         path = os.getcwd()
-    entries = []
+    dirs, files = [], []
     try:
-        entries = [e for e in os.listdir(path)]
-    except Exception as e:
+        with os.scandir(path) as it:
+            for entry in it:
+                if entry.is_dir(follow_symlinks=True):
+                    dirs.append(entry.name)
+                else:
+                    files.append(entry.name)
+    except OSError as e:
         raise RuntimeError(f"Error listing directory: {e}") from e
-    dirs = [e for e in entries if os.path.isdir(os.path.join(path, e))]
-    files = [e for e in entries if not os.path.isdir(os.path.join(path, e))]
     return dirs, files
 
 
