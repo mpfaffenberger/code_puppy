@@ -24,8 +24,6 @@ from typing import (
     Union,
 )
 
-import httpcore
-import httpx
 import mcp
 import pydantic
 import pydantic_ai.models
@@ -1870,56 +1868,6 @@ class BaseAgent(ABC):
         else:
             prompt_payload = prompt
 
-        # --- Streaming retry logic for transient HTTP errors ---
-        # These are network-level errors where the LLM provider (or a proxy)
-        # drops the connection mid-stream. They are always safe to retry.
-        MAX_STREAMING_RETRIES = 3
-        STREAMING_RETRY_DELAYS = [1, 2, 4]  # Exponential backoff
-        RETRYABLE_EXCEPTIONS = (
-            httpx.RemoteProtocolError,
-            httpx.ReadTimeout,
-            httpcore.RemoteProtocolError,
-        )
-
-        async def _run_with_streaming_retry(run_coro_factory):
-            """Wrap agent run with auto-retry for transient streaming errors.
-
-            Retries on connection drops and timeouts that occur during
-            streamed responses from LLM providers. These are transient
-            network errors, not application-level failures.
-
-            Args:
-                run_coro_factory: A callable returning a new coroutine for
-                    the agent run. Must be a factory (not a coroutine) since
-                    coroutines can only be awaited once.
-
-            Returns:
-                The result from a successful agent run.
-
-            Raises:
-                The original exception if all retries are exhausted.
-            """
-            last_error = None
-            for attempt in range(MAX_STREAMING_RETRIES):
-                try:
-                    return await run_coro_factory()
-                except RETRYABLE_EXCEPTIONS as e:
-                    last_error = e
-                    if attempt < MAX_STREAMING_RETRIES - 1:
-                        delay = STREAMING_RETRY_DELAYS[attempt]
-                        emit_warning(
-                            f"⚡ Connection interrupted ({type(e).__name__}), "
-                            f"auto-retrying in {delay}s... "
-                            f"(attempt {attempt + 1}/{MAX_STREAMING_RETRIES})"
-                        )
-                        await asyncio.sleep(delay)
-                    else:
-                        emit_error(
-                            f"❌ Connection failed after {MAX_STREAMING_RETRIES} "
-                            f"attempts: {type(e).__name__}"
-                        )
-            raise last_error
-
         async def run_agent_task():
             try:
                 self.set_message_history(
@@ -1957,14 +1905,12 @@ class BaseAgent(ABC):
                     try:
                         # Set the workflow ID for DBOS context so DBOS and Code Puppy ID match
                         with SetWorkflowID(group_id):
-                            result_ = await _run_with_streaming_retry(
-                                lambda: pydantic_agent.run(
-                                    prompt_payload,
-                                    message_history=self.get_message_history(),
-                                    usage_limits=usage_limits,
-                                    event_stream_handler=event_stream_handler,
-                                    **kwargs,
-                                )
+                            result_ = await pydantic_agent.run(
+                                prompt_payload,
+                                message_history=self.get_message_history(),
+                                usage_limits=usage_limits,
+                                event_stream_handler=event_stream_handler,
+                                **kwargs,
                             )
                             return result_
                     finally:
@@ -1972,26 +1918,22 @@ class BaseAgent(ABC):
                         pydantic_agent._toolsets = original_toolsets
                 elif get_use_dbos():
                     with SetWorkflowID(group_id):
-                        result_ = await _run_with_streaming_retry(
-                            lambda: pydantic_agent.run(
-                                prompt_payload,
-                                message_history=self.get_message_history(),
-                                usage_limits=usage_limits,
-                                event_stream_handler=event_stream_handler,
-                                **kwargs,
-                            )
-                        )
-                        return result_
-                else:
-                    # Non-DBOS path (MCP servers are already included)
-                    result_ = await _run_with_streaming_retry(
-                        lambda: pydantic_agent.run(
+                        result_ = await pydantic_agent.run(
                             prompt_payload,
                             message_history=self.get_message_history(),
                             usage_limits=usage_limits,
                             event_stream_handler=event_stream_handler,
                             **kwargs,
                         )
+                        return result_
+                else:
+                    # Non-DBOS path (MCP servers are already included)
+                    result_ = await pydantic_agent.run(
+                        prompt_payload,
+                        message_history=self.get_message_history(),
+                        usage_limits=usage_limits,
+                        event_stream_handler=event_stream_handler,
+                        **kwargs,
                     )
                     return result_
             except* UsageLimitExceeded as ule:
