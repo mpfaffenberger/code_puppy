@@ -224,6 +224,10 @@ class _SessionState:
         self.mcp_servers: list | None = mcp_servers
 
 
+# Per-session model overrides.  Stored externally because _SessionState
+# uses __slots__ and adding new slots would break existing pickled sessions.
+_session_model_overrides: dict[str, str] = {}
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -473,6 +477,7 @@ class CodePuppyAgent(Agent):
         while len(self._sessions) > MAX_SESSIONS:
             evicted_id, evicted = self._sessions.popitem(last=False)
             logger.info("Session evicted (LRU): %s", evicted_id)
+            _session_model_overrides.pop(evicted_id, None)
 
     # ------------------------------------------------------------------
     # ACP lifecycle
@@ -769,17 +774,13 @@ class CodePuppyAgent(Agent):
         session_id: str,
         **kwargs: Any,
     ) -> SetSessionModelResponse | None:
-        """Switch the LLM model globally (UNSTABLE).
+        """Switch the LLM model for this session only.
 
-        .. warning::
-            This changes the model for **all sessions**, not just the
-            requesting one.  Code Puppy's ``set_model_and_reload_agent()``
-            operates on a global singleton.  Per-session model isolation
-            requires a deeper refactor of the agent loading system.
-
-        Validates the model exists in ``ModelFactory.load_config()``
-        then delegates to ``set_model_and_reload_agent()`` which
-        persists the choice and reloads the underlying pydantic-ai agent.
+        Stores the model override per-session rather than calling the
+        global ``set_model_and_reload_agent()``.  The override is read
+        by ``_run_agent`` via ``session._model_override`` and pushed
+        into the ``session_model`` ContextVar so downstream code
+        (``_build_model_state``, tool modules) sees the right model.
         """
         session = self._sessions.get(session_id)
         if session is None:
@@ -795,10 +796,9 @@ class CodePuppyAgent(Agent):
                     f"Unknown model: {model_id}. Available: {available}…"
                 )
 
-            from code_puppy.model_switching import set_model_and_reload_agent
-
-            set_model_and_reload_agent(model_id)
-            logger.info("[%s] model changed to '%s'", session_id, model_id)
+            # Store per-session instead of changing globally
+            _session_model_overrides[session_id] = model_id
+            logger.info("[%s] per-session model set to '%s'", session_id, model_id)
         except RequestError:
             raise
         except Exception:
@@ -1102,7 +1102,7 @@ class CodePuppyAgent(Agent):
         from code_puppy.agents import load_agent
 
         # Determine per-session model override (if any)
-        _per_session_model: str | None = getattr(session, '_model_override', None)
+        _per_session_model: str | None = _session_model_overrides.get(session.session_id)
 
         with session_context(cwd=session.cwd or None, model=_per_session_model):
             return await self._run_agent_inner(session, prompt_text)
