@@ -1,5 +1,6 @@
 # file_operations.py
 
+import functools
 import os
 import shutil
 import stat
@@ -149,11 +150,25 @@ def would_match_directory(pattern: str, directory: str) -> bool:
     return False
 
 
+@functools.lru_cache(maxsize=1)
+def _find_rg() -> str | None:
+    """Find ripgrep executable once and cache the result."""
+    import sys
+
+    rg_path = shutil.which("rg")
+    if rg_path:
+        return rg_path
+    python_dir = os.path.dirname(sys.executable)
+    for name in ["rg", "rg.exe"]:
+        candidate = os.path.join(python_dir, name)
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
-    import sys
-
     results = []
     directory = os.path.abspath(os.path.expanduser(directory))
 
@@ -180,18 +195,8 @@ def _list_files(
     # Create a temporary ignore file with our ignore patterns
     ignore_file = None
     try:
-        # Find ripgrep executable - first check system PATH, then virtual environment
-        rg_path = shutil.which("rg")
-        if not rg_path:
-            # Try to find it in the virtual environment
-            # Use sys.executable to determine the Python environment path
-            python_dir = os.path.dirname(sys.executable)
-            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
-            for name in ["rg", "rg.exe"]:
-                candidate = os.path.join(python_dir, name)
-                if os.path.exists(candidate):
-                    rg_path = candidate
-                    break
+        # Find ripgrep executable (cached after first call)
+        rg_path = _find_rg()
 
         if not rg_path and recursive:
             # Only need ripgrep for recursive listings
@@ -563,9 +568,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     import json
     import os
     import shlex
-    import shutil
     import subprocess
-    import sys
 
     # Sanitize search string to handle any surrogates from copy-paste
     search_string = _sanitize_string(search_string)
@@ -585,18 +588,8 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         # --type=all to search across all recognized text file types
         # --ignore-file to obey our ignore list
 
-        # Find ripgrep executable - first check system PATH, then virtual environment
-        rg_path = shutil.which("rg")
-        if not rg_path:
-            # Try to find it in the virtual environment
-            # Use sys.executable to determine the Python environment path
-            python_dir = os.path.dirname(sys.executable)
-            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
-            for name in ["rg", "rg.exe"]:
-                candidate = os.path.join(python_dir, name)
-                if os.path.exists(candidate):
-                    rg_path = candidate
-                    break
+        # Find ripgrep executable (cached after first call)
+        rg_path = _find_rg()
 
         if not rg_path:
             error_message = (
