@@ -437,10 +437,15 @@ def _read_file(
 ) -> ReadFileOutput:
     file_path = os.path.abspath(os.path.expanduser(file_path))
 
-    if not os.path.exists(file_path):
+    try:
+        _st = os.stat(file_path)
+    except FileNotFoundError:
         error_msg = f"File {file_path} does not exist"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-    if not os.path.isfile(file_path):
+    except OSError as e:
+        error_msg = f"Cannot access {file_path}: {e}"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+    if not stat.S_ISREG(_st.st_mode):
         error_msg = f"{file_path} is not a file"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     try:
