@@ -84,6 +84,10 @@ async def _on_startup() -> None:
         )
         return
 
+    # Install session-aware path resolution for multi-session CWD isolation
+    from code_puppy.plugins.acp_gateway.session_context import install_session_aware_abspath
+    install_session_aware_abspath()
+
     try:
         if config.transport == "stdio":
             await _start_stdio()

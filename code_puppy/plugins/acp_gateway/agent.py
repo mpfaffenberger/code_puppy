@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from code_puppy.plugins.acp_gateway.session_context import session_context
+
 from acp import (
     Agent,
     InitializeResponse,
@@ -1091,9 +1093,26 @@ class CodePuppyAgent(Agent):
         Attempts real-time streaming via ``run_stream()`` first, falling
         back to batch ``run()`` when streaming is unavailable.
 
+        Sets session-scoped ContextVars (CWD, model) so that downstream
+        tool modules resolve paths and models per-session.
+
         Returns:
             ``(result_text, tool_events, was_streamed)``
         """
+        from code_puppy.agents import load_agent
+
+        # Determine per-session model override (if any)
+        _per_session_model: str | None = getattr(session, '_model_override', None)
+
+        with session_context(cwd=session.cwd or None, model=_per_session_model):
+            return await self._run_agent_inner(session, prompt_text)
+
+    async def _run_agent_inner(
+        self,
+        session: _SessionState,
+        prompt_text: str,
+    ) -> tuple[str, list[dict], bool]:
+        """Inner implementation of _run_agent, executed within session context."""
         from code_puppy.agents import load_agent
 
         agent = load_agent(session.agent_name)
