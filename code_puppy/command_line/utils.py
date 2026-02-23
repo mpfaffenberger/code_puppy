@@ -5,21 +5,16 @@ from rich.table import Table
 
 
 def list_directory(path: str = None) -> Tuple[List[str], List[str]]:
-    """
-    Returns (dirs, files) for the specified path, splitting out directories and files.
-    """
+    """Returns (dirs, files) for the specified path, splitting out directories and files."""
     if path is None:
         path = os.getcwd()
-    dirs, files = [], []
     try:
         with os.scandir(path) as it:
-            for entry in it:
-                if entry.is_dir(follow_symlinks=True):
-                    dirs.append(entry.name)
-                else:
-                    files.append(entry.name)
+            entries = list(it)
     except OSError as e:
         raise RuntimeError(f"Error listing directory: {e}") from e
+    dirs = [e.name for e in entries if e.is_dir(follow_symlinks=True)]
+    files = [e.name for e in entries if not e.is_dir(follow_symlinks=True)]
     return dirs, files
 
 
