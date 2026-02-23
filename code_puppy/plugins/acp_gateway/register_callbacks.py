@@ -88,6 +88,10 @@ async def _on_startup() -> None:
     from code_puppy.plugins.acp_gateway.session_context import install_session_aware_abspath
     install_session_aware_abspath()
 
+    # Install concurrency gates for multi-session tool safety
+    from code_puppy.plugins.acp_gateway.tool_concurrency import install_gates
+    install_gates()
+
     try:
         if config.transport == "stdio":
             await _start_stdio()
