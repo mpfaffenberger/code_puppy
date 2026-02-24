@@ -5,7 +5,7 @@ Validates hook configuration dictionaries and provides actionable error messages
 """
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,9 @@ def _validate_hook(event_type: str, group_idx: int, hook_idx: int,
     if hook_type == "command" and not hook.get("command"):
         errors.append(f"{prefix} missing required field 'command' for type 'command'")
     elif hook_type == "prompt" and not hook.get("prompt") and not hook.get("command"):
-        errors.append(f"{prefix} missing required field 'prompt' for type 'prompt'")
+        errors.append(
+            f"{prefix} missing required field 'prompt' (or 'command') for type 'prompt'"
+        )
 
     timeout = hook.get("timeout")
     if timeout is not None:
@@ -102,7 +104,7 @@ def _validate_hook(event_type: str, group_idx: int, hook_idx: int,
 
 
 def format_validation_report(is_valid: bool, errors: List[str],
-                              suggestions: List[str] = None) -> str:
+                              suggestions: Optional[List[str]] = None) -> str:
     lines = []
     if is_valid:
         lines.append("✓ Configuration is valid")

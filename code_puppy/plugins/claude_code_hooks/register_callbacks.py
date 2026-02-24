@@ -11,6 +11,11 @@ from code_puppy.callbacks import register_callback
 from code_puppy.hook_engine import HookEngine, EventData
 from .config import load_hooks_config
 
+_SUBAGENT_NAMES = frozenset({
+    "pack_leader", "bloodhound", "husky", "retriever", "shepherd", "terrier",
+    "watchdog", "subagent", "sub_agent",
+})
+
 logger = logging.getLogger(__name__)
 
 _hook_engine: Optional[HookEngine] = None
@@ -97,5 +102,62 @@ async def on_post_tool_call_hook(
 
 register_callback("pre_tool_call", on_pre_tool_call_hook)
 register_callback("post_tool_call", on_post_tool_call_hook)
+
+
+async def on_startup_hook() -> None:
+    """Startup callback — fires SessionStart hooks when code_puppy boots."""
+    if not _hook_engine:
+        return
+
+    event_data = EventData(
+        event_type="SessionStart",
+        tool_name="session",
+        tool_args={},
+    )
+
+    try:
+        await _hook_engine.process_event("SessionStart", event_data)
+    except Exception as e:
+        logger.error(f"Error in SessionStart hook: {e}", exc_info=True)
+
+
+async def on_agent_run_end_hook(
+    agent_name: str,
+    model_name: str,
+    session_id: str | None = None,
+    success: bool = True,
+    error: Exception | None = None,
+    response_text: str | None = None,
+    metadata: dict | None = None,
+) -> None:
+    """agent_run_end callback — fires Stop or SubagentStop hooks."""
+    if not _hook_engine:
+        return
+
+    agent_lower = (agent_name or "").lower()
+    is_subagent = any(name in agent_lower for name in _SUBAGENT_NAMES)
+    event_type = "SubagentStop" if is_subagent else "Stop"
+
+    event_data = EventData(
+        event_type=event_type,
+        tool_name=agent_name or "agent",
+        tool_args={},
+        context={
+            "agent_name": agent_name,
+            "model_name": model_name,
+            "session_id": session_id,
+            "success": success,
+            "error": str(error) if error else None,
+        },
+    )
+
+    try:
+        await _hook_engine.process_event(event_type, event_data)
+    except Exception as e:
+        logger.error(f"Error in {event_type} hook: {e}", exc_info=True)
+
+
+register_callback("startup", on_startup_hook)
+register_callback("agent_run_end", on_agent_run_end_hook)
 
 logger.info("Claude Code hooks plugin registered")

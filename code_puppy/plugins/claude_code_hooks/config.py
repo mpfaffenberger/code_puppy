@@ -52,6 +52,11 @@ def load_hooks_config() -> Optional[Dict[str, Any]]:
         try:
             with open(global_config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
+            if "hooks" in config and isinstance(config["hooks"], dict):
+                logger.info(
+                    f"Loaded hooks configuration (wrapped format) from {GLOBAL_HOOKS_FILE}"
+                )
+                return config["hooks"]
             logger.info(f"Loaded hooks configuration from {GLOBAL_HOOKS_FILE}")
             return config
         except json.JSONDecodeError as e:

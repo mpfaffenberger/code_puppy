@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -141,7 +142,7 @@ async def execute_hook(
         exit_code = proc.returncode or 0
 
         blocked = exit_code == 1
-        error = stderr_str if blocked else None
+        error = stderr_str if exit_code != 0 and stderr_str else None
 
         return ExecutionResult(
             blocked=blocked,
@@ -191,7 +192,7 @@ def _substitute_variables(
     result = command
     for var, value in substitutions.items():
         result = result.replace(f"${{{var}}}", str(value))
-        result = result.replace(f"${var}", str(value))
+        result = re.sub(rf'\${re.escape(var)}(?=\W|$)', str(value), result)
     return result
 
 

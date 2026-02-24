@@ -36,7 +36,6 @@ code_puppy/bundled_skills/
 # Hook engine runtime artifacts (logs, compiled outputs)
 .claude/activity.jsonl
 .claude/hooks/audit.log
-*swarmos_debug.log
 
 # Compiled hook binaries (built from .go sources in .claude/hooks/go-hooks/)
 .claude/hooks/go-hooks/audit-bash

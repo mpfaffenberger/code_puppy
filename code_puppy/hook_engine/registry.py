@@ -5,6 +5,7 @@ Builds and manages the HookRegistry from configuration dictionaries.
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from .models import HookConfig, HookRegistry
@@ -20,6 +21,8 @@ SUPPORTED_EVENT_TYPES = [
     "PreCompact",
     "UserPromptSubmit",
     "Notification",
+    "Stop",
+    "SubagentStop",
 ]
 
 
@@ -82,16 +85,19 @@ def get_registry_stats(registry: HookRegistry) -> Dict[str, Any]:
         "by_event": {},
     }
 
-    for attr in ['pre_tool_use', 'post_tool_use', 'session_start',
-                 'session_end', 'pre_compact', 'user_prompt_submit', 'notification']:
-        hooks = getattr(registry, attr)
+    def _to_attr(event_type: str) -> str:
+        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', event_type)
+        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+    for event_type in SUPPORTED_EVENT_TYPES:
+        attr = _to_attr(event_type)
+        hooks = getattr(registry, attr, [])
         enabled = sum(1 for h in hooks if h.enabled)
         disabled = len(hooks) - enabled
         stats["enabled_hooks"] += enabled
         stats["disabled_hooks"] += disabled
         if hooks:
-            event_name = attr.replace("_", " ").title().replace(" ", "")
-            stats["by_event"][event_name] = {
+            stats["by_event"][event_type] = {
                 "total": len(hooks),
                 "enabled": enabled,
                 "disabled": disabled,

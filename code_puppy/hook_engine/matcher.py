@@ -8,6 +8,8 @@ based on tool name, arguments, and other event data.
 import re
 from typing import Any, Dict, Optional
 
+from .aliases import get_aliases
+
 
 def matches(matcher: str, tool_name: str, tool_args: Dict[str, Any]) -> bool:
     """
@@ -44,13 +46,22 @@ def _match_single(pattern: str, tool_name: str, tool_args: Dict[str, Any]) -> bo
     if pattern.lower() == tool_name.lower():
         return True
 
+    # Check cross-provider aliases: a hook written for "Bash" (Claude Code) should
+    # fire when code_puppy calls "agent_run_shell_command", and vice-versa.
+    tool_aliases = get_aliases(tool_name)
+    pattern_aliases = get_aliases(pattern)
+    if tool_aliases & pattern_aliases:  # non-empty intersection → same logical tool
+        return True
+
     if pattern.startswith("."):
         file_path = _extract_file_path(tool_args)
         if file_path:
             return file_path.endswith(pattern)
+        return False
 
     if "*" in pattern:
-        regex_pattern = pattern.replace("*", ".*")
+        parts = pattern.split("*")
+        regex_pattern = ".*".join(re.escape(part) for part in parts)
         if re.match(f"^{regex_pattern}$", tool_name, re.IGNORECASE):
             return True
 

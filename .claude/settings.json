@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-sed.py",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/block-sed.py\"",
             "timeout": 5000
           }
         ]

@@ -118,7 +118,7 @@ class HookEngine:
         if blocked:
             blocking_reason = (
                 f"Hook '{blocking_result.hook_command}' failed: "
-                f"{blocking_result.error or blocking_result.stderr}"
+                f"{blocking_result.error or blocking_result.stderr or 'blocked (no details provided)'}"
             )
 
         duration_ms = (time.perf_counter() - start_time) * 1000

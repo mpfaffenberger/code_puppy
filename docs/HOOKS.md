@@ -6,7 +6,7 @@ Hooks let you intercept and control every tool call the agent makes — before i
 
 ## How It Works
 
-```
+```text
 User prompt → Agent decides to call a tool
                         ↓
               [PreToolUse hooks run]
@@ -134,7 +134,7 @@ For `PostToolUse`, the payload also includes `tool_result` and `tool_duration_ms
 
 ## Matcher Syntax
 
-```
+```text
 "Bash|agent_run_shell_command"   regex OR — matches either tool name
 "Edit && .py"                     AND — tool is Edit AND file ends in .py
 "*"                               wildcard — matches everything

@@ -34,6 +34,8 @@ config = {
     }]
 }
 
+import asyncio
+
 engine = HookEngine(config)
 event_data = EventData(
     event_type="PreToolUse",
@@ -41,9 +43,12 @@ event_data = EventData(
     tool_args={"command": "git status"}
 )
 
-result = await engine.process_event("PreToolUse", event_data)
-if result.blocked:
-    print(f"Blocked: {result.blocking_reason}")
+async def main():
+    result = await engine.process_event("PreToolUse", event_data)
+    if result.blocked:
+        print(f"Blocked: {result.blocking_reason}")
+
+asyncio.run(main())
 ```
 
 ## Hook Input Format
@@ -71,3 +76,30 @@ Also available as environment variables: `CLAUDE_TOOL_INPUT`, `CLAUDE_TOOL_NAME`
 - `2` - Error feedback to Claude without blocking
 
 See `docs/HOOKS.md` for the full user-facing guide.
+
+## Tool Name Compatibility
+
+Hooks can be written using **either** the provider's tool name **or** code_puppy's
+internal tool name — the matcher treats them as equivalent.
+
+### Claude Code → code_puppy
+
+| Claude Code (`matcher`) | code_puppy internal | Notes |
+|-------------------------|---------------------|-------|
+| `Bash`            | `agent_run_shell_command` | Shell execution |
+| `Glob`            | `list_files`              | File glob / directory listing |
+| `Read`            | `read_file`               | Read file contents |
+| `Grep`            | `grep`                    | Text search |
+| `Edit`            | `edit_file`               | Patch / partial edit |
+| `Write`           | `edit_file`               | Full-file overwrite (same tool) |
+| `Delete`          | `delete_file`             | File deletion |
+| `AskUserQuestion` | `ask_user_question`       | Interactive user prompt |
+| `Task`            | `invoke_agent`            | Sub-agent / task spawn |
+| `Skill`           | `activate_skill`          | Skill activation |
+| `ToolSearch`      | `list_or_search_skills`   | Skill/tool discovery |
+
+Provider aliases for **Gemini**, **Codex**, and **Swarm** are reserved in
+`aliases.py` and will be populated once their MCP tool vocabularies are verified.
+
+Both directions work — `"matcher": "Bash"` and `"matcher": "agent_run_shell_command"`
+are identical at match time.

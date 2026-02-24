@@ -135,6 +135,8 @@ class HookRegistry:
     pre_compact: List[HookConfig] = field(default_factory=list)
     user_prompt_submit: List[HookConfig] = field(default_factory=list)
     notification: List[HookConfig] = field(default_factory=list)
+    stop: List[HookConfig] = field(default_factory=list)
+    subagent_stop: List[HookConfig] = field(default_factory=list)
 
     _executed_once_hooks: set = field(default_factory=set, repr=False)
 
@@ -185,7 +187,8 @@ class HookRegistry:
         if event_type is None:
             total = 0
             for attr in ['pre_tool_use', 'post_tool_use', 'session_start',
-                         'session_end', 'pre_compact', 'user_prompt_submit', 'notification']:
+                         'session_end', 'pre_compact', 'user_prompt_submit', 'notification',
+                         'stop', 'subagent_stop']:
                 total += len(getattr(self, attr))
             return total
         attr_name = self._normalize_event_type(event_type)
