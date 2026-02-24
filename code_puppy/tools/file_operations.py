@@ -149,21 +149,27 @@ def would_match_directory(pattern: str, directory: str) -> bool:
 
     return False
 
-
 @functools.lru_cache(maxsize=1)
-def _find_rg() -> str | None:
-    """Find ripgrep executable once and cache the result."""
+def _find_rg_cached() -> str | None:
     import sys
 
     rg_path = shutil.which("rg")
     if rg_path:
         return rg_path
+
     python_dir = os.path.dirname(sys.executable)
     for name in ["rg", "rg.exe"]:
         candidate = os.path.join(python_dir, name)
         if os.path.exists(candidate):
             return candidate
+
     return None
+
+def _find_rg() -> str | None:
+    path = _find_rg_cached()
+    if path is None:
+        _find_rg_cached.cache_clear()
+    return path
 
 
 def _list_files(
