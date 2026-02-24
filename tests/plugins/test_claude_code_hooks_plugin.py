@@ -178,15 +178,16 @@ class TestLoadHooksConfigGlobalLevel:
                     result = load_hooks_config()
                     assert result is None  # should not crash
 
-    def test_project_level_takes_priority_over_global(self):
-        """When both exist, project-level .claude/settings.json wins."""
+    def test_project_level_merges_with_global(self):
+        """When both exist, both hooks are merged with global executing first."""
         from code_puppy.plugins.claude_code_hooks.config import load_hooks_config
 
         project_hooks = {
             "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo project"}]}]
         }
         global_hooks_data = {
-            "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo global"}]}]
+            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo global"}]}],
+            "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo post_global"}]}]
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -205,9 +206,16 @@ class TestLoadHooksConfigGlobalLevel:
                     global_file,
                 ):
                     result = load_hooks_config()
-                    # Project-level wins: PostToolUse from global should NOT be present
+                    # Both hooks should be present, merged together
                     assert "PreToolUse" in result
-                    assert "PostToolUse" not in result
+                    assert "PostToolUse" in result
+                    # PreToolUse should have both global and project hooks (global first, project second)
+                    assert len(result["PreToolUse"]) == 2
+                    assert result["PreToolUse"][0]["hooks"][0]["command"] == "echo global"
+                    assert result["PreToolUse"][1]["hooks"][0]["command"] == "echo project"
+                    # PostToolUse should only have the global hook
+                    assert len(result["PostToolUse"]) == 1
+                    assert result["PostToolUse"][0]["hooks"][0]["command"] == "echo post_global"
 
 
 # ---------------------------------------------------------------------------
