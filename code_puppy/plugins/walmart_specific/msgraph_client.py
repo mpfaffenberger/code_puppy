@@ -25,8 +25,8 @@ from typing import Any
 import httpx
 
 from code_puppy import __version__
-from code_puppy.messaging import emit_warning
-from code_puppy.plugins.walmart_specific.msgraph_auth import (
+from code_puppy.messaging import emit_info, emit_warning
+from code_puppy.plugins.walmart_specific.msgraph_tokens import (
     MSGRAPH_TOKENS_FILE,
     get_valid_access_token,
 )
@@ -202,6 +202,77 @@ class MSGraphClient:
 
         return error_msg, error_code
 
+    def _handle_auth_error_with_retry(
+        self,
+        response: httpx.Response,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """Handle 401/403 auth errors by refreshing the token and retrying once.
+
+        Args:
+            response: The original response with 401/403 status.
+            method: HTTP method for the retry.
+            url: Full URL for the retry.
+            headers: Request headers (will be updated with new auth).
+            **kwargs: Additional request arguments.
+
+        Returns:
+            The response from the retry attempt.
+
+        Raises:
+            MSGraphAuthError: If refresh fails or retry still returns auth error.
+        """
+        status_reason = (
+            "expired" if response.status_code == 401 else "insufficient scope"
+        )
+        emit_warning(
+            f"Token rejected ({response.status_code} {status_reason}), "
+            f"attempting refresh..."
+        )
+
+        # Invalidate current token and force a fresh one
+        self._access_token = None
+        self._ensure_valid_token()
+
+        # Verify we actually got a DIFFERENT token
+        old_auth = headers.get("Authorization")
+        headers.update(self._get_auth_headers())
+        new_auth = headers.get("Authorization")
+
+        if old_auth == new_auth:
+            emit_info(
+                "Token refresh returned same token. "
+                "Re-authentication required (/msgraph_auth)."
+            )
+            raise MSGraphAuthError(
+                f"Authentication failed (HTTP {response.status_code}). "
+                "Token refresh did not produce a new token. "
+                "Microsoft Graph re-authentication required."
+            )
+
+        # Retry with the genuinely new token
+        retry_response = self.client.request(method, url, headers=headers, **kwargs)
+
+        if retry_response.status_code == 401:
+            raise MSGraphAuthError(
+                "Authentication failed (HTTP 401). "
+                "Microsoft Graph re-authentication required."
+            )
+
+        if retry_response.status_code == 403:
+            error_msg, _ = self._parse_error_response(retry_response)
+            raise MSGraphAuthError(
+                f"Access denied (HTTP 403) after token refresh. {error_msg}\n"
+                "The required permissions may not be granted. "
+                "Check Azure AD app registration or contact "
+                "#element-genai-support on Slack."
+            )
+
+        return retry_response
+
     def _make_request(
         self,
         method: str,
@@ -240,28 +311,10 @@ class MSGraphClient:
         try:
             response = self.client.request(method, url, headers=headers, **kwargs)
 
-            # Handle authentication errors
-            if response.status_code == 401:
-                # Try refreshing token once
-                emit_warning("Access token may be expired, attempting refresh...")
-                self._access_token = None
-                self._ensure_valid_token()
-
-                # Retry the request with new token
-                headers.update(self._get_auth_headers())
-                response = self.client.request(method, url, headers=headers, **kwargs)
-
-                if response.status_code == 401:
-                    raise MSGraphAuthError(
-                        "Authentication failed (HTTP 401). "
-                        "Microsoft Graph re-authentication required."
-                    )
-
-            if response.status_code == 403:
-                error_msg, _ = self._parse_error_response(response)
-                raise MSGraphAuthError(
-                    f"Access denied (HTTP 403). {error_msg}\n"
-                    "Check that your app has the required permissions."
+            # Handle auth errors (401/403) with a single retry after refresh
+            if response.status_code in (401, 403):
+                response = self._handle_auth_error_with_retry(
+                    response, method, url, headers, **kwargs
                 )
 
             # Handle not found
@@ -500,28 +553,10 @@ class MSGraphClient:
         try:
             response = self.client.request("GET", url, headers=headers, **kwargs)
 
-            # Handle authentication errors
-            if response.status_code == 401:
-                # Try refreshing token once
-                emit_warning("Access token may be expired, attempting refresh...")
-                self._access_token = None
-                self._ensure_valid_token()
-
-                # Retry the request with new token
-                headers.update(self._get_auth_headers())
-                response = self.client.request("GET", url, headers=headers, **kwargs)
-
-                if response.status_code == 401:
-                    raise MSGraphAuthError(
-                        "Authentication failed (HTTP 401). "
-                        "Microsoft Graph re-authentication required."
-                    )
-
-            if response.status_code == 403:
-                error_msg, _ = self._parse_error_response(response)
-                raise MSGraphAuthError(
-                    f"Access denied (HTTP 403). {error_msg}\n"
-                    "Check that your app has the required permissions."
+            # Handle auth errors (401/403) with a single retry after refresh
+            if response.status_code in (401, 403):
+                response = self._handle_auth_error_with_retry(
+                    response, "GET", url, headers, **kwargs
                 )
 
             # Handle not found

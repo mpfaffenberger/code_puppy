@@ -35,6 +35,14 @@ import httpx
 
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_error, emit_info, emit_success
+from code_puppy.plugins.walmart_specific.msgraph_tokens import (
+    AZURE_AD_TOKEN_URL,
+    GRAPH_EXPLORER_CLIENT_ID,
+    MSGRAPH_API_BASE,
+    MSGRAPH_TOKENS_FILE,
+    load_tokens as _load_tokens,
+    save_tokens as _save_tokens,
+)
 
 # Playwright is an optional dependency - gracefully handle import failure
 try:
@@ -47,28 +55,18 @@ except ImportError:  # pragma: no cover
 # CONSTANTS - Graph Explorer's OAuth Configuration (we're hijacking it!)
 # =============================================================================
 
-# Graph Explorer's client ID - this is public, registered by Microsoft
-GRAPH_EXPLORER_CLIENT_ID: str = "de8bc8b5-d9f9-48b1-a8ad-b748da725064"
-
 # Graph Explorer's redirect URI
 GRAPH_EXPLORER_REDIRECT_URI: str = (
     "https://developer.microsoft.com/en-us/graph/graph-explorer"
 )
 
-# Azure AD endpoints (using /common for multi-tenant)
+# Azure AD authorization endpoint (using /common for multi-tenant)
 AZURE_AD_AUTHORIZE_URL: str = (
     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 )
-AZURE_AD_TOKEN_URL: str = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
 # Scopes that Graph Explorer requests
 GRAPH_EXPLORER_SCOPES: str = "openid profile User.Read offline_access"
-
-# Microsoft Graph API base URL
-MSGRAPH_API_BASE: str = "https://graph.microsoft.com/v1.0"
-
-# Token storage
-MSGRAPH_TOKENS_FILE: Path = Path(CONFIG_DIR) / "msgraph.json"
 
 # Timeouts
 AUTH_WAIT_TIMEOUT: int = 300  # 5 minutes max wait for user authentication
@@ -325,67 +323,6 @@ async def _exchange_code_for_tokens_in_browser(
 
 
 # =============================================================================
-# TOKEN STORAGE
-# =============================================================================
-
-
-def _save_tokens(tokens: dict[str, Any]) -> None:
-    """Save tokens to the tokens file."""
-    emit_info(f"💾 Saving tokens to {MSGRAPH_TOKENS_FILE}...")
-    MSGRAPH_TOKENS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(MSGRAPH_TOKENS_FILE, "w") as f:
-        json.dump(tokens, f, indent=2)
-
-
-def _load_tokens() -> dict[str, Any]:
-    """Load tokens from the tokens file."""
-    with open(MSGRAPH_TOKENS_FILE) as f:
-        return json.load(f)
-
-
-# =============================================================================
-# TOKEN REFRESH
-# =============================================================================
-
-
-def _refresh_access_token(refresh_token: str) -> dict[str, Any] | None:
-    """Attempt to refresh the access token using refresh token.
-
-    Args:
-        refresh_token: The refresh token.
-
-    Returns:
-        New token dict if successful, None if refresh failed.
-    """
-    try:
-        token_data = {
-            "client_id": GRAPH_EXPLORER_CLIENT_ID,
-            "refresh_token": refresh_token,
-            "grant_type": "refresh_token",
-        }
-
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(
-                AZURE_AD_TOKEN_URL,
-                data=token_data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-
-            if response.status_code == 200:
-                token_response = response.json()
-                return {
-                    "access_token": token_response["access_token"],
-                    "refresh_token": token_response.get("refresh_token", refresh_token),
-                    "expires_in": token_response.get("expires_in", 3600),
-                    "timestamp": datetime.now().isoformat(),
-                }
-    except Exception:
-        pass
-
-    return None
-
-
-# =============================================================================
 # COMMAND HANDLERS
 # =============================================================================
 
@@ -613,50 +550,3 @@ def get_msgraph_auth_help() -> list[tuple[str, str]]:
         ("msgraph_auth", "Authenticate with Microsoft Graph"),
         ("msgraph_test", "Test Microsoft Graph authentication"),
     ]
-
-
-# =============================================================================
-# UTILITY FUNCTIONS FOR API CLIENTS
-# =============================================================================
-
-
-def get_valid_access_token() -> str | None:
-    """Get a valid access token, attempting refresh if needed.
-
-    Returns:
-        Access token string, or None if not authenticated.
-    """
-    if not MSGRAPH_TOKENS_FILE.exists():
-        return None
-
-    try:
-        tokens = _load_tokens()
-    except (json.JSONDecodeError, OSError):
-        return None
-
-    access_token = tokens.get("access_token")
-    if not access_token:
-        return None
-
-    # Try a quick validation
-    try:
-        with httpx.Client(timeout=10.0) as client:
-            response = client.get(
-                f"{MSGRAPH_API_BASE}/me",
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            if response.status_code == 200:
-                return access_token
-
-            # Token expired, try refresh
-            if response.status_code == 401:
-                refresh_token = tokens.get("refresh_token")
-                if refresh_token:
-                    new_tokens = _refresh_access_token(refresh_token)
-                    if new_tokens:
-                        _save_tokens(new_tokens)
-                        return new_tokens["access_token"]
-    except Exception:
-        pass
-
-    return access_token  # Return it anyway, let caller handle errors
