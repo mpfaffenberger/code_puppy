@@ -8,15 +8,19 @@ def list_directory(path: str = None) -> Tuple[List[str], List[str]]:
     """Returns (dirs, files) for the specified path, splitting out directories and files."""
     if path is None:
         path = os.getcwd()
+    dirs: List[str] = []
+    files: List[str] = []
     try:
         with os.scandir(path) as it:
-            entries = list(it)
+            for entry in it:
+                try:
+                    is_dir = entry.is_dir(follow_symlinks=True)
+                except OSError:
+                    is_dir = False
+                (dirs if is_dir else files).append(entry.name)
     except OSError as e:
         raise RuntimeError(f"Error listing directory: {e}") from e
-    dirs = [e.name for e in entries if e.is_dir(follow_symlinks=True)]
-    files = [e.name for e in entries if not e.is_dir(follow_symlinks=True)]
     return dirs, files
-
 
 def make_directory_table(path: str = None) -> Table:
     """
