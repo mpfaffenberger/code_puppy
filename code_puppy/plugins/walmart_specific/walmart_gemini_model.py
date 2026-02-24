@@ -6,7 +6,6 @@ internal Vertex AI compatible proxy backend.
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
@@ -19,7 +18,6 @@ from pydantic_ai._run_context import RunContext
 from pydantic_ai.messages import (
     ModelMessage,
     ModelResponse,
-    ModelResponsePart,
     ModelResponseStreamEvent,
     TextPart,
     ThinkingPart,
@@ -27,7 +25,6 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import ModelRequestParameters, StreamedResponse
 from pydantic_ai.settings import ModelSettings
-from pydantic_ai.usage import RequestUsage
 
 from code_puppy.gemini_model import GeminiModel, generate_tool_call_id
 
@@ -141,9 +138,7 @@ class _SyntheticStreamedResponse(StreamedResponse):
     model_response: ModelResponse
     _model_name_str: str
     _provider_name_str: str = "google"
-    _timestamp_val: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    _timestamp_val: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     async def _get_event_iterator(
         self,
@@ -175,8 +170,7 @@ class _SyntheticStreamedResponse(StreamedResponse):
                     vendor_part_id=uuid.uuid4(),
                     tool_name=part.tool_name,
                     args=part.args,
-                    tool_call_id=part.tool_call_id
-                    or generate_tool_call_id(),
+                    tool_call_id=part.tool_call_id or generate_tool_call_id(),
                 )
                 if event is not None:
                     yield event

@@ -3,7 +3,6 @@ import subprocess
 import sys
 import time
 import webbrowser
-from datetime import datetime
 from typing import Optional
 
 import jwt

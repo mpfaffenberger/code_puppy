@@ -633,9 +633,7 @@ class DatabricksClient:
                 # Recursively list directories if requested
                 if recursive and obj.object_type == ObjectType.DIRECTORY:
                     try:
-                        sub_results = self.list_workspace(
-                            path=obj.path, recursive=True
-                        )
+                        sub_results = self.list_workspace(path=obj.path, recursive=True)
                         results.extend(sub_results)
                     except Exception:
                         pass  # Skip inaccessible directories
@@ -643,12 +641,12 @@ class DatabricksClient:
             return results
         except Exception as e:
             if "not found" in str(e).lower():
-                raise DatabricksNotFoundError(f"Workspace path '{path}' not found") from e
+                raise DatabricksNotFoundError(
+                    f"Workspace path '{path}' not found"
+                ) from e
             raise DatabricksAPIError(f"Failed to list workspace: {e}") from e
 
-    def get_notebook(
-        self, path: str, format: str = "SOURCE"
-    ) -> dict[str, Any]:
+    def get_notebook(self, path: str, format: str = "SOURCE") -> dict[str, Any]:
         """Export/read a notebook from the workspace.
 
         Args:
@@ -673,9 +671,7 @@ class DatabricksClient:
             }
             export_format = format_map.get(format.upper(), ExportFormat.SOURCE)
 
-            response = self._client.workspace.export(
-                path=path, format=export_format
-            )
+            response = self._client.workspace.export(path=path, format=export_format)
 
             # Decode base64 content
             content = ""
@@ -904,7 +900,9 @@ class DatabricksClient:
                 "created_time": job.created_time,
                 "creator_user_name": job.creator_user_name,
                 "tasks": tasks,
-                "schedule": str(settings.schedule) if settings and settings.schedule else None,
+                "schedule": str(settings.schedule)
+                if settings and settings.schedule
+                else None,
                 "max_concurrent_runs": settings.max_concurrent_runs if settings else 1,
             }
         except Exception as e:
@@ -1020,7 +1018,9 @@ class DatabricksClient:
             if wait:
                 result["state"] = str(run.state.life_cycle_state) if run.state else ""
                 result["result_state"] = (
-                    str(run.state.result_state) if run.state and run.state.result_state else ""
+                    str(run.state.result_state)
+                    if run.state and run.state.result_state
+                    else ""
                 )
 
             return result
@@ -1048,7 +1048,9 @@ class DatabricksClient:
                 "run_name": run.run_name,
                 "state": str(run.state.life_cycle_state) if run.state else "",
                 "result_state": (
-                    str(run.state.result_state) if run.state and run.state.result_state else ""
+                    str(run.state.result_state)
+                    if run.state and run.state.result_state
+                    else ""
                 ),
                 "start_time": run.start_time,
                 "end_time": run.end_time,
@@ -1180,7 +1182,9 @@ class DatabricksClient:
             if pipeline.spec and pipeline.spec.libraries:
                 for lib in pipeline.spec.libraries:
                     if lib.notebook:
-                        libraries.append({"type": "notebook", "path": lib.notebook.path})
+                        libraries.append(
+                            {"type": "notebook", "path": lib.notebook.path}
+                        )
                     elif lib.file:
                         libraries.append({"type": "file", "path": lib.file.path})
 
@@ -1297,7 +1301,11 @@ class DatabricksClient:
                     )
                     state = status.update.state if status.update else None
 
-                    if state in [PipelineState.COMPLETED, PipelineState.FAILED, PipelineState.CANCELED]:
+                    if state in [
+                        PipelineState.COMPLETED,
+                        PipelineState.FAILED,
+                        PipelineState.CANCELED,
+                    ]:
                         return {
                             "update_id": update_id,
                             "pipeline_id": pipeline_id,
@@ -1347,9 +1355,7 @@ class DatabricksClient:
         except Exception as e:
             raise DatabricksAPIError(f"Failed to stop pipeline: {e}") from e
 
-    def get_pipeline_update(
-        self, pipeline_id: str, update_id: str
-    ) -> dict[str, Any]:
+    def get_pipeline_update(self, pipeline_id: str, update_id: str) -> dict[str, Any]:
         """Get status of a pipeline update.
 
         Args:

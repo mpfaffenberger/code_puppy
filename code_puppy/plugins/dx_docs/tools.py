@@ -21,9 +21,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, TypeVar
 
-# Type variable for the decorated function's return type
-F = TypeVar("F", bound=Callable[..., dict])
-
 from pydantic_ai import RunContext
 from pydantic_ai.tools import Tool
 from rich.text import Text
@@ -50,6 +47,9 @@ from code_puppy.plugins.dx_docs.content_search_client import (
     ContentSearchError,
     get_content_search_client,
 )
+
+# Type variable for the decorated function's return type
+F = TypeVar("F", bound=Callable[..., dict])
 
 logger = logging.getLogger(__name__)
 

@@ -552,9 +552,7 @@ def _install_bundled_uc_tools(agent_data: dict, agent_name: str) -> int:
 
         # Reject paths that try to escape the UC directory
         if ".." in file_path or file_path.startswith("/"):
-            emit_warning(
-                f"Skipping bundled tool with unsafe path: {file_path}"
-            )
+            emit_warning(f"Skipping bundled tool with unsafe path: {file_path}")
             continue
 
         target = USER_UC_DIR / file_path
@@ -775,9 +773,7 @@ def handle_download_agent(command: str) -> bool:
             )
 
         # Strip bundled tool source from the saved JSON to keep it clean
-        save_data = {
-            k: v for k, v in agent_data.items() if k != "bundled_uc_tools"
-        }
+        save_data = {k: v for k, v in agent_data.items() if k != "bundled_uc_tools"}
 
         # Save the agent
         path = _save_agent(save_data, agent_name)
