@@ -31,7 +31,7 @@ class TestDXAuth:
 
     def test_import_dx_auth(self):
         """Test that dx_auth module can be imported."""
-        from code_puppy.plugins.walmart_specific.dx_auth import (
+        from code_puppy.plugins.dx_docs.auth import (
             DXAuthError,
             DXTokenNotFoundError,
             DXTokenExpiredError,
@@ -43,7 +43,7 @@ class TestDXAuth:
 
     def test_get_dx_tokens_no_file(self, tmp_path, monkeypatch):
         """Test get_dx_tokens when token file doesn't exist."""
-        from code_puppy.plugins.walmart_specific import dx_auth
+        from code_puppy.plugins.dx_docs import auth as dx_auth
 
         # Point to non-existent file
         monkeypatch.setattr(
@@ -55,7 +55,7 @@ class TestDXAuth:
 
     def test_get_dx_tokens_valid_file(self, tmp_path, monkeypatch):
         """Test get_dx_tokens with a valid token file."""
-        from code_puppy.plugins.walmart_specific import dx_auth
+        from code_puppy.plugins.dx_docs import auth as dx_auth
 
         # Create a valid token file
         token_file = tmp_path / "tokens.json"
@@ -74,7 +74,7 @@ class TestDXAuth:
 
     def test_get_dx_access_token(self, tmp_path, monkeypatch):
         """Test get_dx_access_token extracts the token correctly."""
-        from code_puppy.plugins.walmart_specific import dx_auth
+        from code_puppy.plugins.dx_docs import auth as dx_auth
 
         token_file = tmp_path / "tokens.json"
         token_data = {"access_token": "my_access_token"}
@@ -87,7 +87,7 @@ class TestDXAuth:
 
     def test_is_token_valid_no_token(self, tmp_path, monkeypatch):
         """Test is_token_valid returns False when no token."""
-        from code_puppy.plugins.walmart_specific import dx_auth
+        from code_puppy.plugins.dx_docs import auth as dx_auth
 
         monkeypatch.setattr(
             dx_auth, "MCP_CLI_TOKENS_FILE", tmp_path / "nonexistent.json"
@@ -97,7 +97,7 @@ class TestDXAuth:
 
     def test_is_token_valid_with_valid_token(self, tmp_path, monkeypatch):
         """Test is_token_valid returns True for valid token."""
-        from code_puppy.plugins.walmart_specific import dx_auth
+        from code_puppy.plugins.dx_docs import auth as dx_auth
 
         token_file = tmp_path / "tokens.json"
         token_data = {
@@ -112,7 +112,7 @@ class TestDXAuth:
 
     def test_get_token_status_no_token(self, tmp_path, monkeypatch):
         """Test get_token_status when no token exists."""
-        from code_puppy.plugins.walmart_specific import dx_auth
+        from code_puppy.plugins.dx_docs import auth as dx_auth
 
         monkeypatch.setattr(
             dx_auth, "MCP_CLI_TOKENS_FILE", tmp_path / "nonexistent.json"
@@ -124,8 +124,8 @@ class TestDXAuth:
 
     def test_ensure_authenticated_no_token(self, tmp_path, monkeypatch):
         """Test ensure_authenticated raises when no token."""
-        from code_puppy.plugins.walmart_specific import dx_auth
-        from code_puppy.plugins.walmart_specific.dx_auth import DXTokenNotFoundError
+        from code_puppy.plugins.dx_docs import auth as dx_auth
+        from code_puppy.plugins.dx_docs.auth import DXTokenNotFoundError
 
         monkeypatch.setattr(
             dx_auth, "MCP_CLI_TOKENS_FILE", tmp_path / "nonexistent.json"
@@ -145,7 +145,7 @@ class TestDXClient:
 
     def test_import_dx_client(self):
         """Test that dx_client module can be imported."""
-        from code_puppy.plugins.walmart_specific.dx_client import (
+        from code_puppy.plugins.dx_docs.client import (
             DXClient,
             DXError,
         )
@@ -155,7 +155,7 @@ class TestDXClient:
 
     def test_dx_client_init(self):
         """Test DXClient initialization."""
-        from code_puppy.plugins.walmart_specific.dx_client import DXClient
+        from code_puppy.plugins.dx_docs.client import DXClient
 
         client = DXClient()
         assert client.endpoint == "https://api.dx.walmart.com/mcp"
@@ -163,7 +163,7 @@ class TestDXClient:
 
     def test_dx_client_custom_endpoint(self):
         """Test DXClient with custom endpoint."""
-        from code_puppy.plugins.walmart_specific.dx_client import DXClient
+        from code_puppy.plugins.dx_docs.client import DXClient
 
         client = DXClient(endpoint="https://custom.endpoint/mcp", timeout=60)
         assert client.endpoint == "https://custom.endpoint/mcp"
@@ -171,7 +171,7 @@ class TestDXClient:
 
     def test_parse_single_result(self):
         """Test parsing a single search result string."""
-        from code_puppy.plugins.walmart_specific.dx_client import DXClient
+        from code_puppy.plugins.dx_docs.client import DXClient
 
         client = DXClient()
         result_str = "pageId: abc123, title: Test Page, highlighted: Some <b>text</b>, url= https://example.com/page"
@@ -185,7 +185,7 @@ class TestDXClient:
 
     def test_parse_single_result_invalid(self):
         """Test parsing an invalid result string."""
-        from code_puppy.plugins.walmart_specific.dx_client import DXClient
+        from code_puppy.plugins.dx_docs.client import DXClient
 
         client = DXClient()
 
@@ -203,7 +203,7 @@ class TestDXClient:
 
     def test_dx_search_result_model(self):
         """Test DXSearchResult pydantic model."""
-        from code_puppy.plugins.walmart_specific.dx_client import DXSearchResult
+        from code_puppy.plugins.dx_docs.client import DXSearchResult
 
         result = DXSearchResult(
             page_id="test123",
@@ -219,7 +219,7 @@ class TestDXClient:
 
     def test_dx_page_content_model(self):
         """Test DXPageContent pydantic model."""
-        from code_puppy.plugins.walmart_specific.dx_client import DXPageContent
+        from code_puppy.plugins.dx_docs.client import DXPageContent
 
         page = DXPageContent(
             page_id="page123",
@@ -243,7 +243,7 @@ class TestDXTools:
 
     def test_import_dx_tools(self):
         """Test that dx_tools module can be imported."""
-        from code_puppy.tools.dx_tools import (
+        from code_puppy.plugins.dx_docs.tools import (
             dx_search,
             dx_semantic_search,
             dx_get_page_content,
@@ -260,8 +260,12 @@ class TestDXTools:
         assert len(DX_TOOLS) == 5
 
     def test_dx_tools_in_registry(self):
-        """Test that DX tools are registered in TOOL_REGISTRY."""
+        """Test that DX tools are registered in TOOL_REGISTRY after plugin load."""
         from code_puppy.tools import TOOL_REGISTRY
+        from code_puppy.plugins.dx_docs.tools import DX_TOOLS
+
+        # Simulate plugin loading by merging DX_TOOLS into TOOL_REGISTRY
+        TOOL_REGISTRY.update(DX_TOOLS)
 
         assert "dx_search" in TOOL_REGISTRY
         assert "dx_get_page_content" in TOOL_REGISTRY
@@ -270,8 +274,8 @@ class TestDXTools:
 
     def test_handle_dx_error_token_not_found(self):
         """Test error handling for token not found."""
-        from code_puppy.tools.dx_tools import _handle_dx_error
-        from code_puppy.plugins.walmart_specific.dx_auth import DXTokenNotFoundError
+        from code_puppy.plugins.dx_docs.tools import _handle_dx_error
+        from code_puppy.plugins.dx_docs.auth import DXTokenNotFoundError
 
         error = DXTokenNotFoundError()
         result = _handle_dx_error(error)
@@ -282,8 +286,8 @@ class TestDXTools:
 
     def test_handle_dx_error_token_expired(self):
         """Test error handling for expired token."""
-        from code_puppy.tools.dx_tools import _handle_dx_error
-        from code_puppy.plugins.walmart_specific.dx_auth import DXTokenExpiredError
+        from code_puppy.plugins.dx_docs.tools import _handle_dx_error
+        from code_puppy.plugins.dx_docs.auth import DXTokenExpiredError
 
         error = DXTokenExpiredError()
         result = _handle_dx_error(error)
@@ -293,8 +297,8 @@ class TestDXTools:
 
     def test_handle_dx_error_not_found(self):
         """Test error handling for not found."""
-        from code_puppy.tools.dx_tools import _handle_dx_error
-        from code_puppy.plugins.walmart_specific.dx_client import DXNotFoundError
+        from code_puppy.plugins.dx_docs.tools import _handle_dx_error
+        from code_puppy.plugins.dx_docs.client import DXNotFoundError
 
         error = DXNotFoundError("Page not found")
         result = _handle_dx_error(error)
@@ -304,8 +308,8 @@ class TestDXTools:
 
     def test_handle_dx_error_api_error(self):
         """Test error handling for API errors."""
-        from code_puppy.tools.dx_tools import _handle_dx_error
-        from code_puppy.plugins.walmart_specific.dx_client import DXAPIError
+        from code_puppy.plugins.dx_docs.tools import _handle_dx_error
+        from code_puppy.plugins.dx_docs.client import DXAPIError
 
         error = DXAPIError("API failed", status_code=500)
         result = _handle_dx_error(error)
@@ -316,8 +320,8 @@ class TestDXTools:
 
     def test_format_search_result(self):
         """Test formatting a search result."""
-        from code_puppy.tools.dx_tools import _format_search_result
-        from code_puppy.plugins.walmart_specific.dx_client import DXSearchResult
+        from code_puppy.plugins.dx_docs.tools import _format_search_result
+        from code_puppy.plugins.dx_docs.client import DXSearchResult
 
         search_result = DXSearchResult(
             page_id="test123",
@@ -344,7 +348,7 @@ class TestDXContentSearchClient:
 
     def test_import_dx_content_search_client(self):
         """Test that dx_content_search_client module can be imported."""
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.content_search_client import (
             DXContentSearchClient,
             ContentSearchError,
             ContentSearchAPIError,
@@ -358,7 +362,7 @@ class TestDXContentSearchClient:
 
     def test_dx_content_search_client_init(self):
         """Test DXContentSearchClient initialization."""
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.content_search_client import (
             DXContentSearchClient,
             CONTENT_SEARCH_ENDPOINT,
         )
@@ -369,7 +373,7 @@ class TestDXContentSearchClient:
 
     def test_dx_content_search_client_custom_endpoint(self):
         """Test DXContentSearchClient with custom endpoint."""
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.content_search_client import (
             DXContentSearchClient,
         )
 
@@ -382,7 +386,7 @@ class TestDXContentSearchClient:
 
     def test_content_search_result_model(self):
         """Test ContentSearchResult pydantic model."""
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.content_search_client import (
             ContentSearchResult,
         )
 
@@ -404,7 +408,7 @@ class TestDXContentSearchClient:
 
     def test_content_search_result_minimal(self):
         """Test ContentSearchResult with minimal fields."""
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.content_search_client import (
             ContentSearchResult,
         )
 
@@ -422,7 +426,7 @@ class TestDXContentSearchClient:
 
     def test_valid_products_frozenset(self):
         """Test VALID_PRODUCTS contains expected values."""
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.content_search_client import (
             VALID_PRODUCTS,
         )
 
@@ -436,7 +440,7 @@ class TestDXContentSearchClient:
 
     def test_parse_single_result_valid(self):
         """Test parsing a valid result dict."""
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.content_search_client import (
             DXContentSearchClient,
         )
 
@@ -460,7 +464,7 @@ class TestDXContentSearchClient:
 
     def test_parse_single_result_with_alternative_field_names(self):
         """Test parsing result with alternative field names."""
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.content_search_client import (
             DXContentSearchClient,
         )
 
@@ -480,7 +484,7 @@ class TestDXContentSearchClient:
 
     def test_parse_single_result_invalid(self):
         """Test parsing invalid result data."""
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.content_search_client import (
             DXContentSearchClient,
         )
 
@@ -496,7 +500,9 @@ class TestDXContentSearchClient:
 
     def test_search_tech_content_product_in_query(self, monkeypatch):
         """Test that product filter is correctly included in the search query."""
-        from code_puppy.plugins.walmart_specific import dx_content_search_client
+        from code_puppy.plugins.dx_docs import (
+            content_search_client as dx_content_search_client,
+        )
 
         captured_args = {}
 
@@ -524,7 +530,7 @@ class TestDXContentSearchClient:
 
     def test_search_tech_content_empty_query_raises(self):
         """Test that empty query raises an error."""
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.content_search_client import (
             ContentSearchAPIError,
             DXContentSearchClient,
         )
@@ -543,7 +549,7 @@ class TestDXSemanticSearchTool:
 
     def test_import_dx_semantic_search(self):
         """Test that dx_semantic_search can be imported."""
-        from code_puppy.tools.dx_tools import (
+        from code_puppy.plugins.dx_docs.tools import (
             dx_semantic_search,
             DX_TOOLS,
             DX_TOOL_FUNCTIONS,
@@ -554,15 +560,18 @@ class TestDXSemanticSearchTool:
         assert dx_semantic_search in DX_TOOL_FUNCTIONS
 
     def test_dx_semantic_search_in_registry(self):
-        """Test that dx_semantic_search is in TOOL_REGISTRY."""
+        """Test that dx_semantic_search is in TOOL_REGISTRY after plugin load."""
         from code_puppy.tools import TOOL_REGISTRY
+        from code_puppy.plugins.dx_docs.tools import DX_TOOLS
+
+        TOOL_REGISTRY.update(DX_TOOLS)
 
         assert "dx_semantic_search" in TOOL_REGISTRY
 
     def test_format_semantic_search_result(self):
         """Test formatting a semantic search result."""
-        from code_puppy.tools.dx_tools import _format_semantic_search_result
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.tools import _format_semantic_search_result
+        from code_puppy.plugins.dx_docs.content_search_client import (
             ContentSearchResult,
         )
 
@@ -586,8 +595,8 @@ class TestDXSemanticSearchTool:
 
     def test_format_semantic_search_result_minimal(self):
         """Test formatting a minimal semantic search result."""
-        from code_puppy.tools.dx_tools import _format_semantic_search_result
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.tools import _format_semantic_search_result
+        from code_puppy.plugins.dx_docs.content_search_client import (
             ContentSearchResult,
         )
 
@@ -607,8 +616,8 @@ class TestDXSemanticSearchTool:
 
     def test_handle_dx_error_content_search_api_error(self):
         """Test error handling for content search API errors."""
-        from code_puppy.tools.dx_tools import _handle_dx_error
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.tools import _handle_dx_error
+        from code_puppy.plugins.dx_docs.content_search_client import (
             ContentSearchAPIError,
         )
 
@@ -621,8 +630,8 @@ class TestDXSemanticSearchTool:
 
     def test_handle_dx_error_content_search_error(self):
         """Test error handling for generic content search errors."""
-        from code_puppy.tools.dx_tools import _handle_dx_error
-        from code_puppy.plugins.walmart_specific.dx_content_search_client import (
+        from code_puppy.plugins.dx_docs.tools import _handle_dx_error
+        from code_puppy.plugins.dx_docs.content_search_client import (
             ContentSearchError,
         )
 
@@ -648,8 +657,8 @@ class TestDXIntegration:
 
     def test_dx_search_real(self):
         """Test real DX search."""
-        from code_puppy.plugins.walmart_specific.dx_client import DXClient
-        from code_puppy.plugins.walmart_specific.dx_auth import is_token_valid
+        from code_puppy.plugins.dx_docs.client import DXClient
+        from code_puppy.plugins.dx_docs.auth import is_token_valid
 
         if not is_token_valid():
             pytest.skip("No valid DX token available")
@@ -663,8 +672,8 @@ class TestDXIntegration:
 
     def test_dx_get_page_content_real(self):
         """Test real DX page content retrieval."""
-        from code_puppy.plugins.walmart_specific.dx_client import DXClient
-        from code_puppy.plugins.walmart_specific.dx_auth import is_token_valid
+        from code_puppy.plugins.dx_docs.client import DXClient
+        from code_puppy.plugins.dx_docs.auth import is_token_valid
 
         if not is_token_valid():
             pytest.skip("No valid DX token available")
@@ -693,8 +702,8 @@ class TestAutoAuthRetry:
     def test_auto_retry_on_token_not_found(self, mock_context, monkeypatch):
         """Test that auto-retry triggers auth when token is not found."""
         from unittest.mock import MagicMock, patch
-        from code_puppy.tools import dx_tools
-        from code_puppy.plugins.walmart_specific.dx_auth import DXTokenNotFoundError
+        from code_puppy.plugins.dx_docs import tools as dx_tools
+        from code_puppy.plugins.dx_docs.auth import DXTokenNotFoundError
 
         # Track call count
         call_count = 0
@@ -730,8 +739,8 @@ class TestAutoAuthRetry:
     def test_auto_retry_on_token_expired(self, mock_context, monkeypatch):
         """Test that auto-retry triggers auth when token is expired."""
         from unittest.mock import MagicMock, patch
-        from code_puppy.tools import dx_tools
-        from code_puppy.plugins.walmart_specific.dx_auth import DXTokenExpiredError
+        from code_puppy.plugins.dx_docs import tools as dx_tools
+        from code_puppy.plugins.dx_docs.auth import DXTokenExpiredError
 
         call_count = 0
 
@@ -760,8 +769,8 @@ class TestAutoAuthRetry:
     def test_auto_retry_auth_failure(self, mock_context, monkeypatch):
         """Test that auth failure returns proper error."""
         from unittest.mock import MagicMock, patch
-        from code_puppy.tools import dx_tools
-        from code_puppy.plugins.walmart_specific.dx_auth import DXTokenNotFoundError
+        from code_puppy.plugins.dx_docs import tools as dx_tools
+        from code_puppy.plugins.dx_docs.auth import DXTokenNotFoundError
 
         def mock_search(*args, **kwargs):
             raise DXTokenNotFoundError("No token")
@@ -784,8 +793,8 @@ class TestAutoAuthRetry:
     def test_no_retry_on_other_errors(self, mock_context, monkeypatch):
         """Test that non-auth errors don't trigger retry."""
         from unittest.mock import MagicMock, patch
-        from code_puppy.tools import dx_tools
-        from code_puppy.plugins.walmart_specific.dx_client import DXAPIError
+        from code_puppy.plugins.dx_docs import tools as dx_tools
+        from code_puppy.plugins.dx_docs.client import DXAPIError
 
         call_count = 0
 
