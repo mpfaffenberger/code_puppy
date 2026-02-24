@@ -149,6 +149,7 @@ from code_puppy.tools.marketplace_tools import (
 )
 
 from code_puppy.tools.msgraph import MSGRAPH_TOOLS
+from code_puppy.tools.pete_tools import PETE_TOOLS
 from code_puppy.tools.powerbi import POWERBI_TOOLS
 from code_puppy.tools.display import (
     display_non_streamed_result as display_non_streamed_result,
@@ -344,6 +345,9 @@ TOOL_REGISTRY.update(MSGRAPH_TOOLS)
 
 # Merge in Power BI tools
 TOOL_REGISTRY.update(POWERBI_TOOLS)
+
+# Merge in Pete tools
+TOOL_REGISTRY.update(PETE_TOOLS)
 
 # DX Documentation tools are now registered via the dx_docs plugin
 # (code_puppy/plugins/dx_docs/register_callbacks.py)
