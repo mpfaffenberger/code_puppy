@@ -72,6 +72,7 @@ def get_prompt() -> str:
  - Never force push to git
  - When outputting markdown tables, keep each cell under 50 characters. If content is longer, use a list or prose instead.
  - If someone asks you to make a powerpoint or a slide deck use the slide-deck agent and open the slidedeck webpage on my computer
+ - If someone asks about AD groups or bq access use the bq-ad-group-locater agent, or if you don't have access to the AD group
 """
 
 

@@ -341,12 +341,19 @@ def get_walmart_agents() -> list[Dict[str, Any]]:
     from code_puppy.plugins.walmart_specific.slide_creator_agent import (
         SlideCreatorAgent,
     )
+    from code_puppy.plugins.walmart_specific.bq_ad_group_locator_agent import (
+        BQAdGroupLocatorAgent,
+    )
 
     return [
         {
             "name": "slide-creator",
             "class": SlideCreatorAgent,
-        }
+        },
+        {
+            "name": "bq-ad-group-locator",
+            "class": BQAdGroupLocatorAgent,
+        },
     ]
 
 
