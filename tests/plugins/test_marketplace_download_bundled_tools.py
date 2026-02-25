@@ -4,8 +4,6 @@ Tests the _install_bundled_uc_tools function that auto-extracts
 Universal Constructor tools embedded in marketplace agent JSON.
 """
 
-import json
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -58,10 +56,9 @@ class TestInstallBundledUCTools:
             "bundled_uc_tools": {"myns/helper.py": tool_code},
         }
 
-        with patch(
-            "code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir
-        ), patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        with (
+            patch("code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir),
+            patch("code_puppy.plugins.universal_constructor.registry.get_registry"),
         ):
             result = _install_bundled_uc_tools(agent_data, "test-agent")
 
@@ -74,15 +71,12 @@ class TestInstallBundledUCTools:
         """Should create __init__.py in namespace directories."""
         agent_data = {
             "name": "test-agent",
-            "bundled_uc_tools": {
-                "myns/tool.py": "TOOL_META = {}\ndef run(): pass\n"
-            },
+            "bundled_uc_tools": {"myns/tool.py": "TOOL_META = {}\ndef run(): pass\n"},
         }
 
-        with patch(
-            "code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir
-        ), patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        with (
+            patch("code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir),
+            patch("code_puppy.plugins.universal_constructor.registry.get_registry"),
         ):
             _install_bundled_uc_tools(agent_data, "test-agent")
 
@@ -100,10 +94,9 @@ class TestInstallBundledUCTools:
             },
         }
 
-        with patch(
-            "code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir
-        ), patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        with (
+            patch("code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir),
+            patch("code_puppy.plugins.universal_constructor.registry.get_registry"),
         ):
             result = _install_bundled_uc_tools(agent_data, "test-agent")
 
@@ -122,10 +115,9 @@ class TestInstallBundledUCTools:
             },
         }
 
-        with patch(
-            "code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir
-        ), patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        with (
+            patch("code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir),
+            patch("code_puppy.plugins.universal_constructor.registry.get_registry"),
         ):
             result = _install_bundled_uc_tools(agent_data, "test-agent")
 
@@ -142,10 +134,9 @@ class TestInstallBundledUCTools:
             },
         }
 
-        with patch(
-            "code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir
-        ), patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        with (
+            patch("code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir),
+            patch("code_puppy.plugins.universal_constructor.registry.get_registry"),
         ):
             result = _install_bundled_uc_tools(agent_data, "test-agent")
 
@@ -161,10 +152,9 @@ class TestInstallBundledUCTools:
             },
         }
 
-        with patch(
-            "code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir
-        ), patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        with (
+            patch("code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir),
+            patch("code_puppy.plugins.universal_constructor.registry.get_registry"),
         ):
             result = _install_bundled_uc_tools(agent_data, "test-agent")
 
@@ -179,10 +169,9 @@ class TestInstallBundledUCTools:
             },
         }
 
-        with patch(
-            "code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir
-        ), patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        with (
+            patch("code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir),
+            patch("code_puppy.plugins.universal_constructor.registry.get_registry"),
         ):
             result = _install_bundled_uc_tools(agent_data, "test-agent")
 
@@ -202,10 +191,9 @@ class TestInstallBundledUCTools:
             "bundled_uc_tools": {"myns/tool.py": new_code},
         }
 
-        with patch(
-            "code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir
-        ), patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry"
+        with (
+            patch("code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir),
+            patch("code_puppy.plugins.universal_constructor.registry.get_registry"),
         ):
             result = _install_bundled_uc_tools(agent_data, "test-agent")
 
@@ -216,16 +204,15 @@ class TestInstallBundledUCTools:
         """Should reload the UC registry after installing tools."""
         agent_data = {
             "name": "test-agent",
-            "bundled_uc_tools": {
-                "myns/tool.py": "TOOL_META = {}\ndef run(): pass\n"
-            },
+            "bundled_uc_tools": {"myns/tool.py": "TOOL_META = {}\ndef run(): pass\n"},
         }
 
-        with patch(
-            "code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir
-        ), patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry"
-        ) as mock_get_registry:
+        with (
+            patch("code_puppy.plugins.universal_constructor.USER_UC_DIR", uc_dir),
+            patch(
+                "code_puppy.plugins.universal_constructor.registry.get_registry"
+            ) as mock_get_registry,
+        ):
             _install_bundled_uc_tools(agent_data, "test-agent")
             mock_get_registry.return_value.reload.assert_called_once()
 

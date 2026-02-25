@@ -317,8 +317,9 @@ async def download_agent(name: str) -> dict:
     """Download an agent definition from the marketplace."""
     base_url = _get_marketplace_base_url()
     try:
+        # Use a longer timeout (60s) for downloads as agents can be large
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=60.0, verify=False, follow_redirects=True
         ) as client:
             response = await client.get(
                 f"{base_url}/download",
@@ -395,16 +396,20 @@ async def get_my_agents() -> dict:
         return _normalize_response(False, error=f"Unexpected error: {e}", status_code=0)
 
 
-async def check_update(name: str, local_hash: str) -> dict:
+async def check_update(name: str, local_hash: str, version: int = None) -> dict:
     """Check if an update is available for an agent."""
     base_url = _get_marketplace_base_url()
+    params = {"name": name, "hash": local_hash}
+    if version is not None:
+        params["version"] = str(version)
+
     try:
         async with httpx.AsyncClient(
             timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
         ) as client:
             response = await client.get(
                 f"{base_url}/check-update",
-                params={"name": name, "hash": local_hash},
+                params=params,
                 headers=_get_auth_headers(),
             )
 
