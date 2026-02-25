@@ -30,11 +30,12 @@ Example (new):
 """
 
 # =============================================================================
-# Apply Rich Markdown patches (left-justified headers)
+# Apply Rich Markdown patches (left-justified headers) and termflow word-wrap fix
 # =============================================================================
-from .markdown_patches import patch_markdown_headings
+from .markdown_patches import patch_markdown_headings, patch_termflow_word_wrap
 
 patch_markdown_headings()
+patch_termflow_word_wrap()
 
 # =============================================================================
 # Legacy API (backward compatible)
@@ -247,6 +248,7 @@ __all__ = [
     "DIFF_STYLES",
     # Markdown patches
     "patch_markdown_headings",
+    "patch_termflow_word_wrap",
     # Sub-agent console manager
     "AgentState",
     "SubAgentConsoleManager",
