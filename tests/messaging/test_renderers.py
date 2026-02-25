@@ -287,10 +287,9 @@ def test_sync_renderer_markdown_fallback(mq):
     assert "bold" in out
 
 
-def test_interactive_renderer_markdown_fallback(mq):
+@pytest.mark.asyncio
+async def test_interactive_renderer_markdown_fallback(mq):
     """Test async renderer markdown fallback."""
-    import asyncio
-
     console = make_console()
     r = InteractiveRenderer(mq, console=console)
     with patch(
@@ -298,7 +297,7 @@ def test_interactive_renderer_markdown_fallback(mq):
         side_effect=Exception("bad"),
     ):
         msg = UIMessage(type=MessageType.AGENT_RESPONSE, content="**text**")
-        asyncio.get_event_loop().run_until_complete(r.render_message(msg))
+        await r.render_message(msg)
     out = console.file.getvalue()
     assert "text" in out
 
