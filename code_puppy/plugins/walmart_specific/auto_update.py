@@ -12,7 +12,7 @@ from code_puppy.plugins.walmart_specific.urls import (
     get_setup_url,
     get_setup_windows_url,
 )
-from code_puppy.version_checker import normalize_version, versions_are_equal
+from code_puppy.version_checker import normalize_version, version_is_newer, versions_are_equal
 
 
 def fetch_latest_version(package_name=None):
@@ -79,6 +79,11 @@ def _handle_update(current_version):
     emit_system_message(latest_msg)
 
     if versions_are_equal(current_version, latest_version):
+        return
+
+    # Only update if remote version is actually NEWER (not just different)
+    if not version_is_newer(latest_version, current_version):
+        # Local version is newer or equal - dev environment, don't downgrade
         return
 
     update_available_msg = f"A new version of code puppy is available: {latest_version}"
