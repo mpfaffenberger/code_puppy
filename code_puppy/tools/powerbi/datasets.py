@@ -215,7 +215,7 @@ def powerbi_get_dataset_tables(
         SELECTCOLUMNS (
             FILTER (
                 INFO.VIEW.TABLES (),
-                [StorageMode] <> "DirectQuery"
+                [StorageMode] <> \"DirectQuery\"
                     && [IsHidden] == FALSE && ISBLANK ( [CalculationGroupPrecedence] )
             ),
             [ID],
