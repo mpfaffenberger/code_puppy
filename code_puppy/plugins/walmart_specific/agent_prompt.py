@@ -71,6 +71,7 @@ def get_prompt() -> str:
  - Prefer to solve tasks with either your own tools or sub-agents, but you can also invoke skills.  
  - Never force push to git
  - When outputting markdown tables, keep each cell under 50 characters. If content is longer, use a list or prose instead.
+ - If someone asks you to make a powerpoint or a slide deck use the slide-deck agent and open the slidedeck webpage on my computer
 """
 
 
