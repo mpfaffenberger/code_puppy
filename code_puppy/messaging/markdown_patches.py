@@ -218,6 +218,10 @@ def patch_termflow_word_wrap() -> None:
     """Monkey-patch termflow's ``wrap_ansi`` to use word-boundary wrapping.
 
     This is idempotent — safe to call multiple times.
+
+    Important: termflow.render.text does ``from termflow.ansi import wrap_ansi``
+    which creates a *local* binding that is unaffected by patching the source
+    module.  We must also replace that local reference directly.
     """
     global _termflow_patched
     if _termflow_patched:
@@ -227,10 +231,20 @@ def patch_termflow_word_wrap() -> None:
         import termflow.ansi.utils as _tfu
         import termflow.ansi as _tfa
 
+        # Patch the canonical location
         _tfu.wrap_ansi = _word_boundary_wrap_ansi  # type: ignore[attr-defined]
-        # The public re-export lives in termflow.ansi.__init__ too
+        # Patch the public re-export in termflow.ansi.__init__
         if hasattr(_tfa, "wrap_ansi"):
             _tfa.wrap_ansi = _word_boundary_wrap_ansi  # type: ignore[attr-defined]
+
+        # CRITICAL: termflow.render.text does `from termflow.ansi import wrap_ansi`
+        # which caches a local reference — we must patch it directly too.
+        try:
+            import termflow.render.text as _tfrt
+            if hasattr(_tfrt, "wrap_ansi"):
+                _tfrt.wrap_ansi = _word_boundary_wrap_ansi  # type: ignore[attr-defined]
+        except Exception:  # pragma: no cover
+            pass
 
         _termflow_patched = True
     except Exception:  # pragma: no cover
