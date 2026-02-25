@@ -59,6 +59,13 @@ def shimmer_text(
     if text_len == 0:
         return Text("")
 
+    if speed <= 0:
+        raise ValueError("speed must be > 0")
+    if width <= 0:
+        raise ValueError("width must be > 0")
+    if padding < 0:
+        raise ValueError("padding must be >= 0")
+
     base_style, mid_style, peak_style = _STYLE_MAP.get(base, _STYLE_MAP["cyan"])
 
     # The highlight travels across [0 … text_len + padding], giving it

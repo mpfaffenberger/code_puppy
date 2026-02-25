@@ -31,7 +31,7 @@ class StatusDisplay:
         self.is_active = False
         self.task = None
         self.live = None
-        self.loading_messages = get_all_messages()
+        self.loading_messages = get_all_messages() or ["Loading..."]
         self.current_message_index = 0
         self.spinner = Spinner("dots", text="")
 

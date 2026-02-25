@@ -46,3 +46,21 @@ class TestShimmerText:
     def test_custom_speed_width_padding(self):
         result = shimmer_text("hi", speed=5.0, width=2, padding=4)
         assert str(result) == "hi"
+
+    def test_raises_on_zero_speed(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="speed must be > 0"):
+            shimmer_text("hello", speed=0)
+
+    def test_raises_on_negative_width(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="width must be > 0"):
+            shimmer_text("hello", width=-1)
+
+    def test_raises_on_negative_padding(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="padding must be >= 0"):
+            shimmer_text("hello", padding=-5)

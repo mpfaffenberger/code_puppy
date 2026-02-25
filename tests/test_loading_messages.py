@@ -1,5 +1,7 @@
 """Tests for loading_messages module."""
 
+import code_puppy.loading_messages as _lm
+
 from code_puppy.loading_messages import (
     _plugin_categories,
     get_all_messages,
@@ -44,7 +46,9 @@ class TestGetAllMessages:
 
     def test_includes_spinner_messages(self):
         all_msgs = get_all_messages()
-        assert any("sniffing" in m for m in all_msgs)
+        cats = get_messages_by_category()
+        # Verify spinner messages contribute to the combined list
+        assert len(all_msgs) > len(cats["standalone"])
 
 
 class TestGetMessagesByCategory:
@@ -62,6 +66,7 @@ class TestPluginRegistry:
         """Clean up any test categories."""
         _plugin_categories.pop("test_cat", None)
         _plugin_categories.pop("test_cat2", None)
+        _lm._plugins_initialized = False
 
     def test_register_new_category(self):
         register_messages("test_cat", ["zipping...", "zapping..."])

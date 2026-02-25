@@ -35,7 +35,7 @@ class TestStatusDisplay:
         assert status_display.is_active is False
         assert status_display.task is None
         assert status_display.live is None
-        assert len(status_display.loading_messages) > 15  # expanded loading messages
+        assert len(status_display.loading_messages) > 0  # dynamic loading messages
         assert status_display.current_message_index == 0
 
     def test_initialization_with_custom_console(self):

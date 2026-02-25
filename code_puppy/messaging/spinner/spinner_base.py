@@ -44,8 +44,8 @@ class SpinnerBase(ABC):
         self._frame_index = 0
         # Shuffled deck of messages — each start() draws the next card.
         # No message repeats until the whole deck is exhausted.
-        self._message_deck = get_spinner_messages()
-        self._message_index = 0
+        self._message_deck = get_spinner_messages() or ["thinking..."]
+        self._message_index = -1
 
     @abstractmethod
     def start(self):
@@ -73,14 +73,15 @@ class SpinnerBase(ABC):
         """Draw the next message from the deck, re-shuffling when exhausted."""
         self._message_index += 1
         if self._message_index >= len(self._message_deck):
-            self._message_deck = get_spinner_messages()
+            self._message_deck = get_spinner_messages() or ["thinking..."]
             self._message_index = 0
 
     @property
     def current_thinking_message(self) -> str:
         """Get the current rotating thinking message."""
         prefix = f"{self.puppy_name} is "
-        msg = self._message_deck[self._message_index]
+        idx = max(self._message_index, 0)
+        msg = self._message_deck[idx] if self._message_deck else "thinking..."
         return f"{prefix}{msg} "
 
     @property
