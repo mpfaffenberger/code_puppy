@@ -189,7 +189,6 @@ class TestHandleJiraError:
         assert result["error_type"] == "authentication"
 
 
-
 class TestJiraSearch:
     """Test suite for jira_search tool."""
 
@@ -235,7 +234,6 @@ class TestJiraSearch:
 
         assert result["success"] is False
         assert result["error_type"] == "authentication"
-
 
 
 class TestJiraGetIssue:

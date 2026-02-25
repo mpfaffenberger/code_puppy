@@ -556,9 +556,8 @@ class TestSystemChromePath:
 
         with patch("platform.system", return_value="Darwin"):
             with patch("os.path.exists") as mock_exists:
-                mock_exists.side_effect = (
-                    lambda p: p
-                    == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+                mock_exists.side_effect = lambda p: (
+                    p == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
                 )
                 result = manager._get_system_chrome_path()
                 assert (
@@ -602,8 +601,8 @@ class TestSystemChromePath:
 
         with patch("platform.system", return_value="Linux"):
             with patch("shutil.which") as mock_which:
-                mock_which.side_effect = (
-                    lambda n: "/usr/bin/google-chrome" if n == "google-chrome" else None
+                mock_which.side_effect = lambda n: (
+                    "/usr/bin/google-chrome" if n == "google-chrome" else None
                 )
                 result = manager._get_system_chrome_path()
                 assert result == "/usr/bin/google-chrome"

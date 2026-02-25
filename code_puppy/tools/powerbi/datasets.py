@@ -83,7 +83,9 @@ def powerbi_list_datasets(
         has_more = len(datasets) == top
         next_skip = skip + len(datasets) if has_more else None
 
-        emit_success(f"Found {len(datasets)} datasets (skip={skip}, has_more={has_more})")
+        emit_success(
+            f"Found {len(datasets)} datasets (skip={skip}, has_more={has_more})"
+        )
 
         formatted = []
         for ds in datasets:
@@ -179,7 +181,6 @@ def register_powerbi_get_dataset(agent: Any) -> Tool:
 # =============================================================================
 # DATASET SCHEMA/TABLES TOOLS
 # =============================================================================
-
 
 
 def powerbi_get_dataset_tables(
@@ -279,8 +280,8 @@ def powerbi_get_table_columns(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"📊 [bold cyan]Getting columns for all tables...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "📊 [bold cyan]Getting columns for all tables...[/bold cyan]"
         )
     )
 
@@ -288,7 +289,7 @@ def powerbi_get_table_columns(
         client = get_powerbi_client()
 
         # Get columns and filter by table
-        dax_query = f"""
+        dax_query = """
         EVALUATE
         VAR _columns =
             SELECTCOLUMNS (
@@ -361,6 +362,7 @@ def register_powerbi_get_table_columns(agent: Any) -> Tool:
     """Register the powerbi_get_table_columns tool."""
     return agent.tool(powerbi_get_table_columns)
 
+
 def powerbi_get_measures(
     ctx: RunContext,
     dataset_id: str,
@@ -377,8 +379,8 @@ def powerbi_get_measures(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"📊 [bold cyan]Getting measures for dataset...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "📊 [bold cyan]Getting measures for dataset...[/bold cyan]"
         )
     )
 
@@ -386,7 +388,7 @@ def powerbi_get_measures(
         client = get_powerbi_client()
 
         # Get measures
-        dax_query = f"""
+        dax_query = """
         EVALUATE
         SELECTCOLUMNS (
             FILTER ( INFO.VIEW.MEASURES (), [IsHidden] = FALSE ),
@@ -431,6 +433,7 @@ def register_powerbi_get_measures(agent: Any) -> Tool:
     """Register the powerbi_get_measures tool."""
     return agent.tool(powerbi_get_measures)
 
+
 def powerbi_get_calculation_group_items(
     ctx: RunContext,
     dataset_id: str,
@@ -447,8 +450,8 @@ def powerbi_get_calculation_group_items(
     """
     emit_info(
         Text.from_markup(
-            f"\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
-            f"📊 [bold cyan]Getting calculation group items for dataset...[/bold cyan]"
+            "\n[bold white on #0053e2] POWER BI [/bold white on #0053e2] "
+            "📊 [bold cyan]Getting calculation group items for dataset...[/bold cyan]"
         )
     )
 
@@ -456,7 +459,7 @@ def powerbi_get_calculation_group_items(
         client = get_powerbi_client()
 
         # Get calculation group items
-        dax_query = f"""
+        dax_query = """
         EVALUATE
         VAR _calcgroups =
             SELECTCOLUMNS (
@@ -524,7 +527,9 @@ def powerbi_get_calculation_group_items(
                             "name": calculation_group_name,
                             "item_name": row.get("[CalculationItemName]", ""),
                             "description": row.get("[CalculationItemDescription]", ""),
-                            "format_string": row.get("[CalculationItemFormatString]", ""),
+                            "format_string": row.get(
+                                "[CalculationItemFormatString]", ""
+                            ),
                             "expression": row.get("[CalculationItemExpression]", ""),
                         }
                     )
@@ -544,6 +549,7 @@ def powerbi_get_calculation_group_items(
 def register_powerbi_get_calculation_group_items(agent: Any) -> Tool:
     """Register the powerbi_get_calculation_group_items tool."""
     return agent.tool(powerbi_get_calculation_group_items)
+
 
 # =============================================================================
 # DAX QUERY TOOLS
@@ -831,7 +837,9 @@ def powerbi_get_refresh_history(
         has_more = len(refreshes) == top
         next_skip = skip + len(refreshes) if has_more else None
 
-        emit_success(f"Found {len(refreshes)} refresh entries (skip={skip}, has_more={has_more})")
+        emit_success(
+            f"Found {len(refreshes)} refresh entries (skip={skip}, has_more={has_more})"
+        )
 
         formatted = []
         for ref in refreshes:

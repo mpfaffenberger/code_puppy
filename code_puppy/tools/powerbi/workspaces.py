@@ -78,7 +78,9 @@ def powerbi_list_workspaces(
         has_more = len(workspaces) == top
         next_skip = skip + len(workspaces) if has_more else None
 
-        emit_success(f"Found {len(workspaces)} workspaces (skip={skip}, has_more={has_more})")
+        emit_success(
+            f"Found {len(workspaces)} workspaces (skip={skip}, has_more={has_more})"
+        )
 
         # Format workspaces for readability
         formatted = []

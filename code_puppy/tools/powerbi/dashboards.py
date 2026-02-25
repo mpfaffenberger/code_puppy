@@ -83,7 +83,9 @@ def powerbi_list_dashboards(
         has_more = len(dashboards) == top
         next_skip = skip + len(dashboards) if has_more else None
 
-        emit_success(f"Found {len(dashboards)} dashboards (skip={skip}, has_more={has_more})")
+        emit_success(
+            f"Found {len(dashboards)} dashboards (skip={skip}, has_more={has_more})"
+        )
 
         formatted = []
         for dash in dashboards:

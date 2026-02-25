@@ -19,7 +19,6 @@ from pydantic import BaseModel
 from code_puppy.plugins.dx_docs.auth import (
     DXAuthError,
     DXTokenExpiredError,
-    DXTokenNotFoundError,
     ensure_authenticated,
 )
 
@@ -47,7 +46,12 @@ class DXError(Exception):
 class DXAPIError(DXError):
     """Raised for API errors from the DX MCP server."""
 
-    def __init__(self, message: str, status_code: Optional[int] = None, details: Optional[dict] = None):
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        details: Optional[dict] = None,
+    ):
         super().__init__(message)
         self.status_code = status_code
         self.details = details or {}
@@ -196,7 +200,9 @@ class DXClient:
 
             # Handle HTTP errors
             if response.status_code == 401:
-                raise DXTokenExpiredError("Authentication failed. Token may have expired.")
+                raise DXTokenExpiredError(
+                    "Authentication failed. Token may have expired."
+                )
             elif response.status_code == 403:
                 raise DXAuthError("Access forbidden. Check your permissions.")
             elif response.status_code == 404:
@@ -290,7 +296,9 @@ class DXClient:
             page_id=page_id_match.group(1).strip(),
             title=title_match.group(1).strip() if title_match else "Untitled",
             url=url_match.group(1).strip() if url_match else "",
-            highlighted=highlighted_match.group(1).strip() if highlighted_match else None,
+            highlighted=highlighted_match.group(1).strip()
+            if highlighted_match
+            else None,
         )
 
     def _parse_page_content(self, result: dict, page_id: str) -> DXPageContent:
@@ -405,7 +413,9 @@ class DXClient:
 
         return tags
 
-    def get_page_metadata(self, external_id: str, external_type: str = "github") -> dict:
+    def get_page_metadata(
+        self, external_id: str, external_type: str = "github"
+    ) -> dict:
         """Get metadata for a page by external ID.
 
         Args:

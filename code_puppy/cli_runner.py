@@ -406,7 +406,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     cancel_key = get_cancel_agent_display_name()
     emit_system_message(
-        f"/help for commands · /model to switch LLMs · /resume to continue a session",
+        "/help for commands · /model to switch LLMs · /resume to continue a session",
     )
     emit_system_message(
         f"{cancel_key} to cancel · /exit to quit · /disclaimer to view disclaimer",
