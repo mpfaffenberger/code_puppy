@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from threading import Lock
 
 from code_puppy.config import get_puppy_name
+from code_puppy.loading_messages import get_spinner_messages
 
 
 class SpinnerBase(ABC):
@@ -25,7 +26,7 @@ class SpinnerBase(ABC):
     ]
     puppy_name = get_puppy_name().title()
 
-    # Default message when processing
+    # Default message when processing (kept for backward compat)
     THINKING_MESSAGE = f"{puppy_name} is thinking... "
 
     # Message when waiting for user input
@@ -41,12 +42,21 @@ class SpinnerBase(ABC):
         """Initialize the spinner."""
         self._is_spinning = False
         self._frame_index = 0
+        # Shuffled deck of messages — each start() draws the next card.
+        # No message repeats until the whole deck is exhausted.
+        self._message_deck = get_spinner_messages()
+        self._message_index = 0
 
     @abstractmethod
     def start(self):
-        """Start the spinner animation."""
+        """Start the spinner animation.
+
+        Each start() picks the next message from the shuffled deck.
+        The message stays locked in for the entire spin cycle.
+        """
         self._is_spinning = True
         self._frame_index = 0
+        self._advance_message()
 
     @abstractmethod
     def stop(self):
@@ -55,9 +65,23 @@ class SpinnerBase(ABC):
 
     @abstractmethod
     def update_frame(self):
-        """Update to the next frame."""
+        """Update to the next animation frame (puppy bounce only)."""
         if self._is_spinning:
             self._frame_index = (self._frame_index + 1) % len(self.FRAMES)
+
+    def _advance_message(self) -> None:
+        """Draw the next message from the deck, re-shuffling when exhausted."""
+        self._message_index += 1
+        if self._message_index >= len(self._message_deck):
+            self._message_deck = get_spinner_messages()
+            self._message_index = 0
+
+    @property
+    def current_thinking_message(self) -> str:
+        """Get the current rotating thinking message."""
+        prefix = f"{self.puppy_name} is "
+        msg = self._message_deck[self._message_index]
+        return f"{prefix}{msg} "
 
     @property
     def current_frame(self):
