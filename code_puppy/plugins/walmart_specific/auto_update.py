@@ -12,7 +12,11 @@ from code_puppy.plugins.walmart_specific.urls import (
     get_setup_url,
     get_setup_windows_url,
 )
-from code_puppy.version_checker import normalize_version, version_is_newer, versions_are_equal
+from code_puppy.version_checker import (
+    normalize_version,
+    version_is_newer,
+    versions_are_equal,
+)
 
 
 def fetch_latest_version(package_name=None):

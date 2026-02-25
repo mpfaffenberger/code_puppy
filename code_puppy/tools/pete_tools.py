@@ -8,7 +8,6 @@ and Instant API service invocation.
 from typing import Any
 
 from pydantic_ai import RunContext
-from pydantic_ai.tools import Tool
 
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.plugins.walmart_specific.pete_client import (
@@ -19,8 +18,6 @@ from code_puppy.plugins.walmart_specific.pete_client import (
     PeteClient,
     PeteError,
     PeteNotFoundError,
-    get_configured_cid,
-    get_configured_cluster,
     get_configured_database,
     save_pete_config,
     _load_pete_config,
@@ -85,9 +82,7 @@ def _handle_pete_error(e: Exception) -> dict:
     return {"error": str(e), "error_type": "unknown"}
 
 
-def _truncate_results(
-    response: dict | str, max_rows: int = 200
-) -> dict | str:
+def _truncate_results(response: dict | str, max_rows: int = 200) -> dict | str:
     """Truncate large result sets to prevent context overflow.
 
     Args:

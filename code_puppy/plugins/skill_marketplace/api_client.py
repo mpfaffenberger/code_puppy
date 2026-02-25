@@ -109,9 +109,7 @@ def get_installed_skills() -> List[str]:
     if not SKILLS_DIR.exists():
         return []
     return [
-        d.name
-        for d in SKILLS_DIR.iterdir()
-        if d.is_dir() and (d / "SKILL.md").exists()
+        d.name for d in SKILLS_DIR.iterdir() if d.is_dir() and (d / "SKILL.md").exists()
     ]
 
 

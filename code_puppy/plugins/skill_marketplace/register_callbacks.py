@@ -10,7 +10,10 @@ _registered = False
 def _custom_help() -> list[tuple[str, str]]:
     """Provide help text for marketplace commands."""
     return [
-        ("skill-market", "Browse & install skills from the E2E Open Skills marketplace"),
+        (
+            "skill-market",
+            "Browse & install skills from the E2E Open Skills marketplace",
+        ),
     ]
 
 

@@ -7,7 +7,6 @@ import json
 from unittest.mock import patch
 
 
-
 class TestGetUserGroups:
     """Tests for _get_user_groups function."""
 

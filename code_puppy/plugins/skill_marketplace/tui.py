@@ -15,7 +15,6 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
-from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
 from . import api_client
@@ -71,7 +70,8 @@ class SkillMarketplaceMenu:
         else:
             q = self.search_query.lower()
             self.filtered_skills = [
-                s for s in self.skills
+                s
+                for s in self.skills
                 if q in s.get("name", "").lower()
                 or q in s.get("description", "").lower()
                 or q in s.get("tags", "").lower()
@@ -97,7 +97,7 @@ class SkillMarketplaceMenu:
 
         # Search bar
         if self.search_query:
-            lines.append(("fg:ansiyellow", f"  🔍 \"{self.search_query}\""))
+            lines.append(("fg:ansiyellow", f'  🔍 "{self.search_query}"'))
             lines.append(("", "\n\n"))
 
         if self.loading:
@@ -140,11 +140,13 @@ class SkillMarketplaceMenu:
 
         # Page info
         lines.append(("", "\n"))
-        lines.append((
-            "fg:ansibrightblack",
-            f" Page {self.current_page + 1}/{total_pages}"
-            f"  ({len(self.filtered_skills)} skills)"
-        ))
+        lines.append(
+            (
+                "fg:ansibrightblack",
+                f" Page {self.current_page + 1}/{total_pages}"
+                f"  ({len(self.filtered_skills)} skills)",
+            )
+        )
         lines.append(("", "\n"))
 
         self._render_nav_hints(lines)
@@ -213,7 +215,7 @@ class SkillMarketplaceMenu:
         path_str = str(dest)
         home = str(Path.home())
         if path_str.startswith(home):
-            path_str = "~" + path_str[len(home):]
+            path_str = "~" + path_str[len(home) :]
         lines.append(("bold", "  Install path:"))
         lines.append(("", "\n"))
         lines.append(("fg:ansibrightblack", f"    {path_str}"))
@@ -333,6 +335,7 @@ class SkillMarketplaceMenu:
             sys.stdout.flush()
             try:
                 import termios
+
                 termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
             except (ImportError, OSError):
                 pass

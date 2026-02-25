@@ -25,7 +25,6 @@ import httpx
 
 from code_puppy import __version__
 from code_puppy.config import CONFIG_DIR
-from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.plugins.walmart_specific.auth import (
     decode_jwt_without_validation,
     get_puppy_token,
@@ -292,9 +291,7 @@ class PeteClient:
         if self.cid:
             return {"Authorization": _build_cid_auth_header(self.cid)}
         if self.user and self.password:
-            return {
-                "Authorization": _build_basic_auth_header(self.user, self.password)
-            }
+            return {"Authorization": _build_basic_auth_header(self.user, self.password)}
         return {}
 
     def _make_request(
@@ -334,9 +331,7 @@ class PeteClient:
                 )
 
             if response.status_code == 404:
-                raise PeteNotFoundError(
-                    f"Resource not found: {endpoint} (HTTP 404)"
-                )
+                raise PeteNotFoundError(f"Resource not found: {endpoint} (HTTP 404)")
 
             if response.status_code >= 400:
                 error_msg = f"Pete API error (HTTP {response.status_code})"
@@ -469,9 +464,7 @@ class PeteClient:
         if cid_override:
             extra_headers["Authorization"] = _build_cid_auth_header(cid_override)
 
-        return self._make_request(
-            "POST", endpoint, json=payload, headers=extra_headers
-        )
+        return self._make_request("POST", endpoint, json=payload, headers=extra_headers)
 
     # =========================================================================
     # CONVENIENCE: BigQuery helpers
