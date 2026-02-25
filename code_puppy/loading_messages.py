@@ -9,6 +9,7 @@ Plugins can register additional message categories via
 """
 
 import random
+import threading
 from typing import Dict, List
 
 # ---------------------------------------------------------------------------
@@ -213,6 +214,7 @@ _STANDALONE_MESSAGES: List[str] = [
 # ===========================================================================
 _plugin_categories: Dict[str, List[str]] = {}
 _plugins_initialized: bool = False
+_plugins_init_lock = threading.Lock()
 
 
 def _ensure_plugins_loaded() -> None:
@@ -220,15 +222,20 @@ def _ensure_plugins_loaded() -> None:
 
     This is called lazily the first time messages are requested,
     giving plugins time to register their callbacks at import.
+    Uses double-checked locking to avoid TOCTOU races from
+    concurrent spinner threads.
     """
     global _plugins_initialized
     if _plugins_initialized:
         return
-    _plugins_initialized = True
+    with _plugins_init_lock:
+        if _plugins_initialized:
+            return
+        _plugins_initialized = True
 
-    from code_puppy.callbacks import on_register_loading_messages
+        from code_puppy.callbacks import on_register_loading_messages
 
-    on_register_loading_messages()
+        on_register_loading_messages()
 
 
 def register_messages(category: str, messages: List[str]) -> None:
@@ -296,5 +303,8 @@ def get_messages_by_category() -> Dict[str, List[str]]:
         "standalone": list(_STANDALONE_MESSAGES),
     }
     for cat, msgs in _plugin_categories.items():
-        result[cat] = list(msgs)
+        if cat in result:
+            result[cat] = result[cat] + list(msgs)
+        else:
+            result[cat] = list(msgs)
     return result
