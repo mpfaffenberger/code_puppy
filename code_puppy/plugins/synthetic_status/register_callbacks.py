@@ -62,9 +62,7 @@ def _render_synthetic_status_panel(
 def _handle_synthetic_status() -> None:
     api_key = resolve_syn_api_key()
     if not api_key:
-        emit_error(
-            "SYN_API_KEY is not configured. Set it with /set syn_api_key <key>."
-        )
+        emit_error("SYN_API_KEY is not configured. Set it with /set syn_api_key <key>.")
         return
 
     result = fetch_synthetic_quota(api_key=api_key)
