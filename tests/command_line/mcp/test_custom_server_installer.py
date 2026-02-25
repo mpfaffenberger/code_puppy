@@ -3,8 +3,6 @@
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 MODULE = "code_puppy.command_line.mcp.custom_server_installer"
 UTILS = "code_puppy.command_line.mcp.utils"
 
@@ -44,7 +42,9 @@ class TestPromptAndInstallCustomServer:
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{MODULE}.emit_info")
-    def test_existing_server_declined(self, mock_info, mock_warn, mock_input, mock_find):
+    def test_existing_server_declined(
+        self, mock_info, mock_warn, mock_input, mock_find
+    ):
         from code_puppy.command_line.mcp.custom_server_installer import (
             prompt_and_install_custom_server,
         )
@@ -56,7 +56,9 @@ class TestPromptAndInstallCustomServer:
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{MODULE}.emit_info")
-    def test_existing_server_keyboard_interrupt(self, mock_info, mock_warn, mock_input, mock_find):
+    def test_existing_server_keyboard_interrupt(
+        self, mock_info, mock_warn, mock_input, mock_find
+    ):
         from code_puppy.command_line.mcp.custom_server_installer import (
             prompt_and_install_custom_server,
         )
@@ -80,7 +82,9 @@ class TestPromptAndInstallCustomServer:
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{MODULE}.emit_info")
-    def test_existing_server_override_accepted(self, mock_info, mock_warn, mock_input, mock_find):
+    def test_existing_server_override_accepted(
+        self, mock_info, mock_warn, mock_input, mock_find
+    ):
         from code_puppy.command_line.mcp.custom_server_installer import (
             prompt_and_install_custom_server,
         )
@@ -189,7 +193,9 @@ class TestPromptAndInstallCustomServer:
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_success")
     @patch(f"{MODULE}.emit_info")
-    def test_successful_stdio_install(self, mock_info, mock_success, mock_input, mock_find, tmp_path):
+    def test_successful_stdio_install(
+        self, mock_info, mock_success, mock_input, mock_find, tmp_path
+    ):
         from code_puppy.command_line.mcp.custom_server_installer import (
             prompt_and_install_custom_server,
         )
@@ -211,7 +217,9 @@ class TestPromptAndInstallCustomServer:
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_success")
     @patch(f"{MODULE}.emit_info")
-    def test_successful_http_install(self, mock_info, mock_success, mock_input, mock_find, tmp_path):
+    def test_successful_http_install(
+        self, mock_info, mock_success, mock_input, mock_find, tmp_path
+    ):
         from code_puppy.command_line.mcp.custom_server_installer import (
             prompt_and_install_custom_server,
         )
@@ -231,7 +239,9 @@ class TestPromptAndInstallCustomServer:
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_success")
     @patch(f"{MODULE}.emit_info")
-    def test_successful_sse_install(self, mock_info, mock_success, mock_input, mock_find, tmp_path):
+    def test_successful_sse_install(
+        self, mock_info, mock_success, mock_input, mock_find, tmp_path
+    ):
         from code_puppy.command_line.mcp.custom_server_installer import (
             prompt_and_install_custom_server,
         )
@@ -287,7 +297,9 @@ class TestPromptAndInstallCustomServer:
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_success")
     @patch(f"{MODULE}.emit_info")
-    def test_install_with_existing_config_file(self, mock_info, mock_success, mock_input, mock_find, tmp_path):
+    def test_install_with_existing_config_file(
+        self, mock_info, mock_success, mock_input, mock_find, tmp_path
+    ):
         from code_puppy.command_line.mcp.custom_server_installer import (
             prompt_and_install_custom_server,
         )
@@ -312,7 +324,9 @@ class TestPromptAndInstallCustomServer:
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{MODULE}.emit_info")
-    def test_json_input_keyboard_interrupt(self, mock_info, mock_warn, mock_input, mock_find):
+    def test_json_input_keyboard_interrupt(
+        self, mock_info, mock_warn, mock_input, mock_find
+    ):
         from code_puppy.command_line.mcp.custom_server_installer import (
             prompt_and_install_custom_server,
         )
@@ -324,13 +338,15 @@ class TestPromptAndInstallCustomServer:
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_error")
     @patch(f"{MODULE}.emit_info")
-    def test_json_input_multiline_invalid(self, mock_info, mock_error, mock_input, mock_find):
+    def test_json_input_multiline_invalid(
+        self, mock_info, mock_error, mock_input, mock_find
+    ):
         """Test multi-line JSON input that results in invalid JSON."""
         from code_puppy.command_line.mcp.custom_server_installer import (
             prompt_and_install_custom_server,
         )
 
-        mock_input.side_effect = ["my-server", "1", '{"command":', '', 'bad}', "", ""]
+        mock_input.side_effect = ["my-server", "1", '{"command":', "", "bad}", "", ""]
         assert prompt_and_install_custom_server(MagicMock()) is False
 
 

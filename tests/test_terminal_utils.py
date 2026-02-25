@@ -4,11 +4,10 @@ import subprocess
 import sys
 from unittest.mock import MagicMock
 
-
 from code_puppy import terminal_utils
 
-
 # ── reset_windows_terminal_ansi ──
+
 
 class TestResetWindowsTerminalAnsi:
     def test_noop_on_non_windows(self, monkeypatch):
@@ -40,6 +39,7 @@ class TestResetWindowsTerminalAnsi:
 
 # ── reset_windows_console_mode ──
 
+
 class TestResetWindowsConsoleMode:
     def test_noop_on_non_windows(self, monkeypatch):
         monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Linux")
@@ -64,6 +64,7 @@ class TestResetWindowsConsoleMode:
 
 # ── flush_windows_keyboard_buffer ──
 
+
 class TestFlushWindowsKeyboardBuffer:
     def test_noop_on_non_windows(self, monkeypatch):
         monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Linux")
@@ -84,6 +85,7 @@ class TestFlushWindowsKeyboardBuffer:
 
 
 # ── reset_windows_terminal_full ──
+
 
 class TestResetWindowsTerminalFull:
     def test_noop_on_non_windows(self, monkeypatch):
@@ -109,6 +111,7 @@ class TestResetWindowsTerminalFull:
 
 # ── reset_unix_terminal ──
 
+
 class TestResetUnixTerminal:
     def test_noop_on_windows(self, monkeypatch):
         monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Windows")
@@ -126,18 +129,23 @@ class TestResetUnixTerminal:
 
     def test_handles_called_process_error(self, monkeypatch):
         monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Linux")
-        monkeypatch.setattr(terminal_utils.subprocess, "run",
-                           MagicMock(side_effect=subprocess.CalledProcessError(1, "reset")))
+        monkeypatch.setattr(
+            terminal_utils.subprocess,
+            "run",
+            MagicMock(side_effect=subprocess.CalledProcessError(1, "reset")),
+        )
         terminal_utils.reset_unix_terminal()
 
     def test_handles_file_not_found(self, monkeypatch):
         monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Linux")
-        monkeypatch.setattr(terminal_utils.subprocess, "run",
-                           MagicMock(side_effect=FileNotFoundError))
+        monkeypatch.setattr(
+            terminal_utils.subprocess, "run", MagicMock(side_effect=FileNotFoundError)
+        )
         terminal_utils.reset_unix_terminal()
 
 
 # ── reset_terminal ──
+
 
 class TestResetTerminal:
     def test_routes_to_windows(self, monkeypatch):
@@ -156,6 +164,7 @@ class TestResetTerminal:
 
 
 # ── disable_windows_ctrl_c ──
+
 
 class TestDisableWindowsCtrlC:
     def test_returns_false_on_non_windows(self, monkeypatch):
@@ -204,6 +213,7 @@ class TestDisableWindowsCtrlC:
 
 # ── enable_windows_ctrl_c ──
 
+
 class TestEnableWindowsCtrlC:
     def test_returns_false_on_non_windows(self, monkeypatch):
         monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Linux")
@@ -239,6 +249,7 @@ class TestEnableWindowsCtrlC:
 
 
 # ── set_keep_ctrl_c_disabled / ensure_ctrl_c_disabled ──
+
 
 class TestKeepCtrlCDisabled:
     def test_set_keep_ctrl_c_disabled(self):
@@ -300,6 +311,7 @@ class TestEnsureCtrlCDisabled:
 
 # ── detect_truecolor_support ──
 
+
 class TestDetectTruecolorSupport:
     def test_colorterm_truecolor(self, monkeypatch):
         monkeypatch.setenv("COLORTERM", "truecolor")
@@ -357,9 +369,12 @@ class TestDetectTruecolorSupport:
         monkeypatch.delenv("WT_SESSION", raising=False)
         mock_console_cls = MagicMock()
         mock_console_cls.return_value.color_system = "truecolor"
-        monkeypatch.setattr("code_puppy.terminal_utils.Console", mock_console_cls, raising=False)
+        monkeypatch.setattr(
+            "code_puppy.terminal_utils.Console", mock_console_cls, raising=False
+        )
         # We need to mock the import inside the function
         import rich.console
+
         monkeypatch.setattr(rich.console, "Console", mock_console_cls)
         assert terminal_utils.detect_truecolor_support() is True
 
@@ -371,6 +386,7 @@ class TestDetectTruecolorSupport:
         monkeypatch.delenv("ALACRITTY_SOCKET", raising=False)
         monkeypatch.delenv("WT_SESSION", raising=False)
         import rich.console
+
         mock_console_cls = MagicMock()
         mock_console_cls.return_value.color_system = "256"
         monkeypatch.setattr(rich.console, "Console", mock_console_cls)
@@ -384,11 +400,15 @@ class TestDetectTruecolorSupport:
         monkeypatch.delenv("ALACRITTY_SOCKET", raising=False)
         monkeypatch.delenv("WT_SESSION", raising=False)
         import rich.console
-        monkeypatch.setattr(rich.console, "Console", MagicMock(side_effect=Exception("fail")))
+
+        monkeypatch.setattr(
+            rich.console, "Console", MagicMock(side_effect=Exception("fail"))
+        )
         assert terminal_utils.detect_truecolor_support() is False
 
 
 # ── print_truecolor_warning ──
+
 
 class TestPrintTruecolorWarning:
     def test_no_warning_when_truecolor_supported(self, monkeypatch):
@@ -409,6 +429,7 @@ class TestPrintTruecolorWarning:
         mock_console = MagicMock()
         mock_console.color_system = "standard"
         import rich.console
+
         monkeypatch.setattr(rich.console, "Console", lambda: mock_console)
         terminal_utils.print_truecolor_warning(console=None)
         assert mock_console.print.call_count > 10
@@ -417,11 +438,14 @@ class TestPrintTruecolorWarning:
         monkeypatch.setattr(terminal_utils, "detect_truecolor_support", lambda: False)
         # Make the import of rich.console.Console raise ImportError
         import builtins
+
         original_import = builtins.__import__
+
         def fake_import(name, *args, **kwargs):
             if name == "rich.console":
                 raise ImportError("no rich")
             return original_import(name, *args, **kwargs)
+
         monkeypatch.setattr(builtins, "__import__", fake_import)
         printed = []
         monkeypatch.setattr(builtins, "print", lambda *a, **kw: printed.append(a))

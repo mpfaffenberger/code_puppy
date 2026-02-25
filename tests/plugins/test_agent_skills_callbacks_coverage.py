@@ -177,7 +177,9 @@ class TestHandleSkillsCommand:
 
         skill = MagicMock(has_skill_md=True)
         skill.name = "my_skill"
-        metadata = MagicMock(name="my_skill", version="1.0", author="me", description="desc", tags=["t"])
+        metadata = MagicMock(
+            name="my_skill", version="1.0", author="me", description="desc", tags=["t"]
+        )
         metadata.name = "my_skill"
 
         with (

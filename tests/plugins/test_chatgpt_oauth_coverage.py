@@ -30,16 +30,10 @@ class TestHandleChatgptStatus:
             ),
             patch(
                 "code_puppy.plugins.chatgpt_oauth.register_callbacks.load_chatgpt_models",
-                return_value={
-                    "chatgpt-gpt5": {"oauth_source": "chatgpt-oauth-plugin"}
-                },
+                return_value={"chatgpt-gpt5": {"oauth_source": "chatgpt-oauth-plugin"}},
             ),
-            patch(
-                "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_success"
-            ),
-            patch(
-                "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_info"
-            ),
+            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_success"),
+            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_info"),
         ):
             _handle_chatgpt_status()
 
@@ -57,12 +51,8 @@ class TestHandleChatgptStatus:
                 "code_puppy.plugins.chatgpt_oauth.register_callbacks.load_chatgpt_models",
                 return_value={},
             ),
-            patch(
-                "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_success"
-            ),
-            patch(
-                "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_warning"
-            ),
+            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_success"),
+            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_warning"),
         ):
             _handle_chatgpt_status()
 
@@ -76,12 +66,8 @@ class TestHandleChatgptStatus:
                 "code_puppy.plugins.chatgpt_oauth.register_callbacks.load_stored_tokens",
                 return_value=None,
             ),
-            patch(
-                "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_warning"
-            ),
-            patch(
-                "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_info"
-            ),
+            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_warning"),
+            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_info"),
         ):
             _handle_chatgpt_status()
 
@@ -107,17 +93,13 @@ class TestHandleChatgptLogout:
                 "code_puppy.plugins.chatgpt_oauth.register_callbacks.CHATGPT_OAUTH_CONFIG",
                 {"api_key_env_var": env_var},
             ),
-            patch.dict(os.environ, {env_var: "value"})  ,
+            patch.dict(os.environ, {env_var: "value"}),
             patch(
                 "code_puppy.plugins.chatgpt_oauth.register_callbacks.remove_chatgpt_models",
                 return_value=2,
             ),
-            patch(
-                "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_info"
-            ),
-            patch(
-                "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_success"
-            ),
+            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_info"),
+            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_success"),
         ):
             _handle_chatgpt_logout()
             assert env_var not in os.environ
@@ -143,9 +125,7 @@ class TestHandleChatgptLogout:
                 "code_puppy.plugins.chatgpt_oauth.register_callbacks.remove_chatgpt_models",
                 return_value=0,
             ),
-            patch(
-                "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_success"
-            ),
+            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_success"),
         ):
             _handle_chatgpt_logout()
 
@@ -171,9 +151,7 @@ class TestHandleCustomCommand:
         )
 
         with (
-            patch(
-                "code_puppy.plugins.chatgpt_oauth.register_callbacks.run_oauth_flow"
-            ),
+            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.run_oauth_flow"),
             patch(
                 "code_puppy.plugins.chatgpt_oauth.register_callbacks.set_model_and_reload_agent"
             ),
@@ -212,9 +190,7 @@ class TestCreateChatgptOauthModel:
                 "code_puppy.plugins.chatgpt_oauth.register_callbacks.get_valid_access_token",
                 return_value=None,
             ),
-            patch(
-                "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_warning"
-            ),
+            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_warning"),
         ):
             assert _create_chatgpt_oauth_model("m", {"name": "m"}, {}) is None
 
@@ -232,9 +208,7 @@ class TestCreateChatgptOauthModel:
                 "code_puppy.plugins.chatgpt_oauth.register_callbacks.load_stored_tokens",
                 return_value={},
             ),
-            patch(
-                "code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_warning"
-            ),
+            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.emit_warning"),
         ):
             assert _create_chatgpt_oauth_model("m", {"name": "m"}, {}) is None
 
@@ -255,18 +229,18 @@ class TestCreateChatgptOauthModel:
             ),
             patch(
                 "code_puppy.plugins.chatgpt_oauth.register_callbacks.CHATGPT_OAUTH_CONFIG",
-                {"originator": "codex_cli_rs", "client_version": "0.72.0", "api_base_url": "https://api.example.com"},
+                {
+                    "originator": "codex_cli_rs",
+                    "client_version": "0.72.0",
+                    "api_base_url": "https://api.example.com",
+                },
             ),
             patch(
                 "code_puppy.http_utils.get_cert_bundle_path",
                 return_value=None,
             ),
-            patch(
-                "code_puppy.chatgpt_codex_client.create_codex_async_client"
-            ),
-            patch(
-                "pydantic_ai.providers.openai.OpenAIProvider"
-            ),
+            patch("code_puppy.chatgpt_codex_client.create_codex_async_client"),
+            patch("pydantic_ai.providers.openai.OpenAIProvider"),
             patch(
                 "pydantic_ai.models.openai.OpenAIResponsesModel",
                 return_value=mock_model,

@@ -35,11 +35,21 @@ async def test_ws_events(app) -> None:
 
     recent = [{"type": "recent", "data": "old"}]
 
-    with patch("code_puppy.plugins.frontend_emitter.emitter.subscribe",
-               return_value=event_queue, create=True), \
-         patch("code_puppy.plugins.frontend_emitter.emitter.unsubscribe", create=True) as mock_unsub, \
-         patch("code_puppy.plugins.frontend_emitter.emitter.get_recent_events",
-               return_value=recent, create=True):
+    with (
+        patch(
+            "code_puppy.plugins.frontend_emitter.emitter.subscribe",
+            return_value=event_queue,
+            create=True,
+        ),
+        patch(
+            "code_puppy.plugins.frontend_emitter.emitter.unsubscribe", create=True
+        ) as mock_unsub,
+        patch(
+            "code_puppy.plugins.frontend_emitter.emitter.get_recent_events",
+            return_value=recent,
+            create=True,
+        ),
+    ):
         with TestClient(app) as client:
             with client.websocket_connect("/ws/events") as ws:
                 # First receives recent events
@@ -63,8 +73,11 @@ async def test_ws_terminal(app) -> None:
     mock_manager.resize = AsyncMock()
     mock_manager.close_session = AsyncMock()
 
-    with patch("code_puppy.api.pty_manager.get_pty_manager",
-               return_value=mock_manager, create=True):
+    with patch(
+        "code_puppy.api.pty_manager.get_pty_manager",
+        return_value=mock_manager,
+        create=True,
+    ):
         with TestClient(app) as client:
             with client.websocket_connect("/ws/terminal") as ws:
                 # Should receive session info
@@ -90,12 +103,23 @@ async def test_ws_events_ping_on_timeout(app) -> None:
     # Empty queue - will timeout and send ping
     event_queue = asyncio.Queue()
 
-    with patch("code_puppy.plugins.frontend_emitter.emitter.subscribe",
-               return_value=event_queue, create=True), \
-         patch("code_puppy.plugins.frontend_emitter.emitter.unsubscribe", create=True), \
-         patch("code_puppy.plugins.frontend_emitter.emitter.get_recent_events",
-               return_value=[], create=True), \
-         patch("asyncio.wait_for", side_effect=[asyncio.TimeoutError, asyncio.CancelledError]):
+    with (
+        patch(
+            "code_puppy.plugins.frontend_emitter.emitter.subscribe",
+            return_value=event_queue,
+            create=True,
+        ),
+        patch("code_puppy.plugins.frontend_emitter.emitter.unsubscribe", create=True),
+        patch(
+            "code_puppy.plugins.frontend_emitter.emitter.get_recent_events",
+            return_value=[],
+            create=True,
+        ),
+        patch(
+            "asyncio.wait_for",
+            side_effect=[asyncio.TimeoutError, asyncio.CancelledError],
+        ),
+    ):
         with TestClient(app) as client:
             try:
                 with client.websocket_connect("/ws/events") as ws:

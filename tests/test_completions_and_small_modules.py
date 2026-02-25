@@ -18,7 +18,6 @@ from unittest.mock import MagicMock, patch
 
 from prompt_toolkit.document import Document
 
-
 # ── mcp_completion ──────────────────────────────────────────────────────
 
 
@@ -152,15 +151,21 @@ class TestLoadCatalogSkillIds:
         mock_module.catalog = mock_catalog
 
         import sys
-        with patch.dict(sys.modules, {"code_puppy.plugins.agent_skills.skill_catalog": mock_module}):
+
+        with patch.dict(
+            sys.modules, {"code_puppy.plugins.agent_skills.skill_catalog": mock_module}
+        ):
             result = load_catalog_skill_ids()
         assert result == ["skill-1"]
 
     def test_exception(self):
+        import sys
+
         from code_puppy.command_line.skills_completion import load_catalog_skill_ids
 
-        import sys
-        with patch.dict(sys.modules, {"code_puppy.plugins.agent_skills.skill_catalog": None}):
+        with patch.dict(
+            sys.modules, {"code_puppy.plugins.agent_skills.skill_catalog": None}
+        ):
             result = load_catalog_skill_ids()
         assert result == []
 
@@ -357,7 +362,10 @@ class TestLoadContextCompletionException:
 
         completer = LoadContextCompleter()
         # Make contexts_dir.exists() raise
-        with patch("code_puppy.command_line.load_context_completion.CONFIG_DIR", "/nonexistent/x/y/z"):
+        with patch(
+            "code_puppy.command_line.load_context_completion.CONFIG_DIR",
+            "/nonexistent/x/y/z",
+        ):
             with patch("pathlib.Path.exists", side_effect=PermissionError("nope")):
                 doc = Document("/load_context ")
                 completions = list(completer.get_completions(doc, None))
@@ -400,7 +408,9 @@ class TestModelSwitching:
         with patch("code_puppy.model_switching.set_model_name"):
             with patch("code_puppy.messaging.emit_warning", fake_warn):
                 with patch("code_puppy.messaging.emit_info", fake_info):
-                    with patch("code_puppy.agents.get_current_agent", return_value=agent):
+                    with patch(
+                        "code_puppy.agents.get_current_agent", return_value=agent
+                    ):
                         set_model_and_reload_agent(model_name)
 
         return warns, infos
@@ -445,10 +455,12 @@ class TestMarkdownPatches:
     """Cover lines 35-37, 51."""
 
     def test_left_justified_heading_h1(self):
-        from code_puppy.messaging.markdown_patches import LeftJustifiedHeading
+        import io
+
         from rich.console import Console
         from rich.text import Text
-        import io
+
+        from code_puppy.messaging.markdown_patches import LeftJustifiedHeading
 
         heading = LeftJustifiedHeading.__new__(LeftJustifiedHeading)
         heading.tag = "h1"
@@ -460,10 +472,12 @@ class TestMarkdownPatches:
         assert len(results) > 0  # Should yield a Panel
 
     def test_left_justified_heading_h2(self):
-        from code_puppy.messaging.markdown_patches import LeftJustifiedHeading
+        import io
+
         from rich.console import Console
         from rich.text import Text
-        import io
+
+        from code_puppy.messaging.markdown_patches import LeftJustifiedHeading
 
         heading = LeftJustifiedHeading.__new__(LeftJustifiedHeading)
         heading.tag = "h2"
@@ -491,7 +505,7 @@ class TestErrorLoggingRotation:
     """Cover lines 29-32."""
 
     def test_rotate_log_when_too_large(self):
-        from code_puppy.error_logging import _rotate_log_if_needed, MAX_LOG_SIZE
+        from code_puppy.error_logging import MAX_LOG_SIZE, _rotate_log_if_needed
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "errors.log")
@@ -511,7 +525,10 @@ class TestErrorLoggingRotation:
         from code_puppy.error_logging import _rotate_log_if_needed
 
         with patch("code_puppy.error_logging.os.path.exists", return_value=True):
-            with patch("code_puppy.error_logging.os.path.getsize", side_effect=OSError("disk error")):
+            with patch(
+                "code_puppy.error_logging.os.path.getsize",
+                side_effect=OSError("disk error"),
+            ):
                 _rotate_log_if_needed()  # Should not raise
 
 
@@ -533,7 +550,11 @@ class TestMotdGetContent:
         assert ver == "v1"
 
     def test_get_motd_content_fallback(self):
-        from code_puppy.command_line.motd import get_motd_content, MOTD_MESSAGE, MOTD_VERSION
+        from code_puppy.command_line.motd import (
+            MOTD_MESSAGE,
+            MOTD_VERSION,
+            get_motd_content,
+        )
 
         with patch(
             "code_puppy.callbacks.on_get_motd",
@@ -544,7 +565,11 @@ class TestMotdGetContent:
         assert ver == MOTD_VERSION
 
     def test_get_motd_content_exception_fallback(self):
-        from code_puppy.command_line.motd import get_motd_content, MOTD_MESSAGE, MOTD_VERSION
+        from code_puppy.command_line.motd import (
+            MOTD_MESSAGE,
+            MOTD_VERSION,
+            get_motd_content,
+        )
 
         with patch(
             "code_puppy.callbacks.on_get_motd",

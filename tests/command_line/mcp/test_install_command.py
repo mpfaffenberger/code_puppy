@@ -35,6 +35,7 @@ def make_cmd():
     with patch("code_puppy.command_line.mcp.base.get_mcp_manager") as mock_mgr:
         mock_mgr.return_value = MagicMock()
         from code_puppy.command_line.mcp.install_command import InstallCommand
+
         cmd = InstallCommand()
     return cmd
 
@@ -54,7 +55,9 @@ class TestExecute:
 
     def test_with_args_calls_install_from_catalog(self):
         cmd = make_cmd()
-        with patch.object(cmd, "_install_from_catalog", return_value=True) as mock_install:
+        with patch.object(
+            cmd, "_install_from_catalog", return_value=True
+        ) as mock_install:
             with patch.dict("sys.modules", {"code_puppy.agent": MagicMock()}):
                 cmd.execute(["some-server"], "grp")
         mock_install.assert_called_once_with("some-server", "grp")
@@ -86,7 +89,9 @@ class TestExecute:
     @patch(f"{MODULE}.emit_info")
     def test_general_exception_in_execute(self, mock_info):
         cmd = make_cmd()
-        with patch.object(cmd, "_install_from_catalog", side_effect=RuntimeError("boom")):
+        with patch.object(
+            cmd, "_install_from_catalog", side_effect=RuntimeError("boom")
+        ):
             cmd.execute(["srv"], "grp")
 
 
@@ -98,7 +103,14 @@ class TestInstallFromCatalog:
         mock_catalog.get_by_id.return_value = None
         mock_catalog.search.return_value = []
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             result = cmd._install_from_catalog("nonexistent", "grp")
         assert result is False
 
@@ -107,9 +119,19 @@ class TestInstallFromCatalog:
         cmd = make_cmd()
         mock_catalog = MagicMock()
         mock_catalog.get_by_id.return_value = None
-        mock_catalog.search.return_value = [FakeServer(), FakeServer(name="s2", display_name="S2")]
+        mock_catalog.search.return_value = [
+            FakeServer(),
+            FakeServer(name="s2", display_name="S2"),
+        ]
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             result = cmd._install_from_catalog("test", "grp")
         assert result is False
 
@@ -124,7 +146,14 @@ class TestInstallFromCatalog:
         mock_catalog.search.return_value = [server]
         mock_prompt.return_value = ""  # use default name
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             with patch(f"{UTILS}.find_server_id_by_name", return_value=None):
                 result = cmd._install_from_catalog("test", "grp")
         assert result is True
@@ -139,7 +168,14 @@ class TestInstallFromCatalog:
         mock_catalog.get_by_id.return_value = server
         mock_prompt.return_value = "my-name"
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             with patch(f"{UTILS}.find_server_id_by_name", return_value=None):
                 result = cmd._install_from_catalog("test-server", "grp")
         assert result is True
@@ -152,7 +188,14 @@ class TestInstallFromCatalog:
         mock_catalog.get_by_id.return_value = FakeServer()
         mock_prompt.side_effect = ["", "n"]  # default name, decline override
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             with patch(f"{UTILS}.find_server_id_by_name", return_value="existing"):
                 result = cmd._install_from_catalog("test-server", "grp")
         assert result is False
@@ -160,13 +203,22 @@ class TestInstallFromCatalog:
     @patch(f"{WIZARD}.install_server_from_catalog", return_value=True)
     @patch(f"{MESSAGING}.emit_prompt")
     @patch(f"{MODULE}.emit_info")
-    def test_existing_server_override_accepted(self, mock_info, mock_prompt, mock_install):
+    def test_existing_server_override_accepted(
+        self, mock_info, mock_prompt, mock_install
+    ):
         cmd = make_cmd()
         mock_catalog = MagicMock()
         mock_catalog.get_by_id.return_value = FakeServer()
         mock_prompt.side_effect = ["", "y"]
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             with patch(f"{UTILS}.find_server_id_by_name", return_value="existing"):
                 result = cmd._install_from_catalog("test-server", "grp")
         assert result is True
@@ -187,7 +239,14 @@ class TestInstallFromCatalog:
         # name, token value, path value, opt value (empty -> uses default)
         mock_prompt.side_effect = ["", "my-token", "val", ""]
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             with patch(f"{UTILS}.find_server_id_by_name", return_value=None):
                 os.environ.pop("TOKEN", None)
                 result = cmd._install_from_catalog("test-server", "grp")
@@ -204,7 +263,14 @@ class TestInstallFromCatalog:
         mock_catalog.get_by_id.return_value = server
         mock_prompt.return_value = ""
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             with patch(f"{UTILS}.find_server_id_by_name", return_value=None):
                 with patch.dict(os.environ, {"PRESET_VAR": "value"}):
                     result = cmd._install_from_catalog("test-server", "grp")
@@ -213,7 +279,9 @@ class TestInstallFromCatalog:
     @patch(f"{MODULE}.emit_info")
     def test_import_error(self, mock_info):
         cmd = make_cmd()
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": None}):
+        with patch.dict(
+            "sys.modules", {"code_puppy.mcp_.server_registry_catalog": None}
+        ):
             result = cmd._install_from_catalog("srv", "grp")
         assert result is False
 
@@ -224,7 +292,14 @@ class TestInstallFromCatalog:
         mock_catalog = MagicMock()
         mock_catalog.get_by_id.side_effect = RuntimeError("boom")
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             result = cmd._install_from_catalog("srv", "grp")
         assert result is False
 
@@ -239,7 +314,14 @@ class TestInstallFromCatalog:
         ]
         mock_catalog.search.return_value = servers
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             result = cmd._install_from_catalog("test", "grp")
         assert result is False
 
@@ -253,7 +335,14 @@ class TestInstallFromCatalog:
         mock_catalog.get_by_id.return_value = server
         mock_prompt.return_value = ""
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             with patch(f"{UTILS}.find_server_id_by_name", return_value=None):
                 result = cmd._install_from_catalog("test-server", "grp")
         assert result is True
@@ -261,7 +350,9 @@ class TestInstallFromCatalog:
     @patch(f"{WIZARD}.install_server_from_catalog", return_value=True)
     @patch(f"{MESSAGING}.emit_prompt")
     @patch(f"{MODULE}.emit_info")
-    def test_cmd_args_not_required_no_default(self, mock_info, mock_prompt, mock_install):
+    def test_cmd_args_not_required_no_default(
+        self, mock_info, mock_prompt, mock_install
+    ):
         """Test cmd arg that is not required and has no default - should be skipped."""
         cmd = make_cmd()
         mock_catalog = MagicMock()
@@ -272,7 +363,14 @@ class TestInstallFromCatalog:
         mock_catalog.get_by_id.return_value = server
         mock_prompt.return_value = ""
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             with patch(f"{UTILS}.find_server_id_by_name", return_value=None):
                 result = cmd._install_from_catalog("test-server", "grp")
         assert result is True
@@ -285,6 +383,13 @@ class TestInstallFromCatalog:
         mock_catalog.get_by_id.return_value = None
         mock_catalog.search.return_value = [FakeServer(name=f"s{i}") for i in range(8)]
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             result = cmd._install_from_catalog("test", "grp")
         assert result is False

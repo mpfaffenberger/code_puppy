@@ -115,7 +115,9 @@ class TestIsProcessAlive:
         mock_kernel32 = MagicMock()
         mock_kernel32.OpenProcess.return_value = 0  # No handle
         mock_kernel32.GetLastError.return_value = 5  # ACCESS_DENIED
-        with patch.dict('sys.modules', {'ctypes': MagicMock(), 'ctypes.wintypes': MagicMock()}):
+        with patch.dict(
+            "sys.modules", {"ctypes": MagicMock(), "ctypes.wintypes": MagicMock()}
+        ):
             with patch("os.name", "nt"):
                 # Just ensure it doesn't crash on non-Windows
                 try:
@@ -128,13 +130,13 @@ class TestCleanupDeadSessions:
     """Tests for _cleanup_dead_sessions (lines 247)."""
 
     def test_removes_dead_sessions(self):
-        with patch.object(am, '_is_process_alive', return_value=False):
+        with patch.object(am, "_is_process_alive", return_value=False):
             sessions = {"session_12345": "agent-a"}
             result = am._cleanup_dead_sessions(sessions)
             assert result == {}
 
     def test_keeps_alive_sessions(self):
-        with patch.object(am, '_is_process_alive', return_value=True):
+        with patch.object(am, "_is_process_alive", return_value=True):
             sessions = {"session_12345": "agent-a"}
             result = am._cleanup_dead_sessions(sessions)
             assert result == {"session_12345": "agent-a"}
@@ -154,21 +156,23 @@ class TestLoadSessionData:
     """Tests for _load_session_data (lines 267-279)."""
 
     def test_no_file(self, tmp_path):
-        with patch.object(am, '_get_session_file_path', return_value=tmp_path / "nonexistent.json"):
+        with patch.object(
+            am, "_get_session_file_path", return_value=tmp_path / "nonexistent.json"
+        ):
             result = am._load_session_data()
             assert result == {}
 
     def test_valid_file(self, tmp_path):
         f = tmp_path / "sessions.json"
         f.write_text(json.dumps({"fallback_1": "agent"}))
-        with patch.object(am, '_get_session_file_path', return_value=f):
+        with patch.object(am, "_get_session_file_path", return_value=f):
             result = am._load_session_data()
             assert result == {"fallback_1": "agent"}
 
     def test_corrupt_json(self, tmp_path):
         f = tmp_path / "sessions.json"
         f.write_text("not json")
-        with patch.object(am, '_get_session_file_path', return_value=f):
+        with patch.object(am, "_get_session_file_path", return_value=f):
             result = am._load_session_data()
             assert result == {}
 
@@ -178,22 +182,24 @@ class TestSaveSessionData:
 
     def test_saves_data(self, tmp_path):
         f = tmp_path / "sessions.json"
-        with patch.object(am, '_get_session_file_path', return_value=f):
+        with patch.object(am, "_get_session_file_path", return_value=f):
             am._save_session_data({"fallback_1": "agent"})
             data = json.loads(f.read_text())
             assert data == {"fallback_1": "agent"}
 
     def test_creates_parent_dirs(self, tmp_path):
         f = tmp_path / "sub" / "dir" / "sessions.json"
-        with patch.object(am, '_get_session_file_path', return_value=f):
+        with patch.object(am, "_get_session_file_path", return_value=f):
             am._save_session_data({"fallback_1": "agent"})
             assert f.exists()
 
     def test_io_error_silent(self, tmp_path):
         # Use a path that can't be written to
         bad_path = tmp_path / "sessions.json"
-        with patch.object(am, '_get_session_file_path', return_value=bad_path), \
-             patch('builtins.open', side_effect=IOError("fail")):
+        with (
+            patch.object(am, "_get_session_file_path", return_value=bad_path),
+            patch("builtins.open", side_effect=IOError("fail")),
+        ):
             # Should not raise
             am._save_session_data({"x": "y"})
 
@@ -225,6 +231,7 @@ class TestGetAgentDescriptionsFiltering:
     @patch("code_puppy.config.get_universal_constructor_enabled", return_value=False)
     def test_uc_disabled_filters_uc_agents(self, mock_uc, mock_pack):
         from code_puppy.config import UC_AGENT_NAMES
+
         # Add a fake UC agent
         am._AGENT_REGISTRY["uc-test-agent"] = FakeAgent
         if UC_AGENT_NAMES:
@@ -249,7 +256,7 @@ class TestLoadSessionDataRobust:
         }
         session_file = tmp_path / "sessions.json"
         session_file.write_text(json.dumps(data))
-        with patch.object(am, '_get_session_file_path', return_value=session_file):
+        with patch.object(am, "_get_session_file_path", return_value=session_file):
             result = am._load_session_data()
             # live_session should survive, dead_session should be cleaned
             assert "live_session" in result
@@ -257,13 +264,13 @@ class TestLoadSessionDataRobust:
     def test_corrupt_json(self, tmp_path):
         session_file = tmp_path / "sessions.json"
         session_file.write_text("not json")
-        with patch.object(am, '_get_session_file_path', return_value=session_file):
+        with patch.object(am, "_get_session_file_path", return_value=session_file):
             result = am._load_session_data()
             assert result == {}
 
     def test_file_not_found(self, tmp_path):
         session_file = tmp_path / "nonexistent.json"
-        with patch.object(am, '_get_session_file_path', return_value=session_file):
+        with patch.object(am, "_get_session_file_path", return_value=session_file):
             result = am._load_session_data()
             assert result == {}
 
@@ -290,7 +297,9 @@ class TestEnsureSessionCacheLoaded:
 
     def test_loads_once(self):
         am._SESSION_FILE_LOADED = False
-        with patch.object(am, '_load_session_data', return_value={"fallback_1": "a"}) as mock_load:
+        with patch.object(
+            am, "_load_session_data", return_value={"fallback_1": "a"}
+        ) as mock_load:
             am._ensure_session_cache_loaded()
             assert am._SESSION_FILE_LOADED is True
             assert "fallback_1" in am._SESSION_AGENTS_CACHE
@@ -325,9 +334,7 @@ class TestDiscoverAgents:
     @patch("code_puppy.agents.agent_manager.on_register_agents")
     @patch("code_puppy.agents.agent_manager.discover_json_agents", return_value={})
     def test_plugin_agents_class(self, mock_json, mock_plugins):
-        mock_plugins.return_value = [
-            [{"name": "plugin-agent", "class": FakeAgent}]
-        ]
+        mock_plugins.return_value = [[{"name": "plugin-agent", "class": FakeAgent}]]
         am._discover_agents()
         assert "plugin-agent" in am._AGENT_REGISTRY
 
@@ -358,7 +365,10 @@ class TestDiscoverAgents:
         ]
         am._discover_agents()
 
-    @patch("code_puppy.agents.agent_manager.on_register_agents", side_effect=Exception("fail"))
+    @patch(
+        "code_puppy.agents.agent_manager.on_register_agents",
+        side_effect=Exception("fail"),
+    )
     @patch("code_puppy.agents.agent_manager.discover_json_agents", return_value={})
     @patch("code_puppy.agents.agent_manager.emit_warning")
     def test_plugin_exception(self, mock_warn, mock_json, mock_plugins):
@@ -366,7 +376,10 @@ class TestDiscoverAgents:
         mock_warn.assert_called()
 
     @patch("code_puppy.agents.agent_manager.on_register_agents", return_value=[])
-    @patch("code_puppy.agents.agent_manager.discover_json_agents", side_effect=Exception("fail"))
+    @patch(
+        "code_puppy.agents.agent_manager.discover_json_agents",
+        side_effect=Exception("fail"),
+    )
     @patch("code_puppy.agents.agent_manager.emit_warning")
     def test_json_discovery_exception(self, mock_warn, mock_json, mock_plugins):
         am._discover_agents()
@@ -376,9 +389,7 @@ class TestDiscoverAgents:
     @patch("code_puppy.agents.agent_manager.discover_json_agents", return_value={})
     def test_plugin_single_dict(self, mock_json, mock_plugins):
         # Return a single dict instead of a list
-        mock_plugins.return_value = [
-            {"name": "single", "class": FakeAgent}
-        ]
+        mock_plugins.return_value = [{"name": "single", "class": FakeAgent}]
         am._discover_agents()
         assert "single" in am._AGENT_REGISTRY
 
@@ -392,8 +403,10 @@ class TestGetAvailableAgents:
     def test_filters_pack_agents(self, mock_uc, mock_pack, mock_discover):
         am._AGENT_REGISTRY["pack-leader"] = FakeAgent
         am._AGENT_REGISTRY["normal"] = FakeAgent
-        with patch("code_puppy.config.PACK_AGENT_NAMES", {"pack-leader"}), \
-             patch("code_puppy.config.UC_AGENT_NAMES", set()):
+        with (
+            patch("code_puppy.config.PACK_AGENT_NAMES", {"pack-leader"}),
+            patch("code_puppy.config.UC_AGENT_NAMES", set()),
+        ):
             agents = am.get_available_agents()
             assert "pack-leader" not in agents
             assert "normal" in agents
@@ -403,8 +416,10 @@ class TestGetAvailableAgents:
     @patch("code_puppy.config.get_universal_constructor_enabled", return_value=False)
     def test_filters_uc_agents(self, mock_uc, mock_pack, mock_discover):
         am._AGENT_REGISTRY["uc-agent"] = FakeAgent
-        with patch("code_puppy.config.PACK_AGENT_NAMES", set()), \
-             patch("code_puppy.config.UC_AGENT_NAMES", {"uc-agent"}):
+        with (
+            patch("code_puppy.config.PACK_AGENT_NAMES", set()),
+            patch("code_puppy.config.UC_AGENT_NAMES", {"uc-agent"}),
+        ):
             agents = am.get_available_agents()
             assert "uc-agent" not in agents
 
@@ -414,15 +429,21 @@ class TestGetAvailableAgents:
     def test_json_agent_display_name(self, mock_uc, mock_pack, mock_discover, tmp_path):
         # Create a JSON agent file
         agent_file = tmp_path / "test.json"
-        agent_file.write_text(json.dumps({
-            "name": "json-test",
-            "display_name": "JSON Test",
-            "description": "Test JSON agent",
-            "system_prompt": "prompt",
-        }))
+        agent_file.write_text(
+            json.dumps(
+                {
+                    "name": "json-test",
+                    "display_name": "JSON Test",
+                    "description": "Test JSON agent",
+                    "system_prompt": "prompt",
+                }
+            )
+        )
         am._AGENT_REGISTRY["json-test"] = str(agent_file)
-        with patch("code_puppy.config.PACK_AGENT_NAMES", set()), \
-             patch("code_puppy.config.UC_AGENT_NAMES", set()):
+        with (
+            patch("code_puppy.config.PACK_AGENT_NAMES", set()),
+            patch("code_puppy.config.UC_AGENT_NAMES", set()),
+        ):
             agents = am.get_available_agents()
             assert "json-test" in agents
 
@@ -432,8 +453,10 @@ class TestGetAvailableAgents:
     def test_exception_fallback(self, mock_uc, mock_pack, mock_discover):
         # Bad agent ref that will raise
         am._AGENT_REGISTRY["bad"] = "nonexistent_path.json"
-        with patch("code_puppy.config.PACK_AGENT_NAMES", set()), \
-             patch("code_puppy.config.UC_AGENT_NAMES", set()):
+        with (
+            patch("code_puppy.config.PACK_AGENT_NAMES", set()),
+            patch("code_puppy.config.UC_AGENT_NAMES", set()),
+        ):
             agents = am.get_available_agents()
             assert agents["bad"] == "Bad"  # Fallback to title()
 
@@ -446,8 +469,10 @@ class TestGetAgentDescriptions:
     @patch("code_puppy.config.get_universal_constructor_enabled", return_value=True)
     def test_returns_descriptions(self, mock_uc, mock_pack, mock_discover):
         am._AGENT_REGISTRY["my-agent"] = FakeAgent
-        with patch("code_puppy.config.PACK_AGENT_NAMES", set()), \
-             patch("code_puppy.config.UC_AGENT_NAMES", set()):
+        with (
+            patch("code_puppy.config.PACK_AGENT_NAMES", set()),
+            patch("code_puppy.config.UC_AGENT_NAMES", set()),
+        ):
             descs = am.get_agent_descriptions()
             assert descs["my-agent"] == "A fake agent for testing"
 
@@ -456,8 +481,10 @@ class TestGetAgentDescriptions:
     @patch("code_puppy.config.get_universal_constructor_enabled", return_value=True)
     def test_exception_fallback(self, mock_uc, mock_pack, mock_discover):
         am._AGENT_REGISTRY["bad"] = "nonexistent.json"
-        with patch("code_puppy.config.PACK_AGENT_NAMES", set()), \
-             patch("code_puppy.config.UC_AGENT_NAMES", set()):
+        with (
+            patch("code_puppy.config.PACK_AGENT_NAMES", set()),
+            patch("code_puppy.config.UC_AGENT_NAMES", set()),
+        ):
             descs = am.get_agent_descriptions()
             assert descs["bad"] == "No description available"
 
@@ -473,7 +500,9 @@ class TestCloneHelpers:
     def test_strip_clone_display_suffix(self):
         assert am._strip_clone_display_suffix("Agent (Clone 1)") == "Agent"
         assert am._strip_clone_display_suffix("Agent") == "Agent"
-        assert am._strip_clone_display_suffix("(Clone 1)") == "(Clone 1)"  # Entire string is suffix
+        assert (
+            am._strip_clone_display_suffix("(Clone 1)") == "(Clone 1)"
+        )  # Entire string is suffix
 
     def test_is_clone_agent_name(self):
         assert am.is_clone_agent_name("agent-clone-1") is True
@@ -487,8 +516,9 @@ class TestCloneHelpers:
         assert am._build_clone_display_name("Agent (Clone 1)", 2) == "Agent (Clone 2)"
 
     def test_filter_available_tools(self):
-        with patch("code_puppy.tools.get_available_tool_names",
-                   return_value=["tool1", "tool3"]):
+        with patch(
+            "code_puppy.tools.get_available_tool_names", return_value=["tool1", "tool3"]
+        ):
             result = am._filter_available_tools(["tool1", "tool2", "tool3"])
             assert result == ["tool1", "tool3"]
 
@@ -517,9 +547,14 @@ class TestCloneAgent:
     @patch("code_puppy.agents.agent_manager._discover_agents")
     @patch("code_puppy.config.get_user_agents_directory")
     @patch("code_puppy.config.get_agent_pinned_model", return_value=None)
-    @patch("code_puppy.agents.agent_manager._filter_available_tools", side_effect=lambda x: x)
+    @patch(
+        "code_puppy.agents.agent_manager._filter_available_tools",
+        side_effect=lambda x: x,
+    )
     @patch("code_puppy.agents.agent_manager.emit_success")
-    def test_clone_python_agent(self, mock_success, mock_filter, mock_pinned, mock_dir, mock_discover, tmp_path):
+    def test_clone_python_agent(
+        self, mock_success, mock_filter, mock_pinned, mock_dir, mock_discover, tmp_path
+    ):
         am._AGENT_REGISTRY["fake-agent"] = FakeAgent
         mock_dir.return_value = str(tmp_path)
 
@@ -531,9 +566,14 @@ class TestCloneAgent:
     @patch("code_puppy.agents.agent_manager._discover_agents")
     @patch("code_puppy.config.get_user_agents_directory")
     @patch("code_puppy.config.get_agent_pinned_model", return_value="pinned-model")
-    @patch("code_puppy.agents.agent_manager._filter_available_tools", side_effect=lambda x: x)
+    @patch(
+        "code_puppy.agents.agent_manager._filter_available_tools",
+        side_effect=lambda x: x,
+    )
     @patch("code_puppy.agents.agent_manager.emit_success")
-    def test_clone_python_agent_with_pinned_model(self, mock_success, mock_filter, mock_pinned, mock_dir, mock_discover, tmp_path):
+    def test_clone_python_agent_with_pinned_model(
+        self, mock_success, mock_filter, mock_pinned, mock_dir, mock_discover, tmp_path
+    ):
         am._AGENT_REGISTRY["extras-agent"] = FakeAgentWithExtras
         mock_dir.return_value = str(tmp_path)
 
@@ -548,17 +588,26 @@ class TestCloneAgent:
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
     @patch("code_puppy.config.get_user_agents_directory")
-    @patch("code_puppy.agents.agent_manager._filter_available_tools", side_effect=lambda x: x)
+    @patch(
+        "code_puppy.agents.agent_manager._filter_available_tools",
+        side_effect=lambda x: x,
+    )
     @patch("code_puppy.agents.agent_manager.emit_success")
-    def test_clone_json_agent(self, mock_success, mock_filter, mock_dir, mock_discover, tmp_path):
+    def test_clone_json_agent(
+        self, mock_success, mock_filter, mock_dir, mock_discover, tmp_path
+    ):
         # Create source JSON agent
         source = tmp_path / "source.json"
-        source.write_text(json.dumps({
-            "name": "src",
-            "display_name": "Source",
-            "tools": ["tool1"],
-            "model": "some-model",
-        }))
+        source.write_text(
+            json.dumps(
+                {
+                    "name": "src",
+                    "display_name": "Source",
+                    "tools": ["tool1"],
+                    "model": "some-model",
+                }
+            )
+        )
         am._AGENT_REGISTRY["src"] = str(source)
         mock_dir.return_value = str(tmp_path)
 
@@ -567,14 +616,23 @@ class TestCloneAgent:
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
     @patch("code_puppy.config.get_user_agents_directory")
-    @patch("code_puppy.agents.agent_manager._filter_available_tools", side_effect=lambda x: x)
+    @patch(
+        "code_puppy.agents.agent_manager._filter_available_tools",
+        side_effect=lambda x: x,
+    )
     @patch("code_puppy.agents.agent_manager.emit_success")
-    def test_clone_json_no_display_name_no_model(self, mock_success, mock_filter, mock_dir, mock_discover, tmp_path):
+    def test_clone_json_no_display_name_no_model(
+        self, mock_success, mock_filter, mock_dir, mock_discover, tmp_path
+    ):
         source = tmp_path / "source2.json"
-        source.write_text(json.dumps({
-            "name": "src2",
-            "tools": ["t"],
-        }))
+        source.write_text(
+            json.dumps(
+                {
+                    "name": "src2",
+                    "tools": ["t"],
+                }
+            )
+        )
         am._AGENT_REGISTRY["src2"] = str(source)
         mock_dir.return_value = str(tmp_path)
 
@@ -583,14 +641,23 @@ class TestCloneAgent:
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
     @patch("code_puppy.config.get_user_agents_directory")
-    @patch("code_puppy.agents.agent_manager._filter_available_tools", side_effect=lambda x: x)
+    @patch(
+        "code_puppy.agents.agent_manager._filter_available_tools",
+        side_effect=lambda x: x,
+    )
     @patch("code_puppy.agents.agent_manager.emit_success")
-    def test_clone_json_non_list_tools(self, mock_success, mock_filter, mock_dir, mock_discover, tmp_path):
+    def test_clone_json_non_list_tools(
+        self, mock_success, mock_filter, mock_dir, mock_discover, tmp_path
+    ):
         source = tmp_path / "source3.json"
-        source.write_text(json.dumps({
-            "name": "src3",
-            "tools": "not a list",
-        }))
+        source.write_text(
+            json.dumps(
+                {
+                    "name": "src3",
+                    "tools": "not a list",
+                }
+            )
+        )
         am._AGENT_REGISTRY["src3"] = str(source)
         mock_dir.return_value = str(tmp_path)
 
@@ -609,15 +676,22 @@ class TestCloneAgent:
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
     @patch("code_puppy.config.get_user_agents_directory")
-    @patch("code_puppy.agents.agent_manager._filter_available_tools", side_effect=lambda x: x)
+    @patch(
+        "code_puppy.agents.agent_manager._filter_available_tools",
+        side_effect=lambda x: x,
+    )
     @patch("code_puppy.agents.agent_manager.emit_warning")
-    def test_clone_target_exists(self, mock_warn, mock_filter, mock_dir, mock_discover, tmp_path):
+    def test_clone_target_exists(
+        self, mock_warn, mock_filter, mock_dir, mock_discover, tmp_path
+    ):
         am._AGENT_REGISTRY["fake-agent"] = FakeAgent
         mock_dir.return_value = str(tmp_path)
         # Pre-create the clone file
         (tmp_path / "fake-agent-clone-1.json").write_text("{}")
         # Also add to registry to force index 1
-        am._AGENT_REGISTRY["fake-agent-clone-1"] = str(tmp_path / "fake-agent-clone-1.json")
+        am._AGENT_REGISTRY["fake-agent-clone-1"] = str(
+            tmp_path / "fake-agent-clone-1.json"
+        )
         # Pre-create index 2 file
         clone_name = "fake-agent-clone-2"
         (tmp_path / f"{clone_name}.json").touch()
@@ -626,15 +700,19 @@ class TestCloneAgent:
     @patch("code_puppy.agents.agent_manager._discover_agents")
     @patch("code_puppy.config.get_user_agents_directory")
     @patch("code_puppy.config.get_agent_pinned_model", return_value=None)
-    @patch("code_puppy.agents.agent_manager._filter_available_tools", side_effect=lambda x: x)
+    @patch(
+        "code_puppy.agents.agent_manager._filter_available_tools",
+        side_effect=lambda x: x,
+    )
     @patch("code_puppy.agents.agent_manager.emit_warning")
-    def test_clone_write_failure(self, mock_warn, mock_filter, mock_pinned, mock_dir, mock_discover, tmp_path):
+    def test_clone_write_failure(
+        self, mock_warn, mock_filter, mock_pinned, mock_dir, mock_discover, tmp_path
+    ):
         am._AGENT_REGISTRY["fake-agent"] = FakeAgent
         mock_dir.return_value = str(tmp_path / "readonly")
         # Don't create the dir so write fails
         am.clone_agent("fake-agent")
         # May succeed if dir gets created, or fail
-
 
 
 class TestDeleteCloneAgent:
@@ -647,36 +725,49 @@ class TestDeleteCloneAgent:
         mock_warn.assert_called()
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
-    @patch("code_puppy.agents.agent_manager.get_current_agent_name", return_value="agent-clone-1")
+    @patch(
+        "code_puppy.agents.agent_manager.get_current_agent_name",
+        return_value="agent-clone-1",
+    )
     @patch("code_puppy.agents.agent_manager.emit_warning")
     def test_cannot_delete_active(self, mock_warn, mock_name, mock_discover):
         assert am.delete_clone_agent("agent-clone-1") is False
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
-    @patch("code_puppy.agents.agent_manager.get_current_agent_name", return_value="other")
+    @patch(
+        "code_puppy.agents.agent_manager.get_current_agent_name", return_value="other"
+    )
     @patch("code_puppy.agents.agent_manager.emit_warning")
     def test_clone_not_found(self, mock_warn, mock_name, mock_discover):
         assert am.delete_clone_agent("agent-clone-1") is False
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
-    @patch("code_puppy.agents.agent_manager.get_current_agent_name", return_value="other")
+    @patch(
+        "code_puppy.agents.agent_manager.get_current_agent_name", return_value="other"
+    )
     @patch("code_puppy.agents.agent_manager.emit_warning")
     def test_not_json_agent(self, mock_warn, mock_name, mock_discover):
         am._AGENT_REGISTRY["agent-clone-1"] = FakeAgent
         assert am.delete_clone_agent("agent-clone-1") is False
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
-    @patch("code_puppy.agents.agent_manager.get_current_agent_name", return_value="other")
+    @patch(
+        "code_puppy.agents.agent_manager.get_current_agent_name", return_value="other"
+    )
     @patch("code_puppy.agents.agent_manager.emit_warning")
     def test_file_doesnt_exist(self, mock_warn, mock_name, mock_discover):
         am._AGENT_REGISTRY["agent-clone-1"] = "/nonexistent/path.json"
         assert am.delete_clone_agent("agent-clone-1") is False
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
-    @patch("code_puppy.agents.agent_manager.get_current_agent_name", return_value="other")
+    @patch(
+        "code_puppy.agents.agent_manager.get_current_agent_name", return_value="other"
+    )
     @patch("code_puppy.config.get_user_agents_directory")
     @patch("code_puppy.agents.agent_manager.emit_warning")
-    def test_wrong_directory(self, mock_warn, mock_dir, mock_name, mock_discover, tmp_path):
+    def test_wrong_directory(
+        self, mock_warn, mock_dir, mock_name, mock_discover, tmp_path
+    ):
         clone_file = tmp_path / "other_dir" / "agent-clone-1.json"
         clone_file.parent.mkdir(parents=True)
         clone_file.touch()
@@ -685,10 +776,14 @@ class TestDeleteCloneAgent:
         assert am.delete_clone_agent("agent-clone-1") is False
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
-    @patch("code_puppy.agents.agent_manager.get_current_agent_name", return_value="other")
+    @patch(
+        "code_puppy.agents.agent_manager.get_current_agent_name", return_value="other"
+    )
     @patch("code_puppy.config.get_user_agents_directory")
     @patch("code_puppy.agents.agent_manager.emit_success")
-    def test_successful_delete(self, mock_success, mock_dir, mock_name, mock_discover, tmp_path):
+    def test_successful_delete(
+        self, mock_success, mock_dir, mock_name, mock_discover, tmp_path
+    ):
         agents_dir = tmp_path / "agents"
         agents_dir.mkdir()
         clone_file = agents_dir / "agent-clone-1.json"
@@ -701,10 +796,14 @@ class TestDeleteCloneAgent:
         assert "agent-clone-1" not in am._AGENT_REGISTRY
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
-    @patch("code_puppy.agents.agent_manager.get_current_agent_name", return_value="other")
+    @patch(
+        "code_puppy.agents.agent_manager.get_current_agent_name", return_value="other"
+    )
     @patch("code_puppy.config.get_user_agents_directory")
     @patch("code_puppy.agents.agent_manager.emit_warning")
-    def test_unlink_failure(self, mock_warn, mock_dir, mock_name, mock_discover, tmp_path):
+    def test_unlink_failure(
+        self, mock_warn, mock_dir, mock_name, mock_discover, tmp_path
+    ):
         agents_dir = tmp_path / "agents"
         agents_dir.mkdir()
         clone_file = agents_dir / "agent-clone-1.json"
@@ -712,7 +811,7 @@ class TestDeleteCloneAgent:
         am._AGENT_REGISTRY["agent-clone-1"] = str(clone_file)
         mock_dir.return_value = str(agents_dir)
 
-        with patch.object(Path, 'unlink', side_effect=Exception("fail")):
+        with patch.object(Path, "unlink", side_effect=Exception("fail")):
             assert am.delete_clone_agent("agent-clone-1") is False
 
 
@@ -723,7 +822,9 @@ class TestSetCurrentAgent:
     @patch("code_puppy.agents.agent_manager.load_agent")
     @patch("code_puppy.agents.agent_manager.on_agent_reload")
     @patch("code_puppy.agents.agent_manager._save_session_data")
-    def test_set_with_history_restore(self, mock_save, mock_reload, mock_load, mock_discover):
+    def test_set_with_history_restore(
+        self, mock_save, mock_reload, mock_load, mock_discover
+    ):
         old_agent = FakeAgent()
         old_agent._message_history = [MagicMock()]
         am._CURRENT_AGENT = old_agent
@@ -743,6 +844,7 @@ class TestLoadAgent:
     @patch("code_puppy.agents.agent_manager._discover_agents")
     def test_fallback_to_code_puppy(self, mock_discover):
         from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
         am._AGENT_REGISTRY["code-puppy"] = CodePuppyAgent
         agent = am.load_agent("nonexistent")
         assert agent.name == "code-puppy"
@@ -755,13 +857,17 @@ class TestLoadAgent:
     @patch("code_puppy.agents.agent_manager._discover_agents")
     def test_load_json_agent(self, mock_discover, tmp_path):
         agent_file = tmp_path / "test.json"
-        agent_file.write_text(json.dumps({
-            "name": "json-test",
-            "display_name": "JSON Test",
-            "description": "desc",
-            "system_prompt": "prompt",
-            "tools": ["tool1"],
-        }))
+        agent_file.write_text(
+            json.dumps(
+                {
+                    "name": "json-test",
+                    "display_name": "JSON Test",
+                    "description": "desc",
+                    "system_prompt": "prompt",
+                    "tools": ["tool1"],
+                }
+            )
+        )
         am._AGENT_REGISTRY["json-test"] = str(agent_file)
         agent = am.load_agent("json-test")
         assert agent.name == "json-test"

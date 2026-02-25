@@ -133,14 +133,18 @@ class TestShellSafetyAgent:
         mock_base = MagicMock()
         mock_base.BaseAgent = type("BaseAgent", (), {})
 
-        with patch.dict("sys.modules", {
-            "code_puppy.agents.base_agent": mock_base,
-            "code_puppy.agents": MagicMock(),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.agents.base_agent": mock_base,
+                "code_puppy.agents": MagicMock(),
+            },
+        ):
             # Force reimport
             import importlib
 
             import code_puppy.plugins.shell_safety.agent_shell_safety as mod
+
             importlib.reload(mod)
 
             agent = mod.ShellSafetyAgent()
@@ -190,12 +194,15 @@ class TestDiscoveryMissingLines:
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text("# test")
 
-        with patch(
-            "code_puppy.plugins.agent_skills.discovery.get_skill_directories",
-            return_value=[str(configured_dir)],
-        ), patch(
-            "code_puppy.plugins.agent_skills.discovery.get_default_skill_directories",
-            return_value=[default_dir],  # different dir, should be appended
+        with (
+            patch(
+                "code_puppy.plugins.agent_skills.discovery.get_skill_directories",
+                return_value=[str(configured_dir)],
+            ),
+            patch(
+                "code_puppy.plugins.agent_skills.discovery.get_default_skill_directories",
+                return_value=[default_dir],  # different dir, should be appended
+            ),
         ):
             results = discover_skills(directories=None)
             assert any(s.name == "my_skill" for s in results)
@@ -505,10 +512,12 @@ class TestSchedulerMenuLogViewer:
         # Make Application.run_async or run() exit immediately
         mock_app.run.return_value = None
 
-        with patch.object(sched_mod, "Application", return_value=mock_app), \
-             patch.object(sched_mod, "set_awaiting_user_input"), \
-             patch.object(sched_mod, "Layout"), \
-             patch.object(sched_mod, "KeyBindings") as mock_kb:
+        with (
+            patch.object(sched_mod, "Application", return_value=mock_app),
+            patch.object(sched_mod, "set_awaiting_user_input"),
+            patch.object(sched_mod, "Layout"),
+            patch.object(sched_mod, "KeyBindings") as mock_kb,
+        ):
             # Mock key bindings to not fail
             mock_kb_instance = MagicMock()
             mock_kb.return_value = mock_kb_instance
@@ -660,14 +669,14 @@ def my_tool(x: int) -> str:
         assert reg.scan() == 0
 
     def test_scan_tool_no_callable(self, tmp_path):
-        tool_code = '''
+        tool_code = """
 TOOL_META = {
     "name": "orphan",
     "description": "No function",
 }
 
 _private = 42
-'''
+"""
         (tmp_path / "orphan.py").write_text(tool_code)
         reg = UCRegistry(tools_dir=tmp_path)
         # This will find no callable and log a warning
@@ -723,7 +732,7 @@ _private = 42
         assert tools == []
 
     def test_list_tools_with_disabled(self, tmp_path):
-        tool_code = '''
+        tool_code = """
 TOOL_META = {
     "name": "disabled_tool",
     "description": "Disabled",
@@ -731,7 +740,7 @@ TOOL_META = {
 }
 
 def disabled_tool(): pass
-'''
+"""
         (tmp_path / "disabled_tool.py").write_text(tool_code)
         reg = UCRegistry(tools_dir=tmp_path)
         reg.scan()
@@ -743,14 +752,14 @@ def disabled_tool(): pass
         assert reg.get_tool("nonexistent") is None
 
     def test_get_tool_function(self, tmp_path):
-        tool_code = '''
+        tool_code = """
 TOOL_META = {
     "name": "func_tool",
     "description": "A tool",
 }
 
 def func_tool(): return 42
-'''
+"""
         (tmp_path / "func_tool.py").write_text(tool_code)
         reg = UCRegistry(tools_dir=tmp_path)
         reg.scan()
@@ -769,14 +778,14 @@ def func_tool(): return 42
         assert reg.get_tool_function("fake") is None
 
     def test_load_tool_module(self, tmp_path):
-        tool_code = '''
+        tool_code = """
 TOOL_META = {
     "name": "mod_tool",
     "description": "A tool",
 }
 
 def mod_tool(): pass
-'''
+"""
         (tmp_path / "mod_tool.py").write_text(tool_code)
         reg = UCRegistry(tools_dir=tmp_path)
         reg.scan()
@@ -801,10 +810,10 @@ def mod_tool(): pass
         other_dir = tmp_path / "other"
         other_dir.mkdir()
         tool_file = other_dir / "tool.py"
-        tool_file.write_text('''
+        tool_file.write_text("""
 TOOL_META = {"name": "tool", "description": "test"}
 def tool(): pass
-''')
+""")
         reg = UCRegistry(tools_dir=tmp_path / "tools")
         (tmp_path / "tools").mkdir()
         # The file is outside tools_dir, relative_to will raise ValueError
@@ -831,17 +840,19 @@ def tool(): pass
 
     def test_load_tool_file_signature_fails(self, tmp_path):
         """Lines 136-137: inspect.signature raises."""
-        tool_code = '''
+        tool_code = """
 TOOL_META = {"name": "sig_tool", "description": "test"}
 
 # Use a builtin as the tool function - inspect.signature may fail
 def sig_tool(*a, **kw): pass
-'''
+"""
         (tmp_path / "sig_tool.py").write_text(tool_code)
         reg = UCRegistry(tools_dir=tmp_path)
         # Patch inspect.signature to raise
-        with patch("code_puppy.plugins.universal_constructor.registry.inspect.signature",
-                   side_effect=ValueError("no sig")):
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.inspect.signature",
+            side_effect=ValueError("no sig"),
+        ):
             count = reg.scan()
             assert count == 1
             tool = reg.get_tool("sig_tool")
@@ -851,14 +862,14 @@ def sig_tool(*a, **kw): pass
         """Tool in subdirectory gets namespace."""
         sub = tmp_path / "api"
         sub.mkdir()
-        tool_code = '''
+        tool_code = """
 TOOL_META = {
     "name": "weather",
     "description": "Weather API",
 }
 
 def weather(): pass
-'''
+"""
         (sub / "weather.py").write_text(tool_code)
         reg = UCRegistry(tools_dir=tmp_path)
         reg.scan()
@@ -898,19 +909,19 @@ class TestSandboxMissing:
 
     def test_extract_function_info_with_annotations(self):
         """Lines 162, 168: vararg and kwarg annotations."""
-        code = '''
+        code = """
 def foo(x: int, *args: str, **kwargs: float) -> bool:
     pass
-'''
+"""
         result = extract_function_info(code)
         assert result.valid
         assert len(result.functions) == 1
 
     def test_extract_function_info_async(self):
-        code = '''
+        code = """
 async def bar(x):
     pass
-'''
+"""
         result = extract_function_info(code)
         assert result.valid
         assert len(result.functions) == 1
@@ -961,10 +972,10 @@ async def bar(x):
 
     def test_full_validation_valid(self):
         """Lines 359-360: full validation."""
-        code = '''
+        code = """
 def my_func(x: int) -> str:
     return str(x)
-'''
+"""
         result = full_validation(code)
         assert result.valid
 
@@ -974,12 +985,12 @@ def my_func(x: int) -> str:
 
     def test_extract_tool_meta_found(self):
         """Lines 434-437."""
-        code = '''
+        code = """
 TOOL_META = {
     "name": "test",
     "description": "desc",
 }
-'''
+"""
         meta = _extract_tool_meta(code)
         assert meta is not None
         assert meta["name"] == "test"
@@ -1002,7 +1013,7 @@ TOOL_META = {
 
     def test_validate_and_write_tool_success(self, tmp_path):
         """Lines 563, 579-582: successful write."""
-        code = '''
+        code = """
 TOOL_META = {
     "name": "writer",
     "description": "Test",
@@ -1010,18 +1021,22 @@ TOOL_META = {
 
 def writer():
     pass
-'''
+"""
         file_path = tmp_path / "writer.py"
         result = validate_and_write_tool(code, file_path, safe_root=tmp_path)
         assert result.valid
         assert file_path.exists()
 
     def test_validate_and_write_tool_syntax_error(self, tmp_path):
-        result = validate_and_write_tool("def bad(", tmp_path / "bad.py", safe_root=tmp_path)
+        result = validate_and_write_tool(
+            "def bad(", tmp_path / "bad.py", safe_root=tmp_path
+        )
         assert not result.valid
 
     def test_validate_and_write_tool_no_meta(self, tmp_path):
-        result = validate_and_write_tool("x = 1", tmp_path / "nope.py", safe_root=tmp_path)
+        result = validate_and_write_tool(
+            "x = 1", tmp_path / "nope.py", safe_root=tmp_path
+        )
         assert not result.valid
 
     def test_validate_and_write_tool_invalid_meta(self, tmp_path):
@@ -1031,7 +1046,7 @@ def writer():
 
     def test_validate_and_write_tool_write_error(self, tmp_path):
         """Write failure."""
-        code = '''
+        code = """
 TOOL_META = {
     "name": "fail_write",
     "description": "Test",
@@ -1039,7 +1054,7 @@ TOOL_META = {
 
 def fail_write():
     pass
-'''
+"""
         file_path = tmp_path / "fail_write.py"
         with patch.object(Path, "write_text", side_effect=PermissionError("denied")):
             result = validate_and_write_tool(code, file_path, safe_root=tmp_path)
@@ -1047,7 +1062,7 @@ def fail_write():
 
     def test_validate_and_write_tool_not_a_file(self, tmp_path):
         """Path exists but is not a file."""
-        code = '''
+        code = """
 TOOL_META = {
     "name": "test",
     "description": "Test",
@@ -1055,7 +1070,7 @@ TOOL_META = {
 
 def test():
     pass
-'''
+"""
         # Create a directory at the path
         dir_path = tmp_path / "dir_tool.py"
         dir_path.mkdir()
@@ -1113,14 +1128,14 @@ def my_tool(x: int) -> str:
         assert result.main_function is not None
 
     def test_validate_tool_file_no_main_func(self, tmp_path):
-        code = '''
+        code = """
 TOOL_META = {
     "name": "missing_func",
     "description": "A tool",
 }
 
 def other_func(): pass
-'''
+"""
         f = tmp_path / "tool.py"
         f.write_text(code)
         result = validate_tool_file(f)
@@ -1147,7 +1162,7 @@ def other_func(): pass
 
     def test_validate_and_write_existing_file(self, tmp_path):
         """Line 563: file_path exists and is_file check."""
-        code = '''
+        code = """
 TOOL_META = {
     "name": "existing",
     "description": "Test",
@@ -1155,7 +1170,7 @@ TOOL_META = {
 
 def existing():
     pass
-'''
+"""
         file_path = tmp_path / "existing.py"
         file_path.write_text("old content")
         result = validate_and_write_tool(code, file_path, safe_root=tmp_path)

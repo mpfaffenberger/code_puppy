@@ -6,7 +6,6 @@ import sys
 from unittest.mock import MagicMock, patch
 
 
-
 class TestPlatformUnix:
     """Test platform_unix.py functions directly."""
 

@@ -9,10 +9,12 @@ import pytest
 # handler.py - lines 40, 55-56, 134-161, 174-188, 220, 230
 # ---------------------------------------------------------------------------
 
+
 def test_is_interactive_non_tty():
     """Cover is_interactive when stdin is not a TTY."""
     from code_puppy.tools.ask_user_question.handler import is_interactive
-    with patch('sys.stdin') as mock_stdin:
+
+    with patch("sys.stdin") as mock_stdin:
         mock_stdin.isatty.return_value = False
         assert is_interactive() is False
 
@@ -20,7 +22,8 @@ def test_is_interactive_non_tty():
 def test_is_interactive_attribute_error():
     """Cover is_interactive when stdin has no isatty."""
     from code_puppy.tools.ask_user_question.handler import is_interactive
-    with patch('sys.stdin') as mock_stdin:
+
+    with patch("sys.stdin") as mock_stdin:
         mock_stdin.isatty.side_effect = AttributeError
         assert is_interactive() is False
 
@@ -28,15 +31,17 @@ def test_is_interactive_attribute_error():
 def test_is_interactive_ci_env():
     """Cover is_interactive in CI environment."""
     from code_puppy.tools.ask_user_question.handler import is_interactive
-    with patch('sys.stdin') as mock_stdin:
+
+    with patch("sys.stdin") as mock_stdin:
         mock_stdin.isatty.return_value = True
-        with patch.dict(os.environ, {'CI': 'true'}):
+        with patch.dict(os.environ, {"CI": "true"}):
             assert is_interactive() is False
 
 
 def test_ask_user_question_validation_error():
     """Cover validation error path."""
     from code_puppy.tools.ask_user_question.handler import ask_user_question
+
     # Missing required fields
     result = ask_user_question([{"bad": "data"}])
     assert result.error is not None
@@ -45,15 +50,20 @@ def test_ask_user_question_validation_error():
 def test_ask_user_question_type_error():
     """Cover TypeError/ValueError in validation."""
     from code_puppy.tools.ask_user_question.handler import ask_user_question
-    with patch('code_puppy.tools.ask_user_question.handler._validate_input',
-               side_effect=TypeError("bad type")):
+
+    with patch(
+        "code_puppy.tools.ask_user_question.handler._validate_input",
+        side_effect=TypeError("bad type"),
+    ):
         result = ask_user_question([{}])
         assert result.error is not None
 
 
 def _mock_interactive(fn):
     """Helper to patch is_interactive to True."""
-    return patch('code_puppy.tools.ask_user_question.handler.is_interactive', return_value=True)(fn)
+    return patch(
+        "code_puppy.tools.ask_user_question.handler.is_interactive", return_value=True
+    )(fn)
 
 
 @_mock_interactive
@@ -66,12 +76,23 @@ def test_ask_user_question_timeout(_):
         QuestionOption,
     )
 
-    q = Question(question="test?", header="Test", options=[QuestionOption(label="A"), QuestionOption(label="B")])
+    q = Question(
+        question="test?",
+        header="Test",
+        options=[QuestionOption(label="A"), QuestionOption(label="B")],
+    )
     validated = AskUserQuestionInput(questions=[q])
 
-    with patch('code_puppy.tools.ask_user_question.handler._validate_input', return_value=validated), \
-         patch('code_puppy.tools.ask_user_question.handler._run_interactive_picker',
-               return_value=([], False, True)):
+    with (
+        patch(
+            "code_puppy.tools.ask_user_question.handler._validate_input",
+            return_value=validated,
+        ),
+        patch(
+            "code_puppy.tools.ask_user_question.handler._run_interactive_picker",
+            return_value=([], False, True),
+        ),
+    ):
         result = ask_user_question([{}], timeout=5)
         assert result.timed_out is True
 
@@ -86,12 +107,23 @@ def test_ask_user_question_cancelled(_):
         QuestionOption,
     )
 
-    q = Question(question="test?", header="Test", options=[QuestionOption(label="A"), QuestionOption(label="B")])
+    q = Question(
+        question="test?",
+        header="Test",
+        options=[QuestionOption(label="A"), QuestionOption(label="B")],
+    )
     validated = AskUserQuestionInput(questions=[q])
 
-    with patch('code_puppy.tools.ask_user_question.handler._validate_input', return_value=validated), \
-         patch('code_puppy.tools.ask_user_question.handler._run_interactive_picker',
-               return_value=([], True, False)):
+    with (
+        patch(
+            "code_puppy.tools.ask_user_question.handler._validate_input",
+            return_value=validated,
+        ),
+        patch(
+            "code_puppy.tools.ask_user_question.handler._run_interactive_picker",
+            return_value=([], True, False),
+        ),
+    ):
         result = ask_user_question([{}])
         assert result.cancelled is True
 
@@ -106,12 +138,23 @@ def test_ask_user_question_keyboard_interrupt(_):
         QuestionOption,
     )
 
-    q = Question(question="test?", header="Test", options=[QuestionOption(label="A"), QuestionOption(label="B")])
+    q = Question(
+        question="test?",
+        header="Test",
+        options=[QuestionOption(label="A"), QuestionOption(label="B")],
+    )
     validated = AskUserQuestionInput(questions=[q])
 
-    with patch('code_puppy.tools.ask_user_question.handler._validate_input', return_value=validated), \
-         patch('code_puppy.tools.ask_user_question.handler._run_interactive_picker',
-               side_effect=KeyboardInterrupt):
+    with (
+        patch(
+            "code_puppy.tools.ask_user_question.handler._validate_input",
+            return_value=validated,
+        ),
+        patch(
+            "code_puppy.tools.ask_user_question.handler._run_interactive_picker",
+            side_effect=KeyboardInterrupt,
+        ),
+    ):
         result = ask_user_question([{}])
         assert result.cancelled is True
 
@@ -126,12 +169,23 @@ def test_ask_user_question_os_error(_):
         QuestionOption,
     )
 
-    q = Question(question="test?", header="Test", options=[QuestionOption(label="A"), QuestionOption(label="B")])
+    q = Question(
+        question="test?",
+        header="Test",
+        options=[QuestionOption(label="A"), QuestionOption(label="B")],
+    )
     validated = AskUserQuestionInput(questions=[q])
 
-    with patch('code_puppy.tools.ask_user_question.handler._validate_input', return_value=validated), \
-         patch('code_puppy.tools.ask_user_question.handler._run_interactive_picker',
-               side_effect=OSError("terminal error")):
+    with (
+        patch(
+            "code_puppy.tools.ask_user_question.handler._validate_input",
+            return_value=validated,
+        ),
+        patch(
+            "code_puppy.tools.ask_user_question.handler._run_interactive_picker",
+            side_effect=OSError("terminal error"),
+        ),
+    ):
         result = ask_user_question([{}])
         assert result.error is not None
 
@@ -147,13 +201,24 @@ def test_ask_user_question_success(_):
         QuestionOption,
     )
 
-    q = Question(question="test?", header="Test", options=[QuestionOption(label="A"), QuestionOption(label="B")])
+    q = Question(
+        question="test?",
+        header="Test",
+        options=[QuestionOption(label="A"), QuestionOption(label="B")],
+    )
     validated = AskUserQuestionInput(questions=[q])
     answer = QuestionAnswer(question_header="Test", selected_options=["A"])
 
-    with patch('code_puppy.tools.ask_user_question.handler._validate_input', return_value=validated), \
-         patch('code_puppy.tools.ask_user_question.handler._run_interactive_picker',
-               return_value=([answer], False, False)):
+    with (
+        patch(
+            "code_puppy.tools.ask_user_question.handler._validate_input",
+            return_value=validated,
+        ),
+        patch(
+            "code_puppy.tools.ask_user_question.handler._run_interactive_picker",
+            return_value=([answer], False, False),
+        ),
+    ):
         result = ask_user_question([{}])
         assert len(result.answers) == 1
 
@@ -161,6 +226,7 @@ def test_ask_user_question_success(_):
 def test_async_context_error_is_runtime_error():
     """Verify AsyncContextError is a RuntimeError subclass."""
     from code_puppy.tools.ask_user_question.handler import AsyncContextError
+
     assert issubclass(AsyncContextError, RuntimeError)
 
 
@@ -183,6 +249,7 @@ def test_format_validation_error():
 def test_format_validation_error_empty():
     """Cover empty errors list."""
     from code_puppy.tools.ask_user_question.handler import _format_validation_error
+
     mock_err = MagicMock()
     mock_err.errors.return_value = []
     result = _format_validation_error(mock_err)
@@ -195,9 +262,11 @@ def test_format_validation_error_many():
         MAX_VALIDATION_ERRORS_SHOWN,
         _format_validation_error,
     )
+
     mock_err = MagicMock()
     mock_err.errors.return_value = [
-        {"loc": ("field",), "msg": f"error {i}"} for i in range(MAX_VALIDATION_ERRORS_SHOWN + 5)
+        {"loc": ("field",), "msg": f"error {i}"}
+        for i in range(MAX_VALIDATION_ERRORS_SHOWN + 5)
     ]
     result = _format_validation_error(mock_err)
     assert "and " in result
@@ -208,9 +277,11 @@ def test_format_validation_error_many():
 # models.py - lines 57-59
 # ---------------------------------------------------------------------------
 
+
 def test_sanitizer_none_not_allowed():
     """Cover sanitizer when None is not allowed."""
     from code_puppy.tools.ask_user_question.models import _make_sanitizer
+
     sanitizer = _make_sanitizer(allow_none=False)
     with pytest.raises(ValueError, match="cannot be None"):
         sanitizer(None)
@@ -219,6 +290,7 @@ def test_sanitizer_none_not_allowed():
 def test_sanitizer_none_allowed():
     """Cover sanitizer when None is allowed."""
     from code_puppy.tools.ask_user_question.models import _make_sanitizer
+
     sanitizer = _make_sanitizer(allow_none=True, default="default_val")
     result = sanitizer(None)
     assert result == "default_val"
@@ -227,6 +299,7 @@ def test_sanitizer_none_allowed():
 # ---------------------------------------------------------------------------
 # registration.py - lines 19-87
 # ---------------------------------------------------------------------------
+
 
 def test_register_ask_user_question():
     """Cover the registration function."""
@@ -244,15 +317,24 @@ def test_register_ask_user_question():
 # terminal_ui.py - uncovered lines
 # ---------------------------------------------------------------------------
 
+
 def test_question_ui_state_is_question_answered():
     """Cover is_question_answered for multi-select."""
     from code_puppy.tools.ask_user_question.models import Question, QuestionOption
     from code_puppy.tools.ask_user_question.terminal_ui import QuestionUIState
 
-    q1 = Question(question="test?", header="Test", multi_select=True,
-                  options=[QuestionOption(label="A"), QuestionOption(label="B")])
-    q2 = Question(question="test2?", header="T2", multi_select=False,
-                  options=[QuestionOption(label="X"), QuestionOption(label="Y")])
+    q1 = Question(
+        question="test?",
+        header="Test",
+        multi_select=True,
+        options=[QuestionOption(label="A"), QuestionOption(label="B")],
+    )
+    q2 = Question(
+        question="test2?",
+        header="T2",
+        multi_select=False,
+        options=[QuestionOption(label="X"), QuestionOption(label="Y")],
+    )
     state = QuestionUIState([q1, q2])
 
     # Not answered yet
@@ -278,7 +360,11 @@ def test_question_ui_state_other_text():
     from code_puppy.tools.ask_user_question.models import Question, QuestionOption
     from code_puppy.tools.ask_user_question.terminal_ui import QuestionUIState
 
-    q = Question(question="test?", header="Test", options=[QuestionOption(label="A"), QuestionOption(label="B")])
+    q = Question(
+        question="test?",
+        header="Test",
+        options=[QuestionOption(label="A"), QuestionOption(label="B")],
+    )
     state = QuestionUIState([q])
 
     state.enter_other_text_mode()
@@ -301,8 +387,16 @@ def test_question_ui_state_select_all_none():
     from code_puppy.tools.ask_user_question.models import Question, QuestionOption
     from code_puppy.tools.ask_user_question.terminal_ui import QuestionUIState
 
-    q = Question(question="test?", header="Test", multi_select=True,
-                 options=[QuestionOption(label="A"), QuestionOption(label="B"), QuestionOption(label="C")])
+    q = Question(
+        question="test?",
+        header="Test",
+        multi_select=True,
+        options=[
+            QuestionOption(label="A"),
+            QuestionOption(label="B"),
+            QuestionOption(label="C"),
+        ],
+    )
     state = QuestionUIState([q])
 
     state.select_all_options()
@@ -312,8 +406,12 @@ def test_question_ui_state_select_all_none():
     assert len(state.selected_options[0]) == 0
 
     # Single-select - should be no-ops
-    q2 = Question(question="t?", header="T", multi_select=False,
-                  options=[QuestionOption(label="X"), QuestionOption(label="Y")])
+    q2 = Question(
+        question="t?",
+        header="T",
+        multi_select=False,
+        options=[QuestionOption(label="X"), QuestionOption(label="Y")],
+    )
     state2 = QuestionUIState([q2])
     state2.select_all_options()  # no-op
     state2.select_no_options()  # no-op
@@ -324,8 +422,16 @@ def test_question_ui_state_navigation():
     from code_puppy.tools.ask_user_question.models import Question, QuestionOption
     from code_puppy.tools.ask_user_question.terminal_ui import QuestionUIState
 
-    q1 = Question(question="q1?", header="Q1", options=[QuestionOption(label="A"), QuestionOption(label="B")])
-    q2 = Question(question="q2?", header="Q2", options=[QuestionOption(label="B"), QuestionOption(label="C")])
+    q1 = Question(
+        question="q1?",
+        header="Q1",
+        options=[QuestionOption(label="A"), QuestionOption(label="B")],
+    )
+    q2 = Question(
+        question="q2?",
+        header="Q2",
+        options=[QuestionOption(label="B"), QuestionOption(label="C")],
+    )
     state = QuestionUIState([q1, q2])
 
     assert state.current_question_index == 0
@@ -344,10 +450,18 @@ def test_question_ui_state_toggle_select():
     from code_puppy.tools.ask_user_question.models import Question, QuestionOption
     from code_puppy.tools.ask_user_question.terminal_ui import QuestionUIState
 
-    q1 = Question(question="q?", header="Q", multi_select=True,
-                  options=[QuestionOption(label="A"), QuestionOption(label="B")])
-    q2 = Question(question="q2?", header="Q2", multi_select=False,
-                  options=[QuestionOption(label="X"), QuestionOption(label="Y")])
+    q1 = Question(
+        question="q?",
+        header="Q",
+        multi_select=True,
+        options=[QuestionOption(label="A"), QuestionOption(label="B")],
+    )
+    q2 = Question(
+        question="q2?",
+        header="Q2",
+        multi_select=False,
+        options=[QuestionOption(label="X"), QuestionOption(label="Y")],
+    )
     state = QuestionUIState([q1, q2])
 
     # Multi-select toggle
@@ -374,10 +488,18 @@ def test_question_ui_state_get_answers():
     from code_puppy.tools.ask_user_question.models import Question, QuestionOption
     from code_puppy.tools.ask_user_question.terminal_ui import QuestionUIState
 
-    q1 = Question(question="q1?", header="Q1", multi_select=True,
-                  options=[QuestionOption(label="A"), QuestionOption(label="B")])
-    q2 = Question(question="q2?", header="Q2", multi_select=False,
-                  options=[QuestionOption(label="X"), QuestionOption(label="Y")])
+    q1 = Question(
+        question="q1?",
+        header="Q1",
+        multi_select=True,
+        options=[QuestionOption(label="A"), QuestionOption(label="B")],
+    )
+    q2 = Question(
+        question="q2?",
+        header="Q2",
+        multi_select=False,
+        options=[QuestionOption(label="X"), QuestionOption(label="Y")],
+    )
     state = QuestionUIState([q1, q2])
 
     state.selected_options[0].add(0)
@@ -395,8 +517,12 @@ def test_question_ui_state_is_option_selected():
     from code_puppy.tools.ask_user_question.models import Question, QuestionOption
     from code_puppy.tools.ask_user_question.terminal_ui import QuestionUIState
 
-    q = Question(question="q?", header="Q", multi_select=False,
-                 options=[QuestionOption(label="A"), QuestionOption(label="B")])
+    q = Question(
+        question="q?",
+        header="Q",
+        multi_select=False,
+        options=[QuestionOption(label="A"), QuestionOption(label="B")],
+    )
     state = QuestionUIState([q])
     state.single_selections[0] = 1
     assert state.is_option_selected(1) is True
@@ -407,18 +533,22 @@ def test_question_ui_state_is_option_selected():
 # demo_tui.py - line 55
 # ---------------------------------------------------------------------------
 
+
 def test_demo_tui_main():
     """Cover demo_tui main function."""
     from code_puppy.tools.ask_user_question import demo_tui
+
     # The if __name__ == '__main__' guard won't fire on import
-    assert hasattr(demo_tui, 'main')
+    assert hasattr(demo_tui, "main")
 
 
 # ---------------------------------------------------------------------------
 # tui_loop.py - line 338
 # ---------------------------------------------------------------------------
 
+
 def test_tui_loop_module_import():
     """Cover tui_loop module import."""
     from code_puppy.tools.ask_user_question import tui_loop
-    assert hasattr(tui_loop, 'run_question_tui')
+
+    assert hasattr(tui_loop, "run_question_tui")

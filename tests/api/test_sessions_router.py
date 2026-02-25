@@ -125,6 +125,7 @@ def test_serialize_message_with_dict() -> None:
         def __init__(self):
             self.role = "user"
             self.content = "hi"
+
     result = _serialize_message(Obj())
     assert result["role"] == "user"
 
@@ -135,7 +136,9 @@ def test_serialize_message_fallback() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_session_messages_pickle_error(client: AsyncClient, sessions_dir) -> None:
+async def test_get_session_messages_pickle_error(
+    client: AsyncClient, sessions_dir
+) -> None:
     """Test error handling when pickle file is corrupt."""
     (sessions_dir / "corrupt.pkl").write_bytes(b"not a pickle")
     (sessions_dir / "corrupt.txt").write_text('{"agent_name": "x"}')
@@ -155,10 +158,14 @@ async def test_delete_session_pkl_only(client: AsyncClient, sessions_dir) -> Non
 @pytest.mark.asyncio
 async def test_list_sessions_timeout(sessions_dir) -> None:
     """Test timeout handling in list_sessions."""
-    with patch("code_puppy.config.DATA_DIR", str(sessions_dir.parent), create=True), \
-         patch("code_puppy.api.routers.sessions.FILE_IO_TIMEOUT", 0.0001), \
-         patch("code_puppy.api.routers.sessions._load_json_sync",
-               side_effect=lambda *a: __import__('time').sleep(1)):
+    with (
+        patch("code_puppy.config.DATA_DIR", str(sessions_dir.parent), create=True),
+        patch("code_puppy.api.routers.sessions.FILE_IO_TIMEOUT", 0.0001),
+        patch(
+            "code_puppy.api.routers.sessions._load_json_sync",
+            side_effect=lambda *a: __import__("time").sleep(1),
+        ),
+    ):
         app = create_app()
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -172,10 +179,14 @@ async def test_list_sessions_timeout(sessions_dir) -> None:
 @pytest.mark.asyncio
 async def test_get_session_timeout(sessions_dir) -> None:
     """Test timeout handling in get_session."""
-    with patch("code_puppy.config.DATA_DIR", str(sessions_dir.parent), create=True), \
-         patch("code_puppy.api.routers.sessions.FILE_IO_TIMEOUT", 0.0001), \
-         patch("code_puppy.api.routers.sessions._load_json_sync",
-               side_effect=lambda *a: __import__('time').sleep(1)):
+    with (
+        patch("code_puppy.config.DATA_DIR", str(sessions_dir.parent), create=True),
+        patch("code_puppy.api.routers.sessions.FILE_IO_TIMEOUT", 0.0001),
+        patch(
+            "code_puppy.api.routers.sessions._load_json_sync",
+            side_effect=lambda *a: __import__("time").sleep(1),
+        ),
+    ):
         app = create_app()
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -186,10 +197,14 @@ async def test_get_session_timeout(sessions_dir) -> None:
 @pytest.mark.asyncio
 async def test_get_messages_timeout(sessions_dir) -> None:
     """Test timeout handling in get_session_messages."""
-    with patch("code_puppy.config.DATA_DIR", str(sessions_dir.parent), create=True), \
-         patch("code_puppy.api.routers.sessions.FILE_IO_TIMEOUT", 0.0001), \
-         patch("code_puppy.api.routers.sessions._load_pickle_sync",
-               side_effect=lambda *a: __import__('time').sleep(1)):
+    with (
+        patch("code_puppy.config.DATA_DIR", str(sessions_dir.parent), create=True),
+        patch("code_puppy.api.routers.sessions.FILE_IO_TIMEOUT", 0.0001),
+        patch(
+            "code_puppy.api.routers.sessions._load_pickle_sync",
+            side_effect=lambda *a: __import__("time").sleep(1),
+        ),
+    ):
         app = create_app()
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:

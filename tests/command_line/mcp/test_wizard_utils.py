@@ -2,11 +2,8 @@
 
 import json
 import os
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, mock_open, patch
-
-import pytest
+from dataclasses import dataclass
+from unittest.mock import MagicMock, patch
 
 
 @dataclass
@@ -42,7 +39,14 @@ class TestInteractiveServerSelection:
         mock_catalog.get_popular.return_value = servers
         mock_prompt.return_value = "1"
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             result = interactive_server_selection("grp")
         assert result == servers[0]
 
@@ -57,7 +61,14 @@ class TestInteractiveServerSelection:
         mock_catalog.get_popular.return_value = [FakeServer()]
         mock_prompt.return_value = "q"
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             result = interactive_server_selection("grp")
         assert result is None
 
@@ -72,7 +83,14 @@ class TestInteractiveServerSelection:
         mock_catalog.get_popular.return_value = [FakeServer()]
         mock_prompt.return_value = "99"
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             result = interactive_server_selection("grp")
         assert result is None
 
@@ -87,7 +105,14 @@ class TestInteractiveServerSelection:
         mock_catalog.get_popular.return_value = [FakeServer()]
         mock_prompt.return_value = "abc"
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             result = interactive_server_selection("grp")
         assert result is None
 
@@ -100,7 +125,14 @@ class TestInteractiveServerSelection:
         mock_catalog = MagicMock()
         mock_catalog.get_popular.return_value = []
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "code_puppy.mcp_.server_registry_catalog": MagicMock(
+                    catalog=mock_catalog
+                )
+            },
+        ):
             result = interactive_server_selection("grp")
         assert result is None
 
@@ -109,7 +141,9 @@ class TestInteractiveServerSelection:
             interactive_server_selection,
         )
 
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": None}):
+        with patch.dict(
+            "sys.modules", {"code_puppy.mcp_.server_registry_catalog": None}
+        ):
             result = interactive_server_selection("grp")
         assert result is None
 
@@ -146,7 +180,10 @@ class TestInteractiveConfigureServer:
         mock_prompt.return_value = "y"
         mock_install.return_value = True
 
-        with patch("code_puppy.command_line.mcp.utils.find_server_id_by_name", return_value=None):
+        with patch(
+            "code_puppy.command_line.mcp.utils.find_server_id_by_name",
+            return_value=None,
+        ):
             result = interactive_configure_server(
                 MagicMock(), FakeServer(), "srv", "grp", {"KEY": "val"}, {"arg": "v"}
             )
@@ -161,7 +198,10 @@ class TestInteractiveConfigureServer:
 
         mock_prompt.return_value = "n"
 
-        with patch("code_puppy.command_line.mcp.utils.find_server_id_by_name", return_value="existing-id"):
+        with patch(
+            "code_puppy.command_line.mcp.utils.find_server_id_by_name",
+            return_value="existing-id",
+        ):
             result = interactive_configure_server(
                 MagicMock(), FakeServer(), "srv", "grp", {}, {}
             )
@@ -176,7 +216,10 @@ class TestInteractiveConfigureServer:
 
         mock_prompt.return_value = "n"
 
-        with patch("code_puppy.command_line.mcp.utils.find_server_id_by_name", return_value=None):
+        with patch(
+            "code_puppy.command_line.mcp.utils.find_server_id_by_name",
+            return_value=None,
+        ):
             result = interactive_configure_server(
                 MagicMock(), FakeServer(), "srv", "grp", {}, {}
             )
@@ -190,7 +233,10 @@ class TestInteractiveConfigureServer:
             interactive_configure_server,
         )
 
-        with patch("code_puppy.command_line.mcp.utils.find_server_id_by_name", side_effect=Exception("boom")):
+        with patch(
+            "code_puppy.command_line.mcp.utils.find_server_id_by_name",
+            side_effect=Exception("boom"),
+        ):
             result = interactive_configure_server(
                 MagicMock(), FakeServer(), "srv", "grp", {}, {}
             )
@@ -267,9 +313,7 @@ class TestInstallServerFromCatalog:
 
         mcp_file = tmp_path / "mcp_servers.json"
         with patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_file)):
-            result = install_server_from_catalog(
-                manager, server, "srv", {}, {}, "grp"
-            )
+            result = install_server_from_catalog(manager, server, "srv", {}, {}, "grp")
         assert result is False
 
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_error")
@@ -280,18 +324,24 @@ class TestInstallServerFromCatalog:
         server.to_server_config = MagicMock(side_effect=Exception("boom"))
         manager = MagicMock()
 
-        result = install_server_from_catalog(
-            manager, server, "srv", {}, {}, "grp"
-        )
+        result = install_server_from_catalog(manager, server, "srv", {}, {}, "grp")
         assert result is False
 
 
 class TestRunInteractiveInstallWizard:
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_configure_server", return_value=True)
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name", return_value="my-srv")
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_configure_server",
+        return_value=True,
+    )
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name",
+        return_value="my-srv",
+    )
     @patch("code_puppy.command_line.mcp.wizard_utils.interactive_server_selection")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_full_wizard_no_env_no_args(self, mock_info, mock_select, mock_name, mock_config):
+    def test_full_wizard_no_env_no_args(
+        self, mock_info, mock_select, mock_name, mock_config
+    ):
         from code_puppy.command_line.mcp.wizard_utils import (
             run_interactive_install_wizard,
         )
@@ -300,7 +350,10 @@ class TestRunInteractiveInstallWizard:
         result = run_interactive_install_wizard(MagicMock(), "grp")
         assert result is True
 
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_server_selection", return_value=None)
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_server_selection",
+        return_value=None,
+    )
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
     def test_wizard_cancelled_at_selection(self, mock_info, mock_select):
         from code_puppy.command_line.mcp.wizard_utils import (
@@ -310,7 +363,10 @@ class TestRunInteractiveInstallWizard:
         result = run_interactive_install_wizard(MagicMock(), "grp")
         assert result is False
 
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name", return_value=None)
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name",
+        return_value=None,
+    )
     @patch("code_puppy.command_line.mcp.wizard_utils.interactive_server_selection")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
     def test_wizard_cancelled_at_name(self, mock_info, mock_select, mock_name):
@@ -322,12 +378,20 @@ class TestRunInteractiveInstallWizard:
         result = run_interactive_install_wizard(MagicMock(), "grp")
         assert result is False
 
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_configure_server", return_value=True)
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name", return_value="srv")
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_configure_server",
+        return_value=True,
+    )
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name",
+        return_value="srv",
+    )
     @patch("code_puppy.command_line.mcp.wizard_utils.interactive_server_selection")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_prompt")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_wizard_with_env_vars_and_cmd_args(self, mock_info, mock_prompt, mock_select, mock_name, mock_config):
+    def test_wizard_with_env_vars_and_cmd_args(
+        self, mock_info, mock_prompt, mock_select, mock_name, mock_config
+    ):
         from code_puppy.command_line.mcp.wizard_utils import (
             run_interactive_install_wizard,
         )
@@ -335,7 +399,12 @@ class TestRunInteractiveInstallWizard:
         server = FakeServer()
         server.get_environment_vars = lambda: ["API_KEY"]
         server.get_command_line_args = lambda: [
-            {"name": "path", "prompt": "Enter path", "default": "/tmp", "required": True},
+            {
+                "name": "path",
+                "prompt": "Enter path",
+                "default": "/tmp",
+                "required": True,
+            },
             {"name": "opt", "prompt": "Optional", "default": "", "required": False},
         ]
         mock_select.return_value = server
@@ -347,12 +416,20 @@ class TestRunInteractiveInstallWizard:
             result = run_interactive_install_wizard(MagicMock(), "grp")
         assert result is True
 
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_configure_server", return_value=True)
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name", return_value="srv")
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_configure_server",
+        return_value=True,
+    )
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name",
+        return_value="srv",
+    )
     @patch("code_puppy.command_line.mcp.wizard_utils.interactive_server_selection")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_prompt")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_wizard_cmd_arg_not_required_no_default(self, mock_info, mock_prompt, mock_select, mock_name, mock_config):
+    def test_wizard_cmd_arg_not_required_no_default(
+        self, mock_info, mock_prompt, mock_select, mock_name, mock_config
+    ):
         """Test cmd arg that is not required and has no default - should be skipped."""
         from code_puppy.command_line.mcp.wizard_utils import (
             run_interactive_install_wizard,
@@ -367,12 +444,20 @@ class TestRunInteractiveInstallWizard:
         result = run_interactive_install_wizard(MagicMock(), "grp")
         assert result is True
 
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_configure_server", return_value=True)
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name", return_value="srv")
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_configure_server",
+        return_value=True,
+    )
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name",
+        return_value="srv",
+    )
     @patch("code_puppy.command_line.mcp.wizard_utils.interactive_server_selection")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_prompt")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_wizard_cmd_arg_empty_value_uses_default(self, mock_info, mock_prompt, mock_select, mock_name, mock_config):
+    def test_wizard_cmd_arg_empty_value_uses_default(
+        self, mock_info, mock_prompt, mock_select, mock_name, mock_config
+    ):
         """Test cmd arg where user enters empty value and default is used."""
         from code_puppy.command_line.mcp.wizard_utils import (
             run_interactive_install_wizard,
@@ -388,12 +473,20 @@ class TestRunInteractiveInstallWizard:
         result = run_interactive_install_wizard(MagicMock(), "grp")
         assert result is True
 
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_configure_server", return_value=True)
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name", return_value="srv")
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_configure_server",
+        return_value=True,
+    )
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name",
+        return_value="srv",
+    )
     @patch("code_puppy.command_line.mcp.wizard_utils.interactive_server_selection")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_prompt")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_wizard_cmd_arg_not_required_with_default_empty_input(self, mock_info, mock_prompt, mock_select, mock_name, mock_config):
+    def test_wizard_cmd_arg_not_required_with_default_empty_input(
+        self, mock_info, mock_prompt, mock_select, mock_name, mock_config
+    ):
         """Test optional cmd arg with default where user enters empty -> uses default."""
         from code_puppy.command_line.mcp.wizard_utils import (
             run_interactive_install_wizard,
@@ -409,12 +502,20 @@ class TestRunInteractiveInstallWizard:
         result = run_interactive_install_wizard(MagicMock(), "grp")
         assert result is True
 
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_configure_server", return_value=True)
-    @patch("code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name", return_value="srv")
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_configure_server",
+        return_value=True,
+    )
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.interactive_get_server_name",
+        return_value="srv",
+    )
     @patch("code_puppy.command_line.mcp.wizard_utils.interactive_server_selection")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_prompt")
     @patch("code_puppy.command_line.mcp.wizard_utils.emit_info")
-    def test_wizard_env_var_already_set(self, mock_info, mock_prompt, mock_select, mock_name, mock_config):
+    def test_wizard_env_var_already_set(
+        self, mock_info, mock_prompt, mock_select, mock_name, mock_config
+    ):
         from code_puppy.command_line.mcp.wizard_utils import (
             run_interactive_install_wizard,
         )
@@ -434,7 +535,10 @@ class TestRunInteractiveInstallWizard:
             run_interactive_install_wizard,
         )
 
-        with patch("code_puppy.command_line.mcp.wizard_utils.interactive_server_selection", side_effect=RuntimeError("boom")):
+        with patch(
+            "code_puppy.command_line.mcp.wizard_utils.interactive_server_selection",
+            side_effect=RuntimeError("boom"),
+        ):
             result = run_interactive_install_wizard(MagicMock(), "grp")
         assert result is False
 
@@ -445,6 +549,9 @@ class TestRunInteractiveInstallWizard:
             run_interactive_install_wizard,
         )
 
-        with patch("code_puppy.command_line.mcp.wizard_utils.interactive_server_selection", side_effect=ImportError("no module")):
+        with patch(
+            "code_puppy.command_line.mcp.wizard_utils.interactive_server_selection",
+            side_effect=ImportError("no module"),
+        ):
             result = run_interactive_install_wizard(MagicMock(), "grp")
         assert result is False

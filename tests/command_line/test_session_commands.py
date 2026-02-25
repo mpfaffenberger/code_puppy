@@ -23,9 +23,7 @@ class TestHandleSessionCommand:
 
     def test_session_show_id(self):
         with (
-            patch(
-                "code_puppy.config.get_current_autosave_id", return_value="abc123"
-            ),
+            patch("code_puppy.config.get_current_autosave_id", return_value="abc123"),
             patch(
                 "code_puppy.config.get_current_autosave_session_name",
                 return_value="session_abc123",
@@ -288,14 +286,20 @@ class TestHandleDumpContextCommand:
     def test_success(self):
         agent = MagicMock()
         agent.get_message_history.return_value = ["m1", "m2"]
-        meta = MagicMock(message_count=2, total_tokens=200, pickle_path="a.pkl", metadata_path="a.json")
+        meta = MagicMock(
+            message_count=2,
+            total_tokens=200,
+            pickle_path="a.pkl",
+            metadata_path="a.json",
+        )
         with (
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
                 return_value=agent,
             ),
             patch(
-                "code_puppy.command_line.session_commands.save_session", return_value=meta
+                "code_puppy.command_line.session_commands.save_session",
+                return_value=meta,
             ),
             patch("code_puppy.messaging.emit_success"),
         ):
@@ -338,7 +342,8 @@ class TestHandleLoadContextCommand:
                 side_effect=FileNotFoundError(),
             ),
             patch(
-                "code_puppy.command_line.session_commands.list_sessions", return_value=["s1"]
+                "code_puppy.command_line.session_commands.list_sessions",
+                return_value=["s1"],
             ),
             patch("code_puppy.messaging.emit_error"),
             patch("code_puppy.messaging.emit_info") as mi,
@@ -352,7 +357,10 @@ class TestHandleLoadContextCommand:
                 "code_puppy.command_line.session_commands.load_session",
                 side_effect=FileNotFoundError(),
             ),
-            patch("code_puppy.command_line.session_commands.list_sessions", return_value=[]),
+            patch(
+                "code_puppy.command_line.session_commands.list_sessions",
+                return_value=[],
+            ),
             patch("code_puppy.messaging.emit_error"),
             patch("code_puppy.messaging.emit_info") as mi,
         ):
@@ -375,7 +383,8 @@ class TestHandleLoadContextCommand:
         agent.estimate_tokens_for_message.return_value = 50
         with (
             patch(
-                "code_puppy.command_line.session_commands.load_session", return_value=["m1", "m2"]
+                "code_puppy.command_line.session_commands.load_session",
+                return_value=["m1", "m2"],
             ),
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
@@ -383,9 +392,7 @@ class TestHandleLoadContextCommand:
             ),
             patch("code_puppy.config.rotate_autosave_id", return_value="new_id"),
             patch("code_puppy.messaging.emit_success"),
-            patch(
-                "code_puppy.command_line.autosave_menu.display_resumed_history"
-            ),
+            patch("code_puppy.command_line.autosave_menu.display_resumed_history"),
         ):
             assert self._run("/load_context mysession") is True
 
@@ -394,7 +401,8 @@ class TestHandleLoadContextCommand:
         agent.estimate_tokens_for_message.return_value = 50
         with (
             patch(
-                "code_puppy.command_line.session_commands.load_session", return_value=["m1"]
+                "code_puppy.command_line.session_commands.load_session",
+                return_value=["m1"],
             ),
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
@@ -405,8 +413,6 @@ class TestHandleLoadContextCommand:
                 side_effect=Exception("fail"),
             ),
             patch("code_puppy.messaging.emit_success"),
-            patch(
-                "code_puppy.command_line.autosave_menu.display_resumed_history"
-            ),
+            patch("code_puppy.command_line.autosave_menu.display_resumed_history"),
         ):
             assert self._run("/load_context mysession") is True

@@ -84,8 +84,10 @@ class TestExecuteTask:
     @patch("os.makedirs")
     def test_file_not_found_error(self, mock_mkdirs, mock_isdir, mock_update):
         task = _make_task()
-        with patch("builtins.open", mock_open()), \
-             patch("subprocess.Popen", side_effect=FileNotFoundError("not found")):
+        with (
+            patch("builtins.open", mock_open()),
+            patch("subprocess.Popen", side_effect=FileNotFoundError("not found")),
+        ):
             success, code, err = execute_task(task)
 
         assert success is False
@@ -96,8 +98,10 @@ class TestExecuteTask:
     @patch("os.makedirs")
     def test_generic_exception(self, mock_mkdirs, mock_isdir, mock_update):
         task = _make_task()
-        with patch("builtins.open", mock_open()), \
-             patch("subprocess.Popen", side_effect=RuntimeError("boom")):
+        with (
+            patch("builtins.open", mock_open()),
+            patch("subprocess.Popen", side_effect=RuntimeError("boom")),
+        ):
             success, code, err = execute_task(task)
 
         assert success is False
@@ -153,7 +157,9 @@ class TestExecuteTask:
     @patch("subprocess.Popen")
     @patch("os.path.isdir", return_value=True)
     @patch("os.makedirs")
-    def test_empty_log_file_gets_default(self, mock_mkdirs, mock_isdir, mock_popen, mock_update):
+    def test_empty_log_file_gets_default(
+        self, mock_mkdirs, mock_isdir, mock_popen, mock_update
+    ):
         proc = MagicMock()
         proc.wait.return_value = 0
         mock_popen.return_value = proc

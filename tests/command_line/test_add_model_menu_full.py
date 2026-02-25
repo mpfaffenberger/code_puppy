@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 def _make_provider(name="TestProvider", env=None, provider_id="test"):
     from code_puppy.models_dev_parser import ProviderInfo
+
     return ProviderInfo(
         id=provider_id,
         name=name,
@@ -19,6 +20,7 @@ def _make_provider(name="TestProvider", env=None, provider_id="test"):
 
 def _make_model(name="test-model", tool_call=True):
     from code_puppy.models_dev_parser import ModelInfo
+
     return ModelInfo(
         provider_id="test",
         model_id=name,
@@ -33,7 +35,8 @@ def _make_model(name="test-model", tool_call=True):
 class TestPromptForCredentials:
     def _make_menu(self):
         from code_puppy.command_line.add_model_menu import AddModelMenu
-        with patch.object(AddModelMenu, '__init__', lambda self: None):
+
+        with patch.object(AddModelMenu, "__init__", lambda self: None):
             menu = AddModelMenu.__new__(AddModelMenu)
             menu.result = None
             menu.pending_model = None
@@ -59,7 +62,9 @@ class TestPromptForCredentials:
 
     @patch("code_puppy.command_line.add_model_menu.emit_info")
     @patch("code_puppy.command_line.add_model_menu.set_config_value")
-    @patch("code_puppy.command_line.add_model_menu.safe_input", return_value="my-key-value")
+    @patch(
+        "code_puppy.command_line.add_model_menu.safe_input", return_value="my-key-value"
+    )
     def test_provide_env_var(self, mock_input, mock_set, mock_info):
         menu = self._make_menu()
         provider = _make_provider(env=["TEST_KEY"])
@@ -71,7 +76,10 @@ class TestPromptForCredentials:
 
     @patch("code_puppy.command_line.add_model_menu.emit_info")
     @patch("code_puppy.command_line.add_model_menu.emit_warning")
-    @patch("code_puppy.command_line.add_model_menu.safe_input", side_effect=KeyboardInterrupt)
+    @patch(
+        "code_puppy.command_line.add_model_menu.safe_input",
+        side_effect=KeyboardInterrupt,
+    )
     def test_keyboard_interrupt(self, mock_input, mock_warn, mock_info):
         menu = self._make_menu()
         provider = _make_provider(env=["TEST_KEY"])
@@ -93,7 +101,8 @@ class TestAddModelMenuRun:
 
     def _make_menu(self):
         from code_puppy.command_line.add_model_menu import AddModelMenu
-        with patch.object(AddModelMenu, '__init__', lambda self: None):
+
+        with patch.object(AddModelMenu, "__init__", lambda self: None):
             menu = AddModelMenu.__new__(AddModelMenu)
             menu.result = None
             menu.pending_model = None
@@ -114,10 +123,15 @@ class TestAddModelMenuRun:
     @patch("code_puppy.command_line.add_model_menu.Application")
     def test_run_unsupported(self, mock_app, mock_sys, mock_await, mock_err, mock_info):
         from code_puppy.command_line.add_model_menu import UNSUPPORTED_PROVIDERS
+
         menu = self._make_menu()
         menu.providers = [_make_provider()]
         menu.result = "unsupported"
-        menu.current_provider = _make_provider(provider_id=list(UNSUPPORTED_PROVIDERS.keys())[0] if UNSUPPORTED_PROVIDERS else "x")
+        menu.current_provider = _make_provider(
+            provider_id=list(UNSUPPORTED_PROVIDERS.keys())[0]
+            if UNSUPPORTED_PROVIDERS
+            else "x"
+        )
         mock_app.return_value.run.return_value = None
         # We can't easily test run() due to TUI, test the post-TUI logic directly
         # by simulating what happens after the app exits
@@ -144,7 +158,8 @@ class TestAddModelMenuKeyHandlers:
 
     def _make_menu(self):
         from code_puppy.command_line.add_model_menu import AddModelMenu
-        with patch.object(AddModelMenu, '__init__', lambda self: None):
+
+        with patch.object(AddModelMenu, "__init__", lambda self: None):
             menu = AddModelMenu.__new__(AddModelMenu)
             menu.result = None
             menu.pending_model = None
@@ -161,13 +176,15 @@ class TestAddModelMenuKeyHandlers:
     def test_update_display_exists(self):
         """Verify update_display is a method we can call."""
         from code_puppy.command_line.add_model_menu import AddModelMenu
-        assert hasattr(AddModelMenu, 'update_display')
+
+        assert hasattr(AddModelMenu, "update_display")
 
 
 class TestInteractiveModelPicker:
     @patch("code_puppy.command_line.add_model_menu.AddModelMenu")
     def test_delegates_to_menu(self, mock_cls):
         from code_puppy.command_line.add_model_menu import interactive_model_picker
+
         mock_cls.return_value.run.return_value = True
         assert interactive_model_picker() is True
 
@@ -178,21 +195,23 @@ class TestPostTuiFlows:
     def test_pending_custom_model_flow(self):
         """Cover lines 1026-1046."""
         from code_puppy.command_line.add_model_menu import AddModelMenu
-        with patch.object(AddModelMenu, '__init__', lambda self: None):
+
+        with patch.object(AddModelMenu, "__init__", lambda self: None):
             menu = AddModelMenu.__new__(AddModelMenu)
             menu.result = "pending_custom_model"
             menu.pending_provider = _make_provider(env=[])
             menu.pending_model = None
 
             # Test _prompt_for_custom_model returning None
-            with patch.object(menu, '_prompt_for_custom_model', return_value=None):
+            with patch.object(menu, "_prompt_for_custom_model", return_value=None):
                 # Can't call run() due to TUI, but we can test the helper
                 assert menu._prompt_for_custom_model() is None
 
     def test_create_custom_model_info(self):
         """Cover _create_custom_model_info."""
         from code_puppy.command_line.add_model_menu import AddModelMenu
-        with patch.object(AddModelMenu, '__init__', lambda self: None):
+
+        with patch.object(AddModelMenu, "__init__", lambda self: None):
             menu = AddModelMenu.__new__(AddModelMenu)
             menu.pending_provider = _make_provider()
             model = menu._create_custom_model_info("custom-model", 64000)
@@ -203,7 +222,8 @@ class TestPostTuiFlows:
     @patch("code_puppy.command_line.add_model_menu.safe_input")
     def test_prompt_for_custom_model_success(self, mock_input, mock_info):
         from code_puppy.command_line.add_model_menu import AddModelMenu
-        with patch.object(AddModelMenu, '__init__', lambda self: None):
+
+        with patch.object(AddModelMenu, "__init__", lambda self: None):
             menu = AddModelMenu.__new__(AddModelMenu)
             menu.pending_provider = _make_provider()
             mock_input.side_effect = ["my-custom-model", "64000"]
@@ -212,10 +232,14 @@ class TestPostTuiFlows:
             assert result[0] == "my-custom-model"
 
     @patch("code_puppy.command_line.add_model_menu.emit_info")
-    @patch("code_puppy.command_line.add_model_menu.safe_input", side_effect=KeyboardInterrupt)
+    @patch(
+        "code_puppy.command_line.add_model_menu.safe_input",
+        side_effect=KeyboardInterrupt,
+    )
     def test_prompt_for_custom_model_cancel(self, mock_input, mock_info):
         from code_puppy.command_line.add_model_menu import AddModelMenu
-        with patch.object(AddModelMenu, '__init__', lambda self: None):
+
+        with patch.object(AddModelMenu, "__init__", lambda self: None):
             menu = AddModelMenu.__new__(AddModelMenu)
             menu.pending_provider = _make_provider()
             result = menu._prompt_for_custom_model()

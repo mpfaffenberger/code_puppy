@@ -772,7 +772,10 @@ class TestGetLinuxClipboardImage:
     def test_returns_none_when_no_tool(self):
         from code_puppy.command_line.clipboard import _get_linux_clipboard_image
 
-        with patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value=None):
+        with patch(
+            "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+            return_value=None,
+        ):
             assert _get_linux_clipboard_image() is None
 
     def test_wl_paste_success(self):
@@ -780,7 +783,10 @@ class TestGetLinuxClipboardImage:
 
         mock_result = MagicMock(returncode=0, stdout=b"pngdata")
         with (
-            patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value="wl-paste"),
+            patch(
+                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+                return_value="wl-paste",
+            ),
             patch("subprocess.run", return_value=mock_result),
         ):
             assert _get_linux_clipboard_image() == b"pngdata"
@@ -790,7 +796,10 @@ class TestGetLinuxClipboardImage:
 
         mock_result = MagicMock(returncode=1, stdout=b"")
         with (
-            patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value="wl-paste"),
+            patch(
+                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+                return_value="wl-paste",
+            ),
             patch("subprocess.run", return_value=mock_result),
         ):
             assert _get_linux_clipboard_image() is None
@@ -800,7 +809,10 @@ class TestGetLinuxClipboardImage:
 
         mock_result = MagicMock(returncode=0, stdout=b"pngdata")
         with (
-            patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value="xclip"),
+            patch(
+                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+                return_value="xclip",
+            ),
             patch("subprocess.run", return_value=mock_result),
         ):
             assert _get_linux_clipboard_image() == b"pngdata"
@@ -810,7 +822,10 @@ class TestGetLinuxClipboardImage:
 
         mock_result = MagicMock(returncode=1, stdout=b"")
         with (
-            patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value="xclip"),
+            patch(
+                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+                return_value="xclip",
+            ),
             patch("subprocess.run", return_value=mock_result),
         ):
             assert _get_linux_clipboard_image() is None
@@ -819,7 +834,10 @@ class TestGetLinuxClipboardImage:
         from code_puppy.command_line.clipboard import _get_linux_clipboard_image
 
         with (
-            patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value="wl-paste"),
+            patch(
+                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+                return_value="wl-paste",
+            ),
             patch("subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 10)),
         ):
             assert _get_linux_clipboard_image() is None
@@ -828,7 +846,10 @@ class TestGetLinuxClipboardImage:
         from code_puppy.command_line.clipboard import _get_linux_clipboard_image
 
         with (
-            patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value="xclip"),
+            patch(
+                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+                return_value="xclip",
+            ),
             patch("subprocess.run", side_effect=RuntimeError("oops")),
         ):
             assert _get_linux_clipboard_image() is None
@@ -879,6 +900,7 @@ class TestResizeImageEdgeCases:
         mock_image.height = 10000  # Very tall
 
         call_count = [0]
+
         def save_side_effect(buffer, **kwargs):
             if call_count[0] == 0:
                 buffer.write(b"\x00" * (20 * 1024 * 1024))  # 20MB
@@ -906,6 +928,7 @@ class TestResizeImageEdgeCases:
         mock_image.height = 1000
 
         call_count = [0]
+
         def save_side_effect(buffer, **kwargs):
             if call_count[0] == 0:
                 buffer.write(b"\x00" * (20 * 1024 * 1024))
@@ -933,7 +956,10 @@ class TestHasImageLinuxEdgeCases:
 
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value=None),
+            patch(
+                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+                return_value=None,
+            ),
         ):
             assert has_image_in_clipboard() is False
 
@@ -943,7 +969,10 @@ class TestHasImageLinuxEdgeCases:
         mock_result = MagicMock(stdout="image/png\ntext/plain", returncode=0)
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value="xclip"),
+            patch(
+                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+                return_value="xclip",
+            ),
             patch("subprocess.run", return_value=mock_result),
         ):
             assert has_image_in_clipboard() is True
@@ -954,7 +983,10 @@ class TestHasImageLinuxEdgeCases:
         mock_result = MagicMock(stdout="text/plain", returncode=0)
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value="xclip"),
+            patch(
+                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+                return_value="xclip",
+            ),
             patch("subprocess.run", return_value=mock_result),
         ):
             assert has_image_in_clipboard() is False
@@ -964,7 +996,10 @@ class TestHasImageLinuxEdgeCases:
 
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value="wl-paste"),
+            patch(
+                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+                return_value="wl-paste",
+            ),
             patch("subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 5)),
         ):
             assert has_image_in_clipboard() is False
@@ -974,11 +1009,13 @@ class TestHasImageLinuxEdgeCases:
 
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value="wl-paste"),
+            patch(
+                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+                return_value="wl-paste",
+            ),
             patch("subprocess.run", side_effect=RuntimeError("err")),
         ):
             assert has_image_in_clipboard() is False
-
 
     def test_linux_unknown_tool_returns_false(self):
         """Test fallthrough return False for unknown tool type."""
@@ -986,7 +1023,10 @@ class TestHasImageLinuxEdgeCases:
 
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._check_linux_clipboard_tool", return_value="unknown-tool"),
+            patch(
+                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
+                return_value="unknown-tool",
+            ),
         ):
             assert has_image_in_clipboard() is False
 
@@ -999,7 +1039,10 @@ class TestGetClipboardImageLinux:
 
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._get_linux_clipboard_image", return_value=None),
+            patch(
+                "code_puppy.command_line.clipboard._get_linux_clipboard_image",
+                return_value=None,
+            ),
         ):
             assert get_clipboard_image() is None
 
@@ -1010,9 +1053,15 @@ class TestGetClipboardImageLinux:
         mock_img = MagicMock()
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._get_linux_clipboard_image", return_value=small_bytes),
+            patch(
+                "code_puppy.command_line.clipboard._get_linux_clipboard_image",
+                return_value=small_bytes,
+            ),
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", True),
-            patch("code_puppy.command_line.clipboard._safe_open_image", return_value=mock_img),
+            patch(
+                "code_puppy.command_line.clipboard._safe_open_image",
+                return_value=mock_img,
+            ),
         ):
             result = get_clipboard_image()
         assert result == small_bytes
@@ -1023,9 +1072,14 @@ class TestGetClipboardImageLinux:
         small_bytes = b"pngdata" * 10
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._get_linux_clipboard_image", return_value=small_bytes),
+            patch(
+                "code_puppy.command_line.clipboard._get_linux_clipboard_image",
+                return_value=small_bytes,
+            ),
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", True),
-            patch("code_puppy.command_line.clipboard._safe_open_image", return_value=None),
+            patch(
+                "code_puppy.command_line.clipboard._safe_open_image", return_value=None
+            ),
         ):
             assert get_clipboard_image() is None
 
@@ -1035,7 +1089,10 @@ class TestGetClipboardImageLinux:
         small_bytes = b"pngdata" * 10
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._get_linux_clipboard_image", return_value=small_bytes),
+            patch(
+                "code_puppy.command_line.clipboard._get_linux_clipboard_image",
+                return_value=small_bytes,
+            ),
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", False),
         ):
             result = get_clipboard_image()
@@ -1050,7 +1107,10 @@ class TestGetClipboardImageLinux:
         large_bytes = b"x" * (MAX_IMAGE_SIZE_BYTES + 1)
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._get_linux_clipboard_image", return_value=large_bytes),
+            patch(
+                "code_puppy.command_line.clipboard._get_linux_clipboard_image",
+                return_value=large_bytes,
+            ),
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", False),
         ):
             assert get_clipboard_image() is None
@@ -1072,10 +1132,19 @@ class TestGetClipboardImageLinux:
 
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._get_linux_clipboard_image", return_value=large_bytes),
+            patch(
+                "code_puppy.command_line.clipboard._get_linux_clipboard_image",
+                return_value=large_bytes,
+            ),
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", True),
-            patch("code_puppy.command_line.clipboard._safe_open_image", return_value=mock_img),
-            patch("code_puppy.command_line.clipboard._resize_image_if_needed", return_value=resized_img),
+            patch(
+                "code_puppy.command_line.clipboard._safe_open_image",
+                return_value=mock_img,
+            ),
+            patch(
+                "code_puppy.command_line.clipboard._resize_image_if_needed",
+                return_value=resized_img,
+            ),
         ):
             result = get_clipboard_image()
         assert result == b"resized_png"
@@ -1089,9 +1158,14 @@ class TestGetClipboardImageLinux:
         large_bytes = b"x" * (MAX_IMAGE_SIZE_BYTES + 1)
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._get_linux_clipboard_image", return_value=large_bytes),
+            patch(
+                "code_puppy.command_line.clipboard._get_linux_clipboard_image",
+                return_value=large_bytes,
+            ),
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", True),
-            patch("code_puppy.command_line.clipboard._safe_open_image", return_value=None),
+            patch(
+                "code_puppy.command_line.clipboard._safe_open_image", return_value=None
+            ),
         ):
             assert get_clipboard_image() is None
 
@@ -1106,10 +1180,19 @@ class TestGetClipboardImageLinux:
 
         with (
             patch("code_puppy.command_line.clipboard.sys.platform", "linux"),
-            patch("code_puppy.command_line.clipboard._get_linux_clipboard_image", return_value=large_bytes),
+            patch(
+                "code_puppy.command_line.clipboard._get_linux_clipboard_image",
+                return_value=large_bytes,
+            ),
             patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", True),
-            patch("code_puppy.command_line.clipboard._safe_open_image", return_value=mock_img),
-            patch("code_puppy.command_line.clipboard._resize_image_if_needed", side_effect=RuntimeError("resize fail")),
+            patch(
+                "code_puppy.command_line.clipboard._safe_open_image",
+                return_value=mock_img,
+            ),
+            patch(
+                "code_puppy.command_line.clipboard._resize_image_if_needed",
+                side_effect=RuntimeError("resize fail"),
+            ),
         ):
             assert get_clipboard_image() is None
 
@@ -1139,7 +1222,10 @@ class TestGetClipboardImageModes:
             patch("code_puppy.command_line.clipboard.sys.platform", "darwin"),
             patch("code_puppy.command_line.clipboard.ImageGrab") as mock_grab,
             patch("code_puppy.command_line.clipboard.Image") as mock_img_mod,
-            patch("code_puppy.command_line.clipboard._resize_image_if_needed", return_value=mock_image),
+            patch(
+                "code_puppy.command_line.clipboard._resize_image_if_needed",
+                return_value=mock_image,
+            ),
         ):
             mock_img_mod.Image = type(mock_image)
             mock_grab.grabclipboard.return_value = mock_image
@@ -1156,7 +1242,10 @@ class TestGetClipboardImageModes:
             patch("code_puppy.command_line.clipboard.sys.platform", "darwin"),
             patch("code_puppy.command_line.clipboard.ImageGrab") as mock_grab,
             patch("code_puppy.command_line.clipboard.Image") as mock_img_mod,
-            patch("code_puppy.command_line.clipboard._resize_image_if_needed", return_value=mock_image),
+            patch(
+                "code_puppy.command_line.clipboard._resize_image_if_needed",
+                return_value=mock_image,
+            ),
         ):
             mock_img_mod.Image = type(mock_image)
             mock_grab.grabclipboard.return_value = mock_image
@@ -1173,7 +1262,10 @@ class TestGetClipboardImageModes:
             patch("code_puppy.command_line.clipboard.sys.platform", "darwin"),
             patch("code_puppy.command_line.clipboard.ImageGrab") as mock_grab,
             patch("code_puppy.command_line.clipboard.Image") as mock_img_mod,
-            patch("code_puppy.command_line.clipboard._resize_image_if_needed", return_value=mock_image),
+            patch(
+                "code_puppy.command_line.clipboard._resize_image_if_needed",
+                return_value=mock_image,
+            ),
         ):
             mock_img_mod.Image = type(mock_image)
             mock_grab.grabclipboard.return_value = mock_image
@@ -1193,7 +1285,10 @@ class TestGetClipboardImageModes:
             patch("code_puppy.command_line.clipboard.sys.platform", "darwin"),
             patch("code_puppy.command_line.clipboard.ImageGrab") as mock_grab,
             patch("code_puppy.command_line.clipboard.Image") as mock_img_mod,
-            patch("code_puppy.command_line.clipboard._resize_image_if_needed", return_value=converted),
+            patch(
+                "code_puppy.command_line.clipboard._resize_image_if_needed",
+                return_value=converted,
+            ),
         ):
             mock_img_mod.Image = type(mock_image)
             mock_grab.grabclipboard.return_value = mock_image

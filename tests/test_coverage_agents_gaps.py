@@ -149,8 +149,14 @@ class TestSummarizationGaps:
         mock_agent.run = MagicMock(side_effect=RuntimeError("LLM down"))
 
         with (
-            patch("code_puppy.summarization_agent.get_summarization_agent", return_value=mock_agent),
-            patch("code_puppy.summarization_agent.get_global_model_name", return_value="test"),
+            patch(
+                "code_puppy.summarization_agent.get_summarization_agent",
+                return_value=mock_agent,
+            ),
+            patch(
+                "code_puppy.summarization_agent.get_global_model_name",
+                return_value="test",
+            ),
             patch("code_puppy.model_utils.prepare_prompt_for_model") as mock_prep,
         ):
             mock_prep.return_value = MagicMock(user_prompt="p", instructions="i")
@@ -190,6 +196,7 @@ class TestInitVersionFallback:
             import importlib
 
             import code_puppy
+
             importlib.reload(code_puppy)
             assert code_puppy.__version__ == "0.0.0-dev"
 
@@ -199,6 +206,7 @@ class TestInitVersionFallback:
             import importlib
 
             import code_puppy
+
             importlib.reload(code_puppy)
             assert code_puppy.__version__ == "0.0.0-dev"
 
@@ -327,7 +335,16 @@ class TestAskUserRegistrationGap:
 
             assert registered_fn is not None
             # Call it with a mock context
-            result = registered_fn(MagicMock(), [{"question": "q", "header": "h", "options": [{"label": "a"}, {"label": "b"}]}])
+            result = registered_fn(
+                MagicMock(),
+                [
+                    {
+                        "question": "q",
+                        "header": "h",
+                        "options": [{"label": "a"}, {"label": "b"}],
+                    }
+                ],
+            )
             mock_impl.assert_called_once()
             assert result is mock_output
 
@@ -354,7 +371,9 @@ class TestAsyncLifecycleGaps:
             # Never set ready_event, just sleep forever
             await asyncio.sleep(100)
 
-        with patch.object(manager, "_server_lifecycle_task", side_effect=fake_lifecycle):
+        with patch.object(
+            manager, "_server_lifecycle_task", side_effect=fake_lifecycle
+        ):
             result = await asyncio.wait_for(
                 manager.start_server("test-server", mock_server),
                 timeout=15.0,
@@ -375,7 +394,9 @@ class TestAsyncLifecycleGaps:
         async def failing_lifecycle(server_id, server, ready_event):
             raise RuntimeError("startup failed")
 
-        with patch.object(manager, "_server_lifecycle_task", side_effect=failing_lifecycle):
+        with patch.object(
+            manager, "_server_lifecycle_task", side_effect=failing_lifecycle
+        ):
             result = await asyncio.wait_for(
                 manager.start_server("test-server", mock_server),
                 timeout=15.0,

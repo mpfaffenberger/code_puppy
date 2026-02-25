@@ -15,6 +15,7 @@ from code_puppy.command_line.colors_menu import (
 
 # --------------- ColorConfiguration ---------------
 
+
 class TestColorConfiguration:
     def test_init(self):
         config = ColorConfiguration()
@@ -75,6 +76,7 @@ class TestColorConfiguration:
 
 # --------------- _get_preview_text_for_prompt_toolkit ---------------
 
+
 class TestGetPreviewText:
     def test_returns_ansi(self):
         config = ColorConfiguration()
@@ -91,6 +93,7 @@ class TestGetPreviewText:
 
 # --------------- _get_single_banner_preview ---------------
 
+
 class TestGetSingleBannerPreview:
     def test_returns_ansi(self):
         config = ColorConfiguration()
@@ -106,6 +109,7 @@ class TestGetSingleBannerPreview:
 
 # --------------- _split_panel_selector ---------------
 
+
 class TestSplitPanelSelector:
     @pytest.mark.asyncio
     async def test_enter_selects(self):
@@ -115,6 +119,7 @@ class TestSplitPanelSelector:
             mock_app_cls.return_value = mock_app
 
             choices = ["Choice A", "Choice B"]
+
             # Simulate: run_async sets result and exits
             async def fake_run_async():
                 # The accept handler sets result[0] and calls exit
@@ -127,7 +132,9 @@ class TestSplitPanelSelector:
             # Instead, test that KeyboardInterrupt raises properly
             with pytest.raises(KeyboardInterrupt):
                 await _split_panel_selector(
-                    "Test", choices, lambda c: None,
+                    "Test",
+                    choices,
+                    lambda c: None,
                     get_preview=lambda: MagicMock(),
                 )
 
@@ -145,12 +152,15 @@ class TestSplitPanelSelector:
 
             with pytest.raises(KeyboardInterrupt):
                 await _split_panel_selector(
-                    "Test", [], lambda c: None,
+                    "Test",
+                    [],
+                    lambda c: None,
                     get_preview=lambda: MagicMock(),
                 )
 
 
 # --------------- _handle_color_menu ---------------
+
 
 class TestHandleColorMenu:
     @pytest.mark.asyncio
@@ -158,8 +168,10 @@ class TestHandleColorMenu:
         config = ColorConfiguration()
         original_color = config.get_current_banner_color()
 
-        with patch("code_puppy.command_line.colors_menu._split_panel_selector",
-                   side_effect=KeyboardInterrupt):
+        with patch(
+            "code_puppy.command_line.colors_menu._split_panel_selector",
+            side_effect=KeyboardInterrupt,
+        ):
             await _handle_color_menu(config)
 
         assert config.get_current_banner_color() == original_color
@@ -167,28 +179,37 @@ class TestHandleColorMenu:
     @pytest.mark.asyncio
     async def test_exception_handled(self):
         config = ColorConfiguration()
-        with patch("code_puppy.command_line.colors_menu._split_panel_selector",
-                   side_effect=RuntimeError("boom")):
+        with patch(
+            "code_puppy.command_line.colors_menu._split_panel_selector",
+            side_effect=RuntimeError("boom"),
+        ):
             await _handle_color_menu(config)  # should not raise
 
     @pytest.mark.asyncio
     async def test_successful_selection(self):
         config = ColorConfiguration()
-        with patch("code_puppy.command_line.colors_menu._split_panel_selector",
-                   return_value="blue"):
+        with patch(
+            "code_puppy.command_line.colors_menu._split_panel_selector",
+            return_value="blue",
+        ):
             await _handle_color_menu(config)
 
 
 # --------------- interactive_colors_picker ---------------
 
+
 class TestInteractiveColorsPicker:
     @pytest.mark.asyncio
     async def test_returns_none_on_cancel(self):
-        with patch("code_puppy.command_line.colors_menu._split_panel_selector",
-                   side_effect=KeyboardInterrupt), \
-             patch("code_puppy.tools.command_runner.set_awaiting_user_input"), \
-             patch("sys.stdout"), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(
+                "code_puppy.command_line.colors_menu._split_panel_selector",
+                side_effect=KeyboardInterrupt,
+            ),
+            patch("code_puppy.tools.command_runner.set_awaiting_user_input"),
+            patch("sys.stdout"),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             result = await interactive_colors_picker()
         assert result is None
 
@@ -212,11 +233,19 @@ class TestInteractiveColorsPicker:
                 return choices[-1]
             raise KeyboardInterrupt
 
-        with patch("code_puppy.command_line.colors_menu._split_panel_selector", side_effect=fake_selector), \
-             patch("code_puppy.command_line.colors_menu._handle_color_menu", new_callable=AsyncMock), \
-             patch("code_puppy.tools.command_runner.set_awaiting_user_input"), \
-             patch("sys.stdout"), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(
+                "code_puppy.command_line.colors_menu._split_panel_selector",
+                side_effect=fake_selector,
+            ),
+            patch(
+                "code_puppy.command_line.colors_menu._handle_color_menu",
+                new_callable=AsyncMock,
+            ),
+            patch("code_puppy.tools.command_runner.set_awaiting_user_input"),
+            patch("sys.stdout"),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             result = await interactive_colors_picker()
         assert result is not None
 
@@ -230,10 +259,15 @@ class TestInteractiveColorsPicker:
                     return c
             return "❌ Exit"
 
-        with patch("code_puppy.command_line.colors_menu._split_panel_selector", side_effect=fake_selector), \
-             patch("code_puppy.tools.command_runner.set_awaiting_user_input"), \
-             patch("sys.stdout"), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(
+                "code_puppy.command_line.colors_menu._split_panel_selector",
+                side_effect=fake_selector,
+            ),
+            patch("code_puppy.tools.command_runner.set_awaiting_user_input"),
+            patch("sys.stdout"),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             result = await interactive_colors_picker()
         assert result is None
 
@@ -250,10 +284,15 @@ class TestInteractiveColorsPicker:
                 return choices[0]
             raise KeyboardInterrupt
 
-        with patch("code_puppy.command_line.colors_menu._split_panel_selector", side_effect=fake_selector), \
-             patch("code_puppy.tools.command_runner.set_awaiting_user_input"), \
-             patch("sys.stdout"), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(
+                "code_puppy.command_line.colors_menu._split_panel_selector",
+                side_effect=fake_selector,
+            ),
+            patch("code_puppy.tools.command_runner.set_awaiting_user_input"),
+            patch("sys.stdout"),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             await interactive_colors_picker()
         # Reset to defaults may differ from original config, so result could be non-None
 
@@ -270,10 +309,15 @@ class TestInteractiveColorsPicker:
                 return choices[0]
             raise KeyboardInterrupt
 
-        with patch("code_puppy.command_line.colors_menu._split_panel_selector", side_effect=fake_selector), \
-             patch("code_puppy.tools.command_runner.set_awaiting_user_input"), \
-             patch("sys.stdout"), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(
+                "code_puppy.command_line.colors_menu._split_panel_selector",
+                side_effect=fake_selector,
+            ),
+            patch("code_puppy.tools.command_runner.set_awaiting_user_input"),
+            patch("sys.stdout"),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             result = await interactive_colors_picker()
         assert result is None
 
@@ -288,11 +332,19 @@ class TestInteractiveColorsPicker:
                 return choices[0]
             raise KeyboardInterrupt
 
-        with patch("code_puppy.command_line.colors_menu._split_panel_selector", side_effect=fake_selector), \
-             patch("code_puppy.command_line.colors_menu._handle_color_menu", new_callable=AsyncMock), \
-             patch("code_puppy.tools.command_runner.set_awaiting_user_input"), \
-             patch("sys.stdout"), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(
+                "code_puppy.command_line.colors_menu._split_panel_selector",
+                side_effect=fake_selector,
+            ),
+            patch(
+                "code_puppy.command_line.colors_menu._handle_color_menu",
+                new_callable=AsyncMock,
+            ),
+            patch("code_puppy.tools.command_runner.set_awaiting_user_input"),
+            patch("sys.stdout"),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             result = await interactive_colors_picker()
         assert result is None
 
@@ -304,19 +356,28 @@ class TestInteractiveColorsPicker:
                     return c
             raise KeyboardInterrupt
 
-        with patch("code_puppy.command_line.colors_menu._split_panel_selector", side_effect=fake_selector), \
-             patch("code_puppy.tools.command_runner.set_awaiting_user_input"), \
-             patch("sys.stdout"), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(
+                "code_puppy.command_line.colors_menu._split_panel_selector",
+                side_effect=fake_selector,
+            ),
+            patch("code_puppy.tools.command_runner.set_awaiting_user_input"),
+            patch("sys.stdout"),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             result = await interactive_colors_picker()
         assert result is None
 
     @pytest.mark.asyncio
     async def test_exception_returns_none(self):
-        with patch("code_puppy.command_line.colors_menu._split_panel_selector",
-                   side_effect=RuntimeError("boom")), \
-             patch("code_puppy.tools.command_runner.set_awaiting_user_input"), \
-             patch("sys.stdout"), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch(
+                "code_puppy.command_line.colors_menu._split_panel_selector",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch("code_puppy.tools.command_runner.set_awaiting_user_input"),
+            patch("sys.stdout"),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             result = await interactive_colors_picker()
         assert result is None

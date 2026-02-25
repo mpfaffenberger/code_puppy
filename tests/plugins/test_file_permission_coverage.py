@@ -297,10 +297,7 @@ class TestHandleEditFilePermission:
             "code_puppy.plugins.file_permission_handler.register_callbacks.prompt_for_file_permission",
             return_value=(True, None),
         ):
-            assert (
-                handle_edit_file_permission(None, "f.txt", "mystery", {})
-                is True
-            )
+            assert handle_edit_file_permission(None, "f.txt", "mystery", {}) is True
 
 
 class TestHandleDeleteFilePermission:
@@ -331,9 +328,7 @@ class TestHandleFilePermission:
             return_value=(True, None),
         ):
             assert (
-                handle_file_permission(
-                    None, str(f), "delete", operation_data={}
-                )
+                handle_file_permission(None, str(f), "delete", operation_data={})
                 is True
             )
 
@@ -346,10 +341,7 @@ class TestHandleFilePermission:
             "code_puppy.plugins.file_permission_handler.register_callbacks.prompt_for_file_permission",
             return_value=(True, None),
         ):
-            assert (
-                handle_file_permission(None, "f.txt", "edit", preview="diff")
-                is True
-            )
+            assert handle_file_permission(None, "f.txt", "edit", preview="diff") is True
 
 
 class TestGeneratePreviewFromOperationData:
@@ -393,7 +385,9 @@ class TestGeneratePreviewFromOperationData:
         f = tmp_path / "f.txt"
         f.write_text("hello")
         result = _generate_preview_from_operation_data(
-            str(f), "replace text in", {"replacements": [{"old_str": "hello", "new_str": "hi"}]}
+            str(f),
+            "replace text in",
+            {"replacements": [{"old_str": "hello", "new_str": "hi"}]},
         )
         assert result is not None
 
@@ -417,7 +411,9 @@ class TestGeneratePreviewFromOperationData:
         f = tmp_path / "f.txt"
         f.write_text("hello")
         result = _generate_preview_from_operation_data(
-            str(f), "edit_file", {"replacements": [{"old_str": "hello", "new_str": "hi"}]}
+            str(f),
+            "edit_file",
+            {"replacements": [{"old_str": "hello", "new_str": "hi"}]},
         )
         assert result is not None
 

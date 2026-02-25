@@ -14,18 +14,21 @@ MODULE = "code_puppy.command_line.mcp.custom_server_form"
 class TestModuleConstants:
     def test_server_types(self):
         from code_puppy.command_line.mcp.custom_server_form import SERVER_TYPES
+
         assert SERVER_TYPES == ["stdio", "http", "sse"]
 
     def test_custom_server_examples_keys(self):
         from code_puppy.command_line.mcp.custom_server_form import (
             CUSTOM_SERVER_EXAMPLES,
         )
+
         assert set(CUSTOM_SERVER_EXAMPLES.keys()) == {"stdio", "http", "sse"}
 
     def test_examples_are_valid_json(self):
         from code_puppy.command_line.mcp.custom_server_form import (
             CUSTOM_SERVER_EXAMPLES,
         )
+
         for key, example in CUSTOM_SERVER_EXAMPLES.items():
             parsed = json.loads(example)
             assert isinstance(parsed, dict)
@@ -34,6 +37,7 @@ class TestModuleConstants:
         from code_puppy.command_line.mcp.custom_server_form import (
             SERVER_TYPE_DESCRIPTIONS,
         )
+
         assert "stdio" in SERVER_TYPE_DESCRIPTIONS
         assert "http" in SERVER_TYPE_DESCRIPTIONS
         assert "sse" in SERVER_TYPE_DESCRIPTIONS
@@ -47,6 +51,7 @@ class TestModuleConstants:
 class TestCustomServerFormInit:
     def test_default_init(self):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         mgr = MagicMock()
         form = CustomServerForm(mgr)
         assert form.edit_mode is False
@@ -60,11 +65,15 @@ class TestCustomServerFormInit:
 
     def test_edit_mode_init(self):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         mgr = MagicMock()
         cfg = {"command": "npx", "args": ["-y", "test"]}
         form = CustomServerForm(
-            mgr, edit_mode=True, existing_name="my-srv",
-            existing_type="http", existing_config=cfg,
+            mgr,
+            edit_mode=True,
+            existing_name="my-srv",
+            existing_type="http",
+            existing_config=cfg,
         )
         assert form.edit_mode is True
         assert form.original_name == "my-srv"
@@ -73,6 +82,7 @@ class TestCustomServerFormInit:
 
     def test_edit_mode_unknown_type_defaults_to_zero(self):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         form = CustomServerForm(MagicMock(), existing_type="unknown")
         assert form.selected_type_idx == 0
 
@@ -81,6 +91,7 @@ class TestCustomServerFormInit:
             CUSTOM_SERVER_EXAMPLES,
             CustomServerForm,
         )
+
         form = CustomServerForm(MagicMock())
         assert form.json_config == CUSTOM_SERVER_EXAMPLES["stdio"]
 
@@ -93,6 +104,7 @@ class TestCustomServerFormInit:
 class TestGetCurrentType:
     def test_returns_correct_type(self):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         form = CustomServerForm(MagicMock())
         form.selected_type_idx = 2
         assert form._get_current_type() == "sse"
@@ -106,6 +118,7 @@ class TestGetCurrentType:
 class TestValidateServerName:
     def _make_form(self):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         return CustomServerForm(MagicMock())
 
     def test_empty_name(self):
@@ -135,6 +148,7 @@ class TestValidateServerName:
 class TestValidateJson:
     def _make_form(self):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         return CustomServerForm(MagicMock())
 
     def test_valid_stdio(self):
@@ -191,6 +205,7 @@ class TestValidateJson:
 class TestRenderForm:
     def _make_form(self):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         return CustomServerForm(MagicMock())
 
     def test_render_form_returns_list(self):
@@ -201,6 +216,7 @@ class TestRenderForm:
 
     def test_render_form_edit_mode(self):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         form = CustomServerForm(MagicMock(), edit_mode=True)
         result = form._render_form()
         texts = "".join(t[1] for t in result)
@@ -296,6 +312,7 @@ class TestRenderForm:
 class TestRenderPreview:
     def _make_form(self):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         return CustomServerForm(MagicMock())
 
     def test_render_preview_stdio(self):
@@ -337,6 +354,7 @@ class TestRenderPreview:
 class TestInstallServer:
     def _make_form(self):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         form = CustomServerForm(MagicMock())
         return form
 
@@ -358,6 +376,7 @@ class TestInstallServer:
     @patch("builtins.open", new_callable=mock_open)
     def test_install_new_server_success(self, m_open, m_makedirs, m_exists):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         mgr = MagicMock()
         mgr.register_server.return_value = "new-id"
         form = CustomServerForm(mgr)
@@ -370,6 +389,7 @@ class TestInstallServer:
     @patch("builtins.open", new_callable=mock_open)
     def test_install_new_server_register_fails(self, m_open, m_makedirs, m_exists):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         mgr = MagicMock()
         mgr.register_server.return_value = None
         form = CustomServerForm(mgr)
@@ -380,16 +400,23 @@ class TestInstallServer:
 
     @patch(f"{MODULE}.os.path.exists", return_value=True)
     @patch(f"{MODULE}.os.makedirs")
-    @patch("builtins.open", new_callable=mock_open, read_data=json.dumps({"mcp_servers": {"old": {}}}))
+    @patch(
+        "builtins.open",
+        new_callable=mock_open,
+        read_data=json.dumps({"mcp_servers": {"old": {}}}),
+    )
     def test_install_edit_mode_existing_found(self, m_open, m_makedirs, m_exists):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         mgr = MagicMock()
         existing = MagicMock()
         existing.id = "old-id"
         mgr.get_server_by_name.return_value = existing
         mgr.update_server.return_value = True
         form = CustomServerForm(
-            mgr, edit_mode=True, existing_name="old-name",
+            mgr,
+            edit_mode=True,
+            existing_name="old-name",
             existing_type="stdio",
         )
         form.server_name = "new-name"
@@ -401,11 +428,14 @@ class TestInstallServer:
     @patch("builtins.open", new_callable=mock_open)
     def test_install_edit_mode_existing_not_found(self, m_open, m_makedirs, m_exists):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         mgr = MagicMock()
         mgr.get_server_by_name.return_value = None
         mgr.register_server.return_value = "new-id"
         form = CustomServerForm(
-            mgr, edit_mode=True, existing_name="old-name",
+            mgr,
+            edit_mode=True,
+            existing_name="old-name",
         )
         form.server_name = "my-server"
         form.json_config = json.dumps({"command": "npx"})
@@ -413,16 +443,23 @@ class TestInstallServer:
 
     @patch(f"{MODULE}.os.path.exists", return_value=True)
     @patch(f"{MODULE}.os.makedirs")
-    @patch("builtins.open", new_callable=mock_open, read_data=json.dumps({"mcp_servers": {}}))
+    @patch(
+        "builtins.open",
+        new_callable=mock_open,
+        read_data=json.dumps({"mcp_servers": {}}),
+    )
     def test_install_edit_mode_update_fails(self, m_open, m_makedirs, m_exists):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         mgr = MagicMock()
         existing = MagicMock()
         existing.id = "old-id"
         mgr.get_server_by_name.return_value = existing
         mgr.update_server.return_value = False
         form = CustomServerForm(
-            mgr, edit_mode=True, existing_name="old",
+            mgr,
+            edit_mode=True,
+            existing_name="old",
         )
         form.server_name = "my-server"
         form.json_config = json.dumps({"command": "npx"})
@@ -433,6 +470,7 @@ class TestInstallServer:
     @patch("builtins.open", side_effect=PermissionError("no access"))
     def test_install_exception_during_save(self, m_open, m_makedirs, m_exists):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         mgr = MagicMock()
         mgr.register_server.return_value = "new-id"
         form = CustomServerForm(mgr)
@@ -443,17 +481,26 @@ class TestInstallServer:
 
     @patch(f"{MODULE}.os.path.exists", return_value=True)
     @patch(f"{MODULE}.os.makedirs")
-    @patch("builtins.open", new_callable=mock_open, read_data=json.dumps({"mcp_servers": {"old-name": {}}}))
-    def test_install_edit_mode_name_changed_removes_old(self, m_open, m_makedirs, m_exists):
+    @patch(
+        "builtins.open",
+        new_callable=mock_open,
+        read_data=json.dumps({"mcp_servers": {"old-name": {}}}),
+    )
+    def test_install_edit_mode_name_changed_removes_old(
+        self, m_open, m_makedirs, m_exists
+    ):
         """When editing and name changes, old entry should be removed from persisted file."""
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         mgr = MagicMock()
         existing = MagicMock()
         existing.id = "old-id"
         mgr.get_server_by_name.return_value = existing
         mgr.update_server.return_value = True
         form = CustomServerForm(
-            mgr, edit_mode=True, existing_name="old-name",
+            mgr,
+            edit_mode=True,
+            existing_name="old-name",
         )
         form.server_name = "new-name"
         form.json_config = json.dumps({"command": "npx"})
@@ -479,14 +526,17 @@ class TestRun:
     @patch(f"{MODULE}.Application")
     def test_run_cancelled(self, MockApp, mock_time, mock_sys, mock_emit, mock_set):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         mock_sys.stdout = MagicMock()
         app_instance = MagicMock()
         MockApp.return_value = app_instance
 
         form = CustomServerForm(MagicMock())
         form.result = "cancelled"
+
         def side_run(**kwargs):
             form.result = "cancelled"
+
         app_instance.run.side_effect = side_run
 
         result = form.run()
@@ -500,16 +550,21 @@ class TestRun:
     @patch(f"{MODULE}.sys")
     @patch(f"{MODULE}.time")
     @patch(f"{MODULE}.Application")
-    def test_run_installed(self, MockApp, mock_time, mock_sys, mock_success, mock_info, mock_set):
+    def test_run_installed(
+        self, MockApp, mock_time, mock_sys, mock_success, mock_info, mock_set
+    ):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         mock_sys.stdout = MagicMock()
         app_instance = MagicMock()
         MockApp.return_value = app_instance
 
         form = CustomServerForm(MagicMock())
         form.server_name = "test-srv"
+
         def side_run(**kwargs):
             form.result = "installed"
+
         app_instance.run.side_effect = side_run
 
         result = form.run()
@@ -522,16 +577,21 @@ class TestRun:
     @patch(f"{MODULE}.sys")
     @patch(f"{MODULE}.time")
     @patch(f"{MODULE}.Application")
-    def test_run_installed_edit_mode(self, MockApp, mock_time, mock_sys, mock_success, mock_info, mock_set):
+    def test_run_installed_edit_mode(
+        self, MockApp, mock_time, mock_sys, mock_success, mock_info, mock_set
+    ):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         mock_sys.stdout = MagicMock()
         app_instance = MagicMock()
         MockApp.return_value = app_instance
 
         form = CustomServerForm(MagicMock(), edit_mode=True, existing_name="old")
         form.server_name = "test-srv"
+
         def side_run(**kwargs):
             form.result = "installed"
+
         app_instance.run.side_effect = side_run
 
         result = form.run()
@@ -551,43 +611,49 @@ class TestRunKeyBindings:
     def _run_form_capture_kb(self):
         """Create form and capture the KeyBindings passed to Application."""
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
+
         captured = {}
 
-        with patch(f"{MODULE}.set_awaiting_user_input"), \
-             patch(f"{MODULE}.sys") as mock_sys, \
-             patch(f"{MODULE}.time"), \
-             patch(f"{MODULE}.emit_info"), \
-             patch(f"{MODULE}.Application") as MockApp:
+        with (
+            patch(f"{MODULE}.set_awaiting_user_input"),
+            patch(f"{MODULE}.sys") as mock_sys,
+            patch(f"{MODULE}.time"),
+            patch(f"{MODULE}.emit_info"),
+            patch(f"{MODULE}.Application") as MockApp,
+        ):
             mock_sys.stdout = MagicMock()
             app_instance = MagicMock()
 
             def capture_app(**kwargs):
-                captured['kb'] = kwargs.get('key_bindings')
-                captured['layout'] = kwargs.get('layout')
+                captured["kb"] = kwargs.get("key_bindings")
+                captured["layout"] = kwargs.get("layout")
                 return app_instance
+
             MockApp.side_effect = capture_app
 
             form = CustomServerForm(MagicMock())
+
             def side_run(**kwargs):
                 form.result = "cancelled"
+
             app_instance.run.side_effect = side_run
             form.run()
 
-        return form, captured.get('kb'), app_instance
+        return form, captured.get("kb"), app_instance
 
     def _find_handler(self, kb, key_name):
         """Find a handler in KeyBindings by key name."""
-        alias_map = {'tab': 'c-i'}
+        alias_map = {"tab": "c-i"}
         search = alias_map.get(key_name, key_name)
         for binding in kb.bindings:
-            keys = [k.value if hasattr(k, 'value') else str(k) for k in binding.keys]
+            keys = [k.value if hasattr(k, "value") else str(k) for k in binding.keys]
             if search in keys:
                 return binding.handler
         return None
 
     def test_tab_handler(self):
         form, kb, app = self._run_form_capture_kb()
-        handler = self._find_handler(kb, 'tab')
+        handler = self._find_handler(kb, "tab")
         assert handler is not None
         event = MagicMock()
         event.app = app
@@ -597,7 +663,7 @@ class TestRunKeyBindings:
 
     def test_shift_tab_handler(self):
         form, kb, app = self._run_form_capture_kb()
-        handler = self._find_handler(kb, 's-tab')
+        handler = self._find_handler(kb, "s-tab")
         assert handler is not None
         event = MagicMock()
         event.app = app
@@ -607,7 +673,7 @@ class TestRunKeyBindings:
 
     def test_up_handler(self):
         form, kb, app = self._run_form_capture_kb()
-        handler = self._find_handler(kb, 'up')
+        handler = self._find_handler(kb, "up")
         assert handler is not None
         event = MagicMock()
         event.app = app
@@ -618,7 +684,7 @@ class TestRunKeyBindings:
 
     def test_up_handler_at_zero(self):
         form, kb, app = self._run_form_capture_kb()
-        handler = self._find_handler(kb, 'up')
+        handler = self._find_handler(kb, "up")
         event = MagicMock()
         event.app = app
         form.focused_field = 1
@@ -628,7 +694,7 @@ class TestRunKeyBindings:
 
     def test_down_handler(self):
         form, kb, app = self._run_form_capture_kb()
-        handler = self._find_handler(kb, 'down')
+        handler = self._find_handler(kb, "down")
         assert handler is not None
         event = MagicMock()
         event.app = app
@@ -639,8 +705,9 @@ class TestRunKeyBindings:
 
     def test_down_handler_at_max(self):
         from code_puppy.command_line.mcp.custom_server_form import SERVER_TYPES
+
         form, kb, app = self._run_form_capture_kb()
-        handler = self._find_handler(kb, 'down')
+        handler = self._find_handler(kb, "down")
         event = MagicMock()
         event.app = app
         form.focused_field = 1
@@ -650,7 +717,7 @@ class TestRunKeyBindings:
 
     def test_ctrl_n_handler(self):
         form, kb, app = self._run_form_capture_kb()
-        handler = self._find_handler(kb, 'c-n')
+        handler = self._find_handler(kb, "c-n")
         assert handler is not None
         event = MagicMock()
         event.app = app
@@ -659,35 +726,36 @@ class TestRunKeyBindings:
         from code_puppy.command_line.mcp.custom_server_form import (
             CUSTOM_SERVER_EXAMPLES,
         )
+
         assert form.json_area.text == CUSTOM_SERVER_EXAMPLES[form._get_current_type()]
 
     def test_ctrl_s_handler_success(self):
         form, kb, app = self._run_form_capture_kb()
-        handler = self._find_handler(kb, 'c-s')
+        handler = self._find_handler(kb, "c-s")
         assert handler is not None
         event = MagicMock()
         event.app = app
         form.name_area.text = "good-name"
         form.json_area.text = json.dumps({"command": "npx"})
-        with patch.object(form, '_install_server', return_value=True):
+        with patch.object(form, "_install_server", return_value=True):
             handler(event)
         assert form.result == "installed"
         event.app.exit.assert_called_once()
 
     def test_ctrl_s_handler_failure(self):
         form, kb, app = self._run_form_capture_kb()
-        handler = self._find_handler(kb, 'c-s')
+        handler = self._find_handler(kb, "c-s")
         event = MagicMock()
         event.app = app
         form.name_area.text = "good-name"
         form.json_area.text = json.dumps({"command": "npx"})
-        with patch.object(form, '_install_server', return_value=False):
+        with patch.object(form, "_install_server", return_value=False):
             handler(event)
         assert form.result != "installed"
 
     def test_escape_handler(self):
         form, kb, app = self._run_form_capture_kb()
-        handler = self._find_handler(kb, 'escape')
+        handler = self._find_handler(kb, "escape")
         assert handler is not None
         event = MagicMock()
         event.app = app
@@ -697,7 +765,7 @@ class TestRunKeyBindings:
 
     def test_ctrl_c_handler(self):
         form, kb, app = self._run_form_capture_kb()
-        handler = self._find_handler(kb, 'c-c')
+        handler = self._find_handler(kb, "c-c")
         assert handler is not None
         event = MagicMock()
         event.app = app
@@ -716,12 +784,16 @@ class TestRunCustomServerForm:
         from code_puppy.command_line.mcp.custom_server_form import (
             run_custom_server_form,
         )
+
         instance = MagicMock()
         instance.run.return_value = True
         MockForm.return_value = instance
         result = run_custom_server_form(
-            MagicMock(), edit_mode=True, existing_name="x",
-            existing_type="http", existing_config={"url": "http://a"},
+            MagicMock(),
+            edit_mode=True,
+            existing_name="x",
+            existing_type="http",
+            existing_config={"url": "http://a"},
         )
         assert result is True
         MockForm.assert_called_once()
@@ -732,6 +804,7 @@ class TestRunCustomServerForm:
         from code_puppy.command_line.mcp.custom_server_form import (
             run_custom_server_form,
         )
+
         instance = MagicMock()
         instance.run.return_value = False
         MockForm.return_value = instance

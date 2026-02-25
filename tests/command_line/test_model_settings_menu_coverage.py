@@ -16,13 +16,22 @@ from code_puppy.command_line.model_settings_menu import (
 def _make_menu(models=None, current="gpt-5", supported_settings=None):
     """Create a ModelSettingsMenu with mocked dependencies."""
     models = models if models is not None else ["gpt-5", "claude-opus", "grok"]
-    with patch("code_puppy.command_line.model_settings_menu._load_all_model_names", return_value=models), \
-         patch("code_puppy.command_line.model_settings_menu.get_global_model_name", return_value=current):
+    with (
+        patch(
+            "code_puppy.command_line.model_settings_menu._load_all_model_names",
+            return_value=models,
+        ),
+        patch(
+            "code_puppy.command_line.model_settings_menu.get_global_model_name",
+            return_value=current,
+        ),
+    ):
         menu = ModelSettingsMenu()
     return menu
 
 
 # --------------- _load_all_model_names ---------------
+
 
 class TestLoadAllModelNames:
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
@@ -34,17 +43,22 @@ class TestLoadAllModelNames:
 
 # --------------- _get_setting_choices ---------------
 
+
 class TestGetSettingChoices:
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
     def test_reasoning_effort_without_xhigh(self, mock_factory):
-        mock_factory.load_config.return_value = {"gpt-5": {"supports_xhigh_reasoning": False}}
+        mock_factory.load_config.return_value = {
+            "gpt-5": {"supports_xhigh_reasoning": False}
+        }
         choices = _get_setting_choices("reasoning_effort", "gpt-5")
         assert "xhigh" not in choices
         assert "high" in choices
 
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
     def test_reasoning_effort_with_xhigh(self, mock_factory):
-        mock_factory.load_config.return_value = {"codex": {"supports_xhigh_reasoning": True}}
+        mock_factory.load_config.return_value = {
+            "codex": {"supports_xhigh_reasoning": True}
+        }
         choices = _get_setting_choices("reasoning_effort", "codex")
         assert "xhigh" in choices
 
@@ -59,6 +73,7 @@ class TestGetSettingChoices:
 
 
 # --------------- ModelSettingsMenu properties ---------------
+
 
 class TestMenuProperties:
     def test_total_pages_empty(self):
@@ -110,6 +125,7 @@ class TestMenuProperties:
 
 # --------------- _get_supported_settings / _load_model_settings ---------------
 
+
 class TestModelSettings:
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
     def test_get_supported_settings(self, mock_supports):
@@ -119,12 +135,27 @@ class TestModelSettings:
         assert "temperature" in supported
         assert "seed" in supported
 
-    @patch("code_puppy.command_line.model_settings_menu.get_openai_verbosity", return_value="high")
-    @patch("code_puppy.command_line.model_settings_menu.get_openai_reasoning_effort", return_value="medium")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_openai_verbosity",
+        return_value="high",
+    )
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_openai_reasoning_effort",
+        return_value="medium",
+    )
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    def test_load_model_settings_with_openai(self, mock_supports, mock_get_all, mock_effort, mock_verb):
-        mock_supports.side_effect = lambda m, s: s in ("temperature", "reasoning_effort", "verbosity")
+    def test_load_model_settings_with_openai(
+        self, mock_supports, mock_get_all, mock_effort, mock_verb
+    ):
+        mock_supports.side_effect = lambda m, s: s in (
+            "temperature",
+            "reasoning_effort",
+            "verbosity",
+        )
         menu = _make_menu()
         menu._load_model_settings("gpt-5")
         assert menu.selected_model == "gpt-5"
@@ -133,6 +164,7 @@ class TestModelSettings:
 
 
 # --------------- _format_value ---------------
+
 
 class TestFormatValue:
     def test_format_none_with_default(self):
@@ -175,8 +207,12 @@ class TestFormatValue:
 
 # --------------- Render methods ---------------
 
+
 class TestRenderMainList:
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_render_models_view(self, mock_settings):
         menu = _make_menu(models=["m1", "m2"])
         menu.view_mode = "models"
@@ -200,7 +236,10 @@ class TestRenderMainList:
         text = "".join(t for _, t in lines)
         assert "No models" in text
 
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_render_models_pagination(self, mock_settings):
         models = [f"m{i}" for i in range(MODELS_PER_PAGE + 5)]
         menu = _make_menu(models=models)
@@ -209,7 +248,10 @@ class TestRenderMainList:
         assert "Page" in text
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_render_settings_view(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -220,8 +262,14 @@ class TestRenderMainList:
         assert "Settings for" in text
         assert "Temperature" in text
 
-    @patch("code_puppy.command_line.model_settings_menu.model_supports_setting", return_value=False)
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.model_supports_setting",
+        return_value=False,
+    )
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_render_settings_view_no_settings(self, mock_settings, mock_supports):
         menu = _make_menu()
         menu._load_model_settings("gpt-5")
@@ -231,7 +279,10 @@ class TestRenderMainList:
         assert "No configurable settings" in text
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={"temperature": 0.5})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={"temperature": 0.5},
+    )
     def test_render_settings_editing_mode(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -246,8 +297,12 @@ class TestRenderMainList:
 
 # --------------- Render details panel ---------------
 
+
 class TestRenderDetailsPanel:
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_models_view_no_models(self, mock_settings):
         menu = _make_menu(models=[])
         lines = menu._render_details_panel()
@@ -267,16 +322,28 @@ class TestRenderDetailsPanel:
         assert "Currently active" in text
         assert "Custom Settings" in text
 
-    @patch("code_puppy.command_line.model_settings_menu.model_supports_setting", return_value=False)
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.model_supports_setting",
+        return_value=False,
+    )
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_models_view_no_custom_settings(self, mock_settings, mock_supports):
         menu = _make_menu(models=["m1"], current="other")
         lines = menu._render_details_panel()
         text = "".join(t for _, t in lines)
         assert "default settings" in text
 
-    @patch("code_puppy.command_line.model_settings_menu.model_supports_setting", return_value=False)
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.model_supports_setting",
+        return_value=False,
+    )
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_models_view_no_supported_settings(self, mock_settings, mock_supports):
         menu = _make_menu(models=["m1"])
         lines = menu._render_details_panel()
@@ -284,7 +351,10 @@ class TestRenderDetailsPanel:
         assert "None" in text
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_models_view_pagination_info(self, mock_settings, mock_supports):
         mock_supports.return_value = False
         models = [f"m{i}" for i in range(MODELS_PER_PAGE + 5)]
@@ -295,8 +365,13 @@ class TestRenderDetailsPanel:
 
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
-    def test_settings_view_choice_type(self, mock_settings, mock_supports, mock_factory):
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
+    def test_settings_view_choice_type(
+        self, mock_settings, mock_supports, mock_factory
+    ):
         mock_supports.side_effect = lambda m, s: s == "reasoning_effort"
         mock_factory.load_config.return_value = {"gpt-5": {}}
         menu = _make_menu()
@@ -309,7 +384,10 @@ class TestRenderDetailsPanel:
         assert "Global setting" in text
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_settings_view_boolean_type(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "interleaved_thinking"
         menu = _make_menu()
@@ -320,7 +398,10 @@ class TestRenderDetailsPanel:
         assert "Enabled | Disabled" in text
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_settings_view_numeric_type(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -332,7 +413,10 @@ class TestRenderDetailsPanel:
         assert "Min" in text
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={"temperature": 0.5})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={"temperature": 0.5},
+    )
     def test_settings_view_with_value(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -343,7 +427,10 @@ class TestRenderDetailsPanel:
         assert "0.50" in text
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_settings_view_no_settings(self, mock_settings, mock_supports):
         mock_supports.return_value = False
         menu = _make_menu()
@@ -354,7 +441,10 @@ class TestRenderDetailsPanel:
         assert "doesn't expose" in text
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_settings_view_editing_mode(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -368,7 +458,10 @@ class TestRenderDetailsPanel:
         assert "0.80" in text
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_settings_view_editing_none_value(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -381,7 +474,10 @@ class TestRenderDetailsPanel:
         assert "model default" in text
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_settings_view_verbosity_global_warning(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "verbosity"
         menu = _make_menu()
@@ -394,9 +490,13 @@ class TestRenderDetailsPanel:
 
 # --------------- State transitions ---------------
 
+
 class TestStateTransitions:
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_enter_settings_view(self, mock_settings, mock_supports):
         mock_supports.return_value = True
         menu = _make_menu()
@@ -419,9 +519,13 @@ class TestStateTransitions:
 
 # --------------- Editing ---------------
 
+
 class TestEditing:
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={"temperature": 0.5})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={"temperature": 0.5},
+    )
     def test_start_editing_existing_value(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -431,7 +535,10 @@ class TestEditing:
         assert menu.edit_value == 0.5
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_start_editing_temperature_default(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -440,7 +547,10 @@ class TestEditing:
         assert menu.edit_value == 0.7
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_start_editing_seed_default(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "seed"
         menu = _make_menu()
@@ -449,7 +559,10 @@ class TestEditing:
         assert menu.edit_value == 42
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_start_editing_top_p_default(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "top_p"
         menu = _make_menu()
@@ -458,7 +571,10 @@ class TestEditing:
         assert menu.edit_value == 0.9
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_start_editing_budget_tokens_default(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "budget_tokens"
         menu = _make_menu()
@@ -466,11 +582,19 @@ class TestEditing:
         menu._start_editing()
         assert menu.edit_value == 10000
 
-    @patch("code_puppy.command_line.model_settings_menu.get_openai_reasoning_effort", return_value="medium")
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_openai_reasoning_effort",
+        return_value="medium",
+    )
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
-    def test_start_editing_choice_default(self, mock_settings, mock_supports, mock_factory, mock_effort):
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
+    def test_start_editing_choice_default(
+        self, mock_settings, mock_supports, mock_factory, mock_effort
+    ):
         mock_supports.side_effect = lambda m, s: s == "reasoning_effort"
         mock_factory.load_config.return_value = {"gpt-5": {}}
         menu = _make_menu()
@@ -479,7 +603,10 @@ class TestEditing:
         assert menu.edit_value == "medium"
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_start_editing_boolean_default(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "interleaved_thinking"
         menu = _make_menu()
@@ -494,7 +621,10 @@ class TestEditing:
         assert menu.editing_mode is False
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_start_editing_generic_numeric_default(self, mock_settings, mock_supports):
         """Test fallback for unknown numeric setting."""
         mock_supports.side_effect = lambda m, s: s == "effort"
@@ -506,7 +636,13 @@ class TestEditing:
         # Just verify budget_tokens which has a known default path
         # Test the else branch for numeric default by temporarily adding a custom setting
         SETTING_DEFINITIONS["_test_numeric"] = {
-            "name": "Test", "type": "numeric", "min": 0, "max": 10, "step": 1, "default": None, "format": "{:.0f}"
+            "name": "Test",
+            "type": "numeric",
+            "min": 0,
+            "max": 10,
+            "step": 1,
+            "default": None,
+            "format": "{:.0f}",
         }
         try:
             mock_supports.side_effect = lambda m, s: s == "_test_numeric"
@@ -520,10 +656,14 @@ class TestEditing:
 
 # --------------- _adjust_value ---------------
 
+
 class TestAdjustValue:
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_adjust_choice(self, mock_settings, mock_supports, mock_factory):
         mock_supports.side_effect = lambda m, s: s == "reasoning_effort"
         mock_factory.load_config.return_value = {"gpt-5": {}}
@@ -535,7 +675,10 @@ class TestAdjustValue:
         assert menu.edit_value == "high"  # next after medium
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_adjust_boolean(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "interleaved_thinking"
         menu = _make_menu()
@@ -546,7 +689,10 @@ class TestAdjustValue:
         assert menu.edit_value is True
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_adjust_numeric(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -557,7 +703,10 @@ class TestAdjustValue:
         assert abs(menu.edit_value - 0.55) < 0.001
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_adjust_numeric_clamp_min(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -568,7 +717,10 @@ class TestAdjustValue:
         assert menu.edit_value == 0.0
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_adjust_numeric_clamp_max(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -592,10 +744,14 @@ class TestAdjustValue:
 
 # --------------- _save_edit / _cancel_edit ---------------
 
+
 class TestSaveCancel:
     @patch("code_puppy.command_line.model_settings_menu.set_model_setting")
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_save_temperature(self, mock_settings, mock_supports, mock_set):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -609,7 +765,10 @@ class TestSaveCancel:
 
     @patch("code_puppy.command_line.model_settings_menu.set_openai_reasoning_effort")
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_save_reasoning_effort(self, mock_settings, mock_supports, mock_set):
         mock_supports.side_effect = lambda m, s: s == "reasoning_effort"
         menu = _make_menu()
@@ -621,7 +780,10 @@ class TestSaveCancel:
 
     @patch("code_puppy.command_line.model_settings_menu.set_openai_verbosity")
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_save_verbosity(self, mock_settings, mock_supports, mock_set):
         mock_supports.side_effect = lambda m, s: s == "verbosity"
         menu = _make_menu()
@@ -633,7 +795,10 @@ class TestSaveCancel:
 
     @patch("code_puppy.command_line.model_settings_menu.set_model_setting")
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_save_none_value_deletes(self, mock_settings, mock_supports, mock_set):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -660,9 +825,13 @@ class TestSaveCancel:
 
 # --------------- _reset_to_default ---------------
 
+
 class TestResetToDefault:
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_reset_editing_mode(self, mock_settings, mock_supports):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -674,7 +843,10 @@ class TestResetToDefault:
 
     @patch("code_puppy.command_line.model_settings_menu.set_model_setting")
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_reset_not_editing(self, mock_settings, mock_supports, mock_set):
         mock_supports.side_effect = lambda m, s: s == "temperature"
         menu = _make_menu()
@@ -686,7 +858,10 @@ class TestResetToDefault:
 
     @patch("code_puppy.command_line.model_settings_menu.set_openai_reasoning_effort")
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_reset_reasoning_effort(self, mock_settings, mock_supports, mock_set):
         mock_supports.side_effect = lambda m, s: s == "reasoning_effort"
         menu = _make_menu()
@@ -696,7 +871,10 @@ class TestResetToDefault:
 
     @patch("code_puppy.command_line.model_settings_menu.set_openai_verbosity")
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
     def test_reset_verbosity(self, mock_settings, mock_supports, mock_set):
         mock_supports.side_effect = lambda m, s: s == "verbosity"
         menu = _make_menu()
@@ -716,6 +894,7 @@ class TestResetToDefault:
 
 
 # --------------- Page navigation ---------------
+
 
 class TestPageNavigation:
     def test_page_up(self):
@@ -746,6 +925,7 @@ class TestPageNavigation:
 
 
 # --------------- Navigation hints ---------------
+
 
 class TestNavigationHints:
     def test_model_nav_hints_with_pagination(self):
@@ -784,14 +964,23 @@ class TestNavigationHints:
 
 # --------------- run() and interactive_model_settings ---------------
 
+
 class TestRunAndInteractive:
     @patch("code_puppy.command_line.model_settings_menu.set_awaiting_user_input")
     @patch("code_puppy.command_line.model_settings_menu.Application")
     @patch("sys.stdout")
     @patch("time.sleep")
-    @patch("code_puppy.command_line.model_settings_menu._load_all_model_names", return_value=["m1"])
-    @patch("code_puppy.command_line.model_settings_menu.get_global_model_name", return_value="m1")
-    def test_run_returns_changed(self, mock_gn, mock_ln, mock_sleep, mock_stdout, mock_app_cls, mock_await):
+    @patch(
+        "code_puppy.command_line.model_settings_menu._load_all_model_names",
+        return_value=["m1"],
+    )
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_global_model_name",
+        return_value="m1",
+    )
+    def test_run_returns_changed(
+        self, mock_gn, mock_ln, mock_sleep, mock_stdout, mock_app_cls, mock_await
+    ):
         mock_app = MagicMock()
         mock_app_cls.return_value = mock_app
         menu = ModelSettingsMenu()
@@ -810,10 +999,17 @@ class TestRunAndInteractive:
 
 # --------------- show_model_settings_summary ---------------
 
+
 class TestShowModelSettingsSummary:
     @patch("code_puppy.command_line.model_settings_menu.emit_info")
-    @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings", return_value={})
-    @patch("code_puppy.command_line.model_settings_menu.get_global_model_name", return_value="gpt-5")
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_global_model_name",
+        return_value="gpt-5",
+    )
     def test_no_settings(self, mock_gn, mock_settings, mock_emit):
         show_model_settings_summary()
         mock_emit.assert_called_once()
@@ -821,9 +1017,16 @@ class TestShowModelSettingsSummary:
 
     @patch("code_puppy.command_line.model_settings_menu.emit_info")
     @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings")
-    @patch("code_puppy.command_line.model_settings_menu.get_global_model_name", return_value="gpt-5")
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_global_model_name",
+        return_value="gpt-5",
+    )
     def test_with_settings(self, mock_gn, mock_settings, mock_emit):
-        mock_settings.return_value = {"temperature": 0.7, "reasoning_effort": "high", "interleaved_thinking": True}
+        mock_settings.return_value = {
+            "temperature": 0.7,
+            "reasoning_effort": "high",
+            "interleaved_thinking": True,
+        }
         show_model_settings_summary()
         calls = [c[0][0] for c in mock_emit.call_args_list]
         assert any("0.70" in c for c in calls)

@@ -20,7 +20,9 @@ class TestLoadCatalogSkillIds:
         assert result == ["test-skill"]
 
     def test_import_failure(self):
-        with patch.dict("sys.modules", {"code_puppy.plugins.agent_skills.skill_catalog": None}):
+        with patch.dict(
+            "sys.modules", {"code_puppy.plugins.agent_skills.skill_catalog": None}
+        ):
             result = load_catalog_skill_ids()
             assert result == []
 
@@ -55,14 +57,16 @@ class TestSkillsCompleter:
         assert "list" in names
         assert "install" not in names
 
-    @patch.object(SkillsCompleter, '_get_skill_ids', return_value=["skill-a", "skill-b"])
+    @patch.object(
+        SkillsCompleter, "_get_skill_ids", return_value=["skill-a", "skill-b"]
+    )
     def test_install_show_all_skills(self, mock_ids):
         result = self._get_completions("/skills install ")
         names = [c.text for c in result]
         assert "skill-a" in names
         assert "skill-b" in names
 
-    @patch.object(SkillsCompleter, '_get_skill_ids', return_value=["alpha", "beta"])
+    @patch.object(SkillsCompleter, "_get_skill_ids", return_value=["alpha", "beta"])
     def test_install_filter_skills(self, mock_ids):
         result = self._get_completions("/skills install al")
         names = [c.text for c in result]
@@ -75,7 +79,7 @@ class TestSkillsCompleter:
         assert result == []
 
     def test_get_skill_ids_cache(self):
-        with patch.object(self.completer, '_skill_ids_cache', ["cached"]):
+        with patch.object(self.completer, "_skill_ids_cache", ["cached"]):
             self.completer._cache_timestamp = 999999999999.0
             result = self.completer._get_skill_ids()
             assert result == ["cached"]
@@ -83,7 +87,10 @@ class TestSkillsCompleter:
     def test_get_skill_ids_refresh(self):
         self.completer._skill_ids_cache = None
         self.completer._cache_timestamp = None
-        with patch("code_puppy.command_line.skills_completion.load_catalog_skill_ids", return_value=["new"]):
+        with patch(
+            "code_puppy.command_line.skills_completion.load_catalog_skill_ids",
+            return_value=["new"],
+        ):
             result = self.completer._get_skill_ids()
             assert result == ["new"]
 

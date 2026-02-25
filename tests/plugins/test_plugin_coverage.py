@@ -7,10 +7,7 @@ Covers missed lines in:
 - agent_skills/discovery.py
 """
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 # ─── scheduler/register_callbacks.py ───────────────────────────────────
 
@@ -22,10 +19,12 @@ class TestSchedulerCallbacks:
         from code_puppy.plugins.scheduler.register_callbacks import (
             _handle_scheduler_command,
         )
+
         return _handle_scheduler_command
 
     def _get_help(self):
         from code_puppy.plugins.scheduler.register_callbacks import _scheduler_help
+
         return _scheduler_help
 
     def test_help_returns_entries(self):
@@ -103,12 +102,14 @@ class TestExampleCustomCommand:
         from code_puppy.plugins.example_custom_command.register_callbacks import (
             _handle_custom_command,
         )
+
         return _handle_custom_command
 
     def _get_help(self):
         from code_puppy.plugins.example_custom_command.register_callbacks import (
             _custom_help,
         )
+
         return _custom_help
 
     def test_help(self):
@@ -151,6 +152,7 @@ class TestUniversalConstructorCallbacks:
         from code_puppy.plugins.universal_constructor.register_callbacks import (
             _on_startup,
         )
+
         with patch(
             "code_puppy.config.get_universal_constructor_enabled",
             return_value=False,
@@ -167,15 +169,20 @@ class TestUniversalConstructorCallbacks:
         from code_puppy.plugins.universal_constructor.register_callbacks import (
             _on_startup,
         )
-        with patch(
-            "code_puppy.config.get_universal_constructor_enabled",
-            return_value=True,
-        ), patch(
-            "code_puppy.plugins.universal_constructor.register_callbacks.get_registry",
-            return_value=mock_registry,
-        ), patch(
-            "code_puppy.plugins.universal_constructor.register_callbacks.USER_UC_DIR",
-        ) as mock_dir:
+
+        with (
+            patch(
+                "code_puppy.config.get_universal_constructor_enabled",
+                return_value=True,
+            ),
+            patch(
+                "code_puppy.plugins.universal_constructor.register_callbacks.get_registry",
+                return_value=mock_registry,
+            ),
+            patch(
+                "code_puppy.plugins.universal_constructor.register_callbacks.USER_UC_DIR",
+            ) as mock_dir,
+        ):
             _on_startup()
             mock_dir.mkdir.assert_called_once_with(parents=True, exist_ok=True)
             mock_registry.list_tools.assert_called_once_with(include_disabled=True)
@@ -195,12 +202,15 @@ class TestDiscoveryMissedLines:
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text("# Skill")
 
-        with patch(
-            "code_puppy.plugins.agent_skills.discovery.get_skill_directories",
-            return_value=[str(tmp_path / "skills")],
-        ), patch(
-            "code_puppy.plugins.agent_skills.discovery.get_default_skill_directories",
-            return_value=[tmp_path / "skills"],  # same as config, tests dedup
+        with (
+            patch(
+                "code_puppy.plugins.agent_skills.discovery.get_skill_directories",
+                return_value=[str(tmp_path / "skills")],
+            ),
+            patch(
+                "code_puppy.plugins.agent_skills.discovery.get_default_skill_directories",
+                return_value=[tmp_path / "skills"],  # same as config, tests dedup
+            ),
         ):
             results = discover_skills(directories=None)
             assert any(s.name == "my-skill" for s in results)

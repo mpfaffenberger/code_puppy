@@ -26,7 +26,9 @@ class TestStatusCommand:
 
     def test_no_args_delegates_to_list(self, status_cmd):
         with (
-            patch("code_puppy.command_line.mcp.list_command.emit_info") as mock_list_emit,
+            patch(
+                "code_puppy.command_line.mcp.list_command.emit_info"
+            ) as mock_list_emit,
             patch("code_puppy.command_line.mcp.status_command.emit_info"),
         ):
             status_cmd.manager.list_servers.return_value = []
@@ -35,7 +37,10 @@ class TestStatusCommand:
 
     def test_server_not_found(self, status_cmd):
         with (
-            patch("code_puppy.command_line.mcp.status_command.find_server_id_by_name", return_value=None),
+            patch(
+                "code_puppy.command_line.mcp.status_command.find_server_id_by_name",
+                return_value=None,
+            ),
             patch("code_puppy.command_line.mcp.status_command.suggest_similar_servers"),
             patch("code_puppy.command_line.mcp.status_command.emit_info") as mock_emit,
         ):
@@ -56,7 +61,10 @@ class TestStatusCommand:
             "recent_events": [],
         }
         with (
-            patch("code_puppy.command_line.mcp.status_command.find_server_id_by_name", return_value="id1"),
+            patch(
+                "code_puppy.command_line.mcp.status_command.find_server_id_by_name",
+                return_value="id1",
+            ),
             patch("code_puppy.command_line.mcp.status_command.emit_info") as mock_emit,
             patch("code_puppy.command_line.mcp.status_command.emit_error"),
             patch("code_puppy.mcp_.async_lifecycle.get_lifecycle_manager") as mock_lm,
@@ -68,7 +76,10 @@ class TestStatusCommand:
     def test_detailed_status_not_exists(self, status_cmd):
         status_cmd.manager.get_server_status.return_value = {"exists": False}
         with (
-            patch("code_puppy.command_line.mcp.status_command.find_server_id_by_name", return_value="id1"),
+            patch(
+                "code_puppy.command_line.mcp.status_command.find_server_id_by_name",
+                return_value="id1",
+            ),
             patch("code_puppy.command_line.mcp.status_command.emit_info") as mock_emit,
         ):
             status_cmd.execute(["myserver"], group_id="g1")
@@ -88,10 +99,16 @@ class TestStatusCommand:
             "recent_events": [],
         }
         with (
-            patch("code_puppy.command_line.mcp.status_command.find_server_id_by_name", return_value="id1"),
+            patch(
+                "code_puppy.command_line.mcp.status_command.find_server_id_by_name",
+                return_value="id1",
+            ),
             patch("code_puppy.command_line.mcp.status_command.emit_info"),
             patch("code_puppy.command_line.mcp.status_command.emit_error"),
-            patch("code_puppy.mcp_.async_lifecycle.get_lifecycle_manager", side_effect=Exception("nope")),
+            patch(
+                "code_puppy.mcp_.async_lifecycle.get_lifecycle_manager",
+                side_effect=Exception("nope"),
+            ),
         ):
             status_cmd.execute(["myserver"], group_id="g1")
 
@@ -109,7 +126,10 @@ class TestStatusCommand:
             "recent_events": [],
         }
         with (
-            patch("code_puppy.command_line.mcp.status_command.find_server_id_by_name", return_value="id1"),
+            patch(
+                "code_puppy.command_line.mcp.status_command.find_server_id_by_name",
+                return_value="id1",
+            ),
             patch("code_puppy.command_line.mcp.status_command.emit_info"),
             patch("code_puppy.command_line.mcp.status_command.emit_error"),
             patch("code_puppy.mcp_.async_lifecycle.get_lifecycle_manager") as mock_lm,
@@ -134,7 +154,10 @@ class TestStatusCommand:
             ],
         }
         with (
-            patch("code_puppy.command_line.mcp.status_command.find_server_id_by_name", return_value="id1"),
+            patch(
+                "code_puppy.command_line.mcp.status_command.find_server_id_by_name",
+                return_value="id1",
+            ),
             patch("code_puppy.command_line.mcp.status_command.emit_info") as mock_emit,
             patch("code_puppy.command_line.mcp.status_command.emit_error"),
             patch("code_puppy.mcp_.async_lifecycle.get_lifecycle_manager") as mock_lm,
@@ -158,17 +181,26 @@ class TestStatusCommand:
             "recent_events": [],
         }
         with (
-            patch("code_puppy.command_line.mcp.status_command.find_server_id_by_name", return_value="id1"),
+            patch(
+                "code_puppy.command_line.mcp.status_command.find_server_id_by_name",
+                return_value="id1",
+            ),
             patch("code_puppy.command_line.mcp.status_command.emit_info"),
             patch("code_puppy.command_line.mcp.status_command.emit_error"),
-            patch("code_puppy.mcp_.async_lifecycle.get_lifecycle_manager", side_effect=Exception),
+            patch(
+                "code_puppy.mcp_.async_lifecycle.get_lifecycle_manager",
+                side_effect=Exception,
+            ),
         ):
             status_cmd.execute(["myserver"], group_id="g1")
 
     def test_detailed_status_exception(self, status_cmd):
         status_cmd.manager.get_server_status.side_effect = RuntimeError("boom")
         with (
-            patch("code_puppy.command_line.mcp.status_command.find_server_id_by_name", return_value="id1"),
+            patch(
+                "code_puppy.command_line.mcp.status_command.find_server_id_by_name",
+                return_value="id1",
+            ),
             patch("code_puppy.command_line.mcp.status_command.emit_info"),
             patch("code_puppy.command_line.mcp.status_command.emit_error") as mock_err,
         ):
@@ -177,11 +209,17 @@ class TestStatusCommand:
 
     def test_execute_exception(self, status_cmd):
         with (
-            patch("code_puppy.command_line.mcp.status_command.find_server_id_by_name", side_effect=RuntimeError("fail")),
+            patch(
+                "code_puppy.command_line.mcp.status_command.find_server_id_by_name",
+                side_effect=RuntimeError("fail"),
+            ),
             patch("code_puppy.command_line.mcp.status_command.emit_info") as mock_emit,
         ):
             status_cmd.execute(["srv"], group_id="g1")
-            assert any("Failed to get server status" in str(c) for c in mock_emit.call_args_list)
+            assert any(
+                "Failed to get server status" in str(c)
+                for c in mock_emit.call_args_list
+            )
 
     def test_detailed_generates_group_id(self, status_cmd):
         status_cmd.manager.get_server_status.return_value = {"exists": False}

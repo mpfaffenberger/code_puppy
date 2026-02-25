@@ -10,22 +10,30 @@ from code_puppy.api.app import create_app
 
 @pytest.fixture
 def mock_config():
-    with patch("code_puppy.api.routers.config.get_config_keys", create=True) as mock_keys, \
-         patch("code_puppy.api.routers.config.get_value", create=True) as mock_get, \
-         patch("code_puppy.api.routers.config.set_value", create=True) as mock_set, \
-         patch("code_puppy.api.routers.config.reset_value", create=True) as mock_reset:
+    with (
+        patch(
+            "code_puppy.api.routers.config.get_config_keys", create=True
+        ) as mock_keys,
+        patch("code_puppy.api.routers.config.get_value", create=True) as mock_get,
+        patch("code_puppy.api.routers.config.set_value", create=True) as mock_set,
+        patch("code_puppy.api.routers.config.reset_value", create=True) as mock_reset,
+    ):
         mock_keys.return_value = ["model", "yolo_mode"]
-        mock_get.side_effect = lambda k: {"model": "gpt-4o", "yolo_mode": "false"}.get(k)
+        mock_get.side_effect = lambda k: {"model": "gpt-4o", "yolo_mode": "false"}.get(
+            k
+        )
         yield {"keys": mock_keys, "get": mock_get, "set": mock_set, "reset": mock_reset}
 
 
 @pytest.fixture
 async def client(mock_config):
     # Need to patch imports at the point they're used in the endpoint functions
-    with patch("code_puppy.config.get_config_keys", mock_config["keys"], create=True), \
-         patch("code_puppy.config.get_value", mock_config["get"], create=True), \
-         patch("code_puppy.config.set_value", mock_config["set"], create=True), \
-         patch("code_puppy.config.reset_value", mock_config["reset"], create=True):
+    with (
+        patch("code_puppy.config.get_config_keys", mock_config["keys"], create=True),
+        patch("code_puppy.config.get_value", mock_config["get"], create=True),
+        patch("code_puppy.config.set_value", mock_config["set"], create=True),
+        patch("code_puppy.config.reset_value", mock_config["reset"], create=True),
+    ):
         app = create_app()
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:

@@ -4,7 +4,6 @@ import os
 from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
-
 MODULE = "code_puppy.command_line.mcp.install_menu"
 
 
@@ -37,15 +36,24 @@ class FakeServer:
 def make_menu(catalog_categories=None, catalog_servers=None):
     """Create MCPInstallMenu with mocked catalog."""
     mock_catalog = MagicMock()
-    mock_catalog.list_categories.return_value = catalog_categories or ["Code", "Storage"]
+    mock_catalog.list_categories.return_value = catalog_categories or [
+        "Code",
+        "Storage",
+    ]
     mock_catalog.get_by_category.return_value = catalog_servers or [FakeServer()]
     mock_catalog.get_popular.return_value = catalog_servers or [FakeServer()]
 
-    with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)}):
+    with patch.dict(
+        "sys.modules",
+        {"code_puppy.mcp_.server_registry_catalog": MagicMock(catalog=mock_catalog)},
+    ):
         from code_puppy.command_line.mcp.install_menu import MCPInstallMenu
+
         menu = MCPInstallMenu(MagicMock())
         menu.catalog = mock_catalog
-        menu.categories = ["➕ Custom Server"] + (catalog_categories or ["Code", "Storage"])
+        menu.categories = ["➕ Custom Server"] + (
+            catalog_categories or ["Code", "Storage"]
+        )
     return menu
 
 
@@ -57,8 +65,11 @@ class TestMCPInstallMenuInit:
         assert menu.view_mode == "categories"
 
     def test_init_catalog_import_error(self):
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": None}):
+        with patch.dict(
+            "sys.modules", {"code_puppy.mcp_.server_registry_catalog": None}
+        ):
             from code_puppy.command_line.mcp.install_menu import MCPInstallMenu
+
             with patch(f"{MODULE}.emit_error"):
                 menu = MCPInstallMenu(MagicMock())
         assert menu.categories == ["➕ Custom Server"]
@@ -66,8 +77,11 @@ class TestMCPInstallMenuInit:
     def test_init_catalog_general_exception(self):
         mock_mod = MagicMock()
         mock_mod.catalog.list_categories.side_effect = RuntimeError("boom")
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": mock_mod}):
+        with patch.dict(
+            "sys.modules", {"code_puppy.mcp_.server_registry_catalog": mock_mod}
+        ):
             from code_puppy.command_line.mcp.install_menu import MCPInstallMenu
+
             with patch(f"{MODULE}.emit_error"):
                 menu = MCPInstallMenu(MagicMock())
         assert menu.categories == ["➕ Custom Server"]
@@ -75,8 +89,11 @@ class TestMCPInstallMenuInit:
     def test_init_empty_catalog(self):
         mock_mod = MagicMock()
         mock_mod.catalog.list_categories.return_value = []
-        with patch.dict("sys.modules", {"code_puppy.mcp_.server_registry_catalog": mock_mod}):
+        with patch.dict(
+            "sys.modules", {"code_puppy.mcp_.server_registry_catalog": mock_mod}
+        ):
             from code_puppy.command_line.mcp.install_menu import MCPInstallMenu
+
             with patch(f"{MODULE}.emit_error"):
                 menu = MCPInstallMenu(MagicMock())
         # Only custom category
@@ -226,7 +243,9 @@ class TestRenderServerList:
         menu = make_menu()
         menu.view_mode = "servers"
         menu.current_category = "Code"
-        menu.current_servers = [FakeServer(name=f"s{i}", display_name=f"S{i}") for i in range(20)]
+        menu.current_servers = [
+            FakeServer(name=f"s{i}", display_name=f"S{i}") for i in range(20)
+        ]
         menu.current_page = 1
         menu.selected_server_idx = 12
         lines = menu._render_server_list()
@@ -291,7 +310,9 @@ class TestRenderDetails:
     def test_server_details_no_description(self):
         menu = make_menu()
         menu.view_mode = "servers"
-        srv = FakeServer(description="", tags=[], example_usage="", verified=False, popular=False)
+        srv = FakeServer(
+            description="", tags=[], example_usage="", verified=False, popular=False
+        )
         srv.get_environment_vars = lambda: []
         srv.get_command_line_args = lambda: []
         srv.get_requirements = lambda: MagicMock(required_tools=[])
@@ -418,9 +439,11 @@ class TestRun:
         menu = make_menu()
 
         mock_app = MagicMock()
+
         # Make the app.run set pending_custom
         def fake_run(**kwargs):
             menu.result = "pending_custom"
+
         mock_app.run = fake_run
 
         with patch(f"{MODULE}.Application", return_value=mock_app):
@@ -432,14 +455,18 @@ class TestRun:
     @patch(f"{MODULE}.prompt_for_server_config", return_value={"name": "srv"})
     @patch(f"{MODULE}.install_catalog_server", return_value=True)
     @patch("sys.stdout")
-    def test_run_catalog_install(self, mock_stdout, mock_install, mock_prompt, mock_set_input):
+    def test_run_catalog_install(
+        self, mock_stdout, mock_install, mock_prompt, mock_set_input
+    ):
         menu = make_menu()
         srv = FakeServer()
 
         mock_app = MagicMock()
+
         def fake_run(**kwargs):
             menu.result = "pending_install"
             menu.pending_server = srv
+
         mock_app.run = fake_run
 
         with patch(f"{MODULE}.Application", return_value=mock_app):
@@ -450,14 +477,18 @@ class TestRun:
     @patch(f"{MODULE}.set_awaiting_user_input")
     @patch(f"{MODULE}.prompt_for_server_config", return_value=None)
     @patch("sys.stdout")
-    def test_run_catalog_config_cancelled(self, mock_stdout, mock_prompt, mock_set_input):
+    def test_run_catalog_config_cancelled(
+        self, mock_stdout, mock_prompt, mock_set_input
+    ):
         menu = make_menu()
         srv = FakeServer()
 
         mock_app = MagicMock()
+
         def fake_run(**kwargs):
             menu.result = "pending_install"
             menu.pending_server = srv
+
         mock_app.run = fake_run
 
         with patch(f"{MODULE}.Application", return_value=mock_app):
@@ -471,8 +502,10 @@ class TestRun:
         menu = make_menu()
 
         mock_app = MagicMock()
+
         def fake_run(**kwargs):
             menu.result = "pending_custom"
+
         mock_app.run = fake_run
 
         with patch(f"{MODULE}.Application", return_value=mock_app):

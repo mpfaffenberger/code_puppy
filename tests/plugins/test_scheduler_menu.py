@@ -2,17 +2,25 @@
 
 from unittest.mock import MagicMock, patch
 
-
 _MOD = "code_puppy.plugins.scheduler.scheduler_menu"
 
 
 def _make_task(**kwargs):
     from code_puppy.scheduler.config import ScheduledTask
+
     defaults = dict(
-        id="t1", name="Test Task", prompt="do stuff", agent="code-puppy",
-        model="gpt-4", schedule_type="interval", schedule_value="1h",
-        working_directory=".", enabled=True, last_status=None,
-        last_run=None, last_exit_code=None,
+        id="t1",
+        name="Test Task",
+        prompt="do stuff",
+        agent="code-puppy",
+        model="gpt-4",
+        schedule_type="interval",
+        schedule_value="1h",
+        working_directory=".",
+        enabled=True,
+        last_status=None,
+        last_run=None,
+        last_exit_code=None,
         log_file="/tmp/t1.log",
     )
     defaults.update(kwargs)
@@ -23,22 +31,26 @@ def _make_task(**kwargs):
 # SchedulerMenu unit tests
 # ---------------------------------------------------------------------------
 
+
 class TestSchedulerMenuInit:
     @patch(f"{_MOD}.load_tasks", return_value=[])
     def test_init_empty(self, mock_load):
         from code_puppy.plugins.scheduler.scheduler_menu import SchedulerMenu
+
         menu = SchedulerMenu()
         assert menu.tasks == []
 
     @patch(f"{_MOD}.load_tasks", side_effect=RuntimeError("boom"))
     def test_init_error(self, mock_load):
         from code_puppy.plugins.scheduler.scheduler_menu import SchedulerMenu
+
         menu = SchedulerMenu()
         assert menu.tasks == []
 
     @patch(f"{_MOD}.load_tasks", return_value=[_make_task()])
     def test_get_current_task(self, mock_load):
         from code_puppy.plugins.scheduler.scheduler_menu import SchedulerMenu
+
         menu = SchedulerMenu()
         assert menu._get_current_task() is not None
         menu.selected_idx = 99
@@ -49,6 +61,7 @@ class TestSchedulerMenuStatusIcon:
     @patch(f"{_MOD}.load_tasks", return_value=[])
     def test_disabled(self, mock_load):
         from code_puppy.plugins.scheduler.scheduler_menu import SchedulerMenu
+
         menu = SchedulerMenu()
         task = _make_task(enabled=False)
         icon, color = menu._get_status_icon(task)
@@ -57,6 +70,7 @@ class TestSchedulerMenuStatusIcon:
     @patch(f"{_MOD}.load_tasks", return_value=[])
     def test_running(self, mock_load):
         from code_puppy.plugins.scheduler.scheduler_menu import SchedulerMenu
+
         menu = SchedulerMenu()
         icon, _ = menu._get_status_icon(_make_task(last_status="running"))
         assert icon == "\u23f3"
@@ -64,6 +78,7 @@ class TestSchedulerMenuStatusIcon:
     @patch(f"{_MOD}.load_tasks", return_value=[])
     def test_success(self, mock_load):
         from code_puppy.plugins.scheduler.scheduler_menu import SchedulerMenu
+
         menu = SchedulerMenu()
         icon, _ = menu._get_status_icon(_make_task(last_status="success"))
         assert icon == "✓"
@@ -71,6 +86,7 @@ class TestSchedulerMenuStatusIcon:
     @patch(f"{_MOD}.load_tasks", return_value=[])
     def test_failed(self, mock_load):
         from code_puppy.plugins.scheduler.scheduler_menu import SchedulerMenu
+
         menu = SchedulerMenu()
         icon, _ = menu._get_status_icon(_make_task(last_status="failed"))
         assert icon == "✗"
@@ -78,6 +94,7 @@ class TestSchedulerMenuStatusIcon:
     @patch(f"{_MOD}.load_tasks", return_value=[])
     def test_default(self, mock_load):
         from code_puppy.plugins.scheduler.scheduler_menu import SchedulerMenu
+
         menu = SchedulerMenu()
         icon, _ = menu._get_status_icon(_make_task(last_status=None))
         assert icon == "○"
@@ -87,6 +104,7 @@ class TestSchedulerMenuRendering:
     def _make_menu(self, tasks=None):
         with patch(f"{_MOD}.load_tasks", return_value=tasks or []):
             from code_puppy.plugins.scheduler.scheduler_menu import SchedulerMenu
+
             return SchedulerMenu()
 
     @patch(f"{_MOD}.get_daemon_pid", return_value=None)
@@ -176,16 +194,21 @@ class TestSchedulerMenuRendering:
 
 def _invoke_kb_handler(kb, key_name, app_mock=None):
     _ALIASES = {
-        'enter': 'c-m', 'up': 'up', 'down': 'down',
-        'left': 'left', 'right': 'right', 'escape': 'escape',
-        'space': ' ', 'backspace': 'c-h',
+        "enter": "c-m",
+        "up": "up",
+        "down": "down",
+        "left": "left",
+        "right": "right",
+        "escape": "escape",
+        "space": " ",
+        "backspace": "c-h",
     }
     target = _ALIASES.get(key_name, key_name)
     event = MagicMock()
     event.app = app_mock or MagicMock()
     for binding in kb.bindings:
         for k in binding.keys:
-            name = k.value if hasattr(k, 'value') else str(k)
+            name = k.value if hasattr(k, "value") else str(k)
             if name == target or name == key_name:
                 binding.handler(event)
                 return event
@@ -195,6 +218,7 @@ def _invoke_kb_handler(kb, key_name, app_mock=None):
 class TestSchedulerMenuKeyBindings:
     def _run_with_keys(self, tasks=None, callback=None):
         from prompt_toolkit.key_binding import KeyBindings as OrigKB
+
         captured_kb = [None]
 
         class CapturingKB(OrigKB):
@@ -202,19 +226,23 @@ class TestSchedulerMenuKeyBindings:
                 super().__init__(*a, **kw)
                 captured_kb[0] = self
 
-        with patch(f"{_MOD}.load_tasks", return_value=tasks or []), \
-             patch(f"{_MOD}.set_awaiting_user_input"), \
-             patch(f"{_MOD}.KeyBindings", CapturingKB), \
-             patch(f"{_MOD}.Application") as mock_app_cls, \
-             patch(f"{_MOD}.time"), \
-             patch("sys.stdout"):
+        with (
+            patch(f"{_MOD}.load_tasks", return_value=tasks or []),
+            patch(f"{_MOD}.set_awaiting_user_input"),
+            patch(f"{_MOD}.KeyBindings", CapturingKB),
+            patch(f"{_MOD}.Application") as mock_app_cls,
+            patch(f"{_MOD}.time"),
+            patch("sys.stdout"),
+        ):
             from code_puppy.plugins.scheduler.scheduler_menu import SchedulerMenu
+
             menu = SchedulerMenu()
             mock_app = MagicMock()
 
             def fake_run(**kwargs):
                 if callback:
                     callback(menu, captured_kb[0], mock_app)
+
             mock_app.run.side_effect = fake_run
             mock_app_cls.return_value = mock_app
             result = menu.run()
@@ -304,12 +332,17 @@ class TestSchedulerMenuRun:
     @patch(f"{_MOD}.time")
     @patch("sys.stdout")
     @patch(f"{_MOD}.load_tasks", return_value=[])
-    def test_run_quit(self, mock_load, mock_stdout, mock_time, mock_app_cls, mock_await):
+    def test_run_quit(
+        self, mock_load, mock_stdout, mock_time, mock_app_cls, mock_await
+    ):
         from code_puppy.plugins.scheduler.scheduler_menu import SchedulerMenu
+
         menu = SchedulerMenu()
         mock_app = MagicMock()
+
         def fake_run(**kw):
             menu.result = "quit"
+
         mock_app.run.side_effect = fake_run
         mock_app_cls.return_value = mock_app
         result = menu.run()
@@ -320,6 +353,7 @@ class TestSchedulerMenuRun:
 # show_scheduler_menu
 # ---------------------------------------------------------------------------
 
+
 class TestShowSchedulerMenu:
     @patch(f"{_MOD}.SchedulerMenu")
     def test_quit(self, mock_cls):
@@ -328,6 +362,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = None
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         assert show_scheduler_menu() is False
 
     @patch(f"{_MOD}.SchedulerMenu")
@@ -337,6 +372,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = None
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         assert show_scheduler_menu() is False
 
     @patch(f"{_MOD}.add_task")
@@ -349,6 +385,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = None
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         result = show_scheduler_menu()
         assert result is True
 
@@ -360,6 +397,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = None
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         assert show_scheduler_menu() is False
 
     @patch(f"{_MOD}.run_task_by_id", return_value=(True, "ok"))
@@ -372,6 +410,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = task
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         assert show_scheduler_menu() is True
 
     @patch(f"{_MOD}.run_task_by_id", return_value=(False, "fail"))
@@ -384,6 +423,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = task
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         assert show_scheduler_menu() is True
 
     @patch(f"{_MOD}.SchedulerMenu")
@@ -393,6 +433,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = None
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         show_scheduler_menu()
 
     @patch(f"{_MOD}._tail_log_file")
@@ -404,6 +445,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = task
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         show_scheduler_menu()
         mock_tail.assert_called_once()
 
@@ -414,6 +456,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = None
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         show_scheduler_menu()
 
     @patch(f"{_MOD}.SchedulerMenu")
@@ -426,6 +469,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = task
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         show_scheduler_menu()
 
     @patch(f"{_MOD}.delete_task")
@@ -438,6 +482,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = task
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         assert show_scheduler_menu() is True
 
     @patch("code_puppy.command_line.utils.safe_input", return_value="n")
@@ -449,6 +494,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = task
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         assert show_scheduler_menu() is False
 
     @patch(f"{_MOD}.SchedulerMenu")
@@ -458,6 +504,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = None
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         show_scheduler_menu()
 
     @patch(f"{_MOD}.start_daemon_background", return_value=True)
@@ -470,6 +517,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = None
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         show_scheduler_menu()
         mock_start.assert_called_once()
 
@@ -483,6 +531,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = None
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         show_scheduler_menu()
         mock_stop.assert_called_once()
 
@@ -496,6 +545,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = None
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         show_scheduler_menu()
 
     @patch(f"{_MOD}.stop_daemon", return_value=False)
@@ -508,6 +558,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = None
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         show_scheduler_menu()
 
     @patch(f"{_MOD}.SchedulerMenu")
@@ -517,6 +568,7 @@ class TestShowSchedulerMenu:
         mock_menu._get_current_task.return_value = None
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.scheduler.scheduler_menu import show_scheduler_menu
+
         assert show_scheduler_menu() is True
 
 
@@ -524,20 +576,30 @@ class TestShowSchedulerMenu:
 # _create_new_task
 # ---------------------------------------------------------------------------
 
+
 class TestCreateNewTask:
-    @patch("code_puppy.plugins.scheduler.scheduler_wizard.create_task_wizard", return_value=None)
+    @patch(
+        "code_puppy.plugins.scheduler.scheduler_wizard.create_task_wizard",
+        return_value=None,
+    )
     def test_cancelled(self, mock_wizard):
         from code_puppy.plugins.scheduler.scheduler_menu import _create_new_task
+
         assert _create_new_task() is None
 
     @patch("code_puppy.plugins.scheduler.scheduler_wizard.create_task_wizard")
     def test_success(self, mock_wizard):
         mock_wizard.return_value = {
-            "name": "Test", "prompt": "do stuff", "agent": "code-puppy",
-            "model": "", "schedule_type": "interval", "schedule_value": "1h",
+            "name": "Test",
+            "prompt": "do stuff",
+            "agent": "code-puppy",
+            "model": "",
+            "schedule_type": "interval",
+            "schedule_value": "1h",
             "working_directory": ".",
         }
         from code_puppy.plugins.scheduler.scheduler_menu import _create_new_task
+
         task = _create_new_task()
         assert task is not None
         assert task.name == "Test"
@@ -547,10 +609,12 @@ class TestCreateNewTask:
 # _tail_log_file
 # ---------------------------------------------------------------------------
 
+
 class TestTailLogFile:
     @patch("code_puppy.command_line.utils.safe_input", return_value="")
     def test_file_not_found(self, mock_input):
         from code_puppy.plugins.scheduler.scheduler_menu import _tail_log_file
+
         _tail_log_file("/nonexistent/file.log")
 
     def test_reads_file(self, tmp_path):
@@ -559,6 +623,7 @@ class TestTailLogFile:
 
         from prompt_toolkit.key_binding import KeyBindings as OrigKB
         from prompt_toolkit.layout.controls import FormattedTextControl
+
         captured_kb = [None]
         captured_render = [None]
 
@@ -568,14 +633,17 @@ class TestTailLogFile:
                 captured_kb[0] = self
 
         orig_ftc = FormattedTextControl.__init__
+
         def capturing_ftc(self_ctrl, *a, **kw):
             orig_ftc(self_ctrl, *a, **kw)
-            if 'text' in kw and callable(kw['text']):
-                captured_render[0] = kw['text']
+            if "text" in kw and callable(kw["text"]):
+                captured_render[0] = kw["text"]
 
-        with patch("prompt_toolkit.application.Application") as mock_app_cls, \
-             patch(f"{_MOD}.set_awaiting_user_input"), \
-             patch("prompt_toolkit.key_binding.KeyBindings", CapturingKB):
+        with (
+            patch("prompt_toolkit.application.Application") as mock_app_cls,
+            patch(f"{_MOD}.set_awaiting_user_input"),
+            patch("prompt_toolkit.key_binding.KeyBindings", CapturingKB),
+        ):
             mock_app = MagicMock()
 
             # Capture FormattedTextControl to call render_log
@@ -584,7 +652,7 @@ class TestTailLogFile:
 
             def patched_ftc_init(self_ctrl, *a, **kw):
                 original_ftc_init(self_ctrl, *a, **kw)
-                text_arg = kw.get('text') or (a[0] if a else None)
+                text_arg = kw.get("text") or (a[0] if a else None)
                 if callable(text_arg):
                     render_funcs.append(text_arg)
 
@@ -606,8 +674,10 @@ class TestTailLogFile:
             mock_app_cls.return_value = mock_app
 
             from prompt_toolkit.layout.controls import FormattedTextControl
-            with patch.object(FormattedTextControl, '__init__', patched_ftc_init):
+
+            with patch.object(FormattedTextControl, "__init__", patched_ftc_init):
                 from code_puppy.plugins.scheduler.scheduler_menu import _tail_log_file
+
                 _tail_log_file(str(log))
 
     @patch("code_puppy.command_line.utils.safe_input", return_value="")
@@ -617,6 +687,7 @@ class TestTailLogFile:
         # Make unreadable
         log.chmod(0o000)
         from code_puppy.plugins.scheduler.scheduler_menu import _tail_log_file
+
         try:
             _tail_log_file(str(log))
         finally:
@@ -625,9 +696,12 @@ class TestTailLogFile:
     def test_large_file(self, tmp_path):
         log = tmp_path / "test.log"
         log.write_text("\n".join(f"line {i}" for i in range(300)))
-        with patch("prompt_toolkit.application.Application") as mock_app_cls, \
-             patch(f"{_MOD}.set_awaiting_user_input"):
+        with (
+            patch("prompt_toolkit.application.Application") as mock_app_cls,
+            patch(f"{_MOD}.set_awaiting_user_input"),
+        ):
             mock_app = MagicMock()
             mock_app_cls.return_value = mock_app
             from code_puppy.plugins.scheduler.scheduler_menu import _tail_log_file
+
             _tail_log_file(str(log))

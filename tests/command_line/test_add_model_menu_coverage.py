@@ -12,7 +12,14 @@ from code_puppy.command_line.add_model_menu import (
 from code_puppy.models_dev_parser import ModelInfo, ProviderInfo
 
 
-def _make_provider(pid="openai", name="OpenAI", env=None, api="https://api.openai.com/v1", model_count=2, doc=None):
+def _make_provider(
+    pid="openai",
+    name="OpenAI",
+    env=None,
+    api="https://api.openai.com/v1",
+    model_count=2,
+    doc=None,
+):
     p = MagicMock(spec=ProviderInfo)
     p.id = pid
     p.name = name
@@ -24,13 +31,24 @@ def _make_provider(pid="openai", name="OpenAI", env=None, api="https://api.opena
 
 
 def _make_model(
-    provider_id="openai", model_id="gpt-4", name="GPT-4",
-    tool_call=True, reasoning=False, temperature=True,
-    structured_output=False, attachment=False,
-    cost_input=0.00003, cost_output=0.00006, cost_cache_read=None,
-    context_length=128000, max_output=4096,
-    input_modalities=None, output_modalities=None,
-    knowledge=None, release_date=None, open_weights=False,
+    provider_id="openai",
+    model_id="gpt-4",
+    name="GPT-4",
+    tool_call=True,
+    reasoning=False,
+    temperature=True,
+    structured_output=False,
+    attachment=False,
+    cost_input=0.00003,
+    cost_output=0.00006,
+    cost_cache_read=None,
+    context_length=128000,
+    max_output=4096,
+    input_modalities=None,
+    output_modalities=None,
+    knowledge=None,
+    release_date=None,
+    open_weights=False,
 ):
     return ModelInfo(
         provider_id=provider_id,
@@ -67,9 +85,12 @@ def _make_menu_with_providers(providers=None, models=None):
 
 # --------------- _get_current_provider / _get_current_model ---------------
 
+
 class TestGetCurrentProviderModel:
     def test_get_current_provider_valid(self):
-        menu = _make_menu_with_providers([_make_provider(), _make_provider(pid="anthropic", name="Anthropic")])
+        menu = _make_menu_with_providers(
+            [_make_provider(), _make_provider(pid="anthropic", name="Anthropic")]
+        )
         menu.selected_provider_idx = 1
         assert menu._get_current_provider().id == "anthropic"
 
@@ -120,6 +141,7 @@ class TestGetCurrentProviderModel:
 
 # --------------- Render provider list ---------------
 
+
 class TestRenderProviderList:
     def test_render_no_providers(self):
         menu = _make_menu_with_providers([])
@@ -149,6 +171,7 @@ class TestRenderProviderList:
 
 # --------------- Render model list ---------------
 
+
 class TestRenderModelList:
     def test_render_no_provider(self):
         menu = _make_menu_with_providers()
@@ -162,9 +185,15 @@ class TestRenderModelList:
         m = _make_model(name="GPT-4", tool_call=True, reasoning=True)
         # Create model with vision
         m2 = ModelInfo(
-            provider_id="openai", model_id="gpt-4v", name="GPT-4V",
-            tool_call=True, temperature=True, context_length=128000, max_output=4096,
-            input_modalities=["text", "image"], output_modalities=["text"],
+            provider_id="openai",
+            model_id="gpt-4v",
+            name="GPT-4V",
+            tool_call=True,
+            temperature=True,
+            context_length=128000,
+            max_output=4096,
+            input_modalities=["text", "image"],
+            output_modalities=["text"],
         )
         menu = _make_menu_with_providers()
         menu.view_mode = "models"
@@ -189,6 +218,7 @@ class TestRenderModelList:
 
 
 # --------------- Render model details ---------------
+
 
 class TestRenderModelDetails:
     def test_provider_view_no_provider(self):
@@ -251,10 +281,16 @@ class TestRenderModelDetails:
 
     def test_models_view_with_model(self):
         m = _make_model(
-            cost_input=0.00003, cost_output=0.00006, cost_cache_read=0.00001,
-            context_length=128000, max_output=4096,
-            input_modalities=["text", "image"], output_modalities=["text"],
-            knowledge="2024-04", release_date="2024-04-01", open_weights=True,
+            cost_input=0.00003,
+            cost_output=0.00006,
+            cost_cache_read=0.00001,
+            context_length=128000,
+            max_output=4096,
+            input_modalities=["text", "image"],
+            output_modalities=["text"],
+            knowledge="2024-04",
+            release_date="2024-04-01",
+            open_weights=True,
         )
         menu = _make_menu_with_providers()
         menu.view_mode = "models"
@@ -310,6 +346,7 @@ class TestRenderModelDetails:
 
 # --------------- _add_model_to_extra_config ---------------
 
+
 class TestAddModelToExtraConfig:
     def test_add_model_success(self):
         menu = _make_menu_with_providers()
@@ -317,7 +354,9 @@ class TestAddModelToExtraConfig:
         p = _make_provider()
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "extra_models.json")
-            with patch("code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path):
+            with patch(
+                "code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path
+            ):
                 result = menu._add_model_to_extra_config(m, p)
             assert result is True
             with open(path) as f:
@@ -332,7 +371,9 @@ class TestAddModelToExtraConfig:
             path = os.path.join(td, "extra_models.json")
             with open(path, "w") as f:
                 json.dump({"openai-gpt-4": {}}, f)
-            with patch("code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path):
+            with patch(
+                "code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path
+            ):
                 result = menu._add_model_to_extra_config(m, p)
             assert result is True  # Not an error
 
@@ -344,7 +385,9 @@ class TestAddModelToExtraConfig:
             path = os.path.join(td, "extra_models.json")
             with open(path, "w") as f:
                 f.write("not json")
-            with patch("code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path):
+            with patch(
+                "code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path
+            ):
                 result = menu._add_model_to_extra_config(m, p)
             assert result is False
 
@@ -356,7 +399,9 @@ class TestAddModelToExtraConfig:
             path = os.path.join(td, "extra_models.json")
             with open(path, "w") as f:
                 json.dump(["not", "a", "dict"], f)
-            with patch("code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path):
+            with patch(
+                "code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path
+            ):
                 result = menu._add_model_to_extra_config(m, p)
             assert result is False
 
@@ -364,12 +409,16 @@ class TestAddModelToExtraConfig:
         menu = _make_menu_with_providers()
         m = _make_model()
         p = _make_provider()
-        with patch("code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", "/nonexistent/path/extra.json"):
+        with patch(
+            "code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE",
+            "/nonexistent/path/extra.json",
+        ):
             result = menu._add_model_to_extra_config(m, p)
         assert result is False
 
 
 # --------------- _build_model_config ---------------
+
 
 class TestBuildModelConfig:
     def test_openai_provider(self):
@@ -399,7 +448,12 @@ class TestBuildModelConfig:
     def test_custom_openai_provider_with_api_url(self):
         menu = _make_menu_with_providers()
         m = _make_model(provider_id="groq", model_id="llama-3")
-        p = _make_provider(pid="groq", name="Groq", api="https://api.groq.com/openai/v1", env=["GROQ_API_KEY"])
+        p = _make_provider(
+            pid="groq",
+            name="Groq",
+            api="https://api.groq.com/openai/v1",
+            env=["GROQ_API_KEY"],
+        )
         config = menu._build_model_config(m, p)
         assert config["type"] == "custom_openai"
         assert "custom_endpoint" in config
@@ -439,7 +493,12 @@ class TestBuildModelConfig:
     def test_minimax_provider(self):
         menu = _make_menu_with_providers()
         m = _make_model(provider_id="minimax", model_id="minimax-01")
-        p = _make_provider(pid="minimax", name="Minimax", api="https://api.minimax.io/anthropic/v1", env=["MINIMAX_API_KEY"])
+        p = _make_provider(
+            pid="minimax",
+            name="Minimax",
+            api="https://api.minimax.io/anthropic/v1",
+            env=["MINIMAX_API_KEY"],
+        )
         config = menu._build_model_config(m, p)
         assert config["type"] == "custom_anthropic"
         assert config["custom_endpoint"]["url"] == "https://api.minimax.io/anthropic"
@@ -468,11 +527,14 @@ class TestBuildModelConfig:
 
 # --------------- Navigation methods ---------------
 
+
 class TestNavigationMethods:
     def test_enter_provider(self):
         p = _make_provider()
         models = [_make_model()]
-        with patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry") as mock_cls:
+        with patch(
+            "code_puppy.command_line.add_model_menu.ModelsDevRegistry"
+        ) as mock_cls:
             mock_reg = MagicMock()
             mock_reg.get_providers.return_value = [p]
             mock_reg.get_models.return_value = models
@@ -504,6 +566,7 @@ class TestNavigationMethods:
 
 
 # --------------- _add_current_model ---------------
+
 
 class TestAddCurrentModel:
     def test_no_provider(self):
@@ -543,6 +606,7 @@ class TestAddCurrentModel:
 
 
 # --------------- Credential handling ---------------
+
 
 class TestCredentialHandling:
     def test_get_missing_env_vars(self):
@@ -594,6 +658,7 @@ class TestCredentialHandling:
 
 
 # --------------- Custom model ---------------
+
 
 class TestCustomModel:
     def test_create_custom_model_info(self):
@@ -685,6 +750,7 @@ class TestCustomModel:
 
 # --------------- _get_env_var_hint ---------------
 
+
 class TestGetEnvVarHint:
     def test_known_vars(self):
         menu = _make_menu_with_providers()
@@ -697,6 +763,7 @@ class TestGetEnvVarHint:
 
 
 # --------------- run() method ---------------
+
 
 class TestRun:
     @patch("code_puppy.command_line.add_model_menu.set_awaiting_user_input")
@@ -712,7 +779,9 @@ class TestRun:
     @patch("code_puppy.command_line.add_model_menu.Application")
     @patch("sys.stdout")
     @patch("time.sleep")
-    def test_run_exit_no_result(self, mock_sleep, mock_stdout, mock_app_cls, mock_set_await):
+    def test_run_exit_no_result(
+        self, mock_sleep, mock_stdout, mock_app_cls, mock_set_await
+    ):
         menu = _make_menu_with_providers([_make_provider()])
         mock_app = MagicMock()
         mock_app_cls.return_value = mock_app
@@ -724,14 +793,20 @@ class TestRun:
     @patch("code_puppy.command_line.add_model_menu.Application")
     @patch("sys.stdout")
     @patch("time.sleep")
-    def test_run_unsupported_result(self, mock_sleep, mock_stdout, mock_app_cls, mock_set_await):
-        menu = _make_menu_with_providers([_make_provider(pid="amazon-bedrock", name="Bedrock")])
+    def test_run_unsupported_result(
+        self, mock_sleep, mock_stdout, mock_app_cls, mock_set_await
+    ):
+        menu = _make_menu_with_providers(
+            [_make_provider(pid="amazon-bedrock", name="Bedrock")]
+        )
         mock_app = MagicMock()
         mock_app_cls.return_value = mock_app
+
         # Simulate selecting unsupported provider
         def run_side_effect(**kwargs):
             menu.result = "unsupported"
             menu.current_provider = menu.providers[0]
+
         mock_app.run.side_effect = run_side_effect
         result = menu.run()
         assert result is False
@@ -741,7 +816,9 @@ class TestRun:
     @patch("code_puppy.command_line.add_model_menu.safe_input")
     @patch("sys.stdout")
     @patch("time.sleep")
-    def test_run_pending_credentials_success(self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await):
+    def test_run_pending_credentials_success(
+        self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await
+    ):
         m = _make_model()
         p = _make_provider(env=[])
         menu = _make_menu_with_providers([p])
@@ -752,11 +829,14 @@ class TestRun:
             menu.result = "pending_credentials"
             menu.pending_model = m
             menu.pending_provider = p
+
         mock_app.run.side_effect = run_side_effect
 
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "extra_models.json")
-            with patch("code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path):
+            with patch(
+                "code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path
+            ):
                 result = menu.run()
         assert result is True
 
@@ -765,7 +845,9 @@ class TestRun:
     @patch("code_puppy.command_line.add_model_menu.safe_input")
     @patch("sys.stdout")
     @patch("time.sleep")
-    def test_run_pending_credentials_no_tool_call_confirm(self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await):
+    def test_run_pending_credentials_no_tool_call_confirm(
+        self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await
+    ):
         m = _make_model(tool_call=False)
         p = _make_provider(env=[])
         menu = _make_menu_with_providers([p])
@@ -777,11 +859,14 @@ class TestRun:
             menu.result = "pending_credentials"
             menu.pending_model = m
             menu.pending_provider = p
+
         mock_app.run.side_effect = run_side_effect
 
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "extra_models.json")
-            with patch("code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path):
+            with patch(
+                "code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path
+            ):
                 result = menu.run()
         assert result is True
 
@@ -790,7 +875,9 @@ class TestRun:
     @patch("code_puppy.command_line.add_model_menu.safe_input")
     @patch("sys.stdout")
     @patch("time.sleep")
-    def test_run_pending_credentials_no_tool_call_decline(self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await):
+    def test_run_pending_credentials_no_tool_call_decline(
+        self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await
+    ):
         m = _make_model(tool_call=False)
         p = _make_provider(env=[])
         menu = _make_menu_with_providers([p])
@@ -802,6 +889,7 @@ class TestRun:
             menu.result = "pending_credentials"
             menu.pending_model = m
             menu.pending_provider = p
+
         mock_app.run.side_effect = run_side_effect
         result = menu.run()
         assert result is False
@@ -811,7 +899,9 @@ class TestRun:
     @patch("code_puppy.command_line.add_model_menu.safe_input")
     @patch("sys.stdout")
     @patch("time.sleep")
-    def test_run_pending_credentials_no_tool_call_interrupt(self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await):
+    def test_run_pending_credentials_no_tool_call_interrupt(
+        self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await
+    ):
         m = _make_model(tool_call=False)
         p = _make_provider(env=[])
         menu = _make_menu_with_providers([p])
@@ -823,6 +913,7 @@ class TestRun:
             menu.result = "pending_credentials"
             menu.pending_model = m
             menu.pending_provider = p
+
         mock_app.run.side_effect = run_side_effect
         result = menu.run()
         assert result is False
@@ -832,7 +923,9 @@ class TestRun:
     @patch("code_puppy.command_line.add_model_menu.safe_input")
     @patch("sys.stdout")
     @patch("time.sleep")
-    def test_run_pending_custom_model_success(self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await):
+    def test_run_pending_custom_model_success(
+        self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await
+    ):
         p = _make_provider(env=[])
         menu = _make_menu_with_providers([p])
         mock_app = MagicMock()
@@ -842,11 +935,14 @@ class TestRun:
         def run_side_effect(**kwargs):
             menu.result = "pending_custom_model"
             menu.pending_provider = p
+
         mock_app.run.side_effect = run_side_effect
 
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "extra_models.json")
-            with patch("code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path):
+            with patch(
+                "code_puppy.command_line.add_model_menu.EXTRA_MODELS_FILE", path
+            ):
                 result = menu.run()
         assert result is True
 
@@ -855,7 +951,9 @@ class TestRun:
     @patch("code_puppy.command_line.add_model_menu.safe_input")
     @patch("sys.stdout")
     @patch("time.sleep")
-    def test_run_pending_custom_model_cancelled(self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await):
+    def test_run_pending_custom_model_cancelled(
+        self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await
+    ):
         p = _make_provider(env=[])
         menu = _make_menu_with_providers([p])
         mock_app = MagicMock()
@@ -865,12 +963,14 @@ class TestRun:
         def run_side_effect(**kwargs):
             menu.result = "pending_custom_model"
             menu.pending_provider = p
+
         mock_app.run.side_effect = run_side_effect
         result = menu.run()
         assert result is False
 
 
 # --------------- interactive_model_picker ---------------
+
 
 class TestInteractiveModelPicker:
     @patch("code_puppy.command_line.add_model_menu.AddModelMenu")
@@ -883,6 +983,7 @@ class TestInteractiveModelPicker:
 
 
 # --------------- Navigation hints ---------------
+
 
 class TestRenderNavigationHints:
     def test_providers_view_hints(self):
@@ -906,6 +1007,7 @@ class TestRenderNavigationHints:
 
 # --------------- _initialize_registry error paths ---------------
 
+
 class TestInitializeRegistryErrors:
     @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
     def test_empty_providers(self, mock_cls):
@@ -915,18 +1017,25 @@ class TestInitializeRegistryErrors:
         menu = AddModelMenu()
         assert menu.providers == []
 
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry", side_effect=FileNotFoundError("missing"))
+    @patch(
+        "code_puppy.command_line.add_model_menu.ModelsDevRegistry",
+        side_effect=FileNotFoundError("missing"),
+    )
     def test_file_not_found(self, mock_cls):
         menu = AddModelMenu()
         assert menu.providers == []
 
-    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry", side_effect=RuntimeError("boom"))
+    @patch(
+        "code_puppy.command_line.add_model_menu.ModelsDevRegistry",
+        side_effect=RuntimeError("boom"),
+    )
     def test_general_exception(self, mock_cls):
         menu = AddModelMenu()
         assert menu.providers == []
 
 
 # --------------- Render provider list - unsupported selected ---------------
+
 
 class TestRenderProviderListUnsupportedSelected:
     def test_unsupported_provider_selected(self):

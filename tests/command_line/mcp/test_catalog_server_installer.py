@@ -32,8 +32,18 @@ class FakeServerWithEnv(FakeServer):
 class FakeServerWithArgs(FakeServer):
     def get_command_line_args(self):
         return [
-            {"name": "db_url", "prompt": "Database URL", "default": "localhost", "required": True},
-            {"name": "optional_flag", "prompt": "Flag", "default": "", "required": False},
+            {
+                "name": "db_url",
+                "prompt": "Database URL",
+                "default": "localhost",
+                "required": True,
+            },
+            {
+                "name": "optional_flag",
+                "prompt": "Flag",
+                "default": "",
+                "required": False,
+            },
         ]
 
 
@@ -47,6 +57,7 @@ class TestGetEnvVarHint:
         from code_puppy.command_line.mcp.catalog_server_installer import (
             get_env_var_hint,
         )
+
         hint = get_env_var_hint("GITHUB_TOKEN")
         assert "github" in hint.lower()
 
@@ -54,6 +65,7 @@ class TestGetEnvVarHint:
         from code_puppy.command_line.mcp.catalog_server_installer import (
             get_env_var_hint,
         )
+
         assert get_env_var_hint("UNKNOWN_VAR_XYZ") == ""
 
 
@@ -70,6 +82,7 @@ class TestPromptForServerConfig:
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         result = prompt_for_server_config(MagicMock(), FakeServer())
         assert result is not None
         assert result["name"] == "test-server"
@@ -81,6 +94,7 @@ class TestPromptForServerConfig:
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         result = prompt_for_server_config(MagicMock(), FakeServer())
         assert result["name"] == "custom-name"
 
@@ -91,6 +105,7 @@ class TestPromptForServerConfig:
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         assert prompt_for_server_config(MagicMock(), FakeServer()) is None
 
     @patch(f"{MODULE}.safe_input", side_effect=EOFError)
@@ -100,16 +115,20 @@ class TestPromptForServerConfig:
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         assert prompt_for_server_config(MagicMock(), FakeServer()) is None
 
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_info")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{UTILS}.find_server_id_by_name", return_value="existing-id")
-    def test_existing_server_declined(self, mock_find, mock_warn, mock_info, mock_input):
+    def test_existing_server_declined(
+        self, mock_find, mock_warn, mock_info, mock_input
+    ):
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         mock_input.side_effect = ["my-server", "n"]
         assert prompt_for_server_config(MagicMock(), FakeServer()) is None
 
@@ -117,10 +136,13 @@ class TestPromptForServerConfig:
     @patch(f"{MODULE}.emit_info")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{UTILS}.find_server_id_by_name", return_value="existing-id")
-    def test_existing_server_accepted(self, mock_find, mock_warn, mock_info, mock_input):
+    def test_existing_server_accepted(
+        self, mock_find, mock_warn, mock_info, mock_input
+    ):
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         mock_input.side_effect = ["my-server", "yes"]
         result = prompt_for_server_config(MagicMock(), FakeServer())
         assert result is not None
@@ -129,10 +151,13 @@ class TestPromptForServerConfig:
     @patch(f"{MODULE}.emit_info")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{UTILS}.find_server_id_by_name", return_value="existing-id")
-    def test_existing_server_interrupt_on_override(self, mock_find, mock_warn, mock_info, mock_input):
+    def test_existing_server_interrupt_on_override(
+        self, mock_find, mock_warn, mock_info, mock_input
+    ):
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         mock_input.side_effect = ["my-server", KeyboardInterrupt]
         assert prompt_for_server_config(MagicMock(), FakeServer()) is None
 
@@ -140,10 +165,13 @@ class TestPromptForServerConfig:
     @patch(f"{MODULE}.emit_info")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{UTILS}.find_server_id_by_name", return_value="existing-id")
-    def test_existing_server_eof_on_override(self, mock_find, mock_warn, mock_info, mock_input):
+    def test_existing_server_eof_on_override(
+        self, mock_find, mock_warn, mock_info, mock_input
+    ):
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         mock_input.side_effect = ["my-server", EOFError]
         assert prompt_for_server_config(MagicMock(), FakeServer()) is None
 
@@ -155,6 +183,7 @@ class TestPromptForServerConfig:
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         mock_input.return_value = ""  # default name
         with patch.dict(os.environ, {"MY_TOKEN": "abc", "GITHUB_TOKEN": "def"}):
             result = prompt_for_server_config(MagicMock(), FakeServerWithEnv())
@@ -170,7 +199,12 @@ class TestPromptForServerConfig:
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
-        mock_input.side_effect = ["", "token123", "ghtoken"]  # name default, then 2 env vars
+
+        mock_input.side_effect = [
+            "",
+            "token123",
+            "ghtoken",
+        ]  # name default, then 2 env vars
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("MY_TOKEN", None)
             os.environ.pop("GITHUB_TOKEN", None)
@@ -183,11 +217,17 @@ class TestPromptForServerConfig:
     @patch(f"{MODULE}.emit_info")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{UTILS}.find_server_id_by_name", return_value=None)
-    def test_env_vars_interrupt(self, mock_find, mock_warn, mock_info, mock_input, mock_set_cfg):
+    def test_env_vars_interrupt(
+        self, mock_find, mock_warn, mock_info, mock_input, mock_set_cfg
+    ):
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
-        mock_input.side_effect = ["", KeyboardInterrupt]  # name default, then interrupt on env var
+
+        mock_input.side_effect = [
+            "",
+            KeyboardInterrupt,
+        ]  # name default, then interrupt on env var
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("MY_TOKEN", None)
             os.environ.pop("GITHUB_TOKEN", None)
@@ -200,7 +240,12 @@ class TestPromptForServerConfig:
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
-        mock_input.side_effect = ["", "", ""]  # name default, db_url default, optional empty
+
+        mock_input.side_effect = [
+            "",
+            "",
+            "",
+        ]  # name default, db_url default, optional empty
         result = prompt_for_server_config(MagicMock(), FakeServerWithArgs())
         assert result is not None
         assert result["cmd_args"]["db_url"] == "localhost"
@@ -212,6 +257,7 @@ class TestPromptForServerConfig:
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         mock_input.side_effect = ["", "mydb://host", "flagval"]
         result = prompt_for_server_config(MagicMock(), FakeServerWithArgs())
         assert result["cmd_args"]["db_url"] == "mydb://host"
@@ -221,10 +267,13 @@ class TestPromptForServerConfig:
     @patch(f"{MODULE}.emit_info")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{UTILS}.find_server_id_by_name", return_value=None)
-    def test_cmd_args_required_missing(self, mock_find, mock_warn, mock_info, mock_input):
+    def test_cmd_args_required_missing(
+        self, mock_find, mock_warn, mock_info, mock_input
+    ):
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         server = FakeServer()
         server.get_command_line_args = lambda: [
             {"name": "req", "prompt": "Required", "default": "", "required": True},
@@ -240,6 +289,7 @@ class TestPromptForServerConfig:
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         mock_input.side_effect = ["", KeyboardInterrupt]
         assert prompt_for_server_config(MagicMock(), FakeServerWithArgs()) is None
 
@@ -247,10 +297,13 @@ class TestPromptForServerConfig:
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_info")
     @patch(f"{UTILS}.find_server_id_by_name", return_value=None)
-    def test_env_var_empty_value_skipped(self, mock_find, mock_info, mock_input, mock_set_cfg):
+    def test_env_var_empty_value_skipped(
+        self, mock_find, mock_info, mock_input, mock_set_cfg
+    ):
         from code_puppy.command_line.mcp.catalog_server_installer import (
             prompt_for_server_config,
         )
+
         mock_input.side_effect = ["", "", ""]  # name default, empty env vars
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("MY_TOKEN", None)
@@ -266,25 +319,33 @@ class TestPromptForServerConfig:
 
 
 class TestInstallCatalogServer:
-    @patch("code_puppy.command_line.mcp.wizard_utils.install_server_from_catalog", return_value=True)
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.install_server_from_catalog",
+        return_value=True,
+    )
     @patch(f"{MODULE}.emit_info")
     @patch(f"{MODULE}.emit_success")
     def test_success(self, mock_success, mock_info, mock_install):
         from code_puppy.command_line.mcp.catalog_server_installer import (
             install_catalog_server,
         )
+
         config = {"name": "srv", "env_vars": {}, "cmd_args": {}}
         result = install_catalog_server(MagicMock(), FakeServer(), config)
         assert result is True
         mock_success.assert_called()
 
-    @patch("code_puppy.command_line.mcp.wizard_utils.install_server_from_catalog", return_value=False)
+    @patch(
+        "code_puppy.command_line.mcp.wizard_utils.install_server_from_catalog",
+        return_value=False,
+    )
     @patch(f"{MODULE}.emit_info")
     @patch(f"{MODULE}.emit_warning")
     def test_failure(self, mock_warn, mock_info, mock_install):
         from code_puppy.command_line.mcp.catalog_server_installer import (
             install_catalog_server,
         )
+
         config = {"name": "srv", "env_vars": {}, "cmd_args": {}}
         result = install_catalog_server(MagicMock(), FakeServer(), config)
         assert result is False
@@ -299,6 +360,7 @@ class TestInstallCatalogServer:
 class TestEnvVarHints:
     def test_hints_dict(self):
         from code_puppy.command_line.mcp.catalog_server_installer import ENV_VAR_HINTS
+
         assert isinstance(ENV_VAR_HINTS, dict)
         assert len(ENV_VAR_HINTS) > 0
         for key, val in ENV_VAR_HINTS.items():
