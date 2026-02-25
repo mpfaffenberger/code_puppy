@@ -329,8 +329,30 @@ def get_walmart_model_providers():
     return {"walmart_gemini": WalmartGeminiModel}
 
 
+def get_walmart_agents() -> list[Dict[str, Any]]:
+    """Return Walmart-specific agent definitions for plugin registration.
+
+    Lazy-imports the agent classes to avoid loading dependencies
+    until the agent is actually needed.
+
+    Returns:
+        List of agent definitions with 'name' and 'class' keys.
+    """
+    from code_puppy.plugins.walmart_specific.slide_creator_agent import (
+        SlideCreatorAgent,
+    )
+
+    return [
+        {
+            "name": "slide-creator",
+            "class": SlideCreatorAgent,
+        }
+    ]
+
+
 register_callback("register_model_providers", get_walmart_model_providers)
 register_callback("register_tools", get_enterprise_tools)
+register_callback("register_agents", get_walmart_agents)
 
 
 # MOTD (Message of the Day) for Walmart internal users
