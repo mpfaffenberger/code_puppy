@@ -33,3 +33,4 @@ main.bin
 # Bundled skills removed — skills are now fetched from remote catalog
 code_puppy/bundled_skills/
 
+.json
