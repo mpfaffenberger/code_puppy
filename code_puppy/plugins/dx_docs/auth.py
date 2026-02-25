@@ -15,17 +15,16 @@ import logging
 import os
 import platform
 import subprocess
-import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Tuple
 
-# Token expiry buffer to avoid edge cases where token expires during use
-EXPIRY_BUFFER = timedelta(minutes=5)
-
 from rich.text import Text
 
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+
+# Token expiry buffer to avoid edge cases where token expires during use
+EXPIRY_BUFFER = timedelta(minutes=5)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -49,21 +48,30 @@ class DXAuthError(Exception):
 class DXTokenNotFoundError(DXAuthError):
     """Raised when no token is found (user hasn't authenticated)."""
 
-    def __init__(self, message: str = "No DX token found. Run 'mcp-cli auth login' to authenticate."):
+    def __init__(
+        self,
+        message: str = "No DX token found. Run 'mcp-cli auth login' to authenticate.",
+    ):
         super().__init__(message)
 
 
 class DXTokenExpiredError(DXAuthError):
     """Raised when the token has expired."""
 
-    def __init__(self, message: str = "DX token has expired. Run 'mcp-cli auth login' to re-authenticate."):
+    def __init__(
+        self,
+        message: str = "DX token has expired. Run 'mcp-cli auth login' to re-authenticate.",
+    ):
         super().__init__(message)
 
 
 class DXMCPCLINotInstalledError(DXAuthError):
     """Raised when mcp-cli is not installed."""
 
-    def __init__(self, message: str = "mcp-cli is not installed. Install with: curl -sL https://wmlink.wal-mart.com/mcp-cli-install | sh -"):
+    def __init__(
+        self,
+        message: str = "mcp-cli is not installed. Install with: curl -sL https://wmlink.wal-mart.com/mcp-cli-install | sh -",
+    ):
         super().__init__(message)
 
 
@@ -173,7 +181,10 @@ def get_token_status() -> Tuple[bool, str]:
     if expiry:
         now = datetime.now(timezone.utc)
         if expiry <= now:
-            return (False, f"Token expired at {expiry.isoformat()}. Run 'mcp-cli auth login' to refresh.")
+            return (
+                False,
+                f"Token expired at {expiry.isoformat()}. Run 'mcp-cli auth login' to refresh.",
+            )
         else:
             time_remaining = expiry - now
             hours = int(time_remaining.total_seconds() // 3600)
@@ -247,14 +258,15 @@ def _install_mcp_cli() -> Tuple[bool, str]:
 
         install_cmd = [
             "powershell",
-            "-ExecutionPolicy", "Bypass",
+            "-ExecutionPolicy",
+            "Bypass",
             "-Command",
             f"{proxy_cmd}"
             f"$ErrorActionPreference='Stop'; "
             f"Write-Host 'Downloading mcp-cli installer...'; "
             f"$script = (New-Object Net.WebClient).DownloadString('{MCP_CLI_INSTALL_URL}'); "
             f"Write-Host 'Running installer...'; "
-            f"$script | sh"
+            f"$script | sh",
         ]
 
         try:
@@ -274,7 +286,10 @@ def _install_mcp_cli() -> Tuple[bool, str]:
                 emit_success("✅ mcp-cli installed successfully!")
                 return (True, "mcp-cli installed successfully.")
             else:
-                return (False, "Installation failed. Check the output above for details.")
+                return (
+                    False,
+                    "Installation failed. Check the output above for details.",
+                )
 
         except subprocess.TimeoutExpired:
             return (False, "Installation timed out after 5 minutes.")
@@ -327,13 +342,20 @@ def _install_mcp_cli() -> Tuple[bool, str]:
                 # Remind user to update shell config
                 shell = os.environ.get("SHELL", "")
                 if "zsh" in shell:
-                    emit_info("💡 Add to ~/.zshrc: export PATH=\"$HOME/.mcp-cli/bin:$PATH\"")
+                    emit_info(
+                        '💡 Add to ~/.zshrc: export PATH="$HOME/.mcp-cli/bin:$PATH"'
+                    )
                 elif "bash" in shell:
-                    emit_info("💡 Add to ~/.bashrc: export PATH=\"$HOME/.mcp-cli/bin:$PATH\"")
+                    emit_info(
+                        '💡 Add to ~/.bashrc: export PATH="$HOME/.mcp-cli/bin:$PATH"'
+                    )
 
                 return (True, "mcp-cli installed successfully.")
             else:
-                return (False, "Installation failed. Check the output above for details.")
+                return (
+                    False,
+                    "Installation failed. Check the output above for details.",
+                )
 
         except subprocess.TimeoutExpired:
             return (False, "Installation timed out after 5 minutes.")
@@ -437,7 +459,9 @@ def trigger_mcp_cli_auth(auto_install: bool = True) -> Tuple[bool, str]:
     # Check if mcp-cli is installed
     if not is_mcp_cli_installed():
         if auto_install:
-            emit_warning("⚠️ mcp-cli is not installed. Attempting automatic installation...")
+            emit_warning(
+                "⚠️ mcp-cli is not installed. Attempting automatic installation..."
+            )
             install_success, install_msg = _install_mcp_cli()
 
             if not install_success:
@@ -447,9 +471,15 @@ def trigger_mcp_cli_auth(auto_install: bool = True) -> Tuple[bool, str]:
             # Verify installation
             if not _verify_mcp_cli_installation():
                 emit_error("❌ mcp-cli installation completed but verification failed.")
-                return (False, "mcp-cli installed but not working. Please restart your terminal and try again.")
+                return (
+                    False,
+                    "mcp-cli installed but not working. Please restart your terminal and try again.",
+                )
         else:
-            return (False, f"mcp-cli is not installed. Install with: curl -sL {MCP_CLI_INSTALL_URL} | sh -")
+            return (
+                False,
+                f"mcp-cli is not installed. Install with: curl -sL {MCP_CLI_INSTALL_URL} | sh -",
+            )
 
     emit_info(
         Text.from_markup(
@@ -477,7 +507,10 @@ def trigger_mcp_cli_auth(auto_install: bool = True) -> Tuple[bool, str]:
 
         if result.returncode == 0:
             emit_success("🎉 Authentication completed successfully!")
-            return (True, "Authentication successful. You can now use DX documentation tools.")
+            return (
+                True,
+                "Authentication successful. You can now use DX documentation tools.",
+            )
         else:
             return (False, "Authentication was cancelled or failed.")
 
