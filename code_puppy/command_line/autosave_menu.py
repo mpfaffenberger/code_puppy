@@ -397,6 +397,103 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
     return lines
 
 
+# Default number of messages to display when resuming a session
+# This is overridden by the user config 'resume_message_count'
+DEFAULT_RESUME_DISPLAY_COUNT = 50
+
+
+def display_resumed_history(
+    history: list,
+    num_messages: int | None = None,
+) -> None:
+    """Display recent message history after resuming a session.
+
+    Shows the last N messages from the conversation so users have context
+    about where they left off. Uses the same rendering style as normal chat.
+
+    Args:
+        history: The full message history list
+        num_messages: Number of messages to display. If None, uses the
+                      'resume_message_count' config value (default 50).
+                      Configurable via: /set resume_message_count=50
+    """
+    from rich.console import Console
+    from rich.markdown import Markdown
+    from rich.rule import Rule
+
+    from code_puppy.config import get_banner_color, get_resume_message_count
+
+    if not history:
+        return
+
+    # Use config value if num_messages not explicitly provided
+    if num_messages is None:
+        num_messages = get_resume_message_count()
+
+    console = Console()
+    total_messages = len(history)
+
+    # Skip if only system message exists
+    if total_messages <= 1:
+        return
+
+    # Determine which messages to show (skip first system message)
+    # We want to show the last N non-system messages
+    displayable_history = history[1:]  # Skip system message
+    total_displayable = len(displayable_history)
+
+    if total_displayable == 0:
+        return
+
+    messages_to_show = (
+        displayable_history[-num_messages:]
+        if total_displayable > num_messages
+        else displayable_history
+    )
+    hidden_count = total_displayable - len(messages_to_show)
+
+    # Print header with hidden count if applicable
+    console.print()
+    if hidden_count > 0:
+        console.print(
+            Rule(
+                f"{hidden_count} earlier messages",
+                style="dim",
+            )
+        )
+        console.print()
+
+    # Get banner color for agent responses
+    response_color = get_banner_color("agent_response")
+
+    # Render each message in the same style as normal chat
+    for msg in messages_to_show:
+        role, content = _extract_message_content(msg)
+
+        # Print banner matching normal chat style
+        if role == "user":
+            # User messages don't have a banner in normal chat,
+            # but we add one for clarity in resumed history
+            console.print("[dim]> [/dim]", end="")
+            console.print(f"[bold]{content}[/bold]")
+        elif role == "tool":
+            # Tool output is typically dim/collapsed
+            console.print(f"[dim]{content}[/dim]")
+        else:  # assistant
+            # Use the exact same banner format as normal AGENT RESPONSE
+            banner = f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
+            console.print(f"\n{banner}")
+            # Render content as markdown (same as normal chat)
+            md = Markdown(content)
+            console.print(md)
+
+        console.print()  # Blank line between messages
+
+    # Print footer separator
+    console.print(Rule("Session Resumed", style="bold green"))
+    console.print()
+
+
 async def interactive_autosave_picker() -> Optional[str]:
     """Show interactive terminal UI to select an autosave session.
 

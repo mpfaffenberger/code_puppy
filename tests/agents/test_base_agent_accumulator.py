@@ -152,19 +152,37 @@ class TestBaseAgentAccumulator:
     def test_message_history_accumulator_respects_compacted_hashes(
         self, agent, mock_run_context
     ):
-        """Test that messages with compacted hashes are not added."""
-        # Create a message
-        msg = ModelRequest(parts=[TextPart(content="Should be compacted")])
-        msg_hash = agent.hash_message(msg)
+        """Test that non-last messages with compacted hashes are skipped,
+        but the last message (user's prompt) is always preserved."""
+        # Create two messages, first one is compacted
+        msg1 = ModelRequest(parts=[TextPart(content="Should be compacted")])
+        msg2 = ModelRequest(parts=[TextPart(content="User prompt")])
+        msg1_hash = agent.hash_message(msg1)
 
         # Add the hash to compacted hashes set
+        agent._compacted_message_hashes.add(msg1_hash)
+
+        # Try to add both messages via accumulator
+        result = agent.message_history_accumulator(mock_run_context, [msg1, msg2])
+
+        # Only msg2 should be added (msg1 is compacted and not last)
+        assert len(result) == 1
+        assert result[0].parts[0].content == "User prompt"
+
+    def test_message_history_accumulator_preserves_last_msg_even_if_compacted(
+        self, agent, mock_run_context
+    ):
+        """Test that the last message is always preserved even if its hash
+        matches a compacted message — prevents dropping the user's prompt."""
+        msg = ModelRequest(parts=[TextPart(content="yes")])
+        msg_hash = agent.hash_message(msg)
         agent._compacted_message_hashes.add(msg_hash)
 
-        # Try to add the message via accumulator
         result = agent.message_history_accumulator(mock_run_context, [msg])
 
-        # Message should not be added (hash is in compacted set)
-        assert len(result) == 0
+        # Last message must be preserved to avoid prefill errors
+        assert len(result) == 1
+        assert result[0].parts[0].content == "yes"
 
     def test_message_history_accumulator_multi_part_messages(
         self, agent, mock_run_context

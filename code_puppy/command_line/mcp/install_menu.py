@@ -494,6 +494,81 @@ class MCPInstallMenu:
             self.pending_server = server
             self.result = "pending_install"
 
+    def _handle_up(self):
+        """Handle up arrow key."""
+        if self.view_mode == "categories":
+            if self.selected_category_idx > 0:
+                self.selected_category_idx -= 1
+                self.current_page = self.selected_category_idx // PAGE_SIZE
+        else:
+            if self.selected_server_idx > 0:
+                self.selected_server_idx -= 1
+                self.current_page = self.selected_server_idx // PAGE_SIZE
+        self.update_display()
+
+    def _handle_down(self):
+        """Handle down arrow key."""
+        if self.view_mode == "categories":
+            if self.selected_category_idx < len(self.categories) - 1:
+                self.selected_category_idx += 1
+                self.current_page = self.selected_category_idx // PAGE_SIZE
+        else:
+            if self.selected_server_idx < len(self.current_servers) - 1:
+                self.selected_server_idx += 1
+                self.current_page = self.selected_server_idx // PAGE_SIZE
+        self.update_display()
+
+    def _handle_left(self):
+        """Handle left arrow key (previous page)."""
+        if self.current_page > 0:
+            self.current_page -= 1
+            if self.view_mode == "categories":
+                self.selected_category_idx = self.current_page * PAGE_SIZE
+            else:
+                self.selected_server_idx = self.current_page * PAGE_SIZE
+            self.update_display()
+
+    def _handle_right(self):
+        """Handle right arrow key (next page)."""
+        if self.view_mode == "categories":
+            total_items = len(self.categories)
+        else:
+            total_items = len(self.current_servers)
+
+        total_pages = (total_items + PAGE_SIZE - 1) // PAGE_SIZE
+        if self.current_page < total_pages - 1:
+            self.current_page += 1
+            if self.view_mode == "categories":
+                self.selected_category_idx = self.current_page * PAGE_SIZE
+            else:
+                self.selected_server_idx = self.current_page * PAGE_SIZE
+            self.update_display()
+
+    def _handle_enter(self):
+        """Handle enter key. Returns True if app should exit."""
+        if self.view_mode == "categories":
+            self._enter_category()
+            if self.result == "pending_custom":
+                return True
+        elif self.view_mode == "servers":
+            self._select_current_server()
+            return True
+        return False
+
+    def _handle_back(self):
+        """Handle escape/backspace key."""
+        if self.view_mode == "servers":
+            self._go_back_to_categories()
+
+    def _reload_mcp_servers(self):
+        """Attempt to reload MCP servers after installation."""
+        try:
+            from code_puppy.agent import reload_mcp_servers
+
+            reload_mcp_servers()
+        except ImportError:
+            pass
+
     def run(self) -> bool:
         """Run the interactive MCP server browser (synchronous).
 
@@ -526,80 +601,36 @@ class MCPInstallMenu:
         kb = KeyBindings()
 
         @kb.add("up")
-        def _(event):
-            if self.view_mode == "categories":
-                if self.selected_category_idx > 0:
-                    self.selected_category_idx -= 1
-                    self.current_page = self.selected_category_idx // PAGE_SIZE
-            else:  # servers view
-                if self.selected_server_idx > 0:
-                    self.selected_server_idx -= 1
-                    self.current_page = self.selected_server_idx // PAGE_SIZE
-            self.update_display()
+        def _(event):  # pragma: no cover
+            self._handle_up()
 
         @kb.add("down")
-        def _(event):
-            if self.view_mode == "categories":
-                if self.selected_category_idx < len(self.categories) - 1:
-                    self.selected_category_idx += 1
-                    self.current_page = self.selected_category_idx // PAGE_SIZE
-            else:  # servers view
-                if self.selected_server_idx < len(self.current_servers) - 1:
-                    self.selected_server_idx += 1
-                    self.current_page = self.selected_server_idx // PAGE_SIZE
-            self.update_display()
+        def _(event):  # pragma: no cover
+            self._handle_down()
 
         @kb.add("left")
-        def _(event):
-            """Previous page."""
-            if self.current_page > 0:
-                self.current_page -= 1
-                if self.view_mode == "categories":
-                    self.selected_category_idx = self.current_page * PAGE_SIZE
-                else:
-                    self.selected_server_idx = self.current_page * PAGE_SIZE
-                self.update_display()
+        def _(event):  # pragma: no cover
+            self._handle_left()
 
         @kb.add("right")
-        def _(event):
-            """Next page."""
-            if self.view_mode == "categories":
-                total_items = len(self.categories)
-            else:
-                total_items = len(self.current_servers)
-
-            total_pages = (total_items + PAGE_SIZE - 1) // PAGE_SIZE
-            if self.current_page < total_pages - 1:
-                self.current_page += 1
-                if self.view_mode == "categories":
-                    self.selected_category_idx = self.current_page * PAGE_SIZE
-                else:
-                    self.selected_server_idx = self.current_page * PAGE_SIZE
-                self.update_display()
+        def _(event):  # pragma: no cover
+            self._handle_right()
 
         @kb.add("enter")
-        def _(event):
-            if self.view_mode == "categories":
-                self._enter_category()
-                # Exit if custom server was selected
-                if self.result == "pending_custom":
-                    event.app.exit()
-            elif self.view_mode == "servers":
-                self._select_current_server()
+        def _(event):  # pragma: no cover
+            if self._handle_enter():
                 event.app.exit()
 
         @kb.add("escape")
-        def _(event):
-            if self.view_mode == "servers":
-                self._go_back_to_categories()
+        def _(event):  # pragma: no cover
+            self._handle_back()
 
         @kb.add("backspace")
-        def _(event):
-            if self.view_mode == "servers":
-                self._go_back_to_categories()
+        def _(event):  # pragma: no cover
+            self._handle_back()
 
         @kb.add("c-c")
-        def _(event):
+        def _(event):  # pragma: no cover
             event.app.exit()
 
         layout = Layout(root_container)
@@ -643,12 +674,7 @@ class MCPInstallMenu:
         if self.result == "pending_custom":
             success = run_custom_server_form(self.manager)
             if success:
-                try:
-                    from code_puppy.agent import reload_mcp_servers
-
-                    reload_mcp_servers()
-                except ImportError:
-                    pass
+                self._reload_mcp_servers()
             return success
 
         # Handle catalog server installation after TUI exits
@@ -659,13 +685,7 @@ class MCPInstallMenu:
                     self.manager, self.pending_server, config
                 )
                 if success:
-                    # Reload MCP servers
-                    try:
-                        from code_puppy.agent import reload_mcp_servers
-
-                        reload_mcp_servers()
-                    except ImportError:
-                        pass
+                    self._reload_mcp_servers()
                 return success
             return False
 

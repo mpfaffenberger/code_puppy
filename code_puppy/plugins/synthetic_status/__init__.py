@@ -1,0 +1,1 @@
+"""Synthetic provider status plugin."""

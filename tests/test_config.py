@@ -321,6 +321,7 @@ class TestGetConfigKeys:
                 "openai_reasoning_effort",
                 "openai_verbosity",
                 "protected_token_count",
+                "resume_message_count",
                 "temperature",
                 "yolo_mode",
             ]
@@ -374,6 +375,7 @@ class TestGetConfigKeys:
                 "openai_reasoning_effort",
                 "openai_verbosity",
                 "protected_token_count",
+                "resume_message_count",
                 "temperature",
                 "yolo_mode",
             ]

@@ -332,7 +332,7 @@ class SchedulerMenu:
 
 def _create_new_task() -> Optional[ScheduledTask]:
     """Interactive TUI wizard to create a new task."""
-    from code_puppy.command_line.scheduler_wizard import create_task_wizard
+    from code_puppy.plugins.scheduler.scheduler_wizard import create_task_wizard
 
     result = create_task_wizard()
     if not result:

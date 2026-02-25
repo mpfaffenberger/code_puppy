@@ -277,10 +277,11 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.408"
+version = "0.0.417"
 source = { editable = "." }
 dependencies = [
     { name = "camoufox" },
+    { name = "anthropic" },
     { name = "dbos" },
     { name = "fastapi" },
     { name = "google-cloud-bigquery" },
@@ -338,6 +339,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic", specifier = "==0.79.0" },
     { name = "atomacos", marker = "sys_platform == 'darwin' and extra == 'macos-gui'", specifier = ">=3.2.0" },
     { name = "camoufox", specifier = ">=0.4.11" },
     { name = "dbos", specifier = ">=2.11.0" },
