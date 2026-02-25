@@ -357,17 +357,18 @@ def _prompt_for_agent_name() -> Optional[str]:
 # ============================================================================
 
 
-async def _check_update_async(name: str, local_hash: str) -> dict:
+async def _check_update_async(name: str, local_hash: str, version: int = None) -> dict:
     """Check for updates asynchronously.
 
     Args:
         name: Agent name/ID.
         local_hash: Local hash to compare.
+        version: Local version number.
 
     Returns:
         Update info from API.
     """
-    return await api_client.check_update(name, local_hash)
+    return await api_client.check_update(name, local_hash, version)
 
 
 def _handle_check_command(name: str) -> bool:
@@ -393,16 +394,24 @@ def _handle_check_command(name: str) -> bool:
         return True
 
     local_hash = local_info.get("hash", "")
-    local_version = local_info.get("version", "unknown")
+    local_version = local_info.get("version", 0)
 
     try:
         from code_puppy.plugins.agent_marketplace.api_client import run_async
 
-        update_info = run_async(_check_update_async(name, local_hash))
+        response = run_async(_check_update_async(name, local_hash, local_version))
 
-        if update_info.get("update_available", False):
-            latest_version = update_info.get("latest_version", "unknown")
-            latest_hash = update_info.get("latest_hash", "unknown")
+        # Unwrap _normalize_response wrapper: {success, data: {...}, error}
+        if not response.get("success"):
+            raise Exception(response.get("error", "Check update failed"))
+
+        update_data = response.get("data", {})
+        # Use correct key: "has_update" (not "update_available")
+        has_update = update_data.get("has_update", False)
+
+        if has_update:
+            latest_version = update_data.get("latest_version", "unknown")
+            latest_hash = update_data.get("latest_hash", "unknown")
 
             console.print(f"\n[yellow]⚠️  Update available for {name}![/yellow]\n")
             console.print(f"  [dim]Local:[/dim]  {local_version} (hash: {local_hash})")
@@ -411,7 +420,7 @@ def _handle_check_command(name: str) -> bool:
             )
 
             # Show changelog if available
-            changelog = update_info.get("changelog")
+            changelog = update_data.get("changelog")
             if changelog:
                 console.print(f"\n  [dim]Changes:[/dim] {changelog}")
 
@@ -458,6 +467,41 @@ def _prompt_for_update(name: str, local_version: str, latest_version: str) -> bo
 # ============================================================================
 
 
+# Fields that define an agent (everything else is BQ metadata to strip)
+AGENT_DEFINITION_FIELDS = {
+    "name",
+    "display_name",
+    "description",
+    "system_prompt",
+    "tools",
+    "tools_config",
+    "user_prompt",
+    "model",
+    "tags",
+    "category",
+    "bundled_uc_tools",
+    # Also keep version for tracking
+    "version",
+    "content_hash",
+}
+
+
+def _strip_bq_metadata(agent_data: dict) -> dict:
+    """Strip BigQuery metadata fields, keeping only agent definition.
+
+    Args:
+        agent_data: Raw agent row from BQ.
+
+    Returns:
+        Cleaned agent definition with only functional fields.
+    """
+    return {
+        k: v
+        for k, v in agent_data.items()
+        if k in AGENT_DEFINITION_FIELDS or k.startswith("_")
+    }
+
+
 async def _download_agent_async(name: str) -> dict:
     """Perform the async download operation.
 
@@ -465,7 +509,7 @@ async def _download_agent_async(name: str) -> dict:
         name: The agent name/ID to download.
 
     Returns:
-        Agent definition dictionary.
+        Agent definition dictionary (BQ metadata stripped).
 
     Raises:
         Exception: If download fails.
@@ -477,30 +521,23 @@ async def _download_agent_async(name: str) -> dict:
         error_msg = response.get("error", "Download failed")
         raise Exception(error_msg)
 
-    # Extract the agent data from the response
-    # API returns: {success: true, data: {agent: {...}, version: ..., content_hash: ...}}
+    # Unwrap the double-wrapped response:
+    # api_client._normalize_response wraps the server JSON, so we get:
+    #   {success, data: {success, data: <agent_row>}, status_code}
+    # We need to drill down to the actual agent row.
     data = response.get("data", {})
+    if isinstance(data, dict) and "data" in data:
+        agent_row = data["data"]
+    else:
+        agent_row = data
 
-    # Handle nested structure from API
-    if isinstance(data, dict):
-        # If data has an "agent" key, return just the agent
-        if "agent" in data:
-            agent = data["agent"]
-            # Preserve version info at top level for hash tracking
-            agent["_version"] = data.get("version")
-            agent["_content_hash"] = data.get("content_hash")
-            return agent
-        # If data has "data" key (double-wrapped), unwrap it
-        if "data" in data:
-            inner = data["data"]
-            if isinstance(inner, dict) and "agent" in inner:
-                agent = inner["agent"]
-                agent["_version"] = inner.get("version")
-                agent["_content_hash"] = inner.get("content_hash")
-                return agent
-            return inner
+    if not isinstance(agent_row, dict) or not agent_row:
+        raise Exception("Invalid response: missing agent data")
 
-    return data
+    # Strip BQ metadata (id, owner_id, created_at, etc.) - keep only agent definition
+    agent = _strip_bq_metadata(agent_row)
+
+    return agent
 
 
 # ============================================================================
@@ -552,9 +589,7 @@ def _install_bundled_uc_tools(agent_data: dict, agent_name: str) -> int:
 
         # Reject paths that try to escape the UC directory
         if ".." in file_path or file_path.startswith("/"):
-            emit_warning(
-                f"Skipping bundled tool with unsafe path: {file_path}"
-            )
+            emit_warning(f"Skipping bundled tool with unsafe path: {file_path}")
             continue
 
         target = USER_UC_DIR / file_path
@@ -723,17 +758,24 @@ def handle_download_agent(command: str) -> bool:
     if local_info and agent_file_exists and not force_download:
         # Agent exists locally - check for updates
         local_hash = local_info.get("hash", "")
-        local_version = local_info.get("version", "v?")
+        local_version = local_info.get("version", 0)
 
         console.print(f'[cyan]🐶[/cyan] Checking for updates to "{agent_name}"...')
 
         try:
             from code_puppy.plugins.agent_marketplace.api_client import run_async
 
-            update_info = run_async(_check_update_async(agent_name, local_hash))
+            response = run_async(
+                _check_update_async(agent_name, local_hash, local_version)
+            )
 
-            if update_info.get("update_available", False):
-                latest_version = update_info.get("latest_version", "v?")
+            # Unwrap _normalize_response wrapper: {success, data: {...}, error}
+            update_data = response.get("data", {}) if response.get("success") else {}
+            # Use correct key: "has_update" (not "update_available")
+            has_update = update_data.get("has_update", False)
+
+            if has_update:
+                latest_version = update_data.get("latest_version", "v?")
 
                 # Prompt user
                 if not _prompt_for_update(agent_name, local_version, latest_version):
@@ -775,9 +817,7 @@ def handle_download_agent(command: str) -> bool:
             )
 
         # Strip bundled tool source from the saved JSON to keep it clean
-        save_data = {
-            k: v for k, v in agent_data.items() if k != "bundled_uc_tools"
-        }
+        save_data = {k: v for k, v in agent_data.items() if k != "bundled_uc_tools"}
 
         # Save the agent
         path = _save_agent(save_data, agent_name)
@@ -791,6 +831,26 @@ def handle_download_agent(command: str) -> bool:
         )
 
         _display_success(agent_name, path, version, agent_hash)
+
+        # Refresh agent registry so running instance sees the new/updated agent
+        # This fixes the bug where /agent <name> fails after download without restart
+        try:
+            from code_puppy.agents import (
+                get_current_agent,
+                refresh_agents,
+                set_current_agent,
+            )
+
+            refresh_agents()
+
+            # If we just updated the currently active agent, reload the
+            # in-memory instance so the user sees changes immediately
+            # without needing to switch away and back.
+            current = get_current_agent()
+            if current.name == agent_name:
+                set_current_agent(agent_name)
+        except Exception:
+            pass  # Agent refresh is best-effort
 
     except Exception as e:
         error_msg = str(e)

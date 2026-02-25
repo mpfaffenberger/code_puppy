@@ -228,12 +228,26 @@ def marketplace_download_agent(
                 error=response.get("error", "Download failed"),
             )
 
-        data = response.get("data", {})
-        agent_data = data.get("agent")
-        version = data.get("version", 1)
-        content_hash = data.get("content_hash") or data.get("hash")
+        # Unwrap the double-wrapped response:
+        # api_client._normalize_response wraps the server JSON, so we get:
+        #   {success, data: {success, data: <agent_row>}, status_code}
+        # We need to drill down to the actual agent row.
+        outer_data = response.get("data", {})
+        if isinstance(outer_data, dict) and "data" in outer_data:
+            agent_row = outer_data["data"]
+        else:
+            agent_row = outer_data
 
-        if not agent_data:
+        if isinstance(agent_row, dict) and agent_row:
+            version = agent_row.get("version", 1)
+            content_hash = agent_row.get("content_hash") or agent_row.get("hash")
+            agent_data = agent_row
+        else:
+            agent_data = None
+            version = 1
+            content_hash = None
+
+        if not agent_data or not isinstance(agent_data, dict):
             return MarketplaceDownloadOutput(
                 success=False,
                 agent_name=name,
@@ -363,27 +377,37 @@ def marketplace_upload_agent(
 
         if not response.get("success"):
             error_msg = response.get("error", "Upload failed")
-            status_code = response.get("status_code", 0)
-
-            # Handle "no changes" as a soft success
-            if status_code == 409:
-                return MarketplaceUploadOutput(
-                    success=True,
-                    agent_name=agent_name,
-                    content_hash=content_hash,
-                    error="No changes detected - agent is identical to marketplace version",
-                )
-
             return MarketplaceUploadOutput(
                 success=False,
                 agent_name=agent_name,
                 error=error_msg,
             )
 
-        data = response.get("data", {})
-        version = data.get("version", 1)
-        server_hash = data.get("hash", content_hash)
-        url = data.get("url", f"{MARKETPLACE_BASE_URL}/{agent_name}")
+        # Handle _normalize_response wrapping from api_client
+        # Response structure: {success: true, data: {success: true, data: {...}}, ...}
+        # OR simpler: {success: true, data: {version: X, unchanged: bool, ...}}
+        outer_data = response.get("data", {})
+
+        # Unwrap if the server wrapped its response in {success, data, message}
+        if isinstance(outer_data, dict) and "data" in outer_data:
+            inner_data = outer_data.get("data", {})
+        else:
+            inner_data = outer_data
+
+        # Check for "unchanged" flag - server returns this when content hash matches
+        if inner_data.get("unchanged"):
+            return MarketplaceUploadOutput(
+                success=True,
+                agent_name=agent_name,
+                version=inner_data.get("version"),
+                content_hash=content_hash,
+                access_level=access_level,
+                error="No changes detected - agent is identical to marketplace version",
+            )
+
+        version = inner_data.get("version", 1)
+        server_hash = inner_data.get("hash", content_hash)
+        url = inner_data.get("url", f"{MARKETPLACE_BASE_URL}/{agent_name}")
 
         # Save hash locally for future comparisons
         save_local_hash(agent_name, content_hash, version)
@@ -462,7 +486,7 @@ def marketplace_check_update(
         local_version = local_info.get("version")
 
     try:
-        response = run_async(check_update(name, local_hash))
+        response = run_async(check_update(name, local_hash, local_version))
 
         if not response.get("success"):
             return MarketplaceCheckUpdateOutput(

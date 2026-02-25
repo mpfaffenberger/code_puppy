@@ -14,9 +14,12 @@ from code_puppy.messaging import emit_info
 # Required fields for a valid agent JSON
 REQUIRED_FIELDS = ["name", "description", "system_prompt", "tools"]
 
-# Local storage for tracking uploaded agent hashes
+# Local storage for tracking agent hashes (unified with download.py)
 AGENTS_DIR = Path.home() / ".code_puppy" / "agents"
-MARKETPLACE_META_DIR = AGENTS_DIR / ".marketplace"
+HASHES_FILE = Path.home() / ".code_puppy" / "agent_hashes.json"
+
+# Legacy directory - will be cleaned up
+_LEGACY_MARKETPLACE_META_DIR = AGENTS_DIR / ".marketplace"
 
 
 def load_agent_file(file_path: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -125,29 +128,58 @@ def generate_agent_hash(agent_data: Dict[str, Any]) -> str:
     return hashlib.sha1(json_str.encode()).hexdigest()
 
 
-def get_local_hash(agent_name: str) -> Optional[str]:
-    """Get the stored hash for a locally downloaded agent.
+def _load_hashes() -> dict:
+    """Load the unified agent hashes from disk.
+
+    Returns:
+        Dictionary mapping agent names to their hash info.
+    """
+    if not HASHES_FILE.exists():
+        return {}
+
+    try:
+        with open(HASHES_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_hashes(hashes: dict) -> None:
+    """Save the agent hashes to disk.
+
+    Args:
+        hashes: Dictionary of agent hashes to save.
+    """
+    HASHES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(HASHES_FILE, "w", encoding="utf-8") as f:
+        json.dump(hashes, f, indent=2, ensure_ascii=False)
+
+
+def get_local_hash(agent_name: str) -> Optional[Dict[str, Any]]:
+    """Get the stored hash info for a locally downloaded/uploaded agent.
+
+    Uses the unified agent_hashes.json file (same as download.py).
 
     Args:
         agent_name: Name of the agent.
 
     Returns:
-        The stored hash, or None if not found.
+        Hash info dict with 'hash', 'version', etc. or None if not found.
     """
-    meta_file = MARKETPLACE_META_DIR / f"{agent_name}.meta.json"
-    if not meta_file.exists():
-        return None
+    hashes = _load_hashes()
+    info = hashes.get(agent_name)
 
-    try:
-        with open(meta_file, "r") as f:
-            meta = json.load(f)
-        return meta.get("content_hash")
-    except Exception:
-        return None
+    # Also check for legacy 'content_hash' key and normalize to 'hash'
+    if info and "content_hash" in info and "hash" not in info:
+        info["hash"] = info["content_hash"]
+
+    return info
 
 
 def save_local_hash(agent_name: str, content_hash: str, version: int = 1) -> bool:
     """Save the hash for a downloaded/uploaded agent.
+
+    Uses the unified agent_hashes.json file (same as download.py).
 
     Args:
         agent_name: Name of the agent.
@@ -157,20 +189,38 @@ def save_local_hash(agent_name: str, content_hash: str, version: int = 1) -> boo
     Returns:
         True if saved successfully.
     """
-    MARKETPLACE_META_DIR.mkdir(parents=True, exist_ok=True)
-    meta_file = MARKETPLACE_META_DIR / f"{agent_name}.meta.json"
+    from datetime import datetime, timezone
 
     try:
-        meta = {
-            "agent_name": agent_name,
-            "content_hash": content_hash,
+        hashes = _load_hashes()
+        hashes[agent_name] = {
+            "hash": content_hash,
             "version": version,
+            "downloaded_at": datetime.now(timezone.utc).isoformat(),
         }
-        with open(meta_file, "w") as f:
-            json.dump(meta, f, indent=2)
+        _save_hashes(hashes)
+
+        # Clean up legacy .marketplace directory if it exists
+        _cleanup_legacy_marketplace_dir()
+
         return True
     except Exception:
         return False
+
+
+def _cleanup_legacy_marketplace_dir() -> None:
+    """Remove the legacy .marketplace/ directory if it exists.
+
+    The old system used per-agent .meta.json files in this directory.
+    We now use a unified agent_hashes.json file instead.
+    """
+    import shutil
+
+    if _LEGACY_MARKETPLACE_META_DIR.exists():
+        try:
+            shutil.rmtree(_LEGACY_MARKETPLACE_META_DIR)
+        except Exception:
+            pass  # Best effort cleanup
 
 
 def handle_upload_agent(command: str) -> bool:
