@@ -212,6 +212,23 @@ _STANDALONE_MESSAGES: List[str] = [
 #  Plugin Registry
 # ===========================================================================
 _plugin_categories: Dict[str, List[str]] = {}
+_plugins_initialized: bool = False
+
+
+def _ensure_plugins_loaded() -> None:
+    """Fire the register_loading_messages callback once.
+
+    This is called lazily the first time messages are requested,
+    giving plugins time to register their callbacks at import.
+    """
+    global _plugins_initialized
+    if _plugins_initialized:
+        return
+    _plugins_initialized = True
+
+    from code_puppy.callbacks import on_register_loading_messages
+
+    on_register_loading_messages()
 
 
 def register_messages(category: str, messages: List[str]) -> None:
@@ -245,6 +262,7 @@ def unregister_messages(category: str) -> None:
 
 def _all_spinner_messages() -> List[str]:
     """Combine built-in + plugin spinner messages (not standalone)."""
+    _ensure_plugins_loaded()
     combined = _PUPPY_SPINNER + _DEV_SPINNER + _FUN_SPINNER + _ACTION_SPINNER
     for msgs in _plugin_categories.values():
         combined = combined + msgs
@@ -269,6 +287,7 @@ def get_all_messages() -> List[str]:
 
 def get_messages_by_category() -> Dict[str, List[str]]:
     """Return messages organized by category (useful for testing)."""
+    _ensure_plugins_loaded()
     result = {
         "puppy": list(_PUPPY_SPINNER),
         "dev": list(_DEV_SPINNER),

@@ -34,6 +34,7 @@ PhaseType = Literal[
     "register_model_providers",
     "message_history_processor_start",
     "message_history_processor_end",
+    "register_loading_messages",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -68,6 +69,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_model_providers": [],
     "message_history_processor_start": [],
     "message_history_processor_end": [],
+    "register_loading_messages": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -672,3 +674,31 @@ def on_message_history_processor_end(
         messages_added,
         messages_filtered,
     )
+
+
+def on_register_loading_messages() -> List[Any]:
+    """Trigger callbacks to register additional loading messages.
+
+    Plugins can register callbacks that call
+    ``loading_messages.register_messages(category, messages)``
+    to inject their own spinner / status display messages.
+
+    This is fired once, lazily, when loading messages are first needed.
+
+    Example callback (in a plugin's register_callbacks.py)::
+
+        from code_puppy.callbacks import register_callback
+        from code_puppy.loading_messages import register_messages
+
+        def _add_my_messages():
+            register_messages("my_org", [
+                "rolling back prices...",
+                "stocking the shelves...",
+            ])
+
+        register_callback("register_loading_messages", _add_my_messages)
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return _trigger_callbacks_sync("register_loading_messages")
