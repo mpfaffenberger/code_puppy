@@ -241,14 +241,20 @@ def _ensure_plugins_loaded() -> None:
 def register_messages(category: str, messages: List[str]) -> None:
     """Register additional loading messages from a plugin.
 
+    All plugin-registered messages are included in the **spinner rotation**
+    (prefixed with ``"<PuppyName> is "``).  If you need display-only
+    standalone messages, use the ``"standalone"`` category — those are
+    included in ``get_all_messages()`` but excluded from the spinner.
+
     Parameters
     ----------
     category:
         A unique category name (e.g. ``"walmart"``).  If the category
         already exists the new messages are **appended**.
+        Use ``"standalone"`` for messages that should appear only in
+        the status display, not in the spinner.
     messages:
-        List of message strings.  For spinner messages these will be
-        prefixed with ``"<PuppyName> is "`` automatically — keep them
+        List of message strings.  For spinner messages keep them
         lowercase and gerund-style (e.g. ``"rolling back prices..."``).
     """
     if category in _plugin_categories:
@@ -271,8 +277,9 @@ def _all_spinner_messages() -> List[str]:
     """Combine built-in + plugin spinner messages (not standalone)."""
     _ensure_plugins_loaded()
     combined = _PUPPY_SPINNER + _DEV_SPINNER + _FUN_SPINNER + _ACTION_SPINNER
-    for msgs in _plugin_categories.values():
-        combined = combined + msgs
+    for cat, msgs in _plugin_categories.items():
+        if cat != "standalone":
+            combined = combined + msgs
     return combined
 
 
@@ -289,7 +296,9 @@ def get_spinner_messages() -> List[str]:
 
 def get_all_messages() -> List[str]:
     """Return all messages (spinner + standalone) for status display."""
-    return _all_spinner_messages() + list(_STANDALONE_MESSAGES)
+    _ensure_plugins_loaded()
+    plugin_standalone = _plugin_categories.get("standalone", [])
+    return _all_spinner_messages() + list(_STANDALONE_MESSAGES) + plugin_standalone
 
 
 def get_messages_by_category() -> Dict[str, List[str]]:
