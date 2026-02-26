@@ -76,6 +76,14 @@ def handle_cd_command(command: str) -> bool:
             target = os.path.join(os.getcwd(), target)
         if os.path.isdir(target):
             os.chdir(target)
+
+            #Invalidate cached agent so system prompt refreshed with new CWD
+            from code_puppy.agents.agent_manager import get_current_agent
+
+            agent = get_current_agent()
+            if agent is not None:
+                agent._code_generation_agent = None
+
             emit_success(f"Changed directory to: {target}")
         else:
             emit_error(f"Not a directory: {dirname}")
