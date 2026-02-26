@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.tools.puppy_share_tools import (
+from code_puppy.plugins.walmart_specific.puppy_share_tools import (
     PuppyShareDeleteOutput,
     PuppyShareListOutput,
     PuppyShareUploadOutput,
@@ -30,24 +30,18 @@ from code_puppy.tools.puppy_share_tools import (
 
 
 class TestGetPuppyToken:
-    def test_returns_env_var_when_set(self, monkeypatch):
-        monkeypatch.setenv("puppy_token", "tok-from-env")
-        assert _get_puppy_token() == "tok-from-env"
-
-    def test_falls_back_to_config_file(self, monkeypatch, tmp_path):
-        monkeypatch.delenv("puppy_token", raising=False)
+    def test_reads_from_config_file(self, tmp_path):
         cfg_dir = tmp_path / ".code_puppy"
         cfg_dir.mkdir()
         cfg_file = cfg_dir / "puppy.cfg"
         cfg_file.write_text(
             "[puppy]\npuppy_token = tok-from-cfg\n"
         )
-        with patch("code_puppy.tools.puppy_share_tools.Path.home", return_value=tmp_path):
+        with patch("code_puppy.plugins.walmart_specific.puppy_share_tools.Path.home", return_value=tmp_path):
             assert _get_puppy_token() == "tok-from-cfg"
 
-    def test_returns_none_when_nothing_available(self, monkeypatch, tmp_path):
-        monkeypatch.delenv("puppy_token", raising=False)
-        with patch("code_puppy.tools.puppy_share_tools.Path.home", return_value=tmp_path):
+    def test_returns_none_when_config_missing(self, tmp_path):
+        with patch("code_puppy.plugins.walmart_specific.puppy_share_tools.Path.home", return_value=tmp_path):
             assert _get_puppy_token() is None
 
 
@@ -101,7 +95,7 @@ class TestPuppyShareUpload:
     def test_no_token_returns_error(self, monkeypatch):
         monkeypatch.delenv("puppy_token", raising=False)
         with patch(
-            "code_puppy.tools.puppy_share_tools._get_puppy_token",
+            "code_puppy.plugins.walmart_specific.puppy_share_tools._get_puppy_token",
             return_value=None,
         ):
             out = puppy_share_upload("<h1>Hi</h1>", "test-page")
@@ -121,11 +115,11 @@ class TestPuppyShareUpload:
         }
         with (
             patch(
-                "code_puppy.tools.puppy_share_tools._get_puppy_token",
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._get_puppy_token",
                 return_value="fake-token",
             ),
             patch(
-                "code_puppy.tools.puppy_share_tools._make_request",
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._make_request",
                 return_value=api_response,
             ),
         ):
@@ -142,11 +136,11 @@ class TestPuppyShareUpload:
         }
         with (
             patch(
-                "code_puppy.tools.puppy_share_tools._get_puppy_token",
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._get_puppy_token",
                 return_value="tok",
             ),
             patch(
-                "code_puppy.tools.puppy_share_tools._make_request",
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._make_request",
                 return_value=api_response,
             ) as mock_req,
         ):
@@ -159,11 +153,11 @@ class TestPuppyShareUpload:
     def test_upload_failure(self):
         with (
             patch(
-                "code_puppy.tools.puppy_share_tools._get_puppy_token",
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._get_puppy_token",
                 return_value="tok",
             ),
             patch(
-                "code_puppy.tools.puppy_share_tools._make_request",
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._make_request",
                 return_value={"success": False, "error": "boom"},
             ),
         ):
@@ -190,7 +184,7 @@ class TestPuppyShareUploadFile:
         html_file.write_text("<h1>Report</h1>")
 
         with patch(
-            "code_puppy.tools.puppy_share_tools.puppy_share_upload",
+            "code_puppy.plugins.walmart_specific.puppy_share_tools.puppy_share_upload",
             return_value=PuppyShareUploadOutput(success=True, url="/sharing/general/rpt"),
         ) as mock_upload:
             out = puppy_share_upload_file(
@@ -209,7 +203,7 @@ class TestPuppyShareUploadFile:
 class TestPuppyShareDelete:
     def test_no_token(self):
         with patch(
-            "code_puppy.tools.puppy_share_tools._get_puppy_token",
+            "code_puppy.plugins.walmart_specific.puppy_share_tools._get_puppy_token",
             return_value=None,
         ):
             out = puppy_share_delete("x")
@@ -218,11 +212,11 @@ class TestPuppyShareDelete:
     def test_successful_delete(self):
         with (
             patch(
-                "code_puppy.tools.puppy_share_tools._get_puppy_token",
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._get_puppy_token",
                 return_value="tok",
             ),
             patch(
-                "code_puppy.tools.puppy_share_tools._make_request",
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._make_request",
                 return_value={"success": True, "message": "Deleted!"},
             ),
         ):
@@ -239,7 +233,7 @@ class TestPuppyShareDelete:
 class TestPuppyShareListMyPages:
     def test_no_token(self):
         with patch(
-            "code_puppy.tools.puppy_share_tools._get_puppy_token",
+            "code_puppy.plugins.walmart_specific.puppy_share_tools._get_puppy_token",
             return_value=None,
         ):
             out = puppy_share_list_my_pages()
@@ -249,11 +243,11 @@ class TestPuppyShareListMyPages:
         pages = [{"name": "a"}, {"name": "b"}]
         with (
             patch(
-                "code_puppy.tools.puppy_share_tools._get_puppy_token",
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._get_puppy_token",
                 return_value="tok",
             ),
             patch(
-                "code_puppy.tools.puppy_share_tools._make_request",
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._make_request",
                 return_value=pages,
             ),
         ):
@@ -264,11 +258,11 @@ class TestPuppyShareListMyPages:
     def test_returns_wrapped_object(self):
         with (
             patch(
-                "code_puppy.tools.puppy_share_tools._get_puppy_token",
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._get_puppy_token",
                 return_value="tok",
             ),
             patch(
-                "code_puppy.tools.puppy_share_tools._make_request",
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._make_request",
                 return_value={"pages": [{"name": "z"}]},
             ),
         ):
