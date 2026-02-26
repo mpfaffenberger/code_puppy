@@ -64,37 +64,12 @@ class PuppyShareListOutput(BaseModel):
 
 
 def _get_puppy_token() -> Optional[str]:
-    """Read the puppy token from config.
+    """Read the puppy token straight from ~/.code_puppy/puppy.cfg."""
+    import configparser
 
-    Resolution order:
-    1. ``puppy_token`` environment variable (set by auth flow in register_callbacks)
-    2. ``code_puppy.config.get_puppy_token()`` (reads puppy.cfg via the config module)
-    3. Direct INI parse of ``~/.code_puppy/puppy.cfg`` (last-resort fallback)
-    """
-    # 1. Environment variable (fastest, always set after login)
-    token = os.environ.get("puppy_token")
-    if token:
-        return token
-
-    # 2. Config module (canonical source of truth)
-    try:
-        from code_puppy.config import get_puppy_token as _cfg_get_token
-
-        token = _cfg_get_token()
-        if token:
-            return token
-    except Exception:
-        pass
-
-    # 3. Direct file parse (fallback if config module isn't loaded)
-    try:
-        import configparser
-
-        cfg = configparser.ConfigParser()
-        cfg.read(Path.home() / ".code_puppy" / "puppy.cfg")
-        return cfg.get("puppy", "puppy_token", fallback=None)
-    except Exception:
-        return None
+    cfg = configparser.ConfigParser()
+    cfg.read(Path.home() / ".code_puppy" / "puppy.cfg")
+    return cfg.get("puppy", "puppy_token", fallback=None)
 
 
 def _make_request(
