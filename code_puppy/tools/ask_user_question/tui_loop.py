@@ -29,6 +29,8 @@ from .constants import (
     CHECK_MARK,
     CLEAR_AND_HOME,
     CURSOR_TRIANGLE,
+    ENTER_ALT_SCREEN,
+    EXIT_ALT_SCREEN,
 )
 from .renderers import render_question_panel
 from .theme import get_rich_colors, get_tui_colors
@@ -208,6 +210,24 @@ async def run_question_tui(
         result.cancelled = True
         event.app.exit()
 
+    @kb.add("tab")
+    def toggle_peek(event: KeyPressEvent) -> None:
+        """Toggle peek mode: temporarily hide the TUI to see terminal output behind it."""
+        state.reset_activity_timer()
+        terminal = sys.__stdout__
+        if state.peeking:
+            # Return from peek: re-enter alt screen and redraw
+            terminal.write(ENTER_ALT_SCREEN)
+            terminal.write(CLEAR_AND_HOME)
+            terminal.flush()
+            state.peeking = False
+        else:
+            # Peek: exit alt screen to reveal what's behind
+            terminal.write(EXIT_ALT_SCREEN)
+            terminal.flush()
+            state.peeking = True
+        event.app.invalidate()
+
     @kb.add("<any>")
     def handle_text_input(event: KeyPressEvent) -> None:
         state.reset_activity_timer()
@@ -230,6 +250,11 @@ async def run_question_tui(
 
     def get_left_panel_text() -> FormattedText:
         """Generate the left panel with question headers."""
+        if state.peeking:
+            return FormattedText([
+                ("", "\n"),
+                (tui_colors.header_bold, "  👀 Peeking..."),
+            ])
         pad = "  "
         lines: list[tuple[str, str]] = [
             ("", pad),
@@ -279,13 +304,24 @@ async def run_question_tui(
                 ("", pad),
                 (tui_colors.help_key, "Ctrl+S"),
                 (tui_colors.header_dim, " Submit"),
+                ("", "\n"),
+                ("", pad),
+                (tui_colors.help_key, "Tab"),
+                (tui_colors.header_dim, " Peek behind"),
             ]
         )
 
         return FormattedText(lines)
 
-    def get_right_panel_text() -> ANSI:
+    def get_right_panel_text() -> FormattedText | ANSI:
         """Generate the right panel with current question and options."""
+        if state.peeking:
+            return FormattedText([
+                ("", "\n"),
+                (tui_colors.header_dim, "  Press "),
+                (tui_colors.help_key, "Tab"),
+                (tui_colors.header_dim, " to return to questions"),
+            ])
         return render_question_panel(state, colors=rich_colors)
 
     # --- Layout ---

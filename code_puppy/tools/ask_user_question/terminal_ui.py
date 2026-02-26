@@ -62,6 +62,8 @@ class QuestionUIState:
         self.other_text_buffer = ""
         # Track if help overlay is shown
         self.show_help = False
+        # Track if peeking behind the TUI (alt screen temporarily hidden)
+        self.peeking = False
         # Timeout tracking (use monotonic to avoid clock drift/NTP issues)
         self.timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
         self.last_activity_time: float = time.monotonic()
