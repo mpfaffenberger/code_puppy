@@ -164,12 +164,20 @@ async def fetch_skill_md(
         return _normalize(False, error=str(e))
 
 
-def install_skill(name: str, content: str) -> Path:
+def install_skill(
+    name: str,
+    content: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Path:
     """Write SKILL.md to ~/.code_puppy/skills/{name}/SKILL.md.
+
+    If content lacks YAML frontmatter (---), we inject it from metadata.
+    This handles MetaRegistry skills which may not have frontmatter.
 
     Args:
         name: Skill name (directory name).
         content: Raw SKILL.md text.
+        metadata: Optional dict with name, description, tags, author, version.
 
     Returns:
         Path to the installed SKILL.md.
@@ -177,8 +185,46 @@ def install_skill(name: str, content: str) -> Path:
     skill_dir = SKILLS_DIR / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     dest = skill_dir / "SKILL.md"
-    dest.write_text(content, encoding="utf-8")
+
+    # Check if content already has frontmatter
+    final_content = content
+    if not content.strip().startswith("---"):
+        # Inject frontmatter from metadata
+        final_content = _build_frontmatter(name, metadata) + content
+
+    dest.write_text(final_content, encoding="utf-8")
     return dest
+
+
+def _build_frontmatter(name: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+    """Build YAML frontmatter block for a skill."""
+    meta = metadata or {}
+    lines = ["---"]
+    lines.append(f"name: {name}")
+
+    desc = meta.get("description", "")
+    if desc:
+        # Escape quotes and truncate for YAML
+        desc = desc.replace('"', '\\"')[:200]
+        lines.append(f'description: "{desc}"')
+
+    # Tags
+    raw_tags = meta.get("tags", [])
+    if isinstance(raw_tags, str):
+        raw_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+    if raw_tags:
+        lines.append(f"tags: [{', '.join(raw_tags)}]")
+
+    # Author/version from nested metadata or top-level
+    nested = meta.get("metadata", {})
+    if isinstance(nested, dict):
+        if nested.get("author"):
+            lines.append(f"author: {nested['author']}")
+        if nested.get("version"):
+            lines.append(f'version: "{nested["version"]}"')
+
+    lines.append("---\n")
+    return "\n".join(lines)
 
 
 def is_skill_installed(name: str) -> bool:
