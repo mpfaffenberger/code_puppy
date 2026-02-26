@@ -1,6 +1,10 @@
-"""Interactive TUI for browsing and installing E2E Open Skills.
+"""Interactive TUI for browsing and installing skills from multiple marketplaces.
 
-Launch with /skill-market to browse the catalog in a split-panel interface.
+Sources:
+    1. E2E Open Skills  — e2e-open-skills.walmartlabs.com
+    2. MetaRegistry BFF — metaregistry-bff.stage.walmart.com
+
+Launch with /skill-market to browse all catalogs in a split-panel interface.
 Built with prompt_toolkit, matching the /skills TUI style.
 """
 
@@ -15,11 +19,38 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
 from . import api_client
+from .api_client import SOURCE_E2E, SOURCE_METAREGISTRY
 
 PAGE_SIZE = 12
+SOURCE_FILTERS = ["all", SOURCE_E2E, SOURCE_METAREGISTRY]
+SOURCE_LABELS = {"all": "All", SOURCE_E2E: "E2E", SOURCE_METAREGISTRY: "MetaReg"}
+
+
+def _source_badge(source: str) -> tuple:
+    """Return a styled (style, text) tuple for a source badge."""
+    if source == SOURCE_METAREGISTRY:
+        return ("fg:ansimagenta", "[MR]")
+    if source == SOURCE_E2E:
+        return ("fg:ansicyan", "[E2E]")
+    return ("fg:ansibrightblack", f"[{source}]")
+
+
+def _source_style(source: str) -> str:
+    """Return the ANSI style string for a source."""
+    if source == SOURCE_METAREGISTRY:
+        return "fg:ansimagenta"
+    return "fg:ansicyan"
+
+
+def _format_home_path(path: Path) -> str:
+    """Format a path, replacing $HOME with ~."""
+    s = str(path)
+    home = str(Path.home())
+    return "~" + s[len(home):] if s.startswith(home) else s
 
 
 class SkillMarketplaceMenu:
@@ -29,6 +60,7 @@ class SkillMarketplaceMenu:
         self.skills: List[dict] = []
         self.filtered_skills: List[dict] = []
         self.search_query: str = ""
+        self.source_filter_idx: int = 0  # index into SOURCE_FILTERS
         self.selected_idx: int = 0
         self.current_page: int = 0
         self.result: Optional[str] = None
@@ -41,12 +73,14 @@ class SkillMarketplaceMenu:
         self.preview_control: Optional[FormattedTextControl] = None
 
     def _load_skills(self) -> None:
-        """Fetch skills from the marketplace API."""
+        """Fetch skills from all marketplace sources and sort alphabetically."""
         self.loading = True
         try:
             resp = api_client.run_async(api_client.fetch_skills())
             if resp.get("success"):
                 self.skills = resp.get("data", [])
+                # Sort alphabetically by name (mixed E2E + MetaRegistry)
+                self.skills.sort(key=lambda s: s.get("name", "").lower())
                 self.filtered_skills = list(self.skills)
                 self.status_message = f"Loaded {len(self.skills)} skills"
                 self.status_style = "fg:ansigreen"
@@ -63,19 +97,30 @@ class SkillMarketplaceMenu:
         finally:
             self.loading = False
 
+    @property
+    def _active_source_filter(self) -> str:
+        return SOURCE_FILTERS[self.source_filter_idx]
+
     def _apply_filter(self) -> None:
-        """Filter skills by the current search query."""
-        if not self.search_query:
-            self.filtered_skills = list(self.skills)
-        else:
+        """Filter skills by source tab and search query."""
+        pool = list(self.skills)
+
+        # Source filter
+        active = self._active_source_filter
+        if active != "all":
+            pool = [s for s in pool if s.get("_source") == active]
+
+        # Text search
+        if self.search_query:
             q = self.search_query.lower()
-            self.filtered_skills = [
-                s
-                for s in self.skills
+            pool = [
+                s for s in pool
                 if q in s.get("name", "").lower()
                 or q in s.get("description", "").lower()
                 or q in s.get("tags", "").lower()
             ]
+
+        self.filtered_skills = pool
         self.selected_idx = 0
         self.current_page = 0
 
@@ -90,14 +135,26 @@ class SkillMarketplaceMenu:
         lines: List = []
 
         # Header
-        lines.append(("bold fg:ansicyan", " 🐶 E2E Open Skills Marketplace"))
+        lines.append(("bold fg:ansicyan", " 🐶 Skill Marketplace"))
         lines.append(("", "\n"))
         lines.append((self.status_style, f"  {self.status_message}"))
         lines.append(("", "\n\n"))
 
+        # Source tabs
+        active = self._active_source_filter
+        lines.append(("fg:ansibrightblack", "  "))
+        for filt in SOURCE_FILTERS:
+            label = SOURCE_LABELS[filt]
+            if filt == active:
+                lines.append(("bold fg:ansicyan", f"[{label}]"))
+            else:
+                lines.append(("fg:ansibrightblack", f" {label} "))
+            lines.append(("", " "))
+        lines.append(("", "\n\n"))
+
         # Search bar
         if self.search_query:
-            lines.append(("fg:ansiyellow", f'  🔍 "{self.search_query}"'))
+            lines.append(("fg:ansiyellow", f"  🔍 \"{self.search_query}\""))
             lines.append(("", "\n\n"))
 
         if self.loading:
@@ -126,27 +183,29 @@ class SkillMarketplaceMenu:
 
             prefix = " ▸ " if is_selected else "   "
             name = skill.get("name", "?")
+            source = skill.get("_source", "")
+            badge = _source_badge(source)
 
             if is_selected:
                 lines.append(("bold", prefix))
                 lines.append((icon_style + " bold", icon))
-                lines.append(("bold", f" {name}"))
+                lines.append(("bold", f" {name} "))
+                lines.append(badge)
             else:
                 lines.append(("", prefix))
                 lines.append((icon_style, icon))
-                lines.append(("fg:ansibrightblack", f" {name}"))
+                lines.append(("fg:ansibrightblack", f" {name} "))
+                lines.append(badge)
 
             lines.append(("", "\n"))
 
         # Page info
         lines.append(("", "\n"))
-        lines.append(
-            (
-                "fg:ansibrightblack",
-                f" Page {self.current_page + 1}/{total_pages}"
-                f"  ({len(self.filtered_skills)} skills)",
-            )
-        )
+        lines.append((
+            "fg:ansibrightblack",
+            f" Page {self.current_page + 1}/{total_pages}"
+            f"  ({len(self.filtered_skills)} skills)"
+        ))
         lines.append(("", "\n"))
 
         self._render_nav_hints(lines)
@@ -160,10 +219,12 @@ class SkillMarketplaceMenu:
         lines.append(("", "Page\n"))
         lines.append(("fg:ansigreen", "  Enter  "))
         lines.append(("", "Install  "))
+        lines.append(("fg:ansicyan", "  Tab  "))
+        lines.append(("", "Source\n"))
         lines.append(("fg:ansicyan", "  /  "))
-        lines.append(("", "Search\n"))
+        lines.append(("", "Search  "))
         lines.append(("fg:ansiyellow", "  r  "))
-        lines.append(("", "Refresh  "))
+        lines.append(("", "Refresh\n"))
         lines.append(("fg:ansired", "  q  "))
         lines.append(("", "Exit"))
 
@@ -182,10 +243,12 @@ class SkillMarketplaceMenu:
         name = skill.get("name", "?")
         desc = skill.get("description", "No description")
         tags = skill.get("tags", "")
+        source = skill.get("_source", "")
         installed = api_client.is_skill_installed(name)
 
-        # Name
-        lines.append(("bold", f"  {name}"))
+        # Name + source badge
+        lines.append(("bold", f"  {name} "))
+        lines.append(_source_badge(source))
         lines.append(("", "\n\n"))
 
         # Status
@@ -193,6 +256,13 @@ class SkillMarketplaceMenu:
             lines.append(("fg:ansigreen bold", "  ✓ Installed"))
         else:
             lines.append(("fg:ansiyellow", "  ○ Not installed"))
+        lines.append(("", "\n\n"))
+
+        # Source
+        source_label = SOURCE_LABELS.get(source, source)
+        lines.append(("bold", "  Source:"))
+        lines.append(("", "\n"))
+        lines.append((_source_style(source), f"    {source_label}"))
         lines.append(("", "\n\n"))
 
         # Description
@@ -210,18 +280,50 @@ class SkillMarketplaceMenu:
             lines.append(("fg:ansicyan", f"    {tags}"))
             lines.append(("", "\n\n"))
 
+        # MetaRegistry-specific: downloads, rating, author, version
+        meta = skill.get("metadata", {})
+        dl_count = skill.get("downloadCount")
+        rating_agg = skill.get("ratingAggregate", {})
+        team = skill.get("teamName", "")
+
+        has_extras = isinstance(meta, dict) and meta
+        has_stats = dl_count is not None or rating_agg.get("totalRatings")
+
+        if has_extras or has_stats or team:
+            lines.append(("bold", "  Info:"))
+            lines.append(("", "\n"))
+            if isinstance(meta, dict):
+                for key in ("author", "version"):
+                    val = meta.get(key)
+                    if val:
+                        lines.append(("fg:ansibrightblack", f"    {key}: {val}"))
+                        lines.append(("", "\n"))
+            if team:
+                lines.append(("fg:ansibrightblack", f"    team: {team}"))
+                lines.append(("", "\n"))
+            if dl_count is not None:
+                lines.append(("fg:ansibrightblack", f"    downloads: {dl_count}"))
+                lines.append(("", "\n"))
+            if isinstance(rating_agg, dict) and rating_agg.get("totalRatings"):
+                avg = rating_agg.get("averageScore", 0)
+                total = rating_agg["totalRatings"]
+                stars = "★" * round(avg) + "☆" * (5 - round(avg))
+                lines.append((
+                    "fg:ansiyellow",
+                    f"    {stars} {avg:.1f} ({total} ratings)"
+                ))
+                lines.append(("", "\n"))
+            lines.append(("", "\n"))
+
         # Install path
         dest = api_client.SKILLS_DIR / name / "SKILL.md"
-        path_str = str(dest)
-        home = str(Path.home())
-        if path_str.startswith(home):
-            path_str = "~" + path_str[len(home) :]
+        path_str = _format_home_path(dest)
         lines.append(("bold", "  Install path:"))
         lines.append(("", "\n"))
         lines.append(("fg:ansibrightblack", f"    {path_str}"))
         lines.append(("", "\n\n"))
 
-        # URL
+        # URL (E2E only)
         url = skill.get("url", "")
         if url:
             lines.append(("bold", "  URL:"))
@@ -253,23 +355,31 @@ class SkillMarketplaceMenu:
         return lines or [""]
 
     def _install_current_skill(self) -> None:
-        """Download and install the currently selected skill."""
+        """Download and install the currently selected skill (all files)."""
         skill = self._get_current_skill()
         if not skill:
             return
 
         name = skill["name"]
+
         self.status_message = f"Installing {name}..."
         self.status_style = "fg:ansicyan"
         self.update_display()
 
         try:
-            resp = api_client.run_async(api_client.fetch_skill_md(name))
+            resp = api_client.run_async(
+                api_client.install_skill_full(name, skill)
+            )
             if resp.get("success"):
-                content = resp["data"]
-                api_client.install_skill(name, content)
-                self.status_message = f"✓ Installed {name}"
-                self.status_style = "fg:ansigreen"
+                data = resp.get("data", {})
+                file_count = data.get("file_count", 1)
+                warnings = data.get("warnings", [])
+                if warnings:
+                    self.status_message = f"✓ Installed {name} ({file_count} files, {len(warnings)} warnings)"
+                    self.status_style = "fg:ansiyellow"
+                else:
+                    self.status_message = f"✓ Installed {name} ({file_count} files)"
+                    self.status_style = "fg:ansigreen"
             else:
                 self.status_message = f"Failed: {resp.get('error', '?')}"
                 self.status_style = "fg:ansired"
@@ -335,7 +445,6 @@ class SkillMarketplaceMenu:
             sys.stdout.flush()
             try:
                 import termios
-
                 termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
             except (ImportError, OSError):
                 pass
@@ -390,6 +499,14 @@ class SkillMarketplaceMenu:
             self.status_style = "fg:ansicyan"
             self.update_display()
             self._load_skills()
+            self._apply_filter()
+            self.update_display()
+
+        @kb.add("tab")
+        def _cycle_source(event):
+            self.source_filter_idx = (
+                (self.source_filter_idx + 1) % len(SOURCE_FILTERS)
+            )
             self._apply_filter()
             self.update_display()
 
