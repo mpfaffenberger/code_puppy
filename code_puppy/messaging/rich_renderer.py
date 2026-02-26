@@ -98,17 +98,6 @@ DIFF_STYLES = {
     "context": "dim",
 }
 
-GROUPABLE_TYPES = frozenset(
-    {
-        FileContentMessage,
-        GrepResultMessage,
-        DiffMessage,
-        FileListingMessage,
-        ShellStartMessage,
-    }
-)
-TRANSPARENT_TYPES = frozenset({SpinnerControl})
-
 
 # =============================================================================
 # Rich Console Renderer
@@ -121,12 +110,6 @@ class RichConsoleRenderer:
     This renderer consumes messages from a MessageBus and renders them using Rich.
     It uses a background thread for synchronous compatibility with the main loop.
     """
-
-    # Message types that support consecutive grouping under a single banner
-    _GROUPABLE_TYPES = GROUPABLE_TYPES
-
-    # Message types that are "transparent" - they don't break an active group
-    _TRANSPARENT_TYPES = TRANSPARENT_TYPES
 
     def __init__(
         self,
@@ -149,8 +132,6 @@ class RichConsoleRenderer:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._spinners: Dict[str, object] = {}  # spinner_id -> status context
-        # Grouping: track last rendered message type for consecutive grouping
-        self._last_rendered_type: Optional[type] = None
 
     @property
     def console(self) -> Console:
@@ -190,16 +171,6 @@ class RichConsoleRenderer:
             True if we're in a sub-agent context and verbose mode is disabled
         """
         return is_subagent() and not get_subagent_verbose()
-
-    def _is_continuation(self, msg_type: type) -> bool:
-        """Check if this message should be rendered as a grouped child (no banner).
-
-        Returns True if the previous rendered message was the same groupable type,
-        meaning the banner was already printed and we just need the child line.
-        """
-        return (
-            msg_type in self._GROUPABLE_TYPES and self._last_rendered_type == msg_type
-        )
 
     # =========================================================================
     # Lifecycle (Synchronous - for compatibility with main.py)
@@ -255,12 +226,9 @@ class RichConsoleRenderer:
         """Render a message synchronously with error handling."""
         try:
             self._do_render(message)
-            # Track type for grouping (transparent types don't break groups)
-            msg_type = type(message)
-            if msg_type not in self._TRANSPARENT_TYPES:
-                self._last_rendered_type = msg_type
         except Exception as e:
-            self._last_rendered_type = None
+            # Don't let rendering errors crash the loop
+            # Escape the error message to prevent nested markup errors
             safe_error = escape_rich_markup(str(e))
             self._console.print(f"[dim red]Render error: {safe_error}[/dim red]")
 
@@ -359,8 +327,8 @@ class RichConsoleRenderer:
         elif isinstance(message, SelectionRequest):
             await self._render_selection_request(message)
         else:
-            # Use sync renderer for shared rendering and grouping behavior
-            self._render_sync(message)
+            # Use sync render for everything else
+            self._do_render(message)
 
     # =========================================================================
     # Text Messages
@@ -415,13 +383,12 @@ class RichConsoleRenderer:
         import os
         from collections import defaultdict
 
+        # Header on single line
         rec_flag = f"(recursive={msg.recursive})"
-        if not self._is_continuation(FileListingMessage):
-            banner = self._format_banner("directory_listing", "DIRECTORY LISTING")
-            self._console.print(f"\n{banner}")
-
+        banner = self._format_banner("directory_listing", "DIRECTORY LISTING")
         self._console.print(
-            f"  ├─ 📂 [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
+            f"\n{banner} "
+            f"📂 [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
         )
 
         # Build a tree structure: {parent_path: {files: [], dirs: set(), size: int}}
@@ -531,7 +498,11 @@ class RichConsoleRenderer:
         )
 
     def _render_file_content(self, msg: FileContentMessage) -> None:
-        """Render a file read - just show the header, not the content."""
+        """Render a file read - just show the header, not the content.
+
+        The file content is for the LLM only, not for display in the UI.
+        """
+        # Skip for sub-agents unless verbose mode
         if self._should_suppress_subagent_output():
             return
 
@@ -541,13 +512,11 @@ class RichConsoleRenderer:
             end_line = msg.start_line + msg.num_lines - 1
             line_info = f" [dim](lines {msg.start_line}-{end_line})[/dim]"
 
-        # Print banner only if this is NOT a continuation of the same type
-        if not self._is_continuation(FileContentMessage):
-            banner = self._format_banner("read_file", "READ FILE")
-            self._console.print(f"\n{banner}")
-
-        # Always print as tree child
-        self._console.print(f"  ├─ 📂 [bold cyan]{msg.path}[/bold cyan]{line_info}")
+        # Just print the header - content is for LLM only
+        banner = self._format_banner("read_file", "READ FILE")
+        self._console.print(
+            f"\n{banner} 📂 [bold cyan]{msg.path}[/bold cyan]{line_info}"
+        )
 
     def _render_grep_result(self, msg: GrepResultMessage) -> None:
         """Render grep results grouped by file matching old format."""
@@ -557,17 +526,15 @@ class RichConsoleRenderer:
 
         import re
 
-        if not self._is_continuation(GrepResultMessage):
-            banner = self._format_banner("grep", "GREP")
-            self._console.print(f"\n{banner}")
-
+        # Header
+        banner = self._format_banner("grep", "GREP")
         self._console.print(
-            f"  ├─ 📂 [dim]{msg.directory} for '{msg.search_term}'[/dim]"
+            f"\n{banner} 📂 [dim]{msg.directory} for '{msg.search_term}'[/dim]"
         )
 
         if not msg.matches:
             self._console.print(
-                f"  │     [dim]No matches found for '{msg.search_term}' "
+                f"[dim]No matches found for '{msg.search_term}' "
                 f"in {msg.directory}[/dim]"
             )
             return
@@ -584,7 +551,7 @@ class RichConsoleRenderer:
                 file_matches = by_file[file_path]
                 match_word = "match" if len(file_matches) == 1 else "matches"
                 self._console.print(
-                    f"  │     [dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
+                    f"\n[dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
                 )
 
                 # Show each match with line number and content
@@ -610,16 +577,15 @@ class RichConsoleRenderer:
                         highlighted_line = line
 
                     ln = match.line_number
-                    self._console.print(
-                        f"  │     [dim]{ln:4d}[/dim] │ {highlighted_line}"
-                    )
+                    self._console.print(f"  [dim]{ln:4d}[/dim] │ {highlighted_line}")
         else:
             # Concise mode (default): Show only file summaries
+            self._console.print("")
             for file_path in sorted(by_file.keys()):
                 file_matches = by_file[file_path]
                 match_word = "match" if len(file_matches) == 1 else "matches"
                 self._console.print(
-                    f"  │     [dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
+                    f"[dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
                 )
 
         # Summary - subtle
@@ -627,9 +593,12 @@ class RichConsoleRenderer:
         file_word = "file" if len(by_file) == 1 else "files"
         num_files = len(by_file)
         self._console.print(
-            f"  │     [dim]Found {msg.total_matches} {match_word} "
+            f"[dim]Found {msg.total_matches} {match_word} "
             f"across {num_files} {file_word}[/dim]"
         )
+
+        # Trailing newline for spinner separation
+        self._console.print()
 
     # =========================================================================
     # Diff
@@ -647,12 +616,11 @@ class RichConsoleRenderer:
         icon = op_icons.get(msg.operation, "📄")
         op_color = op_colors.get(msg.operation, "white")
 
-        if not self._is_continuation(DiffMessage):
-            banner = self._format_banner("edit_file", "EDIT FILE")
-            self._console.print(f"\n{banner}")
-
+        # Header on single line
+        banner = self._format_banner("edit_file", "EDIT FILE")
         self._console.print(
-            f"  ├─ {icon} [{op_color}]{msg.operation.upper()}[/{op_color}] "
+            f"\n{banner} "
+            f"{icon} [{op_color}]{msg.operation.upper()}[/{op_color}] "
             f"[bold cyan]{msg.path}[/bold cyan]"
         )
 
@@ -686,33 +654,33 @@ class RichConsoleRenderer:
 
     def _render_shell_start(self, msg: ShellStartMessage) -> None:
         """Render shell command start notification."""
+        # Skip for sub-agents unless verbose mode
         if self._should_suppress_subagent_output():
             return
 
+        # Escape command to prevent Rich markup injection
         safe_command = escape_rich_markup(msg.command)
+        # Header showing command is starting
+        banner = self._format_banner("shell_command", "SHELL COMMAND")
 
-        if not self._is_continuation(ShellStartMessage):
-            banner = self._format_banner("shell_command", "SHELL COMMAND")
-            self._console.print(f"\n{banner}")
-
-        # Tree child with command
+        # Add background indicator if running in background mode
         if msg.background:
             self._console.print(
-                f"  ├─ 🚀 [dim]$ {safe_command}[/dim]  [bold magenta][BACKGROUND 🌙][/bold magenta]"
+                f"\n{banner} 🚀 [dim]$ {safe_command}[/dim]  [bold magenta][BACKGROUND 🌙][/bold magenta]"
             )
         else:
-            self._console.print(f"  ├─ 🚀 [dim]$ {safe_command}[/dim]")
+            self._console.print(f"\n{banner} 🚀 [dim]$ {safe_command}[/dim]")
 
         # Show working directory if specified
         if msg.cwd:
             safe_cwd = escape_rich_markup(msg.cwd)
-            self._console.print(f"  │  [dim]📂 Working directory: {safe_cwd}[/dim]")
+            self._console.print(f"[dim]📂 Working directory: {safe_cwd}[/dim]")
 
         # Show timeout or background status
         if msg.background:
-            self._console.print("  │  [dim]⏱ Runs detached (no timeout)[/dim]")
+            self._console.print("[dim]⏱ Runs detached (no timeout)[/dim]")
         else:
-            self._console.print(f"  │  [dim]⏱ Timeout: {msg.timeout}s[/dim]")
+            self._console.print(f"[dim]⏱ Timeout: {msg.timeout}s[/dim]")
 
     def _render_shell_line(self, msg: ShellLineMessage) -> None:
         """Render shell output line preserving ANSI codes and carriage returns."""

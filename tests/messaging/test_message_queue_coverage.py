@@ -628,3 +628,54 @@ class TestEmitQueueFullEdgeCase:
                 # This should not raise - it catches the exception
                 msg2 = UIMessage(type=MessageType.INFO, content="Msg2")
                 mq.emit(msg2)  # Should handle gracefully
+
+
+class TestStartupBuffer:
+    """Tests for startup buffer and clear_startup_buffer."""
+
+    def test_clear_startup_buffer(self):
+        mq = MessageQueue()
+        msg = UIMessage(type=MessageType.INFO, content="buffered")
+        mq.emit(msg)  # No active renderer, goes to buffer
+        assert len(mq._startup_buffer) == 1
+        mq.clear_startup_buffer()
+        assert len(mq._startup_buffer) == 0
+
+    def test_emit_without_active_renderer_buffers(self):
+        mq = MessageQueue()
+        msg = UIMessage(type=MessageType.INFO, content="buf")
+        mq.emit(msg)
+        assert len(mq._startup_buffer) == 1
+        assert mq._startup_buffer[0].content == "buf"
+
+    def test_emit_overflow_drop_and_retry(self):
+        """Queue Full → drop oldest → retry put succeeds (line 129)."""
+        import queue as queue_module
+
+        mq = MessageQueue()
+        mq._has_active_renderer = True
+        call_count = [0]
+        orig_put = mq._queue.put_nowait
+
+        def put_side_effect(item):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise queue_module.Full()
+            return orig_put(item)
+
+        with patch.object(mq._queue, "put_nowait", side_effect=put_side_effect):
+            msg = UIMessage(type=MessageType.INFO, content="x")
+            mq._queue.put("placeholder")  # Fill queue for get_nowait
+            mq.emit(msg)
+        assert call_count[0] == 2  # put_nowait called twice
+
+    def test_emit_overflow_race_empty(self):
+        """Queue Full then Empty race condition (line 130-131)."""
+        import queue as queue_module
+
+        mq = MessageQueue()
+        mq._has_active_renderer = True
+        with patch.object(mq._queue, "put_nowait", side_effect=queue_module.Full):
+            with patch.object(mq._queue, "get_nowait", side_effect=queue_module.Empty):
+                msg = UIMessage(type=MessageType.INFO, content="x")
+                mq.emit(msg)  # Should not raise

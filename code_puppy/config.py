@@ -46,6 +46,7 @@ MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
 MODELS_FILE = os.path.join(DATA_DIR, "models.json")
 EXTRA_MODELS_FILE = os.path.join(DATA_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(DATA_DIR, "agents")
+SKILLS_DIR = os.path.join(DATA_DIR, "skills")
 CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
 _DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 
@@ -178,7 +179,7 @@ def ensure_config_exists():
     Returns configparser.ConfigParser for reading.
     """
     # Create all XDG directories with 0700 permissions per XDG spec
-    for directory in [CONFIG_DIR, DATA_DIR, CACHE_DIR, STATE_DIR]:
+    for directory in [CONFIG_DIR, DATA_DIR, CACHE_DIR, STATE_DIR, SKILLS_DIR]:
         if not os.path.exists(directory):
             os.makedirs(directory, mode=0o700, exist_ok=True)
     exists = os.path.isfile(CONFIG_FILE)
@@ -1436,6 +1437,8 @@ DEFAULT_BANNER_COLORS = {
     "universal_constructor": "dark_cyan",  # Teal - constructing tools
     # Browser/Terminal tools - same color as edit_file (gold)
     "terminal_tool": "dark_goldenrod",  # Gold - browser terminal operations
+    # MCP tools - distinct from builtin tools
+    "mcp_tool_call": "dark_cyan",  # Teal - external MCP tool calls
 }
 
 
