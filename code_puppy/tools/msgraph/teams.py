@@ -21,8 +21,11 @@ from code_puppy.messaging import emit_info, emit_success
 from code_puppy.tools.msgraph.common import (
     get_msgraph_client,
     _handle_msgraph_error,
+    _rejected_response,
     markdown_to_html,
+    require_user_approval,
     truncate_list_response,
+    UserRejectedError,
     MAX_RESPONSE_CHARS,
 )
 
@@ -484,6 +487,16 @@ def msgraph_send_channel_message(
     )
 
     try:
+        # --- approval gate ---
+        require_user_approval(
+            "Teams Channel Message",
+            {
+                "Team ID": team_id,
+                "Channel ID": channel_id,
+                "Content": content,
+            },
+        )
+
         client = get_msgraph_client()
 
         # Convert markdown to HTML if using html content type
@@ -516,6 +529,8 @@ def msgraph_send_channel_message(
             "channel_id": channel_id,
         }
 
+    except UserRejectedError:
+        return _rejected_response("Teams Channel Message")
     except Exception as e:
         return _handle_msgraph_error(e)
 
@@ -724,6 +739,12 @@ def msgraph_send_chat_message(
     )
 
     try:
+        # --- approval gate ---
+        require_user_approval(
+            "Teams Chat Message",
+            {"Chat ID": chat_id, "Content": content},
+        )
+
         client = get_msgraph_client()
 
         # Convert markdown to HTML if using html content type
@@ -755,6 +776,8 @@ def msgraph_send_chat_message(
             "chat_id": chat_id,
         }
 
+    except UserRejectedError:
+        return _rejected_response("Teams Chat Message")
     except Exception as e:
         return _handle_msgraph_error(e)
 
@@ -888,6 +911,12 @@ def msgraph_send_direct_message(
     )
 
     try:
+        # --- approval gate ---
+        require_user_approval(
+            "Teams Direct Message",
+            {"Recipient": user_email, "Content": content},
+        )
+
         client = get_msgraph_client()
         chat_id = None
         chat_response = None
@@ -985,6 +1014,8 @@ def msgraph_send_direct_message(
             "requested_recipient": user_email,
         }
 
+    except UserRejectedError:
+        return _rejected_response("Teams Direct Message")
     except Exception as e:
         return _handle_msgraph_error(e)
 

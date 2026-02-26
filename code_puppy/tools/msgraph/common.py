@@ -237,6 +237,50 @@ def apply_response_limit(
 
 
 # =============================================================================
+# USER APPROVAL GATE
+# =============================================================================
+
+
+class UserRejectedError(Exception):
+    """Raised when the user declines to approve a send action."""
+
+
+def require_user_approval(
+    action: str,
+    details: dict[str, str],
+) -> None:
+    """Ask the user for approval before sending a message or email.
+
+    Displays a polished full-screen TUI with the action details, letting the
+    user approve or reject with keyboard navigation (↑↓, y/n, Enter, Esc).
+
+    Falls back to a simple y/N prompt if the TUI can't be shown (e.g., async
+    context, non-interactive terminal, sub-agent, or wiggum mode).
+
+    Args:
+        action: Short description, e.g. "Send Email" or "Teams Channel Message".
+        details: Key/value pairs to display (e.g. {"To": "...", "Subject": "..."}).
+
+    Raises:
+        UserRejectedError: If the user does not approve.
+    """
+    from .approval_tui import request_approval
+
+    approved = request_approval(action, details)
+    if not approved:
+        raise UserRejectedError(f"User declined: {action}")
+
+
+def _rejected_response(action: str) -> dict:
+    """Return a standardised tool response when the user declines."""
+    return {
+        "success": False,
+        "error": f"{action} was cancelled by the user.",
+        "error_type": "user_rejected",
+    }
+
+
+# =============================================================================
 # CLIENT HELPER
 # =============================================================================
 

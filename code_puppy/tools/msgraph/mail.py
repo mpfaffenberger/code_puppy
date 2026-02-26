@@ -20,9 +20,12 @@ from code_puppy.messaging import emit_info, emit_success
 from code_puppy.tools.msgraph.common import (
     get_msgraph_client,
     _handle_msgraph_error,
+    _rejected_response,
     markdown_to_html,
+    require_user_approval,
     truncate_content,
     truncate_list_response,
+    UserRejectedError,
     MAX_RESPONSE_CHARS,
 )
 
@@ -385,6 +388,13 @@ def msgraph_send_mail(
     )
 
     try:
+        # --- approval gate ---
+        approval_details = {"To": recipients_str, "Subject": subject}
+        if cc:
+            approval_details["CC"] = ", ".join(cc)
+        approval_details["Body"] = body
+        require_user_approval("Send Email", approval_details)
+
         client = get_msgraph_client()
 
         # Build recipient lists
@@ -424,6 +434,8 @@ def msgraph_send_mail(
             "subject": subject,
         }
 
+    except UserRejectedError:
+        return _rejected_response("Send Email")
     except Exception as e:
         return _handle_msgraph_error(e)
 
@@ -478,6 +490,12 @@ def msgraph_reply_to_message(
     )
 
     try:
+        # --- approval gate ---
+        require_user_approval(
+            reply_type,
+            {"Message ID": message_id, "Body": body},
+        )
+
         client = get_msgraph_client()
 
         # Step 1: Create a draft reply
@@ -520,6 +538,8 @@ def msgraph_reply_to_message(
             "reply_all": reply_all,
         }
 
+    except UserRejectedError:
+        return _rejected_response(reply_type)
     except Exception as e:
         return _handle_msgraph_error(e)
 
