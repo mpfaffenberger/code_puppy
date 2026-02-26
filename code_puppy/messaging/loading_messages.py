@@ -236,7 +236,11 @@ def _ensure_plugins_loaded() -> None:
 
         from code_puppy.callbacks import on_register_loading_messages
 
-        on_register_loading_messages()
+        try:
+            on_register_loading_messages()
+        except Exception:
+            _plugins_initialized = False
+            raise
 
 
 _RESERVED_CATEGORIES = frozenset({"puppy", "dev", "fun", "action"})
@@ -254,7 +258,7 @@ def register_messages(category: str, messages: List[str]) -> None:
     ----------
     category:
         A unique plugin-specific category name (e.g. ``"walmart"``).
-        Core category names (puppy, dev, fun, action, standalone) are
+        Core category names (puppy, dev, fun, action) are
         reserved and will raise ``ValueError``.  If the category
         already exists the new messages are **appended**.
     messages:

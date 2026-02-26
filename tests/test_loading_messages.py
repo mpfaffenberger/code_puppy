@@ -67,9 +67,9 @@ class TestPluginRegistry:
     """Tests for register_messages / unregister_messages."""
 
     def teardown_method(self):
-        """Clean up any test categories."""
-        unregister_messages("test_cat")
-        unregister_messages("test_cat2")
+        """Clean up any test categories and reset plugin state."""
+        with _lm._plugin_categories_lock:
+            _lm._plugin_categories.clear()
         _lm._plugins_initialized = False
 
     def test_register_new_category(self):
