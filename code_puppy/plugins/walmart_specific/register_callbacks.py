@@ -353,6 +353,9 @@ def get_walmart_agents() -> list[Dict[str, Any]]:
     from code_puppy.plugins.walmart_specific.share_puppy_agent import (
         SharePuppyAgent,
     )
+    from code_puppy.plugins.walmart_specific.puppy_tales_agent import (
+        PuppyTalesAgent,
+    )
 
     return [
         {
@@ -366,6 +369,10 @@ def get_walmart_agents() -> list[Dict[str, Any]]:
         {
             "name": "share-puppy",
             "class": SharePuppyAgent,
+        },
+        {
+            "name": "puppy-tales",
+            "class": PuppyTalesAgent,
         },
     ]
 
