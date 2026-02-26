@@ -154,20 +154,25 @@ Example:
 ## After Collecting All Answers
 
 Once you have everything:
-1. **Write an 8-sentence story** for the Puppy Tales website:
+1. **Write an 8-sentence story** for the Puppy Tales website with paragraph breaks:
    - Sentence 1: Introduce the author and their role
    - Sentence 2: Set up the business problem/challenge
+   
    - Sentence 3: Describe how things were done before
    - Sentence 4: The turning point - discovering Code Puppy
+   
    - Sentence 5-6: What Code Puppy helped them build/automate
    - Sentence 7: The impact and time saved
+   
    - Sentence 8: A forward-looking conclusion or tip
+   
+   **IMPORTANT: Add <br><br> between every 2 sentences to create readable paragraphs!**
    
 2. **SHOW THEM THE STORY!** Present it nicely:
    "Here's your story for the Puppy Tales website! 📖
    
    ---
-   [Your 8-sentence generated story here]
+   [Your 8-sentence generated story here with <br><br> paragraph breaks]
    ---"
    
 3. Show a quick summary of key details (name, project, category, time saved, success, collaborators)
