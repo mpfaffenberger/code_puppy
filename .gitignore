@@ -33,4 +33,15 @@ main.bin
 # Bundled skills removed — skills are now fetched from remote catalog
 code_puppy/bundled_skills/
 
+# Hook engine runtime artifacts (logs, compiled outputs)
+.claude/activity.jsonl
+.claude/hooks/audit.log
+
+# Compiled hook binaries (built from .go sources in .claude/hooks/go-hooks/)
+.claude/hooks/go-hooks/audit-bash
+.claude/hooks/go-hooks/file-policy
+
+# Compiled TypeScript hook output (built from .ts sources)
+.claude/hooks/ts-hooks/dist/
+
 .json
