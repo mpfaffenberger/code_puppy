@@ -73,12 +73,14 @@ class SkillMarketplaceMenu:
         self.preview_control: Optional[FormattedTextControl] = None
 
     def _load_skills(self) -> None:
-        """Fetch skills from the marketplace API."""
+        """Fetch skills from all marketplace sources and sort alphabetically."""
         self.loading = True
         try:
             resp = api_client.run_async(api_client.fetch_skills())
             if resp.get("success"):
                 self.skills = resp.get("data", [])
+                # Sort alphabetically by name (mixed E2E + MetaRegistry)
+                self.skills.sort(key=lambda s: s.get("name", "").lower())
                 self.filtered_skills = list(self.skills)
                 self.status_message = f"Loaded {len(self.skills)} skills"
                 self.status_style = "fg:ansigreen"
@@ -383,7 +385,7 @@ class SkillMarketplaceMenu:
             )
             if resp.get("success"):
                 content = resp["data"]
-                api_client.install_skill(name, content)
+                api_client.install_skill(name, content, metadata=skill)
                 self.status_message = f"✓ Installed {name}"
                 self.status_style = "fg:ansigreen"
             else:
