@@ -688,7 +688,7 @@ def on_register_loading_messages() -> List[Any]:
     Example callback (in a plugin's register_callbacks.py)::
 
         from code_puppy.callbacks import register_callback
-        from code_puppy.loading_messages import register_messages
+        from code_puppy.messaging.loading_messages import register_messages
 
         def _add_my_messages():
             register_messages("my_org", [

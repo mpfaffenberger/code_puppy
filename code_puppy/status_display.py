@@ -8,7 +8,7 @@ from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
 
-from code_puppy.loading_messages import get_all_messages
+from code_puppy.messaging.loading_messages import get_all_messages
 
 # Global variable to track current token per second rate
 CURRENT_TOKEN_RATE = 0.0
