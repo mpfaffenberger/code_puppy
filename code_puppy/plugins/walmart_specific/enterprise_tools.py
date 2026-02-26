@@ -68,7 +68,7 @@ def get_enterprise_tools() -> list[dict[str, Any]]:
         register_marketplace_search_agents,
         register_marketplace_upload_agent,
     )
-    from code_puppy.tools.puppy_share_tools import (
+    from code_puppy.plugins.walmart_specific.puppy_share_tools import (
         register_puppy_share_upload,
         register_puppy_share_upload_file,
         register_puppy_share_delete,

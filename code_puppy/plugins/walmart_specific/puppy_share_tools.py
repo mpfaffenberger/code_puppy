@@ -64,7 +64,7 @@ class PuppyShareListOutput(BaseModel):
 
 
 def _get_puppy_token() -> Optional[str]:
-    """Read the puppy token straight from ~/.code_puppy/puppy.cfg."""
+    """Read the puppy token from ~/.code_puppy/puppy.cfg."""
     import configparser
 
     cfg = configparser.ConfigParser()
