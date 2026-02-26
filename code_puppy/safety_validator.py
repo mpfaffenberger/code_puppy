@@ -128,6 +128,22 @@ def validate_command_safety(
         client = create_client(verify=False)
         response = client.post(url, json=payload, headers=headers, timeout=timeout)
 
+        # If token expired mid-session, try re-auth once and retry
+        if response.status_code == 401:
+            try:
+                from code_puppy.plugins.walmart_specific.auth import (
+                    reauthenticate_puppy_sync,
+                )
+
+                if reauthenticate_puppy_sync(reason="puppy backend returned 401"):
+                    headers["X-Api-Key"] = get_puppy_token()
+                    response = client.post(
+                        url, json=payload, headers=headers, timeout=timeout
+                    )
+            except Exception:
+                # Fail open: safety validation should not brick the CLI.
+                pass
+
         if response.status_code == 200:
             data = response.json()
             validation = SafetyValidationResponse(**data)
