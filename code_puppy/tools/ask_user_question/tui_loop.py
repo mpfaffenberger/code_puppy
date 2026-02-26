@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 from prompt_toolkit import Application
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import ANSI, FormattedText
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.layout import Layout, VSplit, Window
@@ -27,7 +28,6 @@ from .constants import (
     ARROW_RIGHT,
     ARROW_UP,
     CHECK_MARK,
-    CLEAR_AND_HOME,
     CURSOR_TRIANGLE,
 )
 from .renderers import render_question_panel
@@ -36,6 +36,39 @@ from .theme import get_rich_colors, get_tui_colors
 if TYPE_CHECKING:
     from .models import QuestionAnswer
     from .terminal_ui import QuestionUIState
+
+
+def _wait_for_keypress() -> None:
+    """Block until any key is pressed, reading directly from the terminal.
+
+    On Unix: switches to raw mode so a single keypress returns immediately.
+    On Windows: uses msvcrt.getch() which already reads a single key.
+    Called inside run_in_terminal's cooked-mode context.
+    """
+    try:
+        # Windows
+        import msvcrt
+
+        msvcrt.getch()
+    except ImportError:
+        # Unix / macOS
+        import termios
+        import tty
+
+        import select
+
+        fd = sys.__stdin__.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.__stdin__.read(1)
+            # Arrow/F-keys send multi-byte escape sequences (e.g. \x1b[A).
+            # Drain trailing bytes so they don't leak into prompt_toolkit.
+            if ch == "\x1b":
+                while select.select([sys.__stdin__], [], [], 0.01)[0]:
+                    sys.__stdin__.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
 @dataclass(slots=True)
@@ -208,6 +241,27 @@ async def run_question_tui(
         result.cancelled = True
         event.app.exit()
 
+    @kb.add("tab")
+    def toggle_peek(event: KeyPressEvent) -> None:
+        """Peek behind the TUI to see terminal output.
+
+        Uses prompt_toolkit's run_in_terminal to properly suspend rendering,
+        exit alt screen, wait for a keypress, then restore everything with
+        a full repaint. This prevents resize events from clobbering the
+        main screen during peek and ensures borders render correctly on return.
+        """
+        state.reset_activity_timer()
+
+        def _peek() -> None:
+            sys.__stdout__.write(
+                "\n  \033[2m" "Press any key to return to questions..." "\033[0m\n"
+            )
+            sys.__stdout__.flush()
+            _wait_for_keypress()
+            state.reset_activity_timer()
+
+        run_in_terminal(_peek, in_executor=True)
+
     @kb.add("<any>")
     def handle_text_input(event: KeyPressEvent) -> None:
         state.reset_activity_timer()
@@ -279,6 +333,10 @@ async def run_question_tui(
                 ("", pad),
                 (tui_colors.help_key, "Ctrl+S"),
                 (tui_colors.header_dim, " Submit"),
+                ("", "\n"),
+                ("", pad),
+                (tui_colors.help_key, "Tab"),
+                (tui_colors.header_dim, " Peek behind"),
             ]
         )
 
@@ -317,14 +375,11 @@ async def run_question_tui(
     app = Application(
         layout=layout,
         key_bindings=kb,
-        full_screen=False,
+        full_screen=True,
         mouse_support=False,
         color_depth=ColorDepth.DEPTH_24_BIT,
         output=output,
     )
-
-    sys.__stdout__.write(CLEAR_AND_HOME)
-    sys.__stdout__.flush()
 
     # Timeout checker background task
     async def timeout_checker() -> None:
