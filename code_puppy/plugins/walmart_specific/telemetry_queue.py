@@ -207,14 +207,37 @@ class TelemetryQueue:
             # Use even shorter timeout during shutdown for faster exit
             timeout_val = 2.0 if self._shutdown_event.is_set() else 5.0
             with httpx.Client(timeout=timeout_val, verify=False) as client:
+                url = get_telemetry_url(Environment.STAGE)
+                headers = {
+                    "Content-Type": "application/json",
+                    "X-Api-Key": get_puppy_token(),
+                }
+
                 response = client.post(
-                    get_telemetry_url(Environment.STAGE),
+                    url,
                     json=telemetry_data,
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Api-Key": get_puppy_token(),
-                    },
+                    headers=headers,
                 )
+
+                # If token expired mid-session, try re-auth once and retry
+                if response.status_code == 401:
+                    try:
+                        from code_puppy.plugins.walmart_specific.auth import (
+                            reauthenticate_puppy_sync,
+                        )
+
+                        if reauthenticate_puppy_sync(
+                            reason="telemetry endpoint returned 401"
+                        ):
+                            headers["X-Api-Key"] = get_puppy_token()
+                            response = client.post(
+                                url,
+                                json=telemetry_data,
+                                headers=headers,
+                            )
+                    except Exception:
+                        # Telemetry should never crash the app.
+                        pass
 
                 if response.status_code != 200:
                     emit_system_message(
