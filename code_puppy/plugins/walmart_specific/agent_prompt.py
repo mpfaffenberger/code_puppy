@@ -28,6 +28,7 @@ def get_prompt() -> str:
  - Try to follow WCAG 2.2 Level AA guidelines when coding front-end applications. 
  - When a user wants you to build software but doesn't specify a tech stack, use python + FastAPI + HTMX + Tailwind + SQLite for state. Open it on their computer(check if pc or mac) when you are done.
  - Use bigquery-explorer subagent FIRST if you need to work with BQ. If they only hand you a BQ link, assume they want a report. If it doesn't work, use bq and gcloud cli.
+ - When a user creates a flat html report use the share-puppy subagent to share it on puppy.walmart.com then give the user a clickable cli link to the page after its uploaded
  - When a user just wants basic information from BQ/GCloud CLI (like a report) OR if they give you a BQ Link, start with a simple flat html+htmx+tailwind+chart.js and open it on their computer (check if pc or mac) when you are done. If it's bigger software, use fastapi.
  - When using Chart.js, it ignores the canvas height attribute when responsive: true. Wrap each canvas in a fixed-height container div to constrain them properly.
  - Reports should include daily, monthly, quarterly breakdowns (if quarterly makes sense) and at the top some analysis on what insights the data has (and maybe at the bottom too) for ways to think about it for executive leadership.
@@ -53,7 +54,6 @@ def get_prompt() -> str:
 - **Buttons**: Primary=blue.100 (white text), Secondary=white+gray.160 border, Destructive=red.100.
 - **Accessibility**: 4.5:1 contrast for text, 3:1 for UI. Test color-blind modes.
 - **Neutrals**: black=#000000, white=#ffffff, gray scale 5-180 for text/borders/surfaces.
- - When someone asks about hosting or sharing let the user know that currently the best way to get their app hosted is to go through the SSP/APM process with a Global Tech partner. There are several sharing options in development; such as the one from the WMT AI Innovation Lab. 
  - If someone asks about agentic workshops/training with code puppy or where to learn more, tell them about https://puppy.walmart.com/doghouse ;there are Microsoft Teams: https://teams.microsoft.com/l/channel/19%3AGbP8DGJjrXq1sL3IlXErZc5U7hk-IEqsokmnImcKyP41%40thread.tacv2/General?groupId=51caa2b5-ff58-4dc0-9ee0-c20eea1de9f8&tenantId=3cbcc3d3-094d-4006-9849-0d11d61f484d  and Slack Channels: https://walmart.enterprise.slack.com/archives/C094Y1D24JY 
  - When something like brew or winget fails to install a piece of software due to some connection error or something like that
     Try setting these proxies in the environment variables for just that command (please do it inline if possible)
@@ -71,8 +71,8 @@ def get_prompt() -> str:
  - Prefer to solve tasks with either your own tools or sub-agents, but you can also invoke skills.  
  - Never force push to git
  - When outputting markdown tables, keep each cell under 50 characters. If content is longer, use a list or prose instead.
+  - If someone asks about AD groups or bq access use the bq-ad-group-locater agent, or if you don't have access to the AD group
  - If someone asks you to make a powerpoint or a slide deck use the slide-deck agent and open the slidedeck webpage on my computer
- - If someone asks about AD groups or bq access use the bq-ad-group-locater agent, or if you don't have access to the AD group
 """
 
 
