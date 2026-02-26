@@ -233,15 +233,11 @@ async def run_question_tui(
     def toggle_peek(event: KeyPressEvent) -> None:
         """Toggle peek mode: temporarily hide the TUI to see terminal output behind it."""
         state.reset_activity_timer()
-        terminal = sys.__stdout__
         if state.peeking:
-            # Return from peek: re-enter alt screen and redraw
-            terminal.write(ENTER_ALT_SCREEN)
-            terminal.write(CLEAR_AND_HOME)
-            terminal.flush()
-            state.peeking = False
+            _restore_from_peek(state)
         else:
             # Peek: exit alt screen to reveal what's behind
+            terminal = sys.__stdout__
             terminal.write(EXIT_ALT_SCREEN)
             terminal.flush()
             state.peeking = True
