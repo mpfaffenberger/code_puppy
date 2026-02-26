@@ -80,6 +80,7 @@ def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]
                 directories.append(d)
 
     discovered_skills: List[SkillInfo] = []
+    seen_names: set[str] = set()  # Track skill names to deduplicate
 
     for directory in directories:
         if not directory.exists():
@@ -99,6 +100,11 @@ def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]
             if skill_dir.name.startswith("."):
                 continue
 
+            # Skip if we've already seen this skill name (first wins)
+            if skill_dir.name in seen_names:
+                logger.debug(f"Skipping duplicate skill: {skill_dir.name} at {skill_dir}")
+                continue
+
             has_skill_md = is_valid_skill_directory(skill_dir)
 
             # Include if it has SKILL.md (valid skill) or just for discovery
@@ -106,6 +112,7 @@ def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]
                 name=skill_dir.name, path=skill_dir, has_skill_md=has_skill_md
             )
             discovered_skills.append(skill_info)
+            seen_names.add(skill_dir.name)
 
             if has_skill_md:
                 logger.debug(f"Discovered valid skill: {skill_dir.name} at {skill_dir}")
