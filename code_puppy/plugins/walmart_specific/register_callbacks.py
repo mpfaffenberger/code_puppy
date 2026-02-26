@@ -344,6 +344,9 @@ def get_walmart_agents() -> list[Dict[str, Any]]:
     from code_puppy.plugins.walmart_specific.bq_ad_group_locator_agent import (
         BQAdGroupLocatorAgent,
     )
+    from code_puppy.plugins.walmart_specific.share_puppy_agent import (
+        SharePuppyAgent,
+    )
 
     return [
         {
@@ -353,6 +356,10 @@ def get_walmart_agents() -> list[Dict[str, Any]]:
         {
             "name": "bq-ad-group-locator",
             "class": BQAdGroupLocatorAgent,
+        },
+        {
+            "name": "share-puppy",
+            "class": SharePuppyAgent,
         },
     ]
 
