@@ -301,7 +301,8 @@ def get_spinner_messages() -> List[str]:
 def get_all_messages() -> List[str]:
     """Return all messages (spinner + standalone) for status display."""
     _ensure_plugins_loaded()
-    plugin_standalone = _plugin_categories.get("standalone", [])
+    with _plugin_categories_lock:
+        plugin_standalone = list(_plugin_categories.get("standalone", []))
     return _all_spinner_messages() + list(_STANDALONE_MESSAGES) + plugin_standalone
 
 
