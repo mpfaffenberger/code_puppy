@@ -355,39 +355,31 @@ class SkillMarketplaceMenu:
         return lines or [""]
 
     def _install_current_skill(self) -> None:
-        """Download and install the currently selected skill."""
+        """Download and install the currently selected skill (all files)."""
         skill = self._get_current_skill()
         if not skill:
             return
 
         name = skill["name"]
-        source = skill.get("_source", SOURCE_E2E)
-        skill_id = skill.get("id", name)
 
         self.status_message = f"Installing {name}..."
         self.status_style = "fg:ansicyan"
         self.update_display()
 
         try:
-            # MetaRegistry embeds content.raw — use it directly if available
-            cached = None
-            content_obj = skill.get("content")
-            if isinstance(content_obj, dict) and content_obj.get("raw"):
-                cached = content_obj["raw"]
-
             resp = api_client.run_async(
-                api_client.fetch_skill_md(
-                    name,
-                    source=source,
-                    skill_id=skill_id,
-                    cached_content=cached,
-                )
+                api_client.install_skill_full(name, skill)
             )
             if resp.get("success"):
-                content = resp["data"]
-                api_client.install_skill(name, content, metadata=skill)
-                self.status_message = f"✓ Installed {name}"
-                self.status_style = "fg:ansigreen"
+                data = resp.get("data", {})
+                file_count = data.get("file_count", 1)
+                warnings = data.get("warnings", [])
+                if warnings:
+                    self.status_message = f"✓ Installed {name} ({file_count} files, {len(warnings)} warnings)"
+                    self.status_style = "fg:ansiyellow"
+                else:
+                    self.status_message = f"✓ Installed {name} ({file_count} files)"
+                    self.status_style = "fg:ansigreen"
             else:
                 self.status_message = f"Failed: {resp.get('error', '?')}"
                 self.status_style = "fg:ansired"

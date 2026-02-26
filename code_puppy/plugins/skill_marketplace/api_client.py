@@ -232,6 +232,103 @@ def is_skill_installed(name: str) -> bool:
     return (SKILLS_DIR / name / "SKILL.md").exists()
 
 
+async def install_skill_full(
+    name: str,
+    skill_metadata: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Download and install ALL files for a skill.
+
+    For MetaRegistry skills with scripts/assets, downloads each file.
+    For E2E skills (SKILL.md only), downloads just the markdown.
+
+    Args:
+        name: Skill name (directory name).
+        skill_metadata: Full skill dict from the marketplace API.
+
+    Returns:
+        Normalized response with installed file count.
+    """
+    source = skill_metadata.get("_source", SOURCE_E2E)
+    skill_id = skill_metadata.get("id", name)
+    skill_dir = SKILLS_DIR / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+
+    installed_files = []
+    errors = []
+
+    # 1. Install SKILL.md first
+    cached_content = None
+    content_obj = skill_metadata.get("content")
+    if isinstance(content_obj, dict) and content_obj.get("raw"):
+        cached_content = content_obj["raw"]
+
+    if cached_content:
+        md_content = cached_content
+    else:
+        if source == SOURCE_METAREGISTRY:
+            resp = await metaregistry_client.fetch_skill_file_content(skill_id, "SKILL.md")
+        else:
+            try:
+                async with httpx.AsyncClient(
+                    timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+                ) as client:
+                    r = await client.get(f"{E2E_BASE_URL}/skills/{name}/SKILL.md")
+                    if r.status_code >= 400:
+                        return _normalize(False, error=f"Failed to fetch SKILL.md: HTTP {r.status_code}")
+                    resp = _normalize(True, data=r.text)
+            except Exception as e:
+                return _normalize(False, error=f"Failed to fetch SKILL.md: {e}")
+
+        if not resp.get("success"):
+            return resp
+        md_content = resp.get("data", "")
+
+    # Write SKILL.md with frontmatter injection if needed
+    final_content = md_content
+    if not md_content.strip().startswith("---"):
+        final_content = _build_frontmatter(name, skill_metadata) + md_content
+
+    (skill_dir / "SKILL.md").write_text(final_content, encoding="utf-8")
+    installed_files.append("SKILL.md")
+
+    # 2. For MetaRegistry skills, download additional files (scripts, etc.)
+    if source == SOURCE_METAREGISTRY:
+        files_info = skill_metadata.get("files", {})
+        scripts = files_info.get("scripts", [])
+
+        if scripts:
+            # Create scripts subdirectory
+            scripts_dir = skill_dir / "scripts"
+            scripts_dir.mkdir(parents=True, exist_ok=True)
+
+            for script_name in scripts:
+                try:
+                    file_path = f"scripts/{script_name}"
+                    resp = await metaregistry_client.fetch_skill_file_content(skill_id, file_path)
+                    if resp.get("success"):
+                        script_content = resp.get("data", "")
+                        dest = scripts_dir / script_name
+                        dest.write_text(script_content, encoding="utf-8")
+                        # Make scripts executable
+                        if script_name.endswith(".sh"):
+                            dest.chmod(dest.stat().st_mode | 0o111)
+                        installed_files.append(f"scripts/{script_name}")
+                    else:
+                        errors.append(f"{script_name}: {resp.get('error', 'unknown')}")
+                except Exception as e:
+                    errors.append(f"{script_name}: {e}")
+
+    result = {
+        "installed_files": installed_files,
+        "file_count": len(installed_files),
+        "skill_dir": str(skill_dir),
+    }
+    if errors:
+        result["warnings"] = errors
+
+    return _normalize(True, data=result)
+
+
 def get_installed_skills() -> List[str]:
     """Return list of locally installed skill names."""
     if not SKILLS_DIR.exists():
