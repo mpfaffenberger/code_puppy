@@ -1,8 +1,8 @@
 """Tests for loading_messages module."""
 
-import code_puppy.loading_messages as _lm
+import code_puppy.messaging.loading_messages as _lm
 
-from code_puppy.loading_messages import (
+from code_puppy.messaging.loading_messages import (
     _plugin_categories,
     get_all_messages,
     get_messages_by_category,

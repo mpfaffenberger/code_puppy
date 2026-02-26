@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from threading import Lock
 
 from code_puppy.config import get_puppy_name
-from code_puppy.loading_messages import get_spinner_messages
+from code_puppy.messaging.loading_messages import get_spinner_messages
 
 
 class SpinnerBase(ABC):
