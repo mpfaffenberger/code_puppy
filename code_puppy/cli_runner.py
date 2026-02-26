@@ -375,6 +375,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         "Use /diff to configure diff highlighting colors for file changes."
     )
     emit_system_message("To re-run the tutorial, use /tutorial.")
+    emit_system_message(
+        "!<command> to run shell commands directly (e.g., !git status)",
+    )
     try:
         from code_puppy.command_line.motd import print_motd
 
@@ -579,6 +582,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     pass  # Expected when cancelling
 
             break
+
+        # Shell pass-through: !<command> executes directly, bypassing the agent
+        from code_puppy.command_line.shell_passthrough import (
+            execute_shell_passthrough,
+            is_shell_passthrough,
+        )
+
+        if is_shell_passthrough(task):
+            execute_shell_passthrough(task)
+            continue
 
         # Check for exit commands (plain text or command form)
         if task.strip().lower() in ["exit", "quit"] or task.strip().lower() in [
