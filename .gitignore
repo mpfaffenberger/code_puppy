@@ -44,3 +44,4 @@ code_puppy/bundled_skills/
 # Compiled TypeScript hook output (built from .ts sources)
 .claude/hooks/ts-hooks/dist/
 
+.json
