@@ -17,6 +17,74 @@ from code_puppy.messaging import (
 )
 from code_puppy.plugins.walmart_specific.urls import get_authentication_url
 
+# =============================================================================
+# Auth callback port + re-auth helpers
+# =============================================================================
+
+# The Walmart plugin starts a local HTTP server that accepts the new token.
+# We store the chosen port so other modules (telemetry, safety validator, etc.)
+# can re-trigger auth later without guessing.
+_AUTH_CALLBACK_PORT: int | None = None
+
+# Cooldown to avoid repeatedly launching browser windows if multiple requests
+# hit 401 in quick succession.
+_REAUTH_COOLDOWN_SECONDS = 30
+_last_reauth_attempt_ts: float = 0.0
+
+
+def set_auth_callback_port(port: int) -> None:
+    """Set the local auth callback port used by authenticate_puppy()."""
+    global _AUTH_CALLBACK_PORT
+    _AUTH_CALLBACK_PORT = int(port)
+
+
+def get_auth_callback_port() -> int | None:
+    """Get the configured local auth callback port (if known)."""
+    return _AUTH_CALLBACK_PORT
+
+
+def reauthenticate_puppy_sync(*, reason: str = "") -> bool:
+    """Synchronously re-run the puppy auth flow.
+
+    This is designed for callers that are *not* async (e.g. telemetry thread,
+    safety validator), and is safe to call on a 401.
+
+    Returns:
+        True if a new valid token is available, False otherwise.
+    """
+    global _last_reauth_attempt_ts
+
+    now = time.time()
+    if now - _last_reauth_attempt_ts < _REAUTH_COOLDOWN_SECONDS:
+        # Don't spam the user with auth browser popups.
+        return is_puppy_token_valid()
+
+    _last_reauth_attempt_ts = now
+
+    port = get_auth_callback_port()
+    if port is None:
+        emit_warning(
+            "Cannot re-authenticate automatically: auth callback port unknown. "
+            "Restart Code Puppy or run the auth flow again."
+        )
+        return False
+
+    if reason:
+        emit_warning(f"Authentication required ({reason}). Re-authenticating...")
+    else:
+        emit_warning("Authentication required. Re-authenticating...")
+
+    try:
+        return asyncio.run(authenticate_puppy(port))
+    except RuntimeError:
+        # Event loop already running somewhere (rare in sync callers).
+        # Fall back to spinning a fresh loop.
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(authenticate_puppy(port))
+        finally:
+            loop.close()
+
 
 def open_browser(url: str) -> None:
     """

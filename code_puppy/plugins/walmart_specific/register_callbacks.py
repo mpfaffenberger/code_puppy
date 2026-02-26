@@ -20,7 +20,10 @@ from code_puppy.messaging import emit_system_message
 import code_puppy.plugins.walmart_specific  # noqa: F401
 
 from code_puppy.plugins.walmart_specific.agent_prompt import get_prompt
-from code_puppy.plugins.walmart_specific.auth import authenticate_puppy
+from code_puppy.plugins.walmart_specific.auth import (
+    authenticate_puppy,
+    set_auth_callback_port,
+)
 from code_puppy.plugins.walmart_specific.auto_update import _handle_update
 from code_puppy.plugins.walmart_specific.model_config_fetcher import ModelConfigFetcher
 from code_puppy.plugins.walmart_specific.pingfed_auth import (
@@ -150,6 +153,9 @@ async def auth_flow() -> None:
 
     # Find an available port before starting the HTTP server
     available_port = find_available_port()
+
+    # Remember the port so we can re-auth on demand (e.g. after a 401).
+    set_auth_callback_port(available_port)
 
     # Start the HTTP server in the background
     async def run_http_server() -> None:
