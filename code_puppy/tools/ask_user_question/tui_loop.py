@@ -55,11 +55,18 @@ def _wait_for_keypress() -> None:
         import termios
         import tty
 
+        import select
+
         fd = sys.__stdin__.fileno()
         old_settings = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
-            sys.__stdin__.read(1)
+            ch = sys.__stdin__.read(1)
+            # Arrow/F-keys send multi-byte escape sequences (e.g. \x1b[A).
+            # Drain trailing bytes so they don't leak into prompt_toolkit.
+            if ch == "\x1b":
+                while select.select([sys.__stdin__], [], [], 0.01)[0]:
+                    sys.__stdin__.read(1)
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
