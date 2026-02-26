@@ -7,6 +7,7 @@ Separated from terminal_ui.py to keep files under 600 lines.
 from __future__ import annotations
 
 import asyncio
+import shutil
 import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
@@ -52,10 +53,9 @@ def _wait_for_keypress() -> None:
         msvcrt.getch()
     except ImportError:
         # Unix / macOS
+        import select
         import termios
         import tty
-
-        import select
 
         fd = sys.__stdin__.fileno()
         old_settings = termios.tcgetattr(fd)
@@ -254,7 +254,7 @@ async def run_question_tui(
 
         def _peek() -> None:
             sys.__stdout__.write(
-                "\n  \033[2m" "Press any key to return to questions..." "\033[0m\n"
+                "\n  \033[2mPress any key to return to questions...\033[0m\n"
             )
             sys.__stdout__.flush()
             _wait_for_keypress()
@@ -344,7 +344,12 @@ async def run_question_tui(
 
     def get_right_panel_text() -> ANSI:
         """Generate the right panel with current question and options."""
-        return render_question_panel(state, colors=rich_colors)
+        # Calculate available width: terminal minus left panel, minus frame borders (4 chars)
+        term_width = shutil.get_terminal_size().columns
+        available = term_width - left_panel_width - 4
+        return render_question_panel(
+            state, colors=rich_colors, available_width=available
+        )
 
     # --- Layout ---
     # Calculate dynamic left panel width based on longest header
@@ -357,6 +362,7 @@ async def run_question_tui(
 
     right_panel = Window(
         content=FormattedTextControl(lambda: get_right_panel_text()),
+        wrap_lines=True,
         # Right panel takes remaining space
     )
 
