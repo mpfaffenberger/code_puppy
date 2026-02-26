@@ -1,10 +1,8 @@
 """Tests for hook configuration validator."""
 
-import pytest
 from code_puppy.hook_engine.validator import (
     validate_hooks_config,
     format_validation_report,
-    get_config_suggestions,
 )
 
 

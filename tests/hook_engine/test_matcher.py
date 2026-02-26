@@ -1,6 +1,5 @@
 """Tests for hook engine pattern matcher."""
 
-import pytest
 from code_puppy.hook_engine.matcher import matches, _extract_file_path
 
 

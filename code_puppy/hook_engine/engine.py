@@ -8,13 +8,12 @@ from typing import Any, Dict, List, Optional
 
 from .models import (
     EventData,
-    ExecutionResult,
     HookConfig,
     HookRegistry,
     ProcessEventResult,
 )
 from .matcher import matches
-from .executor import execute_hook, execute_hooks_sequential, get_blocking_result
+from .executor import execute_hooks_sequential, get_blocking_result
 from .registry import build_registry_from_config, get_registry_stats
 from .validator import validate_hooks_config, format_validation_report, get_config_suggestions
 

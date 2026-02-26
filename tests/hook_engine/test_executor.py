@@ -6,7 +6,6 @@ from code_puppy.hook_engine.executor import (
     _substitute_variables,
     execute_hooks_sequential,
     get_blocking_result,
-    format_execution_summary,
 )
 from code_puppy.hook_engine.models import HookConfig, EventData, ExecutionResult
 

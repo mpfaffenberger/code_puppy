@@ -9,7 +9,7 @@ Built with prompt_toolkit to match the existing skills_menu aesthetic exactly
 """
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -17,7 +17,7 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
-from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+from code_puppy.messaging import emit_error
 
 from .config import (
     HookEntry,

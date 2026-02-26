@@ -361,7 +361,7 @@ class TestOnPostToolCallHook:
     @pytest.mark.asyncio
     async def test_includes_result_and_duration_in_context(self):
         from code_puppy.plugins.claude_code_hooks import register_callbacks
-        from code_puppy.hook_engine.models import ProcessEventResult, EventData
+        from code_puppy.hook_engine.models import ProcessEventResult
 
         mock_engine = MagicMock()
         mock_result = ProcessEventResult(blocked=False, executed_hooks=0, results=[])

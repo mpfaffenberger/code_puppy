@@ -6,7 +6,7 @@ Builds and manages the HookRegistry from configuration dictionaries.
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from .models import HookConfig, HookRegistry
 

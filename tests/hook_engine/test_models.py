@@ -5,7 +5,6 @@ from code_puppy.hook_engine.models import (
     HookConfig,
     EventData,
     ExecutionResult,
-    HookGroup,
     HookRegistry,
     ProcessEventResult,
 )
