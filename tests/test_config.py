@@ -22,12 +22,14 @@ def mock_config_paths(monkeypatch):
     mock_data_dir = os.path.join(mock_home, ".local", "share", "code_puppy")
     mock_cache_dir = os.path.join(mock_home, ".cache", "code_puppy")
     mock_state_dir = os.path.join(mock_home, ".local", "state", "code_puppy")
+    mock_skills_dir = os.path.join(mock_data_dir, "skills")
 
     monkeypatch.setattr(cp_config, "CONFIG_DIR", mock_config_dir)
     monkeypatch.setattr(cp_config, "CONFIG_FILE", mock_config_file)
     monkeypatch.setattr(cp_config, "DATA_DIR", mock_data_dir)
     monkeypatch.setattr(cp_config, "CACHE_DIR", mock_cache_dir)
     monkeypatch.setattr(cp_config, "STATE_DIR", mock_state_dir)
+    monkeypatch.setattr(cp_config, "SKILLS_DIR", mock_skills_dir)
     monkeypatch.setattr(
         os.path,
         "expanduser",
@@ -63,8 +65,8 @@ class TestEnsureConfigExists:
         with patch("builtins.open", m_open):
             config_parser = cp_config.ensure_config_exists()
 
-        # Now 4 directories are created (CONFIG, DATA, CACHE, STATE)
-        assert mock_makedirs.call_count == 4
+        # Now 5 directories are created (CONFIG, DATA, CACHE, STATE, SKILLS)
+        assert mock_makedirs.call_count == 5
         m_open.assert_called_once_with(mock_cfg_file, "w", encoding="utf-8")
 
         # Check what was written to file
@@ -297,6 +299,7 @@ class TestGetConfigKeys:
                 "banner_color_subagent_response",
                 "banner_color_terminal_tool",
                 "banner_color_thinking",
+                "banner_color_mcp_tool_call",
                 "banner_color_universal_constructor",
                 "cancel_agent_key",
                 "compaction_strategy",
@@ -351,6 +354,7 @@ class TestGetConfigKeys:
                 "banner_color_subagent_response",
                 "banner_color_terminal_tool",
                 "banner_color_thinking",
+                "banner_color_mcp_tool_call",
                 "banner_color_universal_constructor",
                 "cancel_agent_key",
                 "compaction_strategy",
