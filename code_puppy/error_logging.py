@@ -22,10 +22,7 @@ MAX_LOG_SIZE = 5 * 1024 * 1024  # 5MB
 def _rotate_log_if_needed() -> None:
     """Rotate the error log file if it exceeds MAX_LOG_SIZE."""
     try:
-        if (
-            os.path.exists(ERROR_LOG_FILE)
-            and os.path.getsize(ERROR_LOG_FILE) > MAX_LOG_SIZE
-        ):
+        if os.path.getsize(ERROR_LOG_FILE) > MAX_LOG_SIZE:
             rotated = ERROR_LOG_FILE + ".1"
             os.replace(ERROR_LOG_FILE, rotated)
     except OSError:

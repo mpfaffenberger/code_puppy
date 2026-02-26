@@ -5,20 +5,22 @@ from rich.table import Table
 
 
 def list_directory(path: str = None) -> Tuple[List[str], List[str]]:
-    """
-    Returns (dirs, files) for the specified path, splitting out directories and files.
-    """
+    """Returns (dirs, files) for the specified path, splitting out directories and files."""
     if path is None:
         path = os.getcwd()
-    entries = []
+    dirs: List[str] = []
+    files: List[str] = []
     try:
-        entries = [e for e in os.listdir(path)]
-    except Exception as e:
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    is_dir = entry.is_dir(follow_symlinks=True)
+                except OSError:
+                    is_dir = False
+                (dirs if is_dir else files).append(entry.name)
+    except OSError as e:
         raise RuntimeError(f"Error listing directory: {e}") from e
-    dirs = [e for e in entries if os.path.isdir(os.path.join(path, e))]
-    files = [e for e in entries if not os.path.isdir(os.path.join(path, e))]
     return dirs, files
-
 
 def make_directory_table(path: str = None) -> Table:
     """

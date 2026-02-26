@@ -1,7 +1,9 @@
 # file_operations.py
 
+import functools
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 from typing import List
@@ -147,12 +149,32 @@ def would_match_directory(pattern: str, directory: str) -> bool:
 
     return False
 
+@functools.lru_cache(maxsize=1)
+def _find_rg_cached() -> str | None:
+    import sys
+
+    rg_path = shutil.which("rg")
+    if rg_path:
+        return rg_path
+
+    python_dir = os.path.dirname(sys.executable)
+    for name in ["rg", "rg.exe"]:
+        candidate = os.path.join(python_dir, name)
+        if os.path.exists(candidate):
+            return candidate
+
+    return None
+
+def _find_rg() -> str | None:
+    path = _find_rg_cached()
+    if path is None:
+        _find_rg_cached.cache_clear()
+    return path
+
 
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
-    import sys
-
     results = []
     directory = os.path.abspath(os.path.expanduser(directory))
 
@@ -179,18 +201,8 @@ def _list_files(
     # Create a temporary ignore file with our ignore patterns
     ignore_file = None
     try:
-        # Find ripgrep executable - first check system PATH, then virtual environment
-        rg_path = shutil.which("rg")
-        if not rg_path:
-            # Try to find it in the virtual environment
-            # Use sys.executable to determine the Python environment path
-            python_dir = os.path.dirname(sys.executable)
-            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
-            for name in ["rg", "rg.exe"]:
-                candidate = os.path.join(python_dir, name)
-                if os.path.exists(candidate):
-                    rg_path = candidate
-                    break
+        # Find ripgrep executable (cached after first call)
+        rg_path = _find_rg()
 
         if not rg_path and recursive:
             # Only need ripgrep for recursive listings
@@ -228,13 +240,10 @@ def _list_files(
             # Process the output lines
             files = result.stdout.strip().split("\n") if result.stdout.strip() else []
 
+            seen_dirs: set[str] = set()
             # Create ListedFile objects with metadata
             for full_path in files:
                 if not full_path:  # Skip empty lines
-                    continue
-
-                # Skip if file doesn't exist (though it should)
-                if not os.path.exists(full_path):
                     continue
 
                 # Extract relative path from the full path
@@ -243,25 +252,18 @@ def _list_files(
                 else:
                     file_path = full_path
 
-                # Check if path is a file or directory
-                if os.path.isfile(full_path):
-                    entry_type = "file"
-                    size = os.path.getsize(full_path)
-                elif os.path.isdir(full_path):
-                    entry_type = "directory"
-                    size = 0
-                else:
-                    # Skip if it's neither a file nor directory
-                    continue
-
                 try:
-                    # Get stats for the entry
-                    stat_info = os.stat(full_path)
-                    actual_size = stat_info.st_size
-
-                    # For files, we use the actual size; for directories, we keep size=0
-                    if entry_type == "file":
-                        size = actual_size
+                    # Single stat call replaces exists/isfile/isdir/getsize
+                    st = os.stat(full_path)
+                    mode = st.st_mode
+                    if stat.S_ISREG(mode):
+                        entry_type = "file"
+                        size = st.st_size
+                    elif stat.S_ISDIR(mode):
+                        entry_type = "directory"
+                        size = 0
+                    else:
+                        continue
 
                     # Calculate depth based on the relative path
                     depth = file_path.count(os.sep)
@@ -275,10 +277,8 @@ def _list_files(
                             for i in range(len(path_parts)):
                                 partial_path = os.sep.join(path_parts[: i + 1])
                                 # Check if we already added this directory
-                                if not any(
-                                    f.path == partial_path and f.type == "directory"
-                                    for f in results
-                                ):
+                                if partial_path not in seen_dirs:
+                                    seen_dirs.add(partial_path)
                                     results.append(
                                         ListedFile(
                                             path=partial_path,
@@ -309,41 +309,34 @@ def _list_files(
         # ripgrep's --files option only returns files; we add directories and files ourselves
         if not recursive:
             try:
-                entries = os.listdir(directory)
-                for entry in sorted(entries):
-                    full_entry_path = os.path.join(directory, entry)
-                    if not os.path.exists(full_entry_path):
-                        continue
-
-                    if os.path.isdir(full_entry_path):
-                        # In non-recursive mode, only skip obviously system/hidden directories
-                        # Don't use the full should_ignore_dir_path which is too aggressive
-                        if entry.startswith("."):
-                            continue
-                        results.append(
-                            ListedFile(
-                                path=entry,
-                                type="directory",
-                                size=0,
-                                full_path=full_entry_path,
-                                depth=0,
+                with os.scandir(directory) as it:
+                    for entry in sorted(it, key=lambda e: e.name):
+                        if entry.is_dir(follow_symlinks=True):
+                            if entry.name.startswith("."):
+                                continue
+                            results.append(
+                                ListedFile(
+                                    path=entry.name,
+                                    type="directory",
+                                    size=0,
+                                    full_path=entry.path,
+                                    depth=0,
+                                )
                             )
-                        )
-                    elif os.path.isfile(full_entry_path):
-                        # Include top-level files (including binaries)
-                        try:
-                            size = os.path.getsize(full_entry_path)
-                        except OSError:
-                            size = 0
-                        results.append(
-                            ListedFile(
-                                path=entry,
-                                type="file",
-                                size=size,
-                                full_path=full_entry_path,
-                                depth=0,
+                        elif entry.is_file(follow_symlinks=True):
+                            try:
+                                size = entry.stat().st_size
+                            except OSError:
+                                size = 0
+                            results.append(
+                                ListedFile(
+                                    path=entry.name,
+                                    type="file",
+                                    size=size,
+                                    full_path=entry.path,
+                                    depth=0,
+                                )
                             )
-                        )
             except (FileNotFoundError, PermissionError, OSError):
                 # Skip entries we can't access
                 pass
@@ -455,10 +448,15 @@ def _read_file(
 ) -> ReadFileOutput:
     file_path = os.path.abspath(os.path.expanduser(file_path))
 
-    if not os.path.exists(file_path):
+    try:
+        _st = os.stat(file_path)
+    except FileNotFoundError:
         error_msg = f"File {file_path} does not exist"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-    if not os.path.isfile(file_path):
+    except OSError as e:
+        error_msg = f"Cannot access {file_path}: {e}"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+    if not stat.S_ISREG(_st.st_mode):
         error_msg = f"{file_path} is not a file"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     try:
@@ -576,9 +574,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     import json
     import os
     import shlex
-    import shutil
     import subprocess
-    import sys
 
     # Sanitize search string to handle any surrogates from copy-paste
     search_string = _sanitize_string(search_string)
@@ -598,18 +594,8 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         # --type=all to search across all recognized text file types
         # --ignore-file to obey our ignore list
 
-        # Find ripgrep executable - first check system PATH, then virtual environment
-        rg_path = shutil.which("rg")
-        if not rg_path:
-            # Try to find it in the virtual environment
-            # Use sys.executable to determine the Python environment path
-            python_dir = os.path.dirname(sys.executable)
-            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
-            for name in ["rg", "rg.exe"]:
-                candidate = os.path.join(python_dir, name)
-                if os.path.exists(candidate):
-                    rg_path = candidate
-                    break
+        # Find ripgrep executable (cached after first call)
+        rg_path = _find_rg()
 
         if not rg_path:
             error_message = (
