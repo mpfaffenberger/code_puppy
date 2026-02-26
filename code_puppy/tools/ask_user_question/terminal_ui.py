@@ -343,6 +343,9 @@ async def interactive_question_picker(
         return await run_question_tui(state)
     finally:
         set_awaiting_user_input(False)
-        # Exit alternate screen buffer once at end
-        terminal.write(EXIT_ALT_SCREEN)
-        terminal.flush()
+        # Only exit alt screen if we're actually in it.
+        # If the user was peeking (alt screen already exited), skip to
+        # avoid writing EXIT_ALT_SCREEN on an already-exited alt screen.
+        if not state.peeking:
+            terminal.write(EXIT_ALT_SCREEN)
+            terminal.flush()

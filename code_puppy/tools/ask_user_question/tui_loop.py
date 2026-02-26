@@ -40,6 +40,21 @@ if TYPE_CHECKING:
     from .terminal_ui import QuestionUIState
 
 
+def _restore_from_peek(state: QuestionUIState) -> None:
+    """If peeking, re-enter alt screen so prompt_toolkit tears down cleanly.
+
+    Must be called before app.exit() in any handler that can fire while
+    the user is peeking behind the TUI.
+    """
+    if not state.peeking:
+        return
+    terminal = sys.__stdout__
+    terminal.write(ENTER_ALT_SCREEN)
+    terminal.write(CLEAR_AND_HOME)
+    terminal.flush()
+    state.peeking = False
+
+
 @dataclass(slots=True)
 class TUIResult:
     """Result holder for the TUI interaction."""
@@ -177,6 +192,7 @@ async def run_question_tui(
             # Only submit if cursor was already on the selected option (confirming)
             # This prevents accidental submission when browsing options
             if cursor_is_on_selected:
+                _restore_from_peek(state)
                 result.confirmed = True
                 event.app.exit()
             else:
@@ -191,6 +207,7 @@ async def run_question_tui(
         # If entering other text, save it first before submitting
         if state.entering_other_text:
             state.commit_other_text()
+        _restore_from_peek(state)
         result.confirmed = True
         event.app.exit()
 
@@ -202,11 +219,13 @@ async def run_question_tui(
             state.other_text_buffer = ""
             event.app.invalidate()
             return
+        _restore_from_peek(state)
         result.cancelled = True
         event.app.exit()
 
     @kb.add("c-c")
     def ctrl_c_cancel(event: KeyPressEvent) -> None:
+        _restore_from_peek(state)
         result.cancelled = True
         event.app.exit()
 
@@ -369,6 +388,7 @@ async def run_question_tui(
             await asyncio.sleep(1)
             if state.is_timed_out():
                 timed_out = True
+                _restore_from_peek(state)
                 app.exit()
                 return
             app.invalidate()
