@@ -9,6 +9,7 @@ Tools included:
 - Confluence (4 tools): Documentation search and retrieval
 - Jira (10 tools): Issue tracking and project management
 - Marketplace (5 tools): Agent marketplace operations
+- Puppy Share (4 tools): Publish HTML pages to puppy.walmart.com/sharing
 """
 
 from typing import Any
@@ -66,6 +67,12 @@ def get_enterprise_tools() -> list[dict[str, Any]]:
         register_marketplace_download_agent,
         register_marketplace_search_agents,
         register_marketplace_upload_agent,
+    )
+    from code_puppy.tools.puppy_share_tools import (
+        register_puppy_share_upload,
+        register_puppy_share_upload_file,
+        register_puppy_share_delete,
+        register_puppy_share_list_my_pages,
     )
 
     return [
@@ -174,5 +181,22 @@ def get_enterprise_tools() -> list[dict[str, Any]]:
         {
             "name": "marketplace_authenticate",
             "register_func": register_marketplace_authenticate,
+        },
+        # Puppy Share Tools (4)
+        {
+            "name": "puppy_share_upload",
+            "register_func": register_puppy_share_upload,
+        },
+        {
+            "name": "puppy_share_upload_file",
+            "register_func": register_puppy_share_upload_file,
+        },
+        {
+            "name": "puppy_share_delete",
+            "register_func": register_puppy_share_delete,
+        },
+        {
+            "name": "puppy_share_list_my_pages",
+            "register_func": register_puppy_share_list_my_pages,
         },
     ]

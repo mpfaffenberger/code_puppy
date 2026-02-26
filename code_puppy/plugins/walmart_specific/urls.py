@@ -77,6 +77,70 @@ def get_telemetry_url(environment: Environment = Environment.STAGE) -> str:
     # return "http://localhost:8080/telemetry/code-generation"
 
 
+def get_sharing_upload_url(
+    environment: Environment = Environment.PROD,
+    local: bool = False,
+) -> str:
+    """Get the sharing upload endpoint URL.
+
+    Args:
+        environment: Target environment (defaults to PROD).
+        local: If True, use localhost:8080 instead of the remote server.
+    """
+    if local:
+        return "http://localhost:8080/api/sharing/upload"
+    base_url = get_base_url(environment)
+    return f"{base_url}/api/sharing/upload"
+
+
+def get_sharing_delete_url(
+    business: str,
+    name: str,
+    environment: Environment = Environment.PROD,
+    local: bool = False,
+) -> str:
+    """Get the sharing delete endpoint URL for a specific page."""
+    if local:
+        return f"http://localhost:8080/api/sharing/pages/{business}/{name}"
+    base_url = get_base_url(environment)
+    return f"{base_url}/api/sharing/pages/{business}/{name}"
+
+
+def get_sharing_my_pages_url(
+    environment: Environment = Environment.PROD,
+    local: bool = False,
+) -> str:
+    """Get the sharing my-pages endpoint URL."""
+    if local:
+        return "http://localhost:8080/api/sharing/my-pages"
+    base_url = get_base_url(environment)
+    return f"{base_url}/api/sharing/my-pages"
+
+
+def get_sharing_page_view_url(
+    business: str,
+    name: str,
+    environment: Environment = Environment.PROD,
+    local: bool = False,
+) -> str:
+    """Get the public view URL for a shared page."""
+    if local:
+        return f"http://localhost:8080/sharing/{business}/{name}"
+    base_url = get_base_url(environment)
+    return f"{base_url}/sharing/{business}/{name}"
+
+
+def get_sharing_svps_url(
+    environment: Environment = Environment.PROD,
+    local: bool = False,
+) -> str:
+    """Get the sharing SVPs listing endpoint URL."""
+    if local:
+        return "http://localhost:8080/api/sharing/svps"
+    base_url = get_base_url(environment)
+    return f"{base_url}/api/sharing/svps"
+
+
 def get_safety_validation_url(environment: Environment = Environment.STAGE) -> str:
     """Get the safety validation endpoint URL for shell command validation."""
     if environment == Environment.DEV:
