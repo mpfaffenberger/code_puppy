@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Literal, Optional
 
+import httpx
 from pydantic import BaseModel, Field
 
 
@@ -90,6 +91,10 @@ class PuppyTalesStory(BaseModel):
     collaborators: Optional[List[str]] = Field(
         default=None,
         description="List of collaborators who helped (names, for credit and reach analysis)",
+    )
+    success: Optional[str] = Field(
+        default=None,
+        description="What success looks like for this project - the vision or measurable outcome"
     )
 
     # Agent analysis
@@ -170,6 +175,59 @@ def _generate_story_id() -> str:
     return f"PUPPY-{year}-{unique_part}"
 
 
+def _get_api_url() -> str:
+    """Get the Puppy Tales API URL."""
+    # Allow override via environment variable
+    return os.environ.get(
+        "PUPPY_TALES_API_URL",
+        "https://puppy.walmart.com/api/puppy-tales"
+    )
+
+
+def _get_auth_token() -> str | None:
+    """Get the puppy-token for API auth if available."""
+    # Try to get from config or environment
+    try:
+        from code_puppy.config import get_config
+        config = get_config()
+        return config.get("puppy_token") or os.environ.get("PUPPY_TOKEN")
+    except Exception:
+        return os.environ.get("PUPPY_TOKEN")
+
+
+def _submit_to_api_sync(story_data: dict) -> tuple[bool, str]:
+    """Submit story to the Puppy Tales API (synchronous).
+    
+    Args:
+        story_data: The story dict to submit
+        
+    Returns:
+        Tuple of (success, message)
+    """
+    api_url = _get_api_url()
+    token = _get_auth_token()
+    
+    if not token:
+        return False, "No puppy-token available for API submission"
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(api_url, json=story_data, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                return True, data.get("message", "Story submitted to API!")
+            else:
+                return False, f"API returned {response.status_code}: {response.text}"
+    except Exception as e:
+        return False, f"API submission failed: {e}"
+
+
 # =============================================================================
 # Core Functions
 # =============================================================================
@@ -194,6 +252,7 @@ def puppy_tales_save_story(
     author_department: Optional[str] = None,
     author_location: Optional[str] = None,
     collaborators: Optional[List[str]] = None,
+    success: Optional[str] = None,
     guessed_category: Optional[str] = None,
     generated_story: Optional[str] = None,
 ) -> PuppyTalesSaveOutput:
@@ -251,6 +310,7 @@ def puppy_tales_save_story(
             author_department=author_department.strip() if author_department else None,
             author_location=author_location.strip() if author_location else None,
             collaborators=[c.strip() for c in collaborators if c.strip()] if collaborators else None,
+            success=success.strip() if success else None,
             guessed_category=guessed_category.strip().lower() if guessed_category else None,
             generated_story=generated_story.strip() if generated_story else None,
         )
@@ -265,11 +325,16 @@ def puppy_tales_save_story(
             encoding="utf-8",
         )
 
+        # Try to submit to API (graceful failure - local save is primary)
+        api_success, api_message = _submit_to_api_sync(story.model_dump())
+
         return PuppyTalesSaveOutput(
             success=True,
             story_id=story_id,
             file_path=str(file_path),
-            message=f"Story '{project_name}' saved successfully!",
+            message=f"Story '{project_name}' saved successfully!" + (
+                " 🌐 Submitted to Puppy Tales!" if api_success else f" (Local only: {api_message})"
+            ),
         )
 
     except Exception as exc:
@@ -335,6 +400,7 @@ def register_puppy_tales_save_story(agent):
         author_department: str = "",
         author_location: str = "",
         collaborators: str = "",
+        success: str = "",  # What success looks like for this project
         guessed_category: str = "",
         generated_story: str = "",
     ) -> PuppyTalesSaveOutput:
@@ -366,6 +432,7 @@ def register_puppy_tales_save_story(agent):
             author_department: Department (e.g., "Stores", "Tech", "Supply Chain").
             author_location: Store number or location (e.g., "Store #1234").
             collaborators: Comma-separated list of collaborator names.
+            success: What success looks like for this project.
             guessed_category: The category YOU guessed before asking the user.
             generated_story: An 8-sentence story about the project for the website.
 
@@ -391,6 +458,7 @@ def register_puppy_tales_save_story(agent):
             author_department=author_department if author_department else None,
             author_location=author_location if author_location else None,
             collaborators=collaborators.split(",") if collaborators else None,
+            success=success if success else None,
             guessed_category=guessed_category if guessed_category else None,
             generated_story=generated_story if generated_story else None,
         )

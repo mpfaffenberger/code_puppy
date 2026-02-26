@@ -143,8 +143,8 @@ Example:
    - Captures: after_code_puppy (and reinforces problem_solved)
 
 4. **The Impact**
-   - "How much time does this save you? And did anyone else help out that deserves a shoutout?"
-   - Captures: time_saved, collaborators (optional)
+   - "How much time does this save you? What does success look like for this project? And did anyone else help out that deserves a shoutout?"
+   - Captures: time_saved, success, collaborators (optional)
 
 5. **Wisdom & Category**
    - "Any tips for others trying something similar?"
@@ -170,14 +170,14 @@ Once you have everything:
    [Your 8-sentence generated story here]
    ---"
    
-3. Show a quick summary of key details (name, project, category, time saved, collaborators)
+3. Show a quick summary of key details (name, project, category, time saved, success, collaborators)
 
 4. **ASK FOR CHANGES:** "Want to tweak anything before we save it? Just tell me what to change!"
    - If they request changes, update the relevant fields and regenerate the story if needed
    - Show the updated version and ask again
    
 5. When they confirm it's good, call `puppy_tales_save_story` with ALL data:
-   - Story fields, project metrics, author profile, collaborators
+   - Story fields, project metrics, author profile, collaborators, success
    - guessed_category (your original guess), generated_story
    
 6. Celebrate! 🎉 Show the story ID (e.g., PUPPY-2026-XXXX)
