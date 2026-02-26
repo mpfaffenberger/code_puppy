@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import termios
+import tty
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 from prompt_toolkit import Application
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import ANSI, FormattedText
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.layout import Layout, VSplit, Window
@@ -27,10 +30,7 @@ from .constants import (
     ARROW_RIGHT,
     ARROW_UP,
     CHECK_MARK,
-    CLEAR_AND_HOME,
     CURSOR_TRIANGLE,
-    ENTER_ALT_SCREEN,
-    EXIT_ALT_SCREEN,
 )
 from .renderers import render_question_panel
 from .theme import get_rich_colors, get_tui_colors
@@ -40,19 +40,20 @@ if TYPE_CHECKING:
     from .terminal_ui import QuestionUIState
 
 
-def _restore_from_peek(state: QuestionUIState) -> None:
-    """If peeking, re-enter alt screen so prompt_toolkit tears down cleanly.
+def _wait_for_keypress() -> None:
+    """Block until any key is pressed, reading directly from the terminal.
 
-    Must be called before app.exit() in any handler that can fire while
-    the user is peeking behind the TUI.
+    Uses raw mode so a single keypress returns immediately (no Enter needed).
+    Called inside run_in_terminal's cooked-mode context, so we temporarily
+    switch to raw mode for the read and restore afterwards.
     """
-    if not state.peeking:
-        return
-    terminal = sys.__stdout__
-    terminal.write(ENTER_ALT_SCREEN)
-    terminal.write(CLEAR_AND_HOME)
-    terminal.flush()
-    state.peeking = False
+    fd = sys.__stdin__.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        sys.__stdin__.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
 @dataclass(slots=True)
@@ -192,7 +193,6 @@ async def run_question_tui(
             # Only submit if cursor was already on the selected option (confirming)
             # This prevents accidental submission when browsing options
             if cursor_is_on_selected:
-                _restore_from_peek(state)
                 result.confirmed = True
                 event.app.exit()
             else:
@@ -207,7 +207,6 @@ async def run_question_tui(
         # If entering other text, save it first before submitting
         if state.entering_other_text:
             state.commit_other_text()
-        _restore_from_peek(state)
         result.confirmed = True
         event.app.exit()
 
@@ -219,33 +218,34 @@ async def run_question_tui(
             state.other_text_buffer = ""
             event.app.invalidate()
             return
-        _restore_from_peek(state)
         result.cancelled = True
         event.app.exit()
 
     @kb.add("c-c")
     def ctrl_c_cancel(event: KeyPressEvent) -> None:
-        _restore_from_peek(state)
         result.cancelled = True
         event.app.exit()
 
     @kb.add("tab")
     def toggle_peek(event: KeyPressEvent) -> None:
-        """Toggle peek mode: temporarily hide the TUI to see terminal output behind it."""
+        """Peek behind the TUI to see terminal output.
+
+        Uses prompt_toolkit's run_in_terminal to properly suspend rendering,
+        exit alt screen, wait for a keypress, then restore everything with
+        a full repaint. This prevents resize events from clobbering the
+        main screen during peek and ensures borders render correctly on return.
+        """
         state.reset_activity_timer()
-        if state.peeking:
-            _restore_from_peek(state)
-            # The alt screen buffer was destroyed during peek, so the renderer's
-            # cached screen state is stale. Reset it to force a full repaint
-            # (otherwise prompt_toolkit skips redrawing borders/frames).
-            event.app.renderer.reset()
-        else:
-            # Peek: exit alt screen to reveal what's behind
-            terminal = sys.__stdout__
-            terminal.write(EXIT_ALT_SCREEN)
-            terminal.flush()
-            state.peeking = True
-        event.app.invalidate()
+
+        def _peek() -> None:
+            sys.__stdout__.write(
+                "\n  \033[2m" "Press any key to return to questions..." "\033[0m\n"
+            )
+            sys.__stdout__.flush()
+            _wait_for_keypress()
+            state.reset_activity_timer()
+
+        run_in_terminal(_peek, in_executor=True)
 
     @kb.add("<any>")
     def handle_text_input(event: KeyPressEvent) -> None:
@@ -269,11 +269,6 @@ async def run_question_tui(
 
     def get_left_panel_text() -> FormattedText:
         """Generate the left panel with question headers."""
-        if state.peeking:
-            return FormattedText([
-                ("", "\n"),
-                (tui_colors.header_bold, "  👀 Peeking..."),
-            ])
         pad = "  "
         lines: list[tuple[str, str]] = [
             ("", pad),
@@ -332,15 +327,8 @@ async def run_question_tui(
 
         return FormattedText(lines)
 
-    def get_right_panel_text() -> FormattedText | ANSI:
+    def get_right_panel_text() -> ANSI:
         """Generate the right panel with current question and options."""
-        if state.peeking:
-            return FormattedText([
-                ("", "\n"),
-                (tui_colors.header_dim, "  Press "),
-                (tui_colors.help_key, "Tab"),
-                (tui_colors.header_dim, " to return to questions"),
-            ])
         return render_question_panel(state, colors=rich_colors)
 
     # --- Layout ---
@@ -372,14 +360,11 @@ async def run_question_tui(
     app = Application(
         layout=layout,
         key_bindings=kb,
-        full_screen=False,
+        full_screen=True,
         mouse_support=False,
         color_depth=ColorDepth.DEPTH_24_BIT,
         output=output,
     )
-
-    sys.__stdout__.write(CLEAR_AND_HOME)
-    sys.__stdout__.flush()
 
     # Timeout checker background task
     async def timeout_checker() -> None:
@@ -388,7 +373,6 @@ async def run_question_tui(
             await asyncio.sleep(1)
             if state.is_timed_out():
                 timed_out = True
-                _restore_from_peek(state)
                 app.exit()
                 return
             app.invalidate()
