@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-import termios
-import tty
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
@@ -43,17 +41,27 @@ if TYPE_CHECKING:
 def _wait_for_keypress() -> None:
     """Block until any key is pressed, reading directly from the terminal.
 
-    Uses raw mode so a single keypress returns immediately (no Enter needed).
-    Called inside run_in_terminal's cooked-mode context, so we temporarily
-    switch to raw mode for the read and restore afterwards.
+    On Unix: switches to raw mode so a single keypress returns immediately.
+    On Windows: uses msvcrt.getch() which already reads a single key.
+    Called inside run_in_terminal's cooked-mode context.
     """
-    fd = sys.__stdin__.fileno()
-    old_settings = termios.tcgetattr(fd)
     try:
-        tty.setraw(fd)
-        sys.__stdin__.read(1)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        # Windows
+        import msvcrt
+
+        msvcrt.getch()
+    except ImportError:
+        # Unix / macOS
+        import termios
+        import tty
+
+        fd = sys.__stdin__.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            sys.__stdin__.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
 @dataclass(slots=True)
