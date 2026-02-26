@@ -39,7 +39,9 @@ if TYPE_CHECKING:
 
 
 def render_question_panel(
-    state: QuestionUIState, colors: RichColors | None = None
+    state: QuestionUIState,
+    colors: RichColors | None = None,
+    available_width: int | None = None,
 ) -> ANSI:
     """Render the right panel with the current question.
 
@@ -51,8 +53,12 @@ def render_question_panel(
         colors = get_rich_colors()
 
     buffer = io.StringIO()
-    # Use terminal width, capped for readability
-    terminal_width = min(shutil.get_terminal_size().columns, MAX_READABLE_WIDTH)
+    # Use available panel width if provided, otherwise fall back to terminal width
+    # Subtract padding to avoid overflow into frame borders
+    if available_width is not None:
+        terminal_width = min(available_width, MAX_READABLE_WIDTH)
+    else:
+        terminal_width = min(shutil.get_terminal_size().columns, MAX_READABLE_WIDTH)
     console = Console(
         file=buffer,
         force_terminal=True,

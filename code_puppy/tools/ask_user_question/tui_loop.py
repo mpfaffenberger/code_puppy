@@ -7,6 +7,7 @@ Separated from terminal_ui.py to keep files under 600 lines.
 from __future__ import annotations
 
 import asyncio
+import shutil
 import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
@@ -343,7 +344,12 @@ async def run_question_tui(
 
     def get_right_panel_text() -> ANSI:
         """Generate the right panel with current question and options."""
-        return render_question_panel(state, colors=rich_colors)
+        # Calculate available width: terminal minus left panel, minus frame borders (4 chars)
+        term_width = shutil.get_terminal_size().columns
+        available = term_width - left_panel_width - 4
+        return render_question_panel(
+            state, colors=rich_colors, available_width=available
+        )
 
     # --- Layout ---
     # Calculate dynamic left panel width based on longest header
@@ -356,6 +362,7 @@ async def run_question_tui(
 
     right_panel = Window(
         content=FormattedTextControl(lambda: get_right_panel_text()),
+        wrap_lines=True,
         # Right panel takes remaining space
     )
 
