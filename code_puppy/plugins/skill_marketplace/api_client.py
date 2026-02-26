@@ -297,20 +297,23 @@ async def install_skill_full(
         scripts = files_info.get("scripts", [])
 
         if scripts:
-            # Create scripts subdirectory
+            # Download scripts - only create dir if we successfully download at least one
             scripts_dir = skill_dir / "scripts"
-            scripts_dir.mkdir(parents=True, exist_ok=True)
+            downloaded_any = False
 
             for script_name in scripts:
                 try:
                     file_path = f"scripts/{script_name}"
                     resp = await metaregistry_client.fetch_skill_file_content(skill_id, file_path)
                     if resp.get("success"):
+                        if not downloaded_any:
+                            scripts_dir.mkdir(parents=True, exist_ok=True)
+                            downloaded_any = True
                         script_content = resp.get("data", "")
                         dest = scripts_dir / script_name
                         dest.write_text(script_content, encoding="utf-8")
                         # Make scripts executable
-                        if script_name.endswith(".sh"):
+                        if script_name.endswith(".sh") or script_name.endswith(".ts"):
                             dest.chmod(dest.stat().st_mode | 0o111)
                         installed_files.append(f"scripts/{script_name}")
                     else:

@@ -18,10 +18,10 @@ DEFAULT_TIMEOUT = 15.0
 
 
 def _get_base_url() -> str:
-    """Get MetaRegistry BFF base URL from env or default to stage."""
+    """Get MetaRegistry BFF base URL from env or default to prod."""
     return os.environ.get(
         "METAREGISTRY_BFF_URL",
-        "http://metaregistry-bff.stage.walmart.com",
+        "https://metaregistry-bff.walmart.com",
     )
 
 
