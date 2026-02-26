@@ -1325,65 +1325,7 @@ def register_agent_run_shell_command(agent):
     ) -> ShellCommandOutput:
         """Execute a shell command with comprehensive monitoring and safety features.
 
-        This tool provides robust shell command execution with streaming output,
-        timeout handling, user confirmation (when not in yolo mode), and proper
-        process lifecycle management. Commands are executed in a controlled
-        environment with cross-platform process group handling.
-
-        Args:
-            command: The shell command to execute. Cannot be empty or whitespace-only.
-            cwd: Working directory for command execution. If None,
-                uses the current working directory. Defaults to None.
-            timeout: Inactivity timeout in seconds. If no output is
-                produced for this duration, the process will be terminated.
-                Defaults to 60 seconds.
-            background: If True, run the command in the background and return immediately.
-                The command output will be written to a temporary log file.
-                Use this for long-running processes like servers (npm run dev, python -m http.server),
-                or any command you don't need to wait for.
-                When background=True, the response includes:
-                - log_file: Path to temp file containing stdout/stderr (read with read_file tool)
-                - pid: Process ID of the background process
-                Defaults to False.
-
-        Returns:
-            ShellCommandOutput: A structured response containing:
-                - success (bool): True if command executed successfully (exit code 0)
-                - command (str | None): The executed command string
-                - error (str | None): Error message if execution failed
-                - stdout (str | None): Standard output from the command (last 256 lines)
-                - stderr (str | None): Standard error from the command (last 256 lines)
-                - exit_code (int | None): Process exit code
-                - execution_time (float | None): Total execution time in seconds
-                - timeout (bool | None): True if command was terminated due to timeout
-                - user_interrupted (bool | None): True if user killed the process
-                - background (bool): True if command was run in background mode
-                - log_file (str | None): Path to temp log file for background commands
-                - pid (int | None): Process ID for background commands
-
-        Examples:
-            >>> # Basic command execution
-            >>> result = agent_run_shell_command(ctx, "ls -la")
-            >>> print(result.stdout)
-
-            >>> # Command with working directory
-            >>> result = agent_run_shell_command(ctx, "npm test", "/path/to/project")
-            >>> if result.success:
-            ...     print("Tests passed!")
-
-            >>> # Command with custom timeout
-            >>> result = agent_run_shell_command(ctx, "long_running_command", timeout=300)
-            >>> if result.timeout:
-            ...     print("Command timed out")
-
-            >>> # Background command for long-running server
-            >>> result = agent_run_shell_command(ctx, "npm run dev", background=True)
-            >>> print(f"Server started with PID {result.pid}")
-            >>> print(f"Logs available at: {result.log_file}")
-
-        Warning:
-            This tool can execute arbitrary shell commands. Exercise caution when
-            running untrusted commands, especially those that modify system state.
+        Supports streaming output, timeout handling, and background execution.
         """
         return await run_shell_command(context, command, cwd, timeout, background)
 
@@ -1399,37 +1341,6 @@ def register_agent_share_your_reasoning(agent):
     ) -> ReasoningOutput:
         """Share the agent's current reasoning and planned next steps with the user.
 
-        This tool provides transparency into the agent's decision-making process
-        by displaying the current reasoning and upcoming actions in a formatted,
-        user-friendly manner. It's essential for building trust and understanding
-        between the agent and user.
-
-        Args:
-            reasoning: The agent's current thought process, analysis, or
-                reasoning for the current situation. This should be clear,
-                comprehensive, and explain the 'why' behind decisions.
-            next_steps: Planned upcoming actions or steps
-                the agent intends to take. Can be a string or a list of strings.
-                Can be None if no specific next steps are determined. Defaults to None.
-
-        Returns:
-            ReasoningOutput: A simple response object containing:
-                - success (bool): Always True, indicating the reasoning was shared
-
-        Examples:
-            >>> reasoning = "I need to analyze the codebase structure first"
-            >>> next_steps = "First, I'll list the directory contents, then read key files"
-            >>> result = agent_share_your_reasoning(ctx, reasoning, next_steps)
-
-            >>> # Using a list for next steps
-            >>> next_steps_list = ["List files", "Read README.md", "Run tests"]
-            >>> result = agent_share_your_reasoning(ctx, reasoning, next_steps_list)
-
-        Best Practice:
-            Use this tool frequently to maintain transparency. Call it:
-            - Before starting complex operations
-            - When changing strategy or approach
-            - To explain why certain decisions are being made
-            - When encountering unexpected situations
+        Displays reasoning and upcoming actions in a formatted panel for transparency.
         """
         return share_your_reasoning(context, reasoning, next_steps)

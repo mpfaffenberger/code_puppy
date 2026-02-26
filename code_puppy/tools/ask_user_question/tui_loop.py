@@ -52,10 +52,9 @@ def _wait_for_keypress() -> None:
         msvcrt.getch()
     except ImportError:
         # Unix / macOS
+        import select
         import termios
         import tty
-
-        import select
 
         fd = sys.__stdin__.fileno()
         old_settings = termios.tcgetattr(fd)
@@ -254,7 +253,7 @@ async def run_question_tui(
 
         def _peek() -> None:
             sys.__stdout__.write(
-                "\n  \033[2m" "Press any key to return to questions..." "\033[0m\n"
+                "\n  \033[2mPress any key to return to questions...\033[0m\n"
             )
             sys.__stdout__.flush()
             _wait_for_keypress()
