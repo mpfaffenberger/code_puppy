@@ -33,7 +33,10 @@ class TestMatches:
 
     def test_pipe_regex_as_or(self):
         assert matches("Bash|agent_run_shell_command", "Bash", {}) is True
-        assert matches("Bash|agent_run_shell_command", "agent_run_shell_command", {}) is True
+        assert (
+            matches("Bash|agent_run_shell_command", "agent_run_shell_command", {})
+            is True
+        )
         assert matches("Bash|agent_run_shell_command", "Edit", {}) is False
 
     def test_wildcard_in_name(self):
