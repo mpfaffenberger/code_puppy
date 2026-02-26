@@ -80,9 +80,13 @@ def handle_cd_command(command: str) -> bool:
             #Invalidate cached agent so system prompt refreshed with new CWD
             from code_puppy.agents.agent_manager import get_current_agent
 
-            agent = get_current_agent()
-            if agent is not None:
-                agent._code_generation_agent = None
+            try:
+                agent = get_current_agent()
+                if agent is not None:
+                    agent._code_generation_agent = None
+            except Exception as e:
+                emit_error(f"Error invalidating agent cache: {e}")
+                pass
 
             emit_success(f"Changed directory to: {target}")
         else:
