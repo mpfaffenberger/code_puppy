@@ -249,7 +249,8 @@ async def install_skill_full(
         Normalized response with installed file count.
     """
     source = skill_metadata.get("_source", SOURCE_E2E)
-    skill_id = skill_metadata.get("id", name)
+    # MetaRegistry uses 'key' (skill name) for file downloads, NOT 'id' (UUID)
+    skill_key = skill_metadata.get("key", skill_metadata.get("name", name))
     skill_dir = SKILLS_DIR / name
     skill_dir.mkdir(parents=True, exist_ok=True)
 
@@ -266,7 +267,7 @@ async def install_skill_full(
         md_content = cached_content
     else:
         if source == SOURCE_METAREGISTRY:
-            resp = await metaregistry_client.fetch_skill_file_content(skill_id, "SKILL.md")
+            resp = await metaregistry_client.fetch_skill_file_content(skill_key, "SKILL.md")
         else:
             try:
                 async with httpx.AsyncClient(
@@ -304,7 +305,7 @@ async def install_skill_full(
             for script_name in scripts:
                 try:
                     file_path = f"scripts/{script_name}"
-                    resp = await metaregistry_client.fetch_skill_file_content(skill_id, file_path)
+                    resp = await metaregistry_client.fetch_skill_file_content(skill_key, file_path)
                     if resp.get("success"):
                         if not downloaded_any:
                             scripts_dir.mkdir(parents=True, exist_ok=True)
