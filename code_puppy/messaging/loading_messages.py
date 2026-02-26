@@ -215,6 +215,7 @@ _STANDALONE_MESSAGES: List[str] = [
 _plugin_categories: Dict[str, List[str]] = {}
 _plugins_initialized: bool = False
 _plugins_init_lock = threading.Lock()
+_plugin_categories_lock = threading.RLock()
 
 
 def _ensure_plugins_loaded() -> None:
@@ -257,15 +258,17 @@ def register_messages(category: str, messages: List[str]) -> None:
         List of message strings.  For spinner messages keep them
         lowercase and gerund-style (e.g. ``"rolling back prices..."``).
     """
-    if category in _plugin_categories:
-        _plugin_categories[category].extend(messages)
-    else:
-        _plugin_categories[category] = list(messages)
+    with _plugin_categories_lock:
+        if category in _plugin_categories:
+            _plugin_categories[category].extend(messages)
+        else:
+            _plugin_categories[category] = list(messages)
 
 
 def unregister_messages(category: str) -> None:
     """Remove a previously registered message category."""
-    _plugin_categories.pop(category, None)
+    with _plugin_categories_lock:
+        _plugin_categories.pop(category, None)
 
 
 # ===========================================================================
@@ -277,9 +280,10 @@ def _all_spinner_messages() -> List[str]:
     """Combine built-in + plugin spinner messages (not standalone)."""
     _ensure_plugins_loaded()
     combined = _PUPPY_SPINNER + _DEV_SPINNER + _FUN_SPINNER + _ACTION_SPINNER
-    for cat, msgs in _plugin_categories.items():
-        if cat != "standalone":
-            combined = combined + msgs
+    with _plugin_categories_lock:
+        for cat, msgs in _plugin_categories.items():
+            if cat != "standalone":
+                combined = combined + msgs
     return combined
 
 
@@ -311,9 +315,10 @@ def get_messages_by_category() -> Dict[str, List[str]]:
         "action": list(_ACTION_SPINNER),
         "standalone": list(_STANDALONE_MESSAGES),
     }
-    for cat, msgs in _plugin_categories.items():
-        if cat in result:
-            result[cat] = result[cat] + list(msgs)
-        else:
-            result[cat] = list(msgs)
+    with _plugin_categories_lock:
+        for cat, msgs in _plugin_categories.items():
+            if cat in result:
+                result[cat] = result[cat] + list(msgs)
+            else:
+                result[cat] = list(msgs)
     return result
