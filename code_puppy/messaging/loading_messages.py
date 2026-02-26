@@ -239,6 +239,9 @@ def _ensure_plugins_loaded() -> None:
         on_register_loading_messages()
 
 
+_RESERVED_CATEGORIES = frozenset({"puppy", "dev", "fun", "action", "standalone"})
+
+
 def register_messages(category: str, messages: List[str]) -> None:
     """Register additional loading messages from a plugin.
 
@@ -250,14 +253,26 @@ def register_messages(category: str, messages: List[str]) -> None:
     Parameters
     ----------
     category:
-        A unique category name (e.g. ``"walmart"``).  If the category
+        A unique plugin-specific category name (e.g. ``"walmart"``).
+        Core category names (puppy, dev, fun, action, standalone) are
+        reserved and will raise ``ValueError``.  If the category
         already exists the new messages are **appended**.
-        Use ``"standalone"`` for messages that should appear only in
-        the status display, not in the spinner.
     messages:
         List of message strings.  For spinner messages keep them
         lowercase and gerund-style (e.g. ``"rolling back prices..."``).
+
+    Raises
+    ------
+    ValueError
+        If ``category`` is empty or collides with a reserved core name.
     """
+    if not isinstance(category, str) or not category.strip():
+        raise ValueError("category must be a non-empty string")
+    if category in _RESERVED_CATEGORIES:
+        raise ValueError(
+            f"'{category}' is a reserved core category; "
+            "use a plugin-specific category name"
+        )
     with _plugin_categories_lock:
         if category in _plugin_categories:
             _plugin_categories[category].extend(messages)
@@ -276,14 +291,23 @@ def unregister_messages(category: str) -> None:
 # ===========================================================================
 
 
-def _all_spinner_messages() -> List[str]:
+def _plugin_snapshot() -> Dict[str, List[str]]:
+    """Return a consistent shallow copy of all plugin categories."""
+    with _plugin_categories_lock:
+        return {cat: list(msgs) for cat, msgs in _plugin_categories.items()}
+
+
+def _all_spinner_messages(
+    snapshot: Dict[str, List[str]] | None = None,
+) -> List[str]:
     """Combine built-in + plugin spinner messages (not standalone)."""
     _ensure_plugins_loaded()
+    if snapshot is None:
+        snapshot = _plugin_snapshot()
     combined = _PUPPY_SPINNER + _DEV_SPINNER + _FUN_SPINNER + _ACTION_SPINNER
-    with _plugin_categories_lock:
-        for cat, msgs in _plugin_categories.items():
-            if cat != "standalone":
-                combined = combined + msgs
+    for cat, msgs in snapshot.items():
+        if cat != "standalone":
+            combined = combined + msgs
     return combined
 
 
@@ -301,9 +325,11 @@ def get_spinner_messages() -> List[str]:
 def get_all_messages() -> List[str]:
     """Return all messages (spinner + standalone) for status display."""
     _ensure_plugins_loaded()
-    with _plugin_categories_lock:
-        plugin_standalone = list(_plugin_categories.get("standalone", []))
-    return _all_spinner_messages() + list(_STANDALONE_MESSAGES) + plugin_standalone
+    snapshot = _plugin_snapshot()
+    plugin_standalone = snapshot.pop("standalone", [])
+    return (
+        _all_spinner_messages(snapshot) + list(_STANDALONE_MESSAGES) + plugin_standalone
+    )
 
 
 def get_messages_by_category() -> Dict[str, List[str]]:

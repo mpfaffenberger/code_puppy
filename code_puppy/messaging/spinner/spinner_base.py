@@ -54,6 +54,8 @@ class SpinnerBase(ABC):
         Each start() picks the next message from the shuffled deck.
         The message stays locked in for the entire spin cycle.
         """
+        if self._is_spinning:
+            return
         self._is_spinning = True
         self._frame_index = 0
         self._advance_message()

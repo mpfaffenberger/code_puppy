@@ -1,9 +1,10 @@
 """Tests for loading_messages module."""
 
+from unittest.mock import patch
+
 import code_puppy.messaging.loading_messages as _lm
 
 from code_puppy.messaging.loading_messages import (
-    _plugin_categories,
     get_all_messages,
     get_messages_by_category,
     get_spinner_messages,
@@ -21,13 +22,16 @@ class TestGetSpinnerMessages:
         assert len(result) > 0
 
     def test_returns_shuffled_copy(self):
-        """Two calls should (very likely) produce different orderings."""
-        a = get_spinner_messages()
+        """Returns a shuffled copy without mutating source semantics."""
+        with patch(
+            "code_puppy.messaging.loading_messages.random.shuffle"
+        ) as mock_shuffle:
+            a = get_spinner_messages()
         b = get_spinner_messages()
-        # Same contents
+        # shuffle was called on the returned list
+        mock_shuffle.assert_called_once()
+        # Same contents regardless of order
         assert sorted(a) == sorted(b)
-        # Extremely unlikely to be in the same order with 100+ messages
-        assert a != b or len(a) < 3  # tiny lists might match
 
     def test_does_not_include_standalone(self):
         """Spinner messages should not include standalone messages."""
@@ -64,8 +68,8 @@ class TestPluginRegistry:
 
     def teardown_method(self):
         """Clean up any test categories."""
-        _plugin_categories.pop("test_cat", None)
-        _plugin_categories.pop("test_cat2", None)
+        unregister_messages("test_cat")
+        unregister_messages("test_cat2")
         _lm._plugins_initialized = False
 
     def test_register_new_category(self):
@@ -89,3 +93,20 @@ class TestPluginRegistry:
 
     def test_unregister_nonexistent_is_noop(self):
         unregister_messages("does_not_exist")  # should not raise
+
+    def test_register_reserved_category_raises(self):
+        """Registering a reserved core category name should raise ValueError."""
+        import pytest
+
+        for reserved in ("puppy", "dev", "fun", "action", "standalone"):
+            with pytest.raises(ValueError, match="reserved core category"):
+                register_messages(reserved, ["should fail..."])
+
+    def test_register_empty_category_raises(self):
+        """Registering an empty category name should raise ValueError."""
+        import pytest
+
+        with pytest.raises(ValueError, match="non-empty string"):
+            register_messages("", ["should fail..."])
+        with pytest.raises(ValueError, match="non-empty string"):
+            register_messages("   ", ["should fail..."])

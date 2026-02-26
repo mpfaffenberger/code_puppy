@@ -41,7 +41,7 @@ class TestShimmerText:
             mock_time.monotonic.return_value = 1.0
             r2 = shimmer_text(msg)
         # At different times the style spans should differ
-        assert r1._spans != r2._spans
+        assert r1.spans != r2.spans
 
     def test_custom_speed_width_padding(self):
         result = shimmer_text("hi", speed=5.0, width=2, padding=4)
