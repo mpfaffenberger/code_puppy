@@ -232,22 +232,6 @@ class TestPrefixToolNames:
         assert ClaudeCacheAsyncClient._prefix_tool_names(body) is None
 
 
-# --- Unprefix ---
-
-
-class TestUnprefixToolNames:
-    def test_basic(self):
-        c = ClaudeCacheAsyncClient()
-        text = f'"name": "{TOOL_PREFIX}read_file"'
-        result = c._unprefix_tool_names_in_text(text)
-        assert '"name": "read_file"' in result
-
-    def test_no_prefix(self):
-        c = ClaudeCacheAsyncClient()
-        text = '"name": "read_file"'
-        assert c._unprefix_tool_names_in_text(text) == text
-
-
 # --- Header transformation ---
 
 
@@ -639,157 +623,6 @@ class TestRefreshToken:
             assert result is None
 
 
-# --- Wrap response ---
-
-
-class TestWrapResponse:
-    def test_wraps_stream(self):
-        req = httpx.Request("POST", "https://x.com")
-        resp = httpx.Response(200, request=req, content=b"hello")
-        c = ClaudeCacheAsyncClient()
-        wrapped = c._wrap_response_with_tool_unprefixing(resp, req)
-        assert wrapped.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_unprefixing_stream_bytes(self):
-        req = httpx.Request("POST", "https://x.com")
-
-        async def fake_iter():
-            yield f'"name": "{TOOL_PREFIX}read_file"'.encode()
-
-        inner_stream = MagicMock()
-        inner_stream.__aiter__ = lambda s: fake_iter()
-        inner_stream.aclose = AsyncMock()
-
-        resp = httpx.Response(200, request=req, stream=inner_stream)
-        c = ClaudeCacheAsyncClient()
-        wrapped = c._wrap_response_with_tool_unprefixing(resp, req)
-
-        chunks = []
-        async for chunk in wrapped.stream:
-            chunks.append(chunk)
-        assert b'"name": "read_file"' in chunks[0]
-
-    @pytest.mark.asyncio
-    async def test_unprefixing_stream_close(self):
-        req = httpx.Request("POST", "https://x.com")
-
-        async def fake_iter():
-            yield b"data"
-
-        inner_stream = MagicMock()
-        inner_stream.__aiter__ = lambda s: fake_iter()
-        inner_stream.aclose = AsyncMock()
-
-        resp = httpx.Response(200, request=req, stream=inner_stream)
-        c = ClaudeCacheAsyncClient()
-        wrapped = c._wrap_response_with_tool_unprefixing(resp, req)
-        await wrapped.stream.aclose()
-
-    @pytest.mark.asyncio
-    async def test_unprefixing_stream_close_sync(self):
-        req = httpx.Request("POST", "https://x.com")
-
-        async def fake_iter():
-            yield b"data"
-
-        inner_stream = MagicMock(spec=["__aiter__", "close"])
-        inner_stream.__aiter__ = lambda s: fake_iter()
-        inner_stream.close = MagicMock()
-
-        resp = httpx.Response(200, request=req, stream=inner_stream)
-        c = ClaudeCacheAsyncClient()
-        wrapped = c._wrap_response_with_tool_unprefixing(resp, req)
-        await wrapped.stream.aclose()
-        inner_stream.close.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_unprefixing_stream_non_bytes(self):
-        req = httpx.Request("POST", "https://x.com")
-
-        async def fake_iter():
-            yield "string chunk"  # non-bytes
-
-        inner_stream = MagicMock()
-        inner_stream.__aiter__ = lambda s: fake_iter()
-        inner_stream.aclose = AsyncMock()
-
-        resp = httpx.Response(200, request=req, stream=inner_stream)
-        c = ClaudeCacheAsyncClient()
-        wrapped = c._wrap_response_with_tool_unprefixing(resp, req)
-
-        chunks = []
-        async for chunk in wrapped.stream:
-            chunks.append(chunk)
-        assert chunks[0] == "string chunk"
-
-    @pytest.mark.asyncio
-    async def test_unprefixing_stream_aclose_sync_result(self):
-        """Test aclose when inner.aclose() returns a non-awaitable (sync)."""
-        req = httpx.Request("POST", "https://x.com")
-
-        async def fake_iter():
-            yield b"data"
-
-        inner_stream = MagicMock()
-        inner_stream.__aiter__ = lambda s: fake_iter()
-        inner_stream.aclose = MagicMock(return_value=None)  # sync aclose
-
-        resp = httpx.Response(200, request=req, stream=inner_stream)
-        c = ClaudeCacheAsyncClient()
-        wrapped = c._wrap_response_with_tool_unprefixing(resp, req)
-        await wrapped.stream.aclose()
-
-    @pytest.mark.asyncio
-    async def test_unprefixing_stream_aclose_raises(self):
-        """Test aclose when inner.aclose() raises."""
-        req = httpx.Request("POST", "https://x.com")
-
-        async def fake_iter():
-            yield b"data"
-
-        inner_stream = MagicMock()
-        inner_stream.__aiter__ = lambda s: fake_iter()
-        inner_stream.aclose = MagicMock(side_effect=Exception("close error"))
-
-        resp = httpx.Response(200, request=req, stream=inner_stream)
-        c = ClaudeCacheAsyncClient()
-        wrapped = c._wrap_response_with_tool_unprefixing(resp, req)
-        await wrapped.stream.aclose()  # should not raise
-
-    @pytest.mark.asyncio
-    async def test_unprefixing_stream_close_raises(self):
-        """Test fallback to close() when it raises."""
-        req = httpx.Request("POST", "https://x.com")
-
-        async def fake_iter():
-            yield b"data"
-
-        inner_stream = MagicMock(spec=["__aiter__", "close"])
-        inner_stream.__aiter__ = lambda s: fake_iter()
-        inner_stream.close = MagicMock(side_effect=Exception("close error"))
-
-        resp = httpx.Response(200, request=req, stream=inner_stream)
-        c = ClaudeCacheAsyncClient()
-        wrapped = c._wrap_response_with_tool_unprefixing(resp, req)
-        await wrapped.stream.aclose()  # should not raise
-
-    @pytest.mark.asyncio
-    async def test_unprefixing_stream_close_no_method(self):
-        req = httpx.Request("POST", "https://x.com")
-
-        async def fake_iter():
-            yield b"data"
-
-        inner_stream = MagicMock(spec=["__aiter__"])
-        inner_stream.__aiter__ = lambda s: fake_iter()
-
-        resp = httpx.Response(200, request=req, stream=inner_stream)
-        c = ClaudeCacheAsyncClient()
-        wrapped = c._wrap_response_with_tool_unprefixing(resp, req)
-        await wrapped.stream.aclose()  # should not raise
-
-
 # --- Send with retries ---
 
 
@@ -1017,27 +850,22 @@ class TestSendFlow:
         with patch.object(
             httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=resp
         ):
-            with patch.object(
-                ClaudeCacheAsyncClient,
-                "_wrap_response_with_tool_unprefixing",
-                return_value=resp,
-            ):
-                c = ClaudeCacheAsyncClient()
-                body = json.dumps(
-                    {
-                        "model": "claude-3",
-                        "tools": [{"name": "fn"}],
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": [{"type": "text", "text": "hi"}],
-                            }
-                        ],
-                    }
-                ).encode()
-                req = httpx.Request("POST", "https://api.com/v1/messages", content=body)
-                result = await c.send(req)
-                assert result.status_code == 200
+            c = ClaudeCacheAsyncClient()
+            body = json.dumps(
+                {
+                    "model": "claude-3",
+                    "tools": [{"name": "fn"}],
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"type": "text", "text": "hi"}],
+                        }
+                    ],
+                }
+            ).encode()
+            req = httpx.Request("POST", "https://api.com/v1/messages", content=body)
+            result = await c.send(req)
+            assert result.status_code == 200
 
     @pytest.mark.asyncio
     async def test_auth_error_refresh(self):
@@ -1142,32 +970,6 @@ class TestSendFlow:
                 "_transform_headers_for_claude_code",
                 side_effect=Exception("boom"),
             ):
-                with patch.object(
-                    ClaudeCacheAsyncClient,
-                    "_wrap_response_with_tool_unprefixing",
-                    return_value=resp,
-                ):
-                    c = ClaudeCacheAsyncClient()
-                    req = httpx.Request(
-                        "POST", "https://api.com/v1/messages", content=b"{}"
-                    )
-                    result = await c.send(req)
-                    assert result.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_wrap_response_exception_handled(self):
-        resp = Mock(spec=httpx.Response)
-        resp.status_code = 200
-        resp.headers = {}
-
-        with patch.object(
-            httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=resp
-        ):
-            with patch.object(
-                ClaudeCacheAsyncClient,
-                "_wrap_response_with_tool_unprefixing",
-                side_effect=Exception("boom"),
-            ):
                 c = ClaudeCacheAsyncClient()
                 req = httpx.Request(
                     "POST", "https://api.com/v1/messages", content=b"{}"
@@ -1261,35 +1063,30 @@ class TestSendFlow:
         with patch.object(
             httpx.AsyncClient, "send", new_callable=AsyncMock, return_value=resp
         ):
-            with patch.object(
-                ClaudeCacheAsyncClient,
-                "_wrap_response_with_tool_unprefixing",
-                return_value=resp,
-            ):
-                c = ClaudeCacheAsyncClient()
-                body = json.dumps(
-                    {
-                        "model": "claude-3",
-                        "tools": [{"name": "fn"}],
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": [{"type": "text", "text": "hi"}],
-                            }
-                        ],
-                    }
-                ).encode()
-                req = httpx.Request(
-                    "POST",
-                    "https://api.com/v1/messages",
-                    content=body,
-                    headers={
-                        "anthropic-beta": "interleaved-thinking-2025-05-14",
-                        "x-api-key": "secret",
-                    },
-                )
-                result = await c.send(req)
-                assert result.status_code == 200
+            c = ClaudeCacheAsyncClient()
+            body = json.dumps(
+                {
+                    "model": "claude-3",
+                    "tools": [{"name": "fn"}],
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"type": "text", "text": "hi"}],
+                        }
+                    ],
+                }
+            ).encode()
+            req = httpx.Request(
+                "POST",
+                "https://api.com/v1/messages",
+                content=body,
+                headers={
+                    "anthropic-beta": "interleaved-thinking-2025-05-14",
+                    "x-api-key": "secret",
+                },
+            )
+            result = await c.send(req)
+            assert result.status_code == 200
 
     @pytest.mark.asyncio
     async def test_messages_no_body(self):
