@@ -189,6 +189,7 @@ _HELP_SECTIONS: list[tuple[str, list[tuple[str, str | None, str]]]] = [
     (
         "Other:",
         [
+            ("Tab", None, "Peek behind (toggle TUI visibility)"),
             ("?", None, "Toggle this help"),
             ("Esc", None, "Cancel"),
             ("Ctrl+C", None, "Cancel"),
