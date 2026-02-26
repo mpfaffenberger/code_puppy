@@ -10,6 +10,8 @@ Tools included:
 - Jira (10 tools): Issue tracking and project management
 - Marketplace (5 tools): Agent marketplace operations
 - Puppy Share (4 tools): Publish HTML pages to puppy.walmart.com/sharing
+- PuppyTales (2 tools): Save and list Code Puppy success stories
+- Git Time (1 tool): Estimate development time from git history
 """
 
 from typing import Any
@@ -73,6 +75,13 @@ def get_enterprise_tools() -> list[dict[str, Any]]:
         register_puppy_share_upload_file,
         register_puppy_share_delete,
         register_puppy_share_list_my_pages,
+    )
+    from code_puppy.plugins.walmart_specific.puppy_tales_tools import (
+        register_puppy_tales_save_story,
+        register_puppy_tales_list_stories,
+    )
+    from code_puppy.plugins.walmart_specific.git_time_tools import (
+        register_git_estimated_time,
     )
 
     return [
@@ -198,5 +207,19 @@ def get_enterprise_tools() -> list[dict[str, Any]]:
         {
             "name": "puppy_share_list_my_pages",
             "register_func": register_puppy_share_list_my_pages,
+        },
+        # PuppyTales Tools (2)
+        {
+            "name": "puppy_tales_save_story",
+            "register_func": register_puppy_tales_save_story,
+        },
+        {
+            "name": "puppy_tales_list_stories",
+            "register_func": register_puppy_tales_list_stories,
+        },
+        # Git Time Tools (1)
+        {
+            "name": "git_estimated_time",
+            "register_func": register_git_estimated_time,
         },
     ]
