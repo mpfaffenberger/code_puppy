@@ -235,6 +235,10 @@ async def run_question_tui(
         state.reset_activity_timer()
         if state.peeking:
             _restore_from_peek(state)
+            # The alt screen buffer was destroyed during peek, so the renderer's
+            # cached screen state is stale. Reset it to force a full repaint
+            # (otherwise prompt_toolkit skips redrawing borders/frames).
+            event.app.renderer.reset()
         else:
             # Peek: exit alt screen to reveal what's behind
             terminal = sys.__stdout__
