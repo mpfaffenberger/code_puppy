@@ -98,9 +98,17 @@ class TestPluginRegistry:
         """Registering a reserved core category name should raise ValueError."""
         import pytest
 
-        for reserved in ("puppy", "dev", "fun", "action", "standalone"):
+        for reserved in ("puppy", "dev", "fun", "action"):
             with pytest.raises(ValueError, match="reserved core category"):
                 register_messages(reserved, ["should fail..."])
+
+    def test_register_standalone_category_allowed(self):
+        """Plugins can register standalone messages for display-only use."""
+        register_messages("standalone", ["custom standalone..."])
+        all_msgs = get_all_messages()
+        assert "custom standalone..." in all_msgs
+        # Clean up
+        unregister_messages("standalone")
 
     def test_register_empty_category_raises(self):
         """Registering an empty category name should raise ValueError."""

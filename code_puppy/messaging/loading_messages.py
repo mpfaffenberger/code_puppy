@@ -239,7 +239,7 @@ def _ensure_plugins_loaded() -> None:
         on_register_loading_messages()
 
 
-_RESERVED_CATEGORIES = frozenset({"puppy", "dev", "fun", "action", "standalone"})
+_RESERVED_CATEGORIES = frozenset({"puppy", "dev", "fun", "action"})
 
 
 def register_messages(category: str, messages: List[str]) -> None:
