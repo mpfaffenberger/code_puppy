@@ -55,7 +55,7 @@ def handle_cd_command(command: str) -> bool:
     # Use shlex.split to handle quoted paths properly
     import shlex
 
-    from code_puppy.messaging import emit_error, emit_info, emit_success
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     try:
         tokens = shlex.split(command)
@@ -86,8 +86,11 @@ def handle_cd_command(command: str) -> bool:
                 from code_puppy.agents.agent_manager import get_current_agent
 
                 get_current_agent().reload_code_generation_agent()
-            except Exception:
-                pass  # Reload is best-effort; a failure must not abort /cd
+            except Exception as e:
+                emit_warning(
+                    f"Directory changed, but agent reload failed: {e}. "
+                    "You may need to run /agent or /model to force a refresh."
+                )
         else:
             emit_error(f"Not a directory: {dirname}")
         return True

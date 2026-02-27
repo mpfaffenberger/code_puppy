@@ -89,7 +89,8 @@ def test_cd_valid_change():
 def test_cd_valid_change_reload_failure_is_nonfatal():
     """A reload failure after /cd must not abort the directory change."""
     mocks = setup_messaging_mocks()
-    mocks["emit_success"].start()
+    mock_emit_success = mocks["emit_success"].start()
+    mock_emit_warning = mocks["emit_warning"].start()
 
     try:
         mock_agent = MagicMock()
@@ -98,7 +99,7 @@ def test_cd_valid_change_reload_failure_is_nonfatal():
             patch("os.path.expanduser", side_effect=lambda x: x),
             patch("os.path.isabs", return_value=True),
             patch("os.path.isdir", return_value=True),
-            patch("os.chdir"),
+            patch("os.chdir") as mock_chdir,
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
                 return_value=mock_agent,
@@ -107,8 +108,17 @@ def test_cd_valid_change_reload_failure_is_nonfatal():
             # Should not raise even though reload raises.
             result = handle_command("/cd /some/dir")
             assert result is True
+            mock_chdir.assert_called_once_with("/some/dir")
+            mock_emit_success.assert_called_once_with("Changed directory to: /some/dir")
+            mock_agent.reload_code_generation_agent.assert_called_once()
+            # Reload failure should emit a warning, not silently pass
+            mock_emit_warning.assert_called_once()
+            warning_msg = str(mock_emit_warning.call_args)
+            assert "agent reload failed" in warning_msg
+            assert "boom" in warning_msg
     finally:
         mocks["emit_success"].stop()
+        mocks["emit_warning"].stop()
 
 
 def test_cd_invalid_directory():
