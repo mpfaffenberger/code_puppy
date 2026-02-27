@@ -593,7 +593,7 @@ def get_prompt_with_active_model(base: str = ">>> ", is_interject: bool = False)
 
 
 async def get_input_with_combined_completion(
-    prompt_str=">>> ", history_file: Optional[str] = None
+    prompt_str=">>> ", history_file: Optional[str] = None, erase_when_done: bool = False
 ) -> str:
     # Use SafeFileHistory to handle encoding errors gracefully on Windows
     history = SafeFileHistory(history_file) if history_file else None
@@ -840,7 +840,8 @@ async def get_input_with_combined_completion(
         complete_while_typing=True,
         key_bindings=bindings,
         input_processors=[AttachmentPlaceholderProcessor()],
-        output=out
+        output=out,
+        erase_when_done=erase_when_done
     )
     # If they pass a string, backward-compat: convert it to formatted_text
     if isinstance(prompt_str, str):
@@ -913,7 +914,26 @@ async def get_interject_action() -> str:
     out = create_output(stdout=sys.stdout)
     if hasattr(out, 'enable_cpr'):
         out.enable_cpr = False
-    session = PromptSession(message=prompt_text, key_bindings=bindings, output=out, erase_when_done=True)
+    session = PromptSession(
+        message=prompt_text, 
+        key_bindings=bindings, 
+        output=out, 
+        erase_when_done=True,
+        reserve_space_for_menu=8
+    )
+    
+    from prompt_toolkit.styles import Style
+    style = Style.from_dict({
+        "puppy": "bold ansibrightcyan",
+        "owner": "bold ansibrightblue",
+        "agent": "bold ansibrightblue",
+        "model": "bold ansibrightcyan",
+        "cwd": "bold ansibrightgreen",
+        "arrow": "bold ansibrightcyan",
+        "separator": "bold ansigray",
+        "attachment-placeholder": "italic ansicyan",
+        "queue-item": "italic ansiyellow",
+    })
     
     with patch_stdout(raw=True):
         # We catch the result of app.exit(result=...) via session.prompt_async()
@@ -921,7 +941,7 @@ async def get_interject_action() -> str:
             # We don't actually want them to type anything, just press a key
             # session.prompt_async returns the text typed if they press enter,
             # but our keybindings will exit early with the bound result.
-            action = await session.prompt_async()
+            action = await session.prompt_async(style=style)
             if result:
                 return result
             return action

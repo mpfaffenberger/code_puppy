@@ -549,7 +549,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                     # Use the async version of get_input_with_combined_completion
                     task = await get_input_with_combined_completion(
-                        get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
+                        get_prompt_with_active_model(), 
+                        history_file=COMMAND_HISTORY_FILE,
+                        erase_when_done=AGENT_IS_RUNNING
                     )
 
                     # Windows+uvx: Re-disable Ctrl+C after prompt_toolkit
@@ -764,7 +766,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 a = action.strip().lower()
                 if a == 'i':
-                    emit_warning(f"Interjecting with: {task.strip()}")
+                    from code_puppy.messaging import get_console
+                    get_console().print(f"[bold bright_red]Interjecting with:[/bold bright_red] [red]{task.strip()}[/red]")
                     if BG_AGENT_TASK and not BG_AGENT_TASK.done():
                         BG_AGENT_TASK.cancel()
                         from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
