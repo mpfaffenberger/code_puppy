@@ -283,7 +283,14 @@ def _discover_agents(message_group_id: Optional[str] = None):
         json_agents = discover_json_agents()
 
         # Add JSON agents to registry (store file path instead of class)
+        # Python (builtin) agents take precedence over JSON agents.
         for agent_name, json_path in json_agents.items():
+            if agent_name in _AGENT_REGISTRY:
+                emit_warning(
+                    f"JSON agent '{agent_name}' skipped: builtin Python agent with the same name takes precedence.",
+                    message_group=message_group_id,
+                )
+                continue
             _AGENT_REGISTRY[agent_name] = json_path
 
     except Exception as e:
