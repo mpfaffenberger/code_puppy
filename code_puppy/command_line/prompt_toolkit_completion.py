@@ -838,7 +838,7 @@ async def get_input_with_combined_completion(
             "queue-item": "italic ansiyellow",
         }
     )
-    with patch_stdout():
+    with patch_stdout(raw=True):
         text = await session.prompt_async(prompt_str, style=style)
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running
