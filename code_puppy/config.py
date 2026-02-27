@@ -1436,6 +1436,8 @@ DEFAULT_BANNER_COLORS = {
     "universal_constructor": "dark_cyan",  # Teal - constructing tools
     # Browser/Terminal tools - same color as edit_file (gold)
     "terminal_tool": "dark_goldenrod",  # Gold - browser terminal operations
+    # User-initiated shell pass-through (! prefix) - distinct from agent's shell_command
+    "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
 }
 
 

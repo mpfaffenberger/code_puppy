@@ -14,12 +14,37 @@ import subprocess
 import sys
 import time
 
-from rich.text import Text
+from rich.console import Console
+from rich.markup import escape as escape_rich_markup
 
-from code_puppy.messaging import emit_info, emit_success, emit_warning
+from code_puppy.config import get_banner_color
 
 # The prefix character that triggers shell pass-through
 SHELL_PASSTHROUGH_PREFIX = "!"
+
+# Banner identifier — matches the key in DEFAULT_BANNER_COLORS
+_BANNER_NAME = "shell_passthrough"
+
+
+def _get_console() -> Console:
+    """Get a Rich console for direct output.
+
+    Separated for testability — tests can mock this to capture output.
+    """
+    return Console()
+
+
+def _format_banner() -> str:
+    """Format the SHELL PASSTHROUGH banner using the configured color.
+
+    Uses the same `[bold white on {color}]` pattern as rich_renderer.py
+    so the banner looks consistent with SHELL COMMAND, EDIT FILE, etc.
+
+    Returns:
+        Rich markup string for the banner.
+    """
+    color = get_banner_color(_BANNER_NAME)
+    return f"[bold white on {color}] 🐚 SHELL PASSTHROUGH [/bold white on {color}]"
 
 
 def is_shell_passthrough(task: str) -> bool:
@@ -59,25 +84,29 @@ def extract_command(task: str) -> str:
 def execute_shell_passthrough(task: str) -> None:
     """Execute a shell command directly, bypassing the agent.
 
-    The command's stdout and stderr are inherited from the parent process,
-    so output streams directly to the user's terminal — no capture, no
-    processing, no token counting. Just raw shell.
+    Renders a colored banner (matching the codebase banner system) so the
+    user instantly sees they're in pass-through mode, then inherits stdio
+    for raw terminal output.
 
     Ctrl+C during execution kills the subprocess, not Code Puppy.
 
     Args:
         task: Raw user input starting with `!`.
     """
+    console = _get_console()
     command = extract_command(task)
+
     if not command:
-        emit_warning("Empty command. Usage: !<command> (e.g., !ls -la)")
+        console.print("[yellow]Empty command. Usage: !<command> (e.g., !ls -la)[/yellow]")
         return
 
-    # Show what we're running
-    header = Text()
-    header.append("🐚 ", style="bold")
-    header.append(command, style="bold cyan")
-    emit_info(header)
+    # Escape command to prevent Rich markup injection
+    safe_command = escape_rich_markup(command)
+
+    # Banner + command on one line, context hint below
+    banner = _format_banner()
+    console.print(f"\n{banner} [dim]$ {safe_command}[/dim]")
+    console.print("[dim]↳ Direct shell · Bypassing AI agent[/dim]")
 
     start_time = time.monotonic()
 
@@ -94,27 +123,22 @@ def execute_shell_passthrough(task: str) -> None:
         elapsed = time.monotonic() - start_time
 
         if result.returncode == 0:
-            exit_msg = Text()
-            exit_msg.append("✅ ", style="bold green")
-            exit_msg.append(f"Done ", style="dim")
-            exit_msg.append(f"({elapsed:.1f}s)", style="dim")
-            emit_success(exit_msg)
-        else:
-            exit_msg = Text()
-            exit_msg.append("❌ ", style="bold red")
-            exit_msg.append(
-                f"Exit code {result.returncode} ", style="bold red"
+            console.print(
+                f"[bold green]✅ Done[/bold green] [dim]({elapsed:.1f}s)[/dim]"
             )
-            exit_msg.append(f"({elapsed:.1f}s)", style="dim")
-            emit_warning(exit_msg)
+        else:
+            console.print(
+                f"[bold red]❌ Exit code {result.returncode}[/bold red] "
+                f"[dim]({elapsed:.1f}s)[/dim]"
+            )
 
     except KeyboardInterrupt:
         elapsed = time.monotonic() - start_time
-        interrupt_msg = Text()
-        interrupt_msg.append("\n⚡ ", style="bold yellow")
-        interrupt_msg.append("Interrupted ", style="yellow")
-        interrupt_msg.append(f"({elapsed:.1f}s)", style="dim")
-        emit_warning(interrupt_msg)
+        console.print(
+            f"\n[bold yellow]⚡ Interrupted[/bold yellow] "
+            f"[dim]({elapsed:.1f}s)[/dim]"
+        )
 
     except Exception as e:
-        emit_warning(f"Shell error: {e}")
+        safe_error = escape_rich_markup(str(e))
+        console.print(f"[bold red]Shell error:[/bold red] {safe_error}")

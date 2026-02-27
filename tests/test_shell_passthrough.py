@@ -11,6 +11,8 @@ import pytest
 
 from code_puppy.command_line.shell_passthrough import (
     SHELL_PASSTHROUGH_PREFIX,
+    _BANNER_NAME,
+    _format_banner,
     execute_shell_passthrough,
     extract_command,
     is_shell_passthrough,
@@ -84,14 +86,48 @@ class TestExtractCommand:
         )
 
 
+class TestFormatBanner:
+    """Test banner formatting."""
+
+    def test_banner_uses_config_color(self):
+        """Banner should use the color from get_banner_color."""
+        with patch(
+            "code_puppy.command_line.shell_passthrough.get_banner_color",
+            return_value="medium_sea_green",
+        ):
+            banner = _format_banner()
+            assert "medium_sea_green" in banner
+            assert "SHELL PASSTHROUGH" in banner
+
+    def test_banner_name_constant(self):
+        """Verify the banner name matches what config.py expects."""
+        assert _BANNER_NAME == "shell_passthrough"
+
+    def test_banner_matches_rich_renderer_pattern(self):
+        """Banner format should match [bold white on {color}] pattern."""
+        with patch(
+            "code_puppy.command_line.shell_passthrough.get_banner_color",
+            return_value="red",
+        ):
+            banner = _format_banner()
+            assert "[bold white on red]" in banner
+            assert "[/bold white on red]" in banner
+
+
 class TestExecuteShellPassthrough:
     """Test shell command execution."""
 
+    def _mock_console(self):
+        """Create a mock console and patch _get_console to return it."""
+        mock = MagicMock()
+        return mock
+
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
-    @patch("code_puppy.command_line.shell_passthrough.emit_success")
-    @patch("code_puppy.command_line.shell_passthrough.emit_info")
-    def test_successful_command(self, mock_info, mock_success, mock_run):
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    def test_successful_command(self, mock_get_console, mock_run):
         """Successful commands show a success message."""
+        console = self._mock_console()
+        mock_get_console.return_value = console
         mock_run.return_value = MagicMock(returncode=0)
 
         execute_shell_passthrough("!echo hello")
@@ -100,79 +136,85 @@ class TestExecuteShellPassthrough:
         call_kwargs = mock_run.call_args
         assert call_kwargs[1]["shell"] is True
         assert call_kwargs[0][0] == "echo hello"
-        mock_success.assert_called_once()
+
+        # Should have printed banner, context line, and success
+        assert console.print.call_count == 3
+        # Last print should contain the success message
+        last_call = str(console.print.call_args_list[-1])
+        assert "Done" in last_call
 
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
-    @patch("code_puppy.command_line.shell_passthrough.emit_warning")
-    @patch("code_puppy.command_line.shell_passthrough.emit_info")
-    def test_failed_command_shows_exit_code(self, mock_info, mock_warning, mock_run):
-        """Non-zero exit codes show warning with the exit code."""
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    def test_failed_command_shows_exit_code(self, mock_get_console, mock_run):
+        """Non-zero exit codes show the exit code."""
+        console = self._mock_console()
+        mock_get_console.return_value = console
         mock_run.return_value = MagicMock(returncode=1)
 
         execute_shell_passthrough("!false")
 
-        mock_warning.assert_called_once()
-        # The warning message should contain the exit code
-        warning_arg = mock_warning.call_args[0][0]
-        assert "1" in str(warning_arg)
+        last_call = str(console.print.call_args_list[-1])
+        assert "Exit code 1" in last_call
 
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
-    @patch("code_puppy.command_line.shell_passthrough.emit_warning")
-    @patch("code_puppy.command_line.shell_passthrough.emit_info")
-    def test_exit_code_127(self, mock_info, mock_warning, mock_run):
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    def test_exit_code_127(self, mock_get_console, mock_run):
         """Exit code 127 (command not found) is reported properly."""
+        console = self._mock_console()
+        mock_get_console.return_value = console
         mock_run.return_value = MagicMock(returncode=127)
 
         execute_shell_passthrough("!nonexistentcommand")
 
-        mock_warning.assert_called_once()
-        warning_arg = mock_warning.call_args[0][0]
-        assert "127" in str(warning_arg)
+        last_call = str(console.print.call_args_list[-1])
+        assert "127" in last_call
 
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
-    @patch("code_puppy.command_line.shell_passthrough.emit_warning")
-    @patch("code_puppy.command_line.shell_passthrough.emit_info")
-    def test_keyboard_interrupt(self, mock_info, mock_warning, mock_run):
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    def test_keyboard_interrupt(self, mock_get_console, mock_run):
         """Ctrl+C during execution shows interrupted message."""
+        console = self._mock_console()
+        mock_get_console.return_value = console
         mock_run.side_effect = KeyboardInterrupt()
 
         execute_shell_passthrough("!sleep 999")
 
-        mock_warning.assert_called_once()
-        warning_arg = mock_warning.call_args[0][0]
-        assert "Interrupted" in str(warning_arg)
+        last_call = str(console.print.call_args_list[-1])
+        assert "Interrupted" in last_call
 
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
-    @patch("code_puppy.command_line.shell_passthrough.emit_warning")
-    @patch("code_puppy.command_line.shell_passthrough.emit_info")
-    def test_generic_exception(self, mock_info, mock_warning, mock_run):
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    def test_generic_exception(self, mock_get_console, mock_run):
         """Generic exceptions are caught and reported."""
+        console = self._mock_console()
+        mock_get_console.return_value = console
         mock_run.side_effect = OSError("permission denied")
 
         execute_shell_passthrough("!forbidden")
 
-        mock_warning.assert_called_once()
-        warning_arg = mock_warning.call_args[0][0]
-        assert "permission denied" in str(warning_arg)
+        last_call = str(console.print.call_args_list[-1])
+        assert "permission denied" in last_call
 
-    @patch("code_puppy.command_line.shell_passthrough.emit_warning")
-    def test_empty_command_after_bang(self, mock_warning):
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    def test_empty_command_after_bang(self, mock_get_console):
         """An empty command (just spaces after !) shows usage hint."""
-        # This shouldn't normally happen because is_shell_passthrough
-        # filters it, but defense in depth!
+        console = self._mock_console()
+        mock_get_console.return_value = console
+
         execute_shell_passthrough("!")
 
-        mock_warning.assert_called_once()
-        warning_arg = mock_warning.call_args[0][0]
-        assert "Usage" in str(warning_arg) or "Empty" in str(warning_arg)
+        console.print.assert_called_once()
+        call_arg = str(console.print.call_args)
+        assert "Usage" in call_arg or "Empty" in call_arg
 
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
-    @patch("code_puppy.command_line.shell_passthrough.emit_success")
-    @patch("code_puppy.command_line.shell_passthrough.emit_info")
-    def test_inherits_stdio(self, mock_info, mock_success, mock_run):
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    def test_inherits_stdio(self, mock_get_console, mock_run):
         """Command should inherit stdin/stdout/stderr from parent."""
         import sys
 
+        console = self._mock_console()
+        mock_get_console.return_value = console
         mock_run.return_value = MagicMock(returncode=0)
 
         execute_shell_passthrough("!echo hello")
@@ -183,13 +225,14 @@ class TestExecuteShellPassthrough:
         assert call_kwargs["stderr"] is sys.stderr
 
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
-    @patch("code_puppy.command_line.shell_passthrough.emit_success")
-    @patch("code_puppy.command_line.shell_passthrough.emit_info")
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
     @patch("code_puppy.command_line.shell_passthrough.os.getcwd", return_value="/tmp")
     def test_uses_current_working_directory(
-        self, mock_cwd, mock_info, mock_success, mock_run
+        self, mock_cwd, mock_get_console, mock_run
     ):
         """Command should run in the current working directory."""
+        console = self._mock_console()
+        mock_get_console.return_value = console
         mock_run.return_value = MagicMock(returncode=0)
 
         execute_shell_passthrough("!ls")
@@ -198,14 +241,58 @@ class TestExecuteShellPassthrough:
         assert call_kwargs["cwd"] == "/tmp"
 
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
-    @patch("code_puppy.command_line.shell_passthrough.emit_info")
-    @patch("code_puppy.command_line.shell_passthrough.emit_success")
-    def test_header_shows_command(self, mock_success, mock_info, mock_run):
-        """The header message should display the command being run."""
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    def test_banner_shown_before_command(self, mock_get_console, mock_run):
+        """The banner should display with SHELL PASSTHROUGH label."""
+        console = self._mock_console()
+        mock_get_console.return_value = console
         mock_run.return_value = MagicMock(returncode=0)
 
         execute_shell_passthrough("!git status")
 
-        mock_info.assert_called_once()
-        header_arg = mock_info.call_args[0][0]
-        assert "git status" in str(header_arg)
+        # First print call should contain the banner and command
+        first_call = str(console.print.call_args_list[0])
+        assert "SHELL PASSTHROUGH" in first_call
+        assert "git status" in first_call
+
+    @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    def test_context_hint_shown(self, mock_get_console, mock_run):
+        """A context line should clarify this bypasses the AI."""
+        console = self._mock_console()
+        mock_get_console.return_value = console
+        mock_run.return_value = MagicMock(returncode=0)
+
+        execute_shell_passthrough("!echo hi")
+
+        # Second print call should contain the context hint
+        second_call = str(console.print.call_args_list[1])
+        assert "Bypassing AI" in second_call
+
+    @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    def test_rich_markup_escaped_in_command(self, mock_get_console, mock_run):
+        """Commands with Rich markup chars should be escaped to prevent injection."""
+        console = self._mock_console()
+        mock_get_console.return_value = console
+        mock_run.return_value = MagicMock(returncode=0)
+
+        # This would break Rich if not escaped
+        execute_shell_passthrough("!echo [bold red]oops[/bold red]")
+
+        # Should not crash, and subprocess should get the raw command
+        assert mock_run.call_args[0][0] == "echo [bold red]oops[/bold red]"
+
+    @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    def test_rich_markup_escaped_in_error(self, mock_get_console, mock_run):
+        """Error messages with Rich markup chars should be escaped."""
+        console = self._mock_console()
+        mock_get_console.return_value = console
+        mock_run.side_effect = OSError("[red]bad[/red]")
+
+        execute_shell_passthrough("!broken")
+
+        # Should not crash — error is escaped
+        last_call = str(console.print.call_args_list[-1])
+        assert "Shell error" in last_call
