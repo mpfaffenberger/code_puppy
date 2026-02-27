@@ -546,19 +546,32 @@ def get_prompt_with_active_model(base: str = ">>> "):
         cwd_display = "~" + cwd[len(home) :]
     else:
         cwd_display = cwd
-    return FormattedText(
-        [
-            ("class:separator", "╭─ "),
-            ("bold", "🐶 "),
-            ("class:puppy", f"{puppy}"),
-            ("", " "),
-            ("class:agent", f"[{agent_display}] "),
-            ("class:model", model_display + " "),
-            ("class:cwd", "(" + str(cwd_display) + ") \n"),
-            ("class:separator", "╰─"),
-            ("class:arrow", "❯ "),
-        ]
-    )
+
+    # Fetch queued prompts if any
+    from code_puppy.cli_runner import PROMPT_QUEUE
+    
+    parts = []
+    if PROMPT_QUEUE:
+        show_prompts = PROMPT_QUEUE[:3]
+        for idx, qp in enumerate(show_prompts):
+            trunc_qp = qp if len(qp) <= 60 else qp[:58] + ".."
+            parts.append(("class:queue-item", f"  [{idx+1}] {trunc_qp}\n"))
+        if len(PROMPT_QUEUE) > 3:
+            parts.append(("class:queue-item", f"  ... and {len(PROMPT_QUEUE)-3} more\n"))
+
+    parts.extend([
+        ("class:separator", "╭─ "),
+        ("bold", "🐶 "),
+        ("class:puppy", f"{puppy}"),
+        ("", " "),
+        ("class:agent", f"[{agent_display}] "),
+        ("class:model", model_display + " "),
+        ("class:cwd", "(" + str(cwd_display) + ") \n"),
+        ("class:separator", "╰─"),
+        ("class:arrow", "❯ "),
+    ])
+    
+    return FormattedText(parts)
 
 
 async def get_input_with_combined_completion(
@@ -822,9 +835,10 @@ async def get_input_with_combined_completion(
             "arrow": "bold ansibrightcyan",
             "separator": "bold ansigray",
             "attachment-placeholder": "italic ansicyan",
+            "queue-item": "italic ansiyellow",
         }
     )
-    with patch_stdout(raw=True):
+    with patch_stdout():
         text = await session.prompt_async(prompt_str, style=style)
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running
