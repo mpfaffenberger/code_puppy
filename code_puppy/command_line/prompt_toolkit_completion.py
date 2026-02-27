@@ -12,6 +12,8 @@ import sys
 from typing import Optional
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.completion import Completer, Completion, merge_completers
 from prompt_toolkit.filters import is_searching
 from prompt_toolkit.formatted_text import FormattedText
@@ -546,13 +548,15 @@ def get_prompt_with_active_model(base: str = ">>> "):
         cwd_display = cwd
     return FormattedText(
         [
+            ("class:separator", "╭─ "),
             ("bold", "🐶 "),
             ("class:puppy", f"{puppy}"),
             ("", " "),
             ("class:agent", f"[{agent_display}] "),
             ("class:model", model_display + " "),
-            ("class:cwd", "(" + str(cwd_display) + ") "),
-            ("class:arrow", str(base)),
+            ("class:cwd", "(" + str(cwd_display) + ") \n"),
+            ("class:separator", "╰─"),
+            ("class:arrow", "❯ "),
         ]
     )
 
@@ -815,11 +819,13 @@ async def get_input_with_combined_completion(
             "agent": "bold ansibrightblue",
             "model": "bold ansibrightcyan",
             "cwd": "bold ansibrightgreen",
-            "arrow": "bold ansibrightblue",
+            "arrow": "bold ansibrightcyan",
+            "separator": "bold ansigray",
             "attachment-placeholder": "italic ansicyan",
         }
     )
-    text = await session.prompt_async(prompt_str, style=style)
+    with patch_stdout(raw=True):
+        text = await session.prompt_async(prompt_str, style=style)
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running
     # and emitting success messages. Now we let all /model commands fall through to

@@ -726,75 +726,21 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 pass
 
         if task.strip():
-            # Write to the secret file for permanent history with timestamp
             save_command_to_history(task)
+            # --- PROTOTYPE BACKGROUND EXECUTION ---
+            async def run_agent_bg(task_text, agent):
+                try:
+                    result, _ = await run_prompt_with_attachments(agent, task_text, spinner_console=None, use_spinner=False)
+                    if result is None: return
+                    from code_puppy.messaging import get_message_bus
+                    from code_puppy.messaging.messages import AgentResponseMessage
+                    get_message_bus().emit(AgentResponseMessage(content=result.output, is_markdown=True))
+                except Exception as e:
+                    pass
 
-            try:
-                # No need to get agent directly - use manager's run methods
-
-                # Use our custom helper to enable attachment handling with spinner support
-                result, current_agent_task = await run_prompt_with_attachments(
-                    current_agent,
-                    task,
-                    spinner_console=message_renderer.console,
-                )
-                # Check if the task was cancelled (but don't show message if we just killed processes)
-                if result is None:
-                    # Windows-specific: Reset terminal state after cancellation
-                    reset_windows_terminal_ansi()
-                    # Re-disable Ctrl+C if needed (uvx mode)
-                    try:
-                        from code_puppy.terminal_utils import ensure_ctrl_c_disabled
-
-                        ensure_ctrl_c_disabled()
-                    except ImportError:
-                        pass
-                    # Stop wiggum mode on cancellation
-                    from code_puppy.command_line.wiggum_state import (
-                        is_wiggum_active,
-                        stop_wiggum,
-                    )
-
-                    if is_wiggum_active():
-                        stop_wiggum()
-                        from code_puppy.messaging import emit_warning
-
-                        emit_warning("🍩 Wiggum loop stopped due to cancellation")
-                    continue
-                # Get the structured response
-                agent_response = result.output
-
-                # Emit structured message for proper markdown rendering
-                from code_puppy.messaging import get_message_bus
-                from code_puppy.messaging.messages import AgentResponseMessage
-
-                response_msg = AgentResponseMessage(
-                    content=agent_response,
-                    is_markdown=True,
-                )
-                get_message_bus().emit(response_msg)
-
-                # Update the agent's message history with the complete conversation
-                # including the final assistant response. The history_processors callback
-                # may not capture the final message, so we use result.all_messages()
-                # to ensure the autosave includes the complete conversation.
-                if hasattr(result, "all_messages"):
-                    current_agent.set_message_history(list(result.all_messages()))
-
-                # Ensure console output is flushed before next prompt
-                # This fixes the issue where prompt doesn't appear after agent response
-                if hasattr(display_console.file, "flush"):
-                    display_console.file.flush()
-
-                await asyncio.sleep(
-                    0.1
-                )  # Brief pause to ensure all messages are rendered
-
-            except Exception:
-                from code_puppy.messaging.queue_console import get_queue_console
-
-                get_queue_console().print_exception()
-
+            import asyncio
+            asyncio.create_task(run_agent_bg(task, current_agent))
+            continue
             # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
             from code_puppy.config import auto_save_session_if_enabled
 
