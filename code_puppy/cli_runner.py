@@ -750,11 +750,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from prompt_toolkit.formatted_text import FormattedText
                 
                 try:
-                    from code_puppy.command_line.prompt_toolkit_completion import get_prompt_with_active_model
-                    action = await get_input_with_combined_completion(
-                        get_prompt_with_active_model(is_interject=True), 
-                        history_file=None
-                    )
+                    from code_puppy.command_line.prompt_toolkit_completion import get_interject_action
+                    action = await get_interject_action()
+                    if not action:
+                        continue
                 except (KeyboardInterrupt, EOFError):
                     continue
 
@@ -769,7 +768,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         if is_wiggum_active():
                             stop_wiggum()
                     # Add current task as the first thing to run next
-                    PROMPT_QUEUE.insert(0, task.strip())
+                    AGENT_IS_RUNNING = False
+                    # We put it at the front of the queue, but setting AGENT_IS_RUNNING=False forces immediate execution without rendering!
+                    PROMPT_QUEUE.insert(0, f"{task.strip()}")
+                    import asyncio
+                    await asyncio.sleep(0.1)  # Give the cancel event a tiny bit of time to settle
                 elif a == 'q':
                     PROMPT_QUEUE.append(task.strip())
                     emit_info(f"Queued (position {len(PROMPT_QUEUE)}): {task.strip()}")

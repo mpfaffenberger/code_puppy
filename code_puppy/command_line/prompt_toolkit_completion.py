@@ -865,6 +865,60 @@ async def get_input_with_combined_completion(
     return text
 
 
+
+async def get_interject_action() -> str:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.patch_stdout import patch_stdout
+
+    bindings = KeyBindings()
+    result = ""
+
+    @bindings.add('i')
+    @bindings.add('I')
+    def _(event):
+        nonlocal result
+        result = 'i'
+        event.app.exit(result='i')
+
+    @bindings.add('q')
+    @bindings.add('Q')
+    def _(event):
+        nonlocal result
+        result = 'q'
+        event.app.exit(result='q')
+
+    @bindings.add('c-c')
+    def _(event):
+        raise KeyboardInterrupt()
+
+    @bindings.add('c-d')
+    def _(event):
+        raise EOFError()
+
+    @bindings.add('<any>')
+    def _(event):
+        # Ignore other keys to simulate a single-character menu
+        pass
+
+    prompt_text = get_prompt_with_active_model(is_interject=True)
+    session = PromptSession(message=prompt_text, key_bindings=bindings)
+    
+    with patch_stdout(raw=True):
+        # We catch the result of app.exit(result=...) via session.prompt_async()
+        try:
+            # We don't actually want them to type anything, just press a key
+            # session.prompt_async returns the text typed if they press enter,
+            # but our keybindings will exit early with the bound result.
+            action = await session.prompt_async()
+            if result:
+                return result
+            return action
+        except (KeyboardInterrupt, EOFError):
+            raise
+
+
+
 if __name__ == "__main__":
     print("Type '@' for path-completion or '/model' to pick a model. Ctrl+D to exit.")
 
