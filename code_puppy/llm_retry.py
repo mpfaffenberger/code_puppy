@@ -38,7 +38,15 @@ def _resolve_max_retries() -> int:
     env = os.environ.get("PUPPY_MAX_LLM_RETRIES")
     if env is not None:
         try:
-            return int(env)
+            value = int(env)
+            if value < 0:
+                logger.warning(
+                    "PUPPY_MAX_LLM_RETRIES=%r must be >= 0, using default %d",
+                    env,
+                    _DEFAULT_MAX_RETRIES,
+                )
+                return _DEFAULT_MAX_RETRIES
+            return value
         except ValueError:
             logger.warning(
                 "PUPPY_MAX_LLM_RETRIES=%r is not a valid integer, using default %d",

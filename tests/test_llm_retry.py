@@ -390,11 +390,16 @@ class TestLLMRunWithRetry:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                raise _make_api_error(429, headers={"retry-after": "0"})
+                raise _make_api_error(429, headers={"retry-after": "1.5"})
             return "ok"
 
-        # We want to verify the header was extracted, not that we waited
-        result = await llm_run_with_retry(factory, config=LLMRetryConfig(max_retries=3))
+        with patch(
+            "code_puppy.llm_retry._compute_backoff", return_value=0.001
+        ) as backoff:
+            result = await llm_run_with_retry(
+                factory, config=LLMRetryConfig(max_retries=3)
+            )
+        backoff.assert_called_once_with(1, 1.5)
         assert result == "ok"
         assert call_count == 2
 
@@ -444,6 +449,13 @@ class TestLLMRunWithRetry:
     async def test_config_invalid_env(self):
         """Invalid env var falls back to default."""
         with patch.dict("os.environ", {"PUPPY_MAX_LLM_RETRIES": "not-a-number"}):
+            config = LLMRetryConfig()
+            assert config.max_retries == 10
+
+    @pytest.mark.asyncio
+    async def test_config_negative_env(self):
+        """Negative env var falls back to default."""
+        with patch.dict("os.environ", {"PUPPY_MAX_LLM_RETRIES": "-3"}):
             config = LLMRetryConfig()
             assert config.max_retries == 10
 
