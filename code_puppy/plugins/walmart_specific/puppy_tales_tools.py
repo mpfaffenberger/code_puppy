@@ -188,9 +188,9 @@ def _get_auth_token() -> str | None:
     """Get the puppy-token for API auth if available."""
     # Try to get from config or environment
     try:
-        from code_puppy.config import get_config
-        config = get_config()
-        return config.get("puppy_token") or os.environ.get("PUPPY_TOKEN")
+        from code_puppy.config import get_value
+        token = get_value("puppy_token")
+        return token or os.environ.get("PUPPY_TOKEN")
     except Exception:
         return os.environ.get("PUPPY_TOKEN")
 
