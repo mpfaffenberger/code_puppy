@@ -775,7 +775,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     # Add current task as the first thing to run next
                     AGENT_IS_RUNNING = False
                     # We put it at the front of the queue, but setting AGENT_IS_RUNNING=False forces immediate execution without rendering!
-                    PROMPT_QUEUE.insert(0, f"{task.strip()}")
+                    PROMPT_QUEUE.insert(0, f"[INTERJECT] {task.strip()}")
                     import asyncio
                     await asyncio.sleep(0.1)  # Give the cancel event a tiny bit of time to settle
                 elif a == 'q':

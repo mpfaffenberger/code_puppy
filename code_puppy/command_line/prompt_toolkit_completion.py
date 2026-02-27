@@ -913,7 +913,7 @@ async def get_interject_action() -> str:
     out = create_output(stdout=sys.stdout)
     if hasattr(out, 'enable_cpr'):
         out.enable_cpr = False
-    session = PromptSession(message=prompt_text, key_bindings=bindings, output=out)
+    session = PromptSession(message=prompt_text, key_bindings=bindings, output=out, erase_when_done=True)
     
     with patch_stdout(raw=True):
         # We catch the result of app.exit(result=...) via session.prompt_async()
