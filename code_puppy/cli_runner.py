@@ -12,6 +12,7 @@ import argparse
 
 AGENT_IS_RUNNING = False
 PROMPT_QUEUE = []
+BG_AGENT_TASK = None
 
 
 import asyncio
@@ -739,6 +740,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 pass
 
         if task.strip():
+            global BG_AGENT_TASK
             # Write to the secret file for permanent history with timestamp
             save_command_to_history(task)
 
@@ -748,8 +750,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from prompt_toolkit.formatted_text import FormattedText
                 
                 try:
+                    from code_puppy.command_line.prompt_toolkit_completion import get_prompt_with_active_model
                     action = await get_input_with_combined_completion(
-                        FormattedText([("bold ansiyellow", "press [i]nterject or [q]ueue: ")]), 
+                        get_prompt_with_active_model(is_interject=True), 
                         history_file=None
                     )
                 except (KeyboardInterrupt, EOFError):
@@ -757,7 +760,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 a = action.strip().lower()
                 if a == 'i':
-                    emit_warning(f"Interjecting with: {task.strip()} (stub)")
+                    emit_warning(f"Interjecting with: {task.strip()}")
+                    if BG_AGENT_TASK and not BG_AGENT_TASK.done():
+                        BG_AGENT_TASK.cancel()
+                        from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
+                        from code_puppy.tools.command_runner import kill_all_running_shell_processes
+                        kill_all_running_shell_processes()
+                        if is_wiggum_active():
+                            stop_wiggum()
+                    # Add current task as the first thing to run next
+                    PROMPT_QUEUE.insert(0, task.strip())
                 elif a == 'q':
                     PROMPT_QUEUE.append(task.strip())
                     emit_info(f"Queued (position {len(PROMPT_QUEUE)}): {task.strip()}")
@@ -837,7 +849,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     AGENT_IS_RUNNING = False
 
             import asyncio
-            asyncio.create_task(run_agent_bg(task, current_agent))
+            BG_AGENT_TASK = asyncio.create_task(run_agent_bg(task, current_agent))
             continue
 
             # Auto-save session if enabled (moved outside the try block to avoid being swallowed)

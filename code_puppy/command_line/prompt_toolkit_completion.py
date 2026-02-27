@@ -514,7 +514,7 @@ class SlashCompleter(Completer):
             )
 
 
-def get_prompt_with_active_model(base: str = ">>> "):
+def get_prompt_with_active_model(base: str = ">>> ", is_interject: bool = False):
     from code_puppy.agents.agent_manager import get_current_agent
 
     puppy = get_puppy_name()
@@ -550,11 +550,20 @@ def get_prompt_with_active_model(base: str = ">>> "):
     # Fetch queued prompts if any
     from code_puppy.cli_runner import PROMPT_QUEUE
     
+    # We add a visual top border using terminal width
+    import shutil
+    term_width = shutil.get_terminal_size().columns
+    sep_line = "─" * term_width
+    
     parts = []
+    
+    # Optional newline to isolate from previous output
+    parts.append(("class:separator", f"\n{sep_line}\n"))
+    
     if PROMPT_QUEUE:
         show_prompts = PROMPT_QUEUE[:3]
         for idx, qp in enumerate(show_prompts):
-            trunc_qp = qp if len(qp) <= 60 else qp[:58] + ".."
+            trunc_qp = qp if len(qp) <= term_width - 10 else qp[:term_width - 12] + ".."
             parts.append(("class:queue-item", f"  [{idx+1}] {trunc_qp}\n"))
         if len(PROMPT_QUEUE) > 3:
             parts.append(("class:queue-item", f"  ... and {len(PROMPT_QUEUE)-3} more\n"))
@@ -567,9 +576,18 @@ def get_prompt_with_active_model(base: str = ">>> "):
         ("class:agent", f"[{agent_display}] "),
         ("class:model", model_display + " "),
         ("class:cwd", "(" + str(cwd_display) + ") \n"),
-        ("class:separator", "╰─"),
-        ("class:arrow", "❯ "),
     ])
+    
+    if is_interject:
+        parts.extend([
+            ("class:separator", "╰─"),
+            ("class:queue-item", "[i]nterject or [q]ueue: "),
+        ])
+    else:
+        parts.extend([
+            ("class:separator", "╰─"),
+            ("class:arrow", "❯ "),
+        ])
     
     return FormattedText(parts)
 
