@@ -877,13 +877,6 @@ async def run_prompt_with_attachments(
         tuple: (result, task) where result is the agent response and task is the asyncio task
     """
     import asyncio
-
-AGENT_IS_RUNNING = False
-PROMPT_QUEUE = []
-
-
-
-
     import re
 
     from code_puppy.messaging import emit_system_message, emit_warning
