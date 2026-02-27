@@ -1949,7 +1949,7 @@ class BaseAgent(ABC):
                     "Try disabling any malfunctioning MCP servers", group_id=group_id
                 )
             except* asyncio.exceptions.CancelledError:
-                emit_info("Cancelled")
+                # We don't print "Cancelled" here anymore so smooth interjections stay clean.
                 if get_use_dbos():
                     await DBOS.cancel_workflow_async(group_id)
             except* InterruptedError as ie:

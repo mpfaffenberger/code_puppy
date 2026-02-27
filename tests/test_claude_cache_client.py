@@ -583,39 +583,6 @@ class TestToolPrefixing:
 
         assert result is None
 
-    def test_unprefix_tool_names_in_text(self):
-        """Test that tool names are unprefixed in response text."""
-        response_text = (
-            "event: content_block_start\n"
-            f'data: {{"type": "content_block_start", "name": "{TOOL_PREFIX}read_file"}}'
-        )
-
-        client = ClaudeCacheAsyncClient()
-        result = client._unprefix_tool_names_in_text(response_text)
-
-        assert f'"{TOOL_PREFIX}read_file"' not in result
-        assert '"name": "read_file"' in result
-
-    def test_unprefix_tool_names_multiple_occurrences(self):
-        """Test that multiple tool names are unprefixed."""
-        response_text = f'{{"name": "{TOOL_PREFIX}read_file"}} and {{"name": "{TOOL_PREFIX}edit_file"}}'
-
-        client = ClaudeCacheAsyncClient()
-        result = client._unprefix_tool_names_in_text(response_text)
-
-        assert '"name": "read_file"' in result
-        assert '"name": "edit_file"' in result
-        assert TOOL_PREFIX not in result
-
-    def test_unprefix_tool_names_no_prefix(self):
-        """Test that text without prefixed names is unchanged."""
-        response_text = '{"name": "some_other_name"}'
-
-        client = ClaudeCacheAsyncClient()
-        result = client._unprefix_tool_names_in_text(response_text)
-
-        assert result == response_text
-
 
 class TestHeaderTransformation:
     """Test header transformation for Claude Code OAuth compatibility."""

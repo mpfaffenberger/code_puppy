@@ -9,6 +9,12 @@ from code_puppy.pydantic_patches import apply_all_patches
 apply_all_patches()
 
 import argparse
+
+AGENT_IS_RUNNING = False
+PROMPT_QUEUE = []
+BG_AGENT_TASK = None
+
+
 import asyncio
 import os
 import sys
@@ -520,65 +526,81 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         current_agent = get_current_agent()
         user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
 
-        emit_info(f"{user_prompt}\n")
-
-        try:
-            # Use prompt_toolkit for enhanced input with path completion
-            try:
-                # Windows-specific: Reset terminal state before prompting
-                reset_windows_terminal_ansi()
-
-                # Use the async version of get_input_with_combined_completion
-                task = await get_input_with_combined_completion(
-                    get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
-                )
-
-                # Windows+uvx: Re-disable Ctrl+C after prompt_toolkit
-                # (prompt_toolkit restores console mode which re-enables Ctrl+C)
-                try:
-                    from code_puppy.terminal_utils import ensure_ctrl_c_disabled
-
-                    ensure_ctrl_c_disabled()
-                except ImportError:
-                    pass
-            except ImportError:
-                # Fall back to basic input if prompt_toolkit is not available
-                task = input(">>> ")
-
-        except KeyboardInterrupt:
-            # Handle Ctrl+C - cancel input and continue
-            # Windows-specific: Reset terminal state after interrupt to prevent
-            # the terminal from becoming unresponsive (can't type characters)
-            reset_windows_terminal_full()
-            # Stop wiggum mode on Ctrl+C
-            from code_puppy.command_line.wiggum_state import (
-                is_wiggum_active,
-                stop_wiggum,
-            )
-            from code_puppy.messaging import emit_warning
-
-            if is_wiggum_active():
-                stop_wiggum()
-                emit_warning("\n🍩 Wiggum loop stopped!")
+        global AGENT_IS_RUNNING, PROMPT_QUEUE
+        if not AGENT_IS_RUNNING and PROMPT_QUEUE:
+            task = PROMPT_QUEUE.pop(0)
+            if task.startswith("[INTERJECT] "):
+                user_text = task[len("[INTERJECT] "):]
+                task = f"[user interjects]: {user_text} - please continue with that in mind"
+                # We do not print anything here for smooth interject, it just runs seamlessly!
             else:
-                emit_warning("\nInput cancelled")
-            continue
-        except EOFError:
-            # Handle Ctrl+D - exit the application
-            from code_puppy.messaging import emit_success
+                from code_puppy.messaging import emit_success
+                emit_success(f"🚀 Executing queued prompt: {task}")
+            import asyncio
+            await asyncio.sleep(0.1)
+        else:
+            if not AGENT_IS_RUNNING:
+                emit_info(f"{user_prompt}\n")
 
-            emit_success("\nGoodbye! (Ctrl+D)")
-
-            # Cancel any running agent task for clean shutdown
-            if current_agent_task and not current_agent_task.done():
-                emit_info("Cancelling running agent task...")
-                current_agent_task.cancel()
+            try:
+                # Use prompt_toolkit for enhanced input with path completion
                 try:
-                    await current_agent_task
-                except asyncio.CancelledError:
-                    pass  # Expected when cancelling
+                    # Windows-specific: Reset terminal state before prompting
+                    reset_windows_terminal_ansi()
 
-            break
+                    # Use the async version of get_input_with_combined_completion
+                    task = await get_input_with_combined_completion(
+                        get_prompt_with_active_model(), 
+                        history_file=COMMAND_HISTORY_FILE,
+                        erase_when_done=AGENT_IS_RUNNING
+                    )
+
+                    # Windows+uvx: Re-disable Ctrl+C after prompt_toolkit
+                    # (prompt_toolkit restores console mode which re-enables Ctrl+C)
+                    try:
+                        from code_puppy.terminal_utils import ensure_ctrl_c_disabled
+
+                        ensure_ctrl_c_disabled()
+                    except ImportError:
+                        pass
+                except ImportError:
+                    # Fall back to basic input if prompt_toolkit is not available
+                    task = input(">>> ")
+
+            except KeyboardInterrupt:
+                # Handle Ctrl+C - cancel input and continue
+                # Windows-specific: Reset terminal state after interrupt to prevent
+                # the terminal from becoming unresponsive (can't type characters)
+                reset_windows_terminal_full()
+                # Stop wiggum mode on Ctrl+C
+                from code_puppy.command_line.wiggum_state import (
+                    is_wiggum_active,
+                    stop_wiggum,
+                )
+                from code_puppy.messaging import emit_warning
+
+                if is_wiggum_active():
+                    stop_wiggum()
+                    emit_warning("\n🍩 Wiggum loop stopped!")
+                else:
+                    emit_warning("\nInput cancelled")
+                continue
+            except EOFError:
+                # Handle Ctrl+D - exit the application
+                from code_puppy.messaging import emit_success
+
+                emit_success("\nGoodbye! (Ctrl+D)")
+
+                # Cancel any running agent task for clean shutdown
+                if current_agent_task and not current_agent_task.done():
+                    emit_info("Cancelling running agent task...")
+                    current_agent_task.cancel()
+                    try:
+                        await current_agent_task
+                    except asyncio.CancelledError:
+                        pass  # Expected when cancelling
+
+                break
 
         # Check for exit commands (plain text or command form)
         if task.strip().lower() in ["exit", "quit"] or task.strip().lower() in [
@@ -726,74 +748,121 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 pass
 
         if task.strip():
+            global BG_AGENT_TASK
             # Write to the secret file for permanent history with timestamp
             save_command_to_history(task)
 
-            try:
-                # No need to get agent directly - use manager's run methods
-
-                # Use our custom helper to enable attachment handling with spinner support
-                result, current_agent_task = await run_prompt_with_attachments(
-                    current_agent,
-                    task,
-                    spinner_console=message_renderer.console,
-                )
-                # Check if the task was cancelled (but don't show message if we just killed processes)
-                if result is None:
-                    # Windows-specific: Reset terminal state after cancellation
-                    reset_windows_terminal_ansi()
-                    # Re-disable Ctrl+C if needed (uvx mode)
-                    try:
-                        from code_puppy.terminal_utils import ensure_ctrl_c_disabled
-
-                        ensure_ctrl_c_disabled()
-                    except ImportError:
-                        pass
-                    # Stop wiggum mode on cancellation
-                    from code_puppy.command_line.wiggum_state import (
-                        is_wiggum_active,
-                        stop_wiggum,
-                    )
-
-                    if is_wiggum_active():
-                        stop_wiggum()
-                        from code_puppy.messaging import emit_warning
-
-                        emit_warning("🍩 Wiggum loop stopped due to cancellation")
+            if AGENT_IS_RUNNING:
+                from code_puppy.messaging import emit_warning, emit_info
+                from code_puppy.command_line.prompt_toolkit_completion import get_input_with_combined_completion
+                from prompt_toolkit.formatted_text import FormattedText
+                
+                try:
+                    from code_puppy.command_line.prompt_toolkit_completion import get_interject_action
+                    action = await get_interject_action()
+                    if not action:
+                        continue
+                except (KeyboardInterrupt, EOFError):
                     continue
-                # Get the structured response
-                agent_response = result.output
 
-                # Emit structured message for proper markdown rendering
-                from code_puppy.messaging import get_message_bus
-                from code_puppy.messaging.messages import AgentResponseMessage
+                a = action.strip().lower()
+                if a == 'i':
+                    from rich.console import Console
+                    Console().print(f"\n[bold bright_red]Interjecting with:[/bold bright_red] [red]{task.strip()}[/red]")
+                    if BG_AGENT_TASK and not BG_AGENT_TASK.done():
+                        BG_AGENT_TASK.cancel()
+                        from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
+                        from code_puppy.tools.command_runner import kill_all_running_shell_processes
+                        kill_all_running_shell_processes()
+                        if is_wiggum_active():
+                            stop_wiggum()
+                    # Add current task as the first thing to run next
+                    AGENT_IS_RUNNING = False
+                    # We put it at the front of the queue, but setting AGENT_IS_RUNNING=False forces immediate execution without rendering!
+                    PROMPT_QUEUE.insert(0, f"[INTERJECT] {task.strip()}")
+                    import asyncio
+                    await asyncio.sleep(0.1)  # Give the cancel event a tiny bit of time to settle
+                elif a == 'q':
+                    PROMPT_QUEUE.append(task.strip())
+                    emit_info(f"Queued (position {len(PROMPT_QUEUE)}): {task.strip()}")
+                else:
+                    emit_warning("Cancelled action.")
+                continue
 
-                response_msg = AgentResponseMessage(
-                    content=agent_response,
-                    is_markdown=True,
-                )
-                get_message_bus().emit(response_msg)
+            async def run_agent_bg(task_text, agent):
+                global AGENT_IS_RUNNING
+                AGENT_IS_RUNNING = True
+                try:
+                    # No need to get agent directly - use manager's run methods
 
-                # Update the agent's message history with the complete conversation
-                # including the final assistant response. The history_processors callback
-                # may not capture the final message, so we use result.all_messages()
-                # to ensure the autosave includes the complete conversation.
-                if hasattr(result, "all_messages"):
-                    current_agent.set_message_history(list(result.all_messages()))
+                    # Use our custom helper to enable attachment handling with spinner support
+                    result, current_agent_task = await run_prompt_with_attachments(
+                        current_agent,
+                        task,
+                        spinner_console=message_renderer.console,
+                    )
+                    # Check if the task was cancelled (but don't show message if we just killed processes)
+                    if result is None:
+                        # Windows-specific: Reset terminal state after cancellation
+                        reset_windows_terminal_ansi()
+                        # Re-disable Ctrl+C if needed (uvx mode)
+                        try:
+                            from code_puppy.terminal_utils import ensure_ctrl_c_disabled
 
-                # Ensure console output is flushed before next prompt
-                # This fixes the issue where prompt doesn't appear after agent response
-                if hasattr(display_console.file, "flush"):
-                    display_console.file.flush()
+                            ensure_ctrl_c_disabled()
+                        except ImportError:
+                            pass
+                        # Stop wiggum mode on cancellation
+                        from code_puppy.command_line.wiggum_state import (
+                            is_wiggum_active,
+                            stop_wiggum,
+                        )
 
-                await asyncio.sleep(
-                    0.1
-                )  # Brief pause to ensure all messages are rendered
+                        if is_wiggum_active():
+                            stop_wiggum()
+                            from code_puppy.messaging import emit_warning
 
-            except Exception:
-                from code_puppy.messaging.queue_console import get_queue_console
+                            emit_warning("🍩 Wiggum loop stopped due to cancellation")
+                        return
+                    # Get the structured response
+                    agent_response = result.output
 
-                get_queue_console().print_exception()
+                    # Emit structured message for proper markdown rendering
+                    from code_puppy.messaging import get_message_bus
+                    from code_puppy.messaging.messages import AgentResponseMessage
+
+                    response_msg = AgentResponseMessage(
+                        content=agent_response,
+                        is_markdown=True,
+                    )
+                    get_message_bus().emit(response_msg)
+
+                    # Update the agent's message history with the complete conversation
+                    # including the final assistant response. The history_processors callback
+                    # may not capture the final message, so we use result.all_messages()
+                    # to ensure the autosave includes the complete conversation.
+                    if hasattr(result, "all_messages"):
+                        current_agent.set_message_history(list(result.all_messages()))
+
+                    # Ensure console output is flushed before next prompt
+                    # This fixes the issue where prompt doesn't appear after agent response
+                    if hasattr(display_console.file, "flush"):
+                        display_console.file.flush()
+
+                    await asyncio.sleep(
+                        0.1
+                    )  # Brief pause to ensure all messages are rendered
+
+                except Exception:
+                    from code_puppy.messaging.queue_console import get_queue_console
+
+                    get_queue_console().print_exception()
+                finally:
+                    AGENT_IS_RUNNING = False
+
+            import asyncio
+            BG_AGENT_TASK = asyncio.create_task(run_agent_bg(task, current_agent))
+            continue
 
             # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
             from code_puppy.config import auto_save_session_if_enabled

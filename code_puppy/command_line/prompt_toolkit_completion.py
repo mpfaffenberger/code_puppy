@@ -12,6 +12,8 @@ import sys
 from typing import Optional
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.completion import Completer, Completion, merge_completers
 from prompt_toolkit.filters import is_searching
 from prompt_toolkit.formatted_text import FormattedText
@@ -512,7 +514,7 @@ class SlashCompleter(Completer):
             )
 
 
-def get_prompt_with_active_model(base: str = ">>> "):
+def get_prompt_with_active_model(base: str = ">>> ", is_interject: bool = False):
     from code_puppy.agents.agent_manager import get_current_agent
 
     puppy = get_puppy_name()
@@ -544,21 +546,56 @@ def get_prompt_with_active_model(base: str = ">>> "):
         cwd_display = "~" + cwd[len(home) :]
     else:
         cwd_display = cwd
-    return FormattedText(
-        [
-            ("bold", "🐶 "),
-            ("class:puppy", f"{puppy}"),
-            ("", " "),
-            ("class:agent", f"[{agent_display}] "),
-            ("class:model", model_display + " "),
-            ("class:cwd", "(" + str(cwd_display) + ") "),
-            ("class:arrow", str(base)),
-        ]
-    )
+
+    # Fetch queued prompts if any
+    from code_puppy.cli_runner import PROMPT_QUEUE
+    
+    # We add a visual top border using terminal width
+    import shutil
+    term_width = shutil.get_terminal_size().columns
+    sep_line = "─" * term_width
+    
+    parts = []
+    
+    # Optional newline to isolate from previous output
+    parts.append(("class:separator", f"\n{sep_line}\n"))
+    
+    if PROMPT_QUEUE:
+        show_prompts = PROMPT_QUEUE[:3]
+        for idx, qp in enumerate(show_prompts):
+            trunc_qp = qp if len(qp) <= term_width - 10 else qp[:term_width - 12] + ".."
+            parts.append(("class:queue-item", f"  [{idx+1}] {trunc_qp}\n"))
+        if len(PROMPT_QUEUE) > 3:
+            parts.append(("class:queue-item", f"  ... and {len(PROMPT_QUEUE)-3} more\n"))
+
+    parts.extend([
+        ("class:separator", "╭─ "),
+        ("bold", "🐶 "),
+        ("class:puppy", f"{puppy}"),
+        ("", " "),
+        ("class:agent", f"[{agent_display}] "),
+        ("class:model", model_display + " "),
+        ("class:cwd", "(" + str(cwd_display) + ") \n"),
+    ])
+    
+    if is_interject:
+        # Add hint above the prompt line to keep the cursor position consistent
+        parts.append(("class:queue-item", "  [i]nterject or [q]ueue\n"))
+        parts.extend([
+            ("class:separator", "╰─"),
+            ("class:arrow", "❯ "),
+        ])
+    else:
+        parts.extend([
+            ("class:separator", "╰─"),
+            ("class:arrow", "❯ "),
+        ])
+    
+    return FormattedText(parts)
 
 
 async def get_input_with_combined_completion(
-    prompt_str=">>> ", history_file: Optional[str] = None
+    prompt_str=">>> ", history_file: Optional[str] = None, erase_when_done: bool = False
 ) -> str:
     # Use SafeFileHistory to handle encoding errors gracefully on Windows
     history = SafeFileHistory(history_file) if history_file else None
@@ -794,12 +831,19 @@ async def get_input_with_combined_completion(
             event.app.current_buffer.insert_text("[❌ clipboard error] ")
             event.app.output.bell()
 
+    from prompt_toolkit.output.defaults import create_output
+    import sys
+    out = create_output(stdout=sys.stdout)
+    if hasattr(out, 'enable_cpr'):
+        out.enable_cpr = False
     session = PromptSession(
         completer=completer,
         history=history,
         complete_while_typing=True,
         key_bindings=bindings,
         input_processors=[AttachmentPlaceholderProcessor()],
+        output=out,
+        erase_when_done=erase_when_done
     )
     # If they pass a string, backward-compat: convert it to formatted_text
     if isinstance(prompt_str, str):
@@ -815,16 +859,103 @@ async def get_input_with_combined_completion(
             "agent": "bold ansibrightblue",
             "model": "bold ansibrightcyan",
             "cwd": "bold ansibrightgreen",
-            "arrow": "bold ansibrightblue",
+            "arrow": "bold ansibrightcyan",
+            "separator": "bold ansigray",
             "attachment-placeholder": "italic ansicyan",
+            "queue-item": "italic ansiyellow",
         }
     )
-    text = await session.prompt_async(prompt_str, style=style)
+    with patch_stdout(raw=True):
+        text = await session.prompt_async(prompt_str, style=style)
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running
     # and emitting success messages. Now we let all /model commands fall through to
     # the command handler in main.py for consistent handling.
     return text
+
+
+
+async def get_interject_action() -> str:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.patch_stdout import patch_stdout
+    from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
+
+    bindings = KeyBindings()
+    result = ""
+
+    @bindings.add('i')
+    @bindings.add('I')
+    def _(event):
+        nonlocal result
+        result = 'i'
+        event.app.exit(result='i')
+
+    @bindings.add('q')
+    @bindings.add('Q')
+    def _(event):
+        nonlocal result
+        result = 'q'
+        event.app.exit(result='q')
+
+    @bindings.add('c-c')
+    def _(event):
+        raise KeyboardInterrupt()
+
+    @bindings.add('c-d')
+    def _(event):
+        raise EOFError()
+
+    @bindings.add('<any>')
+    def _(event):
+        # Ignore other keys to simulate a single-character menu
+        pass
+
+    prompt_text = get_prompt_with_active_model(is_interject=True)
+    from prompt_toolkit.output.defaults import create_output
+    import sys
+    out = create_output(stdout=sys.stdout)
+    if hasattr(out, 'enable_cpr'):
+        out.enable_cpr = False
+    session = PromptSession(
+        message=prompt_text, 
+        key_bindings=bindings, 
+        output=out, 
+        erase_when_done=True
+    )
+    
+    from prompt_toolkit.styles import Style
+    style = Style.from_dict({
+        "puppy": "bold ansibrightcyan",
+        "owner": "bold ansibrightblue",
+        "agent": "bold ansibrightblue",
+        "model": "bold ansibrightcyan",
+        "cwd": "bold ansibrightgreen",
+        "arrow": "bold ansibrightcyan",
+        "separator": "bold ansigray",
+        "attachment-placeholder": "italic ansicyan",
+        "queue-item": "italic ansiyellow",
+    })
+    
+    with patch_stdout(raw=True):
+        # We catch the result of app.exit(result=...) via session.prompt_async()
+        try:
+            # Pause spinners to prevent jitter and allow clean input
+            pause_all_spinners()
+            
+            # We don't actually want them to type anything, just press a key
+            # session.prompt_async returns the text typed if they press enter,
+            # but our keybindings will exit early with the bound result.
+            action = await session.prompt_async(style=style)
+            if result:
+                return result
+            return action
+        except (KeyboardInterrupt, EOFError):
+            raise
+        finally:
+            # Resume spinners when done
+            resume_all_spinners()
+
 
 
 if __name__ == "__main__":

@@ -190,6 +190,10 @@ def patch_tool_call_callbacks() -> None:
 
         _original_call_tool = ToolManager._call_tool
 
+        # Tool name prefix used by Claude Code OAuth - tools are prefixed on
+        # outgoing requests, so we need to unprefix them when they come back
+        TOOL_PREFIX = "cp_"
+
         async def _patched_call_tool(
             self,
             call,
@@ -200,6 +204,22 @@ def patch_tool_call_callbacks() -> None:
             metadata: Any = None,
         ):
             tool_name = call.tool_name
+
+            # Unprefix tool names from Claude Code OAuth responses
+            # The cp_ prefix is added for OAuth compatibility but needs to be
+            # stripped so pydantic-ai can find the actual tool
+            if tool_name and tool_name.startswith(TOOL_PREFIX):
+                unprefixed_name = tool_name[len(TOOL_PREFIX) :]
+                # Try to update the call object's tool_name
+                try:
+                    call.tool_name = unprefixed_name
+                    tool_name = unprefixed_name
+                except (AttributeError, TypeError):
+                    # If the object is immutable, we can't modify it directly
+                    # The tool lookup might still fail, but at least callbacks
+                    # will use the unprefixed name
+                    tool_name = unprefixed_name
+
             # Normalise args to a dict for the callback contract
             tool_args: dict = {}
             if isinstance(call.args, dict):
@@ -220,15 +240,29 @@ def patch_tool_call_callbacks() -> None:
                 from code_puppy import callbacks
                 from code_puppy.messaging import emit_warning
 
-                callback_results = await callbacks.on_pre_tool_call(tool_name, tool_args)
+                callback_results = await callbacks.on_pre_tool_call(
+                    tool_name, tool_args
+                )
 
                 for callback_result in callback_results:
-                    if callback_result and isinstance(callback_result, dict) and callback_result.get("blocked"):
-                        raw_reason = callback_result.get("error_message") or callback_result.get("reason") or ""
+                    if (
+                        callback_result
+                        and isinstance(callback_result, dict)
+                        and callback_result.get("blocked")
+                    ):
+                        raw_reason = (
+                            callback_result.get("error_message")
+                            or callback_result.get("reason")
+                            or ""
+                        )
                         if "[BLOCKED]" in raw_reason:
-                            clean_reason = raw_reason[raw_reason.index("[BLOCKED]"):].strip()
+                            clean_reason = raw_reason[
+                                raw_reason.index("[BLOCKED]") :
+                            ].strip()
                         else:
-                            clean_reason = raw_reason.strip() or "Tool execution blocked by hook"
+                            clean_reason = (
+                                raw_reason.strip() or "Tool execution blocked by hook"
+                            )
                         block_msg = f"🚫 Hook blocked this tool call: {clean_reason}"
                         emit_warning(block_msg)
                         return f"ERROR: {block_msg}\n\nThe hook policy prevented this tool from running. Please inform the user and do not retry this specific command."
