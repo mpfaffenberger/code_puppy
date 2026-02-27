@@ -529,8 +529,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         global AGENT_IS_RUNNING, PROMPT_QUEUE
         if not AGENT_IS_RUNNING and PROMPT_QUEUE:
             task = PROMPT_QUEUE.pop(0)
-            from code_puppy.messaging import emit_success
-            emit_success(f"🚀 Executing queued prompt: {task}")
+            if task.startswith("[INTERJECT] "):
+                task = task[len("[INTERJECT] "):]
+                # We do not print anything here for smooth interject, it just runs seamlessly!
+            else:
+                from code_puppy.messaging import emit_success
+                emit_success(f"🚀 Executing queued prompt: {task}")
             import asyncio
             await asyncio.sleep(0.1)
         else:

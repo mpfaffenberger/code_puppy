@@ -829,12 +829,18 @@ async def get_input_with_combined_completion(
             event.app.current_buffer.insert_text("[❌ clipboard error] ")
             event.app.output.bell()
 
+    from prompt_toolkit.output.defaults import create_output
+    import sys
+    out = create_output(stdout=sys.stdout)
+    if hasattr(out, 'enable_cpr'):
+        out.enable_cpr = False
     session = PromptSession(
         completer=completer,
         history=history,
         complete_while_typing=True,
         key_bindings=bindings,
         input_processors=[AttachmentPlaceholderProcessor()],
+        output=out
     )
     # If they pass a string, backward-compat: convert it to formatted_text
     if isinstance(prompt_str, str):
@@ -902,7 +908,12 @@ async def get_interject_action() -> str:
         pass
 
     prompt_text = get_prompt_with_active_model(is_interject=True)
-    session = PromptSession(message=prompt_text, key_bindings=bindings)
+    from prompt_toolkit.output.defaults import create_output
+    import sys
+    out = create_output(stdout=sys.stdout)
+    if hasattr(out, 'enable_cpr'):
+        out.enable_cpr = False
+    session = PromptSession(message=prompt_text, key_bindings=bindings, output=out)
     
     with patch_stdout(raw=True):
         # We catch the result of app.exit(result=...) via session.prompt_async()
