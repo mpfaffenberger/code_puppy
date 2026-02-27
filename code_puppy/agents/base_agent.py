@@ -37,6 +37,12 @@ from pydantic_ai import (
     UsageLimitExceeded,
     UsageLimits,
 )
+
+from code_puppy.llm_retry import (
+    LLMRetryConfig,
+    RetryExhaustedError,
+    llm_run_with_retry,
+)
 from pydantic_ai.durable_exec.dbos import DBOSAgent
 from pydantic_ai.messages import (
     ModelMessage,
@@ -1890,6 +1896,7 @@ class BaseAgent(ABC):
                         )
 
                 usage_limits = UsageLimits(request_limit=get_message_limit())
+                retry_config = LLMRetryConfig()
 
                 # Handle MCP servers - add them temporarily when using DBOS
                 if (
@@ -1905,12 +1912,15 @@ class BaseAgent(ABC):
                     try:
                         # Set the workflow ID for DBOS context so DBOS and Code Puppy ID match
                         with SetWorkflowID(group_id):
-                            result_ = await pydantic_agent.run(
-                                prompt_payload,
-                                message_history=self.get_message_history(),
-                                usage_limits=usage_limits,
-                                event_stream_handler=event_stream_handler,
-                                **kwargs,
+                            result_ = await llm_run_with_retry(
+                                lambda: pydantic_agent.run(
+                                    prompt_payload,
+                                    message_history=self.get_message_history(),
+                                    usage_limits=usage_limits,
+                                    event_stream_handler=event_stream_handler,
+                                    **kwargs,
+                                ),
+                                config=retry_config,
                             )
                             return result_
                     finally:
@@ -1918,28 +1928,44 @@ class BaseAgent(ABC):
                         pydantic_agent._toolsets = original_toolsets
                 elif get_use_dbos():
                     with SetWorkflowID(group_id):
-                        result_ = await pydantic_agent.run(
+                        result_ = await llm_run_with_retry(
+                            lambda: pydantic_agent.run(
+                                prompt_payload,
+                                message_history=self.get_message_history(),
+                                usage_limits=usage_limits,
+                                event_stream_handler=event_stream_handler,
+                                **kwargs,
+                            ),
+                            config=retry_config,
+                        )
+                        return result_
+                else:
+                    # Non-DBOS path (MCP servers are already included)
+                    result_ = await llm_run_with_retry(
+                        lambda: pydantic_agent.run(
                             prompt_payload,
                             message_history=self.get_message_history(),
                             usage_limits=usage_limits,
                             event_stream_handler=event_stream_handler,
                             **kwargs,
-                        )
-                        return result_
-                else:
-                    # Non-DBOS path (MCP servers are already included)
-                    result_ = await pydantic_agent.run(
-                        prompt_payload,
-                        message_history=self.get_message_history(),
-                        usage_limits=usage_limits,
-                        event_stream_handler=event_stream_handler,
-                        **kwargs,
+                        ),
+                        config=retry_config,
                     )
                     return result_
             except* UsageLimitExceeded as ule:
                 emit_info(f"Usage limit exceeded: {str(ule)}", group_id=group_id)
                 emit_info(
                     "The agent has reached its usage limit. You can ask it to continue by saying 'please continue' or similar.",
+                    group_id=group_id,
+                )
+            except* RetryExhaustedError as retry_error:
+                emit_info(
+                    f"API request failed after retries: {str(retry_error)}",
+                    group_id=group_id,
+                )
+                emit_info(
+                    "The API may be experiencing high load. Try again in a moment, "
+                    "or switch models with /model.",
                     group_id=group_id,
                 )
             except* mcp.shared.exceptions.McpError as mcp_error:
