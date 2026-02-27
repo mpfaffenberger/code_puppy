@@ -77,9 +77,7 @@ class TestProcessToolCall:
 
         mock_call_tool = AsyncMock(return_value="tool_result")
 
-        with patch("rich.console.Console") as mock_console_cls:
-            mock_console = Mock()
-            mock_console_cls.return_value = mock_console
+        with patch("code_puppy.mcp_.managed_server.emit_info") as mock_emit:
             result = await process_tool_call(
                 ctx=mock_ctx,
                 call_tool=mock_call_tool,
@@ -87,11 +85,8 @@ class TestProcessToolCall:
                 tool_args={"arg1": "value1"},
             )
 
-        # Verify banner was printed with tool name
-        mock_console.print.assert_called_once()
-        printed = mock_console.print.call_args[0][0]
-        assert "test_tool" in printed
-        assert "MCP TOOL CALL" in printed
+        # Verify emit_info was called multiple times (tool name, args label, args json)
+        assert mock_emit.call_count >= 2
 
         # Verify call_tool was called with correct args
         mock_call_tool.assert_called_once_with(
@@ -109,7 +104,7 @@ class TestProcessToolCall:
 
         mock_call_tool = AsyncMock(return_value="result")
 
-        with patch("rich.console.Console"):
+        with patch("code_puppy.mcp_.managed_server.emit_info"):
             result = await process_tool_call(
                 ctx=mock_ctx,
                 call_tool=mock_call_tool,

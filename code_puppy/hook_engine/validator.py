@@ -53,7 +53,9 @@ def validate_hooks_config(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
 
         for i, group in enumerate(hook_groups):
             if not isinstance(group, dict):
-                errors.append(f"'{event_type}[{i}]' must be a dict with 'matcher' and 'hooks'")
+                errors.append(
+                    f"'{event_type}[{i}]' must be a dict with 'matcher' and 'hooks'"
+                )
                 continue
 
             if "matcher" not in group:
@@ -74,8 +76,9 @@ def validate_hooks_config(config: Dict[str, Any]) -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors
 
 
-def _validate_hook(event_type: str, group_idx: int, hook_idx: int,
-                   hook: Any) -> List[str]:
+def _validate_hook(
+    event_type: str, group_idx: int, hook_idx: int, hook: Any
+) -> List[str]:
     errors: List[str] = []
     prefix = f"'{event_type}[{group_idx}].hooks[{hook_idx}]'"
 
@@ -86,7 +89,9 @@ def _validate_hook(event_type: str, group_idx: int, hook_idx: int,
     if not hook_type:
         errors.append(f"{prefix} missing required field 'type'")
     elif hook_type not in VALID_HOOK_TYPES:
-        errors.append(f"{prefix} invalid type '{hook_type}'. Must be one of: {', '.join(VALID_HOOK_TYPES)}")
+        errors.append(
+            f"{prefix} invalid type '{hook_type}'. Must be one of: {', '.join(VALID_HOOK_TYPES)}"
+        )
 
     if hook_type == "command" and not hook.get("command"):
         errors.append(f"{prefix} missing required field 'command' for type 'command'")
@@ -103,8 +108,9 @@ def _validate_hook(event_type: str, group_idx: int, hook_idx: int,
     return errors
 
 
-def format_validation_report(is_valid: bool, errors: List[str],
-                              suggestions: Optional[List[str]] = None) -> str:
+def format_validation_report(
+    is_valid: bool, errors: List[str], suggestions: Optional[List[str]] = None
+) -> str:
     lines = []
     if is_valid:
         lines.append("✓ Configuration is valid")
@@ -121,15 +127,12 @@ def format_validation_report(is_valid: bool, errors: List[str],
     return "\n".join(lines)
 
 
-def get_config_suggestions(config: Dict[str, Any],
-                           errors: List[str]) -> List[str]:
+def get_config_suggestions(config: Dict[str, Any], errors: List[str]) -> List[str]:
     suggestions: List[str] = []
 
     for error in errors:
         if "Unknown event type" in error:
-            suggestions.append(
-                "Valid event types are: " + ", ".join(VALID_EVENT_TYPES)
-            )
+            suggestions.append("Valid event types are: " + ", ".join(VALID_EVENT_TYPES))
             break
 
     if any("missing required field 'command'" in e for e in errors):

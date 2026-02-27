@@ -1,7 +1,8 @@
 """Tests for hook engine main class."""
 
 import pytest
-from code_puppy.hook_engine import HookEngine, HookConfig, EventData
+
+from code_puppy.hook_engine import EventData, HookConfig, HookEngine
 
 
 class TestHookEngineInit:
@@ -43,7 +44,12 @@ class TestProcessEvent:
     async def test_matching_hook_executes(self):
         config = {
             "PreToolUse": [
-                {"matcher": "*", "hooks": [{"type": "command", "command": "echo test", "timeout": 2000}]}
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {"type": "command", "command": "echo test", "timeout": 2000}
+                    ],
+                }
             ]
         }
         engine = HookEngine(config)
@@ -55,7 +61,12 @@ class TestProcessEvent:
     async def test_blocking_hook(self):
         config = {
             "PreToolUse": [
-                {"matcher": "*", "hooks": [{"type": "command", "command": "exit 1", "timeout": 2000}]}
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {"type": "command", "command": "exit 1", "timeout": 2000}
+                    ],
+                }
             ]
         }
         engine = HookEngine(config)
@@ -67,7 +78,12 @@ class TestProcessEvent:
     async def test_non_matching_hook_skipped(self):
         config = {
             "PreToolUse": [
-                {"matcher": "Bash", "hooks": [{"type": "command", "command": "exit 1", "timeout": 2000}]}
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {"type": "command", "command": "exit 1", "timeout": 2000}
+                    ],
+                }
             ]
         }
         engine = HookEngine(config)
@@ -79,7 +95,17 @@ class TestProcessEvent:
     async def test_once_per_session_hook(self):
         config = {
             "PreToolUse": [
-                {"matcher": "*", "hooks": [{"type": "command", "command": "echo once", "timeout": 2000, "once": True}]}
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "echo once",
+                            "timeout": 2000,
+                            "once": True,
+                        }
+                    ],
+                }
             ]
         }
         engine = HookEngine(config)
@@ -94,10 +120,13 @@ class TestProcessEvent:
     async def test_multiple_hooks_sequential(self):
         config = {
             "PreToolUse": [
-                {"matcher": "*", "hooks": [
-                    {"type": "command", "command": "echo first", "timeout": 2000},
-                    {"type": "command", "command": "echo second", "timeout": 2000},
-                ]}
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {"type": "command", "command": "echo first", "timeout": 2000},
+                        {"type": "command", "command": "echo second", "timeout": 2000},
+                    ],
+                }
             ]
         }
         engine = HookEngine(config)

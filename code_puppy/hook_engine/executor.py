@@ -20,8 +20,8 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
-from .models import HookConfig, EventData, ExecutionResult
 from .matcher import _extract_file_path
+from .models import EventData, ExecutionResult, HookConfig
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,7 @@ def _build_stdin_payload(event_data: EventData) -> bytes:
         "permission_mode": "default"
     }
     """
+
     def _make_serializable(obj: Any) -> Any:
         if isinstance(obj, dict):
             return {k: _make_serializable(v) for k, v in obj.items()}
@@ -192,7 +193,7 @@ def _substitute_variables(
     result = command
     for var, value in substitutions.items():
         result = result.replace(f"${{{var}}}", str(value))
-        result = re.sub(rf'\${re.escape(var)}(?=\W|$)', str(value), result)
+        result = re.sub(rf"\${re.escape(var)}(?=\W|$)", str(value), result)
     return result
 
 
@@ -228,16 +229,18 @@ async def execute_hooks_parallel(
     final_results = []
     for i, result in enumerate(results):
         if isinstance(result, Exception):
-            final_results.append(ExecutionResult(
-                blocked=False,
-                hook_command=hooks[i].command,
-                stdout="",
-                stderr=str(result),
-                exit_code=-1,
-                duration_ms=0.0,
-                error=f"Hook execution failed: {result}",
-                hook_id=hooks[i].id,
-            ))
+            final_results.append(
+                ExecutionResult(
+                    blocked=False,
+                    hook_command=hooks[i].command,
+                    stdout="",
+                    stderr=str(result),
+                    exit_code=-1,
+                    duration_ms=0.0,
+                    error=f"Hook execution failed: {result}",
+                    hook_id=hooks[i].id,
+                )
+            )
         else:
             final_results.append(result)
     return final_results

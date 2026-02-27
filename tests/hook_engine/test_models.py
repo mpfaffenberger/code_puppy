@@ -1,11 +1,11 @@
 """Tests for hook engine models."""
 
 import pytest
+
 from code_puppy.hook_engine.models import (
-    HookConfig,
     EventData,
     ExecutionResult,
-    HookGroup,
+    HookConfig,
     HookRegistry,
     ProcessEventResult,
 )
@@ -47,7 +47,9 @@ class TestHookConfig:
         assert hook1.id == hook2.id
 
     def test_custom_id(self):
-        hook = HookConfig(matcher="*", type="command", command="echo test", id="custom-id")
+        hook = HookConfig(
+            matcher="*", type="command", command="echo test", id="custom-id"
+        )
         assert hook.id == "custom-id"
 
     def test_different_commands_different_ids(self):
@@ -91,8 +93,11 @@ class TestExecutionResult:
 
     def test_blocked_result(self):
         result = ExecutionResult(
-            blocked=True, hook_command="exit 1", stderr="blocked", exit_code=1,
-            error="blocked"
+            blocked=True,
+            hook_command="exit 1",
+            stderr="blocked",
+            exit_code=1,
+            error="blocked",
         )
         assert result.success is False
         assert result.blocked is True
@@ -121,7 +126,9 @@ class TestHookRegistry:
 
     def test_disabled_hook_filtered(self):
         registry = HookRegistry()
-        hook = HookConfig(matcher="*", type="command", command="echo test", enabled=False)
+        hook = HookConfig(
+            matcher="*", type="command", command="echo test", enabled=False
+        )
         registry.add_hook("PreToolUse", hook)
         hooks = registry.get_hooks_for_event("PreToolUse")
         assert len(hooks) == 0
@@ -149,9 +156,15 @@ class TestHookRegistry:
 
     def test_count_hooks(self):
         registry = HookRegistry()
-        registry.add_hook("PreToolUse", HookConfig(matcher="*", type="command", command="echo 1"))
-        registry.add_hook("PreToolUse", HookConfig(matcher="*", type="command", command="echo 2"))
-        registry.add_hook("PostToolUse", HookConfig(matcher="*", type="command", command="echo 3"))
+        registry.add_hook(
+            "PreToolUse", HookConfig(matcher="*", type="command", command="echo 1")
+        )
+        registry.add_hook(
+            "PreToolUse", HookConfig(matcher="*", type="command", command="echo 2")
+        )
+        registry.add_hook(
+            "PostToolUse", HookConfig(matcher="*", type="command", command="echo 3")
+        )
         assert registry.count_hooks() == 3
         assert registry.count_hooks("PreToolUse") == 2
         assert registry.count_hooks("PostToolUse") == 1
@@ -181,14 +194,20 @@ class TestProcessEventResult:
             ExecutionResult(blocked=False, hook_command="cmd1", exit_code=0),
             ExecutionResult(blocked=False, hook_command="cmd2", exit_code=0),
         ]
-        event_result = ProcessEventResult(blocked=False, executed_hooks=2, results=results)
+        event_result = ProcessEventResult(
+            blocked=False, executed_hooks=2, results=results
+        )
         assert event_result.all_successful is True
 
     def test_not_all_successful(self):
         results = [
             ExecutionResult(blocked=False, hook_command="cmd1", exit_code=0),
-            ExecutionResult(blocked=True, hook_command="cmd2", exit_code=1, error="fail"),
+            ExecutionResult(
+                blocked=True, hook_command="cmd2", exit_code=1, error="fail"
+            ),
         ]
-        event_result = ProcessEventResult(blocked=True, executed_hooks=2, results=results)
+        event_result = ProcessEventResult(
+            blocked=True, executed_hooks=2, results=results
+        )
         assert event_result.all_successful is False
         assert len(event_result.failed_hooks) == 1

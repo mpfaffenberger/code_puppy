@@ -6,17 +6,20 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
+from .executor import execute_hooks_sequential, get_blocking_result
+from .matcher import matches
 from .models import (
     EventData,
-    ExecutionResult,
     HookConfig,
     HookRegistry,
     ProcessEventResult,
 )
-from .matcher import matches
-from .executor import execute_hook, execute_hooks_sequential, get_blocking_result
 from .registry import build_registry_from_config, get_registry_stats
-from .validator import validate_hooks_config, format_validation_report, get_config_suggestions
+from .validator import (
+    format_validation_report,
+    get_config_suggestions,
+    validate_hooks_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +64,9 @@ class HookEngine:
 
         try:
             self._registry = build_registry_from_config(config)
-            logger.info(f"Loaded hook configuration: {self._registry.count_hooks()} total hooks")
+            logger.info(
+                f"Loaded hook configuration: {self._registry.count_hooks()} total hooks"
+            )
         except Exception as e:
             if self.strict_validation:
                 raise ValueError(f"Failed to build hook registry: {e}") from e
@@ -83,21 +88,37 @@ class HookEngine:
         start_time = time.perf_counter()
 
         if not self._registry:
-            return ProcessEventResult(blocked=False, executed_hooks=0, results=[], total_duration_ms=0.0)
+            return ProcessEventResult(
+                blocked=False, executed_hooks=0, results=[], total_duration_ms=0.0
+            )
 
         all_hooks = self._registry.get_hooks_for_event(event_type)
 
         if not all_hooks:
             duration_ms = (time.perf_counter() - start_time) * 1000
-            return ProcessEventResult(blocked=False, executed_hooks=0, results=[], total_duration_ms=duration_ms)
+            return ProcessEventResult(
+                blocked=False,
+                executed_hooks=0,
+                results=[],
+                total_duration_ms=duration_ms,
+            )
 
-        matching_hooks = self._filter_hooks_by_matcher(all_hooks, event_data.tool_name, event_data.tool_args)
+        matching_hooks = self._filter_hooks_by_matcher(
+            all_hooks, event_data.tool_name, event_data.tool_args
+        )
 
         if not matching_hooks:
             duration_ms = (time.perf_counter() - start_time) * 1000
-            return ProcessEventResult(blocked=False, executed_hooks=0, results=[], total_duration_ms=duration_ms)
+            return ProcessEventResult(
+                blocked=False,
+                executed_hooks=0,
+                results=[],
+                total_duration_ms=duration_ms,
+            )
 
-        logger.debug(f"Processing {event_type}: {len(matching_hooks)} matching hook(s) for tool '{event_data.tool_name}'")
+        logger.debug(
+            f"Processing {event_type}: {len(matching_hooks)} matching hook(s) for tool '{event_data.tool_name}'"
+        )
 
         if sequential:
             results = await execute_hooks_sequential(
@@ -105,7 +126,10 @@ class HookEngine:
             )
         else:
             from .executor import execute_hooks_parallel
-            results = await execute_hooks_parallel(matching_hooks, event_data, self.env_vars)
+
+            results = await execute_hooks_parallel(
+                matching_hooks, event_data, self.env_vars
+            )
 
         for hook, result in zip(matching_hooks, results):
             if hook.once and result.success:
@@ -142,7 +166,9 @@ class HookEngine:
                 if matches(hook.matcher, tool_name, tool_args):
                     matching_hooks.append(hook)
             except Exception as e:
-                logger.error(f"Error matching hook '{hook.matcher}': {e}", exc_info=True)
+                logger.error(
+                    f"Error matching hook '{hook.matcher}': {e}", exc_info=True
+                )
         return matching_hooks
 
     def get_stats(self) -> Dict[str, Any]:

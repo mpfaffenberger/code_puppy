@@ -79,14 +79,25 @@ def _match_single(pattern: str, tool_name: str, tool_args: Dict[str, Any]) -> bo
 
 
 def _extract_file_path(tool_args: Dict[str, Any]) -> Optional[str]:
-    file_keys = ["file_path", "file", "path", "target", "input_file",
-                 "output_file", "source", "destination", "src", "dest", "filename"]
+    file_keys = [
+        "file_path",
+        "file",
+        "path",
+        "target",
+        "input_file",
+        "output_file",
+        "source",
+        "destination",
+        "src",
+        "dest",
+        "filename",
+    ]
     for key in file_keys:
         if key in tool_args:
             value = tool_args[key]
             if isinstance(value, str):
                 return value
-            if hasattr(value, '__fspath__'):
+            if hasattr(value, "__fspath__"):
                 return str(value)
     for value in tool_args.values():
         if isinstance(value, str) and _looks_like_file_path(value):
@@ -107,7 +118,7 @@ def _looks_like_file_path(value: str) -> bool:
 
 
 def _is_regex_pattern(pattern: str) -> bool:
-    regex_chars = ['^', '$', '.', '+', '?', '[', ']', '(', ')', '{', '}', '|', '\\']
+    regex_chars = ["^", "$", ".", "+", "?", "[", "]", "(", ")", "{", "}", "|", "\\"]
     return any(char in pattern for char in regex_chars)
 
 

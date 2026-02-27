@@ -8,16 +8,14 @@ Covers:
 
 These tests are immutable per project policy.  Do NOT modify or delete them.
 """
+
 import copy
 import json
-import os
-import tempfile
 from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -78,9 +76,11 @@ def tmp_settings(tmp_path: Path):
 # config.py – load / save
 # ---------------------------------------------------------------------------
 
+
 class TestLoadHooksConfig:
     def test_loads_hooks_key(self, tmp_settings, monkeypatch):
         from code_puppy.plugins.hook_manager.config import load_hooks_config
+
         monkeypatch.chdir(tmp_settings.parent.parent)
         cfg = load_hooks_config()
         assert "PreToolUse" in cfg
@@ -88,12 +88,14 @@ class TestLoadHooksConfig:
 
     def test_returns_empty_when_missing(self, tmp_path, monkeypatch):
         from code_puppy.plugins.hook_manager.config import load_hooks_config
+
         monkeypatch.chdir(tmp_path)
         cfg = load_hooks_config()
         assert cfg == {}
 
     def test_returns_empty_on_malformed_json(self, tmp_path, monkeypatch):
         from code_puppy.plugins.hook_manager.config import load_hooks_config
+
         settings = tmp_path / ".claude" / "settings.json"
         settings.parent.mkdir()
         settings.write_text("NOT JSON", encoding="utf-8")
@@ -104,7 +106,11 @@ class TestLoadHooksConfig:
 
 class TestSaveHooksConfig:
     def test_round_trip(self, tmp_settings, monkeypatch):
-        from code_puppy.plugins.hook_manager.config import load_hooks_config, save_hooks_config
+        from code_puppy.plugins.hook_manager.config import (
+            load_hooks_config,
+            save_hooks_config,
+        )
+
         monkeypatch.chdir(tmp_settings.parent.parent)
         cfg = load_hooks_config()
         save_hooks_config(cfg)
@@ -113,6 +119,7 @@ class TestSaveHooksConfig:
 
     def test_preserves_other_top_level_keys(self, tmp_path, monkeypatch):
         from code_puppy.plugins.hook_manager.config import save_hooks_config
+
         settings = tmp_path / ".claude" / "settings.json"
         settings.parent.mkdir()
         settings.write_text(
@@ -127,6 +134,7 @@ class TestSaveHooksConfig:
 
     def test_creates_parent_directory(self, tmp_path, monkeypatch):
         from code_puppy.plugins.hook_manager.config import save_hooks_config
+
         monkeypatch.chdir(tmp_path)
         save_hooks_config({})
         assert (tmp_path / ".claude" / "settings.json").exists()
@@ -136,9 +144,11 @@ class TestSaveHooksConfig:
 # config.py – HookEntry
 # ---------------------------------------------------------------------------
 
+
 class TestHookEntry:
     def _make(self, **kwargs):
         from code_puppy.plugins.hook_manager.config import HookEntry
+
         defaults = dict(
             event_type="PreToolUse",
             matcher="Bash",
@@ -171,20 +181,24 @@ class TestHookEntry:
 # config.py – flatten_hooks
 # ---------------------------------------------------------------------------
 
+
 class TestFlattenHooks:
     def test_correct_count(self):
         from code_puppy.plugins.hook_manager.config import flatten_hooks
+
         entries = flatten_hooks(SAMPLE_CONFIG)
         assert len(entries) == 3  # 1 PreToolUse + 2 PostToolUse
 
     def test_event_types(self):
         from code_puppy.plugins.hook_manager.config import flatten_hooks
+
         entries = flatten_hooks(SAMPLE_CONFIG)
         event_types = {e.event_type for e in entries}
         assert event_types == {"PreToolUse", "PostToolUse"}
 
     def test_disabled_flag_preserved(self):
         from code_puppy.plugins.hook_manager.config import flatten_hooks
+
         entries = flatten_hooks(SAMPLE_CONFIG)
         disabled = [e for e in entries if not e.enabled]
         assert len(disabled) == 1
@@ -192,6 +206,7 @@ class TestFlattenHooks:
 
     def test_group_and_hook_indices(self):
         from code_puppy.plugins.hook_manager.config import flatten_hooks
+
         entries = flatten_hooks(SAMPLE_CONFIG)
         # PostToolUse group 0 hook 0  =>  disabled post-edit
         post = [e for e in entries if e.event_type == "PostToolUse"]
@@ -200,10 +215,12 @@ class TestFlattenHooks:
 
     def test_empty_config_returns_empty_list(self):
         from code_puppy.plugins.hook_manager.config import flatten_hooks
+
         assert flatten_hooks({}) == []
 
     def test_skips_non_list_event(self):
         from code_puppy.plugins.hook_manager.config import flatten_hooks
+
         bad = {"PreToolUse": "not-a-list"}
         assert flatten_hooks(bad) == []
 
@@ -212,21 +229,25 @@ class TestFlattenHooks:
 # config.py – toggle_hook_enabled
 # ---------------------------------------------------------------------------
 
+
 class TestToggleHookEnabled:
     def test_enables_disabled_hook(self):
         from code_puppy.plugins.hook_manager.config import toggle_hook_enabled
+
         cfg = copy.deepcopy(SAMPLE_CONFIG)
         result = toggle_hook_enabled(cfg, "PostToolUse", 0, 0, True)
         assert result["PostToolUse"][0]["hooks"][0]["enabled"] is True
 
     def test_disables_enabled_hook(self):
         from code_puppy.plugins.hook_manager.config import toggle_hook_enabled
+
         cfg = copy.deepcopy(SAMPLE_CONFIG)
         result = toggle_hook_enabled(cfg, "PreToolUse", 0, 0, False)
         assert result["PreToolUse"][0]["hooks"][0]["enabled"] is False
 
     def test_does_not_mutate_original(self):
         from code_puppy.plugins.hook_manager.config import toggle_hook_enabled
+
         cfg = copy.deepcopy(SAMPLE_CONFIG)
         _ = toggle_hook_enabled(cfg, "PreToolUse", 0, 0, False)
         # Original must be unchanged (no "enabled" key = defaults to True)
@@ -235,6 +256,7 @@ class TestToggleHookEnabled:
 
     def test_bad_indices_logs_warning_no_crash(self):
         from code_puppy.plugins.hook_manager.config import toggle_hook_enabled
+
         cfg = copy.deepcopy(SAMPLE_CONFIG)
         result = toggle_hook_enabled(cfg, "PreToolUse", 99, 99, True)
         # Should return a copy of config unchanged
@@ -245,9 +267,11 @@ class TestToggleHookEnabled:
 # config.py – delete_hook
 # ---------------------------------------------------------------------------
 
+
 class TestDeleteHook:
     def test_removes_hook(self):
         from code_puppy.plugins.hook_manager.config import delete_hook
+
         cfg = copy.deepcopy(SAMPLE_CONFIG)
         # PostToolUse group 1 (Read) hook 0
         result = delete_hook(cfg, "PostToolUse", 1, 0)
@@ -256,6 +280,7 @@ class TestDeleteHook:
 
     def test_prunes_empty_group(self):
         from code_puppy.plugins.hook_manager.config import delete_hook
+
         cfg = copy.deepcopy(SAMPLE_CONFIG)
         result = delete_hook(cfg, "PostToolUse", 0, 0)
         # Group 0 (Edit) had one hook – should be removed
@@ -264,18 +289,21 @@ class TestDeleteHook:
 
     def test_prunes_empty_event_key(self):
         from code_puppy.plugins.hook_manager.config import delete_hook
+
         cfg = copy.deepcopy(SAMPLE_CONFIG)
         result = delete_hook(cfg, "PreToolUse", 0, 0)
         assert "PreToolUse" not in result
 
     def test_does_not_mutate_original(self):
         from code_puppy.plugins.hook_manager.config import delete_hook
+
         cfg = copy.deepcopy(SAMPLE_CONFIG)
         _ = delete_hook(cfg, "PreToolUse", 0, 0)
         assert "PreToolUse" in cfg
 
     def test_bad_indices_no_crash(self):
         from code_puppy.plugins.hook_manager.config import delete_hook
+
         cfg = copy.deepcopy(SAMPLE_CONFIG)
         result = delete_hook(cfg, "PreToolUse", 99, 99)
         assert result["PreToolUse"] == cfg["PreToolUse"]
@@ -285,23 +313,28 @@ class TestDeleteHook:
 # hooks_menu.py – _wrap utility
 # ---------------------------------------------------------------------------
 
+
 class TestWrap:
     def test_short_string_single_line(self):
         from code_puppy.plugins.hook_manager.hooks_menu import _wrap
+
         assert _wrap("hello world", 80) == ["hello world"]
 
     def test_wraps_at_word_boundary(self):
         from code_puppy.plugins.hook_manager.hooks_menu import _wrap
+
         result = _wrap("one two three four five", 10)
         for line in result:
             assert len(line) <= 12  # some tolerance for word lengths
 
     def test_empty_string_returns_empty_placeholder(self):
         from code_puppy.plugins.hook_manager.hooks_menu import _wrap
+
         assert _wrap("", 40) == [""]
 
     def test_single_very_long_word(self):
         from code_puppy.plugins.hook_manager.hooks_menu import _wrap
+
         word = "superlongword"
         result = _wrap(word, 5)
         assert result == [word]
@@ -311,13 +344,18 @@ class TestWrap:
 # hooks_menu.py – HooksMenu data methods (no TUI)
 # ---------------------------------------------------------------------------
 
+
 class TestHooksMenuDataMethods:
     def _make_menu(self, tmp_settings, monkeypatch):
         """Create HooksMenu with mocked global hooks to isolate to project-only testing."""
         from code_puppy.plugins.hook_manager.hooks_menu import HooksMenu
+
         monkeypatch.chdir(tmp_settings.parent.parent)
         # Mock _load_global_hooks_config to return empty dict for test isolation
-        with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+        with patch(
+            "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+            return_value={},
+        ):
             return HooksMenu()
 
     def test_refresh_data_loads_entries(self, tmp_settings, monkeypatch):
@@ -332,8 +370,12 @@ class TestHooksMenuDataMethods:
 
     def test_current_entry_none_when_empty(self, tmp_path, monkeypatch):
         from code_puppy.plugins.hook_manager.hooks_menu import HooksMenu
+
         monkeypatch.chdir(tmp_path)
-        with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+        with patch(
+            "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+            return_value={},
+        ):
             menu = HooksMenu()
         assert menu._current_entry() is None
 
@@ -344,7 +386,11 @@ class TestHooksMenuDataMethods:
         menu.detail_control = MagicMock()
         menu._toggle_current()
         # Reload to verify disk was updated
-        from code_puppy.plugins.hook_manager.config import load_hooks_config, flatten_hooks
+        from code_puppy.plugins.hook_manager.config import (
+            flatten_hooks,
+            load_hooks_config,
+        )
+
         cfg = load_hooks_config()
         entries = flatten_hooks(cfg)
         assert entries[0].enabled is not orig_enabled
@@ -354,7 +400,10 @@ class TestHooksMenuDataMethods:
         initial_count = len(menu.entries)
         menu.list_control = MagicMock()
         menu.detail_control = MagicMock()
-        with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+        with patch(
+            "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+            return_value={},
+        ):
             menu._delete_current()
         assert len(menu.entries) == initial_count - 1
 
@@ -362,7 +411,10 @@ class TestHooksMenuDataMethods:
         menu = self._make_menu(tmp_settings, monkeypatch)
         menu.list_control = MagicMock()
         menu.detail_control = MagicMock()
-        with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+        with patch(
+            "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+            return_value={},
+        ):
             menu._enable_all()
         assert all(e.enabled for e in menu.entries)
 
@@ -370,7 +422,10 @@ class TestHooksMenuDataMethods:
         menu = self._make_menu(tmp_settings, monkeypatch)
         menu.list_control = MagicMock()
         menu.detail_control = MagicMock()
-        with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+        with patch(
+            "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+            return_value={},
+        ):
             menu._disable_all()
         assert all(not e.enabled for e in menu.entries)
 
@@ -388,8 +443,12 @@ class TestHooksMenuDataMethods:
 
     def test_render_list_empty_config(self, tmp_path, monkeypatch):
         from code_puppy.plugins.hook_manager.hooks_menu import HooksMenu
+
         monkeypatch.chdir(tmp_path)
-        with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+        with patch(
+            "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+            return_value={},
+        ):
             menu = HooksMenu()
         rendered = menu._render_list()
         # Should render the "no hooks" message
@@ -398,8 +457,12 @@ class TestHooksMenuDataMethods:
 
     def test_render_detail_empty(self, tmp_path, monkeypatch):
         from code_puppy.plugins.hook_manager.hooks_menu import HooksMenu
+
         monkeypatch.chdir(tmp_path)
-        with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+        with patch(
+            "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+            return_value={},
+        ):
             menu = HooksMenu()
         rendered = menu._render_detail()
         text_parts = "".join(t for _, t in rendered)
@@ -410,11 +473,13 @@ class TestHooksMenuDataMethods:
 # register_callbacks.py – slash command routing (non-TUI paths)
 # ---------------------------------------------------------------------------
 
+
 class TestHandleHooksCommand:
     def _call(self, command: str, name: str = "hooks"):
         from code_puppy.plugins.hook_manager.register_callbacks import (
             _handle_hooks_command,
         )
+
         return _handle_hooks_command(command, name)
 
     def test_returns_none_for_unknown_command(self):
@@ -424,21 +489,30 @@ class TestHandleHooksCommand:
     def test_alias_hook_is_handled(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         with patch("code_puppy.messaging.emit_info"):
-            with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+            with patch(
+                "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+                return_value={},
+            ):
                 result = self._call("/hook list", "hook")
         assert result is True
 
     def test_list_subcommand_returns_true(self, tmp_settings, monkeypatch):
         monkeypatch.chdir(tmp_settings.parent.parent)
         with patch("code_puppy.messaging.emit_info"):
-            with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+            with patch(
+                "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+                return_value={},
+            ):
                 result = self._call("/hooks list", "hooks")
         assert result is True
 
     def test_list_empty_config(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         with patch("code_puppy.messaging.emit_info") as mock_info:
-            with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+            with patch(
+                "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+                return_value={},
+            ):
                 result = self._call("/hooks list", "hooks")
         assert result is True
         calls = " ".join(str(c) for c in mock_info.call_args_list)
@@ -447,7 +521,10 @@ class TestHandleHooksCommand:
     def test_enable_subcommand(self, tmp_settings, monkeypatch):
         monkeypatch.chdir(tmp_settings.parent.parent)
         with patch("code_puppy.messaging.emit_success") as mock_ok:
-            with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+            with patch(
+                "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+                return_value={},
+            ):
                 result = self._call("/hooks enable", "hooks")
         assert result is True
         assert mock_ok.called
@@ -455,7 +532,10 @@ class TestHandleHooksCommand:
     def test_disable_subcommand(self, tmp_settings, monkeypatch):
         monkeypatch.chdir(tmp_settings.parent.parent)
         with patch("code_puppy.messaging.emit_warning") as mock_warn:
-            with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+            with patch(
+                "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+                return_value={},
+            ):
                 result = self._call("/hooks disable", "hooks")
         assert result is True
         assert mock_warn.called
@@ -463,7 +543,10 @@ class TestHandleHooksCommand:
     def test_status_subcommand(self, tmp_settings, monkeypatch):
         monkeypatch.chdir(tmp_settings.parent.parent)
         with patch("code_puppy.messaging.emit_info") as mock_info:
-            with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+            with patch(
+                "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+                return_value={},
+            ):
                 result = self._call("/hooks status", "hooks")
         assert result is True
         calls = " ".join(str(c) for c in mock_info.call_args_list)
@@ -472,7 +555,10 @@ class TestHandleHooksCommand:
     def test_unknown_subcommand_returns_true_with_error(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         with patch("code_puppy.messaging.emit_error") as mock_err:
-            with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+            with patch(
+                "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+                return_value={},
+            ):
                 result = self._call("/hooks foobar", "hooks")
         assert result is True
         assert mock_err.called
@@ -480,18 +566,32 @@ class TestHandleHooksCommand:
     def test_enable_then_all_hooks_enabled_on_disk(self, tmp_settings, monkeypatch):
         monkeypatch.chdir(tmp_settings.parent.parent)
         with patch("code_puppy.messaging.emit_success"):
-            with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+            with patch(
+                "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+                return_value={},
+            ):
                 self._call("/hooks enable", "hooks")
-        from code_puppy.plugins.hook_manager.config import flatten_hooks, load_hooks_config
+        from code_puppy.plugins.hook_manager.config import (
+            flatten_hooks,
+            load_hooks_config,
+        )
+
         entries = flatten_hooks(load_hooks_config())
         assert all(e.enabled for e in entries)
 
     def test_disable_then_all_hooks_disabled_on_disk(self, tmp_settings, monkeypatch):
         monkeypatch.chdir(tmp_settings.parent.parent)
         with patch("code_puppy.messaging.emit_warning"):
-            with patch("code_puppy.plugins.hook_manager.config._load_global_hooks_config", return_value={}):
+            with patch(
+                "code_puppy.plugins.hook_manager.config._load_global_hooks_config",
+                return_value={},
+            ):
                 self._call("/hooks disable", "hooks")
-        from code_puppy.plugins.hook_manager.config import flatten_hooks, load_hooks_config
+        from code_puppy.plugins.hook_manager.config import (
+            flatten_hooks,
+            load_hooks_config,
+        )
+
         entries = flatten_hooks(load_hooks_config())
         assert all(not e.enabled for e in entries)
 
@@ -500,11 +600,13 @@ class TestHandleHooksCommand:
 # register_callbacks.py – help entries
 # ---------------------------------------------------------------------------
 
+
 class TestHooksCommandHelp:
     def test_help_returns_list_of_tuples(self):
         from code_puppy.plugins.hook_manager.register_callbacks import (
             _hooks_command_help,
         )
+
         entries = _hooks_command_help()
         assert isinstance(entries, list)
         assert len(entries) >= 1
@@ -513,6 +615,7 @@ class TestHooksCommandHelp:
         from code_puppy.plugins.hook_manager.register_callbacks import (
             _hooks_command_help,
         )
+
         names = [name for name, _ in _hooks_command_help()]
         assert "hooks" in names
 
@@ -520,6 +623,7 @@ class TestHooksCommandHelp:
         from code_puppy.plugins.hook_manager.register_callbacks import (
             _hooks_command_help,
         )
+
         names = [name for name, _ in _hooks_command_help()]
         assert "hook" in names
 
@@ -528,24 +632,31 @@ class TestHooksCommandHelp:
 # Integration: plugin auto-discovery registers the callbacks
 # ---------------------------------------------------------------------------
 
+
 class TestPluginRegistration:
     def test_custom_command_callback_registered(self):
         # Force (re-)import so callbacks are guaranteed to be registered
         import importlib
+
         import code_puppy.plugins.hook_manager.register_callbacks as rcb
+
         importlib.reload(rcb)
 
         from code_puppy.callbacks import get_callbacks
+
         cbs = get_callbacks("custom_command")
         modules = [f.__module__ for f in cbs]
         assert any("hook_manager" in m for m in modules)
 
     def test_custom_command_help_callback_registered(self):
         import importlib
+
         import code_puppy.plugins.hook_manager.register_callbacks as rcb
+
         importlib.reload(rcb)
 
         from code_puppy.callbacks import get_callbacks
+
         cbs = get_callbacks("custom_command_help")
         modules = [f.__module__ for f in cbs]
         assert any("hook_manager" in m for m in modules)

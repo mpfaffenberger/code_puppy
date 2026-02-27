@@ -4,12 +4,13 @@ Interactive TUI for managing Claude Code hooks.
 Launch with /hooks to browse, enable/disable, inspect, and delete hooks
 from both global (~/.code_puppy/hooks.json) and project (.claude/settings.json) sources.
 
-Built with prompt_toolkit to match the existing skills_menu aesthetic exactly 
+Built with prompt_toolkit to match the existing skills_menu aesthetic exactly
 (VSplit, FormattedTextControl, Frame).
 """
+
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -17,7 +18,7 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
-from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+from code_puppy.messaging import emit_error
 
 from .config import (
     HookEntry,
@@ -83,7 +84,9 @@ class HooksMenu:
             return self.entries[self.selected_idx]
         return None
 
-    def _save_current_entry(self, entry: HookEntry, new_enabled: Optional[bool] = None) -> None:
+    def _save_current_entry(
+        self, entry: HookEntry, new_enabled: Optional[bool] = None
+    ) -> None:
         """Persist changes to the current entry's source file."""
         if entry.source == "global":
             global_config = _load_global_hooks_config()
@@ -130,7 +133,7 @@ class HooksMenu:
         entry = self._current_entry()
         if entry is None:
             return
-        
+
         if entry.source == "global":
             global_config = _load_global_hooks_config()
             global_config = delete_hook(
@@ -149,7 +152,7 @@ class HooksMenu:
                 entry._hook_index,
             )
             save_hooks_config(project_config)
-        
+
         self._refresh_data()
         self.status_message = f"Deleted hook: {entry.display_command}"
         self.update_display()
@@ -157,7 +160,7 @@ class HooksMenu:
     def _enable_all(self) -> None:
         """Enable every hook in both project and global configs."""
         import copy
-        
+
         # Enable all project hooks
         project_config = _load_project_hooks_config()
         project_cfg = copy.deepcopy(project_config)
@@ -168,7 +171,7 @@ class HooksMenu:
                 for hook in group.get("hooks", []):
                     hook["enabled"] = True
         save_hooks_config(project_cfg)
-        
+
         # Enable all global hooks
         global_config = _load_global_hooks_config()
         global_cfg = copy.deepcopy(global_config)
@@ -179,7 +182,7 @@ class HooksMenu:
                 for hook in group.get("hooks", []):
                     hook["enabled"] = True
         save_global_hooks_config(global_cfg)
-        
+
         self._refresh_data()
         self.status_message = "All hooks enabled."
         self.update_display()
@@ -187,7 +190,7 @@ class HooksMenu:
     def _disable_all(self) -> None:
         """Disable every hook in both project and global configs."""
         import copy
-        
+
         # Disable all project hooks
         project_config = _load_project_hooks_config()
         project_cfg = copy.deepcopy(project_config)
@@ -198,7 +201,7 @@ class HooksMenu:
                 for hook in group.get("hooks", []):
                     hook["enabled"] = False
         save_hooks_config(project_cfg)
-        
+
         # Disable all global hooks
         global_config = _load_global_hooks_config()
         global_cfg = copy.deepcopy(global_config)
@@ -209,7 +212,7 @@ class HooksMenu:
                 for hook in group.get("hooks", []):
                     hook["enabled"] = False
         save_global_hooks_config(global_cfg)
-        
+
         self._refresh_data()
         self.status_message = "All hooks disabled."
         self.update_display()
@@ -226,7 +229,7 @@ class HooksMenu:
         enabled_count = sum(1 for e in self.entries if e.enabled)
         project_count = sum(1 for e in self.entries if e.source == "project")
         global_count = sum(1 for e in self.entries if e.source == "global")
-        
+
         header_color = _C_ENABLED if enabled_count > 0 else _C_DISABLED
         lines.append((header_color, f" Hooks: {enabled_count}/{total} enabled"))
         lines.append(("", f"  ({project_count} project, {global_count} global)\n\n"))
@@ -246,7 +249,7 @@ class HooksMenu:
         end = min(start + PAGE_SIZE, total)
         for i in range(start, end):
             entry = self.entries[i]
-            is_selected = (i == self.selected_idx)
+            is_selected = i == self.selected_idx
             status_icon = "✓" if entry.enabled else "✗"
             status_style = _C_ENABLED if entry.enabled else _C_DISABLED
             source_indicator = "🌍" if entry.source == "global" else "📁"
@@ -255,7 +258,9 @@ class HooksMenu:
             if is_selected:
                 lines.append((_C_SELECTED_BG, prefix))
                 lines.append((status_style + " bold", status_icon))
-                lines.append((_C_SELECTED_BG, f" {source_indicator} [{entry.event_type}]"))
+                lines.append(
+                    (_C_SELECTED_BG, f" {source_indicator} [{entry.event_type}]")
+                )
                 lines.append((_C_SELECTED_BG, f" {entry.display_matcher}"))
             else:
                 lines.append(("", prefix))
@@ -320,7 +325,11 @@ class HooksMenu:
         lines.append(("", "\n\n"))
 
         # Source indicator
-        source_label = "Global (~/.code_puppy/hooks.json)" if entry.source == "global" else "Project (.claude/settings.json)"
+        source_label = (
+            "Global (~/.code_puppy/hooks.json)"
+            if entry.source == "global"
+            else "Project (.claude/settings.json)"
+        )
         source_color = _C_GLOBAL if entry.source == "global" else _C_PROJECT
         lines.append(("bold", "  Source:  "))
         lines.append((source_color, source_label))
@@ -367,7 +376,9 @@ class HooksMenu:
         # Config location hint
         lines.append((_C_DIM, f"  Stored in {source_label}"))
         lines.append(("", "\n"))
-        lines.append((_C_DIM, f"  group #{entry._group_index}  hook #{entry._hook_index}"))
+        lines.append(
+            (_C_DIM, f"  group #{entry._group_index}  hook #{entry._hook_index}")
+        )
         lines.append(("", "\n"))
 
         return lines
@@ -398,9 +409,7 @@ class HooksMenu:
         )
 
         list_frame = Frame(list_window, width=Dimension(weight=40), title="Hooks")
-        detail_frame = Frame(
-            detail_window, width=Dimension(weight=60), title="Details"
-        )
+        detail_frame = Frame(detail_window, width=Dimension(weight=60), title="Details")
 
         root_container = VSplit([list_frame, detail_frame])
         kb = KeyBindings()
@@ -488,6 +497,7 @@ class HooksMenu:
 
         try:
             from code_puppy.tools.command_runner import set_awaiting_user_input
+
             set_awaiting_user_input(True)
         except Exception:
             pass
@@ -508,12 +518,14 @@ class HooksMenu:
             sys.stdout.flush()
             try:
                 import termios
+
                 termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
-            except (ImportError, OSError):
-                pass
+            except Exception:
+                pass  # ImportError on Windows, termios.error, or not a tty
             time.sleep(0.1)
             try:
                 from code_puppy.tools.command_runner import set_awaiting_user_input
+
                 set_awaiting_user_input(False)
             except Exception:
                 pass
@@ -524,6 +536,7 @@ class HooksMenu:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _wrap(text: str, width: int) -> List[str]:
     """Wrap text to *width* characters, splitting on whitespace."""

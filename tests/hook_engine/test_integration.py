@@ -21,28 +21,29 @@ Implementation targets:
 
 import json
 import os
+
 import pytest
 
-from code_puppy.hook_engine import HookEngine, HookConfig, EventData
-from code_puppy.hook_engine.matcher import matches
+from code_puppy.hook_engine import EventData, HookConfig, HookEngine
+from code_puppy.hook_engine.engine import validate_config_file
 from code_puppy.hook_engine.executor import (
-    execute_hooks_parallel,
-    _build_stdin_payload,
     _build_environment,
+    _build_stdin_payload,
+    execute_hooks_parallel,
     format_execution_summary,
     get_failed_results,
 )
+from code_puppy.hook_engine.matcher import matches
+from code_puppy.hook_engine.models import ExecutionResult
 from code_puppy.hook_engine.registry import (
     build_registry_from_config,
     get_registry_stats,
 )
-from code_puppy.hook_engine.engine import validate_config_file
-from code_puppy.hook_engine.models import ExecutionResult
-
 
 # ---------------------------------------------------------------------------
 # Cross-provider alias matching — the centrepiece of the whole feature
 # ---------------------------------------------------------------------------
+
 
 class TestCrossProviderMatching:
     """
@@ -131,10 +132,18 @@ class TestAliasMatchingInEngine:
     @pytest.mark.asyncio
     async def test_hook_configured_with_bash_fires_on_internal_tool(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "Bash",
-                "hooks": [{"type": "command", "command": "echo alias_fired", "timeout": 2000}],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "echo alias_fired",
+                            "timeout": 2000,
+                        }
+                    ],
+                }
+            ]
         }
         engine = HookEngine(config)
         event_data = EventData(
@@ -149,10 +158,18 @@ class TestAliasMatchingInEngine:
     @pytest.mark.asyncio
     async def test_hook_configured_with_internal_name_fires_on_bash(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "agent_run_shell_command",
-                "hooks": [{"type": "command", "command": "echo alias_fired", "timeout": 2000}],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "agent_run_shell_command",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "echo alias_fired",
+                            "timeout": 2000,
+                        }
+                    ],
+                }
+            ]
         }
         engine = HookEngine(config)
         event_data = EventData(
@@ -166,10 +183,18 @@ class TestAliasMatchingInEngine:
     @pytest.mark.asyncio
     async def test_glob_hook_fires_on_list_files_call(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "Glob",
-                "hooks": [{"type": "command", "command": "echo glob_fired", "timeout": 2000}],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "Glob",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "echo glob_fired",
+                            "timeout": 2000,
+                        }
+                    ],
+                }
+            ]
         }
         engine = HookEngine(config)
         event_data = EventData(
@@ -184,10 +209,18 @@ class TestAliasMatchingInEngine:
     async def test_edit_hook_fires_on_write_call(self):
         """Edit and Write are both aliased to edit_file — hook on Edit fires for Write."""
         config = {
-            "PreToolUse": [{
-                "matcher": "Edit",
-                "hooks": [{"type": "command", "command": "echo edit_fired", "timeout": 2000}],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "Edit",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "echo edit_fired",
+                            "timeout": 2000,
+                        }
+                    ],
+                }
+            ]
         }
         engine = HookEngine(config)
         event_data = EventData(
@@ -203,20 +236,27 @@ class TestAliasMatchingInEngine:
 # executor: _build_stdin_payload
 # ---------------------------------------------------------------------------
 
+
 class TestBuildStdinPayload:
     def test_returns_bytes(self):
-        event = EventData(event_type="PreToolUse", tool_name="Bash", tool_args={"command": "ls"})
+        event = EventData(
+            event_type="PreToolUse", tool_name="Bash", tool_args={"command": "ls"}
+        )
         payload = _build_stdin_payload(event)
         assert isinstance(payload, bytes)
 
     def test_is_valid_json(self):
-        event = EventData(event_type="PreToolUse", tool_name="Bash", tool_args={"command": "ls"})
+        event = EventData(
+            event_type="PreToolUse", tool_name="Bash", tool_args={"command": "ls"}
+        )
         payload = _build_stdin_payload(event)
         parsed = json.loads(payload.decode("utf-8"))
         assert isinstance(parsed, dict)
 
     def test_contains_tool_name(self):
-        event = EventData(event_type="PreToolUse", tool_name="Bash", tool_args={"command": "ls"})
+        event = EventData(
+            event_type="PreToolUse", tool_name="Bash", tool_args={"command": "ls"}
+        )
         parsed = json.loads(_build_stdin_payload(event))
         assert parsed["tool_name"] == "Bash"
 
@@ -226,7 +266,9 @@ class TestBuildStdinPayload:
         assert parsed["hook_event_name"] == "PreToolUse"
 
     def test_contains_tool_input(self):
-        event = EventData(event_type="PreToolUse", tool_name="Bash", tool_args={"command": "ls -la"})
+        event = EventData(
+            event_type="PreToolUse", tool_name="Bash", tool_args={"command": "ls -la"}
+        )
         parsed = json.loads(_build_stdin_payload(event))
         assert parsed["tool_input"]["command"] == "ls -la"
 
@@ -259,7 +301,10 @@ class TestBuildStdinPayload:
         class WeirdObj:
             def __str__(self):
                 return "weird"
-        event = EventData(event_type="PreToolUse", tool_name="Bash", tool_args={"obj": WeirdObj()})
+
+        event = EventData(
+            event_type="PreToolUse", tool_name="Bash", tool_args={"obj": WeirdObj()}
+        )
         payload = _build_stdin_payload(event)
         parsed = json.loads(payload.decode("utf-8"))
         assert parsed["tool_input"]["obj"] == "weird"
@@ -268,6 +313,7 @@ class TestBuildStdinPayload:
 # ---------------------------------------------------------------------------
 # executor: _build_environment
 # ---------------------------------------------------------------------------
+
 
 class TestBuildEnvironment:
     def test_returns_dict(self):
@@ -291,7 +337,9 @@ class TestBuildEnvironment:
         assert env["CLAUDE_HOOK_EVENT"] == "PostToolUse"
 
     def test_claude_tool_input_is_json(self):
-        event = EventData(event_type="PreToolUse", tool_name="Bash", tool_args={"command": "ls"})
+        event = EventData(
+            event_type="PreToolUse", tool_name="Bash", tool_args={"command": "ls"}
+        )
         env = _build_environment(event)
         parsed = json.loads(env["CLAUDE_TOOL_INPUT"])
         assert parsed["command"] == "ls"
@@ -311,7 +359,9 @@ class TestBuildEnvironment:
         assert env.get("CLAUDE_FILE_PATH") == "src/main.py"
 
     def test_file_path_env_var_absent_when_no_file(self):
-        event = EventData(event_type="PreToolUse", tool_name="Bash", tool_args={"command": "ls"})
+        event = EventData(
+            event_type="PreToolUse", tool_name="Bash", tool_args={"command": "ls"}
+        )
         env = _build_environment(event)
         assert "CLAUDE_FILE_PATH" not in env
 
@@ -331,6 +381,7 @@ class TestBuildEnvironment:
 # executor: execute_hooks_parallel
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 class TestExecuteHooksParallel:
     async def test_empty_list_returns_empty(self):
@@ -340,9 +391,15 @@ class TestExecuteHooksParallel:
 
     async def test_runs_all_hooks(self):
         hooks = [
-            HookConfig(matcher="*", type="command", command="echo parallel1", timeout=2000),
-            HookConfig(matcher="*", type="command", command="echo parallel2", timeout=2000),
-            HookConfig(matcher="*", type="command", command="echo parallel3", timeout=2000),
+            HookConfig(
+                matcher="*", type="command", command="echo parallel1", timeout=2000
+            ),
+            HookConfig(
+                matcher="*", type="command", command="echo parallel2", timeout=2000
+            ),
+            HookConfig(
+                matcher="*", type="command", command="echo parallel3", timeout=2000
+            ),
         ]
         event = EventData(event_type="PreToolUse", tool_name="Bash")
         results = await execute_hooks_parallel(hooks, event)
@@ -369,7 +426,9 @@ class TestExecuteHooksParallel:
         assert len(results) == 3
 
     async def test_returns_execution_results(self):
-        hooks = [HookConfig(matcher="*", type="command", command="echo hello", timeout=2000)]
+        hooks = [
+            HookConfig(matcher="*", type="command", command="echo hello", timeout=2000)
+        ]
         event = EventData(event_type="PreToolUse", tool_name="Bash")
         results = await execute_hooks_parallel(hooks, event)
         assert isinstance(results[0], ExecutionResult)
@@ -379,22 +438,31 @@ class TestExecuteHooksParallel:
 # executor: format_execution_summary
 # ---------------------------------------------------------------------------
 
+
 class TestFormatExecutionSummary:
     def test_empty_returns_no_hooks_string(self):
         summary = format_execution_summary([])
-        assert "No hooks" in summary or len(summary) > 0  # must not crash, must return something
+        assert (
+            "No hooks" in summary or len(summary) > 0
+        )  # must not crash, must return something
 
     def test_summary_contains_executed_count(self):
         results = [
-            ExecutionResult(blocked=False, hook_command="echo a", exit_code=0, stdout="a"),
-            ExecutionResult(blocked=False, hook_command="echo b", exit_code=0, stdout="b"),
+            ExecutionResult(
+                blocked=False, hook_command="echo a", exit_code=0, stdout="a"
+            ),
+            ExecutionResult(
+                blocked=False, hook_command="echo b", exit_code=0, stdout="b"
+            ),
         ]
         summary = format_execution_summary(results)
         assert "2" in summary
 
     def test_summary_mentions_blocked(self):
         results = [
-            ExecutionResult(blocked=True, hook_command="exit 1", exit_code=1, error="blocked"),
+            ExecutionResult(
+                blocked=True, hook_command="exit 1", exit_code=1, error="blocked"
+            ),
         ]
         summary = format_execution_summary(results)
         assert "block" in summary.lower() or "1" in summary
@@ -407,6 +475,7 @@ class TestFormatExecutionSummary:
 # ---------------------------------------------------------------------------
 # executor: get_failed_results
 # ---------------------------------------------------------------------------
+
 
 class TestGetFailedResults:
     def test_empty_list(self):
@@ -440,6 +509,7 @@ class TestGetFailedResults:
 # registry: build_registry_from_config
 # ---------------------------------------------------------------------------
 
+
 class TestBuildRegistryFromConfig:
     def test_empty_config(self):
         registry = build_registry_from_config({})
@@ -447,17 +517,27 @@ class TestBuildRegistryFromConfig:
 
     def test_single_pre_tool_use(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "*",
-                "hooks": [{"type": "command", "command": "echo test"}],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "command", "command": "echo test"}],
+                }
+            ]
         }
         registry = build_registry_from_config(config)
         assert registry.count_hooks("PreToolUse") == 1
+
     def test_multiple_event_types(self):
         config = {
-            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo pre"}]}],
-            "PostToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "echo post"}]}],
+            "PreToolUse": [
+                {"matcher": "*", "hooks": [{"type": "command", "command": "echo pre"}]}
+            ],
+            "PostToolUse": [
+                {
+                    "matcher": "Edit",
+                    "hooks": [{"type": "command", "command": "echo post"}],
+                }
+            ],
         }
         registry = build_registry_from_config(config)
         assert registry.count_hooks("PreToolUse") == 1
@@ -466,23 +546,27 @@ class TestBuildRegistryFromConfig:
 
     def test_multiple_hooks_in_group(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "*",
-                "hooks": [
-                    {"type": "command", "command": "echo a"},
-                    {"type": "command", "command": "echo b"},
-                ],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {"type": "command", "command": "echo a"},
+                        {"type": "command", "command": "echo b"},
+                    ],
+                }
+            ]
         }
         registry = build_registry_from_config(config)
         assert registry.count_hooks("PreToolUse") == 2
 
     def test_hook_gets_correct_matcher(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "Bash",
-                "hooks": [{"type": "command", "command": "echo test"}],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [{"type": "command", "command": "echo test"}],
+                }
+            ]
         }
         registry = build_registry_from_config(config)
         hooks = registry.get_hooks_for_event("PreToolUse")
@@ -490,10 +574,14 @@ class TestBuildRegistryFromConfig:
 
     def test_hook_once_flag(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "*",
-                "hooks": [{"type": "command", "command": "echo once", "once": True}],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {"type": "command", "command": "echo once", "once": True}
+                    ],
+                }
+            ]
         }
         registry = build_registry_from_config(config)
         hooks = registry.get_hooks_for_event("PreToolUse")
@@ -501,10 +589,14 @@ class TestBuildRegistryFromConfig:
 
     def test_hook_disabled_flag(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "*",
-                "hooks": [{"type": "command", "command": "echo off", "enabled": False}],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {"type": "command", "command": "echo off", "enabled": False}
+                    ],
+                }
+            ]
         }
         registry = build_registry_from_config(config)
         hooks = registry.get_hooks_for_event("PreToolUse")
@@ -513,27 +605,33 @@ class TestBuildRegistryFromConfig:
     def test_comment_keys_skipped(self):
         config = {
             "_comment": "ignored",
-            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo ok"}]}],
+            "PreToolUse": [
+                {"matcher": "*", "hooks": [{"type": "command", "command": "echo ok"}]}
+            ],
         }
         registry = build_registry_from_config(config)
         assert registry.count_hooks() == 1
 
     def test_missing_command_hook_skipped(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "*",
-                "hooks": [{"type": "command"}],  # no command field
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "command"}],  # no command field
+                }
+            ]
         }
         registry = build_registry_from_config(config)
         assert registry.count_hooks() == 0
 
     def test_prompt_type_hook(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "*",
-                "hooks": [{"type": "prompt", "prompt": "validate this"}],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "prompt", "prompt": "validate this"}],
+                }
+            ]
         }
         registry = build_registry_from_config(config)
         assert registry.count_hooks("PreToolUse") == 1
@@ -541,9 +639,11 @@ class TestBuildRegistryFromConfig:
     def test_default_matcher_is_wildcard(self):
         """When matcher is absent, it defaults to '*'."""
         config = {
-            "PreToolUse": [{
-                "hooks": [{"type": "command", "command": "echo test"}],
-            }]
+            "PreToolUse": [
+                {
+                    "hooks": [{"type": "command", "command": "echo test"}],
+                }
+            ]
         }
         registry = build_registry_from_config(config)
         hooks = registry.get_hooks_for_event("PreToolUse")
@@ -554,6 +654,7 @@ class TestBuildRegistryFromConfig:
 # ---------------------------------------------------------------------------
 # registry: get_registry_stats
 # ---------------------------------------------------------------------------
+
 
 class TestGetRegistryStats:
     def test_empty_registry_stats(self):
@@ -566,7 +667,9 @@ class TestGetRegistryStats:
 
     def test_one_enabled_hook(self):
         config = {
-            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo a"}]}]
+            "PreToolUse": [
+                {"matcher": "*", "hooks": [{"type": "command", "command": "echo a"}]}
+            ]
         }
         registry = build_registry_from_config(config)
         stats = get_registry_stats(registry)
@@ -576,7 +679,14 @@ class TestGetRegistryStats:
 
     def test_one_disabled_hook(self):
         config = {
-            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo a", "enabled": False}]}]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {"type": "command", "command": "echo a", "enabled": False}
+                    ],
+                }
+            ]
         }
         registry = build_registry_from_config(config)
         stats = get_registry_stats(registry)
@@ -586,7 +696,9 @@ class TestGetRegistryStats:
 
     def test_by_event_section_present(self):
         config = {
-            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo a"}]}]
+            "PreToolUse": [
+                {"matcher": "*", "hooks": [{"type": "command", "command": "echo a"}]}
+            ]
         }
         registry = build_registry_from_config(config)
         stats = get_registry_stats(registry)
@@ -596,11 +708,18 @@ class TestGetRegistryStats:
 
     def test_multiple_events_stats(self):
         config = {
-            "PreToolUse": [{"matcher": "*", "hooks": [
-                {"type": "command", "command": "echo pre1"},
-                {"type": "command", "command": "echo pre2"},
-            ]}],
-            "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo post"}]}],
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {"type": "command", "command": "echo pre1"},
+                        {"type": "command", "command": "echo pre2"},
+                    ],
+                }
+            ],
+            "PostToolUse": [
+                {"matcher": "*", "hooks": [{"type": "command", "command": "echo post"}]}
+            ],
         }
         registry = build_registry_from_config(config)
         stats = get_registry_stats(registry)
@@ -612,10 +731,13 @@ class TestGetRegistryStats:
 # engine: validate_config_file
 # ---------------------------------------------------------------------------
 
+
 class TestValidateConfigFile:
     def test_valid_config_returns_valid_string(self):
         config = {
-            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo ok"}]}]
+            "PreToolUse": [
+                {"matcher": "*", "hooks": [{"type": "command", "command": "echo ok"}]}
+            ]
         }
         report = validate_config_file(config)
         assert isinstance(report, str)
@@ -632,10 +754,16 @@ class TestValidateConfigFile:
 # engine: reload_config
 # ---------------------------------------------------------------------------
 
+
 class TestReloadConfig:
     def test_reload_replaces_hooks(self):
         config1 = {
-            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo first"}]}]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "command", "command": "echo first"}],
+                }
+            ]
         }
         config2 = {
             "PreToolUse": [
@@ -650,7 +778,9 @@ class TestReloadConfig:
 
     def test_reload_with_empty_config(self):
         config1 = {
-            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo a"}]}]
+            "PreToolUse": [
+                {"matcher": "*", "hooks": [{"type": "command", "command": "echo a"}]}
+            ]
         }
         engine = HookEngine(config1)
         engine.reload_config({})
@@ -661,14 +791,23 @@ class TestReloadConfig:
 # engine: env_vars passed through to hooks
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 class TestEngineEnvVars:
     async def test_env_var_available_in_hook(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "*",
-                "hooks": [{"type": "command", "command": "echo $MY_HOOK_VAR", "timeout": 2000}],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "echo $MY_HOOK_VAR",
+                            "timeout": 2000,
+                        }
+                    ],
+                }
+            ]
         }
         engine = HookEngine(config, env_vars={"MY_HOOK_VAR": "injected_value"})
         event = EventData(event_type="PreToolUse", tool_name="Bash")
@@ -695,17 +834,20 @@ class TestEngineEnvVars:
 # engine: parallel execution path
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 class TestParallelExecution:
     async def test_parallel_runs_all_hooks(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "*",
-                "hooks": [
-                    {"type": "command", "command": "echo p1", "timeout": 2000},
-                    {"type": "command", "command": "echo p2", "timeout": 2000},
-                ],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {"type": "command", "command": "echo p1", "timeout": 2000},
+                        {"type": "command", "command": "echo p2", "timeout": 2000},
+                    ],
+                }
+            ]
         }
         engine = HookEngine(config)
         event = EventData(event_type="PreToolUse", tool_name="Bash")
@@ -717,34 +859,53 @@ class TestParallelExecution:
 # engine: stop_on_block=False continues past blocking hooks
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 class TestStopOnBlockFalse:
     async def test_continues_past_block_when_disabled(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "*",
-                "hooks": [
-                    {"type": "command", "command": "exit 1", "timeout": 2000},
-                    {"type": "command", "command": "echo continued", "timeout": 2000},
-                ],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {"type": "command", "command": "exit 1", "timeout": 2000},
+                        {
+                            "type": "command",
+                            "command": "echo continued",
+                            "timeout": 2000,
+                        },
+                    ],
+                }
+            ]
         }
         engine = HookEngine(config)
         event = EventData(event_type="PreToolUse", tool_name="Bash")
         result = await engine.process_event("PreToolUse", event, stop_on_block=False)
         assert result.executed_hooks == 2  # both hooks ran
+
+
 # ---------------------------------------------------------------------------
 # engine: once-per-session reset
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 class TestOnceReset:
     async def test_reset_once_hooks_allows_re_execution(self):
         config = {
-            "PreToolUse": [{
-                "matcher": "*",
-                "hooks": [{"type": "command", "command": "echo once", "timeout": 2000, "once": True}],
-            }]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "echo once",
+                            "timeout": 2000,
+                            "once": True,
+                        }
+                    ],
+                }
+            ]
         }
         engine = HookEngine(config)
         event = EventData(event_type="PreToolUse", tool_name="Bash")
@@ -756,35 +917,45 @@ class TestOnceReset:
         engine.reset_once_hooks()
         result3 = await engine.process_event("PreToolUse", event)
         assert result3.executed_hooks == 1  # fires again after reset
+
+
 # ---------------------------------------------------------------------------
 # Public API: __init__ exports
 # ---------------------------------------------------------------------------
 
+
 class TestPublicAPI:
     def test_hook_engine_importable(self):
         from code_puppy.hook_engine import HookEngine
+
         assert HookEngine is not None
 
     def test_hook_config_importable(self):
         from code_puppy.hook_engine import HookConfig
+
         assert HookConfig is not None
 
     def test_event_data_importable(self):
         from code_puppy.hook_engine import EventData
+
         assert EventData is not None
 
     def test_execution_result_importable(self):
         from code_puppy.hook_engine import ExecutionResult
+
         assert ExecutionResult is not None
 
     def test_process_event_result_importable(self):
         from code_puppy.hook_engine import ProcessEventResult
+
         assert ProcessEventResult is not None
 
     def test_aliases_module_importable(self):
         from code_puppy.hook_engine import aliases
+
         assert aliases is not None
 
     def test_hook_registry_importable(self):
         from code_puppy.hook_engine import HookRegistry
+
         assert HookRegistry is not None

@@ -23,6 +23,7 @@ class HookConfig:
         enabled: Whether this hook is enabled (default: True)
         id: Optional unique identifier for this hook
     """
+
     matcher: str
     type: Literal["command", "prompt"]
     command: str
@@ -37,7 +38,9 @@ class HookConfig:
             raise ValueError("Hook matcher cannot be empty")
 
         if self.type not in ("command", "prompt"):
-            raise ValueError(f"Hook type must be 'command' or 'prompt', got: {self.type}")
+            raise ValueError(
+                f"Hook type must be 'command' or 'prompt', got: {self.type}"
+            )
 
         if not self.command:
             raise ValueError("Hook command cannot be empty")
@@ -47,6 +50,7 @@ class HookConfig:
 
         if self.id is None:
             import hashlib
+
             content = f"{self.matcher}:{self.type}:{self.command}"
             self.id = hashlib.sha256(content.encode()).hexdigest()[:12]
 
@@ -62,6 +66,7 @@ class EventData:
         tool_args: Arguments passed to the tool
         context: Optional context metadata (result, duration, etc.)
     """
+
     event_type: str
     tool_name: str
     tool_args: Dict[str, Any] = field(default_factory=dict)
@@ -89,6 +94,7 @@ class ExecutionResult:
         error: Error message if execution failed
         hook_id: ID of the hook that was executed
     """
+
     blocked: bool
     hook_command: str
     stdout: str = ""
@@ -117,6 +123,7 @@ class ExecutionResult:
 @dataclass
 class HookGroup:
     """A group of hooks that share the same matcher."""
+
     matcher: str
     hooks: List[HookConfig] = field(default_factory=list)
 
@@ -128,6 +135,7 @@ class HookGroup:
 @dataclass
 class HookRegistry:
     """Registry of all hooks organized by event type."""
+
     pre_tool_use: List[HookConfig] = field(default_factory=list)
     post_tool_use: List[HookConfig] = field(default_factory=list)
     session_start: List[HookConfig] = field(default_factory=list)
@@ -163,8 +171,9 @@ class HookRegistry:
     @staticmethod
     def _normalize_event_type(event_type: str) -> str:
         import re
-        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', event_type)
-        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+        s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", event_type)
+        return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
 
     def add_hook(self, event_type: str, hook: HookConfig) -> None:
         attr_name = self._normalize_event_type(event_type)
@@ -186,9 +195,17 @@ class HookRegistry:
     def count_hooks(self, event_type: Optional[str] = None) -> int:
         if event_type is None:
             total = 0
-            for attr in ['pre_tool_use', 'post_tool_use', 'session_start',
-                         'session_end', 'pre_compact', 'user_prompt_submit', 'notification',
-                         'stop', 'subagent_stop']:
+            for attr in [
+                "pre_tool_use",
+                "post_tool_use",
+                "session_start",
+                "session_end",
+                "pre_compact",
+                "user_prompt_submit",
+                "notification",
+                "stop",
+                "subagent_stop",
+            ]:
                 total += len(getattr(self, attr))
             return total
         attr_name = self._normalize_event_type(event_type)
@@ -200,6 +217,7 @@ class HookRegistry:
 @dataclass
 class ProcessEventResult:
     """Result from processing an event through the hook engine."""
+
     blocked: bool
     executed_hooks: int
     results: List[ExecutionResult]

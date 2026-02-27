@@ -6,7 +6,7 @@ Builds and manages the HookRegistry from configuration dictionaries.
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from .models import HookConfig, HookRegistry
 
@@ -86,8 +86,8 @@ def get_registry_stats(registry: HookRegistry) -> Dict[str, Any]:
     }
 
     def _to_attr(event_type: str) -> str:
-        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', event_type)
-        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+        s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", event_type)
+        return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
 
     for event_type in SUPPORTED_EVENT_TYPES:
         attr = _to_attr(event_type)

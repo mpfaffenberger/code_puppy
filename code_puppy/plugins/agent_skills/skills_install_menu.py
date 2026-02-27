@@ -586,8 +586,8 @@ class SkillsInstallMenu:
                 import termios
 
                 termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
-            except (ImportError, termios.error, OSError):
-                pass  # Windows or not a tty
+            except Exception:
+                pass  # ImportError on Windows, termios.error, or not a tty
 
             # Small delay to let terminal settle before any output
             time.sleep(0.1)

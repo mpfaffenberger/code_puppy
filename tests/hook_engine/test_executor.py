@@ -1,20 +1,22 @@
 """Tests for hook engine command executor."""
 
 import pytest
+
 from code_puppy.hook_engine.executor import (
-    execute_hook,
     _substitute_variables,
+    execute_hook,
     execute_hooks_sequential,
     get_blocking_result,
-    format_execution_summary,
 )
-from code_puppy.hook_engine.models import HookConfig, EventData, ExecutionResult
+from code_puppy.hook_engine.models import EventData, ExecutionResult, HookConfig
 
 
 @pytest.mark.asyncio
 class TestExecuteHook:
     async def test_successful_command(self):
-        hook = HookConfig(matcher="*", type="command", command="echo 'test'", timeout=1000)
+        hook = HookConfig(
+            matcher="*", type="command", command="echo 'test'", timeout=1000
+        )
         event_data = EventData(event_type="PreToolUse", tool_name="Edit")
         result = await execute_hook(hook, event_data)
         assert result.success is True
@@ -82,6 +84,7 @@ class TestExecuteHook:
 class TestSubstituteVariables:
     def test_claude_project_dir(self):
         import os
+
         event_data = EventData(event_type="PreToolUse", tool_name="Edit")
         result = _substitute_variables("${CLAUDE_PROJECT_DIR}/hook.sh", event_data, {})
         assert os.getcwd() in result
@@ -111,7 +114,9 @@ class TestExecuteHooksSequential:
     async def test_stops_on_block(self):
         hooks = [
             HookConfig(matcher="*", type="command", command="exit 1", timeout=1000),
-            HookConfig(matcher="*", type="command", command="echo second", timeout=1000),
+            HookConfig(
+                matcher="*", type="command", command="echo second", timeout=1000
+            ),
         ]
         event_data = EventData(event_type="PreToolUse", tool_name="Edit")
         results = await execute_hooks_sequential(hooks, event_data, stop_on_block=True)
@@ -122,7 +127,9 @@ class TestExecuteHooksSequential:
     async def test_continues_past_non_block(self):
         hooks = [
             HookConfig(matcher="*", type="command", command="echo first", timeout=1000),
-            HookConfig(matcher="*", type="command", command="echo second", timeout=1000),
+            HookConfig(
+                matcher="*", type="command", command="echo second", timeout=1000
+            ),
         ]
         event_data = EventData(event_type="PreToolUse", tool_name="Edit")
         results = await execute_hooks_sequential(hooks, event_data)
@@ -133,7 +140,9 @@ class TestGetBlockingResult:
     def test_finds_first_blocking(self):
         results = [
             ExecutionResult(blocked=False, hook_command="cmd1", exit_code=0),
-            ExecutionResult(blocked=True, hook_command="cmd2", exit_code=1, error="blocked"),
+            ExecutionResult(
+                blocked=True, hook_command="cmd2", exit_code=1, error="blocked"
+            ),
         ]
         blocking = get_blocking_result(results)
         assert blocking is not None
