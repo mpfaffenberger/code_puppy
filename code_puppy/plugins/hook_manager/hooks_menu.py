@@ -9,7 +9,7 @@ Built with prompt_toolkit to match the existing skills_menu aesthetic exactly
 """
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -17,7 +17,7 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
-from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+from code_puppy.messaging import emit_error
 
 from .config import (
     HookEntry,
@@ -509,8 +509,8 @@ class HooksMenu:
             try:
                 import termios
                 termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
-            except (ImportError, OSError):
-                pass
+            except Exception:
+                pass  # ImportError on Windows, termios.error, or not a tty
             time.sleep(0.1)
             try:
                 from code_puppy.tools.command_runner import set_awaiting_user_input
