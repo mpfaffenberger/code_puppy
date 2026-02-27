@@ -530,7 +530,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         if not AGENT_IS_RUNNING and PROMPT_QUEUE:
             task = PROMPT_QUEUE.pop(0)
             if task.startswith("[INTERJECT] "):
-                task = task[len("[INTERJECT] "):]
+                user_text = task[len("[INTERJECT] "):]
+                task = f"[user interjects]: {user_text} - please continue with that in mind"
                 # We do not print anything here for smooth interject, it just runs seamlessly!
             else:
                 from code_puppy.messaging import emit_success
