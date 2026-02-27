@@ -10,7 +10,7 @@ Plugins can register additional message categories via
 
 import random
 import threading
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 # ---------------------------------------------------------------------------
 # 🐶  Puppy / Dog Themed
@@ -234,9 +234,9 @@ def _ensure_plugins_loaded() -> None:
             return
         _plugins_initialized = True
 
-        from code_puppy.callbacks import on_register_loading_messages
-
         try:
+            from code_puppy.callbacks import on_register_loading_messages
+
             on_register_loading_messages()
         except Exception:
             _plugins_initialized = False
@@ -272,6 +272,7 @@ def register_messages(category: str, messages: List[str]) -> None:
     """
     if not isinstance(category, str) or not category.strip():
         raise ValueError("category must be a non-empty string")
+    category = category.strip()
     if category in _RESERVED_CATEGORIES:
         raise ValueError(
             f"'{category}' is a reserved core category; "
@@ -302,7 +303,7 @@ def _plugin_snapshot() -> Dict[str, List[str]]:
 
 
 def _all_spinner_messages(
-    snapshot: Dict[str, List[str]] | None = None,
+    snapshot: Optional[Dict[str, List[str]]] = None,
 ) -> List[str]:
     """Combine built-in + plugin spinner messages (not standalone)."""
     _ensure_plugins_loaded()
