@@ -579,9 +579,11 @@ def get_prompt_with_active_model(base: str = ">>> ", is_interject: bool = False)
     ])
     
     if is_interject:
+        # Add hint above the prompt line to keep the cursor position consistent
+        parts.append(("class:queue-item", "  [i]nterject or [q]ueue\n"))
         parts.extend([
             ("class:separator", "╰─"),
-            ("class:queue-item", "[i]nterject or [q]ueue: "),
+            ("class:arrow", "❯ "),
         ])
     else:
         parts.extend([
@@ -877,6 +879,7 @@ async def get_interject_action() -> str:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.patch_stdout import patch_stdout
+    from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
 
     bindings = KeyBindings()
     result = ""
@@ -937,6 +940,9 @@ async def get_interject_action() -> str:
     with patch_stdout(raw=True):
         # We catch the result of app.exit(result=...) via session.prompt_async()
         try:
+            # Pause spinners to prevent jitter and allow clean input
+            pause_all_spinners()
+            
             # We don't actually want them to type anything, just press a key
             # session.prompt_async returns the text typed if they press enter,
             # but our keybindings will exit early with the bound result.
@@ -946,6 +952,9 @@ async def get_interject_action() -> str:
             return action
         except (KeyboardInterrupt, EOFError):
             raise
+        finally:
+            # Resume spinners when done
+            resume_all_spinners()
 
 
 
