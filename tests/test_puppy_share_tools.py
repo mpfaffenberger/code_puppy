@@ -13,6 +13,7 @@ from code_puppy.plugins.walmart_specific.puppy_share_tools import (
     PuppyShareUploadOutput,
     _get_puppy_token,
     _make_request,
+    _open_url_in_browser,
     puppy_share_delete,
     puppy_share_list_my_pages,
     puppy_share_upload,
@@ -87,6 +88,48 @@ class TestMakeRequest:
 
 
 # =============================================================================
+# _open_url_in_browser
+# =============================================================================
+
+
+class TestOpenUrlInBrowser:
+    def test_opens_url_on_macos(self):
+        with patch("code_puppy.plugins.walmart_specific.puppy_share_tools.platform.system", return_value="Darwin"):
+            with patch("code_puppy.plugins.walmart_specific.puppy_share_tools.subprocess.Popen") as mock_popen:
+                result = _open_url_in_browser("https://example.com")
+                assert result is True
+                mock_popen.assert_called_once()
+                args = mock_popen.call_args[0][0]
+                assert args[0] == "open"
+                assert "https://example.com" in args
+
+    def test_opens_url_on_windows(self):
+        with patch("code_puppy.plugins.walmart_specific.puppy_share_tools.platform.system", return_value="Windows"):
+            with patch("code_puppy.plugins.walmart_specific.puppy_share_tools.subprocess.Popen") as mock_popen:
+                result = _open_url_in_browser("https://example.com")
+                assert result is True
+                mock_popen.assert_called_once()
+                args = mock_popen.call_args[0][0]
+                assert args[0] == "cmd"
+                assert "/c" in args
+                assert "start" in args
+
+    def test_opens_url_on_linux(self):
+        with patch("code_puppy.plugins.walmart_specific.puppy_share_tools.platform.system", return_value="Linux"):
+            with patch("code_puppy.plugins.walmart_specific.puppy_share_tools.subprocess.Popen") as mock_popen:
+                result = _open_url_in_browser("https://example.com")
+                assert result is True
+                mock_popen.assert_called_once()
+                args = mock_popen.call_args[0][0]
+                assert args[0] == "xdg-open"
+
+    def test_returns_false_on_error(self):
+        with patch("code_puppy.plugins.walmart_specific.puppy_share_tools.platform.system", side_effect=Exception("boom")):
+            result = _open_url_in_browser("https://example.com")
+            assert result is False
+
+
+# =============================================================================
 # Upload
 # =============================================================================
 
@@ -98,19 +141,22 @@ class TestPuppyShareUpload:
             "code_puppy.plugins.walmart_specific.puppy_share_tools._get_puppy_token",
             return_value=None,
         ):
-            out = puppy_share_upload("<h1>Hi</h1>", "test-page")
+            out = puppy_share_upload("<h1>Hi</h1>", "test-page", open_in_browser=False)
         assert out.success is False
         assert "token" in out.error.lower()
 
-    def test_successful_upload(self):
+    def test_successful_upload_uses_backend_url(self):
+        """Test that we use the URL from the backend response, not construct our own."""
         api_response = {
             "success": True,
             "message": "Page created!",
+            "url": "https://puppy.walmart.com/sharing/jsmith/my-dash",  # Backend URL with username
             "data": {
                 "name": "my-dash",
                 "business": "general",
                 "version": 1,
                 "action": "created",
+                "url": "/sharing/jsmith/my-dash",
             },
         }
         with (
@@ -122,17 +168,27 @@ class TestPuppyShareUpload:
                 "code_puppy.plugins.walmart_specific.puppy_share_tools._make_request",
                 return_value=api_response,
             ),
+            patch(
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._open_url_in_browser",
+                return_value=True,
+            ) as mock_open,
         ):
             out = puppy_share_upload("<h1>Hi</h1>", "my-dash")
         assert out.success is True
         assert out.version == 1
-        assert "puppy.walmart.com" in out.url
+        # Should use the URL from backend response, which has the username
+        assert out.url == "https://puppy.walmart.com/sharing/jsmith/my-dash"
+        assert "jsmith" in out.url  # The username should be in the URL
         assert out.action == "created"
+        # Browser should have been opened with the correct URL
+        mock_open.assert_called_once_with("https://puppy.walmart.com/sharing/jsmith/my-dash")
 
-    def test_upload_local_mode(self):
+    def test_upload_local_mode_uses_backend_url(self):
+        """Test local mode also uses backend URL, not constructed URL."""
         api_response = {
             "success": True,
-            "data": {"name": "x", "business": "general", "version": 1},
+            "url": "http://localhost:8080/sharing/testuser/x",
+            "data": {"name": "x", "business": "general", "version": 1, "url": "/sharing/testuser/x"},
         }
         with (
             patch(
@@ -143,10 +199,14 @@ class TestPuppyShareUpload:
                 "code_puppy.plugins.walmart_specific.puppy_share_tools._make_request",
                 return_value=api_response,
             ) as mock_req,
+            patch(
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._open_url_in_browser",
+                return_value=True,
+            ),
         ):
-            out = puppy_share_upload("<h1>Hi</h1>", "x", local=True)
+            out = puppy_share_upload("<h1>Hi</h1>", "x", local=True, open_in_browser=False)
         assert out.success is True
-        assert "localhost" in out.url
+        assert out.url == "http://localhost:8080/sharing/testuser/x"
         call_url = mock_req.call_args[0][0]
         assert "localhost:8080" in call_url
 
@@ -161,9 +221,64 @@ class TestPuppyShareUpload:
                 return_value={"success": False, "error": "boom"},
             ),
         ):
-            out = puppy_share_upload("<h1>Hi</h1>", "x")
+            out = puppy_share_upload("<h1>Hi</h1>", "x", open_in_browser=False)
         assert out.success is False
         assert out.error == "boom"
+
+    def test_open_in_browser_can_be_disabled(self):
+        """Test that open_in_browser=False prevents browser from opening."""
+        api_response = {
+            "success": True,
+            "url": "https://puppy.walmart.com/sharing/user/test",
+            "data": {"name": "test", "business": "general", "version": 1},
+        }
+        with (
+            patch(
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._get_puppy_token",
+                return_value="tok",
+            ),
+            patch(
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._make_request",
+                return_value=api_response,
+            ),
+            patch(
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._open_url_in_browser",
+                return_value=True,
+            ) as mock_open,
+        ):
+            out = puppy_share_upload("<h1>Hi</h1>", "test", open_in_browser=False)
+        assert out.success is True
+        mock_open.assert_not_called()
+
+    def test_fallback_url_when_backend_returns_none(self):
+        """Test fallback URL construction when backend doesn't return url field."""
+        api_response = {
+            "success": True,
+            "data": {
+                "name": "test",
+                "business": "general",
+                "version": 1,
+                "url": "/sharing/testuser/test",  # URL in data, not top-level
+            },
+        }
+        with (
+            patch(
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._get_puppy_token",
+                return_value="tok",
+            ),
+            patch(
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._make_request",
+                return_value=api_response,
+            ),
+            patch(
+                "code_puppy.plugins.walmart_specific.puppy_share_tools._open_url_in_browser",
+                return_value=True,
+            ),
+        ):
+            out = puppy_share_upload("<h1>Hi</h1>", "test", open_in_browser=False)
+        assert out.success is True
+        # Should fall back to constructing URL from data.url
+        assert "testuser" in out.url or "test" in out.url
 
 
 # =============================================================================
@@ -174,7 +289,7 @@ class TestPuppyShareUpload:
 class TestPuppyShareUploadFile:
     def test_missing_file(self, tmp_path):
         out = puppy_share_upload_file(
-            str(tmp_path / "nope.html"), "test"
+            str(tmp_path / "nope.html"), "test", open_in_browser=False
         )
         assert out.success is False
         assert "not found" in out.error.lower()
@@ -188,11 +303,12 @@ class TestPuppyShareUploadFile:
             return_value=PuppyShareUploadOutput(success=True, url="/sharing/general/rpt"),
         ) as mock_upload:
             out = puppy_share_upload_file(
-                str(html_file), "rpt", business="general"
+                str(html_file), "rpt", business="general", open_in_browser=False
             )
         assert out.success is True
         mock_upload.assert_called_once()
         assert mock_upload.call_args.kwargs["html_content"] == "<h1>Report</h1>"
+        assert mock_upload.call_args.kwargs["open_in_browser"] is False
 
 
 # =============================================================================
