@@ -25,14 +25,13 @@ class SlideCreatorAgent(BaseAgent):
         )
 
     def get_available_tools(self) -> list[str]:
-        """Slide creator tools plus agent invocation and file ops."""
+        """Slide creator tools and file ops."""
         return [
             "edit_file",
             "read_file",
             "list_files",
             "agent_share_your_reasoning",
             "list_agents",
-            "invoke_agent",
             "agent_run_shell_command",
         ]
 
