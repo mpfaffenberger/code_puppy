@@ -19,30 +19,29 @@ Adding a new provider
 
 from typing import Dict, FrozenSet, Optional
 
-
 # ---------------------------------------------------------------------------
 # Claude Code  (Anthropic)
 # Source: `claude mcp serve` → tools/list  (verified against v2.1.52)
 # ---------------------------------------------------------------------------
 CLAUDE_CODE_ALIASES: Dict[str, str] = {
     # Shell execution
-    "Bash":             "agent_run_shell_command",
+    "Bash": "agent_run_shell_command",
     # File system — read
-    "Glob":             "list_files",
-    "Read":             "read_file",
-    "Grep":             "grep",
+    "Glob": "list_files",
+    "Read": "read_file",
+    "Grep": "grep",
     # File system — write
-    "Edit":             "edit_file",
-    "Write":            "edit_file",    # Write = full overwrite; same tool in puppy
+    "Edit": "edit_file",
+    "Write": "edit_file",  # Write = full overwrite; same tool in puppy
     # File system — delete
-    "Delete":           "delete_file",
+    "Delete": "delete_file",
     # User interaction
-    "AskUserQuestion":  "ask_user_question",
+    "AskUserQuestion": "ask_user_question",
     # Agent / task orchestration
-    "Task":             "invoke_agent",
+    "Task": "invoke_agent",
     # Skills
-    "Skill":            "activate_skill",
-    "ToolSearch":       "list_or_search_skills",
+    "Skill": "activate_skill",
+    "ToolSearch": "list_or_search_skills",
     # NOTE: the tools below have no direct code_puppy equivalent yet.
     # They are listed here for documentation and future mapping:
     #   "TaskOutput"     -> (no equivalent)
@@ -92,16 +91,17 @@ SWARM_ALIASES: Dict[str, str] = {
 # To disable a provider's aliases, remove its entry from this dict.
 # ---------------------------------------------------------------------------
 PROVIDER_ALIASES: Dict[str, Dict[str, str]] = {
-    "claude":  CLAUDE_CODE_ALIASES,
-    "gemini":  GEMINI_ALIASES,   # placeholder — empty until populated
-    "codex":   CODEX_ALIASES,    # placeholder — empty until populated
-    "swarm":   SWARM_ALIASES,    # placeholder — empty until populated
+    "claude": CLAUDE_CODE_ALIASES,
+    "gemini": GEMINI_ALIASES,  # placeholder — empty until populated
+    "codex": CODEX_ALIASES,  # placeholder — empty until populated
+    "swarm": SWARM_ALIASES,  # placeholder — empty until populated
 }
 
 
 # ---------------------------------------------------------------------------
 # Flattened lookup structures — built once at import time for O(1) access.
 # ---------------------------------------------------------------------------
+
 
 def _build_lookup() -> Dict[str, FrozenSet[str]]:
     """

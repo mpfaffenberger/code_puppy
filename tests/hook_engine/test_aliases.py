@@ -9,22 +9,23 @@ code_puppy/hook_engine/aliases.py and code_puppy/hook_engine/matcher.py.
 """
 
 import pytest
+
 from code_puppy.hook_engine.aliases import (
     ALIAS_LOOKUP,
     CLAUDE_CODE_ALIASES,
-    GEMINI_ALIASES,
     CODEX_ALIASES,
-    SWARM_ALIASES,
+    GEMINI_ALIASES,
     PROVIDER_ALIASES,
+    SWARM_ALIASES,
+    _build_lookup,
     get_aliases,
     resolve_internal_name,
-    _build_lookup,
 )
-
 
 # ---------------------------------------------------------------------------
 # ALIAS_LOOKUP structure
 # ---------------------------------------------------------------------------
+
 
 class TestAliasLookup:
     def test_lookup_is_a_dict(self):
@@ -62,35 +63,44 @@ class TestAliasLookup:
 # Claude Code aliases — every entry in the table must resolve correctly
 # ---------------------------------------------------------------------------
 
+
 class TestClaudeCodeAliases:
-    @pytest.mark.parametrize("provider_name,internal_name", [
-        ("Bash",            "agent_run_shell_command"),
-        ("Glob",            "list_files"),
-        ("Read",            "read_file"),
-        ("Grep",            "grep"),
-        ("Edit",            "edit_file"),
-        ("Write",           "edit_file"),
-        ("AskUserQuestion", "ask_user_question"),
-        ("Task",            "invoke_agent"),
-        ("Skill",           "activate_skill"),
-        ("ToolSearch",      "list_or_search_skills"),
-    ])
+    @pytest.mark.parametrize(
+        "provider_name,internal_name",
+        [
+            ("Bash", "agent_run_shell_command"),
+            ("Glob", "list_files"),
+            ("Read", "read_file"),
+            ("Grep", "grep"),
+            ("Edit", "edit_file"),
+            ("Write", "edit_file"),
+            ("AskUserQuestion", "ask_user_question"),
+            ("Task", "invoke_agent"),
+            ("Skill", "activate_skill"),
+            ("ToolSearch", "list_or_search_skills"),
+        ],
+    )
     def test_claude_alias_in_table(self, provider_name, internal_name):
         assert CLAUDE_CODE_ALIASES[provider_name] == internal_name
 
-    @pytest.mark.parametrize("provider_name,internal_name", [
-        ("Bash",            "agent_run_shell_command"),
-        ("Glob",            "list_files"),
-        ("Read",            "read_file"),
-        ("Grep",            "grep"),
-        ("Edit",            "edit_file"),
-        ("Write",           "edit_file"),
-        ("AskUserQuestion", "ask_user_question"),
-        ("Task",            "invoke_agent"),
-        ("Skill",           "activate_skill"),
-        ("ToolSearch",      "list_or_search_skills"),
-    ])
-    def test_get_aliases_provider_name_contains_internal(self, provider_name, internal_name):
+    @pytest.mark.parametrize(
+        "provider_name,internal_name",
+        [
+            ("Bash", "agent_run_shell_command"),
+            ("Glob", "list_files"),
+            ("Read", "read_file"),
+            ("Grep", "grep"),
+            ("Edit", "edit_file"),
+            ("Write", "edit_file"),
+            ("AskUserQuestion", "ask_user_question"),
+            ("Task", "invoke_agent"),
+            ("Skill", "activate_skill"),
+            ("ToolSearch", "list_or_search_skills"),
+        ],
+    )
+    def test_get_aliases_provider_name_contains_internal(
+        self, provider_name, internal_name
+    ):
         group = get_aliases(provider_name)
         assert isinstance(group, frozenset)
         # The group must contain the internal name (case-sensitive membership)
@@ -98,45 +108,66 @@ class TestClaudeCodeAliases:
             f"get_aliases('{provider_name}') = {group!r}, expected to contain '{internal_name}'"
         )
 
-    @pytest.mark.parametrize("provider_name,internal_name", [
-        ("Bash",            "agent_run_shell_command"),
-        ("Glob",            "list_files"),
-        ("Read",            "read_file"),
-        ("Grep",            "grep"),
-        ("Edit",            "edit_file"),
-        ("Write",           "edit_file"),
-        ("AskUserQuestion", "ask_user_question"),
-        ("Task",            "invoke_agent"),
-        ("Skill",           "activate_skill"),
-        ("ToolSearch",      "list_or_search_skills"),
-    ])
-    def test_get_aliases_internal_name_contains_provider(self, provider_name, internal_name):
+    @pytest.mark.parametrize(
+        "provider_name,internal_name",
+        [
+            ("Bash", "agent_run_shell_command"),
+            ("Glob", "list_files"),
+            ("Read", "read_file"),
+            ("Grep", "grep"),
+            ("Edit", "edit_file"),
+            ("Write", "edit_file"),
+            ("AskUserQuestion", "ask_user_question"),
+            ("Task", "invoke_agent"),
+            ("Skill", "activate_skill"),
+            ("ToolSearch", "list_or_search_skills"),
+        ],
+    )
+    def test_get_aliases_internal_name_contains_provider(
+        self, provider_name, internal_name
+    ):
         group = get_aliases(internal_name)
         assert isinstance(group, frozenset)
         assert provider_name in group, (
             f"get_aliases('{internal_name}') = {group!r}, expected to contain '{provider_name}'"
         )
 
-    @pytest.mark.parametrize("provider_name", [
-        "Bash", "Glob", "Read", "Grep", "Edit", "Write",
-        "AskUserQuestion", "Task", "Skill", "ToolSearch",
-    ])
+    @pytest.mark.parametrize(
+        "provider_name",
+        [
+            "Bash",
+            "Glob",
+            "Read",
+            "Grep",
+            "Edit",
+            "Write",
+            "AskUserQuestion",
+            "Task",
+            "Skill",
+            "ToolSearch",
+        ],
+    )
     def test_resolve_internal_name_returns_string(self, provider_name):
         result = resolve_internal_name(provider_name)
-        assert isinstance(result, str), f"resolve_internal_name('{provider_name}') returned {result!r}"
+        assert isinstance(result, str), (
+            f"resolve_internal_name('{provider_name}') returned {result!r}"
+        )
 
-    @pytest.mark.parametrize("provider_name,internal_name", [
-        ("Bash",            "agent_run_shell_command"),
-        ("Glob",            "list_files"),
-        ("Read",            "read_file"),
-        ("Grep",            "grep"),
-        ("Edit",            "edit_file"),
-        ("Write",           "edit_file"),
-        ("AskUserQuestion", "ask_user_question"),
-        ("Task",            "invoke_agent"),
-        ("Skill",           "activate_skill"),
-        ("ToolSearch",      "list_or_search_skills"),
-    ])
+    @pytest.mark.parametrize(
+        "provider_name,internal_name",
+        [
+            ("Bash", "agent_run_shell_command"),
+            ("Glob", "list_files"),
+            ("Read", "read_file"),
+            ("Grep", "grep"),
+            ("Edit", "edit_file"),
+            ("Write", "edit_file"),
+            ("AskUserQuestion", "ask_user_question"),
+            ("Task", "invoke_agent"),
+            ("Skill", "activate_skill"),
+            ("ToolSearch", "list_or_search_skills"),
+        ],
+    )
     def test_resolve_internal_name_correct_value(self, provider_name, internal_name):
         assert resolve_internal_name(provider_name) == internal_name
 
@@ -144,6 +175,7 @@ class TestClaudeCodeAliases:
 # ---------------------------------------------------------------------------
 # get_aliases behaviour for unknown names
 # ---------------------------------------------------------------------------
+
 
 class TestGetAliasesUnknown:
     def test_unknown_name_returns_frozenset_with_itself(self):
@@ -162,6 +194,7 @@ class TestGetAliasesUnknown:
 # ---------------------------------------------------------------------------
 # Case-insensitive lookup
 # ---------------------------------------------------------------------------
+
 
 class TestCaseInsensitivity:
     def test_bash_lowercase(self):
@@ -188,6 +221,7 @@ class TestCaseInsensitivity:
 # ---------------------------------------------------------------------------
 # PROVIDER_ALIASES registry structure
 # ---------------------------------------------------------------------------
+
 
 class TestProviderAliasesRegistry:
     def test_registry_is_dict(self):
@@ -221,6 +255,7 @@ class TestProviderAliasesRegistry:
 # ---------------------------------------------------------------------------
 # _build_lookup helper
 # ---------------------------------------------------------------------------
+
 
 class TestBuildLookup:
     def test_build_lookup_returns_dict(self):
