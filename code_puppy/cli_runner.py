@@ -766,8 +766,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 a = action.strip().lower()
                 if a == 'i':
-                    from code_puppy.messaging import get_console
-                    get_console().print(f"[bold bright_red]Interjecting with:[/bold bright_red] [red]{task.strip()}[/red]")
+                    from rich.console import Console
+                    Console().print(f"[bold bright_red]Interjecting with:[/bold bright_red] [red]{task.strip()}[/red]")
                     if BG_AGENT_TASK and not BG_AGENT_TASK.done():
                         BG_AGENT_TASK.cancel()
                         from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
