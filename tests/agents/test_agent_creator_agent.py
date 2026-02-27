@@ -72,14 +72,21 @@ class TestAgentCreatorAgent:
         )
 
         monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_project_agents_directory",
+            lambda: None,
+        )
+
+        monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.ModelFactory.load_config", lambda: {}
         )
 
         agent = AgentCreatorAgent()
         prompt = agent.get_system_prompt()
 
-        # Verify the agents directory is mentioned in file creation section
-        assert f"Save to the agents directory: `{mock_dir}`" in prompt
+        # Verify the user agents directory is mentioned in file creation section
+        assert mock_dir in prompt
+        # Project directory option must NOT appear when the directory doesn't exist
+        assert "Project directory" not in prompt
 
     def test_get_system_prompt_injects_model_inventory(self, monkeypatch):
         """Test that get_system_prompt() injects model inventory from ModelFactory.load_config()."""
@@ -141,6 +148,11 @@ class TestAgentCreatorAgent:
         )
 
         monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_project_agents_directory",
+            lambda: None,
+        )
+
+        monkeypatch.setattr(
             "code_puppy.agents.agent_creator_agent.ModelFactory.load_config",
             lambda: mock_models_config,
         )
@@ -152,8 +164,10 @@ class TestAgentCreatorAgent:
         for tool in mock_tools:
             assert f"**{tool}**" in prompt
 
-        # Verify agents directory is injected
-        assert f"Save to the agents directory: `{mock_agents_dir}`" in prompt
+        # Verify user agents directory is injected
+        assert mock_agents_dir in prompt
+        # Project directory must NOT appear when directory doesn't exist
+        assert "Project directory" not in prompt
 
         # Verify models are injected
         for model_name, model_info in mock_models_config.items():
@@ -211,3 +225,75 @@ class TestAgentCreatorAgent:
         agent = AgentCreatorAgent()
         expected = "Hi! I'm the Agent Creator 🏗️ Let's build an awesome agent together!"
         assert agent.get_user_prompt() == expected
+
+
+class TestAgentCreatorProjectDirectory:
+    """Tests for agent creation in project directories.
+
+    Note: the Python-side create_agent_json / ask_save_location / get_agent_file_path
+    methods were removed as dead code — the LLM is instructed to call ask_user_question
+    and edit_file directly, bypassing those Python helpers entirely.  Tests for the
+    system-prompt content (expanded project path) live in TestAgentCreatorSystemPrompt.
+    """
+
+    def test_system_prompt_contains_expanded_project_path(self, tmp_path, monkeypatch):
+        """System prompt must use the fully-expanded project path, not a relative one.
+
+        Regression test for: project directory was shown as '.code_puppy/agents/' (relative)
+        while the user directory was expanded.  The LLM prompt now injects the absolute path
+        from get_project_agents_directory() so the LLM's edit_file calls resolve correctly.
+        """
+        project_dir = tmp_path / ".code_puppy" / "agents"
+        project_dir.mkdir(parents=True)
+
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_project_agents_directory",
+            lambda: str(project_dir),
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_available_tool_names",
+            lambda: ["read_file", "edit_file"],
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_user_agents_directory",
+            lambda: "/mock/user/agents",
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.ModelFactory.load_config",
+            lambda: {},
+        )
+
+        creator = AgentCreatorAgent()
+        prompt = creator.get_system_prompt()
+
+        # The expanded absolute path must appear in the prompt.
+        assert str(project_dir) in prompt
+        # The bare relative placeholder must NOT appear in the prompt.
+        assert "`.code_puppy/agents/agent-name.json`" not in prompt
+
+    def test_system_prompt_omits_project_directory_when_absent(self, monkeypatch):
+        """When no project directory exists, the project directory option is omitted."""
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_project_agents_directory",
+            lambda: None,
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_available_tool_names",
+            lambda: ["read_file"],
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.get_user_agents_directory",
+            lambda: "/mock/user/agents",
+        )
+        monkeypatch.setattr(
+            "code_puppy.agents.agent_creator_agent.ModelFactory.load_config",
+            lambda: {},
+        )
+
+        creator = AgentCreatorAgent()
+        prompt = creator.get_system_prompt()
+
+        # Project directory option must not appear — business users should not see it
+        assert "Project directory" not in prompt
+        # User directory must still be offered
+        assert "/mock/user/agents" in prompt
