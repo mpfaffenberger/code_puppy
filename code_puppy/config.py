@@ -1437,8 +1437,6 @@ DEFAULT_BANNER_COLORS = {
     "universal_constructor": "dark_cyan",  # Teal - constructing tools
     # Browser/Terminal tools - same color as edit_file (gold)
     "terminal_tool": "dark_goldenrod",  # Gold - browser terminal operations
-    # MCP tools - distinct from builtin tools
-    "mcp_tool_call": "dark_cyan",  # Teal - external MCP tool calls
 }
 
 

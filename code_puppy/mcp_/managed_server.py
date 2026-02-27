@@ -5,6 +5,7 @@ This module provides a managed wrapper around pydantic-ai MCP server classes
 that adds management capabilities while maintaining 100% compatibility.
 """
 
+import json
 import os
 import uuid
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from pydantic_ai.mcp import (
 
 from code_puppy.http_utils import create_async_client
 from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
+from code_puppy.messaging import emit_info
 
 
 def _expand_env_vars(value: Any) -> Any:
@@ -80,14 +82,13 @@ async def process_tool_call(
     tool_args: dict[str, Any],
 ) -> ToolResult:
     """A tool call processor that passes along the deps."""
-    from rich.console import Console
-
-    from code_puppy.config import get_banner_color
-
-    console = Console()
-    color = get_banner_color("mcp_tool_call")
-    banner = f"[bold white on {color}] MCP TOOL CALL [/bold white on {color}]"
-    console.print(f"\n{banner} 🔧 [bold cyan]{name}[/bold cyan]")
+    group_id = uuid.uuid4()
+    emit_info(
+        f"\nMCP Tool Call - {name}",
+        message_group=group_id,
+    )
+    emit_info("\nArgs:", message_group=group_id)
+    emit_info(json.dumps(tool_args, indent=2), message_group=group_id)
     return await call_tool(name, tool_args, {"deps": ctx.deps})
 
 

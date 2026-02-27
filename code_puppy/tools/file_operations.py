@@ -753,7 +753,47 @@ def register_list_files(agent):
     ) -> ListFileOutput:
         """List files and directories with intelligent filtering and safety features.
 
-        Automatically ignores build artifacts, caches, and common noise.
+        This function will only allow recursive listing when the allow_recursion
+        configuration is set to true via the /set allow_recursion=true command.
+
+        This tool provides comprehensive directory listing with smart home directory
+        detection, project-aware recursion, and token-safe output. It automatically
+        ignores common build artifacts, cache directories, and other noise while
+        providing rich file metadata and visual formatting.
+
+        Args:
+            context (RunContext): The PydanticAI runtime context for the agent.
+            directory (str, optional): Path to the directory to list. Can be relative
+                or absolute. Defaults to "." (current directory).
+            recursive (bool, optional): Whether to recursively list subdirectories.
+                Automatically disabled for home directories unless they contain
+                project indicators. Also requires allow_recursion=true in config.
+                Defaults to True.
+
+        Returns:
+            ListFileOutput: A response containing:
+                - content (str): String representation of the directory listing
+                - error (str | None): Error message if listing failed
+
+        Examples:
+            >>> # List current directory
+            >>> result = list_files(ctx)
+            >>> print(result.content)
+
+            >>> # List specific directory non-recursively
+            >>> result = list_files(ctx, "/path/to/project", recursive=False)
+            >>> print(result.content)
+
+            >>> # Handle potential errors
+            >>> result = list_files(ctx, "/nonexistent/path")
+            >>> if result.error:
+            ...     print(f"Error: {result.error}")
+
+        Best Practices:
+            - Always use this before reading/modifying files
+            - Use non-recursive for quick directory overviews
+            - Check for errors in the response
+            - Combine with grep to find specific file patterns
         """
         warning = None
         if recursive and not get_allow_recursion():
@@ -783,7 +823,48 @@ def register_read_file(agent):
     ) -> ReadFileOutput:
         """Read file contents with optional line-range selection and token safety.
 
-        Use start_line/num_lines for large files to avoid overwhelming context.
+        This tool provides safe file reading with automatic token counting and
+        optional line-range selection for handling large files efficiently.
+        It protects against reading excessively large files that could overwhelm
+        the agent's context window.
+
+        Args:
+            context (RunContext): The PydanticAI runtime context for the agent.
+            file_path (str): Path to the file to read. Can be relative or absolute.
+                Cannot be empty.
+            start_line (int | None, optional): Starting line number for partial reads
+                (1-based indexing). If specified, num_lines must also be provided.
+                Defaults to None (read entire file).
+            num_lines (int | None, optional): Number of lines to read starting from
+                start_line. Must be specified if start_line is provided.
+                Defaults to None (read to end of file).
+
+        Returns:
+            ReadFileOutput: A structured response containing:
+                - content (str | None): The file contents or error message
+                - num_tokens (int): Estimated token count (constrained to < 10,000)
+                - error (str | None): Error message if reading failed
+
+        Examples:
+            >>> # Read entire file
+            >>> result = read_file(ctx, "example.py")
+            >>> print(f"Read {result.num_tokens} tokens")
+            >>> print(result.content)
+
+            >>> # Read specific line range
+            >>> result = read_file(ctx, "large_file.py", start_line=10, num_lines=20)
+            >>> print("Lines 10-29:", result.content)
+
+            >>> # Handle errors
+            >>> result = read_file(ctx, "missing.txt")
+            >>> if result.error:
+            ...     print(f"Error: {result.error}")
+
+        Best Practices:
+            - Always check for errors before using content
+            - Use line ranges for large files to avoid token limits
+            - Monitor num_tokens to stay within context limits
+            - Combine with list_files to find files first
         """
         return _read_file(context, file_path, start_line, num_lines)
 
@@ -797,6 +878,49 @@ def register_grep(agent):
     ) -> GrepOutput:
         """Recursively search for text patterns across files using ripgrep (rg).
 
-        search_string supports ripgrep flag syntax (regex, -i for case-insensitive, etc).
+        This tool leverages the high-performance ripgrep utility for fast text
+        searching across directory trees. It searches across all recognized text file
+        types (Python, JavaScript, HTML, CSS, Markdown, etc.) while automatically
+        filtering binary files and limiting results for performance.
+
+        The search_string parameter supports ripgrep's full flag syntax, allowing
+        advanced searches including regex patterns, case-insensitive matching,
+        and other ripgrep features.
+
+        Args:
+            context (RunContext): The PydanticAI runtime context for the agent.
+            search_string (str): The text pattern to search for. Can include ripgrep
+                flags like '--ignore-case', '-w' (word boundaries), etc.
+                Cannot be empty.
+            directory (str, optional): Root directory to start the recursive search.
+                Can be relative or absolute. Defaults to "." (current directory).
+
+        Returns:
+            GrepOutput: A structured response containing:
+                - matches (List[MatchInfo]): List of matches found, where each
+                  MatchInfo contains:
+                  - file_path (str | None): Absolute path to the file containing the match
+                  - line_number (int | None): Line number where match was found (1-based)
+                  - line_content (str | None): Full line content containing the match
+
+        Examples:
+            >>> # Simple text search
+            >>> result = grep(ctx, "def my_function")
+            >>> for match in result.matches:
+            ...     print(f"{match.file_path}:{match.line_number}: {match.line_content}")
+
+            >>> # Case-insensitive search
+            >>> result = grep(ctx, "--ignore-case TODO", "/path/to/project/src")
+            >>> print(f"Found {len(result.matches)} TODO items")
+
+            >>> # Word boundary search (regex)
+            >>> result = grep(ctx, "-w \\w+State\\b")
+            >>> files_with_state = {match.file_path for match in result.matches}
+
+        Best Practices:
+            - Use specific search terms to avoid too many results
+            - Leverage ripgrep's powerful regex and flag features for advanced searches
+            - ripgrep is much faster than naive implementations
+            - Results are capped at 50 matches for performance
         """
         return _grep(context, search_string, directory)

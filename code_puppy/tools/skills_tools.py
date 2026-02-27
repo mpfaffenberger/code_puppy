@@ -44,6 +44,9 @@ def register_activate_skill(agent):
     ) -> SkillActivateOutput:
         """Activate a skill by loading its full SKILL.md instructions.
 
+        Call this when a user's task matches a skill's description.
+        Returns complete instructions for accomplishing the task.
+
         Args:
             skill_name: Name of the skill to activate (from available skills list)
 
@@ -144,6 +147,9 @@ def register_list_or_search_skills(agent):
         Args:
             query: Optional search term to filter skills by name/description/tags.
                    If None, returns all available skills.
+
+        Returns:
+            SkillListOutput: List of skills with name, description, path, and tags.
         """
         # Import from plugin
         from pathlib import Path
