@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash || agent_run_shell_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/block-sed.py\"",
+            "timeout": 5000,
+            "enabled": false
+          }
+        ]
+      }
+    ]
+  }
+}
