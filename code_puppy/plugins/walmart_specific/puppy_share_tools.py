@@ -9,6 +9,8 @@ Pass `local=True` to target a local dev server on localhost:8080 instead.
 
 import json
 import os
+import platform
+import subprocess
 import urllib.request
 from pathlib import Path
 from typing import List, Optional
@@ -110,6 +112,34 @@ def _is_local(local: bool) -> bool:
     return bool(local)
 
 
+def _open_url_in_browser(url: str) -> bool:
+    """Open a URL in the system's default browser.
+    
+    Works on macOS (open), Windows (start), and Linux (xdg-open).
+    Returns True if the command was launched successfully, False otherwise.
+    """
+    try:
+        system = platform.system().lower()
+        if system == "darwin":
+            # macOS
+            subprocess.Popen(["open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif system == "windows":
+            # Windows - use start command via cmd.exe
+            subprocess.Popen(
+                ["cmd", "/c", "start", "", url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                shell=False,
+            )
+        else:
+            # Linux and other Unix-like systems
+            subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        # Don't fail the upload if we can't open the browser
+        return False
+
+
 # =============================================================================
 # Core Functions
 # =============================================================================
@@ -122,6 +152,7 @@ def puppy_share_upload(
     description: str = "",
     access_level: str = "business",
     local: bool = False,
+    open_in_browser: bool = True,
 ) -> PuppyShareUploadOutput:
     """Push an HTML page to Puppy Share."""
     from code_puppy.plugins.walmart_specific.urls import get_sharing_upload_url
@@ -149,16 +180,23 @@ def puppy_share_upload(
 
     if result.get("success"):
         data = result.get("data", {})
-        # Build the full view URL so the user can click it
-        from code_puppy.plugins.walmart_specific.urls import (
-            get_sharing_page_view_url,
-        )
+        
+        # Use the URL from the backend response - it contains the correct
+        # owner-based path: /sharing/{owner_id}/{page_name}
+        # Do NOT construct our own URL as it would incorrectly use business slug
+        view_url = result.get("url")
+        
+        # Fallback only if backend didn't return a URL (shouldn't happen)
+        if not view_url:
+            from code_puppy.plugins.walmart_specific.urls import get_sharing_upload_url
+            base = "http://localhost:8080" if _is_local(local) else "https://puppy.walmart.com"
+            page_url = data.get("url", f"/sharing/{data.get('name', name)}")
+            view_url = f"{base}{page_url}" if page_url.startswith("/") else page_url
 
-        view_url = get_sharing_page_view_url(
-            data.get("business", business),
-            data.get("name", name),
-            local=_is_local(local),
-        )
+        # Open the page in the user's default browser
+        if open_in_browser and view_url:
+            _open_url_in_browser(view_url)
+
         return PuppyShareUploadOutput(
             success=True,
             url=view_url,
@@ -182,6 +220,7 @@ def puppy_share_upload_file(
     description: str = "",
     access_level: str = "business",
     local: bool = False,
+    open_in_browser: bool = True,
 ) -> PuppyShareUploadOutput:
     """Read an HTML file from disk and push it to Puppy Share."""
     path = Path(file_path).expanduser().resolve()
@@ -203,6 +242,7 @@ def puppy_share_upload_file(
         description=description,
         access_level=access_level,
         local=local,
+        open_in_browser=open_in_browser,
     )
 
 
@@ -279,11 +319,12 @@ def register_puppy_share_upload(agent):
         description: str = "",
         access_level: str = "business",
         local: bool = False,
+        open_in_browser: bool = True,
     ) -> PuppyShareUploadOutput:
         """Publish an HTML page to Puppy Share (puppy.walmart.com/sharing).
 
         Pushes HTML content directly. Re-uploading the same name+business
-        combo auto-bumps the version.
+        combo auto-bumps the version. Opens the published page in the browser.
 
         Args:
             context: Run context (injected automatically).
@@ -294,6 +335,7 @@ def register_puppy_share_upload(agent):
             description: Short description (max 500 chars).
             access_level: "public", "business" (default), or "private".
             local: If True, push to localhost:8080 instead of puppy.walmart.com.
+            open_in_browser: If True (default), opens the page in the browser.
 
         Returns:
             PuppyShareUploadOutput with the published page URL.
@@ -305,6 +347,7 @@ def register_puppy_share_upload(agent):
             description=description,
             access_level=access_level,
             local=local,
+            open_in_browser=open_in_browser,
         )
 
 
@@ -321,11 +364,12 @@ def register_puppy_share_upload_file(agent):
         description: str = "",
         access_level: str = "business",
         local: bool = False,
+        open_in_browser: bool = True,
     ) -> PuppyShareUploadOutput:
         """Upload an HTML file from disk to Puppy Share.
 
         Reads the file at file_path and publishes it. Handy when you've
-        already written the report to a file.
+        already written the report to a file. Opens the page in the browser.
 
         Args:
             context: Run context (injected automatically).
@@ -335,6 +379,7 @@ def register_puppy_share_upload_file(agent):
             description: Short description (max 500 chars).
             access_level: "public", "business" (default), or "private".
             local: If True, push to localhost:8080 instead of puppy.walmart.com.
+            open_in_browser: If True (default), opens the page in the browser.
 
         Returns:
             PuppyShareUploadOutput with the published page URL.
@@ -346,6 +391,7 @@ def register_puppy_share_upload_file(agent):
             description=description,
             access_level=access_level,
             local=local,
+            open_in_browser=open_in_browser,
         )
 
 
