@@ -285,6 +285,8 @@ class TestGetConfigKeys:
         mock_parser_instance.read.assert_called_once_with(mock_cfg_file)
         assert keys == sorted(
             [
+                "alert_bell_enabled",
+                "alert_bell_threshold",
                 "allow_recursion",
                 "auto_save_session",
                 "banner_color_agent_reasoning",
@@ -340,6 +342,8 @@ class TestGetConfigKeys:
         keys = cp_config.get_config_keys()
         assert keys == sorted(
             [
+                "alert_bell_enabled",
+                "alert_bell_threshold",
                 "allow_recursion",
                 "auto_save_session",
                 "banner_color_agent_reasoning",
