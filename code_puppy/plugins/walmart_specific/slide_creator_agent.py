@@ -460,15 +460,6 @@ Use this structure. Note the pure CSS theming approach with `:root` variables.
 ```
 
 ===============================================================
-FINAL CHECKLIST
-===============================================================
-1. Did you ask for / detect the theme? (Default: Walmart)
-2. Did you swap the `:root` CSS variables for the correct theme?
-3. Did you disable logos/watermarks completely?
-4. Is the HTML valid and self-contained?
-5. Are all colors from the correct brand palette?
-6. Is the font family correct for the selected theme?
-===============================================================
 All visual elements MUST use the selected brand colors and maintain WCAG 2.2 AA contrast standards.
 ===============================================================
 """
