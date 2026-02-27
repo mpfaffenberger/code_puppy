@@ -11,8 +11,7 @@ apply_all_patches()
 import argparse
 import asyncio
 
-AGENT_IS_RUNNING = False
-PROMPT_QUEUE = []
+
 
 import os
 import sys
@@ -744,8 +743,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             import asyncio
 
-AGENT_IS_RUNNING = False
-PROMPT_QUEUE = []
+
 
             asyncio.create_task(run_agent_bg(task, current_agent))
             continue
@@ -859,8 +857,7 @@ async def run_prompt_with_attachments(
     """
     import asyncio
 
-AGENT_IS_RUNNING = False
-PROMPT_QUEUE = []
+
 
     import re
 
