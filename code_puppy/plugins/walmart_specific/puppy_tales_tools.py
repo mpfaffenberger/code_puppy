@@ -176,12 +176,31 @@ def _generate_story_id() -> str:
 
 
 def _get_api_url() -> str:
-    """Get the Puppy Tales API URL."""
-    # Allow override via environment variable
-    return os.environ.get(
-        "PUPPY_TALES_API_URL",
-        "https://puppy.walmart.com/api/puppy-tales"
-    )
+    """Get the Puppy Tales API URL.
+    
+    Priority:
+    1. PUPPY_TALES_API_URL environment variable (explicit override)
+    2. Local dev server at http://127.0.0.1:8000 (if reachable)
+    3. Production URL https://puppy.walmart.com
+    """
+    # Allow explicit override via environment variable
+    if env_url := os.environ.get("PUPPY_TALES_API_URL"):
+        return env_url
+    
+    # Check if local dev server is running
+    local_url = "http://127.0.0.1:8000/api/puppy-tales"
+    prod_url = "https://puppy.walmart.com/api/puppy-tales"
+    
+    try:
+        with httpx.Client(timeout=1.0) as client:
+            # Quick health check on local server
+            response = client.get("http://127.0.0.1:8000/api/health", follow_redirects=True)
+            if response.status_code == 200:
+                return local_url
+    except Exception:
+        pass  # Local server not available, use production
+    
+    return prod_url
 
 
 def _get_auth_token() -> str | None:
