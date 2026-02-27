@@ -539,7 +539,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             import asyncio
             await asyncio.sleep(0.1)
         else:
-            emit_info(f"{user_prompt}\n")
+            if not AGENT_IS_RUNNING:
+                emit_info(f"{user_prompt}\n")
 
             try:
                 # Use prompt_toolkit for enhanced input with path completion
@@ -767,7 +768,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 a = action.strip().lower()
                 if a == 'i':
                     from rich.console import Console
-                    Console().print(f"[bold bright_red]Interjecting with:[/bold bright_red] [red]{task.strip()}[/red]")
+                    Console().print(f"\n[bold bright_red]Interjecting with:[/bold bright_red] [red]{task.strip()}[/red]")
                     if BG_AGENT_TASK and not BG_AGENT_TASK.done():
                         BG_AGENT_TASK.cancel()
                         from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum

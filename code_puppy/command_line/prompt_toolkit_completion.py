@@ -918,8 +918,7 @@ async def get_interject_action() -> str:
         message=prompt_text, 
         key_bindings=bindings, 
         output=out, 
-        erase_when_done=True,
-        reserve_space_for_menu=8
+        erase_when_done=True
     )
     
     from prompt_toolkit.styles import Style
