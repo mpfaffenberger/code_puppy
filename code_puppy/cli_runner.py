@@ -11,6 +11,10 @@ apply_all_patches()
 import argparse
 import asyncio
 
+AGENT_IS_RUNNING = False
+PROMPT_QUEUE = []
+
+
 
 
 import os
@@ -730,24 +734,41 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         if task.strip():
             save_command_to_history(task)
-            # --- PROTOTYPE BACKGROUND EXECUTION ---
+
+            global AGENT_IS_RUNNING
+            if AGENT_IS_RUNNING:
+                from code_puppy.messaging import emit_warning, emit_info
+                t = task.strip().lower()
+                if t == 'i':
+                    emit_warning("Interject triggered (stub)")
+                    continue
+                elif t == 'q':
+                    emit_info("Queue triggered (stub)")
+                    continue
+                else:
+                    emit_warning("Agent is busy! Type 'i' to interject or 'q' to queue this prompt.")
+                    PROMPT_QUEUE.append(task.strip())
+                    emit_info(f"Auto-queued: {task.strip()}")
+                continue
+
             async def run_agent_bg(task_text, agent):
+                global AGENT_IS_RUNNING
+                AGENT_IS_RUNNING = True
                 try:
                     result, _ = await run_prompt_with_attachments(agent, task_text, spinner_console=None, use_spinner=False)
                     if result is None: return
                     from code_puppy.messaging import get_message_bus
                     from code_puppy.messaging.messages import AgentResponseMessage
                     get_message_bus().emit(AgentResponseMessage(content=result.output, is_markdown=True))
-                except Exception as e:
+                except:
                     pass
+                finally:
+                    AGENT_IS_RUNNING = False
 
             import asyncio
-
-
-
             asyncio.create_task(run_agent_bg(task, current_agent))
             continue
-            # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
+            # Auto-save session if enabled
             from code_puppy.config import auto_save_session_if_enabled
 
             auto_save_session_if_enabled()
@@ -856,6 +877,10 @@ async def run_prompt_with_attachments(
         tuple: (result, task) where result is the agent response and task is the asyncio task
     """
     import asyncio
+
+AGENT_IS_RUNNING = False
+PROMPT_QUEUE = []
+
 
 
 
