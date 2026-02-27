@@ -539,8 +539,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             import asyncio
             await asyncio.sleep(0.1)
         else:
-            # if not AGENT_IS_RUNNING:
-                # emit_info(f"{user_prompt}\n")
+            if not AGENT_IS_RUNNING:
+                emit_info(f"{user_prompt}\n")
 
             try:
                 # Use prompt_toolkit for enhanced input with path completion

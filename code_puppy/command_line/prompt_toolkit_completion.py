@@ -558,7 +558,7 @@ def get_prompt_with_active_model(base: str = ">>> ", is_interject: bool = False)
     parts = []
     
     # Optional newline to isolate from previous output
-    parts.append(("class:separator", f"{sep_line}\n"))
+    parts.append(("class:separator", f"\n{sep_line}\n"))
     
     if PROMPT_QUEUE:
         show_prompts = PROMPT_QUEUE[:3]
