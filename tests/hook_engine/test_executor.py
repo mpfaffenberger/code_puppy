@@ -95,9 +95,7 @@ class TestSubstituteVariables:
             tool_args={"file_path": "test.py", "content": "emoji = '\U0001f436'"},
         )
         # Should not raise re.PatternError: bad escape \u
-        result = _substitute_variables(
-            "sh hooks/pre-write.sh", event_data, {}
-        )
+        result = _substitute_variables("sh hooks/pre-write.sh", event_data, {})
         assert result == "sh hooks/pre-write.sh"
 
     def test_backslash_g_in_tool_args_not_interpreted(self):
@@ -108,9 +106,7 @@ class TestSubstituteVariables:
             tool_name="Write",
             tool_args={"content": "\\g<0>injection"},
         )
-        result = _substitute_variables(
-            "echo $CLAUDE_TOOL_INPUT", event_data, {}
-        )
+        result = _substitute_variables("echo $CLAUDE_TOOL_INPUT", event_data, {})
         assert "\\g<0>injection" in result
 
     def test_claude_project_dir(self):
