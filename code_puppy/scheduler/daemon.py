@@ -29,7 +29,7 @@ def parse_daily_at_times(schedule_value: str) -> list:
     """Parse a comma-separated list of HH:MM times.
 
     Returns a list of (hour, minute) tuples for valid entries.
-    Invalid entries are silently skipped.
+    Invalid entries are skipped with a warning printed to stdout.
 
     Examples:
         "09:00"          -> [(9, 0)]
@@ -101,6 +101,13 @@ def should_run_task(task: ScheduledTask, now: datetime) -> bool:
         # Fire if *any* target time has passed today and hasn't been run since.
         # This is restart-safe: if the daemon was down at 09:00 and restarts
         # at 09:15 it will still fire, because now > 09:00 and last_run < 09:00.
+        #
+        # TIMEZONE NOTE: `now` is a naive datetime (system local time via
+        # datetime.now()). All HH:MM targets are therefore evaluated against
+        # the host's local clock. If the system timezone changes (e.g. DST
+        # transition or a manual tzdata update) task fire times will shift
+        # accordingly. Full tz-aware scheduling (zoneinfo / pytz) is left
+        # for a future iteration.
         times = parse_daily_at_times(task.schedule_value)
         if not times:
             print(

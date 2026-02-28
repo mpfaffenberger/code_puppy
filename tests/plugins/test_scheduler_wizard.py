@@ -563,11 +563,7 @@ class TestCreateTaskWizard:
         mock_text.side_effect = text_instances
 
         sel_instances = [MagicMock(), MagicMock(), MagicMock()]
-        sel_instances[
-            0
-        ].run.return_value = (
-            "Every hour"  # "Daily" removed; any valid choice works here
-        )
+        sel_instances[0].run.return_value = "Daily (every 24h)"
         sel_instances[1].run.return_value = "code-puppy"
         sel_instances[2].run.return_value = "m1"
         mock_sel.side_effect = sel_instances
@@ -578,11 +574,79 @@ class TestCreateTaskWizard:
 
         result = create_task_wizard()
         assert result is not None
-        assert result["schedule_type"] == "hourly"
+        assert result["schedule_type"] == "daily"
 
     # -----------------------------------------------------------------------
     # daily_at schedule type
     # -----------------------------------------------------------------------
+
+    @patch("code_puppy.command_line.utils.safe_input", return_value="y")
+    @patch(f"{_MOD}.MultilineInputMenu")
+    @patch(f"{_MOD}.TextInputMenu")
+    @patch(f"{_MOD}.SelectionMenu")
+    @patch(f"{_MOD}.get_available_models_list", return_value=["m1"])
+    @patch(
+        f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")]
+    )
+    def test_daily_at_normalises_single_digit_hour(
+        self, mock_agents, mock_models, mock_sel, mock_text, mock_multi, mock_confirm
+    ):
+        """'9:00' (no leading zero) is normalised to '09:00' in schedule_value."""
+        from code_puppy.plugins.scheduler.scheduler_wizard import create_task_wizard
+
+        text_instances = [MagicMock(), MagicMock(), MagicMock()]
+        text_instances[0].run.return_value = "Task"
+        text_instances[1].run.return_value = "9:00"
+        text_instances[2].run.return_value = "."
+        mock_text.side_effect = text_instances
+
+        sel_instances = [MagicMock(), MagicMock(), MagicMock()]
+        sel_instances[0].run.return_value = "Daily at specific time(s)..."
+        sel_instances[1].run.return_value = "code-puppy"
+        sel_instances[2].run.return_value = "(use default model)"
+        mock_sel.side_effect = sel_instances
+
+        multi_inst = MagicMock()
+        multi_inst.run.return_value = "do the thing"
+        mock_multi.return_value = multi_inst
+
+        result = create_task_wizard()
+        assert result is not None
+        assert result["schedule_value"] == "09:00"
+
+    @patch("code_puppy.command_line.utils.safe_input", return_value="y")
+    @patch(f"{_MOD}.MultilineInputMenu")
+    @patch(f"{_MOD}.TextInputMenu")
+    @patch(f"{_MOD}.SelectionMenu")
+    @patch(f"{_MOD}.get_available_models_list", return_value=["m1"])
+    @patch(
+        f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")]
+    )
+    def test_daily_at_deduplicates_times(
+        self, mock_agents, mock_models, mock_sel, mock_text, mock_multi, mock_confirm
+    ):
+        """Duplicate times are removed; first occurrence wins, order preserved."""
+        from code_puppy.plugins.scheduler.scheduler_wizard import create_task_wizard
+
+        text_instances = [MagicMock(), MagicMock(), MagicMock()]
+        text_instances[0].run.return_value = "Task"
+        text_instances[1].run.return_value = "09:00,17:00,09:00,17:00"
+        text_instances[2].run.return_value = "."
+        mock_text.side_effect = text_instances
+
+        sel_instances = [MagicMock(), MagicMock(), MagicMock()]
+        sel_instances[0].run.return_value = "Daily at specific time(s)..."
+        sel_instances[1].run.return_value = "code-puppy"
+        sel_instances[2].run.return_value = "(use default model)"
+        mock_sel.side_effect = sel_instances
+
+        multi_inst = MagicMock()
+        multi_inst.run.return_value = "do the thing"
+        mock_multi.return_value = multi_inst
+
+        result = create_task_wizard()
+        assert result is not None
+        assert result["schedule_value"] == "09:00,17:00"  # dupes removed
 
     @patch("code_puppy.command_line.utils.safe_input", return_value="y")
     @patch(f"{_MOD}.MultilineInputMenu")
@@ -779,6 +843,7 @@ class TestCreateTaskWizard:
             ("Every 30 minutes", "interval", "30m"),
             ("Every 2 hours", "interval", "2h"),
             ("Every 6 hours", "interval", "6h"),
+            ("Daily (every 24h)", "daily", "24h"),
         ],
     )
     @patch("code_puppy.command_line.utils.safe_input", return_value="y")

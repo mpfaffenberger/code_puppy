@@ -217,6 +217,7 @@ def create_task_wizard() -> Optional[dict]:
             "Every hour",
             "Every 2 hours",
             "Every 6 hours",
+            "Daily (every 24h)",
             "Daily at specific time(s)...",
             "Custom interval...",
         ],
@@ -226,6 +227,7 @@ def create_task_wizard() -> Optional[dict]:
             "Run once per hour",
             "Run 12 times per day",
             "Run 4 times per day",
+            "Run once per day, 24h after last run",
             "Run at exact wall-clock times, e.g. 09:00 or 09:00,17:30",
             "Specify custom interval like 45m, 3h, 2d",
         ],
@@ -242,6 +244,7 @@ def create_task_wizard() -> Optional[dict]:
         "Every hour": ("hourly", "1h"),
         "Every 2 hours": ("interval", "2h"),
         "Every 6 hours": ("interval", "6h"),
+        "Daily (every 24h)": ("daily", "24h"),
     }
 
     if schedule_choice == "Daily at specific time(s)...":
@@ -253,13 +256,17 @@ def create_task_wizard() -> Optional[dict]:
         if not raw_times:
             print("\n  ❌ Cancelled.")
             return None
-        # Validate every entry looks like HH:MM
+        # Validate, normalise (09:00 canonical form), and deduplicate entries.
         entries = [t.strip() for t in raw_times.split(",") if t.strip()]
+        seen: set[str] = set()
         valid = []
         for entry in entries:
             try:
-                datetime.strptime(entry, "%H:%M")  # noqa: DTZ007
-                valid.append(entry)
+                t = datetime.strptime(entry, "%H:%M")  # noqa: DTZ007
+                normalised = t.strftime("%H:%M")
+                if normalised not in seen:
+                    seen.add(normalised)
+                    valid.append(normalised)
             except ValueError:
                 print(f"  ⚠️  Skipping invalid time: '{entry}' (expected HH:MM)")
         if not valid:
