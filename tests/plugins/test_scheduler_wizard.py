@@ -563,7 +563,7 @@ class TestCreateTaskWizard:
         mock_text.side_effect = text_instances
 
         sel_instances = [MagicMock(), MagicMock(), MagicMock()]
-        sel_instances[0].run.return_value = "Daily"
+        sel_instances[0].run.return_value = "Every hour"  # "Daily" removed; any valid choice works here
         sel_instances[1].run.return_value = "code-puppy"
         sel_instances[2].run.return_value = "m1"
         mock_sel.side_effect = sel_instances
@@ -574,7 +574,184 @@ class TestCreateTaskWizard:
 
         result = create_task_wizard()
         assert result is not None
-        assert result["schedule_type"] == "daily"
+        assert result["schedule_type"] == "hourly"
+
+    # -----------------------------------------------------------------------
+    # daily_at schedule type
+    # -----------------------------------------------------------------------
+
+    @patch("code_puppy.command_line.utils.safe_input", return_value="y")
+    @patch(f"{_MOD}.MultilineInputMenu")
+    @patch(f"{_MOD}.TextInputMenu")
+    @patch(f"{_MOD}.SelectionMenu")
+    @patch(f"{_MOD}.get_available_models_list", return_value=["m1"])
+    @patch(f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")])
+    def test_daily_at_single_time(
+        self, mock_agents, mock_models, mock_sel, mock_text, mock_multi, mock_confirm
+    ):
+        """Selecting 'Daily at specific time(s)...' with one valid time works."""
+        from code_puppy.plugins.scheduler.scheduler_wizard import create_task_wizard
+
+        # TextInputMenu calls: name, time(s), working_dir
+        text_instances = [MagicMock(), MagicMock(), MagicMock()]
+        text_instances[0].run.return_value = "Morning Task"
+        text_instances[1].run.return_value = "09:00"
+        text_instances[2].run.return_value = "."
+        mock_text.side_effect = text_instances
+
+        sel_instances = [MagicMock(), MagicMock(), MagicMock()]
+        sel_instances[0].run.return_value = "Daily at specific time(s)..."
+        sel_instances[1].run.return_value = "code-puppy"
+        sel_instances[2].run.return_value = "(use default model)"
+        mock_sel.side_effect = sel_instances
+
+        multi_inst = MagicMock()
+        multi_inst.run.return_value = "do the thing"
+        mock_multi.return_value = multi_inst
+
+        result = create_task_wizard()
+        assert result is not None
+        assert result["schedule_type"] == "daily_at"
+        assert result["schedule_value"] == "09:00"
+
+    @patch("code_puppy.command_line.utils.safe_input", return_value="y")
+    @patch(f"{_MOD}.MultilineInputMenu")
+    @patch(f"{_MOD}.TextInputMenu")
+    @patch(f"{_MOD}.SelectionMenu")
+    @patch(f"{_MOD}.get_available_models_list", return_value=["m1"])
+    @patch(f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")])
+    def test_daily_at_multiple_times(
+        self, mock_agents, mock_models, mock_sel, mock_text, mock_multi, mock_confirm
+    ):
+        """Multiple comma-separated times are all preserved in schedule_value."""
+        from code_puppy.plugins.scheduler.scheduler_wizard import create_task_wizard
+
+        text_instances = [MagicMock(), MagicMock(), MagicMock()]
+        text_instances[0].run.return_value = "Twice Daily"
+        text_instances[1].run.return_value = "09:00,17:30"
+        text_instances[2].run.return_value = "."
+        mock_text.side_effect = text_instances
+
+        sel_instances = [MagicMock(), MagicMock(), MagicMock()]
+        sel_instances[0].run.return_value = "Daily at specific time(s)..."
+        sel_instances[1].run.return_value = "code-puppy"
+        sel_instances[2].run.return_value = "(use default model)"
+        mock_sel.side_effect = sel_instances
+
+        multi_inst = MagicMock()
+        multi_inst.run.return_value = "do the thing"
+        mock_multi.return_value = multi_inst
+
+        result = create_task_wizard()
+        assert result is not None
+        assert result["schedule_type"] == "daily_at"
+        assert result["schedule_value"] == "09:00,17:30"
+
+    @patch(f"{_MOD}.TextInputMenu")
+    @patch(f"{_MOD}.SelectionMenu")
+    def test_daily_at_cancel_time_input(self, mock_sel, mock_text):
+        """Cancelling the time input (returning None) aborts the wizard."""
+        from code_puppy.plugins.scheduler.scheduler_wizard import create_task_wizard
+
+        # TextInputMenu: name returns value, time input returns None (cancelled)
+        text_instances = [MagicMock(), MagicMock()]
+        text_instances[0].run.return_value = "Task"
+        text_instances[1].run.return_value = None
+        mock_text.side_effect = text_instances
+
+        sel_inst = MagicMock()
+        sel_inst.run.return_value = "Daily at specific time(s)..."
+        mock_sel.return_value = sel_inst
+
+        assert create_task_wizard() is None
+
+    @patch(f"{_MOD}.TextInputMenu")
+    @patch(f"{_MOD}.SelectionMenu")
+    def test_daily_at_all_invalid_times(self, mock_sel, mock_text):
+        """Providing only invalid times shows a warning and aborts."""
+        from code_puppy.plugins.scheduler.scheduler_wizard import create_task_wizard
+
+        text_instances = [MagicMock(), MagicMock()]
+        text_instances[0].run.return_value = "Task"
+        text_instances[1].run.return_value = "notaime,alsowrong"
+        mock_text.side_effect = text_instances
+
+        sel_inst = MagicMock()
+        sel_inst.run.return_value = "Daily at specific time(s)..."
+        mock_sel.return_value = sel_inst
+
+        assert create_task_wizard() is None
+
+    @patch("code_puppy.command_line.utils.safe_input", return_value="y")
+    @patch(f"{_MOD}.MultilineInputMenu")
+    @patch(f"{_MOD}.TextInputMenu")
+    @patch(f"{_MOD}.SelectionMenu")
+    @patch(f"{_MOD}.get_available_models_list", return_value=["m1"])
+    @patch(f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")])
+    def test_daily_at_strips_invalid_times(
+        self, mock_agents, mock_models, mock_sel, mock_text, mock_multi, mock_confirm
+    ):
+        """Mixed valid/invalid input: invalid entries are stripped, valid ones kept."""
+        from code_puppy.plugins.scheduler.scheduler_wizard import create_task_wizard
+
+        text_instances = [MagicMock(), MagicMock(), MagicMock()]
+        text_instances[0].run.return_value = "Task"
+        text_instances[1].run.return_value = "bad,09:00,alsowrong,17:00"
+        text_instances[2].run.return_value = "."
+        mock_text.side_effect = text_instances
+
+        sel_instances = [MagicMock(), MagicMock(), MagicMock()]
+        sel_instances[0].run.return_value = "Daily at specific time(s)..."
+        sel_instances[1].run.return_value = "code-puppy"
+        sel_instances[2].run.return_value = "(use default model)"
+        mock_sel.side_effect = sel_instances
+
+        multi_inst = MagicMock()
+        multi_inst.run.return_value = "prompt"
+        mock_multi.return_value = multi_inst
+
+        result = create_task_wizard()
+        assert result is not None
+        assert result["schedule_type"] == "daily_at"
+        assert result["schedule_value"] == "09:00,17:00"  # bad entries stripped
+
+    @patch("code_puppy.command_line.utils.safe_input", return_value="y")
+    @patch(f"{_MOD}.MultilineInputMenu")
+    @patch(f"{_MOD}.TextInputMenu")
+    @patch(f"{_MOD}.SelectionMenu")
+    @patch(f"{_MOD}.get_available_models_list", return_value=["m1"])
+    @patch(f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")])
+    def test_daily_at_summary_display(
+        self, mock_agents, mock_models, mock_sel, mock_text, mock_multi, mock_confirm,
+        capsys
+    ):
+        """Summary line should read 'daily at HH:MM' not the raw type/value."""
+        from code_puppy.plugins.scheduler.scheduler_wizard import create_task_wizard
+
+        text_instances = [MagicMock(), MagicMock(), MagicMock()]
+        text_instances[0].run.return_value = "Task"
+        text_instances[1].run.return_value = "09:00"
+        text_instances[2].run.return_value = "."
+        mock_text.side_effect = text_instances
+
+        sel_instances = [MagicMock(), MagicMock(), MagicMock()]
+        sel_instances[0].run.return_value = "Daily at specific time(s)..."
+        sel_instances[1].run.return_value = "code-puppy"
+        sel_instances[2].run.return_value = "(use default model)"
+        mock_sel.side_effect = sel_instances
+
+        multi_inst = MagicMock()
+        multi_inst.run.return_value = "prompt"
+        mock_multi.return_value = multi_inst
+
+        create_task_wizard()
+        out = capsys.readouterr().out
+        assert "daily at 09:00" in out
+        assert "daily_at" not in out  # raw type should not appear in summary
+
+    # -----------------------------------------------------------------------
+    # Test all schedule_map entries
+    # -----------------------------------------------------------------------
 
     # Test all schedule_map entries
     @pytest.mark.parametrize(
