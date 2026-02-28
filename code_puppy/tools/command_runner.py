@@ -97,7 +97,7 @@ else:
         return False
 
 
-_AWAITING_USER_INPUT = False
+_AWAITING_USER_INPUT = threading.Event()
 
 _CONFIRMATION_LOCK = threading.Lock()
 
@@ -115,8 +115,9 @@ _ORIGINAL_SIGINT_HANDLER = None
 _KEYBOARD_CONTEXT_REFCOUNT = 0
 _KEYBOARD_CONTEXT_LOCK = threading.Lock()
 
-# Stop event to signal reader threads to terminate
-_READER_STOP_EVENT: Optional[threading.Event] = None
+# Thread-safe registry of active stop events for concurrent shell commands
+_ACTIVE_STOP_EVENTS: Set[threading.Event] = set()
+_ACTIVE_STOP_EVENTS_LOCK = threading.Lock()
 
 # Thread pool for running blocking shell commands without blocking the event loop
 # This allows multiple sub-agents to run shell commands in parallel
@@ -205,11 +206,10 @@ def kill_all_running_shell_processes() -> int:
 
     Returns the number of processes signaled.
     """
-    global _READER_STOP_EVENT
-
-    # Signal reader threads to stop
-    if _READER_STOP_EVENT:
-        _READER_STOP_EVENT.set()
+    # Signal all active reader threads to stop
+    with _ACTIVE_STOP_EVENTS_LOCK:
+        for evt in _ACTIVE_STOP_EVENTS:
+            evt.set()
 
     procs: list[subprocess.Popen]
     with _RUNNING_PROCESSES_LOCK:
@@ -255,15 +255,16 @@ def get_running_shell_process_count() -> int:
 # Function to check if user input is awaited
 def is_awaiting_user_input():
     """Check if command_runner is waiting for user input."""
-    global _AWAITING_USER_INPUT
-    return _AWAITING_USER_INPUT
+    return _AWAITING_USER_INPUT.is_set()
 
 
 # Function to set user input flag
 def set_awaiting_user_input(awaiting=True):
     """Set the flag indicating if user input is awaited."""
-    global _AWAITING_USER_INPUT
-    _AWAITING_USER_INPUT = awaiting
+    if awaiting:
+        _AWAITING_USER_INPUT.set()
+    else:
+        _AWAITING_USER_INPUT.clear()
 
     # When we're setting this flag, also pause/resume all active spinners
     if awaiting:
@@ -611,8 +612,9 @@ def run_shell_command_streaming(
     group_id: str = None,
     silent: bool = False,
 ):
-    global _READER_STOP_EVENT
-    _READER_STOP_EVENT = threading.Event()
+    stop_event = threading.Event()
+    with _ACTIVE_STOP_EVENTS_LOCK:
+        _ACTIVE_STOP_EVENTS.add(stop_event)
 
     start_time = time.time()
     last_output_time = [start_time]
@@ -634,7 +636,7 @@ def run_shell_command_streaming(
         try:
             while True:
                 # Check stop event first
-                if _READER_STOP_EVENT and _READER_STOP_EVENT.is_set():
+                if stop_event.is_set():
                     break
 
                 # Use select to check if data is available (with timeout)
@@ -704,7 +706,7 @@ def run_shell_command_streaming(
         try:
             while True:
                 # Check stop event first
-                if _READER_STOP_EVENT and _READER_STOP_EVENT.is_set():
+                if stop_event.is_set():
                     break
 
                 if sys.platform.startswith("win"):
@@ -770,8 +772,7 @@ def run_shell_command_streaming(
 
         try:
             # Signal reader threads to stop first
-            if _READER_STOP_EVENT:
-                _READER_STOP_EVENT.set()
+            stop_event.set()
 
             if process.poll() is None:
                 nuclear_kill(process)
@@ -874,8 +875,8 @@ def run_shell_command_streaming(
         _unregister_process(process)
 
         # Apply line length limits to stdout/stderr before returning
-        truncated_stdout = [_truncate_line(line) for line in stdout_lines[-256:]]
-        truncated_stderr = [_truncate_line(line) for line in stderr_lines[-256:]]
+        truncated_stdout = stdout_lines[-256:]
+        truncated_stderr = stderr_lines[-256:]
 
         # Emit structured ShellOutputMessage for the UI (skip for silent sub-agents)
         if not silent:
@@ -888,8 +889,8 @@ def run_shell_command_streaming(
             )
             get_message_bus().emit(shell_output_msg)
 
-        # Reset the stop event now that we're done
-        _READER_STOP_EVENT = None
+        with _ACTIVE_STOP_EVENTS_LOCK:
+            _ACTIVE_STOP_EVENTS.discard(stop_event)
 
         if exit_code != 0:
             time.sleep(1)
@@ -917,14 +918,14 @@ def run_shell_command_streaming(
         )
 
     except Exception as e:
-        # Reset the stop event on exception too
-        _READER_STOP_EVENT = None
+        with _ACTIVE_STOP_EVENTS_LOCK:
+            _ACTIVE_STOP_EVENTS.discard(stop_event)
         return ShellCommandOutput(
             success=False,
             command=command,
             error=f"Error during streaming execution: {str(e)}",
-            stdout="\n".join(stdout_lines[-1000:]),
-            stderr="\n".join(stderr_lines[-1000:]),
+            stdout="\n".join(stdout_lines[-256:]),
+            stderr="\n".join(stderr_lines[-256:]),
             exit_code=-1,
             timeout=False,
         )
@@ -937,8 +938,6 @@ async def run_shell_command(
     timeout: int = 60,
     background: bool = False,
 ) -> ShellCommandOutput:
-    time.time()
-
     # Generate unique group_id for this command execution
     group_id = generate_group_id("shell_command", command)
 
@@ -973,6 +972,7 @@ async def run_shell_command(
             suffix=".log",
             delete=False,  # Keep file so agent can read it later
         )
+        log_file_path = log_file.name
 
         try:
             # Platform-specific process detachment
@@ -1030,7 +1030,15 @@ async def run_shell_command(
                 pid=process.pid,
             )
         except Exception as e:
-            log_file.close()
+            try:
+                log_file.close()
+            except Exception:
+                pass
+            # Clean up the temp file on error since no process will write to it
+            try:
+                os.unlink(log_file_path)
+            except OSError:
+                pass
             # Emit error message so user sees what happened
             emit_error(f"❌ Failed to start background process: {e}")
             return ShellCommandOutput(

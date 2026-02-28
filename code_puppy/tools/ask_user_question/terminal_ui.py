@@ -14,21 +14,15 @@ Navigation:
 
 from __future__ import annotations
 
-import asyncio
-import sys
 import time
 
 from .constants import (
     AUTO_ADD_OTHER_OPTION,
-    CLEAR_AND_HOME,
     DEFAULT_TIMEOUT_SECONDS,
-    ENTER_ALT_SCREEN,
-    EXIT_ALT_SCREEN,
     LEFT_PANEL_PADDING,
     MAX_LEFT_PANEL_WIDTH,
     MIN_LEFT_PANEL_WIDTH,
     OTHER_OPTION_LABEL,
-    TERMINAL_SYNC_DELAY,
     TIMEOUT_WARNING_SECONDS,
 )
 from .models import Question, QuestionAnswer
@@ -326,21 +320,10 @@ async def interactive_question_picker(
     state.timeout_seconds = timeout_seconds
     set_awaiting_user_input(True)
 
-    # Enter alternate screen buffer once for entire session
-    # Use __stdout__ to bypass any output capturing
-    terminal = sys.__stdout__
-    terminal.write(ENTER_ALT_SCREEN)
-    terminal.write(CLEAR_AND_HOME)
-    terminal.flush()
-    await asyncio.sleep(TERMINAL_SYNC_DELAY)
-
     try:
         from .tui_loop import run_question_tui
 
-        # run_question_tui returns (answers, cancelled, timed_out) directly
+        # prompt_toolkit manages alt screen via full_screen=True
         return await run_question_tui(state)
     finally:
         set_awaiting_user_input(False)
-        # Exit alternate screen buffer once at end
-        terminal.write(EXIT_ALT_SCREEN)
-        terminal.flush()

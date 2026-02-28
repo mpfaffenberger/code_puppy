@@ -757,3 +757,113 @@ class TestEdgeCases:
         # But Gemini can still use the rate-limited account if not limited for Gemini
         gemini_next = manager.get_current_or_next_for_family("gemini")
         assert gemini_next is not None
+
+    def test_init_with_empty_accounts_in_storage(self):
+        """Test init with stored AccountStorage that has an empty accounts list."""
+        storage = AccountStorage(version=3, accounts=[], active_index=0)
+        manager = AccountManager(initial_refresh_token="token", stored=storage)
+        assert manager.account_count == 0
+
+    def test_init_skips_account_without_refresh_token(self):
+        """Test that accounts with no refresh_token are skipped during load."""
+        now = time.time() * 1000
+        storage = AccountStorage(
+            version=3,
+            accounts=[
+                AccountMetadata(
+                    refresh_token="",
+                    email="no-token@example.com",
+                    added_at=now,
+                    last_used=0,
+                    rate_limit_reset_times=RateLimitState(),
+                ),
+                AccountMetadata(
+                    refresh_token="valid_token",
+                    email="valid@example.com",
+                    added_at=now,
+                    last_used=0,
+                    rate_limit_reset_times=RateLimitState(),
+                ),
+            ],
+            active_index=0,
+        )
+        manager = AccountManager(initial_refresh_token="", stored=storage)
+        assert manager.account_count == 1
+        assert manager.get_accounts_snapshot()[0].email == "valid@example.com"
+
+    def test_init_loads_gemini_cli_rate_limit(self):
+        """Test that gemini_cli rate limits are loaded from storage."""
+        now = time.time() * 1000
+        storage = AccountStorage(
+            version=3,
+            accounts=[
+                AccountMetadata(
+                    refresh_token="token",
+                    email="test@example.com",
+                    added_at=now,
+                    last_used=0,
+                    rate_limit_reset_times=RateLimitState(
+                        gemini_cli=now + 9000,
+                    ),
+                ),
+            ],
+            active_index=0,
+        )
+        manager = AccountManager(initial_refresh_token="", stored=storage)
+        account = manager.get_accounts_snapshot()[0]
+        assert account.rate_limit_reset_times["gemini-cli"] == now + 9000
+
+    def test_get_min_wait_time_gemini_all_limited(self):
+        """Test min wait time for gemini when all accounts are rate limited."""
+        manager = AccountManager(initial_refresh_token="", stored=None)
+        manager.add_account("t1", "a@b.com")
+        manager.add_account("t2", "c@d.com")
+
+        # Rate limit both accounts for both gemini pools
+        for acc in manager.get_accounts_snapshot():
+            manager.mark_rate_limited(acc, 10000, "gemini", "antigravity")
+            manager.mark_rate_limited(acc, 5000, "gemini", "gemini-cli")
+
+        wait = manager.get_min_wait_time_for_family("gemini")
+        # Should pick the min of the min-per-account waits
+        assert wait > 0
+        assert wait <= 5100  # cli expires first at ~5000ms
+
+    def test_get_min_wait_time_gemini_one_pool_not_limited(self):
+        """Test gemini wait time when only one pool is limited (account available)."""
+        manager = AccountManager(initial_refresh_token="", stored=None)
+        manager.add_account("t1", "a@b.com")
+
+        # Only limit antigravity, not cli - account is NOT fully rate limited
+        acc = manager.get_accounts_snapshot()[0]
+        manager.mark_rate_limited(acc, 10000, "gemini", "antigravity")
+
+        wait = manager.get_min_wait_time_for_family("gemini")
+        assert wait == 0  # Account is available (not fully limited)
+
+    def test_remove_account_adjusts_cursor(self, sample_storage):
+        """Test that removing an account before cursor adjusts cursor down."""
+        manager = AccountManager(initial_refresh_token="", stored=sample_storage)
+        manager._cursor = 2  # cursor after second account
+
+        # Remove first account (index 0, before cursor)
+        account_to_remove = manager.get_accounts_snapshot()[0]
+        manager.remove_account(account_to_remove)
+
+        assert manager._cursor == 1  # adjusted down
+
+    def test_remove_account_resets_high_family_index(self):
+        """Test that family index is set to -1 when it equals len(accounts)."""
+        manager = AccountManager(initial_refresh_token="", stored=None)
+        manager.add_account("t1", "a@b.com")
+        manager.add_account("t2", "c@d.com")
+
+        # Set claude index to last account (index 1)
+        manager._current_index_by_family["claude"] = 1
+        manager._current_index_by_family["gemini"] = 0
+
+        # Remove last account (index 1) - claude index should become -1
+        acc = manager.get_accounts_snapshot()[1]
+        manager.remove_account(acc)
+
+        assert manager._current_index_by_family["claude"] == -1

@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import time
 
 from rich.console import Console
@@ -9,6 +10,7 @@ from rich.text import Text
 
 # Global variable to track current token per second rate
 CURRENT_TOKEN_RATE = 0.0
+_TOKEN_RATE_LOCK = threading.Lock()
 
 
 class StatusDisplay:
@@ -66,7 +68,8 @@ class StatusDisplay:
 
                 # Update the global rate for other components to access
                 global CURRENT_TOKEN_RATE
-                CURRENT_TOKEN_RATE = self.current_rate
+                with _TOKEN_RATE_LOCK:
+                    CURRENT_TOKEN_RATE = self.current_rate
 
         self.last_update_time = current_time
         self.last_token_count = self.token_count
@@ -95,13 +98,15 @@ class StatusDisplay:
 
             # Update the global rate
             global CURRENT_TOKEN_RATE
-            CURRENT_TOKEN_RATE = self.current_rate
+            with _TOKEN_RATE_LOCK:
+                CURRENT_TOKEN_RATE = self.current_rate
 
     @staticmethod
     def get_current_rate() -> float:
         """Get the current token rate for use in other components"""
         global CURRENT_TOKEN_RATE
-        return CURRENT_TOKEN_RATE
+        with _TOKEN_RATE_LOCK:
+            return CURRENT_TOKEN_RATE
 
     def update_token_count(self, tokens: int) -> None:
         """Update the token count and recalculate the rate"""
@@ -240,7 +245,8 @@ class StatusDisplay:
 
             # Reset global rate to 0 to avoid affecting subsequent tasks
             global CURRENT_TOKEN_RATE
-            CURRENT_TOKEN_RATE = 0.0
+            with _TOKEN_RATE_LOCK:
+                CURRENT_TOKEN_RATE = 0.0
         else:
             # Even if not active, ensure we print stats when stop is called
             # This is for testing purposes

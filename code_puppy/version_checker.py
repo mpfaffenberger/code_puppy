@@ -9,11 +9,37 @@ from code_puppy.messaging.messages import VersionCheckMessage
 def normalize_version(version_str):
     if not version_str:
         return version_str
-    return version_str.lstrip("v")
+    version_str = version_str.lstrip("v")
+    return version_str
+
+
+def _version_tuple(version_str):
+    """Convert version string to tuple of ints for proper comparison."""
+    try:
+        return tuple(int(x) for x in version_str.split("."))
+    except (ValueError, AttributeError):
+        return None
+
+
+def version_is_newer(latest, current):
+    """Return True if latest version is strictly newer than current."""
+    latest_tuple = _version_tuple(normalize_version(latest))
+    current_tuple = _version_tuple(normalize_version(current))
+    if latest_tuple is None or current_tuple is None:
+        return False
+    return latest_tuple > current_tuple
 
 
 def versions_are_equal(current, latest):
-    return normalize_version(current) == normalize_version(latest)
+    current_norm = normalize_version(current)
+    latest_norm = normalize_version(latest)
+    # Try numeric tuple comparison first
+    current_tuple = _version_tuple(current_norm)
+    latest_tuple = _version_tuple(latest_norm)
+    if current_tuple is not None and latest_tuple is not None:
+        return current_tuple == latest_tuple
+    # Fallback to string comparison
+    return current_norm == latest_norm
 
 
 def fetch_latest_version(package_name):
@@ -35,7 +61,9 @@ def default_version_mismatch_behavior(current_version):
 
     latest_version = fetch_latest_version("code-puppy")
 
-    update_available = bool(latest_version and latest_version != current_version)
+    update_available = bool(
+        latest_version and version_is_newer(latest_version, current_version)
+    )
 
     # Emit structured version check message
     version_msg = VersionCheckMessage(

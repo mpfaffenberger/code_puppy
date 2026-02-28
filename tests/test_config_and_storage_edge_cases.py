@@ -41,8 +41,8 @@ def mock_config_paths(monkeypatch, tmp_path):
 class TestDBOSConfiguration:
     """Test DBOS (Database Operating System) configuration."""
 
-    def test_get_use_dbos_returns_false_by_default(self, mock_config_paths):
-        """Test that DBOS is disabled by default."""
+    def test_get_use_dbos_returns_true_by_default(self, mock_config_paths):
+        """Test that DBOS is enabled by default."""
         mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
 
         config = configparser.ConfigParser()
@@ -52,7 +52,7 @@ class TestDBOSConfiguration:
             config.write(f)
 
         result = cp_config.get_use_dbos()
-        assert result is False
+        assert result is True
 
     @pytest.mark.parametrize("truthy_value", ["1", "true", "True", "yes", "on"])
     def test_get_use_dbos_returns_true_for_truthy_values(

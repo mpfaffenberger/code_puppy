@@ -40,6 +40,7 @@ from code_puppy.command_line.model_picker_completion import (
     get_active_model,
 )
 from code_puppy.command_line.pin_command_completion import PinCompleter, UnpinCompleter
+from code_puppy.command_line.skills_completion import SkillsCompleter
 from code_puppy.command_line.utils import list_directory
 from code_puppy.config import (
     COMMAND_HISTORY_FILE,
@@ -574,6 +575,7 @@ async def get_input_with_combined_completion(
             AgentCompleter(trigger="/agent"),
             AgentCompleter(trigger="/a"),
             MCPCompleter(trigger="/mcp"),
+            SkillsCompleter(trigger="/skills"),
             SlashCompleter(),
         ]
     )
@@ -647,6 +649,30 @@ async def get_input_with_combined_completion(
             event.app.current_buffer.insert_text("\n")
         else:
             event.current_buffer.validate_and_handle()
+
+    # Backspace/Delete: trigger completions after deletion
+    # By default, complete_while_typing only triggers on character insertion,
+    # not deletion. This fixes completions not reappearing after backspace.
+    @bindings.add("c-h", eager=True)  # Backspace (Ctrl+H)
+    @bindings.add("backspace", eager=True)
+    def handle_backspace_with_completion(event):
+        buffer = event.app.current_buffer
+        # Perform the deletion first
+        buffer.delete_before_cursor(count=1)
+        # Then trigger completion if text starts with '/'
+        text = buffer.text.lstrip()
+        if text.startswith("/"):
+            buffer.start_completion(select_first=False)
+
+    @bindings.add("delete", eager=True)
+    def handle_delete_with_completion(event):
+        buffer = event.app.current_buffer
+        # Perform the deletion first
+        buffer.delete(count=1)
+        # Then trigger completion if text starts with '/'
+        text = buffer.text.lstrip()
+        if text.startswith("/"):
+            buffer.start_completion(select_first=False)
 
     # Handle bracketed paste - smart detection for text vs images.
     # Most terminals (Windows included!) send Ctrl+V through bracketed paste.

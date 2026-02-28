@@ -142,7 +142,7 @@ When enabled, every agent is automatically wrapped as a `DBOSAgent`, checkpointi
 
 You can toggle DBOS via either of these options:
 
-- CLI config (persists): `/set enable_dbos true` (or `false` to disable)
+- CLI config (persists): `/set enable_dbos false` to disable (enabled by default)
 
 
 Config takes precedence if set; otherwise the environment variable is used.

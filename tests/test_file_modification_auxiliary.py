@@ -1,6 +1,17 @@
 from code_puppy.tools import file_modifications
 
 
+def test_replace_in_file_missing_file(tmp_path):
+    """_replace_in_file returns an error dict for a nonexistent file."""
+    missing = str(tmp_path / "nonexistent.txt")
+    res = file_modifications._replace_in_file(
+        None, missing, [{"old_str": "a", "new_str": "b"}]
+    )
+    assert "error" in res
+    assert "does not exist" in res["error"]
+    assert res["diff"] == ""
+
+
 def test_replace_in_file_multiple_replacements(tmp_path):
     path = tmp_path / "multi.txt"
     path.write_text("foo bar baz bar foo")
@@ -30,6 +41,21 @@ def test_replace_in_file_near_match(tmp_path):
     res = file_modifications._replace_in_file(None, str(path), reps)
     # Depending on scoring, this may or may not match: just test schema
     assert "diff" in res
+
+
+def test_fuzzy_match_preserves_trailing_newline(tmp_path):
+    """Fuzzy-match reassembly must preserve a trailing newline."""
+    path = tmp_path / "trailing.txt"
+    # File ends with a newline, as most files do
+    path.write_text("aaa\nbbb\nccc\n")
+    # Slightly off so exact match fails and fuzzy kicks in
+    reps = [{"old_str": "bbb\nccc ", "new_str": "replaced"}]
+    res = file_modifications._replace_in_file(None, str(path), reps)
+    if res.get("success"):
+        content = path.read_text()
+        assert content.endswith("\n"), (
+            f"Trailing newline lost after fuzzy reassembly: {content!r}"
+        )
 
 
 def test_delete_large_snippet(tmp_path):

@@ -494,7 +494,9 @@ def register_invoke_agent(agent):
             instructions = prepared.instructions
             prompt = prepared.user_prompt
 
-            subagent_name = f"temp-invoke-agent-{session_id}"
+            import uuid as _uuid
+
+            subagent_name = f"temp-invoke-agent-{session_id}-{_uuid.uuid4().hex[:8]}"
             model_settings = make_model_settings(model_name)
 
             # Get MCP servers for sub-agents (same as main agent)
@@ -608,7 +610,7 @@ def register_invoke_agent(agent):
                     _active_subagent_tasks.discard(task)
                     if task.cancelled():
                         if get_use_dbos() and workflow_id:
-                            DBOS.cancel_workflow(workflow_id)
+                            await DBOS.cancel_workflow_async(workflow_id)
 
             # Extract the response from the result
             response = result.output

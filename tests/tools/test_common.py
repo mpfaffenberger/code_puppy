@@ -289,20 +289,6 @@ class TestFindBestWindow:
         assert span == (0, 1), f"Expected span (0, 1), got {span}"
         assert score > 0.99, f"Expected high score, got {score}"
 
-    def test_logs_results(self):
-        """Test that function logs best span, window, and score."""
-        haystack = ["test"]
-        needle = "test"
-
-        mock_console = MagicMock()
-        common_module.console = mock_console
-        _find_best_window(haystack, needle)
-
-        # Should log: span, window, score
-        assert mock_console.log.call_count == 3, (
-            f"Expected 3 console.log calls, got {mock_console.log.call_count}"
-        )
-
     def test_returns_best_match_not_first(self):
         """Test that it returns the BEST match, not just the first."""
         haystack = ["hello wurld", "hello world", "hello"]

@@ -71,7 +71,7 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
 
                             # Copy core internals so httpx uses the modified body/stream
                             if hasattr(rebuilt, "_content"):
-                                setattr(request, "_content", rebuilt._content)
+                                request._content = rebuilt._content  # type: ignore[attr-defined]
                             if hasattr(rebuilt, "stream"):
                                 request.stream = rebuilt.stream
                             if hasattr(rebuilt, "extensions"):
@@ -80,10 +80,12 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
                             # Ensure Content-Length matches the new body
                             request.headers["Content-Length"] = str(len(updated))
 
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to rebuild request with Codex fields: %s", e
+                            )
+        except Exception as e:
+            logger.debug("Failed to inject Codex fields into request: %s", e)
 
         # Make the actual request
         response = await super().send(request, *args, **kwargs)

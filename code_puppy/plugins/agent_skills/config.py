@@ -16,7 +16,7 @@ def get_skill_directories() -> List[str]:
     Returns:
         List of skill directory paths from configuration.
         Reads from puppy.cfg [puppy] section under 'skill_directories' key.
-        Default: ['~/.code_puppy/skills', './skills']
+        Default: ['~/.code_puppy/skills', './.code_puppy/skills', './skills']
 
     The directories are stored as a JSON list in the config.
     """
@@ -35,8 +35,13 @@ def get_skill_directories() -> List[str]:
 
     # Fallback to defaults
     home_skills = str(Path.home() / ".code_puppy" / "skills")
+    project_config_skills = str(Path.cwd() / ".code_puppy" / "skills")
     local_skills = str(Path.cwd() / "skills")
-    return [home_skills, local_skills]
+    return [
+        home_skills,
+        project_config_skills,
+        local_skills,
+    ]
 
 
 def add_skill_directory(path: str) -> bool:

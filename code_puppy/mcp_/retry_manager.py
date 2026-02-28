@@ -8,6 +8,7 @@ communication with intelligent backoff strategies to prevent overwhelming failed
 import asyncio
 import logging
 import random
+import threading
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -44,12 +45,21 @@ class RetryManager:
 
     Supports different backoff strategies and intelligent retry decisions based on
     error types. Tracks retry statistics per server for monitoring.
+
+    Note: This class is designed for async-only usage. The ``_stats`` dict is
+    protected by an ``asyncio.Lock`` for coroutine-safe access.
     """
 
     def __init__(self):
         """Initialize the retry manager."""
         self._stats: Dict[str, RetryStats] = defaultdict(RetryStats)
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Lazily create the asyncio.Lock to avoid issues with event loop timing."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def retry_with_backoff(
         self,
@@ -94,7 +104,7 @@ class RetryManager:
                         f"Non-retryable error for server {server_id}: {type(e).__name__}: {e}"
                     )
                     await self.record_retry(server_id, attempt + 1, success=False)
-                    raise e
+                    raise
 
                 # If this is the last attempt, don't wait
                 if attempt == max_attempts - 1:
@@ -213,7 +223,7 @@ class RetryManager:
             attempts: Number of attempts made
             success: Whether the retry was successful
         """
-        async with self._lock:
+        async with self._get_lock():
             stats = self._stats[server_id]
             stats.last_retry = datetime.now()
 
@@ -235,7 +245,7 @@ class RetryManager:
         Returns:
             RetryStats object with current statistics
         """
-        async with self._lock:
+        async with self._get_lock():
             # Return a copy to avoid external modification
             stats = self._stats[server_id]
             return RetryStats(
@@ -253,7 +263,7 @@ class RetryManager:
         Returns:
             Dictionary mapping server IDs to their retry statistics
         """
-        async with self._lock:
+        async with self._get_lock():
             return {
                 server_id: RetryStats(
                     total_retries=stats.total_retries,
@@ -272,17 +282,18 @@ class RetryManager:
         Args:
             server_id: ID of the server
         """
-        async with self._lock:
+        async with self._get_lock():
             if server_id in self._stats:
                 del self._stats[server_id]
 
     async def clear_all_stats(self) -> None:
         """Clear retry statistics for all servers."""
-        async with self._lock:
+        async with self._get_lock():
             self._stats.clear()
 
 
 # Global retry manager instance
+_retry_manager_lock = threading.Lock()
 _retry_manager_instance: Optional[RetryManager] = None
 
 
@@ -295,7 +306,9 @@ def get_retry_manager() -> RetryManager:
     """
     global _retry_manager_instance
     if _retry_manager_instance is None:
-        _retry_manager_instance = RetryManager()
+        with _retry_manager_lock:
+            if _retry_manager_instance is None:
+                _retry_manager_instance = RetryManager()
     return _retry_manager_instance
 
 

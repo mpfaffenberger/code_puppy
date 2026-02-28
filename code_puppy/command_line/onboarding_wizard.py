@@ -12,10 +12,10 @@ Usage:
     # result: "chatgpt", "claude", "completed", "skipped", or None
 """
 
+import asyncio
 import io
 import os
 import sys
-import time
 from typing import List, Optional, Tuple
 
 from prompt_toolkit import Application
@@ -225,7 +225,7 @@ async def run_onboarding_wizard() -> Optional[str]:
     sys.stdout.write("\033[?1049h")  # Enter alternate buffer
     sys.stdout.write("\033[2J\033[H")  # Clear and home
     sys.stdout.flush()
-    time.sleep(0.1)
+    await asyncio.sleep(0.1)
 
     try:
         kb = KeyBindings()

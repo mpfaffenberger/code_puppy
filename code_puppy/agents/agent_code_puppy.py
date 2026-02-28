@@ -36,6 +36,7 @@ class CodePuppyAgent(BaseAgent):
             "ask_user_question",
             "activate_skill",
             "list_or_search_skills",
+            "load_image_for_analysis",
         ]
 
     def _has_extended_thinking(self) -> bool:

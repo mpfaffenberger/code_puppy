@@ -214,9 +214,9 @@ class TestBaseAgentKeyListeners:
         assert hasattr(agent, "_listen_for_ctrl_x_windows")
 
         # Verify they are callable
-        assert callable(getattr(agent, "_spawn_ctrl_x_key_listener"))
-        assert callable(getattr(agent, "_listen_for_ctrl_x_posix"))
-        assert callable(getattr(agent, "_listen_for_ctrl_x_windows"))
+        assert callable(agent._spawn_ctrl_x_key_listener)
+        assert callable(agent._listen_for_ctrl_x_posix)
+        assert callable(agent._listen_for_ctrl_x_windows)
 
     def test_listen_for_ctrl_x_posix_termios_exception(self, agent):
         """Test POSIX listener handles termios exceptions gracefully."""

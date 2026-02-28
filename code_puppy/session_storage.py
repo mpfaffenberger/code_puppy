@@ -14,6 +14,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List
 
+
+def _safe_loads(data: bytes) -> Any:
+    """Deserialize pickle data."""
+    return pickle.loads(data)  # noqa: S301
+
+
+_LEGACY_SIGNED_HEADER = b"CPSESSION\x01"
+_LEGACY_SIGNATURE_SIZE = (
+    32  # legacy signature bytes, retained only for backward-compat parsing
+)
+
 SessionHistory = List[Any]
 TokenEstimator = Callable[[Any], int]
 
@@ -45,6 +56,19 @@ class SessionMetadata:
         }
 
 
+def _extract_pickle_payload(raw: bytes) -> bytes:
+    """Return the pickle payload from raw session file bytes.
+
+    New format is raw pickle bytes.
+    Legacy format was: header + 32-byte signature + pickle payload.
+    We no longer verify or generate signatures.
+    """
+    if raw.startswith(_LEGACY_SIGNED_HEADER):
+        offset = len(_LEGACY_SIGNED_HEADER) + _LEGACY_SIGNATURE_SIZE
+        return raw[offset:]
+    return raw
+
+
 def ensure_directory(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -68,8 +92,11 @@ def save_session(
     ensure_directory(base_dir)
     paths = build_session_paths(base_dir, session_name)
 
-    with paths.pickle_path.open("wb") as pickle_file:
-        pickle.dump(history, pickle_file)
+    pickle_data = pickle.dumps(history)
+    tmp_pickle = paths.pickle_path.with_suffix(".tmp")
+    with tmp_pickle.open("wb") as pickle_file:
+        pickle_file.write(pickle_data)
+    tmp_pickle.replace(paths.pickle_path)
 
     total_tokens = sum(token_estimator(message) for message in history)
     metadata = SessionMetadata(
@@ -82,18 +109,27 @@ def save_session(
         auto_saved=auto_saved,
     )
 
-    with paths.metadata_path.open("w", encoding="utf-8") as metadata_file:
+    tmp_metadata = paths.metadata_path.with_suffix(".tmp")
+    with tmp_metadata.open("w", encoding="utf-8") as metadata_file:
         json.dump(metadata.as_serialisable(), metadata_file, indent=2)
+    tmp_metadata.replace(paths.metadata_path)
 
     return metadata
 
 
-def load_session(session_name: str, base_dir: Path) -> SessionHistory:
+def load_session(
+    session_name: str, base_dir: Path, *, allow_legacy: bool = False
+) -> SessionHistory:
+    # Kept for API compatibility; legacy loading is always supported now.
+    _ = allow_legacy
+
     paths = build_session_paths(base_dir, session_name)
     if not paths.pickle_path.exists():
         raise FileNotFoundError(paths.pickle_path)
-    with paths.pickle_path.open("rb") as pickle_file:
-        return pickle.load(pickle_file)
+
+    raw = paths.pickle_path.read_bytes()
+    pickle_data = _extract_pickle_payload(raw)
+    return _safe_loads(pickle_data)
 
 
 def list_sessions(base_dir: Path) -> List[str]:
@@ -292,3 +328,11 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
         f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
         f"📁 From: {session_path}"
     )
+
+    # Display recent message history for context
+    try:
+        from code_puppy.command_line.autosave_menu import display_resumed_history
+
+        display_resumed_history(history)
+    except Exception:
+        pass  # Don't fail if display doesn't work in non-TTY environment

@@ -868,3 +868,125 @@ class TestTokenDataAndAuthBundle:
         assert bundle.api_key == "test_api_key"
         assert bundle.token_data == token_data
         assert bundle.last_refresh == "2023-01-01T00:00:00Z"
+
+
+class TestShutdownAfterDelay:
+    """Test _shutdown_after_delay inner function."""
+
+    def test_shutdown_after_delay_calls_shutdown(self):
+        """Test that _shutdown_after_delay spawns a thread that calls _shutdown."""
+        handler = Mock(spec=_CallbackHandler)
+        handler._shutdown = Mock()
+
+        captured_targets = []
+
+        def capture_thread(*args, **kwargs):
+            target = kwargs.get("target")
+            if target:
+                captured_targets.append(target)
+            return Mock()
+
+        with patch(
+            "code_puppy.plugins.chatgpt_oauth.oauth_flow.threading.Thread",
+            side_effect=capture_thread,
+        ):
+            with patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.time.sleep"):
+                _CallbackHandler._shutdown_after_delay(handler, seconds=0.01)
+
+        # Execute the captured _later function
+        assert len(captured_targets) == 1
+        captured_targets[0]()  # This calls _later which calls _shutdown
+        handler._shutdown.assert_called_once()
+
+
+class TestRunOAuthFlowBrowserPaths:
+    """Test browser-related paths in run_oauth_flow."""
+
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_warning")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_info")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_error")
+    def test_non_headless_browser_open_success(
+        self, mock_error, mock_info, mock_warning, mock_server_class, mock_load_tokens
+    ):
+        """Test browser open in non-headless mode."""
+        mock_load_tokens.return_value = None
+        mock_server_instance = Mock()
+        mock_server_instance.exit_code = 1
+        mock_server_instance.auth_url.return_value = "http://test.auth.url"
+        mock_server_class.return_value = mock_server_instance
+
+        with patch(
+            "code_puppy.plugins.chatgpt_oauth.oauth_flow.CHATGPT_OAUTH_CONFIG",
+            {**CHATGPT_OAUTH_CONFIG, "callback_timeout": 0},
+        ):
+            with patch("time.sleep"):
+                with patch("webbrowser.open", return_value=True) as mock_wb:
+                    with patch(
+                        "code_puppy.tools.common.should_suppress_browser",
+                        return_value=False,
+                    ):
+                        run_oauth_flow()
+
+        mock_wb.assert_called_once_with("http://test.auth.url")
+
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_warning")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_info")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_error")
+    def test_non_headless_browser_open_failure_shows_manual_warning(
+        self, mock_error, mock_info, mock_warning, mock_server_class, mock_load_tokens
+    ):
+        """Test manual URL warning when browser fails to open in non-headless mode."""
+        mock_load_tokens.return_value = None
+        mock_server_instance = Mock()
+        mock_server_instance.exit_code = 1
+        mock_server_instance.auth_url.return_value = "http://test.auth.url"
+        mock_server_class.return_value = mock_server_instance
+
+        with patch(
+            "code_puppy.plugins.chatgpt_oauth.oauth_flow.CHATGPT_OAUTH_CONFIG",
+            {**CHATGPT_OAUTH_CONFIG, "callback_timeout": 0},
+        ):
+            with patch("time.sleep"):
+                with patch("webbrowser.open", return_value=False):
+                    with patch(
+                        "code_puppy.tools.common.should_suppress_browser",
+                        return_value=False,
+                    ):
+                        run_oauth_flow()
+
+        mock_warning.assert_any_call(
+            "Please open the URL manually if the browser did not open."
+        )
+
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_warning")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_info")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_error")
+    def test_non_headless_browser_exception(
+        self, mock_error, mock_info, mock_warning, mock_server_class, mock_load_tokens
+    ):
+        """Test exception during browser open in non-headless mode."""
+        mock_load_tokens.return_value = None
+        mock_server_instance = Mock()
+        mock_server_instance.exit_code = 1
+        mock_server_instance.auth_url.return_value = "http://test.auth.url"
+        mock_server_class.return_value = mock_server_instance
+
+        with patch(
+            "code_puppy.plugins.chatgpt_oauth.oauth_flow.CHATGPT_OAUTH_CONFIG",
+            {**CHATGPT_OAUTH_CONFIG, "callback_timeout": 0},
+        ):
+            with patch("time.sleep"):
+                with patch("webbrowser.open", side_effect=Exception("no browser")):
+                    with patch(
+                        "code_puppy.tools.common.should_suppress_browser",
+                        return_value=False,
+                    ):
+                        run_oauth_flow()
+
+        mock_warning.assert_any_call("Could not open browser automatically: no browser")

@@ -405,8 +405,8 @@ async def interactive_model_picker() -> str | None:
     Returns:
         The selected model name, or None if cancelled
     """
+    import asyncio
     import sys
-    import time
 
     from rich.console import Console
     from rich.panel import Panel
@@ -447,7 +447,7 @@ async def interactive_model_picker() -> str | None:
 
     # Pause spinners BEFORE showing panel
     set_awaiting_user_input(True)
-    time.sleep(0.3)  # Let spinners fully stop
+    await asyncio.sleep(0.3)  # Let spinners fully stop
 
     local_console = Console()
     emit_info("")
@@ -457,7 +457,7 @@ async def interactive_model_picker() -> str | None:
     # Flush output before prompt_toolkit takes control
     sys.stdout.flush()
     sys.stderr.flush()
-    time.sleep(0.1)
+    await asyncio.sleep(0.1)
 
     selected_model = None
 
@@ -850,165 +850,4 @@ def handle_wiggum_stop_command(command: str) -> bool:
     else:
         emit_info("Wiggum mode is not active.")
 
-    return True
-
-
-@register_command(
-    name="skills",
-    description="Manage agent skills - browse, enable, disable skills",
-    usage="/skills [list|enable|disable]",
-    category="core",
-    detailed_help="""Launch the skills TUI menu or manage skills with subcommands:
-    /skills        - Launch interactive TUI menu
-    /skills list   - Quick text list of all skills
-    /skills enable - Enable skills integration globally
-    /skills disable - Disable skills integration globally""",
-)
-def handle_skills_command(command: str) -> bool:
-    """Handle the /skills command.
-
-    Subcommands:
-        /skills         - Launch interactive TUI menu
-        /skills list    - Quick text list of all skills (no TUI)
-        /skills enable  - Enable skills globally
-        /skills disable - Disable skills globally
-    """
-    from code_puppy.command_line.skills_menu import show_skills_menu
-    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
-    from code_puppy.plugins.agent_skills.config import (
-        get_skills_enabled,
-        set_skills_enabled,
-    )
-    from code_puppy.plugins.agent_skills.discovery import discover_skills
-    from code_puppy.plugins.agent_skills.metadata import parse_skill_metadata
-
-    tokens = command.split()
-
-    # Handle subcommands
-    if len(tokens) > 1:
-        subcommand = tokens[1].lower()
-
-        if subcommand == "list":
-            # Quick text list of all skills
-            from code_puppy.plugins.agent_skills.config import get_disabled_skills
-
-            skills = discover_skills()
-            enabled = get_skills_enabled()
-            disabled_skills = get_disabled_skills()
-
-            if not skills:
-                emit_info("No skills found.")
-                emit_info("Create skills in:")
-                emit_info("  - ~/.code_puppy/skills/")
-                emit_info("  - ./skills/")
-                return True
-
-            emit_info(f"🛠️ Skills (integration: {'enabled' if enabled else 'disabled'})")
-            emit_info(f"Found {len(skills)} skill(s):\n")
-
-            for skill in skills:
-                metadata = parse_skill_metadata(skill.path)
-                if metadata:
-                    status = (
-                        "🔴 disabled"
-                        if metadata.name in disabled_skills
-                        else "🟢 enabled"
-                    )
-                    version_str = f" v{metadata.version}" if metadata.version else ""
-                    author_str = f" by {metadata.author}" if metadata.author else ""
-                    emit_info(f"  {status} {metadata.name}{version_str}{author_str}")
-                    emit_info(f"      {metadata.description}")
-                    if metadata.tags:
-                        emit_info(f"      tags: {', '.join(metadata.tags)}")
-                else:
-                    status = (
-                        "🔴 disabled" if skill.name in disabled_skills else "🟢 enabled"
-                    )
-                    emit_info(f"  {status} {skill.name}")
-                    emit_info("      (no SKILL.md metadata found)")
-                emit_info("")
-
-            return True
-
-        elif subcommand == "enable":
-            set_skills_enabled(True)
-            emit_success("✅ Skills integration enabled globally")
-            return True
-
-        elif subcommand == "disable":
-            set_skills_enabled(False)
-            emit_warning("🔴 Skills integration disabled globally")
-            return True
-
-        else:
-            emit_error(f"Unknown subcommand: {subcommand}")
-            emit_info("Usage: /skills [list|enable|disable]")
-            return True
-
-    # No subcommand - launch TUI menu
-    # Always return True so the command is consumed and not passed to LLM
-    show_skills_menu()
-    return True
-
-
-@register_command(
-    name="scheduler",
-    description="Manage scheduled tasks - create, run, and monitor automated prompts",
-    usage="/scheduler [start|stop|status|list|run <id>]",
-    aliases=["sched", "cron"],
-    category="core",
-    detailed_help="""Launch the scheduler TUI menu or manage scheduled tasks:
-    /scheduler        - Launch interactive TUI menu
-    /scheduler start  - Start the scheduler daemon
-    /scheduler stop   - Stop the scheduler daemon  
-    /scheduler status - Show daemon status and task summary
-    /scheduler list   - List all scheduled tasks
-    /scheduler run <id> - Run a specific task immediately""",
-)
-def handle_scheduler_command(command: str) -> bool:
-    """Handle the /scheduler command.
-
-    Subcommands:
-        /scheduler         - Launch interactive TUI menu
-        /scheduler start   - Start the scheduler daemon
-        /scheduler stop    - Stop the scheduler daemon
-        /scheduler status  - Show daemon status
-        /scheduler list    - List all tasks
-        /scheduler run <id> - Run a task immediately
-    """
-    from code_puppy.command_line.scheduler_menu import show_scheduler_menu
-    from code_puppy.scheduler.cli import (
-        handle_scheduler_list,
-        handle_scheduler_run,
-        handle_scheduler_start,
-        handle_scheduler_status,
-        handle_scheduler_stop,
-    )
-
-    tokens = command.split()
-
-    # Handle subcommands
-    if len(tokens) > 1:
-        subcommand = tokens[1].lower()
-
-        if subcommand == "start":
-            return handle_scheduler_start()
-        elif subcommand == "stop":
-            return handle_scheduler_stop()
-        elif subcommand == "status":
-            return handle_scheduler_status()
-        elif subcommand == "list":
-            return handle_scheduler_list()
-        elif subcommand == "run":
-            if len(tokens) < 3:
-                emit_error("Usage: /scheduler run <task_id>")
-                return False
-            return handle_scheduler_run(tokens[2])
-        else:
-            emit_error(f"Unknown subcommand: {subcommand}")
-            emit_info("Usage: /scheduler [start|stop|status|list|run <id>]")
-            return False
-
-    # No subcommand - launch TUI menu
-    show_scheduler_menu()
     return True

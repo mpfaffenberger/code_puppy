@@ -417,6 +417,12 @@ class AntigravityStreamingResponse(StreamedResponse):
     _chunks: AsyncIterator[dict[str, Any]]
     _model_name_str: str
     _provider_name_str: str = "google"
+
+    @property
+    def provider_url(self) -> str | None:
+        """Antigravity uses a custom proxy; no standard provider URL."""
+        return None
+
     _timestamp_val: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
@@ -456,11 +462,10 @@ class AntigravityStreamingResponse(StreamedResponse):
                 if part.get("thought") and part.get("text") is not None:
                     text = part["text"]
 
-                    event = self._parts_manager.handle_thinking_delta(
+                    for event in self._parts_manager.handle_thinking_delta(
                         vendor_part_id=None,
                         content=text,
-                    )
-                    if event:
+                    ):
                         yield event
 
                     # For Claude: signature is ON the thinking block itself
@@ -477,11 +482,10 @@ class AntigravityStreamingResponse(StreamedResponse):
                     text = part["text"]
                     if len(text) == 0:
                         continue
-                    event = self._parts_manager.handle_text_delta(
+                    for event in self._parts_manager.handle_text_delta(
                         vendor_part_id=None,
                         content=text,
-                    )
-                    if event:
+                    ):
                         yield event
 
                 # Handle function call
@@ -503,7 +507,7 @@ class AntigravityStreamingResponse(StreamedResponse):
                         args=fc.get("args"),
                         tool_call_id=fc.get("id") or generate_tool_call_id(),
                     )
-                    if event:
+                    if event is not None:
                         yield event
 
     @property

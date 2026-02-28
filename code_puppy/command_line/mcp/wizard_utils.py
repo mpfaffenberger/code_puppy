@@ -216,7 +216,7 @@ def interactive_configure_server(
 
         if env_vars:
             emit_info("Environment Variables:", message_group=group_id)
-            for var, value in env_vars.items():
+            for var, _value in env_vars.items():
                 emit_info(f"  {var}: ***", message_group=group_id)
 
         if cmd_args:

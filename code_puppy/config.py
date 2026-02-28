@@ -46,6 +46,7 @@ MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
 MODELS_FILE = os.path.join(DATA_DIR, "models.json")
 EXTRA_MODELS_FILE = os.path.join(DATA_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(DATA_DIR, "agents")
+SKILLS_DIR = os.path.join(DATA_DIR, "skills")
 CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
 _DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 
@@ -64,14 +65,14 @@ DBOS_DATABASE_URL = os.environ.get(
     "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
 )
 # DBOS enable switch is controlled solely via puppy.cfg using key 'enable_dbos'.
-# Default: False (DBOS disabled) unless explicitly enabled.
+# Default: True (DBOS enabled) unless explicitly disabled.
 
 
 def get_use_dbos() -> bool:
-    """Return True if DBOS should be used based on 'enable_dbos' (default False)."""
+    """Return True if DBOS should be used based on 'enable_dbos' (default True)."""
     cfg_val = get_value("enable_dbos")
     if cfg_val is None:
-        return False
+        return True
     return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -178,7 +179,7 @@ def ensure_config_exists():
     Returns configparser.ConfigParser for reading.
     """
     # Create all XDG directories with 0700 permissions per XDG spec
-    for directory in [CONFIG_DIR, DATA_DIR, CACHE_DIR, STATE_DIR]:
+    for directory in [CONFIG_DIR, DATA_DIR, CACHE_DIR, STATE_DIR, SKILLS_DIR]:
         if not os.path.exists(directory):
             os.makedirs(directory, mode=0o700, exist_ok=True)
     exists = os.path.isfile(CONFIG_FILE)
@@ -214,7 +215,7 @@ def ensure_config_exists():
 
     # Write the config if we made any changes
     if missing or not exists:
-        with open(CONFIG_FILE, "w") as f:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             config.write(f)
     return config
 
@@ -309,6 +310,8 @@ def get_config_keys():
     # Add banner color keys
     for banner_name in DEFAULT_BANNER_COLORS:
         default_keys.append(f"banner_color_{banner_name}")
+    # Add resume message count configuration
+    default_keys.append("resume_message_count")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -326,7 +329,7 @@ def set_config_value(key: str, value: str):
     if DEFAULT_SECTION not in config:
         config[DEFAULT_SECTION] = {}
     config[DEFAULT_SECTION][key] = value
-    with open(CONFIG_FILE, "w") as f:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         config.write(f)
 
 
@@ -342,7 +345,7 @@ def reset_value(key: str) -> None:
     config.read(CONFIG_FILE)
     if DEFAULT_SECTION in config and key in config[DEFAULT_SECTION]:
         del config[DEFAULT_SECTION][key]
-        with open(CONFIG_FILE, "w") as f:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             config.write(f)
 
 
@@ -358,7 +361,7 @@ def load_mcp_server_configs():
     try:
         if not pathlib.Path(MCP_SERVERS_FILE).exists():
             return {}
-        with open(MCP_SERVERS_FILE, "r") as f:
+        with open(MCP_SERVERS_FILE, "r", encoding="utf-8") as f:
             conf = json.loads(f.read())
             return conf["mcp_servers"]
     except Exception as e:
@@ -487,8 +490,10 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
-    # GLM-4.7 models always support clear_thinking setting
-    if setting == "clear_thinking" and "glm-4.7" in model_name.lower():
+    # GLM-4.7 and GLM-5 models always support clear_thinking setting
+    if setting == "clear_thinking" and (
+        "glm-4.7" in model_name.lower() or "glm-5" in model_name.lower()
+    ):
         return True
 
     try:
@@ -569,7 +574,7 @@ def set_model_name(model: str):
     if DEFAULT_SECTION not in config:
         config[DEFAULT_SECTION] = {}
     config[DEFAULT_SECTION]["model"] = model or ""
-    with open(CONFIG_FILE, "w") as f:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         config.write(f)
 
     # Clear model cache when switching models to ensure fresh validation
@@ -790,7 +795,7 @@ def clear_model_settings(model_name: str) -> None:
         for key in keys_to_remove:
             del config[DEFAULT_SECTION][key]
 
-        with open(CONFIG_FILE, "w") as f:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             config.write(f)
 
 
@@ -936,10 +941,23 @@ def normalize_command_history():
 
         # Write the updated content back to the file only if changes were made
         if content != updated_content:
-            with open(
-                COMMAND_HISTORY_FILE, "w", encoding="utf-8", errors="surrogateescape"
-            ) as f:
-                f.write(updated_content)
+            import tempfile
+
+            fd, tmp_path = tempfile.mkstemp(
+                dir=os.path.dirname(COMMAND_HISTORY_FILE), suffix=".tmp"
+            )
+            try:
+                with os.fdopen(
+                    fd, "w", encoding="utf-8", errors="surrogateescape"
+                ) as f:
+                    f.write(updated_content)
+                os.replace(tmp_path, COMMAND_HISTORY_FILE)
+            except BaseException:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
     except Exception as e:
         from code_puppy.messaging import emit_error
 
@@ -957,6 +975,22 @@ def get_user_agents_directory() -> str:
     # Ensure the agents directory exists
     os.makedirs(AGENTS_DIR, exist_ok=True)
     return AGENTS_DIR
+
+
+def get_project_agents_directory() -> Optional[str]:
+    """Get the project-local agents directory path.
+
+    Looks for a .code_puppy/agents/ directory in the current working directory.
+    Unlike get_user_agents_directory(), this does NOT create the directory
+    if it doesn't exist -- the team must create it intentionally.
+
+    Returns:
+        Path to the project's agents directory if it exists, or None.
+    """
+    project_agents_dir = os.path.join(os.getcwd(), ".code_puppy", "agents")
+    if os.path.isdir(project_agents_dir):
+        return project_agents_dir
+    return None
 
 
 def initialize_command_history_file():
@@ -1086,6 +1120,23 @@ def get_protected_token_count():
         model_context_length = get_model_context_length()
         max_protected_tokens = int(model_context_length * 0.75)
         return min(50000, max_protected_tokens)
+
+
+def get_resume_message_count() -> int:
+    """
+    Returns the number of messages to display when resuming a session.
+    Defaults to 50 if unset or misconfigured.
+    Configurable by 'resume_message_count' key via /set command.
+
+    Example: /set resume_message_count=30
+    """
+    val = get_value("resume_message_count")
+    try:
+        configured_value = int(val) if val else 50
+        # Enforce reasonable bounds: minimum 1, maximum 100
+        return max(1, min(configured_value, 100))
+    except (ValueError, TypeError):
+        return 50
 
 
 def get_compaction_threshold():

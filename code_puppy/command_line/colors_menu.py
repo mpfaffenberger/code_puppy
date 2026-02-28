@@ -6,9 +6,9 @@ for different tool outputs (THINKING, SHELL COMMAND, READ FILE, etc.).
 Use /colors to launch the TUI and customize your banners!
 """
 
+import asyncio
 import io
 import sys
-import time
 from typing import Callable, Optional
 
 from prompt_toolkit import Application
@@ -161,7 +161,7 @@ async def interactive_colors_picker() -> Optional[dict]:
     sys.stdout.write("\033[?1049h")  # Enter alternate buffer
     sys.stdout.write("\033[2J\033[H")  # Clear and home
     sys.stdout.flush()
-    time.sleep(0.1)  # Minimal delay for state sync
+    await asyncio.sleep(0.1)  # Minimal delay for state sync
 
     try:
         # Main menu loop

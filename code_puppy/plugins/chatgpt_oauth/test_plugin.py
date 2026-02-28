@@ -268,8 +268,10 @@ def test_fetch_chatgpt_models_fallback(mock_get):
     models = utils.fetch_chatgpt_models("test_access_token", "test_account_id")
     assert models is not None
     # Should return default models
+    assert "gpt-5.3-codex-spark" in models
+    assert "gpt-5.3-codex" in models
+    assert "gpt-5.2-codex" in models
     assert "gpt-5.2" in models
-    assert "gpt-4o" in models
 
 
 def test_add_models_to_chatgpt_config(tmp_path):

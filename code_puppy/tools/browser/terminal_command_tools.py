@@ -14,8 +14,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
-from pydantic_ai import RunContext
-
+from pydantic_ai import RunContext, ToolReturn
 from rich.text import Text
 
 from code_puppy.messaging import emit_error, emit_info, emit_success
@@ -211,8 +210,15 @@ async def run_terminal_command(
         # Capture screenshot if requested
         if capture_screenshot:
             screenshot_result = await terminal_screenshot()
-            if screenshot_result["success"]:
-                result["base64_image"] = screenshot_result["base64_image"]
+            if isinstance(screenshot_result, ToolReturn):
+                # Success: ToolReturn with metadata
+                result["screenshot_path"] = screenshot_result.metadata.get(
+                    "screenshot_path"
+                )
+                result["media_type"] = "image/png"
+            elif isinstance(screenshot_result, dict) and screenshot_result.get(
+                "success"
+            ):
                 result["screenshot_path"] = screenshot_result.get("screenshot_path")
                 result["media_type"] = "image/png"
 
@@ -404,8 +410,15 @@ async def wait_for_terminal_output(
         # Capture screenshot if requested
         if capture_screenshot:
             screenshot_result = await terminal_screenshot()
-            if screenshot_result["success"]:
-                result["base64_image"] = screenshot_result["base64_image"]
+            if isinstance(screenshot_result, ToolReturn):
+                # Success: ToolReturn with metadata
+                result["screenshot_path"] = screenshot_result.metadata.get(
+                    "screenshot_path"
+                )
+                result["media_type"] = "image/png"
+            elif isinstance(screenshot_result, dict) and screenshot_result.get(
+                "success"
+            ):
                 result["screenshot_path"] = screenshot_result.get("screenshot_path")
                 result["media_type"] = "image/png"
 

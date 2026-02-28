@@ -192,7 +192,7 @@ def _onboard_user(
         request_body["cloudaicompanionProject"] = {"id": gcp_project_id}
 
     for base_endpoint in ANTIGRAVITY_ENDPOINT_FALLBACKS:
-        for attempt in range(5):  # Retry up to 5 times
+        for _attempt in range(5):  # Retry up to 5 times
             try:
                 url = f"{base_endpoint}/v1internal:onboardUser"
                 response = requests.post(

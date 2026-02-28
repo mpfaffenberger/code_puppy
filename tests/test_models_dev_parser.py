@@ -1436,3 +1436,76 @@ class TestEdgeCases:
                 registry = ModelsDevRegistry(json_path="/tmp/models.json")
                 filtered = registry.filter_by_context([], min_context_length=100000)
                 assert len(filtered) == 0
+
+
+class TestBundledFileNotFound:
+    """Test when bundled fallback file doesn't exist."""
+
+    @patch("code_puppy.models_dev_parser.httpx.Client")
+    def test_no_api_no_bundled_raises_file_not_found(self, mock_client_class):
+        """When API fails and bundled file missing, raise FileNotFoundError."""
+        mock_client = MagicMock()
+        mock_client_class.return_value.__enter__.return_value = mock_client
+        mock_client.get.side_effect = Exception("fail")
+
+        with patch.object(
+            ModelsDevRegistry,
+            "_get_bundled_json_path",
+            return_value=MagicMock(
+                exists=MagicMock(return_value=False), __str__=lambda s: "/fake/path"
+            ),
+        ):
+            with pytest.raises(FileNotFoundError, match="No data source available"):
+                ModelsDevRegistry()
+
+
+class TestMainBlock:
+    """Test the __main__ block."""
+
+    @patch("code_puppy.models_dev_parser.emit_error")
+    @patch("code_puppy.models_dev_parser.emit_info")
+    @patch("code_puppy.models_dev_parser.ModelsDevRegistry")
+    def test_main_block_success(self, mock_registry_cls, mock_info, mock_error):
+        """Test __main__ block with successful registry."""
+        mock_registry = MagicMock()
+        mock_registry.data_source = "test"
+        mock_registry.get_providers.return_value = [
+            ProviderInfo(id="test", name="Test", env=[], api="")
+        ]
+        model = ModelInfo(
+            provider_id="test",
+            model_id="m1",
+            name="Model 1",
+            input_modalities=["image", "text"],
+        )
+        mock_registry.get_models.return_value = [model]
+        mock_registry.search_models.return_value = [model]
+        mock_registry.filter_by_cost.return_value = [model]
+        mock_registry_cls.return_value = mock_registry
+
+        import runpy
+
+        with patch.dict("sys.modules", {}, clear=False):
+            runpy.run_module("code_puppy.models_dev_parser", run_name="__main__")
+
+    @patch("code_puppy.models_dev_parser.emit_error")
+    def test_main_block_file_not_found(self, mock_error):
+        """Test __main__ block with FileNotFoundError."""
+        import runpy
+
+        with patch(
+            "code_puppy.models_dev_parser.ModelsDevRegistry",
+            side_effect=FileNotFoundError("no file"),
+        ):
+            runpy.run_module("code_puppy.models_dev_parser", run_name="__main__")
+
+    @patch("code_puppy.models_dev_parser.emit_error")
+    def test_main_block_generic_exception(self, mock_error):
+        """Test __main__ block with generic exception."""
+        import runpy
+
+        with patch(
+            "code_puppy.models_dev_parser.ModelsDevRegistry",
+            side_effect=RuntimeError("boom"),
+        ):
+            runpy.run_module("code_puppy.models_dev_parser", run_name="__main__")

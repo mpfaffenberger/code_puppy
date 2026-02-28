@@ -86,7 +86,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         self.received_event.set()
 
-    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+    def log_message(self, log_format: str, *args: Any) -> None:
         return
 
     def _write_response(self, status: int, body: str) -> None:
@@ -112,7 +112,7 @@ def _start_callback_server(
             _CallbackHandler.received_event = event
             _CallbackHandler.redirect_uri = redirect_uri
 
-            def run_server() -> None:
+            def run_server(server=server) -> None:
                 with server:
                     server.serve_forever()
 

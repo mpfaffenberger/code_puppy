@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional
@@ -252,13 +254,28 @@ def load_accounts() -> Optional[AccountStorage]:
 
 
 def save_accounts(storage: AccountStorage) -> None:
-    """Save account storage to disk."""
+    """Save account storage to disk atomically."""
     path = get_accounts_storage_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
     content = json.dumps(storage.to_dict(), indent=2)
-    path.write_text(content, encoding="utf-8")
-    path.chmod(0o600)
+
+    # Atomic write: write to temp file then rename
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, str(path))  # atomic on POSIX
+        path.chmod(0o600)
+    except BaseException:
+        # Clean up temp file on failure
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def clear_accounts() -> None:

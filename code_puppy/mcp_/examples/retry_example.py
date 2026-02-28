@@ -121,7 +121,9 @@ async def demonstrate_different_strategies():
             start_time = asyncio.get_event_loop().time()
 
             result = await retry_mcp_call(
-                func=lambda: server.call_tool("read_file", {"path": "/example.txt"}),
+                func=lambda s=server: s.call_tool(
+                    "read_file", {"path": "/example.txt"}
+                ),
                 server_id=f"server-{strategy}",
                 max_attempts=3,
                 strategy=strategy,

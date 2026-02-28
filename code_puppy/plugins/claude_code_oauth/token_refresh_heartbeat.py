@@ -30,7 +30,6 @@ MIN_REFRESH_INTERVAL_SECONDS = 60
 
 # Global tracking of last refresh time to coordinate across heartbeats
 _last_refresh_time: float = 0.0
-_heartbeat_lock = asyncio.Lock()
 
 
 class TokenRefreshHeartbeat:
@@ -49,6 +48,7 @@ class TokenRefreshHeartbeat:
         self._min_refresh_interval = min_refresh_interval
         self._task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
+        self._lock = asyncio.Lock()
         self._refresh_count = 0
 
     async def start(self) -> None:
@@ -98,7 +98,7 @@ class TokenRefreshHeartbeat:
                     pass
 
                 # Check if we should attempt refresh
-                async with _heartbeat_lock:
+                async with self._lock:
                     now = time.time()
                     if now - _last_refresh_time < self._min_refresh_interval:
                         logger.debug(
@@ -134,7 +134,7 @@ class TokenRefreshHeartbeat:
                 refresh_access_token,
             )
 
-            tokens = load_stored_tokens()
+            tokens = await asyncio.to_thread(load_stored_tokens)
             if not tokens:
                 logger.debug("No stored tokens found")
                 return False
@@ -145,7 +145,7 @@ class TokenRefreshHeartbeat:
 
             # Token is expiring soon, refresh it
             logger.info("Heartbeat: Token expiring soon, refreshing proactively")
-            refreshed_token = refresh_access_token(force=False)
+            refreshed_token = await asyncio.to_thread(refresh_access_token, force=False)
 
             if refreshed_token:
                 logger.info("Heartbeat: Successfully refreshed token")
@@ -229,8 +229,7 @@ async def force_token_refresh() -> bool:
         refreshed_token = refresh_access_token(force=True)
 
         if refreshed_token:
-            async with _heartbeat_lock:
-                _last_refresh_time = time.time()
+            _last_refresh_time = time.time()
             logger.info("Force refresh successful")
             return True
         else:

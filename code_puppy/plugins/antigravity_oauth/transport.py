@@ -6,6 +6,7 @@ unwraps responses (including streaming SSE events).
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -374,7 +375,7 @@ class AntigravityClient(httpx.AsyncClient):
         self._refresh_token = refresh_token
         self._expires_at = expires_at
         self._on_token_refreshed = on_token_refreshed
-        self._refresh_lock = None  # Lazy init for async lock
+        self._refresh_lock = asyncio.Lock()
 
     async def _ensure_valid_token(self) -> None:
         """Proactively refresh the access token if it's expired or about to expire.
@@ -394,10 +395,6 @@ class AntigravityClient(httpx.AsyncClient):
         if not is_token_expired(self._expires_at):
             return
 
-        # Lazy init the async lock
-        if self._refresh_lock is None:
-            self._refresh_lock = asyncio.Lock()
-
         async with self._refresh_lock:
             # Double-check after acquiring lock (another coroutine may have refreshed)
             if not is_token_expired(self._expires_at):
@@ -407,7 +404,7 @@ class AntigravityClient(httpx.AsyncClient):
 
             try:
                 # Run the synchronous refresh in a thread pool to avoid blocking
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 new_tokens = await loop.run_in_executor(
                     None, refresh_access_token, self._refresh_token
                 )
@@ -459,7 +456,7 @@ class AntigravityClient(httpx.AsyncClient):
             # claude-opus-4-5-thinking-high -> claude-opus-4-5-thinking
             claude_tier = None
             if "claude" in model and "-thinking-" in model:
-                for tier in ["low", "medium", "high"]:
+                for tier in ["low", "medium", "high", "max"]:
                     if model.endswith(f"-{tier}"):
                         claude_tier = tier
                         model = model.rsplit(f"-{tier}", 1)[0]  # Remove tier suffix
@@ -529,7 +526,12 @@ class AntigravityClient(httpx.AsyncClient):
                     # Add thinkingConfig for Claude thinking models (uses thinkingBudget number)
                     elif claude_tier and "thinking" in model:
                         # Claude thinking budgets by tier
-                        claude_budgets = {"low": 8192, "medium": 16384, "high": 32768}
+                        claude_budgets = {
+                            "low": 8192,
+                            "medium": 16384,
+                            "high": 32768,
+                            "max": 65536,
+                        }
                         thinking_budget = claude_budgets.get(claude_tier, 8192)
 
                         gen_config["thinkingConfig"] = {
@@ -543,9 +545,11 @@ class AntigravityClient(httpx.AsyncClient):
                     if "topP" not in gen_config:
                         gen_config["topP"] = 0.95
 
-                    # Set maxOutputTokens to 64000 for all models
-                    # This ensures it's always > thinkingBudget for thinking models
-                    gen_config["maxOutputTokens"] = 64000
+                    # Set maxOutputTokens: 128K for Claude Opus, 64K for others
+                    if "claude" in model and "opus" in model:
+                        gen_config["maxOutputTokens"] = 128000
+                    else:
+                        gen_config["maxOutputTokens"] = 64000
 
                     original_body["generationConfig"] = gen_config
 

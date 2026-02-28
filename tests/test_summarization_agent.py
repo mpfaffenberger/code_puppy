@@ -101,13 +101,11 @@ class TestSummarizationAgent:
             patch(
                 "code_puppy.summarization_agent.get_global_model_name"
             ) as mock_get_name,
-            patch("code_puppy.summarization_agent.get_use_dbos") as mock_get_dbos,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
             mock_load_config.return_value = mock_models_config
             mock_get_model.return_value = mock_model
             mock_get_name.return_value = "test-model"
-            mock_get_dbos.return_value = False
             mock_agent_class.return_value = MagicMock()
 
             agent = reload_summarization_agent()
@@ -118,7 +116,6 @@ class TestSummarizationAgent:
             )  # May be called multiple times due to imports
             mock_get_model.assert_called_once_with("test-model", mock_models_config)
             mock_get_name.assert_called_once()
-            mock_get_dbos.assert_called_once()
             # Verify Agent() was instantiated with the mock_model
             mock_agent_class.assert_called_once()
             call_kwargs = mock_agent_class.call_args.kwargs
@@ -141,13 +138,11 @@ class TestSummarizationAgent:
             patch(
                 "code_puppy.summarization_agent.get_global_model_name"
             ) as mock_get_name,
-            patch("code_puppy.summarization_agent.get_use_dbos") as mock_get_dbos,
             patch("pydantic_ai.durable_exec.dbos.DBOSAgent") as mock_dbos_agent,
         ):
             mock_load_config.return_value = mock_models_config
             mock_get_model.return_value = mock_model
             mock_get_name.return_value = "test-model"
-            mock_get_dbos.return_value = True
 
             # Reset reload count
             import code_puppy.summarization_agent
@@ -178,13 +173,11 @@ class TestSummarizationAgent:
             patch(
                 "code_puppy.summarization_agent.get_global_model_name"
             ) as mock_get_name,
-            patch("code_puppy.summarization_agent.get_use_dbos") as mock_get_dbos,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
             mock_load_config.return_value = mock_models_config
             mock_get_model.return_value = mock_model
             mock_get_name.return_value = "test-model"
-            mock_get_dbos.return_value = False
 
             reload_summarization_agent()
 
@@ -272,45 +265,16 @@ class TestRunSummarizationSync:
         return result
 
     def test_run_summarization_sync_no_event_loop(self, mock_sync_result):
-        """Test run_summarization_sync when no event loop is running."""
+        """Test run_summarization_sync uses thread pool."""
         with (
             patch(
                 "code_puppy.summarization_agent.get_summarization_agent"
             ) as mock_get_agent,
-            patch("code_puppy.summarization_agent.asyncio.run") as mock_run,
-        ):
-            mock_agent = MagicMock()
-            mock_get_agent.return_value = mock_agent
-            mock_run.return_value = mock_sync_result
-
-            prompt = "Test prompt"
-            history = ["msg1", "msg2"]
-
-            result = run_summarization_sync(prompt, history)
-
-            assert result == ["summary1", "summary2"]
-            mock_get_agent.assert_called_once()
-            mock_run.assert_called_once()
-
-    def test_run_summarization_sync_with_event_loop(self, mock_sync_result):
-        """Test run_summarization_sync when event loop is running."""
-        with (
-            patch(
-                "code_puppy.summarization_agent.get_summarization_agent"
-            ) as mock_get_agent,
-            patch(
-                "code_puppy.summarization_agent.asyncio.get_running_loop"
-            ) as mock_get_loop,
             patch("code_puppy.summarization_agent._ensure_thread_pool") as mock_pool,
-            patch("code_puppy.summarization_agent.asyncio.run") as mock_run,
         ):
-            # Mock a running event loop
-            mock_get_loop.return_value = MagicMock()
-
             mock_agent = MagicMock()
             mock_get_agent.return_value = mock_agent
 
-            # Mock thread pool
             mock_pool_instance = MagicMock()
             mock_future = MagicMock()
             mock_future.result.return_value = mock_sync_result
@@ -324,11 +288,35 @@ class TestRunSummarizationSync:
 
             assert result == ["summary1", "summary2"]
             mock_get_agent.assert_called_once()
-            mock_get_loop.assert_called_once()
             mock_pool.assert_called_once()
             mock_pool_instance.submit.assert_called_once()
-            # Should not call asyncio.run when loop is already running
-            mock_run.assert_not_called()
+
+    def test_run_summarization_sync_with_event_loop(self, mock_sync_result):
+        """Test run_summarization_sync always uses thread pool."""
+        with (
+            patch(
+                "code_puppy.summarization_agent.get_summarization_agent"
+            ) as mock_get_agent,
+            patch("code_puppy.summarization_agent._ensure_thread_pool") as mock_pool,
+        ):
+            mock_agent = MagicMock()
+            mock_get_agent.return_value = mock_agent
+
+            mock_pool_instance = MagicMock()
+            mock_future = MagicMock()
+            mock_future.result.return_value = mock_sync_result
+            mock_pool_instance.submit.return_value = mock_future
+            mock_pool.return_value = mock_pool_instance
+
+            prompt = "Test prompt"
+            history = ["msg1", "msg2"]
+
+            result = run_summarization_sync(prompt, history)
+
+            assert result == ["summary1", "summary2"]
+            mock_get_agent.assert_called_once()
+            mock_pool.assert_called_once()
+            mock_pool_instance.submit.assert_called_once()
 
     def test_run_summarization_sync_thread_pool_error_handling(self):
         """Test run_summarization_sync handles thread pool errors."""
@@ -358,31 +346,26 @@ class TestRunSummarizationSync:
                 run_summarization_sync("test", [])
 
     def test_run_summarization_sync_asyncio_runtime_error(self):
-        """Test run_summarization_sync handles RuntimeError from asyncio."""
+        """Test run_summarization_sync handles errors from thread pool."""
+        from code_puppy.summarization_agent import SummarizationError
+
         with (
             patch(
                 "code_puppy.summarization_agent.get_summarization_agent"
             ) as mock_get_agent,
-            patch(
-                "code_puppy.summarization_agent.asyncio.get_running_loop"
-            ) as mock_get_loop,
-            patch("code_puppy.summarization_agent._ensure_thread_pool"),
-            patch("code_puppy.summarization_agent.asyncio.run") as mock_run,
+            patch("code_puppy.summarization_agent._ensure_thread_pool") as mock_pool,
         ):
-            # First call raises RuntimeError (no running loop), second works
-            mock_get_loop.side_effect = [RuntimeError("No running loop"), None]
-
             mock_agent = MagicMock()
             mock_get_agent.return_value = mock_agent
 
-            mock_result = MagicMock()
-            mock_result.new_messages = lambda: ["summary"]
-            mock_run.return_value = mock_result
+            mock_pool_instance = MagicMock()
+            mock_future = MagicMock()
+            mock_future.result.side_effect = RuntimeError("Execution error")
+            mock_pool_instance.submit.return_value = mock_future
+            mock_pool.return_value = mock_pool_instance
 
-            result = run_summarization_sync("test", [])
-
-            assert result == ["summary"]
-            mock_run.assert_called_once()
+            with pytest.raises(SummarizationError):
+                run_summarization_sync("test", [])
 
     def test_run_summarization_sync_with_complex_history(self):
         """Test run_summarization_sync with complex message history."""
@@ -398,23 +381,22 @@ class TestRunSummarizationSync:
             patch(
                 "code_puppy.summarization_agent.get_summarization_agent"
             ) as mock_get_agent,
-            patch("code_puppy.summarization_agent.asyncio.run") as mock_run,
+            patch("code_puppy.summarization_agent._ensure_thread_pool") as mock_pool,
         ):
             mock_agent = MagicMock()
             mock_get_agent.return_value = mock_agent
 
             mock_result = MagicMock()
             mock_result.new_messages = lambda: ["Complex summary"]
-            mock_run.return_value = mock_result
+            mock_pool_instance = MagicMock()
+            mock_future = MagicMock()
+            mock_future.result.return_value = mock_result
+            mock_pool_instance.submit.return_value = mock_future
+            mock_pool.return_value = mock_pool_instance
 
             result = run_summarization_sync("Summarize", complex_history)
 
             assert result == ["Complex summary"]
-
-            # Check that history was passed correctly
-            run_call_args = mock_run.call_args[0][0]
-            # This is the coroutine that would be run
-            assert run_call_args is not None
 
     def test_run_summarization_sync_empty_history(self):
         """Test run_summarization_sync with empty history."""
@@ -422,20 +404,24 @@ class TestRunSummarizationSync:
             patch(
                 "code_puppy.summarization_agent.get_summarization_agent"
             ) as mock_get_agent,
-            patch("code_puppy.summarization_agent.asyncio.run") as mock_run,
+            patch("code_puppy.summarization_agent._ensure_thread_pool") as mock_pool,
         ):
             mock_agent = MagicMock()
             mock_get_agent.return_value = mock_agent
 
             mock_result = MagicMock()
             mock_result.new_messages = lambda: ["Empty summary"]
-            mock_run.return_value = mock_result
+            mock_pool_instance = MagicMock()
+            mock_future = MagicMock()
+            mock_future.result.return_value = mock_result
+            mock_pool_instance.submit.return_value = mock_future
+            mock_pool.return_value = mock_pool_instance
 
             result = run_summarization_sync("Summarize empty", [])
 
             assert result == ["Empty summary"]
             mock_get_agent.assert_called_once()
-            mock_run.assert_called_once()
+            mock_pool.assert_called_once()
 
     def test_run_summarization_sync_large_history(self):
         """Test run_summarization_sync with large message history."""
@@ -445,20 +431,24 @@ class TestRunSummarizationSync:
             patch(
                 "code_puppy.summarization_agent.get_summarization_agent"
             ) as mock_get_agent,
-            patch("code_puppy.summarization_agent.asyncio.run") as mock_run,
+            patch("code_puppy.summarization_agent._ensure_thread_pool") as mock_pool,
         ):
             mock_agent = MagicMock()
             mock_get_agent.return_value = mock_agent
 
             mock_result = MagicMock()
             mock_result.new_messages = lambda: ["Large summary"]
-            mock_run.return_value = mock_result
+            mock_pool_instance = MagicMock()
+            mock_future = MagicMock()
+            mock_future.result.return_value = mock_result
+            mock_pool_instance.submit.return_value = mock_future
+            mock_pool.return_value = mock_pool_instance
 
             result = run_summarization_sync("Summarize large", large_history)
 
             assert result == ["Large summary"]
             mock_get_agent.assert_called_once()
-            mock_run.assert_called_once()
+            mock_pool.assert_called_once()
 
     def test_run_summarization_sync_unicode_content(self):
         """Test run_summarization_sync with unicode content."""
@@ -468,14 +458,18 @@ class TestRunSummarizationSync:
             patch(
                 "code_puppy.summarization_agent.get_summarization_agent"
             ) as mock_get_agent,
-            patch("code_puppy.summarization_agent.asyncio.run") as mock_run,
+            patch("code_puppy.summarization_agent._ensure_thread_pool") as mock_pool,
         ):
             mock_agent = MagicMock()
             mock_get_agent.return_value = mock_agent
 
             mock_result = MagicMock()
             mock_result.new_messages = lambda: ["Unicode summary"]
-            mock_run.return_value = mock_result
+            mock_pool_instance = MagicMock()
+            mock_future = MagicMock()
+            mock_future.result.return_value = mock_result
+            mock_pool_instance.submit.return_value = mock_future
+            mock_pool.return_value = mock_pool_instance
 
             result = run_summarization_sync("Summarize unicode", unicode_history)
 
@@ -493,7 +487,6 @@ class TestSummarizationAgentEdgeCases:
             ) as mock_load_config,
             patch("code_puppy.summarization_agent.ModelFactory.get_model"),
             patch("code_puppy.summarization_agent.get_global_model_name"),
-            patch("code_puppy.summarization_agent.get_use_dbos"),
         ):
             mock_load_config.side_effect = Exception("Config load failed")
 
@@ -508,7 +501,6 @@ class TestSummarizationAgentEdgeCases:
             patch(
                 "code_puppy.summarization_agent.get_global_model_name"
             ) as mock_get_name,
-            patch("code_puppy.summarization_agent.get_use_dbos"),
         ):
             mock_get_name.side_effect = Exception("Model name error")
 
@@ -551,13 +543,11 @@ class TestSummarizationAgentEdgeCases:
             patch(
                 "code_puppy.summarization_agent.get_global_model_name"
             ) as mock_get_name,
-            patch("code_puppy.summarization_agent.get_use_dbos") as mock_get_dbos,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
             mock_load_config.return_value = {"test-model": {"context": 128000}}
             mock_get_model.return_value = MagicMock()
             mock_get_name.return_value = "test-model"
-            mock_get_dbos.return_value = False
             mock_agent_class.return_value = MagicMock()
 
             results = []
@@ -603,13 +593,11 @@ class TestSummarizationAgentEdgeCases:
             patch(
                 "code_puppy.summarization_agent.get_global_model_name"
             ) as mock_get_name,
-            patch("code_puppy.summarization_agent.get_use_dbos") as mock_get_dbos,
             patch("pydantic_ai.durable_exec.dbos.DBOSAgent") as mock_dbos_agent,
         ):
             mock_load_config.return_value = {}
             mock_get_model.return_value = MagicMock()
             mock_get_name.return_value = "test-model"
-            mock_get_dbos.return_value = True
 
             import code_puppy.summarization_agent
 
@@ -686,13 +674,11 @@ class TestSummarizationAgentEdgeCases:
             patch(
                 "code_puppy.summarization_agent.get_global_model_name"
             ) as mock_get_name,
-            patch("code_puppy.summarization_agent.get_use_dbos") as mock_get_dbos,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
             mock_load_config.return_value = {}
             mock_get_model.return_value = MagicMock()
             mock_get_name.return_value = "test-model"
-            mock_get_dbos.return_value = False
 
             reload_summarization_agent()
 
@@ -730,13 +716,11 @@ class TestSummarizationAgentEdgeCases:
             patch(
                 "code_puppy.summarization_agent.get_global_model_name"
             ) as mock_get_name,
-            patch("code_puppy.summarization_agent.get_use_dbos") as mock_get_dbos,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
             mock_load_config.return_value = {}
             mock_get_model.return_value = MagicMock()
             mock_get_name.return_value = "test-model"
-            mock_get_dbos.return_value = False
 
             reload_summarization_agent()
 
@@ -778,17 +762,19 @@ class TestSummarizationAgentEdgeCases:
             assert call_args[1] is large_history
 
     def test_error_propagation_and_handling(self):
-        """Test that errors are properly propagated and handled."""
+        """Test that errors are properly wrapped in SummarizationError with details."""
+        from code_puppy.summarization_agent import SummarizationError
+
         with (
             patch(
                 "code_puppy.summarization_agent.get_summarization_agent"
             ) as mock_get_agent,
-            patch("code_puppy.summarization_agent.asyncio.run") as mock_run,
+            patch("code_puppy.summarization_agent._ensure_thread_pool") as mock_pool,
         ):
             mock_agent = MagicMock()
             mock_get_agent.return_value = mock_agent
 
-            # Test different types of errors
+            # Test different types of errors - all should be wrapped in SummarizationError
             errors_to_test = [
                 ValueError("Invalid input"),
                 RuntimeError("Execution error"),
@@ -797,59 +783,46 @@ class TestSummarizationAgentEdgeCases:
             ]
 
             for test_error in errors_to_test:
-                mock_run.side_effect = test_error
+                mock_pool_instance = MagicMock()
+                mock_future = MagicMock()
+                mock_future.result.side_effect = test_error
+                mock_pool_instance.submit.return_value = mock_future
+                mock_pool.return_value = mock_pool_instance
 
-                with pytest.raises(type(test_error), match=str(test_error)):
+                with pytest.raises(SummarizationError) as exc_info:
                     run_summarization_sync("test", [])
 
+                # Verify the error message contains useful info
+                assert type(test_error).__name__ in str(exc_info.value)
+                assert str(test_error) in str(exc_info.value)
+                # Verify the original error is preserved
+                assert exc_info.value.original_error is test_error
+
     def test_async_sync_boundary_handling(self):
-        """Test proper handling of async/sync boundaries."""
-        # This test verifies the function behaves correctly in both
-        # async and sync contexts
+        """Test that summarization always uses thread pool."""
         with (
             patch(
                 "code_puppy.summarization_agent.get_summarization_agent"
             ) as mock_get_agent,
-            patch(
-                "code_puppy.summarization_agent.asyncio.get_running_loop"
-            ) as mock_get_loop,
             patch("code_puppy.summarization_agent._ensure_thread_pool") as mock_pool,
-            patch("code_puppy.summarization_agent.asyncio.run") as mock_run,
         ):
             mock_agent = MagicMock()
             mock_get_agent.return_value = mock_agent
 
-            # Scenario 1: No event loop running
-            mock_get_loop.side_effect = RuntimeError("No running loop")
-
             mock_result = MagicMock()
-            mock_result.new_messages = lambda: ["Sync result"]
-            mock_run.return_value = mock_result
-
-            result1 = run_summarization_sync("test", [])
-            assert result1 == ["Sync result"]
-            mock_run.assert_called_once()
-
-            # Reset mocks for second scenario
-            mock_run.reset_mock()
-            mock_get_loop.reset_mock()
-
-            # Scenario 2: Event loop is running
-            mock_get_loop.side_effect = None
-            mock_get_loop.return_value = MagicMock()
-
+            mock_result.new_messages = lambda: ["Result"]
             mock_pool_instance = MagicMock()
             mock_future = MagicMock()
             mock_future.result.return_value = mock_result
             mock_pool_instance.submit.return_value = mock_future
             mock_pool.return_value = mock_pool_instance
 
-            result2 = run_summarization_sync("test", [])
-            assert result2 == ["Sync result"]
+            result = run_summarization_sync("test", [])
+            assert result == ["Result"]
 
-            # Should use thread pool, not asyncio.run
+            # Should always use thread pool
             mock_pool.assert_called_once()
-            mock_run.assert_not_called()
+            mock_pool_instance.submit.assert_called_once()
 
     def test_reload_state_consistency(self):
         """Test that reload maintains consistent state."""
