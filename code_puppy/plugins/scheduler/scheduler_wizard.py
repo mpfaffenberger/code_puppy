@@ -4,8 +4,9 @@ Provides interactive menus with arrow-key navigation for selecting
 schedule type, agent, model, and other task parameters.
 """
 
-from datetime import datetime
 from typing import List, Optional, Tuple
+
+from code_puppy.scheduler.time_utils import parse_times_hhmm
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -256,19 +257,12 @@ def create_task_wizard() -> Optional[dict]:
         if not raw_times:
             print("\n  ❌ Cancelled.")
             return None
+
         # Validate, normalise (09:00 canonical form), and deduplicate entries.
-        entries = [t.strip() for t in raw_times.split(",") if t.strip()]
-        seen: set[str] = set()
-        valid = []
-        for entry in entries:
-            try:
-                t = datetime.strptime(entry, "%H:%M")  # noqa: DTZ007
-                normalised = t.strftime("%H:%M")
-                if normalised not in seen:
-                    seen.add(normalised)
-                    valid.append(normalised)
-            except ValueError:
-                print(f"  ⚠️  Skipping invalid time: '{entry}' (expected HH:MM)")
+        def _warn_invalid(entry: str) -> None:
+            print(f"  ⚠️  Skipping invalid time: '{entry}' (expected HH:MM)")
+
+        valid = parse_times_hhmm(raw_times, on_invalid=_warn_invalid)
         if not valid:
             print("\n  ❌ No valid times provided.")
             return None

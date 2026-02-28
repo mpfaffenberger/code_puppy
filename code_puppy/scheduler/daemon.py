@@ -20,6 +20,7 @@ from code_puppy.scheduler.config import (
     load_tasks,
 )
 from code_puppy.scheduler.executor import execute_task
+from code_puppy.scheduler.time_utils import parse_times_hhmm
 
 # Global flag for graceful shutdown
 _shutdown_requested = False
@@ -35,17 +36,16 @@ def parse_daily_at_times(schedule_value: str) -> list:
         "09:00"          -> [(9, 0)]
         "09:00,17:30"    -> [(9, 0), (17, 30)]
     """
-    result = []
-    for entry in schedule_value.split(","):
-        entry = entry.strip()
-        try:
-            t = datetime.strptime(entry, "%H:%M")
-            result.append((t.hour, t.minute))
-        except ValueError:
-            print(
-                f"[Scheduler] Warning: Invalid time '{entry}' in daily_at schedule, skipping."
-            )
-    return result
+
+    def _warn(entry: str) -> None:
+        print(
+            f"[Scheduler] Warning: Invalid time '{entry}' in daily_at schedule, skipping."
+        )
+
+    return [
+        (int(hhmm[:2]), int(hhmm[3:]))
+        for hhmm in parse_times_hhmm(schedule_value, on_invalid=_warn)
+    ]
 
 
 def parse_interval(interval_str: str) -> Optional[timedelta]:
