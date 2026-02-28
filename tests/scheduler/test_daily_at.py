@@ -7,8 +7,6 @@ the real system clock.
 
 from datetime import datetime
 
-import pytest
-
 from code_puppy.scheduler.config import ScheduledTask
 from code_puppy.scheduler.daemon import parse_daily_at_times, should_run_task
 
