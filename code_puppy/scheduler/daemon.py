@@ -25,6 +25,27 @@ from code_puppy.scheduler.executor import execute_task
 _shutdown_requested = False
 
 
+def parse_daily_at_times(schedule_value: str) -> list:
+    """Parse a comma-separated list of HH:MM times.
+
+    Returns a list of (hour, minute) tuples for valid entries.
+    Invalid entries are silently skipped.
+
+    Examples:
+        "09:00"          -> [(9, 0)]
+        "09:00,17:30"    -> [(9, 0), (17, 30)]
+    """
+    result = []
+    for entry in schedule_value.split(","):
+        entry = entry.strip()
+        try:
+            t = datetime.strptime(entry, "%H:%M")
+            result.append((t.hour, t.minute))
+        except ValueError:
+            print(f"[Scheduler] Warning: Invalid time '{entry}' in daily_at schedule, skipping.")
+    return result
+
+
 def parse_interval(interval_str: str) -> Optional[timedelta]:
     """Parse interval string like '30m', '1h', '2d' into timedelta."""
     match = re.match(r"^(\d+)([smhd])$", interval_str.lower())
@@ -72,6 +93,24 @@ def should_run_task(task: ScheduledTask, now: datetime) -> bool:
             return True
         last_run = datetime.fromisoformat(task.last_run)
         return (now - last_run) >= timedelta(days=1)
+
+    elif task.schedule_type == "daily_at":
+        # schedule_value is a comma-separated list of HH:MM wall-clock times.
+        # Fire if *any* target time has passed today and hasn't been run since.
+        # This is restart-safe: if the daemon was down at 09:00 and restarts
+        # at 09:15 it will still fire, because now > 09:00 and last_run < 09:00.
+        times = parse_daily_at_times(task.schedule_value)
+        if not times:
+            print(f"[Scheduler] Warning: No valid times in daily_at schedule for: {task.name}")
+            return False
+
+        last_run = datetime.fromisoformat(task.last_run) if task.last_run else None
+
+        for hour, minute in times:
+            target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if now >= target and (last_run is None or last_run < target):
+                return True
+        return False
 
     elif task.schedule_type == "cron":
         # Cron expressions not yet supported - would need croniter library
