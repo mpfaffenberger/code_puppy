@@ -563,7 +563,11 @@ class TestCreateTaskWizard:
         mock_text.side_effect = text_instances
 
         sel_instances = [MagicMock(), MagicMock(), MagicMock()]
-        sel_instances[0].run.return_value = "Every hour"  # "Daily" removed; any valid choice works here
+        sel_instances[
+            0
+        ].run.return_value = (
+            "Every hour"  # "Daily" removed; any valid choice works here
+        )
         sel_instances[1].run.return_value = "code-puppy"
         sel_instances[2].run.return_value = "m1"
         mock_sel.side_effect = sel_instances
@@ -585,7 +589,9 @@ class TestCreateTaskWizard:
     @patch(f"{_MOD}.TextInputMenu")
     @patch(f"{_MOD}.SelectionMenu")
     @patch(f"{_MOD}.get_available_models_list", return_value=["m1"])
-    @patch(f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")])
+    @patch(
+        f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")]
+    )
     def test_daily_at_single_time(
         self, mock_agents, mock_models, mock_sel, mock_text, mock_multi, mock_confirm
     ):
@@ -619,7 +625,9 @@ class TestCreateTaskWizard:
     @patch(f"{_MOD}.TextInputMenu")
     @patch(f"{_MOD}.SelectionMenu")
     @patch(f"{_MOD}.get_available_models_list", return_value=["m1"])
-    @patch(f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")])
+    @patch(
+        f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")]
+    )
     def test_daily_at_multiple_times(
         self, mock_agents, mock_models, mock_sel, mock_text, mock_multi, mock_confirm
     ):
@@ -687,7 +695,9 @@ class TestCreateTaskWizard:
     @patch(f"{_MOD}.TextInputMenu")
     @patch(f"{_MOD}.SelectionMenu")
     @patch(f"{_MOD}.get_available_models_list", return_value=["m1"])
-    @patch(f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")])
+    @patch(
+        f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")]
+    )
     def test_daily_at_strips_invalid_times(
         self, mock_agents, mock_models, mock_sel, mock_text, mock_multi, mock_confirm
     ):
@@ -720,10 +730,18 @@ class TestCreateTaskWizard:
     @patch(f"{_MOD}.TextInputMenu")
     @patch(f"{_MOD}.SelectionMenu")
     @patch(f"{_MOD}.get_available_models_list", return_value=["m1"])
-    @patch(f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")])
+    @patch(
+        f"{_MOD}.get_available_agents_list", return_value=[("code-puppy", "Default")]
+    )
     def test_daily_at_summary_display(
-        self, mock_agents, mock_models, mock_sel, mock_text, mock_multi, mock_confirm,
-        capsys
+        self,
+        mock_agents,
+        mock_models,
+        mock_sel,
+        mock_text,
+        mock_multi,
+        mock_confirm,
+        capsys,
     ):
         """Summary line should read 'daily at HH:MM' not the raw type/value."""
         from code_puppy.plugins.scheduler.scheduler_wizard import create_task_wizard

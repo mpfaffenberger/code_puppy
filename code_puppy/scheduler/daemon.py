@@ -42,7 +42,9 @@ def parse_daily_at_times(schedule_value: str) -> list:
             t = datetime.strptime(entry, "%H:%M")
             result.append((t.hour, t.minute))
         except ValueError:
-            print(f"[Scheduler] Warning: Invalid time '{entry}' in daily_at schedule, skipping.")
+            print(
+                f"[Scheduler] Warning: Invalid time '{entry}' in daily_at schedule, skipping."
+            )
     return result
 
 
@@ -101,7 +103,9 @@ def should_run_task(task: ScheduledTask, now: datetime) -> bool:
         # at 09:15 it will still fire, because now > 09:00 and last_run < 09:00.
         times = parse_daily_at_times(task.schedule_value)
         if not times:
-            print(f"[Scheduler] Warning: No valid times in daily_at schedule for: {task.name}")
+            print(
+                f"[Scheduler] Warning: No valid times in daily_at schedule for: {task.name}"
+            )
             return False
 
         last_run = datetime.fromisoformat(task.last_run) if task.last_run else None
