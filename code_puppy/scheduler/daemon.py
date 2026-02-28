@@ -98,9 +98,14 @@ def should_run_task(task: ScheduledTask, now: datetime) -> bool:
 
     elif task.schedule_type == "daily_at":
         # schedule_value is a comma-separated list of HH:MM wall-clock times.
-        # Fire if *any* target time has passed today and hasn't been run since.
-        # This is restart-safe: if the daemon was down at 09:00 and restarts
-        # at 09:15 it will still fire, because now > 09:00 and last_run < 09:00.
+        # Fire if *any* target time in the past 24 hours has not been run since.
+        # We check candidates on both today and yesterday so that a daemon that
+        # was down overnight and restarts before today's first target still
+        # catches the missed run from the previous day.
+        #
+        # Example: target=09:00, last_run=Feb 24 09:02, now=Feb 26 07:30
+        #   today's    candidate = Feb 26 09:00 → 07:30 < 09:00, skip
+        #   yesterday's candidate = Feb 25 09:00 → last_run < Feb 25 09:00 ✓ fire
         #
         # TIMEZONE NOTE: `now` is a naive datetime (system local time via
         # datetime.now()). All HH:MM targets are therefore evaluated against
@@ -118,9 +123,18 @@ def should_run_task(task: ScheduledTask, now: datetime) -> bool:
         last_run = datetime.fromisoformat(task.last_run) if task.last_run else None
 
         for hour, minute in times:
-            target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if now >= target and (last_run is None or last_run < target):
-                return True
+            for day_offset in (timedelta(0), timedelta(days=1)):
+                # Only look back to yesterday for tasks that have run before.
+                # A brand-new task (last_run=None) should wait for the next
+                # scheduled occurrence, not retroactively claim missed windows
+                # it never actually had.
+                if day_offset and last_run is None:
+                    continue
+                target = (now - day_offset).replace(
+                    hour=hour, minute=minute, second=0, microsecond=0
+                )
+                if target <= now and (last_run is None or last_run < target):
+                    return True
         return False
 
     elif task.schedule_type == "cron":

@@ -208,3 +208,39 @@ class TestShouldRunTaskDailyAt:
         ran_this_morning = "2026-02-27T00:05:00"
         task = daily_at_task("00:00", last_run=ran_this_morning)
         assert should_run_task(task, NOW) is False
+
+    # -- 24-hour lookback for daemon restarts ---------------------------------
+
+    def test_daemon_restart_catches_missed_yesterday_target(self):
+        """Daemon was down for 30+ hours; restarts before today's target.
+
+        Scenario: target=09:00, last_run=Feb 24 09:02, now=Feb 26 07:30.
+        Today's 09:00 hasn't arrived yet, but yesterday's (Feb 25 09:00)
+        was missed while the daemon was down — the task must fire.
+        """
+        last_ran_two_days_ago = "2026-02-24T09:02:00"
+        restarted_before_todays_target = datetime(2026, 2, 26, 7, 30, 0)
+        task = daily_at_task("09:00", last_run=last_ran_two_days_ago)
+        assert should_run_task(task, restarted_before_todays_target) is True
+
+    def test_new_task_does_not_claim_yesterday_missed_window(self):
+        """Brand-new task (last_run=None) must wait for the next scheduled
+        occurrence, not immediately fire for yesterday's window.
+
+        Scenario: task created at 07:30, target=09:00, now=07:30.
+        Yesterday's 09:00 is in the past but the task never existed then.
+        """
+        new_task = daily_at_task("09:00", last_run=None)
+        before_target = datetime(2026, 2, 27, 7, 30, 0)
+        assert should_run_task(new_task, before_target) is False
+
+    def test_already_ran_yesterday_does_not_refire_for_yesterday_window(self):
+        """Daemon restarts before today's target; task already ran yesterday.
+
+        Scenario: target=09:00, last_=Feb 26 09:05, now=Feb 27 07:30.
+        Yesterday's window was serviced — must not double-fire.
+        """
+        ran_yesterday_on_schedule = "2026-02-26T09:05:00"
+        restarted_before_todays_target = datetime(2026, 2, 27, 7, 30, 0)
+        task = daily_at_task("09:00", last_run=ran_yesterday_on_schedule)
+        assert should_run_task(task, restarted_before_todays_target) is False
