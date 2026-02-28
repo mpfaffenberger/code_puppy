@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
+from .shimmer import shimmer_text
 from .spinner_base import SpinnerBase
 
 
@@ -125,8 +126,8 @@ class ConsoleSpinner(SpinnerBase):
 
         text = Text()
 
-        # Show thinking message during normal processing
-        text.append(SpinnerBase.THINKING_MESSAGE, style="bold cyan")
+        # Show rotating thinking message with shimmer animation
+        text.append_text(shimmer_text(self.current_thinking_message, base="cyan"))
         text.append(self.current_frame, style="bold cyan")
 
         context_info = SpinnerBase.get_context_info()

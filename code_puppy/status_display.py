@@ -8,6 +8,8 @@ from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
 
+from code_puppy.messaging.loading_messages import get_all_messages
+
 # Global variable to track current token per second rate
 CURRENT_TOKEN_RATE = 0.0
 _TOKEN_RATE_LOCK = threading.Lock()
@@ -29,23 +31,7 @@ class StatusDisplay:
         self.is_active = False
         self.task = None
         self.live = None
-        self.loading_messages = [
-            "Fetching...",
-            "Sniffing around...",
-            "Wagging tail...",
-            "Pawsing for a moment...",
-            "Chasing tail...",
-            "Digging up results...",
-            "Barking at the data...",
-            "Rolling over...",
-            "Panting with excitement...",
-            "Chewing on it...",
-            "Prancing along...",
-            "Howling at the code...",
-            "Snuggling up to the task...",
-            "Bounding through data...",
-            "Puppy pondering...",
-        ]
+        self.loading_messages = get_all_messages() or ["Loading..."]
         self.current_message_index = 0
         self.spinner = Spinner("dots", text="")
 
