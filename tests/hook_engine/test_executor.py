@@ -82,6 +82,33 @@ class TestExecuteHook:
 
 
 class TestSubstituteVariables:
+    def test_unicode_escape_in_tool_args_does_not_crash(self):
+        """Regression: re.sub crashes on Python 3.13+ when replacement
+        string contains \\u (e.g. json.dumps of non-ASCII file content).
+
+        The fix uses a lambda replacement to avoid regex escape parsing.
+        See: https://docs.python.org/3.13/whatsnew/3.13.html#re
+        """
+        event_data = EventData(
+            event_type="PreToolUse",
+            tool_name="Write",
+            tool_args={"file_path": "test.py", "content": "emoji = '\U0001f436'"},
+        )
+        # Should not raise re.PatternError: bad escape \u
+        result = _substitute_variables("sh hooks/pre-write.sh", event_data, {})
+        assert result == "sh hooks/pre-write.sh"
+
+    def test_backslash_g_in_tool_args_not_interpreted(self):
+        """Regression: \\g<0> in replacement values should be treated as
+        literal text, not as a regex backreference."""
+        event_data = EventData(
+            event_type="PreToolUse",
+            tool_name="Write",
+            tool_args={"content": "\\g<0>injection"},
+        )
+        result = _substitute_variables("echo $CLAUDE_TOOL_INPUT", event_data, {})
+        assert "\\g<0>injection" in result
+
     def test_claude_project_dir(self):
         import os
 
