@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 def _flatten_union_to_object(union_items: list, defs: dict, resolve_fn) -> dict:
     """Flatten a union of object types into a single object with all properties.
 
-    For discriminated unions like EditFilePayload (ContentPayload | ReplacementsPayload | DeleteSnippetPayload),
+    For discriminated unions like EditFilePayload (ContentPayload | HashlineEditPayload | DeleteSnippetPayload),
     we merge all object types into one with all properties marked as optional.
     """
     merged_properties = {}

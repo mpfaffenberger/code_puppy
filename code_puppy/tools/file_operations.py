@@ -463,6 +463,7 @@ def _read_file(
     file_path: str,
     start_line: int | None = None,
     num_lines: int | None = None,
+    hashline: bool = True,
 ) -> ReadFileOutput:
     file_path = os.path.abspath(os.path.expanduser(file_path))
 
@@ -511,6 +512,19 @@ def _read_file(
                     char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
                     for char in content
                 )
+
+            # If hashline mode requested, format content and cache hashes
+            if hashline:
+                from code_puppy.tools.hashline import (
+                    cache_file_hashes,
+                    compute_file_hashes,
+                    format_hashlines,
+                )
+
+                cache_file_hashes(file_path, compute_file_hashes(content))
+                # Pass start_line so partial reads get correct line numbers
+                offset = start_line if start_line is not None else 1
+                content = format_hashlines(content, start_line=offset)
 
             # Simple approximation: ~4 characters per token
             num_tokens = len(content) // 4
@@ -820,6 +834,7 @@ def register_read_file(agent):
         file_path: str = "",
         start_line: int | None = None,
         num_lines: int | None = None,
+        hashline: bool = True,
     ) -> ReadFileOutput:
         """Read file contents with optional line-range selection and token safety.
 
@@ -860,13 +875,20 @@ def register_read_file(agent):
             >>> if result.error:
             ...     print(f"Error: {result.error}")
 
+        Hashline Mode (default: enabled):
+            When hashline=True, file content is returned with line-hash tags:
+                1:a3f1|function hello() {
+                2:f10e|  return "world";
+            Use these tags with HashlineEditPayload to edit by reference.
+            Set hashline=False to get raw content without tags.
+
         Best Practices:
             - Always check for errors before using content
             - Use line ranges for large files to avoid token limits
             - Monitor num_tokens to stay within context limits
             - Combine with list_files to find files first
         """
-        return _read_file(context, file_path, start_line, num_lines)
+        return _read_file(context, file_path, start_line, num_lines, hashline=hashline)
 
 
 def register_grep(agent):

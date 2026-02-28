@@ -183,7 +183,7 @@ ALWAYS use this to explore directories before trying to read/modify files
 ALWAYS use this to read existing files before modifying them. By default, read the entire file. If encountering token limits when reading large files, use the optional start_line and num_lines parameters to read specific portions.
 
 #### `edit_file(payload)`
-Swiss-army file editor powered by Pydantic payloads (ContentPayload, ReplacementsPayload, DeleteSnippetPayload).
+Swiss-army file editor powered by Pydantic payloads (HashlineEditPayload, ContentPayload, DeleteSnippetPayload).
 
 #### `delete_file(file_path)`
 Use this to remove files when needed
@@ -196,24 +196,27 @@ Use this to recursively search for a string across files starting from the speci
 #### `ask_about_model_pinning(agent_config)`
 Use this method to ask the user whether they want to pin a specific model to their agent. Always call this method before finalizing the agent configuration and include its result in the agent JSON if a model is selected.
 This is an all-in-one file-modification tool. It supports the following Pydantic Object payload types:
-1. ContentPayload: {{ file_path="example.py", "content": "…", "overwrite": true|false }}  →  Create or overwrite a file with the provided content.
-2. ReplacementsPayload: {{  file_path="example.py", "replacements": [ {{ "old_str": "…", "new_str": "…" }}, … ] }}  →  Perform exact text replacements inside an existing file.
-3. DeleteSnippetPayload: {{ file_path="example.py", "delete_snippet": "…" }}  →  Remove a snippet of text from an existing file.
+1. HashlineEditPayload (REQUIRED): {{ file_path="example.py", "edits": [ {{ "operation": "replace", "start_ref": "2:f1", "new_content": "new code" }} ] }}  → Edit by line-hash reference.
+2. ContentPayload: {{ file_path="example.py", "content": "…", "overwrite": true|false }}  → Create or overwrite a file. (ONLY for new files or complete rewrites)
+3. DeleteSnippetPayload: {{ file_path="example.py", "delete_snippet": "…" }}  →  Remove a snippet.
 
 Arguments:
 - agent_config (required): The agent configuration dictionary built so far.
 - payload (required): One of the Pydantic payload types above.
 
-Example (create):
-```python
-edit_file(payload={{file_path="example.py" "content": "print('hello')"}})
-```
-
-Example (replacement): -- YOU SHOULD PREFER THIS AS THE PRIMARY WAY TO EDIT FILES.
+Example (hashline edit — REQUIRED for all file modifications):
+When you read a file, each line is tagged: `<line>:<hash>|<content>`
+Reference these tags to edit:
 ```python
 edit_file(
-  payload={{file_path="example.py", "replacements": [{{"old_str": "foo", "new_str": "bar"}}]}}
+  payload={{file_path="example.py", "edits": [{{"operation": "replace", "start_ref": "2:f1", "new_content": "bar"}}]}}
 )
+```
+Hashline operations: "replace", "replace_range" (needs end_ref), "insert_after", "delete", "delete_range" (needs end_ref)
+
+Example (create — ContentPayload ONLY for new files):
+```python
+edit_file(payload={{file_path="example.py" "content": "print('hello')"}})
 ```
 
 Example (delete snippet):
@@ -222,6 +225,13 @@ edit_file(
   payload={{file_path="example.py", "delete_snippet": "# TODO: remove this line"}}
 )
 ```
+
+
+CRITICAL RULE — You MUST use HashlineEditPayload for editing existing files:
+• Read the file first to get line:hash tags (e.g., "2:f1|")
+• Reference these tags in your edits — this prevents concurrent edit conflicts
+• Do NOT try to use old-style string replacement — it is NO LONGER SUPPORTED
+• If a hash mismatch occurs, re-read the file and retry with fresh tags
 
 NEVER output an entire file – this is very expensive.
 You may not edit file extensions: [.ipynb]
