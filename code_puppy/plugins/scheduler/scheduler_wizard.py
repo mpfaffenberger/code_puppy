@@ -4,6 +4,7 @@ Provides interactive menus with arrow-key navigation for selecting
 schedule type, agent, model, and other task parameters.
 """
 
+from datetime import datetime
 from typing import List, Optional, Tuple
 
 from prompt_toolkit.application import Application
@@ -216,7 +217,7 @@ def create_task_wizard() -> Optional[dict]:
             "Every hour",
             "Every 2 hours",
             "Every 6 hours",
-            "Daily",
+            "Daily at specific time(s)...",
             "Custom interval...",
         ],
         descriptions=[
@@ -225,7 +226,7 @@ def create_task_wizard() -> Optional[dict]:
             "Run once per hour",
             "Run 12 times per day",
             "Run 4 times per day",
-            "Run once per day",
+            "Run at exact wall-clock times, e.g. 09:00 or 09:00,17:30",
             "Specify custom interval like 45m, 3h, 2d",
         ],
     )
@@ -234,17 +235,40 @@ def create_task_wizard() -> Optional[dict]:
         print("\n  ❌ Cancelled.")
         return None
 
-    # Map choice to schedule type and value
+    # Map simple choices directly to (type, value)
     schedule_map = {
         "Every 15 minutes": ("interval", "15m"),
         "Every 30 minutes": ("interval", "30m"),
         "Every hour": ("hourly", "1h"),
         "Every 2 hours": ("interval", "2h"),
         "Every 6 hours": ("interval", "6h"),
-        "Daily": ("daily", "24h"),
     }
 
-    if schedule_choice == "Custom interval...":
+    if schedule_choice == "Daily at specific time(s)...":
+        print("\n  Enter one or more 24-hour times separated by commas.")
+        print("  Examples: 09:00   or   09:00,13:00,17:30\n")
+        time_input = TextInputMenu(
+            "Time(s) (HH:MM, comma-separated)", default="09:00"
+        )
+        raw_times = time_input.run()
+        if not raw_times:
+            print("\n  ❌ Cancelled.")
+            return None
+        # Validate every entry looks like HH:MM
+        entries = [t.strip() for t in raw_times.split(",") if t.strip()]
+        valid = []
+        for entry in entries:
+            try:
+                datetime.strptime(entry, "%H:%M")  # noqa: DTZ007
+                valid.append(entry)
+            except ValueError:
+                print(f"  ⚠️  Skipping invalid time: '{entry}' (expected HH:MM)")
+        if not valid:
+            print("\n  ❌ No valid times provided.")
+            return None
+        schedule_type = "daily_at"
+        schedule_value = ",".join(valid)
+    elif schedule_choice == "Custom interval...":
         interval_input = TextInputMenu(
             "Enter interval (e.g., 45m, 3h, 2d)", default="1h"
         )
@@ -311,7 +335,11 @@ def create_task_wizard() -> Optional[dict]:
     print("📋 TASK SUMMARY")
     print("-" * 60)
     print(f"  Name:      {task_name}")
-    print(f"  Schedule:  {schedule_type} ({schedule_value})")
+    if schedule_type == "daily_at":
+        schedule_display = f"daily at {schedule_value}"
+    else:
+        schedule_display = f"{schedule_type} ({schedule_value})"
+    print(f"  Schedule:  {schedule_display}")
     print(f"  Agent:     {selected_agent}")
     print(f"  Model:     {selected_model or '(default)'}")
     print(f"  Directory: {working_dir}")
