@@ -246,6 +246,7 @@ def create_task_wizard() -> Optional[dict]:
 
     if schedule_choice == "Daily at specific time(s)...":
         print("\n  Enter one or more 24-hour times separated by commas.")
+        print("  (24-hour clock: 1:00 PM = 13:00, 5:30 PM = 17:30, midnight = 00:00)")
         print("  Examples: 09:00   or   09:00,13:00,17:30\n")
         time_input = TextInputMenu(
             "Time(s) (HH:MM, comma-separated)", default="09:00"
