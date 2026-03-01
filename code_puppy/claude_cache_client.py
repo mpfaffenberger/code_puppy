@@ -371,7 +371,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 is_auth_error = response.status_code in (401, 403)
 
                 if response.status_code == 400:
-                    is_auth_error = self._is_cloudflare_html_error(response)
+                    is_auth_error = await self._is_cloudflare_html_error(response)
                     if is_auth_error:
                         logger.info(
                             "Detected Cloudflare 400 error (likely auth-related), attempting token refresh"
@@ -531,7 +531,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             headers["Authorization"] = bearer_value
 
     @staticmethod
-    def _is_cloudflare_html_error(response: httpx.Response) -> bool:
+    async def _is_cloudflare_html_error(response: httpx.Response) -> bool:
         """Check if this is a Cloudflare HTML error response.
 
         Cloudflare often returns HTML error pages with status 400 when
@@ -544,11 +544,19 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
         # Check if body contains Cloudflare markers
         try:
-            # Read response body if not already consumed
+            # For async httpx, we need to read the body first
+            if not hasattr(response, "_content") or not response._content:
+                try:
+                    await response.aread()
+                except Exception as read_exc:
+                    logger.debug("Failed to read response body: %s", read_exc)
+                    return False
+
+            # Now we can safely access the content
             if hasattr(response, "_content") and response._content:
                 body = response._content.decode("utf-8", errors="ignore")
             else:
-                # Try to read the text (this might be already consumed)
+                # Fallback to text property (should work after aread)
                 try:
                     body = response.text
                 except Exception:
