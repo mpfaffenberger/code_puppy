@@ -362,7 +362,7 @@ class TestInitialCommandPassthrough:
         ), patch(
             "code_puppy.cli_runner.run_prompt_with_attachments",
             new_callable=AsyncMock,
-            return_value=mock_response,
+            return_value=(mock_response, None),
         ), patch(
             "code_puppy.messaging.get_message_bus"
         ), patch(

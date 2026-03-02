@@ -1028,15 +1028,15 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     try:
         # Get agent through runtime manager and use helper for attachments
         agent = get_current_agent()
-        response = await run_prompt_with_attachments(
+        result, _agent_task = await run_prompt_with_attachments(
             agent,
             prompt,
             spinner_console=message_renderer.console,
         )
-        if response is None:
+        if result is None:
             return
 
-        agent_response = response.output
+        agent_response = result.output
 
         # Emit structured message for proper markdown rendering
         from code_puppy.messaging import get_message_bus
