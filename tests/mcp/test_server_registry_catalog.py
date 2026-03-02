@@ -240,6 +240,28 @@ class TestMCPServerTemplate:
         assert "MY_API_KEY" in env_vars
         assert len(env_vars) == 2  # No duplicates
 
+    def test_get_environment_vars_ignores_cmd_placeholders(self):
+        """Test env placeholder syntax `${...}` is not treated as env var input."""
+        template = MCPServerTemplate(
+            id="test",
+            name="test",
+            display_name="Test",
+            description="Test",
+            category="Test",
+            tags=["test"],
+            type="stdio",
+            config={
+                "env": {
+                    "LIGHTPANDA_CDP_URL": "${cdp_url}",
+                    "API_KEY": "$REAL_API_KEY",
+                }
+            },
+        )
+
+        env_vars = template.get_environment_vars()
+        assert "REAL_API_KEY" in env_vars
+        assert "{cdp_url}" not in env_vars
+
     def test_get_command_line_args(self):
         """Test getting command line arguments from requirements."""
         args = [
