@@ -431,20 +431,28 @@ class BrowserManager:
         self._lightpanda_process = None
         self._lightpanda_endpoint = None
 
-        if process:
+        try:
+            if not process:
+                return
+
             if process.returncode is None:
-                process.terminate()
+                with contextlib.suppress(Exception):
+                    process.terminate()
                 try:
                     await asyncio.wait_for(process.wait(), timeout=3)
                 except asyncio.TimeoutError:
-                    process.kill()
+                    with contextlib.suppress(Exception):
+                        process.kill()
+                    with contextlib.suppress(Exception):
+                        await process.wait()
+                except Exception:
                     with contextlib.suppress(Exception):
                         await process.wait()
             else:
                 with contextlib.suppress(Exception):
                     await process.wait()
-
-        await self._stop_lightpanda_stderr_drain()
+        finally:
+            await self._stop_lightpanda_stderr_drain()
 
     async def async_initialize(self) -> None:
         """Initialize a browser backend."""

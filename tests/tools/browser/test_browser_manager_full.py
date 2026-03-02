@@ -147,7 +147,7 @@ class TestInitializeBrowser:
             ) as mock_init_lightpanda,
         ):
             await mgr._initialize_browser()
-            mock_init_lightpanda.assert_called_once()
+            mock_init_lightpanda.assert_awaited_once()
             assert mgr._initialized is True
 
     @pytest.mark.asyncio
@@ -170,7 +170,7 @@ class TestInitializeBrowser:
             ) as mock_init_lightpanda,
         ):
             await mgr._initialize_browser()
-            mock_init_lightpanda.assert_called_once()
+            mock_init_lightpanda.assert_awaited_once()
             assert mgr._initialized is True
 
     @pytest.mark.asyncio
@@ -439,6 +439,26 @@ class TestCleanupSilent:
 
         mock_playwright.stop.assert_awaited_once()
         mock_stop_lightpanda.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stop_lightpanda_process_always_stops_stderr_drain(self):
+        """Test stderr drain cleanup still runs when process termination fails."""
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("lightpanda-stop-failure")
+
+        mock_process = MagicMock()
+        mock_process.returncode = None
+        mock_process.terminate.side_effect = ProcessLookupError("already exited")
+        mock_process.wait = AsyncMock(return_value=None)
+        mgr._lightpanda_process = mock_process
+
+        with patch.object(
+            mgr, "_stop_lightpanda_stderr_drain", new=AsyncMock()
+        ) as mock_stop_stderr:
+            await mgr._stop_lightpanda_process()
+
+        mock_stop_stderr.assert_awaited_once()
 
 
 class TestSyncCleanup:
