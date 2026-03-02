@@ -391,6 +391,17 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     # Big ugly red box should be impossible to miss! 🔴
     print_truecolor_warning(display_console)
 
+    # Shell pass-through for initial_command: !<cmd> bypasses the agent
+    if initial_command:
+        from code_puppy.command_line.shell_passthrough import (
+            execute_shell_passthrough,
+            is_shell_passthrough,
+        )
+
+        if is_shell_passthrough(initial_command):
+            execute_shell_passthrough(initial_command)
+            initial_command = None
+
     # Initialize the runtime agent manager
     if initial_command:
         from code_puppy.agents import get_current_agent
@@ -1000,6 +1011,16 @@ async def run_prompt_with_attachments(
 
 async def execute_single_prompt(prompt: str, message_renderer) -> None:
     """Execute a single prompt and exit (for -p flag)."""
+    # Shell pass-through: !<cmd> bypasses the agent even in -p mode
+    from code_puppy.command_line.shell_passthrough import (
+        execute_shell_passthrough,
+        is_shell_passthrough,
+    )
+
+    if is_shell_passthrough(prompt):
+        execute_shell_passthrough(prompt)
+        return
+
     from code_puppy.messaging import emit_info
 
     emit_info(f"Executing prompt: {prompt}")

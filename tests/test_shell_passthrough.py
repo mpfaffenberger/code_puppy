@@ -4,8 +4,9 @@ The `!` prefix allows users to run shell commands directly from the
 Code Puppy prompt without any agent processing.
 """
 
+import asyncio
 import subprocess
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -23,18 +24,23 @@ class TestIsShellPassthrough:
     """Test detection of shell pass-through input."""
 
     def test_simple_command(self):
+        """A simple command like `!ls` is detected as pass-through."""
         assert is_shell_passthrough("!ls") is True
 
     def test_command_with_args(self):
+        """Commands with arguments like `!ls -la` are detected."""
         assert is_shell_passthrough("!ls -la") is True
 
     def test_command_with_leading_whitespace(self):
+        """Leading whitespace before `!` is tolerated."""
         assert is_shell_passthrough("  !git status") is True
 
     def test_command_with_trailing_whitespace(self):
+        """Trailing whitespace after the command is tolerated."""
         assert is_shell_passthrough("!pwd  ") is True
 
     def test_complex_command(self):
+        """Complex commands with pipes are detected."""
         assert is_shell_passthrough("!cat file.txt | grep 'hello'") is True
 
     def test_bare_bang_is_not_passthrough(self):
@@ -42,15 +48,19 @@ class TestIsShellPassthrough:
         assert is_shell_passthrough("!") is False
 
     def test_bang_with_only_whitespace_is_not_passthrough(self):
+        """A `!` followed by only whitespace is NOT a pass-through."""
         assert is_shell_passthrough("!   ") is False
 
     def test_empty_string(self):
+        """An empty string is NOT a pass-through."""
         assert is_shell_passthrough("") is False
 
     def test_regular_prompt(self):
+        """Regular text without `!` prefix is NOT a pass-through."""
         assert is_shell_passthrough("write me a python script") is False
 
     def test_slash_command(self):
+        """Slash commands like `/help` are NOT pass-throughs."""
         assert is_shell_passthrough("/help") is False
 
     def test_bang_in_middle_of_text(self):
@@ -58,7 +68,7 @@ class TestIsShellPassthrough:
         assert is_shell_passthrough("hello! world") is False
 
     def test_prefix_constant(self):
-        """Verify the prefix is what we expect."""
+        """Verify the prefix constant is `!`."""
         assert SHELL_PASSTHROUGH_PREFIX == "!"
 
 
@@ -66,21 +76,27 @@ class TestExtractCommand:
     """Test command extraction from pass-through input."""
 
     def test_simple_command(self):
+        """Extract a simple command from `!ls`."""
         assert extract_command("!ls") == "ls"
 
     def test_command_with_args(self):
+        """Extract a command with arguments."""
         assert extract_command("!git status") == "git status"
 
     def test_strips_surrounding_whitespace(self):
+        """Surrounding whitespace is stripped from both prefix and command."""
         assert extract_command("  !  pwd  ") == "pwd"
 
     def test_preserves_inner_whitespace(self):
+        """Whitespace within the command itself is preserved."""
         assert extract_command("!echo  hello   world") == "echo  hello   world"
 
     def test_pipe_command(self):
+        """Commands with pipes are extracted correctly."""
         assert extract_command("!ls | head -5") == "ls | head -5"
 
     def test_complex_command(self):
+        """Complex commands with special chars are extracted verbatim."""
         assert extract_command("!find . -name '*.py' -exec wc -l {} +") == (
             "find . -name '*.py' -exec wc -l {} +"
         )
@@ -118,9 +134,8 @@ class TestExecuteShellPassthrough:
     """Test shell command execution."""
 
     def _mock_console(self):
-        """Create a mock console and patch _get_console to return it."""
-        mock = MagicMock()
-        return mock
+        """Create a mock Rich Console for capturing print calls."""
+        return MagicMock()
 
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
@@ -139,7 +154,6 @@ class TestExecuteShellPassthrough:
 
         # Should have printed banner, context line, and success
         assert console.print.call_count == 3
-        # Last print should contain the success message
         last_call = str(console.print.call_args_list[-1])
         assert "Done" in last_call
 
@@ -250,7 +264,6 @@ class TestExecuteShellPassthrough:
 
         execute_shell_passthrough("!git status")
 
-        # First print call should contain the banner and command
         first_call = str(console.print.call_args_list[0])
         assert "SHELL PASSTHROUGH" in first_call
         assert "git status" in first_call
@@ -265,7 +278,6 @@ class TestExecuteShellPassthrough:
 
         execute_shell_passthrough("!echo hi")
 
-        # Second print call should contain the context hint
         second_call = str(console.print.call_args_list[1])
         assert "Bypassing AI" in second_call
 
@@ -277,10 +289,8 @@ class TestExecuteShellPassthrough:
         mock_get_console.return_value = console
         mock_run.return_value = MagicMock(returncode=0)
 
-        # This would break Rich if not escaped
         execute_shell_passthrough("!echo [bold red]oops[/bold red]")
 
-        # Should not crash, and subprocess should get the raw command
         assert mock_run.call_args[0][0] == "echo [bold red]oops[/bold red]"
 
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
@@ -293,6 +303,72 @@ class TestExecuteShellPassthrough:
 
         execute_shell_passthrough("!broken")
 
-        # Should not crash — error is escaped
         last_call = str(console.print.call_args_list[-1])
         assert "Shell error" in last_call
+
+
+class TestInitialCommandPassthrough:
+    """Test that shell passthrough works for initial_command and -p paths.
+
+    Regression tests for the bug where `code-puppy "!ls"` or
+    `code-puppy -p "!ls"` would send the command to the AI agent
+    instead of executing it directly in the shell.
+    """
+
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
+    def test_execute_single_prompt_calls_passthrough(
+        self, mock_run, mock_console
+    ):
+        """execute_single_prompt with '!ls' should run shell, not the agent."""
+        from code_puppy.cli_runner import execute_single_prompt
+
+        mock_console.return_value = MagicMock()
+        mock_run.return_value = MagicMock(returncode=0)
+        mock_renderer = MagicMock()
+        mock_renderer.console = MagicMock()
+
+        with patch(
+            "code_puppy.cli_runner.get_current_agent"
+        ) as mock_agent, patch(
+            "code_puppy.cli_runner.run_prompt_with_attachments"
+        ) as mock_run_prompt:
+            asyncio.run(execute_single_prompt("!ls -la", mock_renderer))
+
+            # Shell command should have been executed
+            mock_run.assert_called_once()
+            assert mock_run.call_args[0][0] == "ls -la"
+            # Agent should NOT have been called
+            mock_agent.assert_not_called()
+            mock_run_prompt.assert_not_called()
+
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
+    def test_execute_single_prompt_normal_prompt_skips_passthrough(
+        self, mock_run, mock_console
+    ):
+        """execute_single_prompt with normal text should NOT call passthrough."""
+        from code_puppy.cli_runner import execute_single_prompt
+
+        mock_renderer = MagicMock()
+        mock_renderer.console = MagicMock()
+
+        mock_response = MagicMock()
+        mock_response.output = "Hello!"
+        mock_response.all_messages.return_value = []
+
+        with patch(
+            "code_puppy.cli_runner.get_current_agent"
+        ), patch(
+            "code_puppy.cli_runner.run_prompt_with_attachments",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ), patch(
+            "code_puppy.messaging.get_message_bus"
+        ), patch(
+            "code_puppy.messaging.message_queue.emit_info"
+        ):
+            asyncio.run(execute_single_prompt("write me a script", mock_renderer))
+
+            # Shell passthrough should NOT have been called
+            mock_run.assert_not_called()
