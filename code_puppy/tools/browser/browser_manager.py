@@ -11,6 +11,7 @@ import os
 import shlex
 import shutil
 import socket
+from collections import deque
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
@@ -114,6 +115,7 @@ class BrowserManager:
     _playwright: Optional[object] = None
     _lightpanda_process: Optional[asyncio.subprocess.Process] = None
     _lightpanda_endpoint: Optional[str] = None
+    _lightpanda_stderr_task: Optional[asyncio.Task] = None
     _initialized: bool = False
 
     def __init__(
@@ -137,6 +139,7 @@ class BrowserManager:
 
         # Unique profile directory per session for browser state
         self.profile_dir = self._get_profile_directory()
+        self._lightpanda_stderr_buffer: deque[str] = deque(maxlen=128)
 
     def _get_profile_directory(self) -> Path:
         """Get or create the profile directory for this session.
@@ -233,15 +236,55 @@ class BrowserManager:
 
     async def _read_lightpanda_stderr(self) -> str:
         """Read Lightpanda stderr if available for better startup errors."""
-        if not self._lightpanda_process or not self._lightpanda_process.stderr:
+        if not self._lightpanda_stderr_buffer:
             return ""
+        return "\n".join(self._lightpanda_stderr_buffer).strip()[:500]
 
-        with contextlib.suppress(Exception):
-            data = await self._lightpanda_process.stderr.read()
-            if data:
-                return data.decode(errors="replace").strip()[:500]
+    async def _drain_lightpanda_stderr(
+        self, stream: asyncio.StreamReader
+    ) -> None:
+        """Drain stderr continuously to avoid subprocess pipe backpressure."""
+        try:
+            while True:
+                line = await stream.readline()
+                if not line:
+                    return
+                decoded = line.decode(errors="replace").strip()
+                if decoded:
+                    self._lightpanda_stderr_buffer.append(decoded)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Stderr draining is best effort and should not fail startup.
+            return
 
-        return ""
+    def _start_lightpanda_stderr_drain(self) -> None:
+        """Start background stderr drain task when stream is available."""
+        stream = self._lightpanda_process.stderr if self._lightpanda_process else None
+
+        if isinstance(stream, asyncio.StreamReader):
+            self._lightpanda_stderr_task = asyncio.create_task(
+                self._drain_lightpanda_stderr(stream)
+            )
+        else:
+            self._lightpanda_stderr_task = None
+
+    async def _stop_lightpanda_stderr_drain(self) -> None:
+        """Stop background stderr drain task."""
+        task = self._lightpanda_stderr_task
+        self._lightpanda_stderr_task = None
+
+        if not task:
+            return
+
+        if task.done():
+            with contextlib.suppress(Exception):
+                await task
+            return
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
 
     def _build_lightpanda_command(self, host: str, port: int) -> list[str]:
         """Build the Lightpanda startup command."""
@@ -325,6 +368,8 @@ class BrowserManager:
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
+            self._lightpanda_stderr_buffer.clear()
+            self._start_lightpanda_stderr_drain()
 
             try:
                 browser = await self._connect_lightpanda_over_cdp(
@@ -374,6 +419,8 @@ class BrowserManager:
                 process.kill()
                 with contextlib.suppress(Exception):
                     await process.wait()
+
+        await self._stop_lightpanda_stderr_drain()
 
     async def async_initialize(self) -> None:
         """Initialize a browser backend."""

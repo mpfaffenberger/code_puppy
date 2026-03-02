@@ -261,6 +261,7 @@ class TestMCPServerTemplate:
         env_vars = template.get_environment_vars()
         assert "REAL_API_KEY" in env_vars
         assert "{cdp_url}" not in env_vars
+        assert "cdp_url" not in env_vars
 
     def test_get_command_line_args(self):
         """Test getting command line arguments from requirements."""
