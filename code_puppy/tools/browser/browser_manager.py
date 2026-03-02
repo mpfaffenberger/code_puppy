@@ -238,7 +238,8 @@ class BrowserManager:
         """Read Lightpanda stderr if available for better startup errors."""
         if not self._lightpanda_stderr_buffer:
             return ""
-        return "\n".join(self._lightpanda_stderr_buffer).strip()[:500]
+        stderr_text = "\n".join(self._lightpanda_stderr_buffer).strip()
+        return stderr_text[-500:]
 
     async def _drain_lightpanda_stderr(
         self, stream: asyncio.StreamReader
@@ -246,12 +247,14 @@ class BrowserManager:
         """Drain stderr continuously to avoid subprocess pipe backpressure."""
         try:
             while True:
-                line = await stream.readline()
-                if not line:
+                chunk = await stream.read(4096)
+                if not chunk:
                     return
-                decoded = line.decode(errors="replace").strip()
-                if decoded:
-                    self._lightpanda_stderr_buffer.append(decoded)
+                decoded = chunk.decode(errors="replace")
+                for line in decoded.splitlines():
+                    stripped = line.strip()
+                    if stripped:
+                        self._lightpanda_stderr_buffer.append(stripped)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -260,6 +263,9 @@ class BrowserManager:
 
     def _start_lightpanda_stderr_drain(self) -> None:
         """Start background stderr drain task when stream is available."""
+        if self._lightpanda_stderr_task and not self._lightpanda_stderr_task.done():
+            self._lightpanda_stderr_task.cancel()
+
         stream = self._lightpanda_process.stderr if self._lightpanda_process else None
 
         if isinstance(stream, asyncio.StreamReader):
@@ -404,19 +410,20 @@ class BrowserManager:
 
     async def _stop_lightpanda_process(self) -> None:
         """Stop Lightpanda process if this manager started one."""
-        if not self._lightpanda_process:
-            return
-
         process = self._lightpanda_process
         self._lightpanda_process = None
         self._lightpanda_endpoint = None
 
-        if process.returncode is None:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=3)
-            except asyncio.TimeoutError:
-                process.kill()
+        if process:
+            if process.returncode is None:
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=3)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    with contextlib.suppress(Exception):
+                        await process.wait()
+            else:
                 with contextlib.suppress(Exception):
                     await process.wait()
 
