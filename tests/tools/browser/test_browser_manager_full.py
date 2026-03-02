@@ -1,5 +1,6 @@
 """Full coverage tests for browser_manager.py."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -128,6 +129,28 @@ class TestInitializeBrowser:
         del bm._CUSTOM_BROWSER_TYPES["custom"]
 
     @pytest.mark.asyncio
+    async def test_initialize_browser_custom_type_case_insensitive(self):
+        """Test mixed-case custom browser type resolves case-insensitively."""
+        from code_puppy.tools.browser import browser_manager as bm
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        async def custom_init(manager):
+            manager._context = AsyncMock()
+            manager._browser = AsyncMock()
+
+        bm._CUSTOM_BROWSER_TYPES["myplugin"] = custom_init
+        bm._BROWSER_TYPES_LOADED = True
+
+        mgr = BrowserManager("custom-case-test")
+        mgr.browser_type = "MyPlugin"
+
+        with patch("code_puppy.tools.browser.browser_manager.emit_info"):
+            await mgr._initialize_browser()
+            assert mgr._initialized is True
+
+        del bm._CUSTOM_BROWSER_TYPES["myplugin"]
+
+    @pytest.mark.asyncio
     async def test_initialize_browser_lightpanda_type(self):
         """Test `browser_type=lightpanda` dispatches to Lightpanda initializer."""
         from code_puppy.tools.browser.browser_manager import BrowserManager
@@ -191,7 +214,10 @@ class TestInitializeBrowser:
 
         mock_process = AsyncMock()
         mock_process.returncode = None
-        mock_process.stderr = AsyncMock()
+        stream = asyncio.StreamReader()
+        stream.feed_data(b"lightpanda started\n")
+        stream.feed_eof()
+        mock_process.stderr = stream
 
         with (
             patch("code_puppy.tools.browser.browser_manager.emit_info"),
@@ -205,11 +231,13 @@ class TestInitializeBrowser:
             patch.object(mgr, "_get_lightpanda_port", return_value=9222),
         ):
             await mgr._initialize_lightpanda_browser()
+            await asyncio.sleep(0)
 
         assert mgr._playwright is mock_pw_instance
         assert mgr._browser is mock_browser
         assert mgr._context is mock_context
         assert mgr._lightpanda_endpoint == "http://127.0.0.1:9222"
+        assert mgr._lightpanda_stderr_task is not None
 
     @pytest.mark.asyncio
     async def test_initialize_lightpanda_retries_on_auto_port_failure(self):
@@ -228,10 +256,16 @@ class TestInitializeBrowser:
 
         mock_process_a = AsyncMock()
         mock_process_a.returncode = None
-        mock_process_a.stderr = AsyncMock()
+        stream_a = asyncio.StreamReader()
+        stream_a.feed_data(b"bind failed\n")
+        stream_a.feed_eof()
+        mock_process_a.stderr = stream_a
         mock_process_b = AsyncMock()
         mock_process_b.returncode = None
-        mock_process_b.stderr = AsyncMock()
+        stream_b = asyncio.StreamReader()
+        stream_b.feed_data(b"retrying\n")
+        stream_b.feed_eof()
+        mock_process_b.stderr = stream_b
 
         with (
             patch("code_puppy.tools.browser.browser_manager.emit_info"),

@@ -481,13 +481,34 @@ class BrowserManager:
         _load_plugin_browser_types()
         requested_browser = (self.browser_type or "chromium").lower()
 
-        # Check if a custom browser type was requested and is available
-        if self.browser_type and self.browser_type in _CUSTOM_BROWSER_TYPES:
+        # Check if a custom browser type was requested and is available.
+        # Match exact key first, then case-insensitive for consistency with
+        # built-in/lightpanda browser routing.
+        custom_browser_key: Optional[str] = None
+        if self.browser_type:
+            if self.browser_type in _CUSTOM_BROWSER_TYPES:
+                custom_browser_key = self.browser_type
+            else:
+                matched_custom_keys = [
+                    key
+                    for key in _CUSTOM_BROWSER_TYPES
+                    if key.lower() == requested_browser
+                ]
+                if len(matched_custom_keys) == 1:
+                    custom_browser_key = matched_custom_keys[0]
+                elif len(matched_custom_keys) > 1:
+                    raise ValueError(
+                        f"Ambiguous custom browser_type '{self.browser_type}'. "
+                        "Multiple plugin browser types match case-insensitively: "
+                        f"{', '.join(sorted(matched_custom_keys))}"
+                    )
+
+        if custom_browser_key:
             emit_info(
-                f"Using custom browser type '{self.browser_type}' "
+                f"Using custom browser type '{custom_browser_key}' "
                 f"(session: {self.session_id})"
             )
-            init_func = _CUSTOM_BROWSER_TYPES[self.browser_type]
+            init_func = _CUSTOM_BROWSER_TYPES[custom_browser_key]
             # Custom init functions should set self._context and self._browser
             await init_func(self)
             self._initialized = True
