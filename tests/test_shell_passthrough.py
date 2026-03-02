@@ -313,7 +313,61 @@ class TestInitialCommandPassthrough:
     Regression tests for the bug where `code-puppy "!ls"` or
     `code-puppy -p "!ls"` would send the command to the AI agent
     instead of executing it directly in the shell.
+
+    Also covers interactive_mode(initial_command=...) as a separate
+    entry point that must honour the same passthrough guarantee.
     """
+
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
+    def test_interactive_mode_initial_command_calls_passthrough(
+        self, mock_run, mock_get_console
+    ):
+        """interactive_mode with initial_command='!ls -la' should execute shell, not agent.
+
+        The passthrough check fires before any agent code is reached, so
+        run_prompt_with_attachments must never be invoked.
+        """
+        from code_puppy.cli_runner import interactive_mode
+
+        mock_get_console.return_value = MagicMock()
+        mock_run.return_value = MagicMock(returncode=0)
+        mock_renderer = MagicMock()
+        mock_renderer.console = MagicMock()
+
+        mock_agent = MagicMock()
+        mock_agent.get_user_prompt.return_value = "Enter task:"
+
+        with patch("code_puppy.cli_runner.print_truecolor_warning"), patch(
+            "code_puppy.cli_runner.get_cancel_agent_display_name",
+            return_value="Ctrl+C",
+        ), patch("code_puppy.messaging.emit_system_message"), patch(
+            "code_puppy.messaging.emit_info"
+        ), patch(
+            "code_puppy.messaging.emit_success"
+        ), patch(
+            "code_puppy.messaging.emit_warning"
+        ), patch(
+            "code_puppy.command_line.motd.print_motd"
+        ), patch(
+            "code_puppy.cli_runner.get_current_agent", return_value=mock_agent
+        ), patch(
+            "code_puppy.agents.agent_manager.get_current_agent",
+            return_value=mock_agent,
+        ), patch(
+            "code_puppy.cli_runner.run_prompt_with_attachments",
+            new_callable=AsyncMock,
+        ) as mock_run_prompt, patch(
+            "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
+            side_effect=EOFError,
+        ):
+            asyncio.run(interactive_mode(mock_renderer, initial_command="!ls -la"))
+
+            # Shell command should have been executed via subprocess
+            mock_run.assert_called_once()
+            assert mock_run.call_args[0][0] == "ls -la"
+            # Agent processing must NOT have been triggered
+            mock_run_prompt.assert_not_called()
 
     @patch("code_puppy.command_line.shell_passthrough._get_console")
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
