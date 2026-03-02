@@ -337,6 +337,22 @@ class TestInitializeBrowser:
             ):
                 mgr._get_lightpanda_port()
 
+    @pytest.mark.parametrize("raw_timeout", ["nan", "inf", "-1", "0"])
+    def test_get_lightpanda_startup_timeout_rejects_non_finite_or_non_positive(
+        self, raw_timeout
+    ):
+        """Test invalid LIGHTPANDA_STARTUP_TIMEOUT values fail with clear errors."""
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        with patch.dict(
+            "os.environ", {"LIGHTPANDA_STARTUP_TIMEOUT": raw_timeout}, clear=False
+        ):
+            with pytest.raises(
+                RuntimeError,
+                match="LIGHTPANDA_STARTUP_TIMEOUT must be a finite positive number",
+            ):
+                BrowserManager._get_lightpanda_startup_timeout()
+
 
 class TestCleanupSilent:
     @pytest.mark.asyncio
@@ -421,8 +437,8 @@ class TestCleanupSilent:
         ):
             await mgr._cleanup(silent=True)
 
-        mock_playwright.stop.assert_called_once()
-        mock_stop_lightpanda.assert_called_once()
+        mock_playwright.stop.assert_awaited_once()
+        mock_stop_lightpanda.assert_awaited_once()
 
 
 class TestSyncCleanup:

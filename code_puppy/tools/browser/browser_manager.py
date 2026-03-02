@@ -7,6 +7,7 @@ import asyncio
 import atexit
 import contextlib
 import contextvars
+import math
 import os
 import shlex
 import shutil
@@ -223,6 +224,12 @@ class BrowserManager:
             raise RuntimeError(
                 f"Invalid LIGHTPANDA_STARTUP_TIMEOUT value: {timeout_raw}"
             ) from exc
+
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise RuntimeError(
+                "LIGHTPANDA_STARTUP_TIMEOUT must be a finite positive number, "
+                f"got: {timeout_raw}"
+            )
         return max(timeout, 1.0)
 
     @staticmethod
