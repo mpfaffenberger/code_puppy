@@ -171,14 +171,17 @@ class BrowserManager:
         )
 
         if path_like:
-            if Path(executable).exists():
-                return executable
-        elif shutil.which(executable):
-            return executable
+            executable_path = Path(executable).expanduser()
+            if executable_path.is_file() and os.access(executable_path, os.X_OK):
+                return str(executable_path)
+        else:
+            resolved = shutil.which(executable)
+            if resolved:
+                return resolved
 
         raise RuntimeError(
-            "Lightpanda executable not found. Install Lightpanda or set "
-            "LIGHTPANDA_EXECUTABLE to a valid path."
+            "Lightpanda executable not found or not executable. Install Lightpanda "
+            "or set LIGHTPANDA_EXECUTABLE to a valid executable path."
         )
 
     def _get_lightpanda_host(self) -> str:
@@ -241,9 +244,7 @@ class BrowserManager:
         stderr_text = "\n".join(self._lightpanda_stderr_buffer).strip()
         return stderr_text[-500:]
 
-    async def _drain_lightpanda_stderr(
-        self, stream: asyncio.StreamReader
-    ) -> None:
+    async def _drain_lightpanda_stderr(self, stream: asyncio.StreamReader) -> None:
         """Drain stderr continuously to avoid subprocess pipe backpressure."""
         try:
             while True:
@@ -330,10 +331,19 @@ class BrowserManager:
             try:
                 if not self._playwright:
                     raise RuntimeError("Playwright is not initialized.")
-                return await self._playwright.chromium.connect_over_cdp(endpoint)
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                return await asyncio.wait_for(
+                    self._playwright.chromium.connect_over_cdp(endpoint),
+                    timeout=remaining,
+                )
             except Exception as exc:
                 last_error = exc
-                await asyncio.sleep(0.2)
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(0.2, remaining))
 
         raise RuntimeError(
             f"Timed out connecting to Lightpanda CDP at {endpoint}: {last_error}"
@@ -454,6 +464,7 @@ class BrowserManager:
         """
         # Load plugin browser types on first initialization
         _load_plugin_browser_types()
+        requested_browser = (self.browser_type or "chromium").lower()
 
         # Check if a custom browser type was requested and is available
         if self.browser_type and self.browser_type in _CUSTOM_BROWSER_TYPES:
@@ -467,13 +478,12 @@ class BrowserManager:
             self._initialized = True
             return
 
-        if self.browser_type == "lightpanda":
+        if requested_browser == "lightpanda":
             emit_info(f"Using Lightpanda browser (session: {self.session_id})")
             await self._initialize_lightpanda_browser()
             self._initialized = True
             return
 
-        requested_browser = (self.browser_type or "chromium").lower()
         if requested_browser not in _BUILTIN_PLAYWRIGHT_BROWSERS:
             supported_browsers = sorted(
                 _BUILTIN_PLAYWRIGHT_BROWSERS
