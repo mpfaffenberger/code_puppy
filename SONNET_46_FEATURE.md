@@ -107,7 +107,7 @@ pytest tests/plugins/test_claude_code_oauth_models.py::TestBuildModelEntry -k "s
 ## How Users Will Use It
 
 1. **Run OAuth authentication:**
-   ```
+   ```bash
    /claude-code-auth
    ```
 
@@ -119,7 +119,7 @@ pytest tests/plugins/test_claude_code_oauth_models.py::TestBuildModelEntry -k "s
    - `claude-code-claude-opus-4-6-long`
 
 4. **Check status:**
-   ```
+   ```bash
    /claude-code-status
    ```
 
