@@ -71,7 +71,7 @@ When users run `/claude-code-auth`, they now default to the Sonnet 4.6 model ins
 
 ## Why This Matters
 
-1. **Latest Model Support**: Sonnet 4.6 is Anthropic's newest Sonnet model with significant improvements
+1. **Latest Model Support**: Sonnet 4.6 is the latest Sonnet model supported by this plugin (as of March 2026) with significant improvements
 2. **Effort Setting**: Sonnet 4.6 supports extended thinking via the `effort` parameter
 3. **Long Context**: Enables 1M context window for complex tasks
 4. **Better UX**: Users authenticating with Claude Code OAuth now have immediate access to Sonnet 4.6
@@ -79,7 +79,7 @@ When users run `/claude-code-auth`, they now default to the Sonnet 4.6 model ins
 
 ## Testing
 
-All tests passing:
+Targeted tests passing:
 
 ```bash
 # Filtering tests
