@@ -83,7 +83,24 @@
       "api_key": "$CEREBRAS_API_KEY"
     },
     "context_length": 131072,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "max_tokens": 4096,
+    "supported_settings": ["temperature", "seed", "top_p", "top_k", "repetition_penalty"],
+    "optimization_settings": {
+      "enable_streaming": true,
+      "use_kv_cache": true,
+      "temperature": 0.2,
+      "top_p": 0.95,
+      "top_k": 40,
+      "repetition_penalty": 1.0,
+      "context_compression_threshold": 100000
+    },
+    "context_management": {
+      "max_context_tokens": 120000,
+      "reserve_for_response": 11072,
+      "compaction_strategy": "sliding_window",
+      "compress_old_messages": true,
+      "min_old_message_tokens": 2048
+    }
   },
   "claude-4-5-haiku": {
     "type": "anthropic",
