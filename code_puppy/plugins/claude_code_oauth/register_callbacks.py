@@ -295,7 +295,7 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         patch_anthropic_client_messages,
     )
     from code_puppy.config import get_effective_model_settings
-    from code_puppy.http_utils import get_cert_bundle_path, get_http2
+    from code_puppy.http_utils import get_cert_bundle_path
     from code_puppy.model_factory import get_custom_config
 
     url, headers, verify, api_key = get_custom_config(model_config)
@@ -349,13 +349,14 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
     if verify is None:
         verify = get_cert_bundle_path()
 
-    http2_enabled = get_http2()
-
+    # Disable HTTP/2 for Claude Code OAuth - the UnprefixingStream wrapper
+    # that transforms tool names in streaming responses doesn't play well
+    # with HTTP/2's compression handling, causing zlib decompression errors.
     client = ClaudeCacheAsyncClient(
         headers=headers,
         verify=verify,
         timeout=180,
-        http2=http2_enabled,
+        http2=False,
     )
 
     anthropic_client = AsyncAnthropic(

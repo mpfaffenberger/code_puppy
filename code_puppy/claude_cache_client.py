@@ -18,7 +18,6 @@ import asyncio
 import base64
 import json
 import logging
-import re
 import time
 from typing import Any, Callable, MutableMapping
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -58,11 +57,6 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
     - URL modifications (adding ?beta=true)
     - Proactive token refresh
     """
-
-    # Regex pattern for unprefixing tool names in streaming responses
-    _TOOL_UNPREFIX_PATTERN = re.compile(
-        rf'"name"\s*:\s*"{re.escape(TOOL_PREFIX)}([^"]+)"'
-    )
 
     def _get_jwt_age_seconds(self, token: str | None) -> float | None:
         """Decode a JWT and return its age in seconds.
@@ -211,10 +205,6 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             return None
 
         return json.dumps(data).encode("utf-8")
-
-    def _unprefix_tool_names_in_text(self, text: str) -> str:
-        """Remove TOOL_PREFIX from tool names in streaming response text."""
-        return self._TOOL_UNPREFIX_PATTERN.sub(r'"name": "\1"', text)
 
     @staticmethod
     def _transform_headers_for_claude_code(
@@ -368,12 +358,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         # Send the request with retry logic for transient errors
         response = await self._send_with_retries(request, *args, **kwargs)
 
-        # Transform streaming response to unprefix tool names
-        if is_messages_endpoint and response.status_code == 200:
-            try:
-                response = self._wrap_response_with_tool_unprefixing(response, request)
-            except Exception as exc:
-                logger.debug("Error wrapping response for tool unprefixing: %s", exc)
+        # NOTE: Tool name unprefixing is now handled at the pydantic-ai level
+        # in pydantic_patches.py rather than wrapping the HTTP response stream.
+        # The response wrapper caused zlib decompression errors due to httpx
+        # response lifecycle issues.
 
         # Handle auth errors with token refresh
         try:
@@ -383,7 +371,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 is_auth_error = response.status_code in (401, 403)
 
                 if response.status_code == 400:
-                    is_auth_error = self._is_cloudflare_html_error(response)
+                    is_auth_error = await self._is_cloudflare_html_error(response)
                     if is_auth_error:
                         logger.info(
                             "Detected Cloudflare 400 error (likely auth-related), attempting token refresh"
@@ -510,61 +498,6 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         # This shouldn't happen, but just in case
         raise RuntimeError("Retry loop completed without response or exception")
 
-    def _wrap_response_with_tool_unprefixing(
-        self, response: httpx.Response, request: httpx.Request
-    ) -> httpx.Response:
-        """Wrap a streaming response to unprefix tool names.
-
-        Creates a new response with a transformed stream that removes the
-        TOOL_PREFIX from tool names in the response body.
-        """
-        original_stream = response.stream
-        unprefix_fn = self._unprefix_tool_names_in_text
-
-        class UnprefixingStream(httpx.AsyncByteStream):
-            """Async byte stream that unprefixes tool names.
-
-            Inherits from httpx.AsyncByteStream to ensure proper stream interface.
-            """
-
-            def __init__(self, inner_stream: Any) -> None:
-                self._inner = inner_stream
-
-            async def __aiter__(self):
-                async for chunk in self._inner:
-                    if isinstance(chunk, bytes):
-                        text = chunk.decode("utf-8", errors="replace")
-                        text = unprefix_fn(text)
-                        yield text.encode("utf-8")
-                    else:
-                        yield chunk
-
-            async def aclose(self) -> None:
-                if hasattr(self._inner, "aclose"):
-                    try:
-                        result = self._inner.aclose()
-                        # Handle both sync and async aclose
-                        if hasattr(result, "__await__"):
-                            await result
-                    except Exception:
-                        pass  # Ignore close errors
-                elif hasattr(self._inner, "close"):
-                    try:
-                        self._inner.close()
-                    except Exception:
-                        pass
-
-        # Create a new response with the transformed stream
-        # Must include request for raise_for_status() to work
-        new_response = httpx.Response(
-            status_code=response.status_code,
-            headers=response.headers,
-            stream=UnprefixingStream(original_stream),
-            extensions=response.extensions,
-            request=request,
-        )
-        return new_response
-
     @staticmethod
     def _extract_body_bytes(request: httpx.Request) -> bytes | None:
         # Try public content first
@@ -598,7 +531,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             headers["Authorization"] = bearer_value
 
     @staticmethod
-    def _is_cloudflare_html_error(response: httpx.Response) -> bool:
+    async def _is_cloudflare_html_error(response: httpx.Response) -> bool:
         """Check if this is a Cloudflare HTML error response.
 
         Cloudflare often returns HTML error pages with status 400 when
@@ -611,11 +544,19 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
         # Check if body contains Cloudflare markers
         try:
-            # Read response body if not already consumed
+            # For async httpx, we need to read the body first
+            if not hasattr(response, "_content") or not response._content:
+                try:
+                    await response.aread()
+                except Exception as read_exc:
+                    logger.debug("Failed to read response body: %s", read_exc)
+                    return False
+
+            # Now we can safely access the content
             if hasattr(response, "_content") and response._content:
                 body = response._content.decode("utf-8", errors="ignore")
             else:
-                # Try to read the text (this might be already consumed)
+                # Fallback to text property (should work after aread)
                 try:
                     body = response.text
                 except Exception:

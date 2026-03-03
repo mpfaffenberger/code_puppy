@@ -404,7 +404,18 @@ def _list_files(
 
     # Build structured FileEntry objects for the UI
     file_entries = []
-    for item in sorted(results, key=lambda x: x.path):
+
+    def _sort_key(item):
+        """Sort by path components to keep children grouped under parents.
+
+        Splitting on os.sep ensures 'src/foo' always sorts right after 'src'
+        rather than letting 'src-tauri' (with '-' < '/') slip in between.
+        Directories sort before files at the same level.
+        """
+        parts = item.path.split(os.sep)
+        return (parts, item.type != "directory")
+
+    for item in sorted(results, key=_sort_key):
         if item.type == "directory" and not item.path:
             continue
         file_entries.append(
@@ -428,7 +439,7 @@ def _list_files(
     get_message_bus().emit(file_listing_msg)
 
     # Build plain text output for LLM consumption
-    for item in sorted(results, key=lambda x: x.path):
+    for item in sorted(results, key=_sort_key):
         if item.type == "directory" and not item.path:
             continue
         name = os.path.basename(item.path) or item.path

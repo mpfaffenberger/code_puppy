@@ -46,6 +46,7 @@ MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
 MODELS_FILE = os.path.join(DATA_DIR, "models.json")
 EXTRA_MODELS_FILE = os.path.join(DATA_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(DATA_DIR, "agents")
+SKILLS_DIR = os.path.join(DATA_DIR, "skills")
 CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
 _DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 
@@ -178,7 +179,7 @@ def ensure_config_exists():
     Returns configparser.ConfigParser for reading.
     """
     # Create all XDG directories with 0700 permissions per XDG spec
-    for directory in [CONFIG_DIR, DATA_DIR, CACHE_DIR, STATE_DIR]:
+    for directory in [CONFIG_DIR, DATA_DIR, CACHE_DIR, STATE_DIR, SKILLS_DIR]:
         if not os.path.exists(directory):
             os.makedirs(directory, mode=0o700, exist_ok=True)
     exists = os.path.isfile(CONFIG_FILE)
@@ -309,6 +310,8 @@ def get_config_keys():
     # Add banner color keys
     for banner_name in DEFAULT_BANNER_COLORS:
         default_keys.append(f"banner_color_{banner_name}")
+    # Add resume message count configuration
+    default_keys.append("resume_message_count")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -1117,6 +1120,23 @@ def get_protected_token_count():
         model_context_length = get_model_context_length()
         max_protected_tokens = int(model_context_length * 0.75)
         return min(50000, max_protected_tokens)
+
+
+def get_resume_message_count() -> int:
+    """
+    Returns the number of messages to display when resuming a session.
+    Defaults to 50 if unset or misconfigured.
+    Configurable by 'resume_message_count' key via /set command.
+
+    Example: /set resume_message_count=30
+    """
+    val = get_value("resume_message_count")
+    try:
+        configured_value = int(val) if val else 50
+        # Enforce reasonable bounds: minimum 1, maximum 100
+        return max(1, min(configured_value, 100))
+    except (ValueError, TypeError):
+        return 50
 
 
 def get_compaction_threshold():
