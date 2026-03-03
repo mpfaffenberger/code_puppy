@@ -417,6 +417,27 @@ class TestBuildModelEntry:
         entry = _build_model_entry("claude-opus-4-5-20250620", "tok", 200000)
         assert "effort" not in entry["supported_settings"]
 
+    def test_sonnet_46_includes_effort_in_supported_settings(self):
+        """Sonnet 4-6 model entries should include 'effort' in supported_settings."""
+        from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
+
+        entry = _build_model_entry("claude-sonnet-4-6", "tok", 200000)
+        assert "effort" in entry["supported_settings"]
+
+    def test_4_6_sonnet_variant_includes_effort(self):
+        """The 4-6-sonnet naming variant should also get effort."""
+        from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
+
+        entry = _build_model_entry("claude-4-6-sonnet-20250701", "tok", 200000)
+        assert "effort" in entry["supported_settings"]
+
+    def test_sonnet_45_does_not_include_effort(self):
+        """Sonnet 4-5 should NOT have effort — it's 4-6 only."""
+        from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
+
+        entry = _build_model_entry("claude-sonnet-4-5-20250514", "tok", 200000)
+        assert "effort" not in entry["supported_settings"]
+
     def test_base_settings_always_present(self):
         """All model entries should have the base settings regardless."""
         from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry

@@ -795,6 +795,52 @@ class TestFilterLatestClaudeModels:
         assert "claude-sonnet-3-5-20241022" in result
         assert len(result) == 3
 
+    def test_filter_special_case_opus_46(self):
+        """Test that claude-opus-4-6 is handled as a special case."""
+        models = [
+            "claude-opus-4-6",  # Special case - no date pattern
+            "claude-opus-4-5-20250620",
+            "claude-sonnet-3-5-20241022",
+        ]
+
+        result = filter_latest_claude_models(models)
+
+        # opus-4-6 should be included despite not matching the date pattern
+        assert "claude-opus-4-6" in result
+        assert "claude-opus-4-5-20250620" in result
+        assert "claude-sonnet-3-5-20241022" in result
+
+    def test_filter_special_case_sonnet_46(self):
+        """Test that claude-sonnet-4-6 is handled as a special case."""
+        models = [
+            "claude-sonnet-4-6",  # Special case - no date pattern
+            "claude-sonnet-4-5-20250514",
+            "claude-opus-4-5-20250620",
+        ]
+
+        result = filter_latest_claude_models(models)
+
+        # sonnet-4-6 should be included despite not matching the date pattern
+        assert "claude-sonnet-4-6" in result
+        assert "claude-sonnet-4-5-20250514" in result
+        assert "claude-opus-4-5-20250620" in result
+
+    def test_filter_both_46_special_cases(self):
+        """Test that both opus-4-6 and sonnet-4-6 special cases work together."""
+        models = [
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-haiku-3-5-20241022",
+        ]
+
+        result = filter_latest_claude_models(models)
+
+        # Both special cases should be included
+        assert "claude-opus-4-6" in result
+        assert "claude-sonnet-4-6" in result
+        assert "claude-haiku-3-5-20241022" in result
+        assert len(result) == 3
+
 
 class TestFetchClaudeCodeModels:
     """Test Claude Code model fetching functionality."""

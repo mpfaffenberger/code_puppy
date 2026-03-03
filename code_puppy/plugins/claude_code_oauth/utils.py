@@ -344,7 +344,7 @@ def load_claude_models_filtered() -> Dict[str, Any]:
             if model_name in latest_names:
                 filtered_models[name] = config
 
-        logger.info(
+        logger.debug(
             "Loaded %d models, filtered to %d latest models",
             len(all_models),
             len(filtered_models),
@@ -436,8 +436,12 @@ def filter_latest_claude_models(
     family_models: Dict[str, List[Tuple[str, int, int, int]]] = {}
 
     for model_name in models:
+        # Special cases for 4-6 models that don't follow the date pattern
         if model_name == "claude-opus-4-6":
             family_models.setdefault("opus", []).append((model_name, 4, 6, 20260205))
+            continue
+        if model_name == "claude-sonnet-4-6":
+            family_models.setdefault("sonnet", []).append((model_name, 4, 6, 20260205))
             continue
         # Match pattern: claude-{family}-{major}-{minor}-{date}
         # Examples: claude-haiku-3-5-20241022, claude-sonnet-4-5-20250929
@@ -469,7 +473,7 @@ def filter_latest_claude_models(
         for entry in family_entries[:limit]:
             filtered.append(entry[0])
 
-    logger.info(
+    logger.debug(
         "Filtered %d models to %d latest models (max_per_family=%s): %s",
         len(models),
         len(filtered),
@@ -520,9 +524,9 @@ def _build_model_entry(model_name: str, access_token: str, context_length: int) 
         "interleaved_thinking",
     ]
 
-    # Opus 4-6 models support the effort setting
+    # Opus 4-6 and Sonnet 4-6 models support the effort setting
     lower = model_name.lower()
-    if "opus-4-6" in lower or "4-6-opus" in lower:
+    if "opus-4-6" in lower or "4-6-opus" in lower or "sonnet-4-6" in lower or "4-6-sonnet" in lower:
         supported_settings.append("effort")
 
     return {
@@ -575,7 +579,7 @@ def add_models_to_extra_config(models: List[str]) -> bool:
                 added += 1
 
         if save_claude_models(claude_models):
-            logger.info("Added %s Claude Code models", added)
+            logger.debug("Added %s Claude Code models", added)
             return True
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Error adding models to config: %s", exc)
