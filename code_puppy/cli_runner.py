@@ -9,10 +9,12 @@ from code_puppy.pydantic_patches import apply_all_patches
 apply_all_patches()
 
 import argparse
+from dataclasses import dataclass, field
 
 AGENT_IS_RUNNING = False
 PROMPT_QUEUE = []
 BG_AGENT_TASK = None
+MAX_PROMPT_QUEUE = 25
 
 
 import asyncio
@@ -54,8 +56,68 @@ from code_puppy.terminal_utils import (
 )
 from code_puppy.tools.common import console
 from code_puppy.version_checker import default_version_mismatch_behavior
+from code_puppy.debug_capture import (
+    get_active_capture,
+    log_event,
+    set_active_capture,
+    start_capture_session,
+)
 
 plugins.load_plugin_callbacks()
+
+
+@dataclass
+class PromptRuntimeState:
+    """Single source of truth for prompt run state and queue."""
+
+    queue: list[str] = field(default_factory=lambda: PROMPT_QUEUE)
+    running: bool = False
+    cancelling: bool = False
+    bg_task: asyncio.Task | None = None
+
+    def mark_running(self, task: asyncio.Task) -> None:
+        self.running = True
+        self.cancelling = False
+        self.bg_task = task
+        _sync_runtime_globals(self)
+
+    def mark_idle(self) -> None:
+        self.running = False
+        self.cancelling = False
+        self.bg_task = None
+        _sync_runtime_globals(self)
+
+    def enqueue(self, prompt: str) -> tuple[bool, int]:
+        if len(self.queue) >= MAX_PROMPT_QUEUE:
+            return False, len(self.queue)
+        self.queue.append(prompt)
+        _sync_runtime_globals(self)
+        return True, len(self.queue)
+
+    def enqueue_front(self, prompt: str) -> tuple[bool, int]:
+        if len(self.queue) >= MAX_PROMPT_QUEUE:
+            return False, len(self.queue)
+        self.queue.insert(0, prompt)
+        _sync_runtime_globals(self)
+        return True, len(self.queue)
+
+    def dequeue(self) -> str | None:
+        if not self.queue:
+            return None
+        value = self.queue.pop(0)
+        _sync_runtime_globals(self)
+        return value
+
+
+RUNTIME_STATE = PromptRuntimeState()
+
+
+def _sync_runtime_globals(state: PromptRuntimeState) -> None:
+    """Keep module globals updated for existing imports/usages."""
+    global AGENT_IS_RUNNING, BG_AGENT_TASK, PROMPT_QUEUE
+    AGENT_IS_RUNNING = state.running
+    BG_AGENT_TASK = state.bg_task
+    PROMPT_QUEUE = state.queue
 
 
 async def main():
@@ -93,27 +155,38 @@ async def main():
         help="Specify which model to use (e.g., --model gpt-5)",
     )
     parser.add_argument(
+        "--debug-capture",
+        action="store_true",
+        help="Write timestamped interactive terminal capture artifacts",
+    )
+    parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
     args = parser.parse_args()
 
     from code_puppy.messaging import (
         RichConsoleRenderer,
-        SynchronousInteractiveRenderer,
         get_global_queue,
         get_message_bus,
     )
+    from code_puppy.messaging.legacy_bridge import LegacyQueueToBusBridge
 
-    # Create a shared console for both renderers
+    capture_session = None
+    if args.debug_capture:
+        capture_session = start_capture_session()
+        set_active_capture(capture_session)
+        log_event("debug_capture_enabled", session_dir=str(capture_session.session_dir))
+
+    # Create one shared console to avoid multi-renderer race conditions.
     display_console = Console()
 
-    # Legacy renderer for backward compatibility (emits via get_global_queue)
+    # Bridge legacy queue emitters into the structured bus.
     message_queue = get_global_queue()
-    message_renderer = SynchronousInteractiveRenderer(message_queue, display_console)
-    message_renderer.start()
-
-    # New MessageBus renderer for structured messages (tools emit here)
     message_bus = get_message_bus()
+    legacy_bridge = LegacyQueueToBusBridge(message_queue, message_bus)
+    legacy_bridge.start()
+
+    # Single UI renderer in interactive mode.
     bus_renderer = RichConsoleRenderer(message_bus, display_console)
     bus_renderer.start()
 
@@ -334,15 +407,18 @@ async def main():
             prompt_only_mode = False
 
         if prompt_only_mode:
-            await execute_single_prompt(initial_command, message_renderer)
+            await execute_single_prompt(initial_command, bus_renderer)
         else:
             # Default to interactive mode (no args = same as -i)
-            await interactive_mode(message_renderer, initial_command=initial_command)
+            await interactive_mode(bus_renderer, initial_command=initial_command)
     finally:
-        if message_renderer:
-            message_renderer.stop()
         if bus_renderer:
             bus_renderer.stop()
+        if legacy_bridge:
+            legacy_bridge.stop()
+        if capture_session:
+            capture_session.stop(exit_reason="shutdown")
+            set_active_capture(None)
         await callbacks.on_shutdown()
         if get_use_dbos():
             DBOS.destroy()
@@ -352,12 +428,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     """Run the agent in interactive mode."""
     from code_puppy.command_line.command_handler import handle_command
 
+    RUNTIME_STATE.mark_idle()
     display_console = message_renderer.console
     from code_puppy.messaging import emit_info, emit_system_message
 
     emit_system_message(
         "Type '/exit', '/quit', or press Ctrl+D to exit the interactive mode."
     )
+    log_event("interactive_mode_start")
     emit_system_message("Type 'clear' to reset the conversation history.")
     emit_system_message("Type /help to view all commands")
     emit_system_message(
@@ -518,6 +596,63 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     # Track the current agent task for cancellation on quit
     current_agent_task = None
 
+    async def cancel_active_run(reason: str) -> None:
+        """Aggressively stop shell + agent execution and wait for cancellation."""
+        from code_puppy.tools.command_runner import (
+            get_running_shell_process_count,
+            kill_all_running_shell_processes,
+        )
+
+        if RUNTIME_STATE.bg_task is None or RUNTIME_STATE.bg_task.done():
+            RUNTIME_STATE.mark_idle()
+            return
+
+        RUNTIME_STATE.cancelling = True
+        log_event("cancel_start", reason=reason)
+
+        # First kill nested shell activity, repeating briefly if needed.
+        for _ in range(3):
+            kill_all_running_shell_processes()
+            if get_running_shell_process_count() == 0:
+                break
+            await asyncio.sleep(0.15)
+
+        # Then cancel the active background agent task and await completion.
+        RUNTIME_STATE.bg_task.cancel()
+        try:
+            await asyncio.wait_for(RUNTIME_STATE.bg_task, timeout=6.0)
+        except asyncio.CancelledError:
+            pass
+        except TimeoutError:
+            pass
+        except Exception:
+            pass
+        finally:
+            RUNTIME_STATE.mark_idle()
+            log_event("cancel_done", reason=reason)
+
+    def _prepare_queued_task(raw_task: str) -> tuple[str, str]:
+        """Normalize queued payload into executable task text and kind."""
+        if raw_task.startswith("[INTERJECT] "):
+            user_text = raw_task[len("[INTERJECT] "):]
+            task_text = f"[user interjects]: {user_text} - please continue with that in mind"
+            log_event(
+                "dequeued_interject",
+                text=user_text,
+                remaining=len(RUNTIME_STATE.queue),
+            )
+            return task_text, "interject"
+
+        from code_puppy.messaging import emit_success
+
+        emit_success(f"🚀 Executing queued prompt: {raw_task}")
+        log_event(
+            "dequeued_prompt",
+            text=raw_task,
+            remaining=len(RUNTIME_STATE.queue),
+        )
+        return raw_task, "queued"
+
     while True:
         from code_puppy.agents.agent_manager import get_current_agent
         from code_puppy.messaging import emit_info
@@ -526,20 +661,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         current_agent = get_current_agent()
         user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
 
-        global AGENT_IS_RUNNING, PROMPT_QUEUE
-        if not AGENT_IS_RUNNING and PROMPT_QUEUE:
-            task = PROMPT_QUEUE.pop(0)
-            if task.startswith("[INTERJECT] "):
-                user_text = task[len("[INTERJECT] "):]
-                task = f"[user interjects]: {user_text} - please continue with that in mind"
-                # We do not print anything here for smooth interject, it just runs seamlessly!
-            else:
-                from code_puppy.messaging import emit_success
-                emit_success(f"🚀 Executing queued prompt: {task}")
-            import asyncio
-            await asyncio.sleep(0.1)
+        if not RUNTIME_STATE.running and RUNTIME_STATE.queue:
+            raw_task = RUNTIME_STATE.dequeue()
+            if raw_task is None:
+                continue
+            task, _ = _prepare_queued_task(raw_task)
         else:
-            if not AGENT_IS_RUNNING:
+            if not RUNTIME_STATE.running:
                 emit_info(f"{user_prompt}\n")
 
             try:
@@ -550,10 +678,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                     # Use the async version of get_input_with_combined_completion
                     task = await get_input_with_combined_completion(
-                        get_prompt_with_active_model(), 
+                        get_prompt_with_active_model,
                         history_file=COMMAND_HISTORY_FILE,
-                        erase_when_done=AGENT_IS_RUNNING
+                        erase_when_done=RUNTIME_STATE.running,
                     )
+                    log_event("input_received", text=task)
 
                     # Windows+uvx: Re-disable Ctrl+C after prompt_toolkit
                     # (prompt_toolkit restores console mode which re-enables Ctrl+C)
@@ -748,15 +877,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 pass
 
         if task.strip():
-            global BG_AGENT_TASK
             # Write to the secret file for permanent history with timestamp
             save_command_to_history(task)
 
-            if AGENT_IS_RUNNING:
+            if RUNTIME_STATE.running:
                 from code_puppy.messaging import emit_warning, emit_info
-                from code_puppy.command_line.prompt_toolkit_completion import get_input_with_combined_completion
-                from prompt_toolkit.formatted_text import FormattedText
-                
+
                 try:
                     from code_puppy.command_line.prompt_toolkit_completion import get_interject_action
                     action = await get_interject_action()
@@ -766,39 +892,57 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     continue
 
                 a = action.strip().lower()
-                if a == 'i':
-                    from rich.console import Console
-                    Console().print(f"\n[bold bright_red]Interjecting with:[/bold bright_red] [red]{task.strip()}[/red]")
-                    if BG_AGENT_TASK and not BG_AGENT_TASK.done():
-                        BG_AGENT_TASK.cancel()
-                        from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
-                        from code_puppy.tools.command_runner import kill_all_running_shell_processes
-                        kill_all_running_shell_processes()
-                        if is_wiggum_active():
-                            stop_wiggum()
-                    # Add current task as the first thing to run next
-                    AGENT_IS_RUNNING = False
-                    # We put it at the front of the queue, but setting AGENT_IS_RUNNING=False forces immediate execution without rendering!
-                    PROMPT_QUEUE.insert(0, f"[INTERJECT] {task.strip()}")
-                    import asyncio
-                    await asyncio.sleep(0.1)  # Give the cancel event a tiny bit of time to settle
-                elif a == 'q':
-                    PROMPT_QUEUE.append(task.strip())
-                    emit_info(f"Queued (position {len(PROMPT_QUEUE)}): {task.strip()}")
+                log_event("interject_choice", action=a, prompt=task.strip())
+                if a == "i":
+                    from code_puppy.messaging import MessageLevel, TextMessage, get_message_bus
+
+                    get_message_bus().emit(
+                        TextMessage(
+                            level=MessageLevel.ERROR,
+                            text=f"Interjecting with: {task.strip()}",
+                        )
+                    )
+                    log_event("interject_banner", text=task.strip())
+                    await cancel_active_run("interject")
+                    ok, _ = RUNTIME_STATE.enqueue_front(f"[INTERJECT] {task.strip()}")
+                    if not ok:
+                        emit_warning("Queue full (25). Cannot interject right now.")
+                        log_event("queue_reject", prompt=task.strip(), reason="full_interject")
+                    else:
+                        log_event(
+                            "queued_interject",
+                            text=task.strip(),
+                            position=1,
+                            size=len(RUNTIME_STATE.queue),
+                        )
+                elif a == "q":
+                    ok, position = RUNTIME_STATE.enqueue(task.strip())
+                    if not ok:
+                        emit_warning("Queue full (25). Prompt was not queued.")
+                        log_event("queue_reject", prompt=task.strip(), reason="full")
+                    else:
+                        emit_info(f"Queued (position {position}): {task.strip()}")
+                        log_event(
+                            "queued_prompt",
+                            text=task.strip(),
+                            position=position,
+                            size=len(RUNTIME_STATE.queue),
+                        )
                 else:
                     emit_warning("Cancelled action.")
                 continue
 
             async def run_agent_bg(task_text, agent):
-                global AGENT_IS_RUNNING
-                AGENT_IS_RUNNING = True
+                RUNTIME_STATE.running = True
+                _sync_runtime_globals(RUNTIME_STATE)
+                log_event("agent_start", prompt=task_text)
                 try:
                     # No need to get agent directly - use manager's run methods
 
                     # Use our custom helper to enable attachment handling with spinner support
                     result, current_agent_task = await run_prompt_with_attachments(
-                        current_agent,
-                        task,
+                        agent,
+                        task_text,
                         spinner_console=message_renderer.console,
                     )
                     # Check if the task was cancelled (but don't show message if we just killed processes)
@@ -858,10 +1002,35 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                     get_queue_console().print_exception()
                 finally:
-                    AGENT_IS_RUNNING = False
+                    was_cancelling = RUNTIME_STATE.cancelling
+                    RUNTIME_STATE.mark_idle()
+                    log_event("agent_end", prompt=task_text)
+                    # During explicit interject cancellation we requeue at the
+                    # front immediately after cancel_active_run() returns.
+                    # Auto-draining here can race and start a queued prompt
+                    # before the interject gets enqueued/dequeued.
+                    if was_cancelling:
+                        log_event(
+                            "queue_autodrain_skipped",
+                            reason="cancelling",
+                            remaining=len(RUNTIME_STATE.queue),
+                        )
+                        return
 
-            import asyncio
-            BG_AGENT_TASK = asyncio.create_task(run_agent_bg(task, current_agent))
+                    if RUNTIME_STATE.queue:
+                        next_raw = RUNTIME_STATE.dequeue()
+                        if next_raw:
+                            next_task, _ = _prepare_queued_task(next_raw)
+                            from code_puppy.agents.agent_manager import get_current_agent
+
+                            log_event("queue_autodrain_triggered", remaining=len(RUNTIME_STATE.queue))
+                            RUNTIME_STATE.mark_running(
+                                asyncio.create_task(
+                                    run_agent_bg(next_task, get_current_agent())
+                                )
+                            )
+
+            RUNTIME_STATE.mark_running(asyncio.create_task(run_agent_bg(task, current_agent)))
             continue
 
             # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
