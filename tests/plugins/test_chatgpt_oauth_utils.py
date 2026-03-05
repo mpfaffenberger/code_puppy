@@ -911,7 +911,14 @@ class TestFetchChatGPTModels:
         result = fetch_chatgpt_models("test_access_token", "test_account_id")
 
         # Required models prepended + API models
-        for m in ["gpt-5.4", "gpt-5.3-instant", "gpt-4", "gpt-3.5-turbo", "o1-preview", "o1-mini"]:
+        for m in [
+            "gpt-5.4",
+            "gpt-5.3-instant",
+            "gpt-4",
+            "gpt-3.5-turbo",
+            "o1-preview",
+            "o1-mini",
+        ]:
             assert m in result
 
     @patch("requests.get")
@@ -1276,6 +1283,8 @@ class TestErrorHandling:
                 else:
                     # Required models are prepended to API results
                     for m in REQUIRED_CODEX_MODELS:
-                        assert m in result, f"Missing required {m} for input: {input_models}"
+                        assert m in result, (
+                            f"Missing required {m} for input: {input_models}"
+                        )
                     for m in base_expected:
                         assert m in result, f"Missing {m} for input: {input_models}"
