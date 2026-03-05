@@ -436,7 +436,10 @@ class BigQueryClient:
 
         try:
             # Execute query with timeout
-            query_job = self._client.query(query, timeout=DEFAULT_QUERY_TIMEOUT_SECONDS)
+            job_config = bigquery.QueryJobConfig(
+                labels={"application": "codepuppy"}
+            )
+            query_job = self._client.query(query, job_config=job_config, timeout=DEFAULT_QUERY_TIMEOUT_SECONDS)
             results = query_job.result(
                 max_results=max_results, timeout=DEFAULT_QUERY_TIMEOUT_SECONDS
             )
