@@ -119,6 +119,7 @@ async def event_stream_handler(
     token_count: dict[int, int] = {}  # Track token count per text/tool part
     tool_names: dict[int, str] = {}  # Track tool name per tool part index
     did_stream_anything = False  # Track if we streamed any content
+    spinner_paused = False
 
     # Termflow streaming state for text parts
     termflow_parsers: dict[int, TermflowParser] = {}
@@ -127,10 +128,12 @@ async def event_stream_handler(
 
     async def _print_thinking_banner() -> None:
         """Print the THINKING banner with spinner pause and line clear."""
-        nonlocal did_stream_anything
+        nonlocal did_stream_anything, spinner_paused
 
-        pause_all_spinners()
-        await asyncio.sleep(0.1)  # Delay to let spinner fully clear
+        if not spinner_paused:
+            pause_all_spinners()
+            spinner_paused = True
+            await asyncio.sleep(0.02)
         # Clear line and print newline before banner
         console.print(" " * 50, end="\r")
         console.print()  # Newline before banner
@@ -146,10 +149,12 @@ async def event_stream_handler(
 
     async def _print_response_banner() -> None:
         """Print the AGENT RESPONSE banner with spinner pause and line clear."""
-        nonlocal did_stream_anything
+        nonlocal did_stream_anything, spinner_paused
 
-        pause_all_spinners()
-        await asyncio.sleep(0.1)  # Delay to let spinner fully clear
+        if not spinner_paused:
+            pause_all_spinners()
+            spinner_paused = True
+            await asyncio.sleep(0.02)
         # Clear line and print newline before banner
         console.print(" " * 50, end="\r")
         console.print()  # Newline before banner
@@ -344,5 +349,8 @@ async def event_stream_handler(
                 next_kind = getattr(event, "next_part_kind", None)
                 if next_kind not in ("text", "thinking", "tool-call"):
                     resume_all_spinners()
+                    spinner_paused = False
 
     # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)
+    if spinner_paused:
+        resume_all_spinners()
