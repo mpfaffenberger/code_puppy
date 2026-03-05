@@ -318,9 +318,10 @@ def run_oauth_flow() -> None:
 
     if api_key:
         emit_info("Registering ChatGPT Codex models…")
-        from .utils import DEFAULT_CODEX_MODELS
+        from .utils import fetch_chatgpt_models
 
-        models = DEFAULT_CODEX_MODELS
+        account_id = tokens.get("account_id", "")
+        models = fetch_chatgpt_models(api_key, account_id)
         if models:
             if add_models_to_extra_config(models):
                 emit_success(

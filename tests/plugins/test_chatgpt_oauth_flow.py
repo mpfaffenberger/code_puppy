@@ -644,9 +644,13 @@ class TestRunOAuthFlow:
             ) as mock_add:
                 mock_add.return_value = True
 
-                with patch("threading.Thread"):
-                    with patch("time.sleep"):  # Skip timing loop
-                        run_oauth_flow()
+                with patch(
+                    "code_puppy.plugins.chatgpt_oauth.utils.fetch_chatgpt_models",
+                    return_value=["gpt-5.4", "gpt-5.3-instant", "gpt-5.3-codex"],
+                ):
+                    with patch("threading.Thread"):
+                        with patch("time.sleep"):  # Skip timing loop
+                            run_oauth_flow()
 
         # Should emit auth URL
         info_calls = [call[0][0] for call in mock_info.call_args_list]
