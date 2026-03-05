@@ -51,6 +51,37 @@ from code_puppy.config import (
     get_value,
 )
 
+_QUEUE_VIEW_OFFSET = 0
+
+
+def _truncate_queue_line(text: str, max_len: int) -> str:
+    if max_len <= 2:
+        return ".."
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 2] + ".."
+
+
+def _get_queue_preview(
+    prompts: list[str], term_width: int, max_visible: int = 3
+) -> tuple[list[str], int]:
+    """Return visible queue lines and hidden count from current offset."""
+    global _QUEUE_VIEW_OFFSET
+    if not prompts:
+        _QUEUE_VIEW_OFFSET = 0
+        return [], 0
+
+    max_start = max(0, len(prompts) - max_visible)
+    _QUEUE_VIEW_OFFSET = max(0, min(_QUEUE_VIEW_OFFSET, max_start))
+    start = _QUEUE_VIEW_OFFSET
+    visible = prompts[start : start + max_visible]
+    lines: list[str] = []
+    line_room = max(8, term_width - 8)
+    for idx, prompt in enumerate(visible, start=start + 1):
+        lines.append(f"  [{idx}] {_truncate_queue_line(prompt, line_room)}")
+    hidden = max(0, len(prompts) - (start + len(visible)))
+    return lines, hidden
+
 
 def _sanitize_for_encoding(text: str) -> str:
     """Remove or replace characters that can't be safely encoded.
@@ -561,12 +592,11 @@ def get_prompt_with_active_model(base: str = ">>> ", is_interject: bool = False)
     parts.append(("class:separator", f"\n{sep_line}\n"))
     
     if PROMPT_QUEUE:
-        show_prompts = PROMPT_QUEUE[:3]
-        for idx, qp in enumerate(show_prompts):
-            trunc_qp = qp if len(qp) <= term_width - 10 else qp[:term_width - 12] + ".."
-            parts.append(("class:queue-item", f"  [{idx+1}] {trunc_qp}\n"))
-        if len(PROMPT_QUEUE) > 3:
-            parts.append(("class:queue-item", f"  ... and {len(PROMPT_QUEUE)-3} more\n"))
+        preview_lines, hidden = _get_queue_preview(PROMPT_QUEUE, term_width=term_width)
+        for line in preview_lines:
+            parts.append(("class:queue-item", f"{line}\n"))
+        if hidden:
+            parts.append(("class:queue-item", f"  ... and {hidden} more\n"))
 
     parts.extend([
         ("class:separator", "╭─ "),
@@ -710,6 +740,26 @@ async def get_input_with_combined_completion(
         text = buffer.text.lstrip()
         if text.startswith("/"):
             buffer.start_completion(select_first=False)
+
+    @bindings.add("c-up", eager=True)
+    def handle_queue_scroll_up(event):
+        from code_puppy.cli_runner import PROMPT_QUEUE
+
+        global _QUEUE_VIEW_OFFSET
+        if len(PROMPT_QUEUE) <= 3:
+            return
+        _QUEUE_VIEW_OFFSET = max(0, _QUEUE_VIEW_OFFSET - 1)
+        event.app.invalidate()
+
+    @bindings.add("c-down", eager=True)
+    def handle_queue_scroll_down(event):
+        from code_puppy.cli_runner import PROMPT_QUEUE
+
+        global _QUEUE_VIEW_OFFSET
+        if len(PROMPT_QUEUE) <= 3:
+            return
+        _QUEUE_VIEW_OFFSET = min(len(PROMPT_QUEUE) - 3, _QUEUE_VIEW_OFFSET + 1)
+        event.app.invalidate()
 
     # Handle bracketed paste - smart detection for text vs images.
     # Most terminals (Windows included!) send Ctrl+V through bracketed paste.
@@ -910,6 +960,24 @@ async def get_interject_action() -> str:
     def _(event):
         # Ignore other keys to simulate a single-character menu
         pass
+
+    @bindings.add("c-up")
+    def _(event):
+        from code_puppy.cli_runner import PROMPT_QUEUE
+
+        global _QUEUE_VIEW_OFFSET
+        if len(PROMPT_QUEUE) > 3:
+            _QUEUE_VIEW_OFFSET = max(0, _QUEUE_VIEW_OFFSET - 1)
+            event.app.invalidate()
+
+    @bindings.add("c-down")
+    def _(event):
+        from code_puppy.cli_runner import PROMPT_QUEUE
+
+        global _QUEUE_VIEW_OFFSET
+        if len(PROMPT_QUEUE) > 3:
+            _QUEUE_VIEW_OFFSET = min(len(PROMPT_QUEUE) - 3, _QUEUE_VIEW_OFFSET + 1)
+            event.app.invalidate()
 
     prompt_text = get_prompt_with_active_model(is_interject=True)
     from prompt_toolkit.output.defaults import create_output
