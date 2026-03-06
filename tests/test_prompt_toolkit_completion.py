@@ -16,6 +16,7 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     CDCompleter,
     FilePathCompleter,
     SetCompleter,
+    _shell_interrupt_hint,
     clear_active_prompt_surface,
     get_active_prompt_surface_kind,
     get_prompt_with_active_model,
@@ -652,7 +653,18 @@ def test_get_prompt_with_active_model_shows_shell_suspension(monkeypatch):
                 rendered = "".join(text for _style, text in get_prompt_with_active_model())
 
     assert "input suspended during shell command" in rendered
+    assert f"press {_shell_interrupt_hint()} to interrupt" in rendered
     clear_active_prompt_surface()
+
+
+def test_shell_interrupt_hint_uses_platform_specific_copy(monkeypatch):
+    import code_puppy.command_line.prompt_toolkit_completion as prompt_completion
+
+    monkeypatch.setattr(prompt_completion.sys, "platform", "darwin")
+    assert prompt_completion._shell_interrupt_hint() == "control+c"
+
+    monkeypatch.setattr(prompt_completion.sys, "platform", "win32")
+    assert prompt_completion._shell_interrupt_hint() == "ctrl+c"
 
 
 @pytest.mark.asyncio

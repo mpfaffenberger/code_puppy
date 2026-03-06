@@ -136,7 +136,7 @@ class PromptRuntimeState:
         item = QueuedPrompt(kind="interject", text=prompt)
         self.queue.insert(0, item)
         _sync_runtime_globals(self)
-        return True, len(self.queue), item
+        return True, 1, item
 
     def dequeue(self) -> QueuedPrompt | None:
         if not self.queue:
@@ -191,16 +191,14 @@ def emit_interject_queue_lifecycle(
     try:
         from code_puppy.messaging import MessageLevel, TextMessage, get_message_bus
 
-        if item and item.kind == "interject":
-            default_text = f"[interject] {action}: {item.text}"
-        elif item:
-            default_text = f"[queue] {action}: {item.text}"
-        else:
-            default_text = f"[queue] {action}"
-
-        text = default_text if reason is None else f"{default_text} ({reason})"
-        if position is not None:
-            text = f"{text} [position {position}]"
+        text = _format_queue_lifecycle_text(
+            action,
+            item=item,
+            reason=reason,
+            position=position,
+        )
+        if text is None:
+            return payload
 
         level_map = {
             "error": MessageLevel.ERROR,
@@ -214,6 +212,49 @@ def emit_interject_queue_lifecycle(
     except Exception:
         pass
     return payload
+
+
+def _format_queue_lifecycle_text(
+    action: str,
+    *,
+    item: QueuedPrompt | None = None,
+    reason: str | None = None,
+    position: int | None = None,
+) -> str | None:
+    """Translate internal queue lifecycle steps into user-facing copy."""
+    if action == "dequeued":
+        return None
+
+    if item is None:
+        if action == "rejected":
+            return "[QUEUE] couldn't save that prompt"
+        return f"[QUEUE] {action}"
+
+    if item.kind == "interject":
+        action_text = {
+            "queued": "stopping current work",
+            "started": "applying now",
+            "completed": "applied",
+            "cancelled": "cancelled",
+            "failed": "failed",
+            "rejected": "couldn't apply",
+        }.get(action, action.replace("_", " "))
+        return f"[INTERJECT] {action_text}: {item.text}"
+
+    if action == "started":
+        return None
+
+    action_text = {
+        "queued": "saved for after this task",
+        "completed": "finished",
+        "cancelled": "cancelled",
+        "failed": "failed",
+        "rejected": "couldn't save",
+    }.get(action, action.replace("_", " "))
+    text = f"[QUEUE] {action_text}: {item.text}"
+    if action == "queued" and position is not None:
+        text = f"{text} [position {position}]"
+    return text
 
 
 async def start_next_queued_if_idle(
@@ -919,7 +960,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         if item.kind == "queued":
             from code_puppy.messaging import emit_success
 
-            emit_success(f"🚀 Executing queued prompt: {item.text}")
+            emit_success(f"[QUEUE] running queued prompt: {item.text}")
         emit_interject_queue_lifecycle(
             RUNTIME_STATE,
             "dequeued",
@@ -942,7 +983,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.command_line.prompt_toolkit_completion import (
             get_interject_action,
         )
-        from code_puppy.messaging import emit_info, emit_warning
+        from code_puppy.messaging import emit_warning
 
         save_command_to_history(task_text)
 
@@ -1006,7 +1047,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 log_event("queue_reject", prompt=task_text.strip(), reason="full")
                 return "consumed"
 
-            emit_info(f"Queued (position {position}): {task_text.strip()}")
             emit_interject_queue_lifecycle(
                 RUNTIME_STATE,
                 "queued",

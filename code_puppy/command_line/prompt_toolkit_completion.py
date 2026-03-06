@@ -127,6 +127,11 @@ def _interrupt_shell_from_prompt(label: str) -> None:
     kill_all_running_shell_processes()
 
 
+def _shell_interrupt_hint() -> str:
+    """Return platform-appropriate interrupt text for the shell lock banner."""
+    return "control+c" if sys.platform == "darwin" else "ctrl+c"
+
+
 def _truncate_queue_line(text: str, max_len: int) -> str:
     if max_len <= 2:
         return ".."
@@ -687,7 +692,11 @@ def get_prompt_with_active_model(base: str = ">>> ", is_interject: bool = False)
 
     if is_shell_prompt_suspended():
         parts.append(
-            ("class:suspension", "  input suspended during shell command\n")
+            (
+                "class:suspension",
+                "  input suspended during shell command, press "
+                f"{_shell_interrupt_hint()} to interrupt\n",
+            )
         )
 
     parts.extend([

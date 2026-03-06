@@ -139,6 +139,90 @@ async def _run_interactive(
         await interactive_mode(renderer, initial_command=initial_command)
 
 
+def test_emit_interject_queue_lifecycle_uses_friendly_interject_copy():
+    from code_puppy.cli_runner import (
+        PromptRuntimeState,
+        QueuedPrompt,
+        emit_interject_queue_lifecycle,
+    )
+
+    message_bus = MagicMock()
+
+    with patch("code_puppy.messaging.get_message_bus", return_value=message_bus):
+        emit_interject_queue_lifecycle(
+            PromptRuntimeState(),
+            "queued",
+            item=QueuedPrompt(kind="interject", text="steer now"),
+            position=2,
+            level="warning",
+        )
+
+    emitted = message_bus.emit.call_args[0][0]
+    assert emitted.text == "[INTERJECT] stopping current work: steer now"
+
+
+def test_emit_interject_queue_lifecycle_uses_friendly_queue_copy():
+    from code_puppy.cli_runner import (
+        PromptRuntimeState,
+        QueuedPrompt,
+        emit_interject_queue_lifecycle,
+    )
+
+    message_bus = MagicMock()
+
+    with patch("code_puppy.messaging.get_message_bus", return_value=message_bus):
+        emit_interject_queue_lifecycle(
+            PromptRuntimeState(),
+            "queued",
+            item=QueuedPrompt(kind="queued", text="follow up"),
+            position=2,
+            level="info",
+        )
+
+    emitted = message_bus.emit.call_args[0][0]
+    assert emitted.text == "[QUEUE] saved for after this task: follow up [position 2]"
+
+
+def test_emit_interject_queue_lifecycle_skips_dequeued_user_message():
+    from code_puppy.cli_runner import (
+        PromptRuntimeState,
+        QueuedPrompt,
+        emit_interject_queue_lifecycle,
+    )
+
+    message_bus = MagicMock()
+
+    with patch("code_puppy.messaging.get_message_bus", return_value=message_bus):
+        emit_interject_queue_lifecycle(
+            PromptRuntimeState(),
+            "dequeued",
+            item=QueuedPrompt(kind="queued", text="follow up"),
+            level="success",
+        )
+
+    message_bus.emit.assert_not_called()
+
+
+def test_emit_interject_queue_lifecycle_skips_started_queue_user_message():
+    from code_puppy.cli_runner import (
+        PromptRuntimeState,
+        QueuedPrompt,
+        emit_interject_queue_lifecycle,
+    )
+
+    message_bus = MagicMock()
+
+    with patch("code_puppy.messaging.get_message_bus", return_value=message_bus):
+        emit_interject_queue_lifecycle(
+            PromptRuntimeState(),
+            "started",
+            item=QueuedPrompt(kind="queued", text="follow up"),
+            level="success",
+        )
+
+    message_bus.emit.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # main() tests
 # ---------------------------------------------------------------------------
@@ -821,6 +905,7 @@ class TestInteractiveQueueHandoff:
         second_prompt_seen = asyncio.Event()
         queued_prompt_started = asyncio.Event()
         started_prompts = []
+        emit_success = MagicMock()
 
         async def fake_input(*a, **kw):
             nonlocal call_count
@@ -860,10 +945,12 @@ class TestInteractiveQueueHandoff:
                 "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
                     return_value=False
                 ),
+                "code_puppy.messaging.emit_success": emit_success,
             },
         )
 
         assert started_prompts[:2] == ["first task", "queued task"]
+        emit_success.assert_any_call("[QUEUE] running queued prompt: queued task")
 
     @pytest.mark.anyio
     async def test_queued_prompt_starts_when_run_finishes_during_choice_menu(self):
