@@ -9,7 +9,7 @@ import signal
 import subprocess
 import sys
 import threading
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic_ai import RunContext
@@ -238,13 +238,25 @@ class TestAwaitingUserInput:
         )
 
         with patch("code_puppy.tools.command_runner.pause_all_spinners", create=True):
-            pass
+            set_awaiting_user_input(True)
+            assert is_awaiting_user_input() is True
+            set_awaiting_user_input(False)
+            assert is_awaiting_user_input() is False
 
-        set_awaiting_user_input(True)
-        assert is_awaiting_user_input() is True
 
-        set_awaiting_user_input(False)
-        assert is_awaiting_user_input() is False
+# ---------------------------------------------------------------------------
+# Shell lock helpers
+# ---------------------------------------------------------------------------
+
+
+class TestShellLockHelpers:
+    def test_normalize_shell_cwd(self):
+        from code_puppy.tools.command_runner import _normalize_shell_cwd
+
+        assert _normalize_shell_cwd(None) is None
+        assert _normalize_shell_cwd("") is None
+        assert _normalize_shell_cwd("   ") is None
+        assert _normalize_shell_cwd(" /tmp/work ") == "/tmp/work"
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +582,71 @@ class TestRunShellCommand:
         assert result.success is True
 
     @pytest.mark.asyncio
+    async def test_omitted_cwd_normalizes_to_none(self):
+        from code_puppy.tools.command_runner import run_shell_command
+
+        ctx = MagicMock(spec=RunContext)
+        mock_output = MagicMock(success=True)
+        callback_mock = AsyncMock(return_value=[])
+
+        with patch("code_puppy.callbacks.on_run_shell_command", callback_mock):
+            with patch("code_puppy.config.get_yolo_mode", return_value=True):
+                with patch(
+                    "code_puppy.tools.command_runner.is_subagent", return_value=False
+                ):
+                    with patch(
+                        "code_puppy.tools.command_runner._execute_shell_command",
+                        new_callable=AsyncMock,
+                        return_value=mock_output,
+                    ) as mock_execute:
+                        result = await run_shell_command(ctx, "echo hi", timeout=10)
+
+        assert result.success is True
+        callback_mock.assert_awaited_once_with(ctx, "echo hi", None, 10)
+        mock_execute.assert_awaited_once_with(
+            command="echo hi",
+            cwd=None,
+            timeout=10,
+            group_id=ANY,
+            silent=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_blank_cwd_normalizes_to_none(self):
+        from code_puppy.tools.command_runner import run_shell_command
+
+        ctx = MagicMock(spec=RunContext)
+        mock_output = MagicMock(success=True)
+        callback_mock = AsyncMock(return_value=[])
+
+        with patch("code_puppy.callbacks.on_run_shell_command", callback_mock):
+            with patch("code_puppy.config.get_yolo_mode", return_value=True):
+                with patch(
+                    "code_puppy.tools.command_runner.is_subagent", return_value=False
+                ):
+                    with patch(
+                        "code_puppy.tools.command_runner._execute_shell_command",
+                        new_callable=AsyncMock,
+                        return_value=mock_output,
+                    ) as mock_execute:
+                        result = await run_shell_command(
+                            ctx,
+                            "echo hi",
+                            cwd="   ",
+                            timeout=10,
+                        )
+
+        assert result.success is True
+        callback_mock.assert_awaited_once_with(ctx, "echo hi", None, 10)
+        mock_execute.assert_awaited_once_with(
+            command="echo hi",
+            cwd=None,
+            timeout=10,
+            group_id=ANY,
+            silent=False,
+        )
+
+    @pytest.mark.asyncio
     async def test_subagent_runs_silently(self):
         from code_puppy.tools.command_runner import run_shell_command
 
@@ -789,6 +866,100 @@ class TestExecuteShellCommand:
                                 )
 
         assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_suspends_active_prompt_and_skips_keyboard_listener(self):
+        from code_puppy.tools.command_runner import (
+            ShellCommandOutput,
+            _execute_shell_command,
+        )
+
+        mock_result = ShellCommandOutput(
+            success=True,
+            command="echo hi",
+            stdout="hi",
+            stderr="",
+            exit_code=0,
+            execution_time=0.1,
+        )
+
+        with patch("code_puppy.tools.command_runner.get_message_bus") as mock_bus:
+            mock_bus.return_value = MagicMock()
+            with patch("code_puppy.messaging.spinner.pause_all_spinners"):
+                with patch("code_puppy.messaging.spinner.resume_all_spinners"):
+                    with patch(
+                        "code_puppy.command_line.prompt_toolkit_completion.has_active_prompt_surface",
+                        return_value=True,
+                    ):
+                        with patch(
+                            "code_puppy.command_line.prompt_toolkit_completion.set_shell_prompt_suspended"
+                        ) as mock_suspend:
+                            with patch(
+                                "code_puppy.tools.command_runner._acquire_keyboard_context"
+                            ) as mock_acquire:
+                                with patch(
+                                    "code_puppy.tools.command_runner._release_keyboard_context"
+                                ) as mock_release:
+                                    with patch(
+                                        "code_puppy.tools.command_runner._run_command_inner",
+                                        new_callable=AsyncMock,
+                                        return_value=mock_result,
+                                    ):
+                                        result = await _execute_shell_command(
+                                            "echo hi", None, 10, "grp"
+                                        )
+
+        assert result.success is True
+        assert mock_suspend.call_args_list == [((True,),), ((False,),)]
+        mock_acquire.assert_not_called()
+        mock_release.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_uses_keyboard_listener_when_no_active_prompt(self):
+        from code_puppy.tools.command_runner import (
+            ShellCommandOutput,
+            _execute_shell_command,
+        )
+
+        mock_result = ShellCommandOutput(
+            success=True,
+            command="echo hi",
+            stdout="hi",
+            stderr="",
+            exit_code=0,
+            execution_time=0.1,
+        )
+
+        with patch("code_puppy.tools.command_runner.get_message_bus") as mock_bus:
+            mock_bus.return_value = MagicMock()
+            with patch("code_puppy.messaging.spinner.pause_all_spinners"):
+                with patch("code_puppy.messaging.spinner.resume_all_spinners"):
+                    with patch(
+                        "code_puppy.command_line.prompt_toolkit_completion.has_active_prompt_surface",
+                        return_value=False,
+                    ):
+                        with patch(
+                            "code_puppy.command_line.prompt_toolkit_completion.set_shell_prompt_suspended"
+                        ) as mock_suspend:
+                            with patch(
+                                "code_puppy.tools.command_runner._acquire_keyboard_context"
+                            ) as mock_acquire:
+                                with patch(
+                                    "code_puppy.tools.command_runner._release_keyboard_context"
+                                ) as mock_release:
+                                    with patch(
+                                        "code_puppy.tools.command_runner._run_command_inner",
+                                        new_callable=AsyncMock,
+                                        return_value=mock_result,
+                                    ):
+                                        result = await _execute_shell_command(
+                                            "echo hi", None, 10, "grp"
+                                        )
+
+        assert result.success is True
+        mock_suspend.assert_not_called()
+        mock_acquire.assert_called_once()
+        mock_release.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

@@ -9,13 +9,13 @@
 import asyncio
 import os
 import sys
-from typing import Optional
+from dataclasses import dataclass
+from typing import Literal, Optional
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
-from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.completion import Completer, Completion, merge_completers
-from prompt_toolkit.filters import is_searching
+from prompt_toolkit.filters import Condition, is_searching
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -52,6 +52,79 @@ from code_puppy.config import (
 )
 
 _QUEUE_VIEW_OFFSET = 0
+
+
+@dataclass
+class _PromptRuntimeState:
+    kind: Literal["main", "interject"] | None = None
+    session: PromptSession | None = None
+    app: object | None = None
+    shell_suspended: bool = False
+
+
+_PROMPT_RUNTIME_STATE = _PromptRuntimeState()
+
+
+def register_active_prompt_surface(
+    kind: Literal["main", "interject"], session: PromptSession
+) -> None:
+    """Track the mounted prompt surface so shells can suspend it in-place."""
+    _PROMPT_RUNTIME_STATE.kind = kind
+    _PROMPT_RUNTIME_STATE.session = session
+    _PROMPT_RUNTIME_STATE.app = getattr(session, "app", None)
+    _PROMPT_RUNTIME_STATE.shell_suspended = False
+
+
+def clear_active_prompt_surface(session: PromptSession | None = None) -> None:
+    """Clear the tracked prompt surface if it matches the current session."""
+    if session is not None and _PROMPT_RUNTIME_STATE.session is not session:
+        return
+    _PROMPT_RUNTIME_STATE.kind = None
+    _PROMPT_RUNTIME_STATE.session = None
+    _PROMPT_RUNTIME_STATE.app = None
+    _PROMPT_RUNTIME_STATE.shell_suspended = False
+
+
+def get_active_prompt_surface_kind() -> Literal["main", "interject"] | None:
+    return _PROMPT_RUNTIME_STATE.kind
+
+
+def has_active_prompt_surface() -> bool:
+    return _PROMPT_RUNTIME_STATE.session is not None
+
+
+def is_shell_prompt_suspended() -> bool:
+    return (
+        _PROMPT_RUNTIME_STATE.session is not None
+        and _PROMPT_RUNTIME_STATE.shell_suspended
+    )
+
+
+def set_shell_prompt_suspended(suspended: bool) -> None:
+    """Flip shell suspension on the mounted prompt and force a redraw."""
+    if _PROMPT_RUNTIME_STATE.session is None:
+        _PROMPT_RUNTIME_STATE.shell_suspended = False
+        return
+
+    _PROMPT_RUNTIME_STATE.shell_suspended = suspended
+    _PROMPT_RUNTIME_STATE.app = getattr(
+        _PROMPT_RUNTIME_STATE.session, "app", _PROMPT_RUNTIME_STATE.app
+    )
+
+    app = _PROMPT_RUNTIME_STATE.app
+    if app is not None:
+        try:
+            app.invalidate()
+        except Exception:
+            pass
+
+
+def _interrupt_shell_from_prompt(label: str) -> None:
+    from code_puppy.messaging import emit_warning
+    from code_puppy.tools.command_runner import kill_all_running_shell_processes
+
+    emit_warning(f"\n🛑 {label} detected! Interrupting shell command...")
+    kill_all_running_shell_processes()
 
 
 def _truncate_queue_line(text: str, max_len: int) -> str:
@@ -611,15 +684,16 @@ def get_prompt_with_active_model(base: str = ">>> ", is_interject: bool = False)
     if is_interject:
         # Add hint above the prompt line to keep the cursor position consistent
         parts.append(("class:queue-item", "  [i]nterject or [q]ueue\n"))
-        parts.extend([
-            ("class:separator", "╰─"),
-            ("class:arrow", "❯ "),
-        ])
-    else:
-        parts.extend([
-            ("class:separator", "╰─"),
-            ("class:arrow", "❯ "),
-        ])
+
+    if is_shell_prompt_suspended():
+        parts.append(
+            ("class:suspension", "  input suspended during shell command\n")
+        )
+
+    parts.extend([
+        ("class:separator", "╰─"),
+        ("class:arrow", "❯ "),
+    ])
     
     return FormattedText(parts)
 
@@ -648,6 +722,7 @@ async def get_input_with_combined_completion(
     )
     # Add custom key bindings and multiline toggle
     bindings = KeyBindings()
+    shell_suspended_filter = Condition(is_shell_prompt_suspended)
 
     # Multiline mode state
     multiline = {"enabled": False}
@@ -655,6 +730,9 @@ async def get_input_with_combined_completion(
     # Ctrl+X keybinding - exit with KeyboardInterrupt for shell command cancellation
     @bindings.add(Keys.ControlX)
     def _(event):
+        if is_shell_prompt_suspended():
+            _interrupt_shell_from_prompt("Ctrl-X")
+            return
         try:
             event.app.exit(exception=KeyboardInterrupt)
         except Exception:
@@ -662,14 +740,24 @@ async def get_input_with_combined_completion(
             # This happens when user presses multiple exit keys in quick succession
             pass
 
+    @bindings.add("c-c", filter=shell_suspended_filter, eager=True)
+    def _(event):
+        _interrupt_shell_from_prompt("Ctrl-C")
+
     # Escape keybinding - exit with KeyboardInterrupt
     @bindings.add(Keys.Escape)
     def _(event):
+        if is_shell_prompt_suspended():
+            return
         try:
             event.app.exit(exception=KeyboardInterrupt)
         except Exception:
             # Ignore "Return value already set" errors when exit was already called
             pass
+
+    @bindings.add("c-d", filter=shell_suspended_filter, eager=True)
+    def _(event):
+        return
 
     # NOTE: We intentionally do NOT override Ctrl+C here.
     # prompt_toolkit's default Ctrl+C handler properly resets the terminal state on Windows.
@@ -679,6 +767,8 @@ async def get_input_with_combined_completion(
     # Toggle multiline with Alt+M
     @bindings.add(Keys.Escape, "m")
     def _(event):
+        if is_shell_prompt_suspended():
+            return
         multiline["enabled"] = not multiline["enabled"]
         status = "ON" if multiline["enabled"] else "OFF"
         # Print status for user feedback (version-agnostic)
@@ -689,6 +779,8 @@ async def get_input_with_combined_completion(
     # Also toggle multiline with F2 (more reliable across platforms)
     @bindings.add("f2")
     def _(event):
+        if is_shell_prompt_suspended():
+            return
         multiline["enabled"] = not multiline["enabled"]
         status = "ON" if multiline["enabled"] else "OFF"
         sys.stdout.write(f"[multiline] {status}\n")
@@ -698,6 +790,8 @@ async def get_input_with_combined_completion(
     # Ctrl+J (line feed) works in virtually all terminals; mark eager so it wins
     @bindings.add("c-j", eager=True)
     def _(event):
+        if is_shell_prompt_suspended():
+            return
         event.app.current_buffer.insert_text("\n")
 
     # Also allow Ctrl+Enter for newline (terminal-dependent)
@@ -705,6 +799,8 @@ async def get_input_with_combined_completion(
 
         @bindings.add("c-enter", eager=True)
         def _(event):
+            if is_shell_prompt_suspended():
+                return
             event.app.current_buffer.insert_text("\n")
     except Exception:
         pass
@@ -712,6 +808,8 @@ async def get_input_with_combined_completion(
     # Enter behavior depends on multiline mode
     @bindings.add("enter", filter=~is_searching, eager=True)
     def _(event):
+        if is_shell_prompt_suspended():
+            return
         if multiline["enabled"]:
             event.app.current_buffer.insert_text("\n")
         else:
@@ -723,6 +821,8 @@ async def get_input_with_combined_completion(
     @bindings.add("c-h", eager=True)  # Backspace (Ctrl+H)
     @bindings.add("backspace", eager=True)
     def handle_backspace_with_completion(event):
+        if is_shell_prompt_suspended():
+            return
         buffer = event.app.current_buffer
         # Perform the deletion first
         buffer.delete_before_cursor(count=1)
@@ -733,6 +833,8 @@ async def get_input_with_combined_completion(
 
     @bindings.add("delete", eager=True)
     def handle_delete_with_completion(event):
+        if is_shell_prompt_suspended():
+            return
         buffer = event.app.current_buffer
         # Perform the deletion first
         buffer.delete(count=1)
@@ -768,6 +870,8 @@ async def get_input_with_combined_completion(
     @bindings.add(Keys.BracketedPaste)
     def handle_bracketed_paste(event):
         """Handle bracketed paste - smart text vs image detection."""
+        if is_shell_prompt_suspended():
+            return
         pasted_data = event.data
 
         # If we have meaningful text content, paste it (don't check for images)
@@ -798,6 +902,8 @@ async def get_input_with_combined_completion(
     @bindings.add("c-v", eager=True)
     def handle_smart_paste(event):
         """Handle Ctrl+V - auto-detect image vs text in clipboard."""
+        if is_shell_prompt_suspended():
+            return
         try:
             # Check for image first
             if has_image_in_clipboard():
@@ -865,6 +971,8 @@ async def get_input_with_combined_completion(
     @bindings.add("f3")
     def handle_image_paste_f3(event):
         """Handle F3 - paste image from clipboard (image-only, shows error if none)."""
+        if is_shell_prompt_suspended():
+            return
         try:
             if has_image_in_clipboard():
                 placeholder = capture_clipboard_image_to_pending()
@@ -895,6 +1003,7 @@ async def get_input_with_combined_completion(
         output=out,
         erase_when_done=erase_when_done
     )
+    session.default_buffer.read_only = shell_suspended_filter
     # If they pass a string, backward-compat: convert it to formatted_text
     if isinstance(prompt_str, str):
         from prompt_toolkit.formatted_text import FormattedText
@@ -913,10 +1022,15 @@ async def get_input_with_combined_completion(
             "separator": "bold ansigray",
             "attachment-placeholder": "italic ansicyan",
             "queue-item": "italic ansiyellow",
+            "suspension": "bold ansibrightred",
         }
     )
-    with patch_stdout(raw=True):
-        text = await session.prompt_async(prompt_str, style=style)
+    register_active_prompt_surface("main", session)
+    try:
+        with patch_stdout(raw=True):
+            text = await session.prompt_async(prompt_str, style=style)
+    finally:
+        clear_active_prompt_surface(session)
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running
     # and emitting success messages. Now we let all /model commands fall through to
@@ -926,9 +1040,6 @@ async def get_input_with_combined_completion(
 
 
 async def get_interject_action() -> str:
-    from prompt_toolkit import PromptSession
-    from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.patch_stdout import patch_stdout
     from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
 
     bindings = KeyBindings()
@@ -938,6 +1049,8 @@ async def get_interject_action() -> str:
     @bindings.add('I')
     def _(event):
         nonlocal result
+        if is_shell_prompt_suspended():
+            return
         result = 'i'
         event.app.exit(result='i')
 
@@ -945,15 +1058,28 @@ async def get_interject_action() -> str:
     @bindings.add('Q')
     def _(event):
         nonlocal result
+        if is_shell_prompt_suspended():
+            return
         result = 'q'
         event.app.exit(result='q')
 
     @bindings.add('c-c')
     def _(event):
+        if is_shell_prompt_suspended():
+            _interrupt_shell_from_prompt("Ctrl-C")
+            return
         raise KeyboardInterrupt()
+
+    @bindings.add(Keys.ControlX)
+    def _(event):
+        if is_shell_prompt_suspended():
+            _interrupt_shell_from_prompt("Ctrl-X")
+            return
 
     @bindings.add('c-d')
     def _(event):
+        if is_shell_prompt_suspended():
+            return
         raise EOFError()
 
     @bindings.add('<any>')
@@ -979,7 +1105,7 @@ async def get_interject_action() -> str:
             _QUEUE_VIEW_OFFSET = min(len(PROMPT_QUEUE) - 3, _QUEUE_VIEW_OFFSET + 1)
             event.app.invalidate()
 
-    prompt_text = get_prompt_with_active_model(is_interject=True)
+    prompt_text = lambda: get_prompt_with_active_model(is_interject=True)
     from prompt_toolkit.output.defaults import create_output
     import sys
     out = create_output(stdout=sys.stdout)
@@ -991,6 +1117,7 @@ async def get_interject_action() -> str:
         output=out, 
         erase_when_done=True
     )
+    session.default_buffer.read_only = Condition(is_shell_prompt_suspended)
     
     from prompt_toolkit.styles import Style
     style = Style.from_dict({
@@ -1003,26 +1130,31 @@ async def get_interject_action() -> str:
         "separator": "bold ansigray",
         "attachment-placeholder": "italic ansicyan",
         "queue-item": "italic ansiyellow",
+        "suspension": "bold ansibrightred",
     })
     
-    with patch_stdout(raw=True):
-        # We catch the result of app.exit(result=...) via session.prompt_async()
-        try:
-            # Pause spinners to prevent jitter and allow clean input
-            pause_all_spinners()
-            
-            # We don't actually want them to type anything, just press a key
-            # session.prompt_async returns the text typed if they press enter,
-            # but our keybindings will exit early with the bound result.
-            action = await session.prompt_async(style=style)
-            if result:
-                return result
-            return action
-        except (KeyboardInterrupt, EOFError):
-            raise
-        finally:
-            # Resume spinners when done
-            resume_all_spinners()
+    register_active_prompt_surface("interject", session)
+    try:
+        with patch_stdout(raw=True):
+            # We catch the result of app.exit(result=...) via session.prompt_async()
+            try:
+                # Pause spinners to prevent jitter and allow clean input
+                pause_all_spinners()
+                
+                # We don't actually want them to type anything, just press a key
+                # session.prompt_async returns the text typed if they press enter,
+                # but our keybindings will exit early with the bound result.
+                action = await session.prompt_async(style=style)
+                if result:
+                    return result
+                return action
+            except (KeyboardInterrupt, EOFError):
+                raise
+            finally:
+                # Resume spinners when done
+                resume_all_spinners()
+    finally:
+        clear_active_prompt_surface(session)
 
 
 

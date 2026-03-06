@@ -16,7 +16,15 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     CDCompleter,
     FilePathCompleter,
     SetCompleter,
+    clear_active_prompt_surface,
+    get_active_prompt_surface_kind,
+    get_prompt_with_active_model,
     get_input_with_combined_completion,
+    get_interject_action,
+    has_active_prompt_surface,
+    is_shell_prompt_suspended,
+    register_active_prompt_surface,
+    set_shell_prompt_suspended,
 )
 
 # Skip some path-format sensitive tests on Windows where backslashes are expected
@@ -582,6 +590,165 @@ async def test_get_input_key_binding_escape(mock_prompt_session_cls):
     with pytest.raises(KeyboardInterrupt):
         found_escape_handler(mock_event)
     mock_event.app.exit.assert_called_once_with(exception=KeyboardInterrupt)
+
+
+def test_prompt_runtime_registry_round_trip():
+    session = MagicMock()
+    session.app = MagicMock()
+
+    clear_active_prompt_surface()
+    register_active_prompt_surface("main", session)
+
+    assert has_active_prompt_surface() is True
+    assert get_active_prompt_surface_kind() == "main"
+    assert is_shell_prompt_suspended() is False
+
+    set_shell_prompt_suspended(True)
+    assert is_shell_prompt_suspended() is True
+    session.app.invalidate.assert_called_once()
+
+    clear_active_prompt_surface(session)
+    assert has_active_prompt_surface() is False
+    assert get_active_prompt_surface_kind() is None
+    assert is_shell_prompt_suspended() is False
+
+
+def test_get_prompt_with_active_model_shows_shell_suspension(monkeypatch):
+    clear_active_prompt_surface()
+    session = MagicMock()
+    session.app = MagicMock()
+    register_active_prompt_surface("main", session)
+    set_shell_prompt_suspended(True)
+
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.get_puppy_name",
+        lambda: "Buddy",
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.get_active_model",
+        lambda: "gpt-test",
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.os.getcwd",
+        lambda: "/tmp/demo",
+    )
+
+    agent = MagicMock()
+    agent.display_name = "code-puppy"
+    agent.get_model_name.return_value = "gpt-test"
+
+    with patch(
+        "code_puppy.agents.agent_manager.get_current_agent",
+        return_value=agent,
+    ):
+        with patch(
+            "code_puppy.cli_runner.PROMPT_QUEUE",
+            [],
+            create=True,
+        ):
+            with patch(
+                "shutil.get_terminal_size", return_value=os.terminal_size((80, 24))
+            ):
+                rendered = "".join(text for _style, text in get_prompt_with_active_model())
+
+    assert "input suspended during shell command" in rendered
+    clear_active_prompt_surface()
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+async def test_get_input_registers_active_prompt_and_marks_buffer_read_only(
+    mock_prompt_session_cls,
+):
+    session = MagicMock()
+    session.app = MagicMock()
+    session.default_buffer = MagicMock()
+
+    async def fake_prompt_async(*args, **kwargs):
+        assert has_active_prompt_surface() is True
+        assert get_active_prompt_surface_kind() == "main"
+        set_shell_prompt_suspended(True)
+        assert session.default_buffer.read_only() is True
+        return "test input"
+
+    session.prompt_async = AsyncMock(side_effect=fake_prompt_async)
+    mock_prompt_session_cls.return_value = session
+
+    result = await get_input_with_combined_completion()
+
+    assert result == "test input"
+    assert has_active_prompt_surface() is False
+    assert is_shell_prompt_suspended() is False
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+async def test_ctrl_x_interrupts_shell_when_prompt_is_suspended(
+    mock_prompt_session_cls,
+):
+    session = MagicMock()
+    session.app = MagicMock()
+    session.default_buffer = MagicMock()
+    session.prompt_async = AsyncMock(return_value="done")
+    mock_prompt_session_cls.return_value = session
+
+    await get_input_with_combined_completion()
+
+    bindings = mock_prompt_session_cls.call_args[1]["key_bindings"]
+    ctrl_x_handler = next(
+        binding.handler
+        for binding in bindings.bindings
+        if binding.keys == (Keys.ControlX,)
+    )
+
+    register_active_prompt_surface("main", session)
+    set_shell_prompt_suspended(True)
+
+    mock_event = MagicMock()
+    mock_event.app = MagicMock()
+
+    with patch(
+        "code_puppy.tools.command_runner.kill_all_running_shell_processes",
+        return_value=1,
+    ) as mock_kill:
+        with patch("code_puppy.messaging.emit_warning"):
+            ctrl_x_handler(mock_event)
+
+    mock_kill.assert_called_once()
+    mock_event.app.exit.assert_not_called()
+    clear_active_prompt_surface()
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+async def test_interject_ignores_i_and_q_while_shell_is_suspended(
+    mock_prompt_session_cls,
+):
+    session = MagicMock()
+    session.app = MagicMock()
+    session.default_buffer = MagicMock()
+    session.prompt_async = AsyncMock(return_value="")
+    mock_prompt_session_cls.return_value = session
+
+    await get_interject_action()
+
+    bindings = mock_prompt_session_cls.call_args[1]["key_bindings"]
+    key_handlers = {
+        binding.keys: binding.handler
+        for binding in bindings.bindings
+        if binding.keys in {("i",), ("q",)}
+    }
+
+    register_active_prompt_surface("interject", session)
+    set_shell_prompt_suspended(True)
+
+    mock_event = MagicMock()
+    mock_event.app = MagicMock()
+    key_handlers[("i",)](mock_event)
+    key_handlers[("q",)](mock_event)
+
+    mock_event.app.exit.assert_not_called()
+    clear_active_prompt_surface()
 
 
 @pytest.mark.asyncio
