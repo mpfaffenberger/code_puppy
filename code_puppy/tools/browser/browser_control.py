@@ -218,7 +218,7 @@ def register_initialize_browser(agent):
 
         Args:
             headless: Run browser in headless mode (no GUI)
-            browser_type: Browser engine (chromium, firefox, webkit)
+            browser_type: Browser engine (chromium, firefox, webkit, lightpanda)
             homepage: Initial page to load
 
         Returns:

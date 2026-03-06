@@ -1,5 +1,6 @@
 """Full coverage tests for browser_manager.py."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -80,6 +81,7 @@ class TestSessionContextVars:
 class TestInitializeBrowser:
     @pytest.mark.asyncio
     async def test_initialize_browser_default_chromium(self):
+        """Test default browser initialization uses Chromium backend."""
         from code_puppy.tools.browser.browser_manager import BrowserManager
 
         mgr = BrowserManager("init-test")
@@ -106,6 +108,7 @@ class TestInitializeBrowser:
 
     @pytest.mark.asyncio
     async def test_initialize_browser_custom_type(self):
+        """Test custom registered browser type initialization path."""
         from code_puppy.tools.browser import browser_manager as bm
         from code_puppy.tools.browser.browser_manager import BrowserManager
 
@@ -124,6 +127,265 @@ class TestInitializeBrowser:
             assert mgr._initialized is True
 
         del bm._CUSTOM_BROWSER_TYPES["custom"]
+
+    @pytest.mark.asyncio
+    async def test_initialize_browser_custom_type_case_insensitive(self):
+        """Test mixed-case custom browser type resolves case-insensitively."""
+        from code_puppy.tools.browser import browser_manager as bm
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        async def custom_init(manager):
+            manager._context = AsyncMock()
+            manager._browser = AsyncMock()
+
+        bm._CUSTOM_BROWSER_TYPES["myplugin"] = custom_init
+        bm._BROWSER_TYPES_LOADED = True
+
+        mgr = BrowserManager("custom-case-test")
+        mgr.browser_type = "MyPlugin"
+
+        with patch("code_puppy.tools.browser.browser_manager.emit_info"):
+            await mgr._initialize_browser()
+            assert mgr._initialized is True
+
+        del bm._CUSTOM_BROWSER_TYPES["myplugin"]
+
+    @pytest.mark.asyncio
+    async def test_initialize_browser_lightpanda_type(self):
+        """Test `browser_type=lightpanda` dispatches to Lightpanda initializer."""
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("lightpanda-test")
+        mgr.browser_type = "lightpanda"
+
+        with (
+            patch(
+                "code_puppy.tools.browser.browser_manager._load_plugin_browser_types"
+            ),
+            patch("code_puppy.tools.browser.browser_manager.emit_info"),
+            patch.object(
+                mgr,
+                "_initialize_lightpanda_browser",
+                new=AsyncMock(),
+            ) as mock_init_lightpanda,
+        ):
+            await mgr._initialize_browser()
+            mock_init_lightpanda.assert_awaited_once()
+            assert mgr._initialized is True
+
+    @pytest.mark.asyncio
+    async def test_initialize_browser_lightpanda_type_case_insensitive(self):
+        """Test mixed-case lightpanda browser type dispatches correctly."""
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("lightpanda-case-test")
+        mgr.browser_type = "LightPanda"
+
+        with (
+            patch(
+                "code_puppy.tools.browser.browser_manager._load_plugin_browser_types"
+            ),
+            patch("code_puppy.tools.browser.browser_manager.emit_info"),
+            patch.object(
+                mgr,
+                "_initialize_lightpanda_browser",
+                new=AsyncMock(),
+            ) as mock_init_lightpanda,
+        ):
+            await mgr._initialize_browser()
+            mock_init_lightpanda.assert_awaited_once()
+            assert mgr._initialized is True
+
+    @pytest.mark.asyncio
+    async def test_initialize_lightpanda_browser_sets_context(self):
+        """Test Lightpanda init sets Playwright, browser, and context references."""
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("lightpanda-init")
+
+        mock_pw_instance = AsyncMock()
+        mock_browser = AsyncMock()
+        mock_context = AsyncMock()
+        mock_browser.contexts = [mock_context]
+        mock_pw_instance.chromium.connect_over_cdp.return_value = mock_browser
+
+        mock_pw_class = AsyncMock()
+        mock_pw_class.start.return_value = mock_pw_instance
+
+        mock_process = AsyncMock()
+        mock_process.returncode = None
+        stream = asyncio.StreamReader()
+        stream.feed_data(b"lightpanda started\n")
+        stream.feed_eof()
+        mock_process.stderr = stream
+
+        with (
+            patch("code_puppy.tools.browser.browser_manager.emit_info"),
+            patch(
+                "code_puppy.tools.browser.browser_manager.asyncio.create_subprocess_exec",
+                return_value=mock_process,
+            ),
+            patch("playwright.async_api.async_playwright", return_value=mock_pw_class),
+            patch.object(mgr, "_build_lightpanda_command", return_value=["lightpanda"]),
+            patch.object(mgr, "_get_lightpanda_host", return_value="127.0.0.1"),
+            patch.object(mgr, "_get_lightpanda_port", return_value=9222),
+        ):
+            await mgr._initialize_lightpanda_browser()
+            await asyncio.sleep(0)
+
+        assert mgr._playwright is mock_pw_instance
+        assert mgr._browser is mock_browser
+        assert mgr._context is mock_context
+        assert mgr._lightpanda_endpoint == "http://127.0.0.1:9222"
+        assert mgr._lightpanda_stderr_task is not None
+
+    @pytest.mark.asyncio
+    async def test_initialize_lightpanda_retries_on_auto_port_failure(self):
+        """Test Lightpanda retries startup when an auto-port attempt fails."""
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("lightpanda-retry")
+
+        mock_pw_instance = AsyncMock()
+        mock_pw_class = AsyncMock()
+        mock_pw_class.start.return_value = mock_pw_instance
+
+        mock_browser = AsyncMock()
+        mock_context = AsyncMock()
+        mock_browser.contexts = [mock_context]
+
+        mock_process_a = AsyncMock()
+        mock_process_a.returncode = None
+        stream_a = asyncio.StreamReader()
+        stream_a.feed_data(b"bind failed\n")
+        stream_a.feed_eof()
+        mock_process_a.stderr = stream_a
+        mock_process_b = AsyncMock()
+        mock_process_b.returncode = None
+        stream_b = asyncio.StreamReader()
+        stream_b.feed_data(b"retrying\n")
+        stream_b.feed_eof()
+        mock_process_b.stderr = stream_b
+
+        with (
+            patch("code_puppy.tools.browser.browser_manager.emit_info"),
+            patch("code_puppy.tools.browser.browser_manager.emit_warning"),
+            patch("playwright.async_api.async_playwright", return_value=mock_pw_class),
+            patch(
+                "code_puppy.tools.browser.browser_manager.asyncio.create_subprocess_exec",
+                side_effect=[mock_process_a, mock_process_b],
+            ),
+            patch.object(mgr, "_get_lightpanda_host", return_value="127.0.0.1"),
+            patch.object(mgr, "_get_lightpanda_port", side_effect=[9222, 9223]),
+            patch.object(mgr, "_get_lightpanda_startup_retries", return_value=2),
+            patch.object(mgr, "_build_lightpanda_command", return_value=["lightpanda"]),
+            patch.object(
+                mgr,
+                "_connect_lightpanda_over_cdp",
+                side_effect=[RuntimeError("bind fail"), mock_browser],
+            ),
+            patch.object(mgr, "_stop_lightpanda_process", new=AsyncMock()) as mock_stop,
+            patch.dict("os.environ", {"LIGHTPANDA_PORT": ""}, clear=False),
+        ):
+            await mgr._initialize_lightpanda_browser()
+
+        assert mock_stop.await_count == 1
+        assert mgr._context is mock_context
+
+    @pytest.mark.asyncio
+    async def test_connect_lightpanda_over_cdp_attempt_respects_timeout_budget(self):
+        """Test CDP connect attempts are bounded by LIGHTPANDA_STARTUP_TIMEOUT."""
+        import asyncio
+
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("lightpanda-cdp-timeout")
+        mock_playwright = MagicMock()
+        mock_playwright.chromium = MagicMock()
+
+        async def slow_connect(_endpoint):
+            await asyncio.sleep(5)
+
+        mock_playwright.chromium.connect_over_cdp = AsyncMock(side_effect=slow_connect)
+        mgr._playwright = mock_playwright
+
+        with patch.object(mgr, "_get_lightpanda_startup_timeout", return_value=0.1):
+            with pytest.raises(
+                RuntimeError, match="Timed out connecting to Lightpanda"
+            ):
+                await mgr._connect_lightpanda_over_cdp("http://127.0.0.1:9222")
+
+    @pytest.mark.asyncio
+    async def test_initialize_browser_unknown_type_raises(self):
+        """Test unsupported built-in browser types fail fast with clear error."""
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("bad-browser-type")
+        mgr.browser_type = "unknown-browser"
+
+        with (
+            patch(
+                "code_puppy.tools.browser.browser_manager._load_plugin_browser_types"
+            ),
+            pytest.raises(ValueError, match="Unsupported browser_type"),
+        ):
+            await mgr._initialize_browser()
+
+    def test_resolve_lightpanda_executable_rejects_directory_path(self, tmp_path):
+        """Test path-like LIGHTPANDA_EXECUTABLE must be an executable file."""
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("bad-executable")
+
+        with patch.dict(
+            "os.environ", {"LIGHTPANDA_EXECUTABLE": str(tmp_path)}, clear=False
+        ):
+            with pytest.raises(RuntimeError, match="not found or not executable"):
+                mgr._resolve_lightpanda_executable()
+
+    def test_resolve_lightpanda_executable_accepts_pathlike_executable(self):
+        """Test path-like LIGHTPANDA_EXECUTABLE resolves a valid executable file."""
+        import sys
+        from pathlib import Path
+
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("good-executable")
+
+        with patch.dict(
+            "os.environ", {"LIGHTPANDA_EXECUTABLE": sys.executable}, clear=False
+        ):
+            resolved = mgr._resolve_lightpanda_executable()
+
+        assert Path(resolved).resolve() == Path(sys.executable).resolve()
+
+    def test_get_lightpanda_port_rejects_invalid_range(self):
+        """Test LIGHTPANDA_PORT values outside valid TCP range are rejected."""
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("bad-port")
+
+        with patch.dict("os.environ", {"LIGHTPANDA_PORT": "70000"}, clear=False):
+            with pytest.raises(
+                RuntimeError, match="LIGHTPANDA_PORT must be between 1 and 65535"
+            ):
+                mgr._get_lightpanda_port()
+
+    @pytest.mark.parametrize("raw_timeout", ["nan", "inf", "-1", "0"])
+    def test_get_lightpanda_startup_timeout_rejects_non_finite_or_non_positive(
+        self, raw_timeout
+    ):
+        """Test invalid LIGHTPANDA_STARTUP_TIMEOUT values fail with clear errors."""
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        with patch.dict(
+            "os.environ", {"LIGHTPANDA_STARTUP_TIMEOUT": raw_timeout}, clear=False
+        ):
+            with pytest.raises(
+                RuntimeError,
+                match="LIGHTPANDA_STARTUP_TIMEOUT must be a finite positive number",
+            ):
+                BrowserManager._get_lightpanda_startup_timeout()
 
 
 class TestCleanupSilent:
@@ -185,6 +447,52 @@ class TestCleanupSilent:
         ):
             await mgr._cleanup(silent=False)
             assert mgr._initialized is False
+
+    @pytest.mark.asyncio
+    async def test_cleanup_stops_lightpanda_and_playwright(self):
+        """Test cleanup stops both Playwright and Lightpanda process."""
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("lightpanda-cleanup")
+        mgr._initialized = True
+        mgr._context = AsyncMock()
+        mgr._context.storage_state = AsyncMock()
+        mgr._browser = AsyncMock()
+        mock_playwright = AsyncMock()
+        mgr._playwright = mock_playwright
+        mgr._lightpanda_process = AsyncMock()
+
+        with (
+            patch("code_puppy.tools.browser.browser_manager.emit_success"),
+            patch("code_puppy.tools.browser.browser_manager.emit_warning"),
+            patch.object(
+                mgr, "_stop_lightpanda_process", new=AsyncMock()
+            ) as mock_stop_lightpanda,
+        ):
+            await mgr._cleanup(silent=True)
+
+        mock_playwright.stop.assert_awaited_once()
+        mock_stop_lightpanda.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stop_lightpanda_process_always_stops_stderr_drain(self):
+        """Test stderr drain cleanup still runs when process termination fails."""
+        from code_puppy.tools.browser.browser_manager import BrowserManager
+
+        mgr = BrowserManager("lightpanda-stop-failure")
+
+        mock_process = MagicMock()
+        mock_process.returncode = None
+        mock_process.terminate.side_effect = ProcessLookupError("already exited")
+        mock_process.wait = AsyncMock(return_value=None)
+        mgr._lightpanda_process = mock_process
+
+        with patch.object(
+            mgr, "_stop_lightpanda_stderr_drain", new=AsyncMock()
+        ) as mock_stop_stderr:
+            await mgr._stop_lightpanda_process()
+
+        mock_stop_stderr.assert_awaited_once()
 
 
 class TestSyncCleanup:

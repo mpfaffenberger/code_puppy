@@ -63,7 +63,11 @@ class MCPServerTemplate:
         # Also check config for env vars (existing logic)
         if "env" in self.config:
             for _key, value in self.config["env"].items():
-                if isinstance(value, str) and value.startswith("$"):
+                if (
+                    isinstance(value, str)
+                    and value.startswith("$")
+                    and not value.startswith("${")
+                ):
                     var_name = value[1:]
                     if var_name not in env_vars:
                         env_vars.append(var_name)
@@ -460,6 +464,34 @@ MCP_SERVER_REGISTRY: List[MCPServerTemplate] = [
         ),
     ),
     # ========== Web & Browser ==========
+    MCPServerTemplate(
+        id="lightpanda",
+        name="lightpanda",
+        display_name="Lightpanda Browser",
+        description="Headless browser automation using a Lightpanda CDP endpoint",
+        category="Web",
+        tags=["browser", "web", "scraping", "automation", "lightpanda", "cdp"],
+        type="stdio",
+        config={
+            "command": "npx",
+            "args": ["-y", "openclaw-lightpanda-mcp"],
+            "env": {"LIGHTPANDA_CDP_URL": "${cdp_url}"},
+            "timeout": 60,
+        },
+        requires=MCPServerRequirements(
+            command_line_args=[
+                {
+                    "name": "cdp_url",
+                    "prompt": "Lightpanda CDP URL",
+                    "default": "ws://127.0.0.1:9222",
+                    "required": False,
+                }
+            ],
+            required_tools=["node", "npm", "npx", "lightpanda"],
+            package_dependencies=["openclaw-lightpanda-mcp"],
+            system_requirements=["Running Lightpanda CDP endpoint"],
+        ),
+    ),
     MCPServerTemplate(
         id="puppeteer",
         name="puppeteer",

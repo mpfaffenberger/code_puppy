@@ -1,12 +1,18 @@
-"""Playwright browser manager for browser automation.
+"""Playwright-compatible browser manager for browser automation.
 
 Supports multiple simultaneous instances with unique profile directories.
 """
 
 import asyncio
 import atexit
+import contextlib
 import contextvars
+import math
 import os
+import shlex
+import shutil
+import socket
+from collections import deque
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
@@ -18,6 +24,7 @@ from code_puppy.messaging import emit_info, emit_success, emit_warning
 # Registry for custom browser types from plugins (e.g., Camoufox for stealth browsing)
 _CUSTOM_BROWSER_TYPES: Dict[str, Callable] = {}
 _BROWSER_TYPES_LOADED: bool = False
+_BUILTIN_PLAYWRIGHT_BROWSERS = {"chromium", "firefox", "webkit"}
 
 
 def _load_plugin_browser_types() -> None:
@@ -97,14 +104,19 @@ _cleanup_done: bool = False
 
 
 class BrowserManager:
-    """Browser manager for Playwright-based browser automation.
+    """Browser manager for browser automation.
 
     Supports multiple simultaneous instances, each with its own profile directory.
-    Uses Chromium by default for maximum compatibility.
+    Uses Playwright Chromium by default for maximum compatibility.
+    Supports Lightpanda as an optional CDP backend.
     """
 
     _browser: Optional[Browser] = None
     _context: Optional[BrowserContext] = None
+    _playwright: Optional[object] = None
+    _lightpanda_process: Optional[asyncio.subprocess.Process] = None
+    _lightpanda_endpoint: Optional[str] = None
+    _lightpanda_stderr_task: Optional[asyncio.Task] = None
     _initialized: bool = False
 
     def __init__(
@@ -128,6 +140,7 @@ class BrowserManager:
 
         # Unique profile directory per session for browser state
         self.profile_dir = self._get_profile_directory()
+        self._lightpanda_stderr_buffer: deque[str] = deque(maxlen=128)
 
     def _get_profile_directory(self) -> Path:
         """Get or create the profile directory for this session.
@@ -143,13 +156,314 @@ class BrowserManager:
         profile_path.mkdir(parents=True, exist_ok=True, mode=0o700)
         return profile_path
 
+    @staticmethod
+    def _find_free_port() -> int:
+        """Find an available local TCP port."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            return int(sock.getsockname()[1])
+
+    def _resolve_lightpanda_executable(self) -> str:
+        """Resolve the Lightpanda executable path from env or PATH."""
+        executable = os.getenv("LIGHTPANDA_EXECUTABLE", "lightpanda")
+
+        path_like = os.path.sep in executable or (
+            os.path.altsep is not None and os.path.altsep in executable
+        )
+
+        if path_like:
+            executable_path = Path(executable).expanduser()
+            if executable_path.is_file() and os.access(executable_path, os.X_OK):
+                return str(executable_path)
+        else:
+            resolved = shutil.which(executable)
+            if resolved:
+                return resolved
+
+        raise RuntimeError(
+            "Lightpanda executable not found or not executable. Install Lightpanda "
+            "or set LIGHTPANDA_EXECUTABLE to a valid executable path."
+        )
+
+    def _get_lightpanda_host(self) -> str:
+        """Get Lightpanda host."""
+        return os.getenv("LIGHTPANDA_HOST", "127.0.0.1")
+
+    @staticmethod
+    def _validate_tcp_port(port: int, source_name: str) -> int:
+        """Validate a TCP port number and return it."""
+        if not 1 <= port <= 65535:
+            raise RuntimeError(
+                f"{source_name} must be between 1 and 65535, got: {port}"
+            )
+        return port
+
+    def _get_lightpanda_port(self) -> int:
+        """Get Lightpanda CDP port from env or an ephemeral free port."""
+        configured_port = os.getenv("LIGHTPANDA_PORT")
+        if configured_port:
+            try:
+                parsed_port = int(configured_port)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"Invalid LIGHTPANDA_PORT value: {configured_port}"
+                ) from exc
+            return self._validate_tcp_port(parsed_port, "LIGHTPANDA_PORT")
+
+        return self._validate_tcp_port(
+            self._find_free_port(), "auto-selected Lightpanda port"
+        )
+
+    @staticmethod
+    def _get_lightpanda_startup_timeout() -> float:
+        """Get Lightpanda startup timeout in seconds."""
+        timeout_raw = os.getenv("LIGHTPANDA_STARTUP_TIMEOUT", "10")
+        try:
+            timeout = float(timeout_raw)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Invalid LIGHTPANDA_STARTUP_TIMEOUT value: {timeout_raw}"
+            ) from exc
+
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise RuntimeError(
+                "LIGHTPANDA_STARTUP_TIMEOUT must be a finite positive number, "
+                f"got: {timeout_raw}"
+            )
+        return max(timeout, 1.0)
+
+    @staticmethod
+    def _get_lightpanda_startup_retries() -> int:
+        """Get number of startup retries for auto-selected ports."""
+        retries_raw = os.getenv("LIGHTPANDA_STARTUP_RETRIES", "3")
+        try:
+            retries = int(retries_raw)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Invalid LIGHTPANDA_STARTUP_RETRIES value: {retries_raw}"
+            ) from exc
+        return max(retries, 1)
+
+    async def _read_lightpanda_stderr(self) -> str:
+        """Read Lightpanda stderr if available for better startup errors."""
+        if not self._lightpanda_stderr_buffer:
+            return ""
+        stderr_text = "\n".join(self._lightpanda_stderr_buffer).strip()
+        return stderr_text[-500:]
+
+    async def _drain_lightpanda_stderr(self, stream: asyncio.StreamReader) -> None:
+        """Drain stderr continuously to avoid subprocess pipe backpressure."""
+        try:
+            while True:
+                chunk = await stream.read(4096)
+                if not chunk:
+                    return
+                decoded = chunk.decode(errors="replace")
+                for line in decoded.splitlines():
+                    stripped = line.strip()
+                    if stripped:
+                        self._lightpanda_stderr_buffer.append(stripped)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Stderr draining is best effort and should not fail startup.
+            return
+
+    def _start_lightpanda_stderr_drain(self) -> None:
+        """Start background stderr drain task when stream is available."""
+        if self._lightpanda_stderr_task and not self._lightpanda_stderr_task.done():
+            self._lightpanda_stderr_task.cancel()
+
+        stream = self._lightpanda_process.stderr if self._lightpanda_process else None
+
+        if isinstance(stream, asyncio.StreamReader):
+            self._lightpanda_stderr_task = asyncio.create_task(
+                self._drain_lightpanda_stderr(stream)
+            )
+        else:
+            self._lightpanda_stderr_task = None
+
+    async def _stop_lightpanda_stderr_drain(self) -> None:
+        """Stop background stderr drain task."""
+        task = self._lightpanda_stderr_task
+        self._lightpanda_stderr_task = None
+
+        if not task:
+            return
+
+        if task.done():
+            with contextlib.suppress(Exception):
+                await task
+            return
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+
+    def _build_lightpanda_command(self, host: str, port: int) -> list[str]:
+        """Build the Lightpanda startup command."""
+        executable = self._resolve_lightpanda_executable()
+        command = [
+            executable,
+            "serve",
+            f"--host={host}",
+            f"--port={port}",
+        ]
+
+        extra_args_raw = os.getenv("LIGHTPANDA_ARGS", "").strip()
+        if extra_args_raw:
+            command.extend(shlex.split(extra_args_raw, posix=os.name != "nt"))
+
+        return command
+
+    async def _connect_lightpanda_over_cdp(self, endpoint: str) -> Browser:
+        """Connect Playwright to Lightpanda CDP with retry."""
+        timeout_s = self._get_lightpanda_startup_timeout()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_s
+        last_error: Optional[Exception] = None
+
+        while loop.time() < deadline:
+            if (
+                self._lightpanda_process
+                and self._lightpanda_process.returncode is not None
+            ):
+                stderr_text = await self._read_lightpanda_stderr()
+                raise RuntimeError(
+                    "Lightpanda process exited before CDP connection was ready "
+                    f"(code={self._lightpanda_process.returncode}). "
+                    f"{stderr_text}"
+                )
+
+            try:
+                if not self._playwright:
+                    raise RuntimeError("Playwright is not initialized.")
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                return await asyncio.wait_for(
+                    self._playwright.chromium.connect_over_cdp(endpoint),
+                    timeout=remaining,
+                )
+            except Exception as exc:
+                last_error = exc
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(0.2, remaining))
+
+        raise RuntimeError(
+            f"Timed out connecting to Lightpanda CDP at {endpoint}: {last_error}"
+        )
+
+    async def _initialize_lightpanda_browser(self) -> None:
+        """Initialize Lightpanda and attach Playwright over CDP.
+
+        Uses retry-on-failure for auto-selected ports to reduce startup
+        flakiness caused by bind races between probing and process launch.
+        """
+        from playwright.async_api import async_playwright
+
+        if not self.headless:
+            emit_warning(
+                "Lightpanda is headless-only; forcing headless mode for this session."
+            )
+            self.headless = True
+
+        host = self._get_lightpanda_host()
+        self._playwright = await async_playwright().start()
+        fixed_port = bool(os.getenv("LIGHTPANDA_PORT"))
+        max_attempts = 1 if fixed_port else self._get_lightpanda_startup_retries()
+        last_error: Optional[Exception] = None
+
+        for attempt in range(1, max_attempts + 1):
+            port = self._get_lightpanda_port()
+            self._lightpanda_endpoint = f"http://{host}:{port}"
+
+            command = self._build_lightpanda_command(host, port)
+            emit_info(
+                f"Starting Lightpanda CDP endpoint at {host}:{port} "
+                f"(attempt {attempt}/{max_attempts})"
+            )
+
+            self._lightpanda_process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            self._lightpanda_stderr_buffer.clear()
+            self._start_lightpanda_stderr_drain()
+
+            try:
+                browser = await self._connect_lightpanda_over_cdp(
+                    self._lightpanda_endpoint
+                )
+
+                # Reuse existing context when available (CDP default context),
+                # otherwise create one for consistent manager behavior.
+                if browser.contexts:
+                    context = browser.contexts[0]
+                else:
+                    context = await browser.new_context()
+
+                self._browser = browser
+                self._context = context
+                return
+            except Exception as exc:
+                last_error = exc
+                await self._stop_lightpanda_process()
+
+                if attempt < max_attempts:
+                    emit_warning(
+                        "Lightpanda startup failed; retrying with a new port "
+                        f"(attempt {attempt + 1}/{max_attempts})."
+                    )
+                    await asyncio.sleep(0.1)
+
+        raise RuntimeError(
+            f"Failed to initialize Lightpanda after {max_attempts} attempts: "
+            f"{last_error}"
+        ) from last_error
+
+    async def _stop_lightpanda_process(self) -> None:
+        """Stop Lightpanda process if this manager started one."""
+        process = self._lightpanda_process
+        self._lightpanda_process = None
+        self._lightpanda_endpoint = None
+
+        try:
+            if not process:
+                return
+
+            if process.returncode is None:
+                with contextlib.suppress(Exception):
+                    process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=3)
+                except asyncio.TimeoutError:
+                    with contextlib.suppress(Exception):
+                        process.kill()
+                    with contextlib.suppress(Exception):
+                        await process.wait()
+                except Exception:
+                    with contextlib.suppress(Exception):
+                        await process.wait()
+            else:
+                with contextlib.suppress(Exception):
+                    await process.wait()
+        finally:
+            await self._stop_lightpanda_stderr_drain()
+
     async def async_initialize(self) -> None:
-        """Initialize Chromium browser via Playwright."""
+        """Initialize a browser backend."""
         if self._initialized:
             return
 
         try:
-            emit_info(f"Initializing Chromium browser (session: {self.session_id})...")
+            browser_name = self.browser_type or "chromium"
+            emit_info(
+                f"Initializing {browser_name} browser (session: {self.session_id})..."
+            )
             await self._initialize_browser()
             self._initialized = True
 
@@ -165,27 +479,70 @@ class BrowserManager:
         """
         # Load plugin browser types on first initialization
         _load_plugin_browser_types()
+        requested_browser = (self.browser_type or "chromium").lower()
 
-        # Check if a custom browser type was requested and is available
-        if self.browser_type and self.browser_type in _CUSTOM_BROWSER_TYPES:
+        # Check if a custom browser type was requested and is available.
+        # Match exact key first, then case-insensitive for consistency with
+        # built-in/lightpanda browser routing.
+        custom_browser_key: Optional[str] = None
+        if self.browser_type:
+            if self.browser_type in _CUSTOM_BROWSER_TYPES:
+                custom_browser_key = self.browser_type
+            else:
+                matched_custom_keys = [
+                    key
+                    for key in _CUSTOM_BROWSER_TYPES
+                    if key.lower() == requested_browser
+                ]
+                if len(matched_custom_keys) == 1:
+                    custom_browser_key = matched_custom_keys[0]
+                elif len(matched_custom_keys) > 1:
+                    raise ValueError(
+                        f"Ambiguous custom browser_type '{self.browser_type}'. "
+                        "Multiple plugin browser types match case-insensitively: "
+                        f"{', '.join(sorted(matched_custom_keys))}"
+                    )
+
+        if custom_browser_key:
             emit_info(
-                f"Using custom browser type '{self.browser_type}' "
+                f"Using custom browser type '{custom_browser_key}' "
                 f"(session: {self.session_id})"
             )
-            init_func = _CUSTOM_BROWSER_TYPES[self.browser_type]
+            init_func = _CUSTOM_BROWSER_TYPES[custom_browser_key]
             # Custom init functions should set self._context and self._browser
             await init_func(self)
             self._initialized = True
             return
 
-        # Default: use Playwright Chromium
+        if requested_browser == "lightpanda":
+            emit_info(f"Using Lightpanda browser (session: {self.session_id})")
+            await self._initialize_lightpanda_browser()
+            self._initialized = True
+            return
+
+        if requested_browser not in _BUILTIN_PLAYWRIGHT_BROWSERS:
+            supported_browsers = sorted(
+                _BUILTIN_PLAYWRIGHT_BROWSERS
+                | {"lightpanda"}
+                | set(_CUSTOM_BROWSER_TYPES.keys())
+            )
+            raise ValueError(
+                f"Unsupported browser_type '{self.browser_type}'. "
+                f"Supported values: {', '.join(supported_browsers)}"
+            )
+
+        # Default: use built-in Playwright browser backends
         from playwright.async_api import async_playwright
 
-        emit_info(f"Using persistent profile: {self.profile_dir}")
+        emit_info(
+            f"Using built-in Playwright browser '{requested_browser}' "
+            f"with persistent profile: {self.profile_dir}"
+        )
 
         pw = await async_playwright().start()
-        # Use persistent context directory for Chromium to preserve browser state
-        context = await pw.chromium.launch_persistent_context(
+        self._playwright = pw
+        browser_launcher = getattr(pw, requested_browser)
+        context = await browser_launcher.launch_persistent_context(
             user_data_dir=str(self.profile_dir), headless=self.headless
         )
         self._context = context
@@ -257,6 +614,19 @@ class BrowserManager:
                 except Exception:
                     pass  # Ignore errors during browser close
                 self._browser = None
+
+            if self._playwright:
+                try:
+                    await self._playwright.stop()
+                except Exception:
+                    pass  # Ignore errors during playwright shutdown
+                self._playwright = None
+
+            if self._lightpanda_process:
+                try:
+                    await self._stop_lightpanda_process()
+                except Exception:
+                    pass  # Ignore errors during Lightpanda shutdown
 
             self._initialized = False
 
