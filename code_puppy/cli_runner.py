@@ -337,6 +337,9 @@ async def main():
             def start(self):
                 return None
 
+            def stop(self):
+                return None
+
     capture_session = None
     if args.debug_capture:
         capture_session = start_capture_session()
@@ -766,9 +769,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         emit_warning(f"Tutorial auto-start failed: {e}")
 
-    # Track the current agent task for cancellation on quit
-    current_agent_task = None
     queue_start_lock = asyncio.Lock()
+    shutdown_requested = False
 
     async def cancel_active_run(reason: str) -> None:
         """Aggressively stop shell + agent execution and wait for cancellation."""
@@ -805,24 +807,224 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             RUNTIME_STATE.mark_idle()
             log_event("cancel_done", reason=reason)
 
-    def _prepare_queued_task(item: QueuedPrompt) -> tuple[str, str]:
-        """Normalize queued payload into executable task text and kind."""
-        if item.kind == "interject":
-            task_text = (
-                f"[user interjects]: {item.text} - please continue with that in mind"
-            )
-            emit_interject_queue_lifecycle(
-                RUNTIME_STATE, "dequeued", item=item, level="warning"
-            )
-            return task_text, "interject"
+    async def shutdown_interactive_session(message: str, *, reason: str) -> None:
+        """Exit interactive mode and cancel active work if needed."""
+        nonlocal shutdown_requested
+        from code_puppy.messaging import emit_info, emit_success
 
-        from code_puppy.messaging import emit_success
+        shutdown_requested = True
+        emit_success(message)
+        if RUNTIME_STATE.bg_task is not None and not RUNTIME_STATE.bg_task.done():
+            emit_info("Cancelling running agent task...")
+            await cancel_active_run(reason)
 
-        emit_success(f"🚀 Executing queued prompt: {item.text}")
+    async def restore_autosave_state() -> None:
+        """Handle the /autosave_load command."""
+        try:
+            # Check if we're in a real interactive terminal
+            # (not pexpect/tests) - interactive picker requires proper TTY
+            use_interactive_picker = sys.stdin.isatty() and sys.stdout.isatty()
+
+            # Allow environment variable override for tests
+            if os.getenv("CODE_PUPPY_NO_TUI") == "1":
+                use_interactive_picker = False
+
+            if use_interactive_picker:
+                # Use interactive picker for terminal sessions
+                from code_puppy.agents.agent_manager import get_current_agent
+                from code_puppy.command_line.autosave_menu import (
+                    interactive_autosave_picker,
+                )
+                from code_puppy.config import (
+                    set_current_autosave_from_session_name,
+                )
+                from code_puppy.messaging import emit_error, emit_success, emit_warning
+                from code_puppy.session_storage import (
+                    load_session,
+                    restore_autosave_interactively,
+                )
+
+                chosen_session = await interactive_autosave_picker()
+
+                if not chosen_session:
+                    emit_warning("Autosave load cancelled")
+                    return
+
+                # Load the session
+                base_dir = Path(AUTOSAVE_DIR)
+                history = load_session(chosen_session, base_dir)
+
+                agent = get_current_agent()
+                agent.set_message_history(history)
+
+                # Set current autosave session
+                set_current_autosave_from_session_name(chosen_session)
+
+                total_tokens = sum(
+                    agent.estimate_tokens_for_message(msg) for msg in history
+                )
+                session_path = base_dir / f"{chosen_session}.pkl"
+
+                emit_success(
+                    f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
+                    f"📁 From: {session_path}"
+                )
+
+                # Display recent message history for context
+                from code_puppy.command_line.autosave_menu import (
+                    display_resumed_history,
+                )
+
+                display_resumed_history(history)
+            else:
+                # Fall back to old text-based picker for tests/non-TTY environments
+                from code_puppy.session_storage import restore_autosave_interactively
+
+                await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+
+        except Exception as e:
+            from code_puppy.messaging import emit_error
+
+            emit_error(f"Failed to load autosave: {e}")
+
+    async def clear_conversation_history() -> None:
+        """Reset the current session history and clipboard attachments."""
+        from code_puppy.agents.agent_manager import get_current_agent
+        from code_puppy.command_line.clipboard import get_clipboard_manager
+        from code_puppy.messaging import emit_info, emit_system_message, emit_warning
+
+        agent = get_current_agent()
+        new_session_id = finalize_autosave_session()
+        agent.clear_message_history()
+        emit_warning("Conversation history cleared!")
+        emit_system_message("The agent will not remember previous interactions.")
+        emit_info(f"Auto-save session rotated to: {new_session_id}")
+
+        clipboard_manager = get_clipboard_manager()
+        clipboard_count = clipboard_manager.get_pending_count()
+        clipboard_manager.clear_pending()
+        if clipboard_count > 0:
+            emit_info(f"Cleared {clipboard_count} pending clipboard image(s)")
+
+    def is_exit_text(text: str) -> bool:
+        """Check if text should terminate interactive mode."""
+        return text.strip().lower() in {"exit", "quit", "/exit", "/quit"}
+
+    def queue_level(item: QueuedPrompt) -> str:
+        """Return the lifecycle level for a queued item."""
+        return "warning" if item.kind == "interject" else "success"
+
+    def emit_queue_dispatch(item: QueuedPrompt) -> None:
+        """Emit UI markers before a queued/interjected item is dispatched."""
+        if item.kind == "queued":
+            from code_puppy.messaging import emit_success
+
+            emit_success(f"🚀 Executing queued prompt: {item.text}")
         emit_interject_queue_lifecycle(
-            RUNTIME_STATE, "dequeued", item=item, level="success"
+            RUNTIME_STATE,
+            "dequeued",
+            item=item,
+            level=queue_level(item),
         )
-        return item.text, "queued"
+
+    def complete_queue_item(item: QueuedPrompt, reason: str) -> None:
+        """Mark a queued item as handled without launching the agent."""
+        emit_interject_queue_lifecycle(
+            RUNTIME_STATE,
+            "completed",
+            item=item,
+            reason=reason,
+            level=queue_level(item),
+        )
+
+    async def handle_live_running_submission(task_text: str) -> str:
+        """Handle input that arrives while an agent run is active."""
+        from code_puppy.command_line.prompt_toolkit_completion import (
+            get_interject_action,
+        )
+        from code_puppy.messaging import emit_info, emit_warning
+
+        save_command_to_history(task_text)
+
+        try:
+            action = await get_interject_action()
+            if not action:
+                return "consumed"
+        except (KeyboardInterrupt, EOFError):
+            return "consumed"
+
+        selected = action.strip().lower()
+        log_event("interject_choice", action=selected, prompt=task_text.strip())
+
+        if selected == "i":
+            log_event("interject_banner", text=task_text.strip())
+            await cancel_active_run("interject")
+            ok, position, item = RUNTIME_STATE.request_interject(task_text.strip())
+            if not ok:
+                emit_warning("Queue full (25). Cannot interject right now.")
+                emit_interject_queue_lifecycle(
+                    RUNTIME_STATE,
+                    "rejected",
+                    reason="full_interject",
+                    level="error",
+                )
+                log_event("queue_reject", prompt=task_text.strip(), reason="full_interject")
+                return "consumed"
+
+            emit_interject_queue_lifecycle(
+                RUNTIME_STATE,
+                "queued",
+                item=item,
+                position=position,
+                level="warning",
+            )
+            log_event(
+                "queued_interject",
+                text=task_text.strip(),
+                position=1,
+                size=len(RUNTIME_STATE.queue),
+            )
+            handled = await drain_pending_work_if_idle(origin="interject_enqueued")
+            log_event(
+                "interject_queue_kick_attempted",
+                remaining=len(RUNTIME_STATE.queue),
+                running=RUNTIME_STATE.running,
+                handled=handled,
+            )
+            return "consumed"
+
+        if selected == "q":
+            ok, position, item = RUNTIME_STATE.request_queue(task_text.strip())
+            if not ok:
+                emit_warning("Queue full (25). Prompt was not queued.")
+                emit_interject_queue_lifecycle(
+                    RUNTIME_STATE,
+                    "rejected",
+                    reason="full",
+                    level="error",
+                )
+                log_event("queue_reject", prompt=task_text.strip(), reason="full")
+                return "consumed"
+
+            emit_info(f"Queued (position {position}): {task_text.strip()}")
+            emit_interject_queue_lifecycle(
+                RUNTIME_STATE,
+                "queued",
+                item=item,
+                position=position,
+                level="info",
+            )
+            log_event(
+                "queued_prompt",
+                text=task_text.strip(),
+                position=position,
+                size=len(RUNTIME_STATE.queue),
+            )
+            await drain_pending_work_if_idle(origin="queue_enqueued")
+            return "consumed"
+
+        emit_warning("Cancelled action.")
+        return "consumed"
 
     async def run_agent_bg(
         task_text, agent, source_item: QueuedPrompt | None = None
@@ -838,7 +1040,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     item=source_item,
                     level="warning" if source_item.kind == "interject" else "success",
                 )
-            result, current_agent_task = await run_prompt_with_attachments(
+            result, _ = await run_prompt_with_attachments(
                 agent,
                 task_text,
                 spinner_console=message_renderer.console,
@@ -913,38 +1115,217 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             RUNTIME_STATE.mark_idle()
             log_event("agent_end", prompt=task_text)
             if was_cancelling:
+                if shutdown_requested:
+                    log_event(
+                        "queue_autodrain_skipped",
+                        reason="shutdown_requested",
+                        remaining=len(RUNTIME_STATE.queue),
+                    )
+                    return
                 log_event(
                     "queue_autodrain_skipped",
                     reason="cancelling",
                     remaining=len(RUNTIME_STATE.queue),
                 )
                 asyncio.create_task(
-                    kick_queue_after_cancel_boundary(
-                        RUNTIME_STATE,
-                        queue_start_lock,
-                        _queue_run_factory,
+                    kick_drain_after_cancel_boundary(
                         origin="cancel_boundary_fallback",
                     )
                 )
                 return
-            await start_next_queued_if_idle(
-                RUNTIME_STATE,
-                queue_start_lock,
-                _queue_run_factory,
-                origin="run_complete",
-            )
+            await drain_pending_work_if_idle(origin="run_complete")
 
-    def _queue_run_factory(next_item: QueuedPrompt) -> asyncio.Task:
-        next_task, _ = _prepare_queued_task(next_item)
+    async def dispatch_submission(
+        task_text: str,
+        *,
+        source_item: QueuedPrompt | None = None,
+        save_history: bool = True,
+        allow_command_dispatch: bool = True,
+    ) -> str:
+        """Normalize a submitted prompt into exit, command handling, or agent work."""
+        raw_task = task_text
+        stripped_task = raw_task.strip()
+        if not stripped_task:
+            if source_item:
+                complete_queue_item(source_item, "empty")
+            return "noop"
+
+        if source_item is None and is_exit_text(stripped_task):
+            await shutdown_interactive_session("Goodbye!", reason="user_exit")
+            return "exit"
+
+        if source_item is None and RUNTIME_STATE.running:
+            return await handle_live_running_submission(raw_task)
+
+        if source_item:
+            emit_queue_dispatch(source_item)
+
+        if allow_command_dispatch and stripped_task.lower() in {"clear", "/clear"}:
+            await clear_conversation_history()
+            if source_item:
+                complete_queue_item(source_item, "clear")
+            return "consumed"
+
+        candidate_task = raw_task
+        if allow_command_dispatch:
+            processed_for_commands = parse_prompt_attachments(raw_task)
+            cleaned_for_commands = (processed_for_commands.prompt or "").strip()
+
+            if source_item and is_exit_text(cleaned_for_commands or stripped_task):
+                from code_puppy.messaging import emit_warning
+
+                emit_warning("Skipping queued exit command. Use /exit directly.")
+                complete_queue_item(source_item, "exit_skipped")
+                return "consumed"
+
+            if cleaned_for_commands.startswith("/"):
+                try:
+                    command_result = handle_command(cleaned_for_commands)
+                except Exception as e:
+                    from code_puppy.messaging import emit_error
+
+                    emit_error(f"Command error: {e}")
+                    if source_item:
+                        complete_queue_item(source_item, "command_error")
+                    return "consumed"
+
+                if command_result is True:
+                    if source_item:
+                        complete_queue_item(source_item, "command_consumed")
+                    return "consumed"
+
+                if isinstance(command_result, str):
+                    if command_result == "__AUTOSAVE_LOAD__":
+                        await restore_autosave_state()
+                        if source_item:
+                            complete_queue_item(source_item, "autosave_load")
+                        return "consumed"
+                    candidate_task = command_result
+
+        candidate_task = candidate_task.strip()
+        if not candidate_task:
+            if source_item:
+                complete_queue_item(source_item, "empty")
+            return "noop"
+
+        if save_history:
+            save_command_to_history(raw_task)
+
         from code_puppy.agents.agent_manager import get_current_agent
 
-        return asyncio.create_task(
-            run_agent_bg(
-                next_task,
-                get_current_agent(),
-                source_item=next_item,
+        RUNTIME_STATE.mark_running(
+            asyncio.create_task(
+                run_agent_bg(
+                    candidate_task,
+                    get_current_agent(),
+                    source_item=source_item,
+                )
             )
         )
+        return "launched"
+
+    async def dispatch_wiggum_if_idle() -> str:
+        """Start the next wiggum loop iteration when no queued work exists."""
+        from code_puppy.command_line.wiggum_state import (
+            get_wiggum_prompt,
+            increment_wiggum_count,
+            is_wiggum_active,
+            stop_wiggum,
+        )
+        from code_puppy.messaging import emit_system_message, emit_warning
+
+        if not is_wiggum_active():
+            return "noop"
+
+        wiggum_prompt = get_wiggum_prompt()
+        if not wiggum_prompt:
+            stop_wiggum()
+            return "consumed"
+
+        loop_num = increment_wiggum_count()
+        emit_warning(f"\n🍩 WIGGUM RELOOPING! (Loop #{loop_num})")
+        emit_system_message(f"Re-running prompt: {wiggum_prompt}")
+
+        current_agent = get_current_agent()
+        new_session_id = finalize_autosave_session()
+        current_agent.clear_message_history()
+        emit_system_message(f"Context cleared. Session rotated to: {new_session_id}")
+        await asyncio.sleep(0.5)
+
+        try:
+            return await dispatch_submission(
+                wiggum_prompt,
+                save_history=False,
+                allow_command_dispatch=False,
+            )
+        except KeyboardInterrupt:
+            emit_warning("\n🍩 Wiggum loop interrupted by Ctrl+C")
+            stop_wiggum()
+            return "consumed"
+        except Exception as e:
+            from code_puppy.messaging import emit_error
+
+            emit_error(f"Wiggum loop error: {e}")
+            stop_wiggum()
+            return "consumed"
+
+    async def drain_pending_work_if_idle(*, origin: str) -> bool:
+        """Single-flight idle drain for queued prompts and wiggum reruns."""
+        handled_any = False
+
+        async with queue_start_lock:
+            while True:
+                if RUNTIME_STATE.running:
+                    active_task = RUNTIME_STATE.bg_task
+                    if active_task is None or active_task.done():
+                        RUNTIME_STATE.mark_idle()
+                        log_event(
+                            "queue_autodrain_reconciled",
+                            origin=origin,
+                            had_task=active_task is not None,
+                            task_done=active_task.done() if active_task is not None else None,
+                        )
+                    else:
+                        log_event("queue_autodrain_noop", origin=origin, reason="running")
+                        return handled_any
+
+                next_item = RUNTIME_STATE.dequeue()
+                if next_item is not None:
+                    outcome = await dispatch_submission(
+                        next_item.text
+                        if next_item.kind == "queued"
+                        else f"[user interjects]: {next_item.text} - please continue with that in mind",
+                        source_item=next_item,
+                        save_history=False,
+                        allow_command_dispatch=next_item.kind == "queued",
+                    )
+                    handled_any = True
+                    if outcome == "launched":
+                        log_event(
+                            "queue_autodrain_triggered",
+                            origin=origin,
+                            remaining=len(RUNTIME_STATE.queue),
+                            kind=next_item.kind,
+                            text=next_item.text,
+                        )
+                        return True
+                    continue
+
+                outcome = await dispatch_wiggum_if_idle()
+                if outcome == "launched":
+                    log_event("queue_autodrain_triggered", origin=origin, kind="wiggum")
+                    return True
+                if outcome == "consumed":
+                    log_event("queue_autodrain_consumed", origin=origin, kind="wiggum")
+                    return True
+
+                log_event("queue_autodrain_noop", origin=origin, reason="empty")
+                return handled_any
+
+    async def kick_drain_after_cancel_boundary(*, origin: str) -> bool:
+        """Yield once before draining, so cancellation state fully settles."""
+        await asyncio.sleep(0)
+        return await drain_pending_work_if_idle(origin=origin)
 
     while True:
         from code_puppy.agents.agent_manager import get_current_agent
@@ -953,14 +1334,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         # Get the custom prompt from the current agent, or use default
         current_agent = get_current_agent()
         user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
-        if not RUNTIME_STATE.running and RUNTIME_STATE.queue:
-            started = await start_next_queued_if_idle(
-                RUNTIME_STATE,
-                queue_start_lock,
-                _queue_run_factory,
-                origin="loop_idle_check",
-            )
-            if started:
+        if not RUNTIME_STATE.running:
+            handled = await drain_pending_work_if_idle(origin="loop_idle_check")
+            if handled:
                 continue
 
         if not RUNTIME_STATE.running:
@@ -1012,345 +1388,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             continue
         except EOFError:
             # Handle Ctrl+D - exit the application
-            from code_puppy.messaging import emit_success
-
-            emit_success("\nGoodbye! (Ctrl+D)")
-
-            # Cancel any running agent task for clean shutdown
-            if current_agent_task and not current_agent_task.done():
-                emit_info("Cancelling running agent task...")
-                current_agent_task.cancel()
-                try:
-                    await current_agent_task
-                except asyncio.CancelledError:
-                    pass  # Expected when cancelling
-
+            await shutdown_interactive_session("\nGoodbye! (Ctrl+D)", reason="ctrl_d")
             break
-
-        # Check for exit commands (plain text or command form)
-        if task.strip().lower() in ["exit", "quit"] or task.strip().lower() in [
-            "/exit",
-            "/quit",
-        ]:
-            from code_puppy.messaging import emit_success
-
-            emit_success("Goodbye!")
-
-            # Cancel any running agent task for clean shutdown
-            if current_agent_task and not current_agent_task.done():
-                emit_info("Cancelling running agent task...")
-                current_agent_task.cancel()
-                try:
-                    await current_agent_task
-                except asyncio.CancelledError:
-                    pass  # Expected when cancelling
-
-            # The renderer is stopped in the finally block of main().
+        outcome = await dispatch_submission(task)
+        if outcome == "exit":
             break
-
-        # Check for clear command (supports both `clear` and `/clear`)
-        if task.strip().lower() in ("clear", "/clear"):
-            from code_puppy.command_line.clipboard import get_clipboard_manager
-            from code_puppy.messaging import (
-                emit_info,
-                emit_system_message,
-                emit_warning,
-            )
-
-            agent = get_current_agent()
-            new_session_id = finalize_autosave_session()
-            agent.clear_message_history()
-            emit_warning("Conversation history cleared!")
-            emit_system_message("The agent will not remember previous interactions.")
-            emit_info(f"Auto-save session rotated to: {new_session_id}")
-
-            # Also clear pending clipboard images
-            clipboard_manager = get_clipboard_manager()
-            clipboard_count = clipboard_manager.get_pending_count()
-            clipboard_manager.clear_pending()
-            if clipboard_count > 0:
-                emit_info(f"Cleared {clipboard_count} pending clipboard image(s)")
-            continue
-
-        # Parse attachments first so leading paths aren't misread as commands
-        processed_for_commands = parse_prompt_attachments(task)
-        cleaned_for_commands = (processed_for_commands.prompt or "").strip()
-
-        # Handle / commands based on cleaned prompt (after stripping attachments)
-        if cleaned_for_commands.startswith("/"):
-            try:
-                command_result = handle_command(cleaned_for_commands)
-            except Exception as e:
-                from code_puppy.messaging import emit_error
-
-                emit_error(f"Command error: {e}")
-                # Continue interactive loop instead of exiting
-                continue
-            if command_result is True:
-                continue
-            elif isinstance(command_result, str):
-                if command_result == "__AUTOSAVE_LOAD__":
-                    # Handle async autosave loading
-                    try:
-                        # Check if we're in a real interactive terminal
-                        # (not pexpect/tests) - interactive picker requires proper TTY
-                        use_interactive_picker = (
-                            sys.stdin.isatty() and sys.stdout.isatty()
-                        )
-
-                        # Allow environment variable override for tests
-                        if os.getenv("CODE_PUPPY_NO_TUI") == "1":
-                            use_interactive_picker = False
-
-                        if use_interactive_picker:
-                            # Use interactive picker for terminal sessions
-                            from code_puppy.agents.agent_manager import (
-                                get_current_agent,
-                            )
-                            from code_puppy.command_line.autosave_menu import (
-                                interactive_autosave_picker,
-                            )
-                            from code_puppy.config import (
-                                set_current_autosave_from_session_name,
-                            )
-                            from code_puppy.messaging import (
-                                emit_error,
-                                emit_success,
-                                emit_warning,
-                            )
-                            from code_puppy.session_storage import (
-                                load_session,
-                                restore_autosave_interactively,
-                            )
-
-                            chosen_session = await interactive_autosave_picker()
-
-                            if not chosen_session:
-                                emit_warning("Autosave load cancelled")
-                                continue
-
-                            # Load the session
-                            base_dir = Path(AUTOSAVE_DIR)
-                            history = load_session(chosen_session, base_dir)
-
-                            agent = get_current_agent()
-                            agent.set_message_history(history)
-
-                            # Set current autosave session
-                            set_current_autosave_from_session_name(chosen_session)
-
-                            total_tokens = sum(
-                                agent.estimate_tokens_for_message(msg)
-                                for msg in history
-                            )
-                            session_path = base_dir / f"{chosen_session}.pkl"
-
-                            emit_success(
-                                f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
-                                f"📁 From: {session_path}"
-                            )
-
-                            # Display recent message history for context
-                            from code_puppy.command_line.autosave_menu import (
-                                display_resumed_history,
-                            )
-
-                            display_resumed_history(history)
-                        else:
-                            # Fall back to old text-based picker for tests/non-TTY environments
-                            await restore_autosave_interactively(Path(AUTOSAVE_DIR))
-
-                    except Exception as e:
-                        from code_puppy.messaging import emit_error
-
-                        emit_error(f"Failed to load autosave: {e}")
-                    continue
-                else:
-                    # Command returned a prompt to execute
-                    task = command_result
-            elif command_result is False:
-                # Command not recognized, continue with normal processing
-                pass
-
-        if task.strip():
-            # Write to the secret file for permanent history with timestamp
-            save_command_to_history(task)
-
-            if RUNTIME_STATE.running:
-                from code_puppy.messaging import emit_warning, emit_info
-
-                try:
-                    from code_puppy.command_line.prompt_toolkit_completion import get_interject_action
-                    action = await get_interject_action()
-                    if not action:
-                        continue
-                except (KeyboardInterrupt, EOFError):
-                    continue
-
-                a = action.strip().lower()
-                log_event("interject_choice", action=a, prompt=task.strip())
-                if a == "i":
-                    log_event("interject_banner", text=task.strip())
-                    await cancel_active_run("interject")
-                    ok, position, item = RUNTIME_STATE.request_interject(task.strip())
-                    if not ok:
-                        emit_warning("Queue full (25). Cannot interject right now.")
-                        emit_interject_queue_lifecycle(
-                            RUNTIME_STATE,
-                            "rejected",
-                            reason="full_interject",
-                            level="error",
-                        )
-                        log_event("queue_reject", prompt=task.strip(), reason="full_interject")
-                    else:
-                        emit_interject_queue_lifecycle(
-                            RUNTIME_STATE,
-                            "queued",
-                            item=item,
-                            position=position,
-                            level="warning",
-                        )
-                        log_event(
-                            "queued_interject",
-                            text=task.strip(),
-                            position=1,
-                            size=len(RUNTIME_STATE.queue),
-                        )
-                        await start_next_queued_if_idle(
-                            RUNTIME_STATE,
-                            queue_start_lock,
-                            _queue_run_factory,
-                            origin="interject_enqueued",
-                        )
-                        log_event(
-                            "interject_queue_kick_attempted",
-                            remaining=len(RUNTIME_STATE.queue),
-                            running=RUNTIME_STATE.running,
-                        )
-                elif a == "q":
-                    ok, position, item = RUNTIME_STATE.request_queue(task.strip())
-                    if not ok:
-                        emit_warning("Queue full (25). Prompt was not queued.")
-                        emit_interject_queue_lifecycle(
-                            RUNTIME_STATE, "rejected", reason="full", level="error"
-                        )
-                        log_event("queue_reject", prompt=task.strip(), reason="full")
-                    else:
-                        emit_info(f"Queued (position {position}): {task.strip()}")
-                        emit_interject_queue_lifecycle(
-                            RUNTIME_STATE,
-                            "queued",
-                            item=item,
-                            position=position,
-                            level="info",
-                        )
-                        log_event(
-                            "queued_prompt",
-                            text=task.strip(),
-                            position=position,
-                            size=len(RUNTIME_STATE.queue),
-                        )
-                else:
-                    emit_warning("Cancelled action.")
-                continue
-
-            RUNTIME_STATE.mark_running(asyncio.create_task(run_agent_bg(task, current_agent)))
-            continue
-
-            # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
-            from code_puppy.config import auto_save_session_if_enabled
-
-            auto_save_session_if_enabled()
-
-            # ================================================================
-            # WIGGUM LOOP: Re-run prompt if wiggum mode is active
-            # ================================================================
-            from code_puppy.command_line.wiggum_state import (
-                get_wiggum_prompt,
-                increment_wiggum_count,
-                is_wiggum_active,
-                stop_wiggum,
-            )
-
-            while is_wiggum_active():
-                wiggum_prompt = get_wiggum_prompt()
-                if not wiggum_prompt:
-                    stop_wiggum()
-                    break
-
-                # Increment and show debug message
-                loop_num = increment_wiggum_count()
-                from code_puppy.messaging import emit_system_message, emit_warning
-
-                emit_warning(f"\n🍩 WIGGUM RELOOPING! (Loop #{loop_num})")
-                emit_system_message(f"Re-running prompt: {wiggum_prompt}")
-
-                # Reset context/history for fresh start
-                new_session_id = finalize_autosave_session()
-                current_agent.clear_message_history()
-                emit_system_message(
-                    f"Context cleared. Session rotated to: {new_session_id}"
-                )
-
-                # Small delay to let user see the debug message
-
-                await asyncio.sleep(0.5)
-
-                try:
-                    # Re-run the wiggum prompt
-                    result, current_agent_task = await run_prompt_with_attachments(
-                        current_agent,
-                        wiggum_prompt,
-                        spinner_console=message_renderer.console,
-                    )
-
-                    if result is None:
-                        # Cancelled - stop wiggum mode
-                        emit_warning("Wiggum loop cancelled by user")
-                        stop_wiggum()
-                        break
-
-                    # Get the structured response
-                    agent_response = result.output
-
-                    # Emit structured message for proper markdown rendering
-                    response_msg = AgentResponseMessage(
-                        content=agent_response,
-                        is_markdown=True,
-                    )
-                    get_message_bus().emit(response_msg)
-
-                    # Update message history
-                    if hasattr(result, "all_messages"):
-                        current_agent.set_message_history(list(result.all_messages()))
-
-                    # Flush console
-                    if hasattr(display_console.file, "flush"):
-                        display_console.file.flush()
-                    await asyncio.sleep(0.1)
-
-                    # Auto-save
-                    auto_save_session_if_enabled()
-
-                except KeyboardInterrupt:
-                    emit_warning("\n🍩 Wiggum loop interrupted by Ctrl+C")
-                    stop_wiggum()
-                    break
-                except Exception as e:
-                    from code_puppy.messaging import emit_error
-
-                    emit_error(f"Wiggum loop error: {e}")
-                    stop_wiggum()
-                    break
-
-            # Re-disable Ctrl+C if needed (uvx mode) - must be done after
-            # each iteration as various operations may restore console mode
-            try:
-                from code_puppy.terminal_utils import ensure_ctrl_c_disabled
-
-                ensure_ctrl_c_disabled()
-            except ImportError:
-                pass
 
 
 async def run_prompt_with_attachments(
