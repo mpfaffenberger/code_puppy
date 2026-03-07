@@ -333,8 +333,10 @@ class BaseAgent(ABC):
         """
         error_lower = error_str.lower()
         file_limit_patterns = [
-            "may only contain up to",
+            # Hugging Face specific
+            "api requests may only contain up to",
             "files. got:",
+            # Generic file limit errors
             "maximum number of images",
             "too many images",
             "image limit exceeded",
@@ -382,31 +384,53 @@ class BaseAgent(ABC):
         Returns:
             True if any images were removed, False otherwise.
         """
-        removed = False
-        for part in getattr(message, "parts", []):
-            content = getattr(part, "content", None)
-            if isinstance(content, list):
-                original_len = len(content)
-                part.content = [
-                    item for item in content if not isinstance(item, BinaryContent)
-                ]
-                if len(part.content) < original_len:
-                    removed = True
-            elif isinstance(content, BinaryContent):
-                part.content = None
-                removed = True
-        return removed
+        return self._remove_n_images_from_message(message, float("inf")) > 0
 
-    def _prune_images_from_history(self, max_images: int = 12) -> bool:
-        """Prune older images from message history to make room for new ones.
+    def _remove_n_images_from_message(self, message: ModelMessage, n: int) -> int:
+        """Remove exactly N BinaryContent items from a message.
 
-        Removes images from oldest messages first, keeping the most recent
-        messages intact. This is called adaptively when we hit provider
-        file limits (e.g., Hugging Face's 16 file limit).
+        Removes images from the message until N have been removed or
+        no more images remain. Preserves other content types.
 
         Args:
-            max_images: Target maximum number of images to keep. Default 12
-                       leaves room for 4 new images before hitting 16 limit.
+            message: The message to remove images from.
+            n: Maximum number of images to remove.
+
+        Returns:
+            Number of images actually removed.
+        """
+        removed = 0
+        for part in getattr(message, "parts", []):
+            if removed >= n:
+                break
+
+            content = getattr(part, "content", None)
+            if isinstance(content, list):
+                # Filter out BinaryContent items up to the limit
+                new_content = []
+                for item in content:
+                    if removed < n and isinstance(item, BinaryContent):
+                        removed += 1
+                        continue
+                    new_content.append(item)
+                part.content = new_content
+            elif isinstance(content, BinaryContent) and removed < n:
+                part.content = None
+                removed += 1
+        return removed
+
+    def _prune_images_from_history(
+        self, max_images: int = 12, new_attachments: int = 0
+    ) -> bool:
+        """Prune older images from message history to make room for new ones.
+
+        Removes only the minimum required images from oldest messages first,
+        keeping the most recent messages intact. This is called adaptively
+        when we hit provider file limits (e.g., Hugging Face's 16 file limit).
+
+        Args:
+            max_images: Target maximum number of images to keep in history.
+            new_attachments: Number of new image attachments in current request.
 
         Returns:
             True if any images were pruned, False otherwise.
@@ -414,11 +438,21 @@ class BaseAgent(ABC):
         messages = self.get_message_history()
         total_images = self._count_total_images(messages)
 
-        if total_images <= max_images:
+        # Account for new attachments in the calculation
+        # Target: history_images + new_attachments <= 16
+        # So: history_images <= 16 - new_attachments
+        effective_max = 16 - new_attachments
+        if effective_max < 0:
+            effective_max = 0
+
+        # Use the stricter of the two limits
+        target_max = min(max_images, effective_max)
+
+        if total_images <= target_max:
             return False
 
-        # We need to remove images - start from oldest (skip first system message)
-        images_to_remove = total_images - max_images
+        # Calculate exact number of images to remove
+        images_to_remove = total_images - target_max
         removed_count = 0
 
         # Iterate from oldest to newest (skip index 0 - system prompt)
@@ -430,8 +464,12 @@ class BaseAgent(ABC):
             msg_images = self._count_images_in_message(msg)
 
             if msg_images > 0:
-                self._remove_images_from_message(msg)
-                removed_count += msg_images
+                # Calculate how many to remove from this message
+                need_to_remove = images_to_remove - removed_count
+                actually_removed = self._remove_n_images_from_message(
+                    msg, need_to_remove
+                )
+                removed_count += actually_removed
 
         if removed_count > 0:
             emit_info(
@@ -2126,13 +2164,26 @@ class BaseAgent(ABC):
                 collect_non_cancelled_exceptions(other_error)
 
                 # Handle file limit error with adaptive pruning
-                if file_limit_error and self._prune_images_from_history():
-                    emit_info(
-                        "🖼️  Image limit hit. Pruned older images from history. Retrying...",
-                        group_id=group_id,
-                    )
-                    # Retry the request with pruned history
-                    raise self._RetryWithPrunedImages()
+                if file_limit_error:
+                    # Count new attachments in current request
+                    new_attachment_count = len(attachments) if attachments else 0
+                    if self._prune_images_from_history(
+                        max_images=12, new_attachments=new_attachment_count
+                    ):
+                        emit_info(
+                            "🖼️  Image limit hit. Pruned older images from history. Retrying...",
+                            group_id=group_id,
+                        )
+                        # Retry the request with pruned history
+                        raise self._RetryWithPrunedImages()
+                    else:
+                        # Could not prune enough images - propagate the original error
+                        emit_error(
+                            "🖼️  Image limit exceeded but could not prune enough images. "
+                            "Try /clear to reset the conversation.",
+                            group_id=group_id,
+                        )
+                        remaining_exceptions.append(file_limit_error)
 
                 # If there are CancelledError exceptions in the group, re-raise them
                 cancelled_exceptions = []

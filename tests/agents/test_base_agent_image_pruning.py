@@ -222,35 +222,52 @@ class TestPruneImagesFromHistory:
         assert result is False
 
     @patch("code_puppy.agents.base_agent.emit_info")
-    def test_prunes_oldest_images_first(self, mock_emit_info, agent):
-        """Test that pruning removes images from oldest messages first."""
-        # Create messages with images
+    def test_prunes_exact_count_needed(self, mock_emit_info, agent):
+        """Test that pruning removes only the exact count needed."""
+        # Create messages with multiple images each
         img1 = BinaryContent(data=b"img1", media_type="image/png")
         img2 = BinaryContent(data=b"img2", media_type="image/png")
         img3 = BinaryContent(data=b"img3", media_type="image/png")
+        img4 = BinaryContent(data=b"img4", media_type="image/png")
 
         # System message (index 0, protected)
         system_msg = MockMessage(parts=[MockPart(content="System")])
 
-        # Old message with image (should be pruned)
-        old_msg = MockMessage(parts=[MockPart(content=img1)])
+        # Old message with 2 images (should have 1 removed, 1 kept)
+        old_msg = MockMessage(parts=[MockPart(content=[img1, img2])])
 
-        # Middle message with image (should be pruned)
-        middle_msg = MockMessage(parts=[MockPart(content=img2)])
+        # Recent message with 2 images (should be untouched initially)
+        recent_msg = MockMessage(parts=[MockPart(content=[img3, img4])])
 
-        # Recent message with image (should be kept)
-        recent_msg = MockMessage(parts=[MockPart(content=img3)])
+        agent.set_message_history([system_msg, old_msg, recent_msg])
 
-        agent.set_message_history([system_msg, old_msg, middle_msg, recent_msg])
-
-        # Prune to max 1 image
-        result = agent._prune_images_from_history(max_images=1)
+        # Prune to max 3 images (need to remove 1)
+        result = agent._prune_images_from_history(max_images=3)
 
         assert result is True
-        # Verify older images were removed
-        assert old_msg.parts[0].content is None  # Pruned
-        assert middle_msg.parts[0].content is None  # Pruned
-        assert recent_msg.parts[0].content == img3  # Kept
+        # Only 1 image should be removed from old_msg
+        assert len(old_msg.parts[0].content) == 1
+        assert recent_msg.parts[0].content == [img3, img4]  # Untouched
+
+    @patch("code_puppy.agents.base_agent.emit_info")
+    def test_respects_new_attachments(self, mock_emit_info, agent):
+        """Test that pruning accounts for new attachments."""
+        img = BinaryContent(data=b"img", media_type="image/png")
+
+        # Create 5 images in history
+        system_msg = MockMessage(parts=[MockPart(content="System")])
+        msgs = [MockMessage(parts=[MockPart(content=img)]) for _ in range(5)]
+        agent.set_message_history([system_msg] + msgs)
+
+        # With 5 new attachments, effective max is 16 - 5 = 11
+        # But we only have 5 images, so no pruning needed
+        result = agent._prune_images_from_history(max_images=12, new_attachments=5)
+        assert result is False
+
+        # With 12 new attachments, effective max is 16 - 12 = 4
+        # We have 5 images, so need to prune 1
+        result = agent._prune_images_from_history(max_images=12, new_attachments=12)
+        assert result is True
 
     @patch("code_puppy.agents.base_agent.emit_info")
     def test_emits_info_message(self, mock_emit_info, agent):
