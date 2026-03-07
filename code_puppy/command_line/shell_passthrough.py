@@ -97,7 +97,9 @@ def execute_shell_passthrough(task: str) -> None:
     command = extract_command(task)
 
     if not command:
-        console.print("[yellow]Empty command. Usage: !<command> (e.g., !ls -la)[/yellow]")
+        console.print(
+            "[yellow]Empty command. Usage: !<command> (e.g., !ls -la)[/yellow]"
+        )
         return
 
     # Escape command to prevent Rich markup injection
@@ -135,8 +137,7 @@ def execute_shell_passthrough(task: str) -> None:
     except KeyboardInterrupt:
         elapsed = time.monotonic() - start_time
         console.print(
-            f"\n[bold yellow]⚡ Interrupted[/bold yellow] "
-            f"[dim]({elapsed:.1f}s)[/dim]"
+            f"\n[bold yellow]⚡ Interrupted[/bold yellow] [dim]({elapsed:.1f}s)[/dim]"
         )
 
     except Exception as e:

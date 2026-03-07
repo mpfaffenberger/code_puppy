@@ -5,14 +5,11 @@ Code Puppy prompt without any agent processing.
 """
 
 import asyncio
-import subprocess
-from unittest.mock import AsyncMock, MagicMock, call, patch
-
-import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from code_puppy.command_line.shell_passthrough import (
-    SHELL_PASSTHROUGH_PREFIX,
     _BANNER_NAME,
+    SHELL_PASSTHROUGH_PREFIX,
     _format_banner,
     execute_shell_passthrough,
     extract_command,
@@ -241,9 +238,7 @@ class TestExecuteShellPassthrough:
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
     @patch("code_puppy.command_line.shell_passthrough.os.getcwd", return_value="/tmp")
-    def test_uses_current_working_directory(
-        self, mock_cwd, mock_get_console, mock_run
-    ):
+    def test_uses_current_working_directory(self, mock_cwd, mock_get_console, mock_run):
         """Command should run in the current working directory."""
         console = self._mock_console()
         mock_get_console.return_value = console
@@ -338,28 +333,30 @@ class TestInitialCommandPassthrough:
         mock_agent = MagicMock()
         mock_agent.get_user_prompt.return_value = "Enter task:"
 
-        with patch("code_puppy.cli_runner.print_truecolor_warning"), patch(
-            "code_puppy.cli_runner.get_cancel_agent_display_name",
-            return_value="Ctrl+C",
-        ), patch("code_puppy.messaging.emit_system_message"), patch(
-            "code_puppy.messaging.emit_info"
-        ), patch(
-            "code_puppy.messaging.emit_success"
-        ), patch(
-            "code_puppy.messaging.emit_warning"
-        ), patch(
-            "code_puppy.command_line.motd.print_motd"
-        ), patch(
-            "code_puppy.cli_runner.get_current_agent", return_value=mock_agent
-        ), patch(
-            "code_puppy.agents.agent_manager.get_current_agent",
-            return_value=mock_agent,
-        ), patch(
-            "code_puppy.cli_runner.run_prompt_with_attachments",
-            new_callable=AsyncMock,
-        ) as mock_run_prompt, patch(
-            "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
-            side_effect=EOFError,
+        with (
+            patch("code_puppy.cli_runner.print_truecolor_warning"),
+            patch(
+                "code_puppy.cli_runner.get_cancel_agent_display_name",
+                return_value="Ctrl+C",
+            ),
+            patch("code_puppy.messaging.emit_system_message"),
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.messaging.emit_success"),
+            patch("code_puppy.messaging.emit_warning"),
+            patch("code_puppy.command_line.motd.print_motd"),
+            patch("code_puppy.cli_runner.get_current_agent", return_value=mock_agent),
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=mock_agent,
+            ),
+            patch(
+                "code_puppy.cli_runner.run_prompt_with_attachments",
+                new_callable=AsyncMock,
+            ) as mock_run_prompt,
+            patch(
+                "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
+                side_effect=EOFError,
+            ),
         ):
             asyncio.run(interactive_mode(mock_renderer, initial_command="!ls -la"))
 
@@ -371,9 +368,7 @@ class TestInitialCommandPassthrough:
 
     @patch("code_puppy.command_line.shell_passthrough._get_console")
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
-    def test_execute_single_prompt_calls_passthrough(
-        self, mock_run, mock_console
-    ):
+    def test_execute_single_prompt_calls_passthrough(self, mock_run, mock_console):
         """execute_single_prompt with '!ls' should run shell, not the agent."""
         from code_puppy.cli_runner import execute_single_prompt
 
@@ -382,11 +377,12 @@ class TestInitialCommandPassthrough:
         mock_renderer = MagicMock()
         mock_renderer.console = MagicMock()
 
-        with patch(
-            "code_puppy.cli_runner.get_current_agent"
-        ) as mock_agent, patch(
-            "code_puppy.cli_runner.run_prompt_with_attachments"
-        ) as mock_run_prompt:
+        with (
+            patch("code_puppy.cli_runner.get_current_agent") as mock_agent,
+            patch(
+                "code_puppy.cli_runner.run_prompt_with_attachments"
+            ) as mock_run_prompt,
+        ):
             asyncio.run(execute_single_prompt("!ls -la", mock_renderer))
 
             # Shell command should have been executed
@@ -411,16 +407,15 @@ class TestInitialCommandPassthrough:
         mock_response.output = "Hello!"
         mock_response.all_messages.return_value = []
 
-        with patch(
-            "code_puppy.cli_runner.get_current_agent"
-        ), patch(
-            "code_puppy.cli_runner.run_prompt_with_attachments",
-            new_callable=AsyncMock,
-            return_value=(mock_response, None),
-        ), patch(
-            "code_puppy.messaging.get_message_bus"
-        ), patch(
-            "code_puppy.messaging.message_queue.emit_info"
+        with (
+            patch("code_puppy.cli_runner.get_current_agent"),
+            patch(
+                "code_puppy.cli_runner.run_prompt_with_attachments",
+                new_callable=AsyncMock,
+                return_value=(mock_response, None),
+            ),
+            patch("code_puppy.messaging.get_message_bus"),
+            patch("code_puppy.messaging.message_queue.emit_info"),
         ):
             asyncio.run(execute_single_prompt("write me a script", mock_renderer))
 
