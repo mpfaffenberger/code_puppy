@@ -616,8 +616,13 @@ class RichConsoleRenderer:
         icon = op_icons.get(msg.operation, "📄")
         op_color = op_colors.get(msg.operation, "white")
 
-        # Header on single line
-        banner = self._format_banner("edit_file", "EDIT FILE")
+        # Choose banner based on operation type
+        if msg.operation == "create":
+            banner = self._format_banner("create_file", "CREATE FILE")
+        elif msg.operation == "delete":
+            banner = self._format_banner("delete_file", "DELETE FILE")
+        else:
+            banner = self._format_banner("replace_in_file", "EDIT FILE")
         self._console.print(
             f"\n{banner} "
             f"{icon} [{op_color}]{msg.operation.upper()}[/{op_color}] "

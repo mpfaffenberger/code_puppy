@@ -45,7 +45,9 @@ class TestToolsContentToolNames:
         file_tools = [
             "list_files",
             "read_file",
-            "edit_file",
+            "create_file",
+            "replace_in_file",
+            "delete_snippet",
             "delete_file",
         ]
         for tool in file_tools:

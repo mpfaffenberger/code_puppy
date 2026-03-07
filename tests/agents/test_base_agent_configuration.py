@@ -236,7 +236,7 @@ class TestCodePuppyDynamicPrompt:
         # These sections must be present in both variants
         for expected in [
             "the most loyal digital puppy",
-            "edit_file",
+            "replace_in_file",
             "run_shell_command",
             "list_files",
             "invoke_agent",

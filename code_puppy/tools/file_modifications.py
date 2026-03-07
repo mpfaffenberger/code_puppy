@@ -14,6 +14,7 @@ import difflib
 import json
 import os
 import traceback
+import warnings
 from typing import Any, Dict, List, Union
 
 import json_repair
@@ -651,7 +652,21 @@ def _delete_file(
 
 
 def register_edit_file(agent):
-    """Register only the edit_file tool."""
+    """Register only the edit_file tool.
+
+    .. deprecated::
+        Use register_create_file, register_replace_in_file, and
+        register_delete_snippet instead. edit_file is auto-expanded
+        to these three tools when listed in an agent's tool config.
+    """
+    warnings.warn(
+        "register_edit_file() is deprecated. Use register_create_file, "
+        "register_replace_in_file, and register_delete_snippet instead. "
+        "Agents listing 'edit_file' in their tools config will automatically "
+        "get the three new tools via TOOL_EXPANSIONS.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     @agent.tool
     def edit_file(
@@ -731,6 +746,128 @@ def register_delete_file(agent):
         enhanced_results = on_delete_file(context, result, file_path)
         if enhanced_results:
             # Use the first non-None enhanced result
+            for enhanced_result in enhanced_results:
+                if enhanced_result is not None:
+                    result = enhanced_result
+                    break
+
+        return result
+
+
+# Module-level aliases captured before registration functions are defined.
+# Inside register_replace_in_file, the @agent.tool decorator creates a local
+# function named 'replace_in_file' which shadows the module-level helper of the
+# same name for the entire enclosing scope (Python scoping rules).  We capture
+# a reference here so the registration function can call the helper.
+_replace_in_file_helper = replace_in_file
+
+
+def register_create_file(agent):
+    """Register the create_file tool for creating or overwriting files."""
+    # Local alias to avoid shadowing by the @agent.tool decorated function below
+    _write_file = write_to_file
+
+    @agent.tool
+    def create_file(
+        context: RunContext,
+        file_path: str = "",
+        content: str = "",
+        overwrite: bool = False,
+    ) -> Dict[str, Any]:
+        """Create a new file or overwrite an existing one with the provided content.
+
+        Args:
+            file_path: Path to the file to create (relative or absolute).
+            content: The full content to write to the file.
+            overwrite: Set to True to overwrite an existing file. Defaults to False.
+        """
+        group_id = generate_group_id("create_file", file_path)
+        result = _write_file(
+            context, file_path, content, overwrite, message_group=group_id
+        )
+        if "diff" in result:
+            del result["diff"]
+
+        # Trigger legacy edit_file callbacks for backward compatibility
+        payload = ContentPayload(
+            file_path=file_path, content=content, overwrite=overwrite
+        )
+        enhanced_results = on_edit_file(context, result, payload)
+        if enhanced_results:
+            for enhanced_result in enhanced_results:
+                if enhanced_result is not None:
+                    result = enhanced_result
+                    break
+
+        return result
+
+
+def register_replace_in_file(agent):
+    """Register the replace_in_file tool for targeted text replacements."""
+
+    @agent.tool
+    def replace_in_file(
+        context: RunContext,
+        file_path: str = "",
+        replacements: List[Replacement] = [],
+    ) -> Dict[str, Any]:
+        """Apply targeted text replacements to an existing file.
+
+        Each replacement specifies an old_str to find and a new_str to replace it with.
+        Replacements are applied sequentially. Prefer this over full file rewrites.
+
+        Args:
+            file_path: Path to the file to modify.
+            replacements: List of {old_str, new_str} replacements to apply in order.
+        """
+        group_id = generate_group_id("replace_in_file", file_path)
+        replacements_dict = [
+            {"old_str": rep.old_str, "new_str": rep.new_str} for rep in replacements
+        ]
+        result = _replace_in_file_helper(
+            context, file_path, replacements_dict, message_group=group_id
+        )
+        if "diff" in result:
+            del result["diff"]
+
+        # Trigger legacy edit_file callbacks for backward compatibility
+        payload = ReplacementsPayload(file_path=file_path, replacements=replacements)
+        enhanced_results = on_edit_file(context, result, payload)
+        if enhanced_results:
+            for enhanced_result in enhanced_results:
+                if enhanced_result is not None:
+                    result = enhanced_result
+                    break
+
+        return result
+
+
+def register_delete_snippet(agent):
+    """Register the delete_snippet tool for removing text from files."""
+    # Local alias to avoid shadowing by the @agent.tool decorated function below
+    _remove_snippet = delete_snippet_from_file
+
+    @agent.tool
+    def delete_snippet(
+        context: RunContext,
+        file_path: str = "",
+        snippet: str = "",
+    ) -> Dict[str, Any]:
+        """Delete the first occurrence of a text snippet from a file.
+
+        Args:
+            file_path: Path to the file to modify.
+            snippet: The exact text to find and remove from the file.
+        """
+        group_id = generate_group_id("delete_snippet", file_path)
+        result = _remove_snippet(context, file_path, snippet, message_group=group_id)
+        if "diff" in result:
+            del result["diff"]
+
+        # Trigger legacy edit_file callbacks for backward compatibility
+        payload = DeleteSnippetPayload(file_path=file_path, delete_snippet=snippet)
+        enhanced_results = on_edit_file(context, result, payload)
+        if enhanced_results:
             for enhanced_result in enhanced_results:
                 if enhanced_result is not None:
                     result = enhanced_result

@@ -29,7 +29,9 @@ class CodePuppyAgent(BaseAgent):
             "list_files",
             "read_file",
             "grep",
-            "edit_file",
+            "create_file",
+            "replace_in_file",
+            "delete_snippet",
             "delete_file",
             "agent_run_shell_command",
             "agent_share_your_reasoning",
@@ -118,7 +120,9 @@ YOU MUST USE THESE TOOLS to complete tasks (do not just describe what should be 
 File Operations:
    - list_files(directory, recursive): ALWAYS explore directories before reading/modifying files
    - read_file(file_path, start_line, num_lines): ALWAYS read existing files before modifying them. Use start_line/num_lines for large files.
-   - edit_file(payload): Swiss-army file editor. Prefer ReplacementsPayload for targeted edits. Keep diffs small (100-300 lines). Never paste entire files in old_str.
+   - create_file(file_path, content, overwrite): Create a new file or overwrite an existing one.
+   - replace_in_file(file_path, replacements): Apply targeted text replacements to an existing file. Prefer this over full file rewrites. Keep diffs small (100-300 lines). Never paste entire files in old_str.
+   - delete_snippet(file_path, snippet): Remove the first occurrence of a text snippet from a file.
    - delete_file(file_path): Remove files when needed
    - grep(search_string, directory): Ripgrep-powered search across files (max 200 matches)
 {r["reasoning_tool_section"]}
@@ -138,7 +142,7 @@ Important rules:
 - You MUST use tools — DO NOT just output code or descriptions
 {r["pre_tool_rule"]}
 - Check if files exist before modifying or deleting them
-- Prefer MODIFYING existing files (edit_file) over creating new ones
+- Prefer MODIFYING existing files (replace_in_file) over creating new ones
 - After system operations, always explain the results
 {r["loop_rule"]}
 - Continue autonomously unless user input is definitively required

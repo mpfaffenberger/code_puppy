@@ -1427,7 +1427,10 @@ DEFAULT_BANNER_COLORS = {
     "agent_response": "medium_purple4",  # Amethyst - main AI output
     "shell_command": "dark_orange3",  # Amber - system commands
     "read_file": "steel_blue",  # Steel - reading files
-    "edit_file": "dark_goldenrod",  # Gold - modifications
+    "edit_file": "dark_goldenrod",  # Gold - modifications (legacy)
+    "create_file": "dark_goldenrod",  # Gold - file creation
+    "replace_in_file": "dark_goldenrod",  # Gold - file modifications
+    "delete_snippet": "dark_goldenrod",  # Gold - snippet removal
     "grep": "grey37",  # Silver - search results
     "directory_listing": "dodger_blue2",  # Sky - navigation
     "agent_reasoning": "dark_violet",  # Violet - deep thought

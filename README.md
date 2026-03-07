@@ -374,14 +374,16 @@ Agents can access these tools based on their configuration:
 - **`list_files`**: Directory and file listing
 - **`read_file`**: File content reading
 - **`grep`**: Text search across files
-- **`edit_file`**: File editing and creation
+- **`create_file`**: Create new files or overwrite existing ones
+- **`replace_in_file`**: Targeted text replacements in existing files
+- **`delete_snippet`**: Remove a text snippet from a file
 - **`delete_file`**: File deletion
 - **`agent_run_shell_command`**: Shell command execution
 - **`agent_share_your_reasoning`**: Share reasoning with user
 
 ### Tool Access Examples
 - **Read-only agent**: `["list_files", "read_file", "grep"]`
-- **File editor agent**: `["list_files", "read_file", "edit_file"]`
+- **File editor agent**: `["list_files", "read_file", "create_file", "replace_in_file"]`
 - **Full access agent**: All tools (like Code-Puppy)
 
 ## System Prompt Formats
@@ -419,7 +421,7 @@ Agents can access these tools based on their configuration:
     "You help beginners learn Python step by step.",
     "Always encourage learning and provide constructive feedback."
   ],
-  "tools": ["read_file", "edit_file", "agent_share_your_reasoning"],
+  "tools": ["read_file", "create_file", "replace_in_file", "agent_share_your_reasoning"],
   "user_prompt": "What Python concept would you like to learn today?"
 }
 ```
@@ -456,7 +458,8 @@ Agents can access these tools based on their configuration:
   "tools": [
     "list_files",
     "read_file",
-    "edit_file",
+    "create_file",
+    "replace_in_file",
     "agent_run_shell_command",
     "agent_share_your_reasoning"
   ],
@@ -488,7 +491,8 @@ Agents can access these tools based on their configuration:
 ### Tool Selection
 - Only include tools the agent actually needs
 - Most agents need `agent_share_your_reasoning`
-- File manipulation agents need `read_file`, `edit_file`
+- File manipulation agents need `read_file`, `create_file`, `replace_in_file`
+- Note: `"edit_file"` still works in tool lists (auto-expands to the three individual tools)
 - Research agents need `grep`, `list_files`
 
 ### Display Names
@@ -568,7 +572,9 @@ class MyCustomAgent(BaseAgent):
             "list_files",
             "read_file",
             "grep",
-            "edit_file",
+            "create_file",
+            "replace_in_file",
+            "delete_snippet",
             "delete_file",
             "agent_run_shell_command",
             "agent_share_your_reasoning"
