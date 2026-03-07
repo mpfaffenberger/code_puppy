@@ -377,8 +377,9 @@ class TestConsoleSpinnerGeneratePanel:
         assert str(result) == ""
 
     def test_generate_panel_includes_thinking_message(self):
-        """Test that panel includes thinking message."""
+        """Test that panel includes a rotating loading message with puppy name."""
         from code_puppy.messaging.spinner.console_spinner import ConsoleSpinner
+        from code_puppy.messaging.spinner.spinner_base import SpinnerBase
 
         spinner = ConsoleSpinner(console=MagicMock())
         spinner._paused = False
@@ -390,7 +391,9 @@ class TestConsoleSpinnerGeneratePanel:
             result = spinner._generate_spinner_panel()
 
         result_str = str(result)
-        assert "thinking" in result_str.lower()
+        # Should contain the puppy name prefix (e.g. "Blu is ...")
+        assert SpinnerBase.puppy_name.lower() in result_str.lower()
+        assert " is " in result_str
 
     def test_generate_panel_includes_current_frame(self):
         """Test that panel includes current spinner frame."""
