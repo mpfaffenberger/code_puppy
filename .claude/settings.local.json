@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(superpowers:systematic-debugging)",
+      "Bash(grep:*)",
+      "Bash(curl:*)"
+    ]
+  }
+}
