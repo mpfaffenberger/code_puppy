@@ -80,7 +80,9 @@ class TestCountImagesInMessage:
 
     def test_message_with_text_only(self, agent):
         """Test counting images in a message with only text parts."""
-        msg = MockMessage(parts=[MockPart(content="Hello world"), MockPart(content="More text")])
+        msg = MockMessage(
+            parts=[MockPart(content="Hello world"), MockPart(content="More text")]
+        )
         assert agent._count_images_in_message(msg) == 0
 
     def test_message_with_single_image(self, agent):
@@ -91,8 +93,12 @@ class TestCountImagesInMessage:
 
     def test_message_with_multiple_images_in_list(self, agent):
         """Test counting images in a message with multiple BinaryContents in a list."""
-        binary_content1 = BinaryContent(data=b"fake_image_data1", media_type="image/png")
-        binary_content2 = BinaryContent(data=b"fake_image_data2", media_type="image/png")
+        binary_content1 = BinaryContent(
+            data=b"fake_image_data1", media_type="image/png"
+        )
+        binary_content2 = BinaryContent(
+            data=b"fake_image_data2", media_type="image/png"
+        )
         text_part = MockPart(content="Some text")
         msg = MockMessage(
             parts=[MockPart(content=[binary_content1, text_part, binary_content2])]
@@ -137,9 +143,7 @@ class TestCountTotalImages:
 
         msg1 = MockMessage(parts=[MockPart(content=binary_content1)])
         msg2 = MockMessage(parts=[MockPart(content="Text only")])
-        msg3 = MockMessage(
-            parts=[MockPart(content=[binary_content2, binary_content3])]
-        )
+        msg3 = MockMessage(parts=[MockPart(content=[binary_content2, binary_content3])])
 
         assert agent._count_total_images([msg1, msg2, msg3]) == 3
 
@@ -201,9 +205,7 @@ class TestPruneImagesFromHistory:
 
     def test_no_images_in_history(self, agent):
         """Test pruning when there are no images in history."""
-        agent.set_message_history(
-            [MockMessage(parts=[MockPart(content="No images")])]
-        )
+        agent.set_message_history([MockMessage(parts=[MockPart(content="No images")])])
         result = agent._prune_images_from_history(max_images=5)
         assert result is False
 
