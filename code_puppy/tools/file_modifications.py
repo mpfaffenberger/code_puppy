@@ -774,13 +774,7 @@ def register_create_file(agent):
         content: str = "",
         overwrite: bool = False,
     ) -> Dict[str, Any]:
-        """Create a new file or overwrite an existing one with the provided content.
-
-        Args:
-            file_path: Path to the file to create (relative or absolute).
-            content: The full content to write to the file.
-            overwrite: Set to True to overwrite an existing file. Defaults to False.
-        """
+        """Create a new file or overwrite an existing one with the provided content."""
         group_id = generate_group_id("create_file", file_path)
         result = _write_file(
             context, file_path, content, overwrite, message_group=group_id
@@ -815,10 +809,6 @@ def register_replace_in_file(agent):
 
         Each replacement specifies an old_str to find and a new_str to replace it with.
         Replacements are applied sequentially. Prefer this over full file rewrites.
-
-        Args:
-            file_path: Path to the file to modify.
-            replacements: List of {old_str, new_str} replacements to apply in order.
         """
         group_id = generate_group_id("replace_in_file", file_path)
         replacements_dict = [
@@ -853,12 +843,7 @@ def register_delete_snippet(agent):
         file_path: str = "",
         snippet: str = "",
     ) -> Dict[str, Any]:
-        """Delete the first occurrence of a text snippet from a file.
-
-        Args:
-            file_path: Path to the file to modify.
-            snippet: The exact text to find and remove from the file.
-        """
+        """Remove the first occurrence of a text snippet from a file."""
         group_id = generate_group_id("delete_snippet", file_path)
         result = _remove_snippet(context, file_path, snippet, message_group=group_id)
         if "diff" in result:

@@ -42,14 +42,7 @@ def register_activate_skill(agent):
     async def activate_skill(
         context: RunContext, skill_name: str = ""
     ) -> SkillActivateOutput:
-        """Activate a skill by loading its full SKILL.md instructions.
-
-        Args:
-            skill_name: Name of the skill to activate (from available skills list)
-
-        Returns:
-            SkillActivateOutput: Contains the skill's full content and available resources.
-        """
+        """Activate a skill by loading its full SKILL.md instructions."""
         # Import from plugin
         from pathlib import Path
 

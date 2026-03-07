@@ -248,12 +248,6 @@ def register_list_agents(agent):
         from code_puppy.config import get_banner_color
 
         list_agents_color = get_banner_color("list_agents")
-        emit_info(
-            Text.from_markup(
-                f"\n[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}]"
-            ),
-            message_group=group_id,
-        )
 
         try:
             from code_puppy.agents import get_agent_descriptions, get_available_agents
@@ -272,15 +266,15 @@ def register_list_agents(agent):
                 for name, display_name in agents_dict.items()
             ]
 
-            # Accumulate output into a single string and emit once
-            # Use Text.from_markup() to pass a Rich object that won't be escaped
-            lines = []
-            for agent_item in agents:
-                lines.append(
-                    f"- [bold]{agent_item.name}[/bold]: {agent_item.display_name}\n"
-                    f"  [dim]{agent_item.description}[/dim]"
-                )
-            emit_info(Text.from_markup("\n".join(lines)), message_group=group_id)
+            # Quiet output - banner and count on same line
+            agent_count = len(agents)
+            emit_info(
+                Text.from_markup(
+                    f"[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}] "
+                    f"[dim]Found {agent_count} agent(s).[/dim]"
+                ),
+                message_group=group_id,
+            )
 
             return ListAgentsOutput(agents=agents)
 
@@ -304,13 +298,6 @@ def register_invoke_agent(agent):
         context: RunContext, agent_name: str, prompt: str, session_id: str | None = None
     ) -> AgentInvokeOutput:
         """Invoke a specific sub-agent with a given prompt.
-
-        Args:
-            agent_name: The name of the agent to invoke
-            prompt: The prompt to send to the agent
-            session_id: Optional session ID for maintaining conversation memory across invocations.
-                       Must be kebab-case. Hash suffix auto-appended for new sessions.
-                       To continue a session, use the full session_id from the previous response.
 
         Returns:
             AgentInvokeOutput: Contains response, agent_name, session_id, and error fields.
