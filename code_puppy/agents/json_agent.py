@@ -3,11 +3,17 @@
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional, TypedDict
 
 from .base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
+
+
+class AgentSourceInfo(TypedDict):
+    path: str
+    source: Literal["user", "project"]
+    shadowed_path: Optional[str]
 
 
 class JSONAgent(BaseAgent):
@@ -159,20 +165,37 @@ def discover_json_agents() -> Dict[str, str]:
     Returns:
         Dict mapping agent names to their JSON file paths.
     """
+    return {
+        name: info["path"] for name, info in discover_json_agents_with_sources().items()
+    }
+
+
+def discover_json_agents_with_sources() -> Dict[str, AgentSourceInfo]:
+    """Discover JSON agents and record their source locations and any overrides.
+
+    Like discover_json_agents(), but returns richer metadata so callers can
+    surface when a project agent is shadowing a user-level agent.
+
+    Returns:
+        Dict mapping agent names to a dict with keys:
+          - "path": str — the file path of the agent that will be used
+          - "source": "user" | "project" — where the active agent lives
+          - "shadowed_path": str | None — path of the user-level agent that
+            was overridden by a project agent, or None if no conflict
+    """
     from code_puppy.config import (
         get_project_agents_directory,
         get_user_agents_directory,
     )
 
-    agents: Dict[str, str] = {}
-
-    # 1. Discover user-level agents first
+    # Collect user-level agents first
+    user_agents: Dict[str, str] = {}
     user_agents_dir = Path(get_user_agents_directory())
     if user_agents_dir.exists() and user_agents_dir.is_dir():
         for json_file in user_agents_dir.glob("*.json"):
             try:
                 agent = JSONAgent(str(json_file))
-                agents[agent.name] = str(json_file)
+                user_agents[agent.name] = str(json_file)
             except Exception as e:
                 logger.debug(
                     "Skipping invalid user agent file: %s (reason: %s: %s)",
@@ -180,16 +203,16 @@ def discover_json_agents() -> Dict[str, str]:
                     type(e).__name__,
                     str(e),
                 )
-                continue
 
-    # 2. Discover project-level agents (overrides user agents on name collision)
+    # Collect project-level agents
+    project_agents: Dict[str, str] = {}
     project_agents_dir_str = get_project_agents_directory()
     if project_agents_dir_str is not None:
         project_agents_dir = Path(project_agents_dir_str)
         for json_file in project_agents_dir.glob("*.json"):
             try:
                 agent = JSONAgent(str(json_file))
-                agents[agent.name] = str(json_file)
+                project_agents[agent.name] = str(json_file)
             except Exception as e:
                 logger.debug(
                     "Skipping invalid project agent file: %s (reason: %s: %s)",
@@ -197,6 +220,18 @@ def discover_json_agents() -> Dict[str, str]:
                     type(e).__name__,
                     str(e),
                 )
-                continue
 
-    return agents
+    result: Dict[str, AgentSourceInfo] = {}
+
+    for name, path in user_agents.items():
+        result[name] = {"path": path, "source": "user", "shadowed_path": None}
+
+    for name, path in project_agents.items():
+        shadowed = user_agents.get(name)
+        result[name] = {
+            "path": path,
+            "source": "project",
+            "shadowed_path": shadowed,
+        }
+
+    return result

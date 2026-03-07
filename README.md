@@ -466,8 +466,11 @@ Agents can access these tools based on their configuration:
 
 ## File Locations
 
-### JSON Agents Directory
-- **All platforms**: `~/.code_puppy/agents/`
+### JSON Agents Directories
+- **User-level (global)**: `~/.code_puppy/agents/`
+- **Project-level (shared via version control)**: `.code_puppy/agents/`
+
+Project-level agents in `.code_puppy/agents/` override user-level agents on name collision. This directory should be committed to version control for team sharing.
 
 ### Python Agents Directory
 - **Built-in**: `code_puppy/agents/` (in package)
@@ -501,8 +504,9 @@ Agents can access these tools based on their configuration:
 ### Agent Discovery
 The system automatically discovers agents by:
 1. **Python Agents**: Scanning `code_puppy/agents/` for classes inheriting from `BaseAgent`
-2. **JSON Agents**: Scanning user's agents directory for `*-agent.json` files
-3. Instantiating and registering discovered agents
+2. **JSON Agents (user-level)**: Scanning `~/.code_puppy/agents/` for `*.json` files
+3. **JSON Agents (project-level)**: Scanning `.code_puppy/agents/` for `*.json` files (overrides user-level on name collision)
+4. Instantiating and registering discovered agents
 
 ### JSONAgent Implementation
 JSON agents are powered by the `JSONAgent` class (`code_puppy/agents/json_agent.py`):
@@ -647,11 +651,13 @@ The agent system supports future expansion:
 - **Testing**: Comprehensive test suite in `tests/test_json_agents.py`
 
 ### JSON Agent Loading Process
-1. System scans `~/.code_puppy/agents/` for `*-agent.json` files
-2. `JSONAgent` class loads and validates each JSON configuration
-3. Agents are registered in unified agent registry
-4. Users can switch to JSON agents via `/agent <name>` command
-5. Tool access and system prompts work identically to Python agents
+1. System scans `~/.code_puppy/agents/` for `*.json` agent files (user-level)
+2. System scans `.code_puppy/agents/` for `*.json` agent files (project-level)
+3. Project-level agents override user-level agents on name collision
+4. `JSONAgent` class loads and validates each JSON configuration
+5. Agents are registered in unified agent registry
+6. Users can switch to JSON agents via `/agent <name>` command
+7. Tool access and system prompts work identically to Python agents
 
 ### Error Handling
 - Invalid JSON syntax: Clear error messages with line numbers

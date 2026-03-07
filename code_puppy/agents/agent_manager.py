@@ -8,7 +8,7 @@ import re
 import threading
 import uuid
 from pathlib import Path
-from typing import Dict, List, Optional, Type, Union
+from typing import Dict, List, Optional, Tuple, Type, Union
 
 from pydantic_ai.messages import ModelMessage
 
@@ -278,7 +278,7 @@ def _discover_agents(message_group_id: Optional[str] = None):
             )
             continue
 
-    # 2. Discover JSON agents in user directory
+    # 2. Discover JSON agents in user directory and project directory
     try:
         json_agents = discover_json_agents()
 
@@ -484,6 +484,43 @@ def load_agent(agent_name: str) -> BaseAgent:
         return agent_ref()
 
 
+def get_agent_source_path(agent_name: str) -> Optional[str]:
+    """Get the file path for a JSON agent, or None for Python agents.
+
+    Args:
+        agent_name: The agent name to look up.
+
+    Returns:
+        File path string if agent is JSON-based, None otherwise.
+    """
+    if agent_name not in _AGENT_REGISTRY:
+        message_group_id = str(uuid.uuid4())
+        _discover_agents(message_group_id=message_group_id)
+    ref = _AGENT_REGISTRY.get(agent_name)
+    return ref if isinstance(ref, str) else None
+
+
+def get_agent_shadowed_path(agent_name: str) -> Optional[str]:
+    """Get the user-level path that a project agent is shadowing, if any.
+
+    Returns the path of the user-level JSON agent that was overridden by a
+    project-level agent with the same name, or None if there is no conflict.
+
+    Args:
+        agent_name: The agent name to look up.
+
+    Returns:
+        File path of the shadowed user agent, or None.
+    """
+    from code_puppy.agents.json_agent import discover_json_agents_with_sources
+
+    sources = discover_json_agents_with_sources()
+    info = sources.get(agent_name)
+    if info is None:
+        return None
+    return info.get("shadowed_path")
+
+
 def get_agent_descriptions() -> Dict[str, str]:
     """Get descriptions for all available agents.
 
@@ -527,6 +564,46 @@ def get_agent_descriptions() -> Dict[str, str]:
             descriptions[name] = "No description available"
 
     return descriptions
+
+
+def get_available_agents_with_descriptions() -> Dict[str, Tuple[str, str]]:
+    """Get agents with display names and descriptions in a single discovery pass.
+
+    Prefer this over calling get_available_agents() + get_agent_descriptions()
+    separately, which each trigger a full _discover_agents() scan.
+
+    Returns:
+        Dict mapping agent name to (display_name, description).
+    """
+    from ..config import (
+        PACK_AGENT_NAMES,
+        UC_AGENT_NAMES,
+        get_pack_agents_enabled,
+        get_universal_constructor_enabled,
+    )
+
+    message_group_id = str(uuid.uuid4())
+    _discover_agents(message_group_id=message_group_id)
+
+    pack_agents_enabled = get_pack_agents_enabled()
+    uc_enabled = get_universal_constructor_enabled()
+
+    result: Dict[str, Tuple[str, str]] = {}
+    for name, agent_ref in _AGENT_REGISTRY.items():
+        if not pack_agents_enabled and name in PACK_AGENT_NAMES:
+            continue
+        if not uc_enabled and name in UC_AGENT_NAMES:
+            continue
+        try:
+            if isinstance(agent_ref, str):
+                agent_instance = JSONAgent(agent_ref)
+            else:
+                agent_instance = agent_ref()
+            result[name] = (agent_instance.display_name, agent_instance.description)
+        except Exception:
+            result[name] = (name.title(), "No description available")
+
+    return result
 
 
 def refresh_agents():
@@ -600,11 +677,68 @@ def _next_clone_index(
         next_index += 1
 
 
-def clone_agent(agent_name: str) -> Optional[str]:
-    """Clone an agent definition into the user agents directory.
+_PROJECT_DIR_LABEL = "Project directory"
+_USER_DIR_LABEL = "User directory"
+
+
+def _ask_clone_location() -> Optional[Path]:
+    """Ask user where to save the cloned agent.
+
+    Returns:
+        Directory Path, or None if cancelled.
+    """
+    from code_puppy.tools.ask_user_question.handler import ask_user_question
+    from ..config import get_user_agents_directory, get_project_agents_directory
+
+    project_dir = get_project_agents_directory()
+
+    # Skip the prompt entirely when there is no project directory — no choice to make.
+    if not project_dir:
+        return Path(get_user_agents_directory())
+
+    options = [
+        {
+            "label": _USER_DIR_LABEL,
+            "description": "~/.code_puppy/agents/ (available in all projects)",
+        },
+        {
+            "label": _PROJECT_DIR_LABEL,
+            "description": ".code_puppy/agents/ (version controlled)",
+        },
+    ]
+
+    result = ask_user_question(
+        [
+            {
+                "question": "Where should the cloned agent be saved?",
+                "header": "Location",
+                "multi_select": False,
+                "options": options,
+            }
+        ]
+    )
+
+    if result.cancelled or not result.answers:
+        return None
+
+    selected = result.answers[0].selected_options
+    if not selected:
+        return None
+    choice = selected[0]
+    if choice == _PROJECT_DIR_LABEL and project_dir:
+        return Path(project_dir)
+    return Path(get_user_agents_directory())
+
+
+def clone_agent(agent_name: str, target_dir: Optional[Path] = None) -> Optional[str]:
+    """Clone an agent definition.
 
     Args:
         agent_name: Source agent name to clone.
+        target_dir: Directory to save the clone. If None, asks the user
+            interactively (only works outside of a TUI context).
+            When called from the agent menu, pass the source agent's
+            parent directory to avoid nested TUI conflicts.
 
     Returns:
         The cloned agent name, or None if cloning failed.
@@ -618,9 +752,17 @@ def clone_agent(agent_name: str) -> Optional[str]:
         emit_warning(f"Agent '{agent_name}' not found for cloning.")
         return None
 
-    from ..config import get_agent_pinned_model, get_user_agents_directory
+    from ..config import get_agent_pinned_model
 
-    agents_dir = Path(get_user_agents_directory())
+    # Determine target directory
+    if target_dir is not None:
+        agents_dir = target_dir
+    else:
+        # Interactive prompt - only works outside of a TUI context
+        agents_dir = _ask_clone_location()
+        if agents_dir is None:
+            emit_warning("Clone cancelled - no location selected.")
+            return None
     base_name = _strip_clone_suffix(agent_name)
     existing_names = set(_AGENT_REGISTRY.keys())
     clone_index = _next_clone_index(base_name, existing_names, agents_dir)
@@ -683,7 +825,7 @@ def clone_agent(agent_name: str) -> Optional[str]:
     try:
         with open(clone_path, "w", encoding="utf-8") as f:
             json.dump(clone_config, f, indent=2, ensure_ascii=False)
-        emit_success(f"Cloned '{agent_name}' to '{clone_name}'.")
+        emit_success(f"Cloned '{agent_name}' to '{clone_name}' at {clone_path}")
         return clone_name
     except Exception as exc:
         emit_warning(f"Failed to write clone file '{clone_path}': {exc}")
@@ -691,20 +833,21 @@ def clone_agent(agent_name: str) -> Optional[str]:
 
 
 def delete_clone_agent(agent_name: str) -> bool:
-    """Delete a cloned JSON agent definition.
+    """Delete a JSON agent definition.
+
+    Only agents whose files live inside the known user or project agents
+    directories are eligible for deletion. This guard is enforced here in the
+    manager (public API) — not only at the UI layer — so that callers outside
+    the TUI cannot delete arbitrary files via the registry.
 
     Args:
-        agent_name: Clone agent name to delete.
+        agent_name: Agent name to delete.
 
     Returns:
-        True if the clone was deleted, False otherwise.
+        True if the agent was deleted, False otherwise.
     """
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
-
-    if not is_clone_agent_name(agent_name):
-        emit_warning(f"Agent '{agent_name}' is not a clone.")
-        return False
 
     if get_current_agent_name() == agent_name:
         emit_warning("Cannot delete the active agent. Switch agents first.")
@@ -712,31 +855,40 @@ def delete_clone_agent(agent_name: str) -> bool:
 
     agent_ref = _AGENT_REGISTRY.get(agent_name)
     if agent_ref is None:
-        emit_warning(f"Clone '{agent_name}' not found.")
+        emit_warning(f"Agent '{agent_name}' not found.")
         return False
 
     if not isinstance(agent_ref, str):
-        emit_warning(f"Clone '{agent_name}' is not a JSON agent.")
+        emit_warning(f"Agent '{agent_name}' is not a JSON agent.")
         return False
 
-    clone_path = Path(agent_ref)
-    if not clone_path.exists():
-        emit_warning(f"Clone file for '{agent_name}' does not exist.")
+    agent_path = Path(agent_ref)
+    if not agent_path.exists():
+        emit_warning(f"Agent file for '{agent_name}' does not exist.")
         return False
 
-    from ..config import get_user_agents_directory
+    # Directory-confinement guard: must live in manager (public API entry point),
+    # not only in the TUI, so external callers cannot delete arbitrary paths.
+    from ..config import get_user_agents_directory, get_project_agents_directory
 
-    agents_dir = Path(get_user_agents_directory()).resolve()
-    if clone_path.resolve().parent != agents_dir:
-        emit_warning(f"Refusing to delete non-user clone '{agent_name}'.")
+    allowed_dirs: set[Path] = set()
+    if u := get_user_agents_directory():
+        allowed_dirs.add(Path(u).resolve())
+    if p := get_project_agents_directory():
+        allowed_dirs.add(Path(p).resolve())
+
+    if agent_path.resolve().parent not in allowed_dirs:
+        emit_warning(
+            f"Refusing to delete '{agent_name}' outside known agents directories."
+        )
         return False
 
     try:
-        clone_path.unlink()
-        emit_success(f"Deleted clone '{agent_name}'.")
+        agent_path.unlink()
+        emit_success(f"Deleted agent '{agent_name}'.")
         _AGENT_REGISTRY.pop(agent_name, None)
         _AGENT_HISTORIES.pop(agent_name, None)
         return True
     except Exception as exc:
-        emit_warning(f"Failed to delete clone '{agent_name}': {exc}")
+        emit_warning(f"Failed to delete agent '{agent_name}': {exc}")
         return False
