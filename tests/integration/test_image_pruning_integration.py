@@ -25,10 +25,10 @@ def test_image_pruning_error_detection(cli_harness: CliHarness) -> None:
 
     # Test cases for error detection
     test_cases = [
-        # Hugging Face style errors
+        # Hugging Face style errors (stricter pattern requires "api requests" prefix)
         ("API requests may only contain up to 16 files. Got: 17", True),
         ("api requests may only contain up to 16 files. got: 17", True),
-        ("may only contain up to 16 files", True),
+        # Files. Got: pattern
         ("files. Got: 20", True),
         ("files. got: 25", True),
         # Generic image limit errors
@@ -36,7 +36,8 @@ def test_image_pruning_error_detection(cli_harness: CliHarness) -> None:
         ("too many images", True),
         ("image limit exceeded", True),
         ("file limit exceeded", True),
-        # Non-matching errors (false positives)
+        # Non-matching errors (false positives - must be specific)
+        ("may only contain up to 16 files", False),  # Too broad, needs "api requests"
         ("Some other error about rate limiting", False),
         ("rate limit exceeded", False),
         ("Context length exceeded", False),
@@ -130,8 +131,7 @@ def test_image_pruning_from_history(cli_harness: CliHarness) -> None:
 
     # Create mock images
     images = [
-        BinaryContent(data=f"img{i}".encode(), media_type="image/png")
-        for i in range(5)
+        BinaryContent(data=f"img{i}".encode(), media_type="image/png") for i in range(5)
     ]
 
     class MockPart:
@@ -140,10 +140,7 @@ def test_image_pruning_from_history(cli_harness: CliHarness) -> None:
 
     # Create messages: system + 5 messages with 1 image each
     system_msg = ModelRequest(parts=[MockPart("System prompt")])
-    image_msgs = [
-        ModelRequest(parts=[MockPart(images[i])])
-        for i in range(5)
-    ]
+    image_msgs = [ModelRequest(parts=[MockPart(images[i])]) for i in range(5)]
 
     # Set history: system + 5 image messages = 5 total images
     agent.set_message_history([system_msg] + image_msgs)

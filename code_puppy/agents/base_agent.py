@@ -2165,8 +2165,10 @@ class BaseAgent(ABC):
 
                 # Handle file limit error with adaptive pruning
                 if file_limit_error:
-                    # Count new attachments in current request
-                    new_attachment_count = len(attachments) if attachments else 0
+                    # Count new attachments in current request (both binary and URL)
+                    new_attachment_count = (len(attachments) if attachments else 0) + (
+                        len(link_attachments) if link_attachments else 0
+                    )
                     if self._prune_images_from_history(
                         max_images=12, new_attachments=new_attachment_count
                     ):
@@ -2184,6 +2186,14 @@ class BaseAgent(ABC):
                             group_id=group_id,
                         )
                         remaining_exceptions.append(file_limit_error)
+
+                # Re-raise remaining exceptions (including file limit errors that couldn't be pruned)
+                if remaining_exceptions:
+                    if len(remaining_exceptions) == 1:
+                        raise remaining_exceptions[0]
+                    raise ExceptionGroup(
+                        "Agent run failed with errors", remaining_exceptions
+                    )
 
                 # If there are CancelledError exceptions in the group, re-raise them
                 cancelled_exceptions = []
