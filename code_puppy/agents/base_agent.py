@@ -83,7 +83,7 @@ from code_puppy.messaging.spinner import (
     update_spinner_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
-from code_puppy.summarization_agent import run_summarization_sync, SummarizationError
+from code_puppy.summarization_agent import SummarizationError, run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
     is_awaiting_user_input,
@@ -316,6 +316,175 @@ class BaseAgent(ABC):
                         if not isinstance(item, BinaryContent)
                     ]
         return messages
+
+    def _is_file_limit_error(self, error_str: str) -> bool:
+        """Check if an error is a file/image limit error.
+
+        Detects errors like:
+        - "API requests may only contain up to 16 files"
+        - "Got: 17"
+        - Similar variations from different providers
+
+        Args:
+            error_str: The error message string to check.
+
+        Returns:
+            True if this is a file limit error, False otherwise.
+        """
+        error_lower = error_str.lower()
+        file_limit_patterns = [
+            # Hugging Face specific
+            "api requests may only contain up to",
+            "files. got:",
+            # Generic file limit errors
+            "maximum number of images",
+            "too many images",
+            "image limit exceeded",
+            "file limit exceeded",
+        ]
+        return any(pattern in error_lower for pattern in file_limit_patterns)
+
+    def _count_images_in_message(self, message: ModelMessage) -> int:
+        """Count the number of BinaryContent (image) items in a message.
+
+        Args:
+            message: The message to check.
+
+        Returns:
+            Number of BinaryContent items in the message.
+        """
+        count = 0
+        for part in getattr(message, "parts", []):
+            content = getattr(part, "content", None)
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, BinaryContent):
+                        count += 1
+            elif isinstance(content, BinaryContent):
+                count += 1
+        return count
+
+    def _count_total_images(self, messages: List[ModelMessage]) -> int:
+        """Count total images across all messages.
+
+        Args:
+            messages: List of messages to count images in.
+
+        Returns:
+            Total number of BinaryContent items across all messages.
+        """
+        return sum(self._count_images_in_message(msg) for msg in messages)
+
+    def _remove_images_from_message(self, message: ModelMessage) -> bool:
+        """Remove all BinaryContent items from a message.
+
+        Args:
+            message: The message to remove images from.
+
+        Returns:
+            True if any images were removed, False otherwise.
+        """
+        return self._remove_n_images_from_message(message, float("inf")) > 0
+
+    def _remove_n_images_from_message(self, message: ModelMessage, n: int) -> int:
+        """Remove exactly N BinaryContent items from a message.
+
+        Removes images from the message until N have been removed or
+        no more images remain. Preserves other content types.
+
+        Args:
+            message: The message to remove images from.
+            n: Maximum number of images to remove.
+
+        Returns:
+            Number of images actually removed.
+        """
+        removed = 0
+        for part in getattr(message, "parts", []):
+            if removed >= n:
+                break
+
+            content = getattr(part, "content", None)
+            if isinstance(content, list):
+                # Filter out BinaryContent items up to the limit
+                new_content = []
+                for item in content:
+                    if removed < n and isinstance(item, BinaryContent):
+                        removed += 1
+                        continue
+                    new_content.append(item)
+                part.content = new_content
+            elif isinstance(content, BinaryContent) and removed < n:
+                part.content = None
+                removed += 1
+        return removed
+
+    def _prune_images_from_history(
+        self, max_images: int = 12, new_attachments: int = 0
+    ) -> bool:
+        """Prune older images from message history to make room for new ones.
+
+        Removes only the minimum required images from oldest messages first,
+        keeping the most recent messages intact. This is called adaptively
+        when we hit provider file limits (e.g., Hugging Face's 16 file limit).
+
+        Args:
+            max_images: Target maximum number of images to keep in history.
+            new_attachments: Number of new image attachments in current request.
+
+        Returns:
+            True if any images were pruned, False otherwise.
+        """
+        messages = self.get_message_history()
+        total_images = self._count_total_images(messages)
+
+        # Account for new attachments in the calculation
+        # Target: history_images + new_attachments <= 16
+        # So: history_images <= 16 - new_attachments
+        effective_max = 16 - new_attachments
+        if effective_max < 0:
+            effective_max = 0
+
+        # Use the stricter of the two limits
+        target_max = min(max_images, effective_max)
+
+        if total_images <= target_max:
+            return False
+
+        # Calculate exact number of images to remove
+        images_to_remove = total_images - target_max
+        removed_count = 0
+
+        # Iterate from oldest to newest (skip index 0 - system prompt)
+        for i in range(1, len(messages)):
+            if removed_count >= images_to_remove:
+                break
+
+            msg = messages[i]
+            msg_images = self._count_images_in_message(msg)
+
+            if msg_images > 0:
+                # Calculate how many to remove from this message
+                need_to_remove = images_to_remove - removed_count
+                actually_removed = self._remove_n_images_from_message(
+                    msg, need_to_remove
+                )
+                removed_count += actually_removed
+
+        if removed_count > 0:
+            emit_info(
+                f"🖼️  Pruned {removed_count} older image(s) from conversation history "
+                f"({total_images} → {total_images - removed_count} images)",
+                message_group="image_pruning",
+            )
+            return True
+
+        return False
+
+    class _RetryWithPrunedImages(Exception):
+        """Exception raised to signal a retry after pruning images."""
+
+        pass
 
     def ensure_history_ends_with_request(
         self, messages: List[ModelMessage]
@@ -1965,6 +2134,7 @@ class BaseAgent(ABC):
             except* Exception as other_error:
                 # Filter out CancelledError and UsageLimitExceeded from the exception group - let it propagate
                 remaining_exceptions = []
+                file_limit_error = None
 
                 def collect_non_cancelled_exceptions(exc):
                     if isinstance(exc, ExceptionGroup):
@@ -1973,17 +2143,57 @@ class BaseAgent(ABC):
                     elif not isinstance(
                         exc, (asyncio.CancelledError, UsageLimitExceeded)
                     ):
-                        remaining_exceptions.append(exc)
-                        emit_info(f"Unexpected error: {str(exc)}", group_id=group_id)
-                        emit_info(f"{str(exc.args)}", group_id=group_id)
-                        # Log to file for debugging
-                        log_error(
-                            exc,
-                            context=f"Agent run (group_id={group_id})",
-                            include_traceback=True,
-                        )
+                        # Check if this is a file/image limit error
+                        exc_str = str(exc)
+                        if self._is_file_limit_error(exc_str):
+                            nonlocal file_limit_error
+                            file_limit_error = exc
+                        else:
+                            remaining_exceptions.append(exc)
+                            emit_info(
+                                f"Unexpected error: {str(exc)}", group_id=group_id
+                            )
+                            emit_info(f"{str(exc.args)}", group_id=group_id)
+                            # Log to file for debugging
+                            log_error(
+                                exc,
+                                context=f"Agent run (group_id={group_id})",
+                                include_traceback=True,
+                            )
 
                 collect_non_cancelled_exceptions(other_error)
+
+                # Handle file limit error with adaptive pruning
+                if file_limit_error:
+                    # Count new attachments in current request (both binary and URL)
+                    new_attachment_count = (len(attachments) if attachments else 0) + (
+                        len(link_attachments) if link_attachments else 0
+                    )
+                    if self._prune_images_from_history(
+                        max_images=12, new_attachments=new_attachment_count
+                    ):
+                        emit_info(
+                            "🖼️  Image limit hit. Pruned older images from history. Retrying...",
+                            group_id=group_id,
+                        )
+                        # Retry the request with pruned history
+                        raise self._RetryWithPrunedImages()
+                    else:
+                        # Could not prune enough images - propagate the original error
+                        emit_error(
+                            "🖼️  Image limit exceeded but could not prune enough images. "
+                            "Try /clear to reset the conversation.",
+                            group_id=group_id,
+                        )
+                        remaining_exceptions.append(file_limit_error)
+
+                # Re-raise remaining exceptions (including file limit errors that couldn't be pruned)
+                if remaining_exceptions:
+                    if len(remaining_exceptions) == 1:
+                        raise remaining_exceptions[0]
+                    raise ExceptionGroup(
+                        "Agent run failed with errors", remaining_exceptions
+                    )
 
                 # If there are CancelledError exceptions in the group, re-raise them
                 cancelled_exceptions = []
@@ -2085,7 +2295,19 @@ class BaseAgent(ABC):
                 )
 
             # Wait for the task to complete or be cancelled
-            result = await agent_task
+            # Handle retry loop for image limit errors
+            max_retries = 2
+            for attempt in range(max_retries + 1):
+                try:
+                    result = await agent_task
+                    break  # Success - exit retry loop
+                except self._RetryWithPrunedImages:
+                    if attempt < max_retries:
+                        # Create new task with pruned history
+                        agent_task = asyncio.create_task(run_agent_task())
+                        continue
+                    else:
+                        raise  # Max retries exceeded
 
             # Update MCP tool cache after successful run for accurate token estimation
             if hasattr(self, "_mcp_servers") and self._mcp_servers:
@@ -2118,6 +2340,12 @@ class BaseAgent(ABC):
             _run_response_text = ""
             if not agent_task.done():
                 agent_task.cancel()
+        except self._RetryWithPrunedImages:
+            # Should not happen here, but handle just in case
+            _run_success = False
+            _run_error = None
+            _run_response_text = ""
+            emit_error("Image limit exceeded even after pruning. Try /clear to reset.")
         except Exception as e:
             _run_success = False
             _run_error = e
