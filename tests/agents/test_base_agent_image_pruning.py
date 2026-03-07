@@ -40,19 +40,20 @@ class TestIsFileLimitError:
             # Hugging Face style errors
             ("API requests may only contain up to 16 files. Got: 17", True),
             ("api requests may only contain up to 16 files. got: 17", True),
-            ("May only contain up to 16 files", True),
             ("files. Got: 17", True),
             # Generic image limit errors
             ("maximum number of images exceeded", True),
             ("too many images", True),
             ("image limit exceeded", True),
             ("file limit exceeded", True),
-            # Non-matching errors
+            # Non-matching errors (avoid false positives)
             ("some other error", False),
             ("rate limit exceeded", False),
             ("context length exceeded", False),
             ("", False),
             ("random text about files", False),
+            # Should NOT match without "api" prefix to avoid false positives
+            ("May only contain up to 16 files", False),
         ],
     )
     def test_file_limit_error_detection(self, agent, error_message, expected):
