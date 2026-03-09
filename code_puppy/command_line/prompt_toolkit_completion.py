@@ -642,6 +642,17 @@ async def get_input_with_combined_completion(
     except Exception:
         pass
 
+    # Shift+Enter for newline (terminal-dependent — works in modern terminals
+    # like kitty, WezTerm, iTerm2, and Windows Terminal that support CSI u /
+    # kitty keyboard protocol; silently ignored on older terminals).
+    try:
+
+        @bindings.add("s-enter", eager=True)
+        def _(event):
+            event.app.current_buffer.insert_text("\n")
+    except Exception:
+        pass
+
     # Enter behavior depends on multiline mode
     @bindings.add("enter", filter=~is_searching, eager=True)
     def _(event):
