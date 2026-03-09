@@ -1481,7 +1481,6 @@ class BaseAgent(ABC):
             self.pydantic_agent = p_agent
             self._code_generation_agent = p_agent
             self._mcp_servers = filtered_mcp_servers
-            self._mcp_servers = mcp_servers
         return self._code_generation_agent
 
     def _create_agent_with_output_type(self, output_type: Type[Any]) -> PydanticAgent:
@@ -1912,7 +1911,6 @@ class BaseAgent(ABC):
                 ):
                     # Temporarily add MCP servers to the DBOS agent using internal _toolsets
                     original_toolsets = pydantic_agent._toolsets
-                    pydantic_agent._toolsets = original_toolsets + self._mcp_servers
                     pydantic_agent._toolsets = original_toolsets + self._mcp_servers
 
                     try:
