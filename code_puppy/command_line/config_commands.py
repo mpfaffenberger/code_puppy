@@ -179,13 +179,17 @@ def _show_profile_wizard() -> None:
 @register_command(
     name="profile",
     description="Manage model profiles - view, set, save, and load named configurations",
-    usage="/profile [set|save|load|list|delete|reset|guide] [agent] [model]",
+    usage="/profile [new|set|save|load|list|delete|reset|guide] [agent] [model]",
     aliases=["profiles"],
     category="config",
     detailed_help="""Model Profile Management
 
 View current settings:
   /profile                Show current agent model configurations
+
+Create a new profile (TUI wizard):
+  /profile new            Open interactive wizard — pre-filled with current models
+  /profile new <name>     Same, but pre-fill the profile name
 
 Set an agent model:
   /profile set <agent> <model>   Set a specific model for an agent role
@@ -203,6 +207,8 @@ Reset:
 
 Examples:
   /profile                                  # View current configuration
+  /profile new                              # Launch profile creation wizard
+  /profile new my-gpt4                      # Wizard with name pre-filled
   /profile set compaction gpt-4.1-nano      # Set compaction agent model
   /profile set subagent claude-3-5-haiku    # Set sub-agent model
   /profile save gemini                      # Save as "gemini" profile
@@ -294,6 +300,23 @@ def handle_profile_command(command: str) -> bool:
     # ── /profile guide ─────────────────────────────────────────────────────────
     if subcommand == "guide":
         _show_profile_wizard()
+        return True
+
+    # ── /profile new [name] ────────────────────────────────────────────────────
+    if subcommand in ("new", "create"):
+        import asyncio
+        import concurrent.futures
+
+        from code_puppy.command_line.profile_new_tui import interactive_new_profile_tui
+
+        initial_name = parts[2] if len(parts) > 2 else ""
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(
+                lambda: asyncio.run(interactive_new_profile_tui(initial_name))
+            )
+            saved = future.result(timeout=300)
+        if saved:
+            _display_profile_table()
         return True
 
     # ── /profile save <name> ───────────────────────────────────────────────────
@@ -403,7 +426,7 @@ def handle_profile_command(command: str) -> bool:
     # ── unknown ────────────────────────────────────────────────────────────────
     emit_error(f"Unknown agent or subcommand: {parts[1]}")
     emit_info(f"Available agents: {_agent_names}")
-    emit_info("Subcommands: set, save, load, list, delete, reset, guide")
+    emit_info("Subcommands: new, set, save, load, list, delete, reset, guide")
     return True
 
 

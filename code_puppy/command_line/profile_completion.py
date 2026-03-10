@@ -24,6 +24,8 @@ AGENT_ROLES: dict[str, str] = {
 
 # ── /profile subcommands ───────────────────────────────────────────────────────
 PROFILE_SUBCOMMANDS: dict[str, str] = {
+    "new": "Create a new profile with the TUI wizard",
+    "create": "Create a new profile with the TUI wizard (alias for new)",
     "set": "Set model for an agent role",
     "reset": "Reset an agent role to its default",
     "save": "Save current config as a named profile",

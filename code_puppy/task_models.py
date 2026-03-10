@@ -559,6 +559,47 @@ def clear_active_profile() -> None:
     reset_value("active_profile")
 
 
+def save_profile_from_models(
+    name: str,
+    description: str,
+    models: Dict[Task, str],
+) -> bool:
+    """
+    Save a named profile using an explicit agent→model mapping.
+
+    Unlike ``save_profile()``, this does NOT read from the live puppy.cfg —
+    it serialises exactly the *models* dict supplied by the caller.  Useful
+    for TUI wizards that build a custom model set before writing to disk.
+
+    Args:
+        name:        Profile name (alphanumeric, dashes, underscores).
+        description: Optional human-readable description.
+        models:      Mapping of Task → model name to persist.
+
+    Returns:
+        True on success, False on validation or I/O failure.
+    """
+    if not _is_safe_profile_name(name):
+        return False
+    try:
+        _get_profiles_dir().mkdir(parents=True, exist_ok=True)
+        profile_path = _get_profile_path(name)
+        serialised = {
+            task.name.lower(): model for task, model in models.items() if model
+        }
+        data = {
+            "name": name,
+            "description": description,
+            "models": serialised,
+            "created": datetime.datetime.now().isoformat(),
+        }
+        with open(profile_path, "w") as f:
+            json.dump(data, f, indent=2)
+        return True
+    except Exception:
+        return False
+
+
 # =============================================================================
 # Exports
 # =============================================================================
@@ -581,6 +622,7 @@ __all__ = [
     "list_profiles",
     "profile_exists",
     "save_profile",
+    "save_profile_from_models",
     "load_profile",
     "delete_profile",
     "get_active_profile",
