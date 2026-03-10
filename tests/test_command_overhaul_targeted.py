@@ -329,6 +329,49 @@ async def test_queue_during_background_command_drains_after_wait_completes():
 
 
 @pytest.mark.anyio
+async def test_background_command_wait_does_not_autosave():
+    wait_started = asyncio.Event()
+    cancel_seen = threading.Event()
+    loop = asyncio.get_running_loop()
+    handle_command = MagicMock()
+
+    def auth_wait(cancel_event: threading.Event) -> None:
+        loop.call_soon_threadsafe(wait_started.set)
+        cancel_event.wait(timeout=5)
+        if cancel_event.is_set():
+            cancel_seen.set()
+
+    handle_command.side_effect = lambda command: (
+        BackgroundInteractiveCommand(run=auth_wait)
+        if command == "/claude-code-auth"
+        else True
+    )
+
+    async def prompt_side_effect(*_args, **_kwargs):
+        prompt_side_effect.calls += 1
+        if prompt_side_effect.calls == 1:
+            return _submission("/claude-code-auth")
+        await wait_started.wait()
+        return _submission("/exit")
+
+    prompt_side_effect.calls = 0
+
+    async def run_prompt_side_effect(_agent, prompt, **_kwargs):
+        raise AssertionError(f"unexpected agent run for {prompt}")
+
+    with patch("code_puppy.config.auto_save_session_if_enabled") as mock_autosave:
+        await _run_interactive(
+            prompt_side_effect,
+            run_prompt_side_effect=run_prompt_side_effect,
+            handle_command=handle_command,
+        )
+
+    assert cancel_seen.is_set()
+    mock_autosave.assert_not_called()
+    handle_command.assert_called_once_with("/claude-code-auth")
+
+
+@pytest.mark.anyio
 async def test_mark_idle_if_task_is_idempotent_for_finished_background_work():
     from code_puppy.command_line.interactive_runtime import PromptRuntimeState
 

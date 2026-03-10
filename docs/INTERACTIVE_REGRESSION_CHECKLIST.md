@@ -43,3 +43,11 @@ Run this before merging changes that touch the interactive runtime, prompt surfa
 - Verify `[QUEUE TRIGGERED]` still prints before the echoed queued prompt.
 - Verify a normal direct prompt after a queue/interject cycle still appears in the transcript once.
 - Confirm the composer stays fixed, the shell output remains plain text, and the queue/interject visuals do not regress.
+
+## Autosave
+
+- Submit a normal prompt and confirm `Auto-saved session` appears after the completed response.
+- Queue multiple prompts and confirm each completed response auto-saves before the next queued turn starts.
+- Interject during a run and confirm the completed interjected response auto-saves.
+- Cancel a run and confirm no autosave fires for that cancelled turn.
+- Run an OAuth/background interactive command and confirm it does not auto-save on its own.
