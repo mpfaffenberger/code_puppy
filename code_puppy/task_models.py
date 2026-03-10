@@ -29,6 +29,7 @@ from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
 import datetime
 import json
+import os
 from pathlib import Path
 
 from code_puppy.config import (
@@ -37,6 +38,8 @@ from code_puppy.config import (
     get_agent_pinned_model,
     set_value,
     reset_value,
+    set_model_name,
+    reset_session_model,
 )
 
 
@@ -73,12 +76,13 @@ class TaskModelConfig:
     fallback_task: Optional["Task"] = None
     recommended_default: Optional[str] = None
     requires_capability: Optional[str] = None
+    env_var: Optional[str] = None  # Environment variable override (highest priority)
 
 
 # Task configuration registry - single source of truth
 TASK_CONFIGS: Dict[Task, TaskModelConfig] = {
     Task.MAIN: TaskModelConfig(
-        config_key="model_name",
+        config_key="model",  # matches config.py get_global_model_name / set_model_name
         description="Main conversation model",
         fallback_task=None,
     ),
@@ -86,11 +90,13 @@ TASK_CONFIGS: Dict[Task, TaskModelConfig] = {
         config_key="compaction_model",
         description="Message compaction and summarization",
         fallback_task=Task.MAIN,
+        env_var="CODE_PUPPY_COMPACTION_MODEL",
     ),
     Task.SUBAGENT: TaskModelConfig(
         config_key="subagent_model",
         description="Delegated agent invocations",
         fallback_task=Task.MAIN,
+        env_var="CODE_PUPPY_SUBAGENT_MODEL",
     ),
 }
 
@@ -116,38 +122,55 @@ class TaskModelResolver:
         """
         Get the configured model for a task type.
 
-        Args:
-            task: The task type to get model for
-            agent_name: Optional agent name for agent-specific resolution
-
-        Returns:
-            Model name string (never None, always falls back to global)
-
-        Example:
-            >>> TaskModelResolver.get_model(Task.COMPACTION)
-            'gpt-4.1-nano'
+        Resolution order (highest → lowest priority):
+          0. Environment variable override (CODE_PUPPY_COMPACTION_MODEL, etc.)
+          1. Active profile (read directly from profile JSON)
+          2. Task-specific config key in puppy.cfg
+          3. Agent-specific pinned model
+          4. Fallback task (recursive)
+          5. Global default model
         """
         config = TASK_CONFIGS.get(task)
         if not config:
-            # Unknown task, fall back to global
             return get_global_model_name()
 
-        # 1. Check task-specific override
+        # 0. Environment variable override
+        if config.env_var:
+            env_val = os.environ.get(config.env_var)
+            if env_val:
+                return env_val
+
+        # 1. Active profile — read directly from the profile file so that
+        #    profile resolution doesn't depend on config keys being written
+        active_profile = get_value("active_profile")
+        if active_profile:
+            try:
+                profile_path = _get_profile_path(active_profile)
+                if profile_path.exists():
+                    with open(profile_path) as _pf:
+                        _pd = json.load(_pf)
+                    profile_model = _pd.get("models", {}).get(task.name.lower())
+                    if profile_model:
+                        return profile_model
+            except Exception:
+                pass  # Profile unreadable — fall through
+
+        # 2. Task-specific config key in puppy.cfg
         task_model = get_value(config.config_key)
         if task_model:
             return task_model
 
-        # 2. Check agent-specific default (if agent provided)
+        # 3. Agent-specific pinned model
         if agent_name:
             agent_model = get_agent_pinned_model(agent_name)
             if agent_model:
                 return agent_model
 
-        # 3. Fall back to parent task or global default
+        # 4. Fall back to parent task or global default
         if config.fallback_task:
             return cls.get_model(config.fallback_task, agent_name)
 
-        # 4. Global default
+        # 5. Global default
         return get_global_model_name()
 
     @classmethod
@@ -155,21 +178,64 @@ class TaskModelResolver:
         """
         Set the model for a task type in config.
 
-        Args:
-            task: The task type to configure
-            model_name: The model to use for this task
+        For Task.MAIN, routes through set_model_name() so the in-process
+        session cache (_SESSION_MODEL) is updated immediately.
+
+        If an active profile is loaded, the change is also written into the
+        profile's JSON file so that the profile layer (highest-priority) sees
+        the update immediately and the file stays in sync.
         """
         config = TASK_CONFIGS.get(task)
         if config:
-            set_value(config.config_key, model_name)
-            cls._cache.pop(task, None)  # Invalidate cache
+            if task == Task.MAIN:
+                # set_model_name updates _SESSION_MODEL and writes "model" to cfg
+                set_model_name(model_name)
+            else:
+                set_value(config.config_key, model_name)
+            # Patch active profile on disk so layer-1 reads the updated value
+            cls._patch_active_profile(task, model_name)
+            cls._cache.pop(task, None)
+
+    @classmethod
+    def _patch_active_profile(cls, task: Task, model_name: Optional[str]) -> None:
+        """
+        If a profile is currently active, update (or remove) the task's entry
+        inside the profile's JSON file so that layer-1 resolution stays in sync
+        with in-session changes.
+
+        ``model_name=None`` removes the task key from the profile (used by
+        ``clear_model`` when a profile is active).
+        """
+        active_profile = get_value("active_profile")
+        if not active_profile:
+            return
+        try:
+            profile_path = _get_profile_path(active_profile)
+            if not profile_path.exists():
+                return
+            with open(profile_path, "r") as _pf:
+                data = json.load(_pf)
+            models = data.setdefault("models", {})
+            if model_name is None:
+                models.pop(task.name.lower(), None)
+            else:
+                models[task.name.lower()] = model_name
+            with open(profile_path, "w") as _pf:
+                json.dump(data, _pf, indent=2)
+        except Exception:
+            pass  # Never crash — profile update is best-effort
 
     @classmethod
     def clear_model(cls, task: Task) -> None:
         """Clear task-specific model, reverting to default."""
         config = TASK_CONFIGS.get(task)
         if config:
+            if task == Task.MAIN:
+                # Reset the session cache so get_global_model_name() re-reads
+                reset_session_model()
             reset_value(config.config_key)
+            # Remove from active profile so layer-1 stops shadowing the default
+            cls._patch_active_profile(task, None)
             cls._cache.pop(task, None)
 
     @classmethod
@@ -304,9 +370,23 @@ def _get_profiles_dir() -> Path:
     return profiles_dir
 
 
+def _is_safe_profile_name(name: str) -> bool:
+    """Return True iff *name* is a valid, non-traversal profile name."""
+    return bool(name) and all(c.isalnum() or c in "-_" for c in name)
+
+
 def _get_profile_path(name: str) -> Path:
-    """Get the file path for a named profile."""
-    return _get_profiles_dir() / f"{name}.json"
+    """
+    Return the resolved path for *name* inside the profiles directory.
+
+    Raises ValueError if the resolved path escapes the profiles directory
+    (directory-traversal guard).
+    """
+    profiles_dir = _get_profiles_dir().resolve()
+    candidate = (profiles_dir / f"{name}.json").resolve()
+    if not candidate.is_relative_to(profiles_dir):
+        raise ValueError(f"Invalid profile name: {name!r}")
+    return candidate
 
 
 def list_profiles() -> List[Dict]:
@@ -338,7 +418,12 @@ def list_profiles() -> List[Dict]:
 
 def profile_exists(name: str) -> bool:
     """Check if a profile with the given name exists."""
-    return _get_profile_path(name).exists()
+    if not _is_safe_profile_name(name):
+        return False
+    try:
+        return _get_profile_path(name).exists()
+    except ValueError:
+        return False
 
 
 def save_profile(name: str, description: str = "") -> bool:
@@ -387,7 +472,13 @@ def load_profile(name: str) -> Tuple[bool, str]:
     Returns:
         Tuple of (success, message)
     """
-    profile_path = _get_profile_path(name)
+    if not _is_safe_profile_name(name):
+        return False, f"Invalid profile name: {name!r}"
+
+    try:
+        profile_path = _get_profile_path(name)
+    except ValueError as exc:
+        return False, str(exc)
 
     if not profile_path.exists():
         return False, f"Profile '{name}' not found"
@@ -401,7 +492,13 @@ def load_profile(name: str) -> Tuple[bool, str]:
     models = data.get("models", {})
     applied = []
 
-    # Apply each model setting
+    # Clear existing per-task overrides so keys omitted from this profile
+    # don't linger from a previously loaded profile or manual /set.
+    for task in Task:
+        if task != Task.MAIN:
+            clear_model_for(task)
+
+    # Apply each model setting from the profile
     for task_name, model_name in models.items():
         task_name_upper = task_name.upper()
         try:
@@ -409,7 +506,7 @@ def load_profile(name: str) -> Tuple[bool, str]:
             set_model_for(task, model_name)
             applied.append(f"{task_name_upper}={model_name}")
         except KeyError:
-            continue  # Unknown task, skip
+            continue  # Unknown task key in profile file, skip
 
     # Set the profile as active
     set_value("active_profile", name)
@@ -427,7 +524,13 @@ def delete_profile(name: str) -> Tuple[bool, str]:
     Returns:
         Tuple of (success, message)
     """
-    profile_path = _get_profile_path(name)
+    if not _is_safe_profile_name(name):
+        return False, f"Invalid profile name: {name!r}"
+
+    try:
+        profile_path = _get_profile_path(name)
+    except ValueError as exc:
+        return False, str(exc)
 
     if not profile_path.exists():
         return False, f"Profile '{name}' not found"

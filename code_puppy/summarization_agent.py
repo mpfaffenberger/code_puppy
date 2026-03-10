@@ -6,9 +6,6 @@ from typing import List
 
 from pydantic_ai import Agent
 
-from code_puppy.config import (
-    get_global_model_name,
-)
 from code_puppy.model_factory import ModelFactory, make_model_settings
 
 # Keep a module-level agent reference to avoid rebuilding per call
@@ -69,10 +66,13 @@ def run_summarization_sync(prompt: str, message_history: List) -> List:
             original_error=e,
         ) from e
 
-    # Handle claude-code models: prepend system prompt to user prompt
+    # Handle claude-code models: prepend system prompt to user prompt.
+    # Use the compaction model (not the global model) so prompt shaping matches
+    # the model actually executing the summarization.
     from code_puppy.model_utils import prepare_prompt_for_model
+    from code_puppy.task_models import get_compaction_model
 
-    model_name = get_global_model_name()
+    model_name = get_compaction_model()
     prepared = prepare_prompt_for_model(
         model_name, _get_summarization_instructions(), prompt
     )

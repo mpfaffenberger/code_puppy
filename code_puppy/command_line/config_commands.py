@@ -248,7 +248,14 @@ def handle_profile_command(command: str) -> bool:
 
     def _set_agent_model(task: Task, model_name: str) -> bool:
         """Validate *model_name* and apply it; return True on success."""
-        available = load_model_names()
+        try:
+            available = load_model_names()
+        except Exception as exc:
+            emit_warning(
+                f"Could not load model list: {exc}. Check your models config and retry."
+            )
+            emit_info("Use /model to browse available models.")
+            return False
         if model_name not in available:
             emit_warning(f"Model '{model_name}' not in known models list.")
             emit_info("Use /model to browse available models.")

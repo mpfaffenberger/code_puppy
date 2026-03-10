@@ -168,7 +168,7 @@ class TestSummarizationAgent:
                 "code_puppy.summarization_agent.ModelFactory.get_model"
             ) as mock_get_model,
             patch(
-                "code_puppy.summarization_agent.get_global_model_name"
+                "code_puppy.task_models.get_compaction_model"
             ) as mock_get_name,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
@@ -483,7 +483,6 @@ class TestSummarizationAgentEdgeCases:
                 "code_puppy.summarization_agent.ModelFactory.load_config"
             ) as mock_load_config,
             patch("code_puppy.summarization_agent.ModelFactory.get_model"),
-            patch("code_puppy.summarization_agent.get_global_model_name"),
         ):
             mock_load_config.side_effect = Exception("Config load failed")
 
@@ -536,7 +535,7 @@ class TestSummarizationAgentEdgeCases:
                 "code_puppy.summarization_agent.ModelFactory.get_model"
             ) as mock_get_model,
             patch(
-                "code_puppy.summarization_agent.get_global_model_name"
+                "code_puppy.task_models.get_compaction_model"
             ) as mock_get_name,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
@@ -667,7 +666,7 @@ class TestSummarizationAgentEdgeCases:
                 "code_puppy.summarization_agent.ModelFactory.get_model"
             ) as mock_get_model,
             patch(
-                "code_puppy.summarization_agent.get_global_model_name"
+                "code_puppy.task_models.get_compaction_model"
             ) as mock_get_name,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
@@ -709,7 +708,7 @@ class TestSummarizationAgentEdgeCases:
                 "code_puppy.summarization_agent.ModelFactory.get_model"
             ) as mock_get_model,
             patch(
-                "code_puppy.summarization_agent.get_global_model_name"
+                "code_puppy.task_models.get_compaction_model"
             ) as mock_get_name,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
