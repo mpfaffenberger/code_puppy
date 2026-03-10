@@ -10,16 +10,16 @@ Key bindings
   Tab         switch focus between panels
   ↑ / ↓      navigate (profiles or agents)
   Enter       activate profile (left) · open model picker (right) · confirm pick
-  Esc         cancel model picker
-  N           new profile (prompts for name, clones current models)
+  Esc         cancel model picker / cancel naming
+  N           new profile (inline name input in right panel)
   S           save agent-model changes to the active profile (right panel)
   Ctrl+C      exit
 """
 
-import sys
 from typing import Dict, List, Optional
 
 from prompt_toolkit.application import Application
+from prompt_toolkit.cursor_shapes import CursorShape
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -30,6 +30,7 @@ from code_puppy.command_line._profile_tui_panels import (
     load_models,
     render_agent_config,
     render_model_picker,
+    render_naming_panel,
     render_profile_list,
     valid_name,
 )
@@ -51,21 +52,6 @@ _FOCUS_AGENTS = "agents"
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
-
-
-async def _prompt_text(label: str, current: str = "") -> Optional[str]:
-    """Briefly drop to the normal terminal to collect a text value."""
-    from prompt_toolkit import PromptSession
-
-    sys.stdout.write("\033[?1049l")
-    sys.stdout.flush()
-    try:
-        return (await PromptSession().prompt_async(label, default=current)).strip()
-    except (KeyboardInterrupt, EOFError):
-        return None
-    finally:
-        sys.stdout.write("\033[?1049h\033[2J\033[H")
-        sys.stdout.flush()
 
 
 def _models_from_profile(profile: dict) -> Dict[Task, str]:
@@ -118,6 +104,10 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
     pick_idx = [0]
     pick_scroll = [0]
 
+    # naming mode (inline text input for new profile name)
+    naming = [False]
+    name_input = [""]
+
     status = [""]
     last_activated: List[Optional[str]] = [None]
 
@@ -159,10 +149,15 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
     def refresh():
         active = get_active_profile()
         left_ctrl.text = render_profile_list(
-            profiles[0], prof_idx[0], active, focus[0] == _FOCUS_PROFILES
+            profiles[0],
+            prof_idx[0],
+            active,
+            focus[0] == _FOCUS_PROFILES and not naming[0],
         )
         prof_name = profiles[0][prof_idx[0]].get("name", "") if profiles[0] else ""
-        if picking[0] and pick_task[0] is not None:
+        if naming[0]:
+            right_ctrl.text = render_naming_panel(name_input[0], status[0])
+        elif picking[0] and pick_task[0] is not None:
             right_ctrl.text = render_model_picker(
                 pick_task[0],
                 pick_names[0],
@@ -202,7 +197,7 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
 
     @kb.add("tab")
     def _tab(event):
-        if picking[0]:
+        if picking[0] or naming[0]:
             return
         focus[0] = _FOCUS_AGENTS if focus[0] == _FOCUS_PROFILES else _FOCUS_PROFILES
         status[0] = ""
@@ -210,6 +205,8 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
 
     @kb.add("up")
     def _up(event):
+        if naming[0]:
+            return
         if picking[0]:
             if pick_idx[0] > 0:
                 pick_idx[0] -= 1
@@ -230,6 +227,8 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
 
     @kb.add("down")
     def _down(event):
+        if naming[0]:
+            return
         if picking[0]:
             if pick_idx[0] < len(pick_names[0]) - 1:
                 pick_idx[0] += 1
@@ -250,6 +249,30 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
 
     @kb.add("enter")
     def _enter(event):
+        if naming[0]:
+            # confirm new profile name
+            v = name_input[0].strip()
+            if v and valid_name(v):
+                active_desc = _desc_for_profile(get_active_profile() or "")
+                if save_profile_from_models(v, active_desc, agent_models[0]):
+                    ok2, _ = load_profile(v)
+                    if ok2:
+                        last_activated[0] = v
+                    reload_profiles()
+                    sync_agent_models()
+                    status[0] = f"Created '{v}' — Tab to configure"
+                    emit_success(f"✅ Profile '{v}' created")
+                else:
+                    status[0] = "Failed to create profile"
+            else:
+                status[0] = "Invalid name — use letters, digits, - or _"
+                refresh()
+                return
+            naming[0] = False
+            name_input[0] = ""
+            refresh()
+            return
+
         if picking[0]:
             # confirm model selection
             if pick_names[0] and pick_task[0] is not None:
@@ -289,7 +312,12 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
 
     @kb.add("escape")
     def _esc(event):
-        if picking[0]:
+        if naming[0]:
+            naming[0] = False
+            name_input[0] = ""
+            status[0] = ""
+            refresh()
+        elif picking[0]:
             picking[0] = False
             pick_task[0] = None
             status[0] = ""
@@ -297,13 +325,33 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
 
     @kb.add("n")
     def _kn(event):
-        if not picking[0]:
-            event.app._ptu = "new"  # type: ignore[attr-defined]
-            event.app.exit()
+        if picking[0] or naming[0]:
+            return
+        naming[0] = True
+        name_input[0] = ""
+        status[0] = ""
+        refresh()
+
+    @kb.add("backspace")
+    def _kbs(event):
+        if naming[0] and name_input[0]:
+            name_input[0] = name_input[0][:-1]
+            refresh()
+
+    # Handle printable characters for naming mode
+    @kb.add("<any>")
+    def _kany(event):
+        if naming[0]:
+            ch = event.key_sequence[0].key
+            if len(ch) == 1 and ch.isprintable():
+                # Only allow alphanumeric, hyphen, underscore
+                if ch.isalnum() or ch in "-_":
+                    name_input[0] += ch
+                    refresh()
 
     @kb.add("s")
     def _ks(event):
-        if picking[0] or focus[0] != _FOCUS_AGENTS:
+        if picking[0] or naming[0] or focus[0] != _FOCUS_AGENTS:
             return
         active = get_active_profile()
         prof_name = profiles[0][prof_idx[0]].get("name", "") if profiles[0] else ""
@@ -321,20 +369,20 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
 
     # ── run loop ──────────────────────────────────────────────────────────────
     app = Application(
-        layout=layout, key_bindings=kb, full_screen=False, mouse_support=False
+        layout=layout,
+        key_bindings=kb,
+        full_screen=True,
+        mouse_support=False,
+        cursor=CursorShape.BLOCK,
     )
     app._ptu = None  # type: ignore[attr-defined]
 
     set_awaiting_user_input(True)
-    sys.stdout.write("\033[?1049h\033[2J\033[H")
-    sys.stdout.flush()
 
     try:
         while True:
             app._ptu = None  # type: ignore[attr-defined]
             refresh()
-            sys.stdout.write("\033[2J\033[H")
-            sys.stdout.flush()
             await app.run_async()
             action = getattr(app, "_ptu", None)
 
@@ -354,23 +402,6 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
                 else:
                     status[0] = f"Failed: {msg}"
 
-            elif action == "new":
-                v = await _prompt_text("  New profile name: ", "")
-                if v and valid_name(v):
-                    active_desc = _desc_for_profile(get_active_profile() or "")
-                    if save_profile_from_models(v, active_desc, agent_models[0]):
-                        ok2, _ = load_profile(v)
-                        if ok2:
-                            last_activated[0] = v
-                        reload_profiles()
-                        sync_agent_models()
-                        status[0] = f"Created '{v}' — Tab to configure"
-                        emit_success(f"✅ Profile '{v}' created")
-                    else:
-                        status[0] = "Failed to create profile"
-                elif v is not None:
-                    status[0] = "Invalid name — use letters, digits, - or _"
-
             elif action == "save":
                 active = get_active_profile()
                 if active:
@@ -384,6 +415,4 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
                         status[0] = "Save failed"
 
     finally:
-        sys.stdout.write("\033[?1049l")
-        sys.stdout.flush()
         set_awaiting_user_input(False)

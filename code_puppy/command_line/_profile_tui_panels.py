@@ -1,9 +1,10 @@
 """Panel renderers for the profile dual-panel TUI.
 
-Three render functions:
+Four render functions:
   render_profile_list  — left panel, always visible
   render_agent_config  — right panel, browse/edit agent models
   render_model_picker  — right panel overlay when picking a model
+  render_naming_panel  — right panel overlay for naming a new profile
 """
 
 from typing import Dict, List, Optional
@@ -222,6 +223,32 @@ def render_model_picker(
         ("", "\n"),
         ("fg:ansibrightblack", f"  {pick_idx + 1} / {total}\n\n"),
         ("fg:ansigreen bold", "  Enter  confirm\n"),
+        ("fg:ansiyellow", "  Esc    cancel\n"),
+    ]
+    return L
+
+
+# ── right panel: naming overlay ────────────────────────────────────────────────
+
+
+def render_naming_panel(name_input: str, status: str) -> list:
+    """Inline text input for naming a new profile."""
+    L: list = [
+        ("bold cyan", "  New Profile\n"),
+        ("fg:ansibrightblack", "  ──────────────────────────────────────────\n\n"),
+        ("", "\n"),
+        ("fg:ansibrightblack", "  Name: "),
+        ("fg:ansigreen bold", name_input),
+        ("fg:ansigreen", "█"),  # cursor
+        ("", "\n\n"),
+        ("fg:ansibrightblack", "  Use letters, digits, hyphens, underscores\n\n"),
+    ]
+    if status:
+        err = status.lower().startswith("fail") or status.lower().startswith("invalid")
+        L += [("fg:ansired" if err else "fg:ansigreen", f"  {status}\n"), ("", "\n")]
+    L += [
+        ("", "\n"),
+        ("fg:ansigreen bold", "  Enter  create profile\n"),
         ("fg:ansiyellow", "  Esc    cancel\n"),
     ]
     return L
