@@ -167,9 +167,7 @@ class TestSummarizationAgent:
             patch(
                 "code_puppy.summarization_agent.ModelFactory.get_model"
             ) as mock_get_model,
-            patch(
-                "code_puppy.task_models.get_compaction_model"
-            ) as mock_get_name,
+            patch("code_puppy.task_models.get_compaction_model") as mock_get_name,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
             mock_load_config.return_value = mock_models_config
@@ -534,9 +532,7 @@ class TestSummarizationAgentEdgeCases:
             patch(
                 "code_puppy.summarization_agent.ModelFactory.get_model"
             ) as mock_get_model,
-            patch(
-                "code_puppy.task_models.get_compaction_model"
-            ) as mock_get_name,
+            patch("code_puppy.task_models.get_compaction_model") as mock_get_name,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
             mock_load_config.return_value = {"test-model": {"context": 128000}}
@@ -665,9 +661,7 @@ class TestSummarizationAgentEdgeCases:
             patch(
                 "code_puppy.summarization_agent.ModelFactory.get_model"
             ) as mock_get_model,
-            patch(
-                "code_puppy.task_models.get_compaction_model"
-            ) as mock_get_name,
+            patch("code_puppy.task_models.get_compaction_model") as mock_get_name,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
             mock_load_config.return_value = {}
@@ -707,9 +701,7 @@ class TestSummarizationAgentEdgeCases:
             patch(
                 "code_puppy.summarization_agent.ModelFactory.get_model"
             ) as mock_get_model,
-            patch(
-                "code_puppy.task_models.get_compaction_model"
-            ) as mock_get_name,
+            patch("code_puppy.task_models.get_compaction_model") as mock_get_name,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
             mock_load_config.return_value = {}
