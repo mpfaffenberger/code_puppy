@@ -456,6 +456,13 @@ class SkillEntry(BaseModel):
     model_config = {"frozen": True, "extra": "forbid"}
 
 
+class AgentListMessage(BaseMessage):
+    """Summary banner for list_agents tool output."""
+
+    category: MessageCategory = MessageCategory.TOOL_OUTPUT
+    agent_count: int = Field(ge=0, description="Total number of available agents")
+
+
 class SkillListMessage(BaseMessage):
     """Result of listing or searching skills."""
 
@@ -511,6 +518,7 @@ AnyMessage = Union[
     DividerMessage,
     StatusPanelMessage,
     VersionCheckMessage,
+    AgentListMessage,
     SkillListMessage,
     SkillActivateMessage,
 ]
@@ -560,6 +568,7 @@ __all__ = [
     # Status
     "StatusPanelMessage",
     "VersionCheckMessage",
+    "AgentListMessage",
     # Skills
     "SkillEntry",
     "SkillListMessage",

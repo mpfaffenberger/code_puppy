@@ -152,30 +152,37 @@ def _format_queue_lifecycle_text(
         return f"[QUEUE] {action}"
 
     if item.kind == "interject":
+        if action in {"started", "completed"}:
+            return None
+        if action == "cancelled" and reason == "run_cancelled":
+            return None
         action_text = {
             "queued": "stopping current work",
-            "started": "applying now",
-            "completed": "applied",
             "cancelled": "cancelled",
             "failed": "failed",
             "rejected": "couldn't apply",
         }.get(action, action.replace("_", " "))
         return f"[INTERJECT] {action_text}: {item.text}"
 
+    if action == "queued":
+        if position is not None:
+            return f"[Queued][{position}] {item.text}"
+        return f"[Queued] {item.text}"
+
     if action == "started":
+        return None
+    if action == "completed" and reason is None:
+        return None
+    if action == "cancelled" and reason == "run_cancelled":
         return None
 
     action_text = {
-        "queued": "saved for after this task",
         "completed": "finished",
         "cancelled": "cancelled",
         "failed": "failed",
         "rejected": "couldn't save",
     }.get(action, action.replace("_", " "))
-    text = f"[QUEUE] {action_text}: {item.text}"
-    if action == "queued" and position is not None:
-        text = f"{text} [position {position}]"
-    return text
+    return f"[QUEUE] {action_text}: {item.text}"
 
 
 def _build_interject_submission_text(text: str) -> str:
@@ -893,12 +900,26 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         """Return the lifecycle level for a queued item."""
         return "warning" if item.kind == "interject" else "success"
 
-    def emit_queue_dispatch(item: QueuedPrompt) -> None:
+    async def emit_queue_dispatch(item: QueuedPrompt) -> None:
         """Emit UI markers before a queued/interjected item is dispatched."""
         if item.kind == "queued":
-            from code_puppy.messaging import emit_success
+            try:
+                from code_puppy.command_line.prompt_toolkit_completion import (
+                    render_transcript_notice,
+                )
+            except Exception:
+                render_transcript_notice = None
 
-            emit_success(f"[QUEUE] running queued prompt: {item.text}")
+            notice_text = f"[QUEUE TRIGGERED] {item.text.strip()}"
+            if notice_text.strip() and render_transcript_notice is not None:
+                if runtime.has_prompt_surface():
+                    rendered = await runtime.run_above_prompt_async(
+                        lambda: render_transcript_notice(notice_text)
+                    )
+                    if not rendered:
+                        render_transcript_notice(notice_text)
+                else:
+                    render_transcript_notice(notice_text)
         emit_interject_queue_lifecycle(
             runtime,
             "dequeued",
@@ -926,6 +947,31 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 return
 
         render_submitted_prompt_echo(prompt_text)
+
+    async def echo_direct_prompt_if_needed(
+        prompt_text: str, *, echo_in_transcript: bool
+    ) -> None:
+        """Echo direct submissions only when the prompt line was erased."""
+        if not echo_in_transcript:
+            return
+        try:
+            from code_puppy.command_line.prompt_toolkit_completion import (
+                render_submitted_prompt_echo,
+            )
+        except Exception:
+            return
+
+        visible_text = prompt_text.strip()
+        if not visible_text:
+            return
+
+        if runtime.has_prompt_surface():
+            if await runtime.run_above_prompt_async(
+                lambda: render_submitted_prompt_echo(visible_text)
+            ):
+                return
+
+        render_submitted_prompt_echo(visible_text)
 
     def complete_queue_item(item: QueuedPrompt, reason: str) -> None:
         """Mark a queued item as handled without launching the agent."""
@@ -1049,6 +1095,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         *,
         requested_action: Literal["submit", "queue", "interject"] = "submit",
         source_item: QueuedPrompt | None = None,
+        echo_in_transcript: bool = False,
         save_history: bool = True,
         allow_command_dispatch: bool = True,
     ) -> str:
@@ -1144,8 +1191,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             return "consumed"
 
         if source_item:
+            await emit_queue_dispatch(source_item)
             await echo_dispatched_prompt(source_item)
-            emit_queue_dispatch(source_item)
+        else:
+            await echo_direct_prompt_if_needed(
+                raw_task,
+                echo_in_transcript=echo_in_transcript,
+            )
 
         if allow_command_dispatch and stripped_task.lower() in {"clear", "/clear"}:
             await clear_conversation_history()
@@ -1395,6 +1447,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         outcome = await dispatch_submission(
             submission.text,
             requested_action=submission.action,
+            echo_in_transcript=submission.echo_in_transcript,
         )
         if outcome == "exit":
             break
