@@ -105,7 +105,7 @@ def _show_profile_wizard() -> None:
         Text.from_markup("""
 [bold bright_white]⚡ Advanced Feature: Model Profiles[/bold bright_white]
 
-[dim]This feature lets you configure different models for different tasks,[/dim]
+[dim]This feature lets you configure different models for different agent roles,[/dim]
 [dim]and save/load named profiles for quick switching.[/dim]
 """),
         border_style="bright_cyan",
@@ -121,20 +121,20 @@ def _show_profile_wizard() -> None:
         box=box.SIMPLE,
         padding=(0, 2),
     )
-    table.add_column("Task", style="bright_cyan", width=12)
+    table.add_column("Agent", style="bright_cyan", width=12)
     table.add_column("What It Does", style="bright_green", width=45)
     table.add_column("Why Override?", style="bright_yellow", width=30)
 
     table.add_row(
-        "MAIN", "Your normal conversations with the agent", "Default for everything"
+        "main", "Your normal conversations with the agent", "Default for everything"
     )
     table.add_row(
-        "COMPACTION",
+        "compaction",
         "Summarizes old messages when context fills up",
         "[dim]Use a cheaper/faster model[/dim]",
     )
     table.add_row(
-        "SUBAGENT",
+        "subagent",
         "Delegated tasks via invoke_agent() tool",
         "[dim]Use a balanced model[/dim]",
     )
@@ -145,15 +145,15 @@ def _show_profile_wizard() -> None:
     how_it_works = Text.from_markup("""
 [bold]How It Works:[/bold]
 
-  [cyan]1.[/cyan] [dim]Set a task model:[/dim]     [green]/profile compaction gpt-4.1-nano[/green]
+  [cyan]1.[/cyan] [dim]Set an agent model:[/dim]  [green]/profile set compaction gpt-4.1-nano[/green]
   [cyan]2.[/cyan] [dim]Save as profile:[/dim]     [green]/profile save cheap-fast[/green]
   [cyan]3.[/cyan] [dim]Load later:[/dim]         [green]/profile load cheap-fast[/green]
 
 [bold]Example Use Cases:[/bold]
 
   • [bright_yellow]Cost Saving:[/bright_yellow]     Use Cerebras/GPT-nano for compaction instead of Claude Opus
-  • [bright_yellow]Speed:[/bright_yellow]          Use a fast model for subagent tasks
-  • [bright_yellow]Multi-Provider:[/bright_yellow] Save profiles for Gemini, Claude, OpenAI, etc.
+  • [bright_yellow]Speed:[/bright_yellow]           Use a fast model for subagent tasks
+  • [bright_yellow]Multi-Provider:[/bright_yellow]  Save profiles for Gemini, Claude, OpenAI, etc.
 """)
     emit_info(
         Panel(
@@ -164,11 +164,12 @@ def _show_profile_wizard() -> None:
     # Quick reference
     quick_ref = Text.from_markup("""
 [dim]Quick Reference:[/dim]
-  [green]/profile[/green]                    [dim]# View current settings[/dim]
-  [green]/profile list[/green]               [dim]# List saved profiles[/dim]
-  [green]/profile save <name>[/green]        [dim]# Save current as profile[/dim]
-  [green]/profile load <name>[/green]        [dim]# Load a profile[/dim]
-  [green]/profile reset[/green]              [dim]# Clear all overrides[/dim]
+  [green]/profile[/green]                         [dim]# View current settings[/dim]
+  [green]/profile set <agent> <model>[/green]     [dim]# Set agent model (Tab to autocomplete!)[/dim]
+  [green]/profile list[/green]                    [dim]# List saved profiles[/dim]
+  [green]/profile save <name>[/green]             [dim]# Save current as profile[/dim]
+  [green]/profile load <name>[/green]             [dim]# Load a profile[/dim]
+  [green]/profile reset[/green]                   [dim]# Clear all overrides[/dim]
 """)
     emit_info(quick_ref)
 
@@ -178,16 +179,17 @@ def _show_profile_wizard() -> None:
 @register_command(
     name="profile",
     description="Manage model profiles - view, set, save, and load named configurations",
-    usage="/profile [save|load|list|delete|reset] [name] [task] [model]",
+    usage="/profile [set|save|load|list|delete|reset|guide] [agent] [model]",
     aliases=["profiles"],
     category="config",
     detailed_help="""Model Profile Management
 
 View current settings:
-  /profile                Show current task model configurations
+  /profile                Show current agent model configurations
 
-Set a task model:
-  /profile <task> <model> Set a specific model for a task type
+Set an agent model:
+  /profile set <agent> <model>   Set a specific model for an agent role
+  /profile <agent> <model>       Shorthand form
 
 Named Profiles:
   /profile save <name>    Save current settings as a named profile
@@ -196,41 +198,69 @@ Named Profiles:
   /profile delete <name>  Delete a saved profile
 
 Reset:
-  /profile reset          Clear all task-specific overrides
+  /profile reset               Clear all agent-specific overrides
+  /profile reset <agent>       Reset a single agent to default
 
 Examples:
-  /profile                           # View current configuration
-  /profile compaction gpt-4.1-nano   # Set compaction model
-  /profile save gemini               # Save as "gemini" profile
-  /profile load gemini               # Load "gemini" profile
-  /profile list                      # Show all saved profiles
+  /profile                                  # View current configuration
+  /profile set compaction gpt-4.1-nano      # Set compaction agent model
+  /profile set subagent claude-3-5-haiku    # Set sub-agent model
+  /profile save gemini                      # Save as "gemini" profile
+  /profile load gemini                      # Load "gemini" profile
+  /profile list                             # Show all saved profiles
 
-Available tasks:
-  MAIN        - Main conversation model
-  COMPACTION  - Message summarization (uses MAIN if not set)
-  SUBAGENT    - Delegated agent invocations (uses MAIN if not set)
+Available agents:
+  main        - Main conversation model (global default)
+  compaction  - Message summarization / context compaction
+  subagent    - Delegated sub-agent invocations
 """,
 )
 def handle_profile_command(command: str) -> bool:
-    """Handle the /profile command for task model and profile configuration."""
+    """Handle the /profile command for agent model and profile configuration."""
     from rich.text import Text
 
-    from code_puppy.messaging import emit_info, emit_success, emit_warning, emit_error
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
     from code_puppy.config import get_value, set_value
     from code_puppy.task_models import (
         Task,
-        get_model_for,
-        set_model_for,
         TASK_CONFIGS,
-        save_profile,
-        load_profile,
+        clear_active_profile,
+        clear_model_for,
         delete_profile,
         get_active_profile,
-        clear_active_profile,
+        get_model_for,
+        load_profile,
+        save_profile,
+        set_model_for,
     )
     from code_puppy.command_line.model_picker_completion import load_model_names
 
-    # Check if first-time wizard should be shown
+    # ── helpers ────────────────────────────────────────────────────────────────
+    _configurable = [t for t in Task if t != Task.MAIN]
+    _agent_names = ", ".join(t.name.lower() for t in _configurable)
+
+    def _resolve_agent(name: str) -> Task | None:
+        """Return the Task for *name* (case-insensitive), or None."""
+        try:
+            return Task[name.upper()]
+        except KeyError:
+            return None
+
+    def _set_agent_model(task: Task, model_name: str) -> bool:
+        """Validate *model_name* and apply it; return True on success."""
+        available = load_model_names()
+        if model_name not in available:
+            emit_warning(f"Model '{model_name}' not in known models list.")
+            emit_info("Use /model to browse available models.")
+            return False
+        set_model_for(task, model_name)
+        emit_success(
+            f"✅ {task.name.lower()} agent → [bold cyan]{model_name}[/bold cyan]"
+        )
+        _display_profile_table()
+        return True
+
+    # ── check first-time wizard ────────────────────────────────────────────────
     if not get_value("profile_wizard_shown"):
         _show_profile_wizard()
         set_value("profile_wizard_shown", "true")
@@ -239,7 +269,7 @@ def handle_profile_command(command: str) -> bool:
     parts = command.strip().split()
     subcommand = parts[1].lower() if len(parts) > 1 else ""
 
-    # /profile - show current profile
+    # ── /profile ───────────────────────────────────────────────────────────────
     if len(parts) == 1:
         active = get_active_profile()
         if active:
@@ -249,19 +279,23 @@ def handle_profile_command(command: str) -> bool:
         _display_profile_table()
         return True
 
-    # /profile list - list all saved profiles
+    # ── /profile list ──────────────────────────────────────────────────────────
     if subcommand == "list":
         _display_profiles_list()
         return True
 
-    # /profile save <name> [description]
+    # ── /profile guide ─────────────────────────────────────────────────────────
+    if subcommand == "guide":
+        _show_profile_wizard()
+        return True
+
+    # ── /profile save <name> ───────────────────────────────────────────────────
     if subcommand == "save":
         if len(parts) < 3:
             emit_error("Usage: /profile save <name>")
             return True
         name = parts[2]
         description = " ".join(parts[3:]) if len(parts) > 3 else ""
-
         if save_profile(name, description):
             emit_success(f"✅ Saved profile '{name}'")
             _display_profile_table()
@@ -271,7 +305,7 @@ def handle_profile_command(command: str) -> bool:
             )
         return True
 
-    # /profile load <name>
+    # ── /profile load <name> ───────────────────────────────────────────────────
     if subcommand == "load":
         if len(parts) < 3:
             emit_error("Usage: /profile load <name>")
@@ -285,8 +319,8 @@ def handle_profile_command(command: str) -> bool:
             emit_error(message)
         return True
 
-    # /profile delete <name>
-    if subcommand in ["delete", "rm", "remove"]:
+    # ── /profile delete <name> ─────────────────────────────────────────────────
+    if subcommand in ("delete", "rm", "remove"):
         if len(parts) < 3:
             emit_error("Usage: /profile delete <name>")
             return True
@@ -298,67 +332,71 @@ def handle_profile_command(command: str) -> bool:
             emit_error(message)
         return True
 
-    # /profile reset - clear all overrides
-    if subcommand in ["reset", "clear"]:
-        clear_active_profile()
-        emit_success("✅ Cleared all task model overrides")
-        emit_info("All tasks now use global default model.")
+    # ── /profile reset [agent] ─────────────────────────────────────────────────
+    if subcommand in ("reset", "clear"):
+        if len(parts) >= 3:
+            # Reset a single agent
+            task = _resolve_agent(parts[2])
+            if task is None or task == Task.MAIN:
+                emit_error(f"Unknown agent: {parts[2]}")
+                emit_info(f"Available agents: {_agent_names}")
+                return True
+            clear_model_for(task)
+            emit_success(f"✅ Reset {task.name.lower()} agent to default model")
+        else:
+            # Reset all
+            clear_active_profile()
+            emit_success("✅ Cleared all agent model overrides")
+            emit_info("All agents now use the global default model.")
+        _display_profile_table()
         return True
 
-    # /profile <task> - show specific task info
-    if len(parts) == 2:
-        task_name = parts[1].upper()
-        try:
-            task = Task[task_name]
+    # ── /profile set <agent> <model> ───────────────────────────────────────────
+    if subcommand == "set":
+        if len(parts) < 4:
+            emit_error("Usage: /profile set <agent> <model>")
+            emit_info(f"Available agents: {_agent_names}")
+            return True
+        task = _resolve_agent(parts[2])
+        if task is None or task == Task.MAIN:
+            emit_error(f"Unknown agent: {parts[2]}")
+            emit_info(f"Available agents: {_agent_names}")
+            return True
+        model_name = " ".join(parts[3:])
+        _set_agent_model(task, model_name)
+        return True
+
+    # ── /profile <agent> [model]  (shorthand) ─────────────────────────────────
+    task = _resolve_agent(parts[1])
+    if task is not None and task != Task.MAIN:
+        if len(parts) == 2:
+            # Show info for this agent
             config = TASK_CONFIGS.get(task)
+            current_model = get_model_for(task)
             if config:
-                current_model = get_model_for(task)
                 emit_info(
-                    Text.from_markup(f"[bold]{task_name}[/bold]: {config.description}")
+                    Text.from_markup(
+                        f"[bold cyan]{task.name.lower()}[/bold cyan]: {config.description}"
+                    )
                 )
+            emit_info(
+                Text.from_markup(f"  Current model: [cyan]{current_model}[/cyan]")
+            )
+            if config:
                 emit_info(
-                    Text.from_markup(f"  Current model: [cyan]{current_model}[/cyan]")
+                    Text.from_markup(
+                        f"  Set with: [dim]/profile set {task.name.lower()} <model>[/dim]"
+                    )
                 )
-                emit_info(
-                    Text.from_markup(f"  Config key: [dim]{config.config_key}[/dim]")
-                )
-            else:
-                emit_warning(f"No configuration found for task: {task_name}")
-        except KeyError:
-            emit_error(f"Unknown task or subcommand: {task_name}")
-            emit_info(f"Tasks: {', '.join([t.name for t in Task])}")
-            emit_info("Subcommands: save, load, list, delete, reset")
+        else:
+            model_name = " ".join(parts[2:])
+            _set_agent_model(task, model_name)
         return True
 
-    # /profile <task> <model> - set task model
-    if len(parts) >= 3:
-        task_name = parts[1].upper()
-        model_name = " ".join(parts[2:])  # Allow model names with spaces
-
-        # Validate task
-        try:
-            task = Task[task_name]
-        except KeyError:
-            emit_error(f"Unknown task: {task_name}")
-            emit_info(f"Available tasks: {', '.join([t.name for t in Task])}")
-            return True
-
-        # Validate model exists
-        available_models = load_model_names()
-        if model_name not in available_models:
-            emit_warning(f"Model '{model_name}' not found in available models.")
-            emit_info("Use /model to see available models.")
-            return True
-
-        # Set the model
-        try:
-            set_model_for(task, model_name)
-            emit_success(f"✅ Set {task_name} model to {model_name}")
-            _display_profile_table()
-        except Exception as e:
-            emit_error(f"Failed to set model: {e}")
-        return True
-
+    # ── unknown ────────────────────────────────────────────────────────────────
+    emit_error(f"Unknown agent or subcommand: {parts[1]}")
+    emit_info(f"Available agents: {_agent_names}")
+    emit_info("Subcommands: set, save, load, list, delete, reset, guide")
     return True
 
 
@@ -467,7 +505,7 @@ def _render_wide_table(configs: dict, term_width: int) -> None:
         title_justify="center",
         padding=(0, 1),
     )
-    table.add_column("Task", style="bright_cyan", width=12, no_wrap=True)
+    table.add_column("Agent", style="bright_cyan", width=12, no_wrap=True)
     table.add_column("Model", style="bright_green", width=model_width)
     table.add_column("Status", style="bright_yellow", width=16, no_wrap=True)
 
@@ -477,6 +515,7 @@ def _render_wide_table(configs: dict, term_width: int) -> None:
             continue
 
         effective = info["effective"] or "default"
+        agent_label = task.name.lower()
 
         # Determine status with clear language
         if info["is_custom"]:
@@ -488,12 +527,12 @@ def _render_wide_table(configs: dict, term_width: int) -> None:
             status_style = "dim"
             model_display = effective
         else:
-            status = "← uses MAIN"
+            status = "← default"
             status_style = "dim"
             model_display = effective
 
         table.add_row(
-            f"[bright_cyan]{task.name}[/bright_cyan]",
+            f"[bright_cyan]{agent_label}[/bright_cyan]",
             model_display,
             f"[{status_style}]{status}[/{status_style}]",
         )
@@ -519,7 +558,7 @@ def _render_medium_table(configs: dict, term_width: int) -> None:
         border_style="bright_black",
         padding=(0, 1),
     )
-    table.add_column("Task", style="bright_cyan", width=12, no_wrap=True)
+    table.add_column("Agent", style="bright_cyan", width=12, no_wrap=True)
     table.add_column("Model", style="bright_green", width=model_width)
     table.add_column("", width=8, no_wrap=True)
 
@@ -541,7 +580,7 @@ def _render_medium_table(configs: dict, term_width: int) -> None:
             status = "←"
             model_display = effective
 
-        table.add_row(task.name, model_display, status)
+        table.add_row(task.name.lower(), model_display, status)
 
     emit_info(table)
 
@@ -582,7 +621,7 @@ def _render_narrow_list(configs: dict, term_width: int) -> None:
 
         lines.append(
             Text.from_markup(
-                f"{icon} [bright_cyan]{task.name:10}[/bright_cyan] [{style}]{effective}[/{style}]"
+                f"{icon} [bright_cyan]{task.name.lower():10}[/bright_cyan] [{style}]{effective}[/{style}]"
             )
         )
 
@@ -604,13 +643,13 @@ def _render_footer(term_width: int) -> None:
 
     if term_width >= 80:
         footer = Text.from_markup(
-            "\n[dim]💡 [bold]Usage:[/bold] /profile <task> <model>  │  "
-            "[bold]Example:[/bold] /profile compaction gpt-4.1-nano  │  "
+            "\n[dim]💡 [bold]Usage:[/bold] /profile set <agent> <model>  │  "
+            "[bold]Example:[/bold] /profile set compaction gpt-4.1-nano  │  "
             "[bold]Reset:[/bold] /profile reset[/dim]"
         )
     else:
         footer = Text.from_markup(
-            "\n[dim]💡 /profile <task> <model> │ /profile reset[/dim]"
+            "\n[dim]💡 /profile set <agent> <model> │ /profile reset[/dim]"
         )
 
     emit_info(footer)
