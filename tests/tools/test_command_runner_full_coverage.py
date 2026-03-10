@@ -868,7 +868,7 @@ class TestExecuteShellCommand:
         assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_suspends_active_prompt_and_skips_keyboard_listener(self):
+    async def test_marks_active_runtime_shell_state_and_skips_keyboard_listener(self):
         from code_puppy.tools.command_runner import (
             ShellCommandOutput,
             _execute_shell_command,
@@ -883,34 +883,33 @@ class TestExecuteShellCommand:
             execution_time=0.1,
         )
 
+        runtime = MagicMock()
         with patch("code_puppy.tools.command_runner.get_message_bus") as mock_bus:
             mock_bus.return_value = MagicMock()
             with patch("code_puppy.messaging.spinner.pause_all_spinners"):
                 with patch("code_puppy.messaging.spinner.resume_all_spinners"):
                     with patch(
-                        "code_puppy.command_line.prompt_toolkit_completion.has_active_prompt_surface",
-                        return_value=True,
+                        "code_puppy.command_line.interactive_runtime.get_active_interactive_runtime",
+                        return_value=runtime,
                     ):
                         with patch(
-                            "code_puppy.command_line.prompt_toolkit_completion.set_shell_prompt_suspended"
-                        ) as mock_suspend:
+                            "code_puppy.tools.command_runner._acquire_keyboard_context"
+                        ) as mock_acquire:
                             with patch(
-                                "code_puppy.tools.command_runner._acquire_keyboard_context"
-                            ) as mock_acquire:
+                                "code_puppy.tools.command_runner._release_keyboard_context"
+                            ) as mock_release:
                                 with patch(
-                                    "code_puppy.tools.command_runner._release_keyboard_context"
-                                ) as mock_release:
-                                    with patch(
-                                        "code_puppy.tools.command_runner._run_command_inner",
-                                        new_callable=AsyncMock,
-                                        return_value=mock_result,
-                                    ):
-                                        result = await _execute_shell_command(
-                                            "echo hi", None, 10, "grp"
-                                        )
+                                    "code_puppy.tools.command_runner._run_command_inner",
+                                    new_callable=AsyncMock,
+                                    return_value=mock_result,
+                                ):
+                                    result = await _execute_shell_command(
+                                        "echo hi", None, 10, "grp"
+                                    )
 
         assert result.success is True
-        assert mock_suspend.call_args_list == [((True,),), ((False,),)]
+        runtime.notify_shell_started.assert_called_once()
+        runtime.notify_shell_finished.assert_called_once()
         mock_acquire.assert_not_called()
         mock_release.assert_not_called()
 
@@ -935,29 +934,25 @@ class TestExecuteShellCommand:
             with patch("code_puppy.messaging.spinner.pause_all_spinners"):
                 with patch("code_puppy.messaging.spinner.resume_all_spinners"):
                     with patch(
-                        "code_puppy.command_line.prompt_toolkit_completion.has_active_prompt_surface",
-                        return_value=False,
+                        "code_puppy.command_line.interactive_runtime.get_active_interactive_runtime",
+                        return_value=None,
                     ):
                         with patch(
-                            "code_puppy.command_line.prompt_toolkit_completion.set_shell_prompt_suspended"
-                        ) as mock_suspend:
+                            "code_puppy.tools.command_runner._acquire_keyboard_context"
+                        ) as mock_acquire:
                             with patch(
-                                "code_puppy.tools.command_runner._acquire_keyboard_context"
-                            ) as mock_acquire:
+                                "code_puppy.tools.command_runner._release_keyboard_context"
+                            ) as mock_release:
                                 with patch(
-                                    "code_puppy.tools.command_runner._release_keyboard_context"
-                                ) as mock_release:
-                                    with patch(
-                                        "code_puppy.tools.command_runner._run_command_inner",
-                                        new_callable=AsyncMock,
-                                        return_value=mock_result,
-                                    ):
-                                        result = await _execute_shell_command(
-                                            "echo hi", None, 10, "grp"
-                                        )
+                                    "code_puppy.tools.command_runner._run_command_inner",
+                                    new_callable=AsyncMock,
+                                    return_value=mock_result,
+                                ):
+                                    result = await _execute_shell_command(
+                                        "echo hi", None, 10, "grp"
+                                    )
 
         assert result.success is True
-        mock_suspend.assert_not_called()
         mock_acquire.assert_called_once()
         mock_release.assert_called_once()
 

@@ -21,6 +21,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.processors import Processor, Transformation
+from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.styles import Style
 
 from code_puppy.command_line.attachments import (
@@ -35,6 +36,10 @@ from code_puppy.command_line.clipboard import (
 )
 from code_puppy.command_line.command_registry import get_unique_commands
 from code_puppy.command_line.file_path_completion import FilePathCompleter
+from code_puppy.command_line.interactive_runtime import (
+    PromptRuntimeState,
+    get_active_interactive_runtime,
+)
 from code_puppy.command_line.load_context_completion import LoadContextCompleter
 from code_puppy.command_line.mcp_completion import MCPCompleter
 from code_puppy.command_line.model_picker_completion import (
@@ -44,79 +49,66 @@ from code_puppy.command_line.model_picker_completion import (
 from code_puppy.command_line.pin_command_completion import PinCompleter, UnpinCompleter
 from code_puppy.command_line.skills_completion import SkillsCompleter
 from code_puppy.command_line.utils import list_directory
-from code_puppy.config import (
-    COMMAND_HISTORY_FILE,
-    get_config_keys,
-    get_puppy_name,
-    get_value,
-)
-
-_QUEUE_VIEW_OFFSET = 0
+from code_puppy.config import COMMAND_HISTORY_FILE, get_config_keys, get_puppy_name, get_value
+from code_puppy.messaging.spinner.spinner_base import SpinnerBase
 
 
-@dataclass
-class _PromptRuntimeState:
-    kind: Literal["main", "interject"] | None = None
-    session: PromptSession | None = None
-    app: object | None = None
-    shell_suspended: bool = False
+@dataclass(frozen=True)
+class PromptSubmission:
+    action: Literal["submit", "queue", "interject"]
+    text: str
 
 
-_PROMPT_RUNTIME_STATE = _PromptRuntimeState()
+def _get_runtime() -> PromptRuntimeState | None:
+    return get_active_interactive_runtime()
 
 
 def register_active_prompt_surface(
     kind: Literal["main", "interject"], session: PromptSession
 ) -> None:
-    """Track the mounted prompt surface so shells can suspend it in-place."""
-    _PROMPT_RUNTIME_STATE.kind = kind
-    _PROMPT_RUNTIME_STATE.session = session
-    _PROMPT_RUNTIME_STATE.app = getattr(session, "app", None)
-    _PROMPT_RUNTIME_STATE.shell_suspended = False
+    runtime = _get_runtime()
+    if runtime is None:
+        return
+    runtime.register_prompt_surface(session, kind="main")
 
 
 def clear_active_prompt_surface(session: PromptSession | None = None) -> None:
-    """Clear the tracked prompt surface if it matches the current session."""
-    if session is not None and _PROMPT_RUNTIME_STATE.session is not session:
+    runtime = _get_runtime()
+    if runtime is None:
         return
-    _PROMPT_RUNTIME_STATE.kind = None
-    _PROMPT_RUNTIME_STATE.session = None
-    _PROMPT_RUNTIME_STATE.app = None
-    _PROMPT_RUNTIME_STATE.shell_suspended = False
+    runtime.clear_prompt_surface(session)
 
 
 def get_active_prompt_surface_kind() -> Literal["main", "interject"] | None:
-    return _PROMPT_RUNTIME_STATE.kind
+    runtime = _get_runtime()
+    if runtime is None:
+        return None
+    if runtime.prompt_surface_kind == "main":
+        return "main"
+    return None
 
 
 def has_active_prompt_surface() -> bool:
-    return _PROMPT_RUNTIME_STATE.session is not None
+    runtime = _get_runtime()
+    return runtime.has_prompt_surface() if runtime is not None else False
 
 
 def is_shell_prompt_suspended() -> bool:
-    return (
-        _PROMPT_RUNTIME_STATE.session is not None
-        and _PROMPT_RUNTIME_STATE.shell_suspended
-    )
+    runtime = _get_runtime()
+    return runtime.has_active_shell() if runtime is not None else False
 
 
 def set_shell_prompt_suspended(suspended: bool) -> None:
-    """Flip shell suspension on the mounted prompt and force a redraw."""
-    if _PROMPT_RUNTIME_STATE.session is None:
-        _PROMPT_RUNTIME_STATE.shell_suspended = False
+    """Compatibility shim for tests that now maps to shell-active state."""
+    runtime = _get_runtime()
+    if runtime is None:
         return
-
-    _PROMPT_RUNTIME_STATE.shell_suspended = suspended
-    _PROMPT_RUNTIME_STATE.app = getattr(
-        _PROMPT_RUNTIME_STATE.session, "app", _PROMPT_RUNTIME_STATE.app
-    )
-
-    app = _PROMPT_RUNTIME_STATE.app
-    if app is not None:
-        try:
-            app.invalidate()
-        except Exception:
-            pass
+    if suspended:
+        if not runtime.has_active_shell():
+            runtime.notify_shell_started()
+        return
+    while runtime.has_active_shell():
+        runtime.notify_shell_finished()
 
 
 def _interrupt_shell_from_prompt(label: str) -> None:
@@ -125,12 +117,6 @@ def _interrupt_shell_from_prompt(label: str) -> None:
 
     emit_warning(f"\n🛑 {label} detected! Interrupting shell command...")
     kill_all_running_shell_processes()
-
-
-def _shell_interrupt_hint() -> str:
-    """Return platform-appropriate interrupt text for the shell lock banner."""
-    return "control+c" if sys.platform == "darwin" else "ctrl+c"
-
 
 def _truncate_queue_line(text: str, max_len: int) -> str:
     if max_len <= 2:
@@ -144,14 +130,18 @@ def _get_queue_preview(
     prompts: list[str], term_width: int, max_visible: int = 3
 ) -> tuple[list[str], int]:
     """Return visible queue lines and hidden count from current offset."""
-    global _QUEUE_VIEW_OFFSET
+    runtime = _get_runtime()
+    queue_offset = runtime.queue_view_offset if runtime is not None else 0
     if not prompts:
-        _QUEUE_VIEW_OFFSET = 0
+        if runtime is not None:
+            runtime.queue_view_offset = 0
         return [], 0
 
     max_start = max(0, len(prompts) - max_visible)
-    _QUEUE_VIEW_OFFSET = max(0, min(_QUEUE_VIEW_OFFSET, max_start))
-    start = _QUEUE_VIEW_OFFSET
+    queue_offset = max(0, min(queue_offset, max_start))
+    if runtime is not None:
+        runtime.queue_view_offset = queue_offset
+    start = queue_offset
     visible = prompts[start : start + max_visible]
     lines: list[str] = []
     line_room = max(8, term_width - 8)
@@ -159,6 +149,10 @@ def _get_queue_preview(
         lines.append(f"  [{idx}] {_truncate_queue_line(prompt, line_room)}")
     hidden = max(0, len(prompts) - (start + len(visible)))
     return lines, hidden
+
+
+def _is_exit_text(text: str) -> bool:
+    return text.strip().lower() in {"exit", "quit", "/exit", "/quit"}
 
 
 def _sanitize_for_encoding(text: str) -> str:
@@ -624,10 +618,60 @@ class SlashCompleter(Completer):
 
 
 def get_prompt_with_active_model(base: str = ">>> ", is_interject: bool = False):
+    return FormattedText(
+        _build_prompt_parts(
+            is_interject=is_interject,
+            include_queue_preview=True,
+            include_pending_hint=True,
+        )
+    )
+
+
+def _build_prompt_style() -> Style:
+    return Style.from_dict(
+        {
+            # Keys must AVOID the 'class:' prefix – that prefix is used only when
+            # tagging tokens in `FormattedText`. See prompt_toolkit docs.
+            "puppy": "bold ansibrightcyan",
+            "owner": "bold ansibrightblue",
+            "agent": "bold ansibrightblue",
+            "model": "bold ansibrightcyan",
+            "cwd": "bold ansibrightgreen",
+            "arrow": "bold ansibrightcyan",
+            "separator": "bold ansigray",
+            "attachment-placeholder": "italic ansicyan",
+            "queue-item": "italic ansiyellow",
+            "thinking": "bold ansibrightcyan",
+            "thinking-context": "bold white",
+        }
+    )
+
+
+def _build_prompt_status_parts(runtime: PromptRuntimeState) -> list[tuple[str, str]]:
+    """Build the lightweight thinking line shown above the prompt separator."""
+    parts: list[tuple[str, str]] = [
+        ("class:thinking", f"{get_puppy_name().title()} is thinking... "),
+        ("class:thinking", runtime.get_prompt_status_frame()),
+    ]
+    context_info = SpinnerBase.get_context_info()
+    if context_info:
+        parts.append(("", " "))
+        parts.append(("class:thinking-context", context_info))
+    parts.append(("", "\n"))
+    return parts
+
+
+def _build_prompt_parts(
+    *,
+    is_interject: bool,
+    include_queue_preview: bool,
+    include_pending_hint: bool,
+) -> list[tuple[str, str]]:
     from code_puppy.agents.agent_manager import get_current_agent
 
     puppy = get_puppy_name()
     global_model = get_active_model() or "(default)"
+    runtime = _get_runtime()
 
     # Get current agent information
     current_agent = get_current_agent()
@@ -656,21 +700,22 @@ def get_prompt_with_active_model(base: str = ">>> ", is_interject: bool = False)
     else:
         cwd_display = cwd
 
-    # Fetch queued prompts if any
-    from code_puppy.cli_runner import PROMPT_QUEUE
-    
     # We add a visual top border using terminal width
     import shutil
+
     term_width = shutil.get_terminal_size().columns
     sep_line = "─" * term_width
-    
-    parts = []
-    
-    # Optional newline to isolate from previous output
-    parts.append(("class:separator", f"\n{sep_line}\n"))
-    
-    if PROMPT_QUEUE:
-        preview_lines, hidden = _get_queue_preview(PROMPT_QUEUE, term_width=term_width)
+
+    parts = [("", "\n")]
+
+    if runtime is not None and runtime.running:
+        parts.extend(_build_prompt_status_parts(runtime))
+
+    parts.append(("class:separator", f"{sep_line}\n"))
+
+    queue_preview = runtime.queue_preview_texts() if runtime is not None else []
+    if include_queue_preview and queue_preview:
+        preview_lines, hidden = _get_queue_preview(queue_preview, term_width=term_width)
         for line in preview_lines:
             parts.append(("class:queue-item", f"{line}\n"))
         if hidden:
@@ -685,33 +730,61 @@ def get_prompt_with_active_model(base: str = ">>> ", is_interject: bool = False)
         ("class:model", model_display + " "),
         ("class:cwd", "(" + str(cwd_display) + ") \n"),
     ])
-    
-    if is_interject:
+
+    if include_pending_hint and (
+        is_interject or (runtime is not None and runtime.has_pending_submission())
+    ):
         # Add hint above the prompt line to keep the cursor position consistent
         parts.append(("class:queue-item", "  [i]nterject or [q]ueue\n"))
-
-    if is_shell_prompt_suspended():
-        parts.append(
-            (
-                "class:suspension",
-                "  input suspended during shell command, press "
-                f"{_shell_interrupt_hint()} to interrupt\n",
-            )
-        )
 
     parts.extend([
         ("class:separator", "╰─"),
         ("class:arrow", "❯ "),
     ])
-    
-    return FormattedText(parts)
+
+    return parts
 
 
-async def get_input_with_combined_completion(
+def render_submitted_prompt_echo(text: str) -> None:
+    """Print a submitted prompt using the same prompt chrome as the composer."""
+    echo_text = text.rstrip("\n")
+    if not echo_text:
+        return
+
+    from prompt_toolkit.output.defaults import create_output
+
+    out = create_output(stdout=sys.__stdout__)
+    if hasattr(out, "enable_cpr"):
+        out.enable_cpr = False
+
+    parts = _build_prompt_parts(
+        is_interject=False,
+        include_queue_preview=False,
+        include_pending_hint=False,
+    )
+    parts.append(("", echo_text))
+    parts.append(("", "\n"))
+    formatted = FormattedText(parts)
+    style = _build_prompt_style()
+
+    runtime = _get_runtime()
+    app = getattr(getattr(runtime, "prompt_session", None), "app", None)
+    if app is not None:
+        try:
+            app.print_text(formatted, style=style)
+            return
+        except Exception:
+            pass
+
+    print_formatted_text(formatted, style=style, output=out)
+
+
+async def prompt_for_submission(
     prompt_str=">>> ", history_file: Optional[str] = None, erase_when_done: bool = False
-) -> str:
+) -> PromptSubmission:
     # Use SafeFileHistory to handle encoding errors gracefully on Windows
     history = SafeFileHistory(history_file) if history_file else None
+    runtime = _get_runtime()
     completer = merge_completers(
         [
             FilePathCompleter(symbol="@"),
@@ -731,15 +804,23 @@ async def get_input_with_combined_completion(
     )
     # Add custom key bindings and multiline toggle
     bindings = KeyBindings()
-    shell_suspended_filter = Condition(is_shell_prompt_suspended)
+    pending_decision_filter = Condition(
+        lambda: runtime is not None and runtime.has_pending_submission()
+    )
+    shell_active_filter = Condition(
+        lambda: runtime is not None and runtime.has_active_shell()
+    )
 
     # Multiline mode state
     multiline = {"enabled": False}
 
-    # Ctrl+X keybinding - exit with KeyboardInterrupt for shell command cancellation
+    def awaiting_decision() -> bool:
+        return runtime is not None and runtime.has_pending_submission()
+
+    # Ctrl+X keybinding - exit with KeyboardInterrupt for input cancellation
     @bindings.add(Keys.ControlX)
     def _(event):
-        if is_shell_prompt_suspended():
+        if runtime is not None and runtime.has_active_shell():
             _interrupt_shell_from_prompt("Ctrl-X")
             return
         try:
@@ -749,14 +830,17 @@ async def get_input_with_combined_completion(
             # This happens when user presses multiple exit keys in quick succession
             pass
 
-    @bindings.add("c-c", filter=shell_suspended_filter, eager=True)
+    @bindings.add("c-c", filter=shell_active_filter, eager=True)
     def _(event):
         _interrupt_shell_from_prompt("Ctrl-C")
 
     # Escape keybinding - exit with KeyboardInterrupt
     @bindings.add(Keys.Escape)
     def _(event):
-        if is_shell_prompt_suspended():
+        if awaiting_decision():
+            runtime.set_pending_submission(None)
+            return
+        if runtime is not None and runtime.has_active_shell():
             return
         try:
             event.app.exit(exception=KeyboardInterrupt)
@@ -764,19 +848,27 @@ async def get_input_with_combined_completion(
             # Ignore "Return value already set" errors when exit was already called
             pass
 
-    @bindings.add("c-d", filter=shell_suspended_filter, eager=True)
-    def _(event):
-        return
-
     # NOTE: We intentionally do NOT override Ctrl+C here.
     # prompt_toolkit's default Ctrl+C handler properly resets the terminal state on Windows.
     # Overriding it with event.app.exit(exception=KeyboardInterrupt) can leave the terminal
     # in a bad state where characters cannot be typed. Let prompt_toolkit handle Ctrl+C natively.
 
+    @bindings.add("i", filter=pending_decision_filter, eager=True)
+    @bindings.add("I", filter=pending_decision_filter, eager=True)
+    def _(event):
+        text = runtime.take_pending_submission() or event.app.current_buffer.text
+        event.app.exit(result=PromptSubmission(action="interject", text=text))
+
+    @bindings.add("q", filter=pending_decision_filter, eager=True)
+    @bindings.add("Q", filter=pending_decision_filter, eager=True)
+    def _(event):
+        text = runtime.take_pending_submission() or event.app.current_buffer.text
+        event.app.exit(result=PromptSubmission(action="queue", text=text))
+
     # Toggle multiline with Alt+M
     @bindings.add(Keys.Escape, "m")
     def _(event):
-        if is_shell_prompt_suspended():
+        if awaiting_decision():
             return
         multiline["enabled"] = not multiline["enabled"]
         status = "ON" if multiline["enabled"] else "OFF"
@@ -788,7 +880,7 @@ async def get_input_with_combined_completion(
     # Also toggle multiline with F2 (more reliable across platforms)
     @bindings.add("f2")
     def _(event):
-        if is_shell_prompt_suspended():
+        if awaiting_decision():
             return
         multiline["enabled"] = not multiline["enabled"]
         status = "ON" if multiline["enabled"] else "OFF"
@@ -799,7 +891,7 @@ async def get_input_with_combined_completion(
     # Ctrl+J (line feed) works in virtually all terminals; mark eager so it wins
     @bindings.add("c-j", eager=True)
     def _(event):
-        if is_shell_prompt_suspended():
+        if awaiting_decision():
             return
         event.app.current_buffer.insert_text("\n")
 
@@ -808,7 +900,7 @@ async def get_input_with_combined_completion(
 
         @bindings.add("c-enter", eager=True)
         def _(event):
-            if is_shell_prompt_suspended():
+            if awaiting_decision():
                 return
             event.app.current_buffer.insert_text("\n")
     except Exception:
@@ -817,7 +909,16 @@ async def get_input_with_combined_completion(
     # Enter behavior depends on multiline mode
     @bindings.add("enter", filter=~is_searching, eager=True)
     def _(event):
-        if is_shell_prompt_suspended():
+        if awaiting_decision():
+            return
+        text = event.app.current_buffer.text
+        if (
+            runtime is not None
+            and runtime.running
+            and text.strip()
+            and not _is_exit_text(text)
+        ):
+            runtime.set_pending_submission(text)
             return
         if multiline["enabled"]:
             event.app.current_buffer.insert_text("\n")
@@ -830,7 +931,7 @@ async def get_input_with_combined_completion(
     @bindings.add("c-h", eager=True)  # Backspace (Ctrl+H)
     @bindings.add("backspace", eager=True)
     def handle_backspace_with_completion(event):
-        if is_shell_prompt_suspended():
+        if awaiting_decision():
             return
         buffer = event.app.current_buffer
         # Perform the deletion first
@@ -842,7 +943,7 @@ async def get_input_with_combined_completion(
 
     @bindings.add("delete", eager=True)
     def handle_delete_with_completion(event):
-        if is_shell_prompt_suspended():
+        if awaiting_decision():
             return
         buffer = event.app.current_buffer
         # Perform the deletion first
@@ -854,23 +955,15 @@ async def get_input_with_combined_completion(
 
     @bindings.add("c-up", eager=True)
     def handle_queue_scroll_up(event):
-        from code_puppy.cli_runner import PROMPT_QUEUE
-
-        global _QUEUE_VIEW_OFFSET
-        if len(PROMPT_QUEUE) <= 3:
+        if runtime is None or len(runtime.queue) <= 3:
             return
-        _QUEUE_VIEW_OFFSET = max(0, _QUEUE_VIEW_OFFSET - 1)
-        event.app.invalidate()
+        runtime.shift_queue_view_offset(-1)
 
     @bindings.add("c-down", eager=True)
     def handle_queue_scroll_down(event):
-        from code_puppy.cli_runner import PROMPT_QUEUE
-
-        global _QUEUE_VIEW_OFFSET
-        if len(PROMPT_QUEUE) <= 3:
+        if runtime is None or len(runtime.queue) <= 3:
             return
-        _QUEUE_VIEW_OFFSET = min(len(PROMPT_QUEUE) - 3, _QUEUE_VIEW_OFFSET + 1)
-        event.app.invalidate()
+        runtime.shift_queue_view_offset(1)
 
     # Handle bracketed paste - smart detection for text vs images.
     # Most terminals (Windows included!) send Ctrl+V through bracketed paste.
@@ -879,7 +972,7 @@ async def get_input_with_combined_completion(
     @bindings.add(Keys.BracketedPaste)
     def handle_bracketed_paste(event):
         """Handle bracketed paste - smart text vs image detection."""
-        if is_shell_prompt_suspended():
+        if awaiting_decision():
             return
         pasted_data = event.data
 
@@ -911,7 +1004,7 @@ async def get_input_with_combined_completion(
     @bindings.add("c-v", eager=True)
     def handle_smart_paste(event):
         """Handle Ctrl+V - auto-detect image vs text in clipboard."""
-        if is_shell_prompt_suspended():
+        if awaiting_decision():
             return
         try:
             # Check for image first
@@ -980,7 +1073,7 @@ async def get_input_with_combined_completion(
     @bindings.add("f3")
     def handle_image_paste_f3(event):
         """Handle F3 - paste image from clipboard (image-only, shows error if none)."""
-        if is_shell_prompt_suspended():
+        if awaiting_decision():
             return
         try:
             if has_image_in_clipboard():
@@ -998,10 +1091,15 @@ async def get_input_with_combined_completion(
             event.app.current_buffer.insert_text("[❌ clipboard error] ")
             event.app.output.bell()
 
+    @bindings.add("<any>", filter=pending_decision_filter, eager=True)
+    def _(event):
+        # Freeze the submitted text until the user chooses queue or interject.
+        return
+
     from prompt_toolkit.output.defaults import create_output
-    import sys
+
     out = create_output(stdout=sys.stdout)
-    if hasattr(out, 'enable_cpr'):
+    if hasattr(out, "enable_cpr"):
         out.enable_cpr = False
     session = PromptSession(
         completer=completer,
@@ -1010,160 +1108,55 @@ async def get_input_with_combined_completion(
         key_bindings=bindings,
         input_processors=[AttachmentPlaceholderProcessor()],
         output=out,
-        erase_when_done=erase_when_done
+        erase_when_done=erase_when_done,
     )
-    session.default_buffer.read_only = shell_suspended_filter
     # If they pass a string, backward-compat: convert it to formatted_text
     if isinstance(prompt_str, str):
         from prompt_toolkit.formatted_text import FormattedText
 
         prompt_str = FormattedText([(None, prompt_str)])
-    style = Style.from_dict(
-        {
-            # Keys must AVOID the 'class:' prefix – that prefix is used only when
-            # tagging tokens in `FormattedText`. See prompt_toolkit docs.
-            "puppy": "bold ansibrightcyan",
-            "owner": "bold ansibrightblue",
-            "agent": "bold ansibrightblue",
-            "model": "bold ansibrightcyan",
-            "cwd": "bold ansibrightgreen",
-            "arrow": "bold ansibrightcyan",
-            "separator": "bold ansigray",
-            "attachment-placeholder": "italic ansicyan",
-            "queue-item": "italic ansiyellow",
-            "suspension": "bold ansibrightred",
-        }
-    )
+    style = _build_prompt_style()
     register_active_prompt_surface("main", session)
     try:
-        with patch_stdout(raw=True):
-            text = await session.prompt_async(prompt_str, style=style)
+        with patch_stdout():
+            result = await session.prompt_async(prompt_str, style=style)
+    except (KeyboardInterrupt, EOFError):
+        if runtime is not None:
+            runtime.set_pending_submission(None)
+        raise
     finally:
         clear_active_prompt_surface(session)
+    if isinstance(result, PromptSubmission):
+        return result
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running
     # and emitting success messages. Now we let all /model commands fall through to
     # the command handler in main.py for consistent handling.
-    return text
+    return PromptSubmission(action="submit", text=result)
 
+
+async def get_input_with_combined_completion(
+    prompt_str=">>> ", history_file: Optional[str] = None, erase_when_done: bool = False
+) -> str:
+    submission = await prompt_for_submission(
+        prompt_str=prompt_str,
+        history_file=history_file,
+        erase_when_done=erase_when_done,
+    )
+    return submission.text
 
 
 async def get_interject_action() -> str:
-    from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
-
-    bindings = KeyBindings()
-    result = ""
-
-    @bindings.add('i')
-    @bindings.add('I')
-    def _(event):
-        nonlocal result
-        if is_shell_prompt_suspended():
-            return
-        result = 'i'
-        event.app.exit(result='i')
-
-    @bindings.add('q')
-    @bindings.add('Q')
-    def _(event):
-        nonlocal result
-        if is_shell_prompt_suspended():
-            return
-        result = 'q'
-        event.app.exit(result='q')
-
-    @bindings.add('c-c')
-    def _(event):
-        if is_shell_prompt_suspended():
-            _interrupt_shell_from_prompt("Ctrl-C")
-            return
-        raise KeyboardInterrupt()
-
-    @bindings.add(Keys.ControlX)
-    def _(event):
-        if is_shell_prompt_suspended():
-            _interrupt_shell_from_prompt("Ctrl-X")
-            return
-
-    @bindings.add('c-d')
-    def _(event):
-        if is_shell_prompt_suspended():
-            return
-        raise EOFError()
-
-    @bindings.add('<any>')
-    def _(event):
-        # Ignore other keys to simulate a single-character menu
-        pass
-
-    @bindings.add("c-up")
-    def _(event):
-        from code_puppy.cli_runner import PROMPT_QUEUE
-
-        global _QUEUE_VIEW_OFFSET
-        if len(PROMPT_QUEUE) > 3:
-            _QUEUE_VIEW_OFFSET = max(0, _QUEUE_VIEW_OFFSET - 1)
-            event.app.invalidate()
-
-    @bindings.add("c-down")
-    def _(event):
-        from code_puppy.cli_runner import PROMPT_QUEUE
-
-        global _QUEUE_VIEW_OFFSET
-        if len(PROMPT_QUEUE) > 3:
-            _QUEUE_VIEW_OFFSET = min(len(PROMPT_QUEUE) - 3, _QUEUE_VIEW_OFFSET + 1)
-            event.app.invalidate()
-
-    prompt_text = lambda: get_prompt_with_active_model(is_interject=True)
-    from prompt_toolkit.output.defaults import create_output
-    import sys
-    out = create_output(stdout=sys.stdout)
-    if hasattr(out, 'enable_cpr'):
-        out.enable_cpr = False
-    session = PromptSession(
-        message=prompt_text, 
-        key_bindings=bindings, 
-        output=out, 
-        erase_when_done=True
+    """Compatibility shim for tests; interactive_mode no longer uses this."""
+    submission = await prompt_for_submission(
+        prompt_str=lambda: get_prompt_with_active_model(is_interject=True),
+        erase_when_done=True,
     )
-    session.default_buffer.read_only = Condition(is_shell_prompt_suspended)
-    
-    from prompt_toolkit.styles import Style
-    style = Style.from_dict({
-        "puppy": "bold ansibrightcyan",
-        "owner": "bold ansibrightblue",
-        "agent": "bold ansibrightblue",
-        "model": "bold ansibrightcyan",
-        "cwd": "bold ansibrightgreen",
-        "arrow": "bold ansibrightcyan",
-        "separator": "bold ansigray",
-        "attachment-placeholder": "italic ansicyan",
-        "queue-item": "italic ansiyellow",
-        "suspension": "bold ansibrightred",
-    })
-    
-    register_active_prompt_surface("interject", session)
-    try:
-        with patch_stdout(raw=True):
-            # We catch the result of app.exit(result=...) via session.prompt_async()
-            try:
-                # Pause spinners to prevent jitter and allow clean input
-                pause_all_spinners()
-                
-                # We don't actually want them to type anything, just press a key
-                # session.prompt_async returns the text typed if they press enter,
-                # but our keybindings will exit early with the bound result.
-                action = await session.prompt_async(style=style)
-                if result:
-                    return result
-                return action
-            except (KeyboardInterrupt, EOFError):
-                raise
-            finally:
-                # Resume spinners when done
-                resume_all_spinners()
-    finally:
-        clear_active_prompt_surface(session)
+    if submission.action == "interject":
+        return "i"
+    if submission.action == "queue":
+        return "q"
+    return ""
 
 
 

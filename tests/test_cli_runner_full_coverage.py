@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from code_puppy.command_line.prompt_toolkit_completion import PromptSubmission
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -43,6 +45,10 @@ def _mock_clipboard(images=None):
     mgr.get_pending_count.return_value = len(images) if images else 0
     mgr.clear_pending = MagicMock()
     return mgr
+
+
+def _submission(text: str, action: str = "submit") -> PromptSubmission:
+    return PromptSubmission(action=action, text=text)
 
 
 def _apply_patches(stack, patches_dict):
@@ -109,14 +115,28 @@ async def _run_interactive(
         agent = MagicMock()
         agent.get_user_prompt.return_value = "task:"
 
+    from code_puppy.command_line.prompt_toolkit_completion import PromptSubmission
+
+    async def prompt_side_effect(*args, **kwargs):
+        if isinstance(input_fn, AsyncMock):
+            value = await input_fn(*args, **kwargs)
+        elif callable(input_fn):
+            value = input_fn(*args, **kwargs)
+            if asyncio.iscoroutine(value):
+                value = await value
+        else:
+            value = input_fn
+
+        if isinstance(value, PromptSubmission):
+            return value
+        return PromptSubmission(action="submit", text=value)
+
     with ExitStack() as stack:
         _apply_patches(stack, patches_dict)
         stack.enter_context(
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
-                side_effect=input_fn
-                if callable(input_fn) and not isinstance(input_fn, AsyncMock)
-                else input_fn,
+                "code_puppy.command_line.prompt_toolkit_completion.prompt_for_submission",
+                side_effect=prompt_side_effect,
             )
         )
         stack.enter_context(
@@ -906,17 +926,18 @@ class TestInteractiveQueueHandoff:
         queued_prompt_started = asyncio.Event()
         started_prompts = []
         emit_success = MagicMock()
+        render_prompt_echo = MagicMock()
 
         async def fake_input(*a, **kw):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return "first task"
+                return _submission("first task")
             if call_count == 2:
                 second_prompt_seen.set()
-                return "queued task"
+                return _submission("queued task", action="queue")
             await queued_prompt_started.wait()
-            return "/exit"
+            return _submission("/exit")
 
         async def fake_run(*args, **kwargs):
             prompt = args[1]
@@ -939,18 +960,17 @@ class TestInteractiveQueueHandoff:
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     side_effect=lambda text: _mock_parse_result(text)
                 ),
-                "code_puppy.command_line.prompt_toolkit_completion.get_interject_action": AsyncMock(
-                    return_value="q"
-                ),
                 "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
                     return_value=False
                 ),
                 "code_puppy.messaging.emit_success": emit_success,
+                "code_puppy.command_line.prompt_toolkit_completion.render_submitted_prompt_echo": render_prompt_echo,
             },
         )
 
         assert started_prompts[:2] == ["first task", "queued task"]
         emit_success.assert_any_call("[QUEUE] running queued prompt: queued task")
+        render_prompt_echo.assert_any_call("queued task")
 
     @pytest.mark.anyio
     async def test_queued_prompt_starts_when_run_finishes_during_choice_menu(self):
@@ -962,11 +982,12 @@ class TestInteractiveQueueHandoff:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return "first task"
+                return _submission("first task")
             if call_count == 2:
-                return "queued task"
+                await asyncio.sleep(0.05)
+                return _submission("queued task", action="queue")
             await queued_prompt_started.wait()
-            return "/exit"
+            return _submission("/exit")
 
         async def fake_run(*args, **kwargs):
             prompt = args[1]
@@ -979,10 +1000,6 @@ class TestInteractiveQueueHandoff:
             result.all_messages.return_value = []
             return result, MagicMock()
 
-        async def slow_queue_choice():
-            await asyncio.sleep(0.05)
-            return "q"
-
         await _run_interactive(
             _mock_renderer(),
             _interactive_patches(),
@@ -991,9 +1008,6 @@ class TestInteractiveQueueHandoff:
                 "code_puppy.cli_runner.run_prompt_with_attachments": fake_run,
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     side_effect=lambda text: _mock_parse_result(text)
-                ),
-                "code_puppy.command_line.prompt_toolkit_completion.get_interject_action": MagicMock(
-                    side_effect=slow_queue_choice
                 ),
                 "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
                     return_value=False
@@ -1015,14 +1029,14 @@ class TestInteractiveQueueHandoff:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return "first task"
+                return _submission("first task")
             if call_count == 2:
-                return "/help"
+                return _submission("/help", action="queue")
             if call_count == 3:
                 ready_for_completion.set()
-                return "followup task"
+                return _submission("followup task", action="queue")
             await followup_started.wait()
-            return "/exit"
+            return _submission("/exit")
 
         async def fake_run(*args, **kwargs):
             prompt = args[1]
@@ -1054,9 +1068,6 @@ class TestInteractiveQueueHandoff:
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     side_effect=lambda text: _mock_parse_result(text)
                 ),
-                "code_puppy.command_line.prompt_toolkit_completion.get_interject_action": AsyncMock(
-                    return_value="q"
-                ),
                 "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
                     return_value=False
                 ),
@@ -1077,12 +1088,12 @@ class TestInteractiveQueueHandoff:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return "first task"
+                return _submission("first task")
             if call_count == 2:
                 second_prompt_seen.set()
-                return "/custom"
+                return _submission("/custom", action="queue")
             await transformed_prompt_started.wait()
-            return "/exit"
+            return _submission("/exit")
 
         async def fake_run(*args, **kwargs):
             prompt = args[1]
@@ -1110,9 +1121,6 @@ class TestInteractiveQueueHandoff:
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     side_effect=lambda text: _mock_parse_result(text)
                 ),
-                "code_puppy.command_line.prompt_toolkit_completion.get_interject_action": AsyncMock(
-                    return_value="q"
-                ),
                 "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
                     return_value=False
                 ),
@@ -1127,19 +1135,20 @@ class TestInteractiveQueueHandoff:
         first_task_started = asyncio.Event()
         queued_prompt_started = asyncio.Event()
         started_prompts = []
+        render_prompt_echo = MagicMock()
 
         async def fake_input(*a, **kw):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return "first task"
+                return _submission("first task")
             if call_count == 2:
                 await first_task_started.wait()
-                return "second queued"
+                return _submission("second queued", action="queue")
             if call_count == 3:
-                return "steer now"
+                return _submission("steer now", action="interject")
             await queued_prompt_started.wait()
-            return "/exit"
+            return _submission("/exit")
 
         async def fake_run(*args, **kwargs):
             prompt = args[1]
@@ -1162,9 +1171,7 @@ class TestInteractiveQueueHandoff:
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     side_effect=lambda text: _mock_parse_result(text)
                 ),
-                "code_puppy.command_line.prompt_toolkit_completion.get_interject_action": AsyncMock(
-                    side_effect=["q", "i"]
-                ),
+                "code_puppy.command_line.prompt_toolkit_completion.render_submitted_prompt_echo": render_prompt_echo,
                 "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
                     return_value=False
                 ),
@@ -1176,8 +1183,10 @@ class TestInteractiveQueueHandoff:
         )
 
         assert started_prompts[0] == "first task"
-        assert started_prompts[1].startswith("[user interjects]: steer now")
+        assert started_prompts[1].startswith("user interjects - steer now")
+        assert "continue the interrupted task" in started_prompts[1]
         assert started_prompts[2] == "second queued"
+        render_prompt_echo.assert_any_call("steer now")
 
     @pytest.mark.anyio
     async def test_exit_while_running_cancels_runtime_task(self):
@@ -1853,11 +1862,11 @@ class TestInteractiveShellSuspension:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return "first task"
+                return _submission("first task")
             if call_count == 2:
-                return "queued after shell"
+                return _submission("queued after shell", action="queue")
             await queued_prompt_started.wait()
-            return "/exit"
+            return _submission("/exit")
 
         async def fake_run(*args, **kwargs):
             prompt = args[1]
@@ -1876,9 +1885,6 @@ class TestInteractiveShellSuspension:
                 "code_puppy.cli_runner.run_prompt_with_attachments": fake_run,
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     side_effect=lambda text: _mock_parse_result(text)
-                ),
-                "code_puppy.command_line.prompt_toolkit_completion.get_interject_action": AsyncMock(
-                    return_value="q"
                 ),
                 "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
                     return_value=False
@@ -2326,9 +2332,9 @@ class TestImportErrorFallbacks:
             _apply_patches(stack, patches)
             stack.enter_context(
                 patch(
-                    "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
+                    "code_puppy.command_line.prompt_toolkit_completion.prompt_for_submission",
                     new_callable=AsyncMock,
-                    return_value="/exit",
+                    return_value=_submission("/exit"),
                 )
             )
             stack.enter_context(
