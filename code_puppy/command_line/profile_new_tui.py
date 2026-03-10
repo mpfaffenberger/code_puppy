@@ -34,7 +34,6 @@ from code_puppy.command_line._profile_tui_panels import (
     render_profile_list,
     valid_name,
 )
-from code_puppy.messaging import emit_error, emit_success
 from code_puppy.task_models import (
     TASK_CONFIGS,
     Task,
@@ -261,7 +260,6 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
                     reload_profiles()
                     sync_agent_models()
                     status[0] = f"Created '{v}' — Tab to configure"
-                    emit_success(f"✅ Profile '{v}' created")
                 else:
                     status[0] = "Failed to create profile"
             else:
@@ -288,9 +286,17 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
             ps = profiles[0]
             if not ps:
                 return
-            event.app._ptu = "activate"  # type: ignore[attr-defined]
-            event.app._ptu_name = ps[prof_idx[0]].get("name", "")  # type: ignore[attr-defined]
-            event.app.exit()
+            pname = ps[prof_idx[0]].get("name", "")
+            if pname:
+                ok, msg = load_profile(pname)
+                if ok:
+                    last_activated[0] = pname
+                    reload_profiles()
+                    sync_agent_models()
+                    status[0] = f"'{pname}' is now active — Tab to configure"
+                else:
+                    status[0] = f"Failed: {msg}"
+                refresh()
 
         else:
             # open model picker for highlighted agent
@@ -359,8 +365,13 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
             status[0] = "Activate this profile first (Enter in left panel)"
             refresh()
             return
-        event.app._ptu = "save"  # type: ignore[attr-defined]
-        event.app.exit()
+        # Save the current agent_models to the active profile
+        if save_profile_from_models(active, _desc_for_profile(active), agent_models[0]):
+            reload_profiles()
+            status[0] = f"Saved '{active}'"
+        else:
+            status[0] = "Save failed"
+        refresh()
 
     @kb.add("c-c")
     def _kcc(event):
@@ -380,39 +391,13 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
     set_awaiting_user_input(True)
 
     try:
-        while True:
-            app._ptu = None  # type: ignore[attr-defined]
-            refresh()
-            await app.run_async()
-            action = getattr(app, "_ptu", None)
-
-            if action == "cancel":
-                emit_error("Cancelled.")
-                return last_activated[0]
-
-            if action == "activate":
-                pname = getattr(app, "_ptu_name", "")
-                ok, msg = load_profile(pname)
-                if ok:
-                    last_activated[0] = pname
-                    reload_profiles()
-                    sync_agent_models()
-                    status[0] = f"'{pname}' is now active — Tab to configure"
-                    emit_success(f"✅ Profile '{pname}' activated")
-                else:
-                    status[0] = f"Failed: {msg}"
-
-            elif action == "save":
-                active = get_active_profile()
-                if active:
-                    if save_profile_from_models(
-                        active, _desc_for_profile(active), agent_models[0]
-                    ):
-                        reload_profiles()
-                        status[0] = f"Saved '{active}'"
-                        emit_success(f"✅ Profile '{active}' saved")
-                    else:
-                        status[0] = "Save failed"
+        # Initial render and run the app - all state changes happen inline
+        # without exiting/restarting, so no screen flash
+        refresh()
+        await app.run_async()
+        # TUI exited - return the last activated profile
+        # (no emit here to avoid noise - the status line already showed feedback)
+        return last_activated[0]
 
     finally:
         set_awaiting_user_input(False)
