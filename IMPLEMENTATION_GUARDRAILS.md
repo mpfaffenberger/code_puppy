@@ -15,6 +15,8 @@ Read this before making changes in this repo.
 - Interject must aggressively cancel current work and run before normal queued prompts.
 - Queued/interjected prompts must echo into the transcript before dispatch.
 - Interjected prompts must echo the user's exact text into the transcript before any apply/start lifecycle lines.
+- Direct prompts submitted from erasable prompt sessions must echo once into the transcript before any response or tool output.
+- Normal direct follow-up prompts after queue/interject cycles must remain visible in the transcript.
 - Interject injection text must tell the agent to continue the interrupted task after acknowledging the interjection.
 - Queue preview must stay above the composer, max 3 visible rows, scroll when over 3, and cap at 25 prompts.
 - Queued prompt preview rows must stay one line, truncated, and never wrap.
@@ -27,6 +29,15 @@ Read this before making changes in this repo.
 - Structured banners like `AGENT REASONING`, listings, and tool blocks must use the prompt-safe render path.
 - Shell output with the prompt mounted must stay plain text. Do not reintroduce Rich dim styling or raw ANSI fragments there.
 - Do not reintroduce the shell warning line in the prompt header if typing is still enabled.
+
+## Queue Transcript Rules
+
+- Keep queued-save transcript copy compact: `[Queued][N] {text}`.
+- Keep queued-launch transcript copy as `[QUEUE TRIGGERED] {text}` and print it before the echoed queued prompt.
+- Keep `list_agents` output visible in the transcript before downstream sub-agent invocation output.
+- Do not reintroduce visible interject `applying now` lines.
+- Do not reintroduce late launched-item `finished`, `applied`, or `run_cancelled` transcript noise.
+- Keep transcript polish presentation-only; do not change queue/interject runtime semantics when adjusting these lines.
 
 ## Spinner And Context Rules
 

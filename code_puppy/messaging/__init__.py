@@ -90,6 +90,7 @@ from .message_queue import (
 
 # Message types and enums
 from .messages import (  # Enums, Base, Text, File ops, Diff, Shell, Agent, etc.
+    AgentListMessage,
     AgentReasoningMessage,
     AgentResponseMessage,
     AnyMessage,
@@ -215,6 +216,7 @@ __all__ = [
     "DividerMessage",
     "StatusPanelMessage",
     "VersionCheckMessage",
+    "AgentListMessage",
     "SkillEntry",
     "SkillListMessage",
     "SkillActivateMessage",

@@ -31,6 +31,7 @@ from .commands import (
     UserInputResponse,
 )
 from .messages import (
+    AgentListMessage,
     AgentReasoningMessage,
     AgentResponseMessage,
     AnyMessage,
@@ -387,6 +388,8 @@ class RichConsoleRenderer:
             self._render_status_panel(message)
         elif isinstance(message, VersionCheckMessage):
             self._render_version_check(message)
+        elif isinstance(message, AgentListMessage):
+            self._render_agent_list(message)
         elif isinstance(message, SkillListMessage):
             self._render_skill_list(message)
         elif isinstance(message, SkillActivateMessage):
@@ -1151,6 +1154,20 @@ class RichConsoleRenderer:
             ".dylib": "⚡",
         }
         return icons.get(ext, "📄")
+
+    # =========================================================================
+    # Agent Lists
+    # =========================================================================
+
+    def _render_agent_list(self, msg: AgentListMessage) -> None:
+        """Render the list_agents summary banner."""
+        if self._should_suppress_subagent_output():
+            return
+
+        banner = self._format_banner("list_agents", "LIST AGENTS")
+        self._console.print(
+            f"\n{banner} [dim]Found {msg.agent_count} agent(s).[/dim]"
+        )
 
     # =========================================================================
     # Skills

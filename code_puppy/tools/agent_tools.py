@@ -25,10 +25,12 @@ from code_puppy.config import (
     get_value,
 )
 from code_puppy.messaging import (
+    AgentListMessage,
+    MessageLevel,
     SubAgentInvocationMessage,
     SubAgentResponseMessage,
+    TextMessage,
     emit_error,
-    emit_info,
     emit_success,
     get_message_bus,
     get_session_context,
@@ -240,21 +242,6 @@ def register_list_agents(agent):
     @agent.tool
     def list_agents(context: RunContext) -> ListAgentsOutput:
         """List all available sub-agents that can be invoked."""
-        # Generate a group ID for this tool execution
-        group_id = generate_group_id("list_agents")
-
-        from rich.text import Text
-
-        from code_puppy.config import get_banner_color
-
-        list_agents_color = get_banner_color("list_agents")
-        emit_info(
-            Text.from_markup(
-                f"\n[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}]"
-            ),
-            message_group=group_id,
-        )
-
         try:
             from code_puppy.agents import get_agent_descriptions, get_available_agents
 
@@ -272,21 +259,15 @@ def register_list_agents(agent):
                 for name, display_name in agents_dict.items()
             ]
 
-            # Accumulate output into a single string and emit once
-            # Use Text.from_markup() to pass a Rich object that won't be escaped
-            lines = []
-            for agent_item in agents:
-                lines.append(
-                    f"- [bold]{agent_item.name}[/bold]: {agent_item.display_name}\n"
-                    f"  [dim]{agent_item.description}[/dim]"
-                )
-            emit_info(Text.from_markup("\n".join(lines)), message_group=group_id)
+            get_message_bus().emit(AgentListMessage(agent_count=len(agents)))
 
             return ListAgentsOutput(agents=agents)
 
         except Exception as e:
             error_msg = f"Error listing agents: {str(e)}"
-            emit_error(error_msg, message_group=group_id)
+            get_message_bus().emit(
+                TextMessage(level=MessageLevel.ERROR, text=error_msg)
+            )
             return ListAgentsOutput(agents=[], error=error_msg)
 
     return list_agents

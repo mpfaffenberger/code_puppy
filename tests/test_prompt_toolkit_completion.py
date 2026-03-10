@@ -26,6 +26,7 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     has_active_prompt_surface,
     is_shell_prompt_suspended,
     prompt_for_submission,
+    render_transcript_notice,
     render_submitted_prompt_echo,
     register_active_prompt_surface,
     set_shell_prompt_suspended,
@@ -274,6 +275,36 @@ def test_render_submitted_prompt_echo_uses_prompt_app_when_available(
     active_runtime.register_prompt_surface(session)
 
     render_submitted_prompt_echo("queued task")
+
+    session.app.print_text.assert_called_once()
+    mock_create_output.assert_called_once()
+    mock_print_formatted_text.assert_not_called()
+
+
+@patch("code_puppy.command_line.prompt_toolkit_completion.print_formatted_text")
+@patch("prompt_toolkit.output.defaults.create_output")
+def test_render_transcript_notice(mock_create_output, mock_print_formatted_text):
+    mock_output = MagicMock()
+    mock_create_output.return_value = mock_output
+
+    render_transcript_notice("[QUEUE TRIGGERED] queued task")
+
+    mock_create_output.assert_called_once()
+    mock_print_formatted_text.assert_called_once()
+    rendered = mock_print_formatted_text.call_args.args[0]
+    assert any("[QUEUE TRIGGERED] queued task" in text for _style, text in rendered)
+
+
+@patch("code_puppy.command_line.prompt_toolkit_completion.print_formatted_text")
+@patch("prompt_toolkit.output.defaults.create_output")
+def test_render_transcript_notice_uses_prompt_app_when_available(
+    mock_create_output, mock_print_formatted_text, active_runtime
+):
+    session = MagicMock()
+    session.app = MagicMock()
+    active_runtime.register_prompt_surface(session)
+
+    render_transcript_notice("[QUEUE TRIGGERED] queued task")
 
     session.app.print_text.assert_called_once()
     mock_create_output.assert_called_once()
@@ -595,8 +626,33 @@ async def test_prompt_for_submission_uses_non_raw_patch_stdout(
 
     result = await prompt_for_submission()
 
-    assert result == PromptSubmission(action="submit", text="test input")
+    assert result == PromptSubmission(
+        action="submit",
+        text="test input",
+        echo_in_transcript=False,
+    )
     mock_patch_stdout.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.patch_stdout")
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+async def test_prompt_for_submission_sets_echo_flag_when_erasing_prompt(
+    mock_prompt_session_cls, mock_patch_stdout
+):
+    mock_session_instance = MagicMock()
+    mock_session_instance.prompt_async = AsyncMock(return_value="hidden input")
+    mock_prompt_session_cls.return_value = mock_session_instance
+    mock_patch_stdout.return_value.__enter__ = MagicMock()
+    mock_patch_stdout.return_value.__exit__ = MagicMock(return_value=False)
+
+    result = await prompt_for_submission(erase_when_done=True)
+
+    assert result == PromptSubmission(
+        action="submit",
+        text="hidden input",
+        echo_in_transcript=True,
+    )
 
 
 # To test key bindings, we need to inspect the KeyBindings object passed to PromptSession
@@ -891,7 +947,11 @@ async def test_prompt_for_submission_returns_inline_queue_action(
 
     result = await prompt_for_submission()
 
-    assert result == PromptSubmission(action="queue", text="queued task")
+    assert result == PromptSubmission(
+        action="queue",
+        text="queued task",
+        echo_in_transcript=False,
+    )
 
 
 @pytest.mark.asyncio

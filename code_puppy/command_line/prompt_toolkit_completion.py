@@ -57,6 +57,7 @@ from code_puppy.messaging.spinner.spinner_base import SpinnerBase
 class PromptSubmission:
     action: Literal["submit", "queue", "interject"]
     text: str
+    echo_in_transcript: bool = False
 
 
 def _get_runtime() -> PromptRuntimeState | None:
@@ -779,6 +780,32 @@ def render_submitted_prompt_echo(text: str) -> None:
     print_formatted_text(formatted, style=style, output=out)
 
 
+def render_transcript_notice(text: str) -> None:
+    """Print a plain transcript line above the composer without prompt chrome."""
+    notice_text = text.rstrip("\n")
+    if not notice_text:
+        return
+
+    from prompt_toolkit.output.defaults import create_output
+
+    out = create_output(stdout=sys.__stdout__)
+    if hasattr(out, "enable_cpr"):
+        out.enable_cpr = False
+
+    formatted = FormattedText([("", notice_text), ("", "\n")])
+
+    runtime = _get_runtime()
+    app = getattr(getattr(runtime, "prompt_session", None), "app", None)
+    if app is not None:
+        try:
+            app.print_text(formatted)
+            return
+        except Exception:
+            pass
+
+    print_formatted_text(formatted, output=out)
+
+
 async def prompt_for_submission(
     prompt_str=">>> ", history_file: Optional[str] = None, erase_when_done: bool = False
 ) -> PromptSubmission:
@@ -1127,12 +1154,20 @@ async def prompt_for_submission(
     finally:
         clear_active_prompt_surface(session)
     if isinstance(result, PromptSubmission):
-        return result
+        return PromptSubmission(
+            action=result.action,
+            text=result.text,
+            echo_in_transcript=erase_when_done,
+        )
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running
     # and emitting success messages. Now we let all /model commands fall through to
     # the command handler in main.py for consistent handling.
-    return PromptSubmission(action="submit", text=result)
+    return PromptSubmission(
+        action="submit",
+        text=result,
+        echo_in_transcript=erase_when_done,
+    )
 
 
 async def get_input_with_combined_completion(
