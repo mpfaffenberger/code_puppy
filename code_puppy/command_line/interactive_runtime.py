@@ -19,6 +19,7 @@ class QueuedPrompt:
 
     kind: Literal["queued", "interject"]
     text: str
+    allow_command_dispatch: bool = True
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -40,17 +41,29 @@ class PromptRuntimeState:
     shell_depth: int = 0
     queue_view_offset: int = 0
     pending_submission: str | None = None
+    pending_submission_allow_command_dispatch: bool = True
     prompt_surface_kind: Literal["main"] | None = None
     prompt_session: object | None = None
     prompt_status_started_at: float | None = None
     prompt_status_task: asyncio.Task | None = None
     last_prompt_invalidation_at: float = 0.0
     last_spinner_invalidation_at: float = 0.0
+    active_run_kind: Literal["agent", "interactive_command"] | None = None
+    active_cancel_hook: Callable[[], None] | None = None
+    active_cancel_requester: Callable[[str], None] | None = None
 
-    def mark_running(self, task: asyncio.Task) -> None:
+    def mark_running(
+        self,
+        task: asyncio.Task,
+        *,
+        kind: Literal["agent", "interactive_command"] = "agent",
+        cancel_hook: Callable[[], None] | None = None,
+    ) -> None:
         self.running = True
         self.cancelling = False
         self.bg_task = task
+        self.active_run_kind = kind
+        self.active_cancel_hook = cancel_hook
         self.prompt_status_started_at = time.monotonic()
         self._ensure_prompt_status_task()
         self.invalidate_prompt()
@@ -59,9 +72,20 @@ class PromptRuntimeState:
         self.running = False
         self.cancelling = False
         self.bg_task = None
+        self.active_run_kind = None
+        self.active_cancel_hook = None
         self.prompt_status_started_at = None
         self._stop_prompt_status_task()
         self.invalidate_prompt()
+
+    def is_active_task(self, task: asyncio.Task | None) -> bool:
+        return task is not None and self.bg_task is task
+
+    def mark_idle_if_task(self, task: asyncio.Task | None) -> bool:
+        if not self.is_active_task(task):
+            return False
+        self.mark_idle()
+        return True
 
     def _can_enqueue(self) -> bool:
         return len(self.queue) < MAX_PROMPT_QUEUE
@@ -70,19 +94,31 @@ class PromptRuntimeState:
         max_start = max(0, len(self.queue) - max_visible)
         self.queue_view_offset = max(0, min(self.queue_view_offset, max_start))
 
-    def request_queue(self, prompt: str) -> tuple[bool, int, QueuedPrompt | None]:
+    def request_queue(
+        self, prompt: str, *, allow_command_dispatch: bool = True
+    ) -> tuple[bool, int, QueuedPrompt | None]:
         if not self._can_enqueue():
             return False, len(self.queue), None
-        item = QueuedPrompt(kind="queued", text=prompt)
+        item = QueuedPrompt(
+            kind="queued",
+            text=prompt,
+            allow_command_dispatch=allow_command_dispatch,
+        )
         self.queue.append(item)
         self._clamp_queue_view_offset()
         self.invalidate_prompt()
         return True, len(self.queue), item
 
-    def request_interject(self, prompt: str) -> tuple[bool, int, QueuedPrompt | None]:
+    def request_interject(
+        self, prompt: str, *, allow_command_dispatch: bool = True
+    ) -> tuple[bool, int, QueuedPrompt | None]:
         if not self._can_enqueue():
             return False, len(self.queue), None
-        item = QueuedPrompt(kind="interject", text=prompt)
+        item = QueuedPrompt(
+            kind="interject",
+            text=prompt,
+            allow_command_dispatch=allow_command_dispatch,
+        )
         self.queue.insert(0, item)
         self._clamp_queue_view_offset()
         self.invalidate_prompt()
@@ -102,15 +138,24 @@ class PromptRuntimeState:
     def has_pending_submission(self) -> bool:
         return bool(self.pending_submission)
 
-    def set_pending_submission(self, text: str | None) -> None:
+    def set_pending_submission(
+        self, text: str | None, *, allow_command_dispatch: bool = True
+    ) -> None:
         self.pending_submission = text
+        self.pending_submission_allow_command_dispatch = allow_command_dispatch
         self.invalidate_prompt()
 
     def take_pending_submission(self) -> str | None:
-        text = self.pending_submission
-        self.pending_submission = None
-        self.invalidate_prompt()
+        text, _ = self.take_pending_submission_with_policy()
         return text
+
+    def take_pending_submission_with_policy(self) -> tuple[str | None, bool]:
+        text = self.pending_submission
+        allow_command_dispatch = self.pending_submission_allow_command_dispatch
+        self.pending_submission = None
+        self.pending_submission_allow_command_dispatch = True
+        self.invalidate_prompt()
+        return text, allow_command_dispatch
 
     def has_active_shell(self) -> bool:
         return self.shell_depth > 0
@@ -123,6 +168,20 @@ class PromptRuntimeState:
         if self.shell_depth > 0:
             self.shell_depth -= 1
         self.invalidate_prompt()
+
+    def has_active_interactive_command(self) -> bool:
+        return self.active_run_kind == "interactive_command" and self.running
+
+    def set_active_cancel_requester(
+        self, requester: Callable[[str], None] | None
+    ) -> None:
+        self.active_cancel_requester = requester
+
+    def request_active_cancel(self, reason: str) -> bool:
+        if self.active_cancel_requester is None:
+            return False
+        self.active_cancel_requester(reason)
+        return True
 
     def shift_queue_view_offset(self, delta: int, *, max_visible: int = 3) -> bool:
         old_offset = self.queue_view_offset

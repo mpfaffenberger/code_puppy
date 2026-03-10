@@ -26,6 +26,7 @@ from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
 from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.command_line.clipboard import get_clipboard_manager
+from code_puppy.command_line.interactive_command import BackgroundInteractiveCommand
 from code_puppy.command_line.interactive_runtime import (
     PromptRuntimeState,
     QueuedPrompt,
@@ -293,24 +294,11 @@ async def main():
     args = parser.parse_args()
 
     from code_puppy.messaging import (
+        LegacyQueueToBusBridge,
         RichConsoleRenderer,
         get_global_queue,
         get_message_bus,
     )
-    try:
-        from code_puppy.messaging.legacy_bridge import LegacyQueueToBusBridge
-    except ImportError:
-        class LegacyQueueToBusBridge:  # type: ignore[no-redef]
-            """No-op fallback when legacy bridge module is unavailable."""
-
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-            def start(self):
-                return None
-
-            def stop(self):
-                return None
 
     capture_session = None
     if args.debug_capture:
@@ -708,6 +696,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         # Autosave loading is now manual - use /autosave_load command
 
+        startup_oauth_command: str | None = None
+
         # Auto-run tutorial on first startup
         try:
             from code_puppy.command_line.onboarding_wizard import should_show_onboarding
@@ -718,7 +708,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.command_line.onboarding_wizard import (
                     run_onboarding_wizard,
                 )
-                from code_puppy.config import set_model_name
                 from code_puppy.messaging import emit_info
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -727,18 +716,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                 if result == "chatgpt":
                     emit_info("🔐 Starting ChatGPT OAuth flow...")
-                    from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
-
-                    run_oauth_flow()
-                    set_model_name("chatgpt-gpt-5.3-codex")
+                    startup_oauth_command = "/chatgpt-auth"
                 elif result == "claude":
                     emit_info("🔐 Starting Claude Code OAuth flow...")
-                    from code_puppy.plugins.claude_code_oauth.register_callbacks import (
-                        _perform_authentication,
-                    )
-
-                    _perform_authentication()
-                    set_model_name("claude-code-claude-opus-4-6")
+                    startup_oauth_command = "/claude-code-auth"
                 elif result == "completed":
                     emit_info("🎉 Tutorial complete! Happy coding!")
                 elif result == "skipped":
@@ -762,12 +743,33 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 get_running_shell_process_count = lambda: 0
                 kill_all_running_shell_processes = lambda: None
 
-            if runtime.bg_task is None or runtime.bg_task.done():
-                runtime.mark_idle()
+            active_task = runtime.bg_task
+            active_cancel_hook = runtime.active_cancel_hook
+
+            if active_task is None or active_task.done():
+                runtime.mark_idle_if_task(active_task)
                 return
 
             runtime.cancelling = True
             log_event("cancel_start", reason=reason)
+
+            if active_cancel_hook is not None:
+                try:
+                    active_cancel_hook()
+                except Exception:
+                    pass
+                try:
+                    await asyncio.wait_for(asyncio.shield(active_task), timeout=1.5)
+                except asyncio.TimeoutError:
+                    pass
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    pass
+                if active_task.done():
+                    runtime.mark_idle_if_task(active_task)
+                    log_event("cancel_done", reason=reason)
+                    return
 
             # First kill nested shell activity, repeating briefly if needed.
             for _ in range(3):
@@ -777,9 +779,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 await asyncio.sleep(0.15)
 
             # Then cancel the active background agent task and await completion.
-            runtime.bg_task.cancel()
+            if active_task.done():
+                runtime.mark_idle_if_task(active_task)
+                log_event("cancel_done", reason=reason)
+                return
+
+            active_task.cancel()
             try:
-                await asyncio.wait_for(runtime.bg_task, timeout=6.0)
+                await asyncio.wait_for(active_task, timeout=6.0)
             except asyncio.CancelledError:
                 pass
             except TimeoutError:
@@ -787,7 +794,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             except Exception:
                 pass
             finally:
-                runtime.mark_idle()
+                runtime.mark_idle_if_task(active_task)
                 log_event("cancel_done", reason=reason)
     except Exception:
         clear_active_interactive_runtime(runtime)
@@ -801,8 +808,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         shutdown_requested = True
         emit_success(message)
         if runtime.running and runtime.bg_task is not None and not runtime.bg_task.done():
-            emit_info("Cancelling running agent task...")
+            emit_info("Cancelling running task...")
             await cancel_active_run(reason)
+
+    runtime.set_active_cancel_requester(
+        lambda reason: asyncio.create_task(cancel_active_run(reason))
+    )
 
     async def restore_autosave_state() -> None:
         """Handle the /autosave_load command."""
@@ -1066,9 +1077,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     level="error",
                 )
         finally:
-            was_cancelling = runtime.cancelling
-            runtime.mark_idle()
+            active_task = asyncio.current_task()
+            owns_runtime = runtime.is_active_task(active_task)
+            was_cancelling = runtime.cancelling if owns_runtime else False
+            runtime.mark_idle_if_task(active_task)
             log_event("agent_end", prompt=task_text)
+            if not owns_runtime:
+                return
             if was_cancelling:
                 if shutdown_requested:
                     log_event(
@@ -1089,6 +1104,82 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
                 return
             await drain_pending_work_if_idle(origin="run_complete")
+
+    async def run_interactive_command_bg(
+        command_result: BackgroundInteractiveCommand,
+        command_text: str,
+        *,
+        source_item: QueuedPrompt | None = None,
+    ) -> None:
+        """Run a long-lived interactive command without blocking the composer."""
+        try:
+            log_event("interactive_command_start", command=command_text)
+            if source_item:
+                emit_interject_queue_lifecycle(
+                    runtime,
+                    "started",
+                    item=source_item,
+                    level="warning" if source_item.kind == "interject" else "success",
+                )
+
+            await asyncio.to_thread(command_result.run, command_result.cancel_event)
+
+            if source_item and not command_result.cancel_event.is_set():
+                emit_interject_queue_lifecycle(
+                    runtime,
+                    "completed",
+                    item=source_item,
+                    level="success",
+                )
+        except asyncio.CancelledError:
+            if source_item:
+                emit_interject_queue_lifecycle(
+                    runtime,
+                    "cancelled",
+                    item=source_item,
+                    reason="run_cancelled",
+                    level="warning",
+                )
+        except Exception:
+            from code_puppy.messaging.queue_console import get_queue_console
+
+            get_queue_console().print_exception()
+            if source_item:
+                emit_interject_queue_lifecycle(
+                    runtime,
+                    "failed",
+                    item=source_item,
+                    reason="exception",
+                    level="error",
+                )
+        finally:
+            active_task = asyncio.current_task()
+            owns_runtime = runtime.is_active_task(active_task)
+            was_cancelling = runtime.cancelling if owns_runtime else False
+            runtime.mark_idle_if_task(active_task)
+            log_event("interactive_command_end", command=command_text)
+            if not owns_runtime:
+                return
+            if was_cancelling:
+                if shutdown_requested:
+                    log_event(
+                        "queue_autodrain_skipped",
+                        reason="shutdown_requested",
+                        remaining=len(runtime.queue),
+                    )
+                    return
+                log_event(
+                    "queue_autodrain_skipped",
+                    reason="cancelling",
+                    remaining=len(runtime.queue),
+                )
+                asyncio.create_task(
+                    kick_drain_after_cancel_boundary(
+                        origin="cancel_boundary_fallback",
+                    )
+                )
+                return
+            await drain_pending_work_if_idle(origin="interactive_command_complete")
 
     async def dispatch_submission(
         task_text: str,
@@ -1120,7 +1211,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             if requested_action == "interject":
                 log_event("interject_banner", text=stripped_task)
                 await cancel_active_run("interject")
-                ok, position, item = runtime.request_interject(stripped_task)
+                ok, position, item = runtime.request_interject(
+                    stripped_task,
+                    allow_command_dispatch=allow_command_dispatch,
+                )
                 if not ok:
                     emit_warning("Queue full (25). Cannot interject right now.")
                     emit_interject_queue_lifecycle(
@@ -1158,7 +1252,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
                 return "consumed"
 
-            ok, position, item = runtime.request_queue(stripped_task)
+            ok, position, item = runtime.request_queue(
+                stripped_task,
+                allow_command_dispatch=allow_command_dispatch,
+            )
             if not ok:
                 emit_warning("Queue full (25). Prompt was not queued.")
                 emit_interject_queue_lifecycle(
@@ -1240,6 +1337,21 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                             complete_queue_item(source_item, "autosave_load")
                         return "consumed"
                     candidate_task = command_result
+                elif isinstance(command_result, BackgroundInteractiveCommand):
+                    if save_history:
+                        save_command_to_history(raw_task)
+                    runtime.mark_running(
+                        asyncio.create_task(
+                            run_interactive_command_bg(
+                                command_result,
+                                cleaned_for_commands,
+                                source_item=source_item,
+                            )
+                        ),
+                        kind="interactive_command",
+                        cancel_hook=command_result.request_cancel,
+                    )
+                    return "launched"
 
         candidate_task = candidate_task.strip()
         if not candidate_task:
@@ -1344,7 +1456,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         else _build_interject_submission_text(next_item.text),
                         source_item=next_item,
                         save_history=False,
-                        allow_command_dispatch=next_item.kind == "queued",
+                        allow_command_dispatch=next_item.allow_command_dispatch,
                     )
                     handled_any = True
                     if outcome == "launched":
@@ -1373,6 +1485,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         """Yield once before draining, so cancellation state fully settles."""
         await asyncio.sleep(0)
         return await drain_pending_work_if_idle(origin=origin)
+
+    if startup_oauth_command:
+        startup_outcome = await dispatch_submission(
+            startup_oauth_command,
+            save_history=False,
+            allow_command_dispatch=True,
+        )
+        if startup_outcome == "exit":
+            clear_active_interactive_runtime(runtime)
+            return
 
     while True:
         from code_puppy.agents.agent_manager import get_current_agent
@@ -1448,6 +1570,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             submission.text,
             requested_action=submission.action,
             echo_in_transcript=submission.echo_in_transcript,
+            allow_command_dispatch=submission.allow_command_dispatch,
         )
         if outcome == "exit":
             break

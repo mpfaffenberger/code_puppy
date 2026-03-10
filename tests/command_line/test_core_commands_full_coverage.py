@@ -168,6 +168,12 @@ class TestHandlePasteCommand:
 class TestHandleTutorialCommand:
     def test_chatgpt(self):
         from code_puppy.command_line.core_commands import handle_tutorial_command
+        from code_puppy.command_line.interactive_command import (
+            BackgroundInteractiveCommand,
+        )
+        from code_puppy.plugins.chatgpt_oauth.register_callbacks import (
+            start_chatgpt_oauth_setup,
+        )
 
         with (
             patch("code_puppy.command_line.onboarding_wizard.reset_onboarding"),
@@ -181,10 +187,19 @@ class TestHandleTutorialCommand:
             pool.return_value.__enter__ = MagicMock(return_value=pool.return_value)
             pool.return_value.__exit__ = MagicMock(return_value=False)
             pool.return_value.submit.return_value = mock_future
-            assert handle_tutorial_command("/tutorial") is True
+            result = handle_tutorial_command("/tutorial")
+
+        assert isinstance(result, BackgroundInteractiveCommand)
+        assert result.run is start_chatgpt_oauth_setup
 
     def test_claude(self):
         from code_puppy.command_line.core_commands import handle_tutorial_command
+        from code_puppy.command_line.interactive_command import (
+            BackgroundInteractiveCommand,
+        )
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            start_claude_code_oauth_setup,
+        )
 
         with (
             patch("code_puppy.command_line.onboarding_wizard.reset_onboarding"),
@@ -200,7 +215,10 @@ class TestHandleTutorialCommand:
             pool.return_value.__enter__ = MagicMock(return_value=pool.return_value)
             pool.return_value.__exit__ = MagicMock(return_value=False)
             pool.return_value.submit.return_value = mock_future
-            assert handle_tutorial_command("/tutorial") is True
+            result = handle_tutorial_command("/tutorial")
+
+        assert isinstance(result, BackgroundInteractiveCommand)
+        assert result.run is start_claude_code_oauth_setup
 
     def test_completed(self):
         from code_puppy.command_line.core_commands import handle_tutorial_command

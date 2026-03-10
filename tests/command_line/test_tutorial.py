@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.command_line.core_commands import handle_tutorial_command
-
 
 def _mock_tutorial_result(mock_executor_class: Any, result: str) -> None:
     mock_future = MagicMock()
@@ -22,6 +20,12 @@ def _mock_tutorial_result(mock_executor_class: Any, result: str) -> None:
 
 def test_tutorial_chatgpt_flow() -> None:
     """Test tutorial triggers ChatGPT OAuth and model switch."""
+    from code_puppy.command_line.interactive_command import BackgroundInteractiveCommand
+    from code_puppy.command_line.core_commands import handle_tutorial_command
+    from code_puppy.plugins.chatgpt_oauth.register_callbacks import (
+        start_chatgpt_oauth_setup,
+    )
+
     with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor_class:
         _mock_tutorial_result(mock_executor_class, "chatgpt")
 
@@ -37,14 +41,21 @@ def test_tutorial_chatgpt_flow() -> None:
                     with patch("code_puppy.command_line.core_commands.emit_info"):
                         result = handle_tutorial_command("/tutorial")
 
-    assert result is True
+    assert isinstance(result, BackgroundInteractiveCommand)
+    assert result.run is start_chatgpt_oauth_setup
     mock_reset.assert_called_once()
-    mock_oauth.assert_called_once()
-    mock_set_model.assert_called_once_with("chatgpt-gpt-5.3-codex")
+    mock_oauth.assert_not_called()
+    mock_set_model.assert_not_called()
 
 
 def test_tutorial_claude_flow() -> None:
     """Test tutorial triggers Claude Code OAuth and model switch."""
+    from code_puppy.command_line.interactive_command import BackgroundInteractiveCommand
+    from code_puppy.command_line.core_commands import handle_tutorial_command
+    from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        start_claude_code_oauth_setup,
+    )
+
     with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor_class:
         _mock_tutorial_result(mock_executor_class, "claude")
 
@@ -60,10 +71,11 @@ def test_tutorial_claude_flow() -> None:
                     with patch("code_puppy.command_line.core_commands.emit_info"):
                         result = handle_tutorial_command("/tutorial")
 
-    assert result is True
+    assert isinstance(result, BackgroundInteractiveCommand)
+    assert result.run is start_claude_code_oauth_setup
     mock_reset.assert_called_once()
-    mock_auth.assert_called_once()
-    mock_set_model.assert_called_once_with("claude-code-claude-opus-4-6")
+    mock_auth.assert_not_called()
+    mock_set_model.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -75,6 +87,8 @@ def test_tutorial_claude_flow() -> None:
 )
 def test_tutorial_terminal_paths(wizard_result: str, expected_message: str) -> None:
     """Test tutorial completion and skip paths."""
+    from code_puppy.command_line.core_commands import handle_tutorial_command
+
     with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor_class:
         _mock_tutorial_result(mock_executor_class, wizard_result)
 

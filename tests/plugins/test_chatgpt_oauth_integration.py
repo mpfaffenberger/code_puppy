@@ -9,6 +9,7 @@ Covers:
 
 import json
 import os
+import threading
 from unittest.mock import Mock, patch
 
 import requests
@@ -282,10 +283,17 @@ class TestCustomCommands:
     )
     def test_handle_custom_command_auth(self, mock_set_model, mock_oauth):
         """Test chatgpt-auth command triggers OAuth flow."""
+        from code_puppy.command_line.interactive_command import (
+            BackgroundInteractiveCommand,
+        )
+
+        mock_oauth.return_value = True
         result = _handle_custom_command("custom_command", "chatgpt-auth")
 
-        assert result is True
-        mock_oauth.assert_called_once()
+        assert isinstance(result, BackgroundInteractiveCommand)
+        cancel_event = threading.Event()
+        assert result.run(cancel_event) is True
+        mock_oauth.assert_called_once_with(cancel_event=cancel_event)
         mock_set_model.assert_called_once_with("chatgpt-gpt-5.3-codex")
 
     @patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.load_stored_tokens")

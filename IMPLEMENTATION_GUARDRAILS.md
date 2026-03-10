@@ -29,6 +29,8 @@ Read this before making changes in this repo.
 - Structured banners like `AGENT REASONING`, listings, and tool blocks must use the prompt-safe render path.
 - Shell output with the prompt mounted must stay plain text. Do not reintroduce Rich dim styling or raw ANSI fragments there.
 - Do not reintroduce the shell warning line in the prompt header if typing is still enabled.
+- Legacy slash-command output emitted through `emit_info`, `emit_warning`, `emit_error`, `emit_success`, and divider output must remain visible in interactive mode.
+- Rich slash-command renderables like `Text`, `Table`, and `Markdown` must still render above the mounted composer.
 
 ## Queue Transcript Rules
 
@@ -47,6 +49,17 @@ Read this before making changes in this repo.
 - Seed the token/context line at run start so it does not show stale data from the previous run.
 - Keep the prompt-native spinner; do not bring back the old Rich live spinner for interactive runs.
 
+## Command And OAuth Rules
+
+- OAuth setup flows (`/antigravity-auth`, `/antigravity-add`, `/claude-code-auth`, `/chatgpt-auth`, tutorial/onboarding auth handoff) are core functionality and must remain working.
+- During OAuth callback waits, `/exit`, `/quit`, and the configured cancel key must still work.
+- Cancelling auth must not half-apply model switches, reloads, or config changes.
+- Queueing or interjecting during auth or other cooperative external waits must never crash; cancel/cleanup races must be harmless.
+- While work is active, only `/exit` and `/quit` keep slash-command semantics.
+- Busy slash-prefixed text other than `/exit` and `/quit` must remain literal user text if queued or interjected.
+- The chooser state must not show slash-command menus or execute slash commands.
+- `Ctrl+C` from the composer must remain the universal busy-state cancel path: shell interrupt, background command cancel, or agent cancel as appropriate.
+
 ## Config And Runtime Notes
 
 - Use `./.cp-local/run-code-puppy-local.sh` when you need isolated local setup/auth for this repo.
@@ -56,5 +69,6 @@ Read this before making changes in this repo.
 ## Pre-Implementation Check
 
 - Read this file.
+- Read `docs/INTERACTIVE_REGRESSION_CHECKLIST.md`.
 - Check for prompt/render/runtime side effects before editing.
 - If a change touches interactive runtime, prompt rendering, shell integration, queue/interject flow, or spinner behavior, run focused tests and do a real terminal smoke pass afterward.
