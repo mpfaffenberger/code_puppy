@@ -1004,6 +1004,77 @@ class TestInteractiveMode:
             },
         )
 
+    @pytest.mark.anyio
+    async def test_successful_interactive_response_autosaves(self):
+        call_count = 0
+        patches = _interactive_patches()
+        autosave_mock = patches["code_puppy.config.auto_save_session_if_enabled"]
+        autosave_done = asyncio.Event()
+        autosave_mock.side_effect = lambda: autosave_done.set()
+
+        async def fake_input(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _submission("write hello")
+            await autosave_done.wait()
+            return _submission("/exit")
+
+        async def fake_run(*args, **kwargs):
+            result = MagicMock(output="done: write hello")
+            result.all_messages.return_value = []
+            return result, MagicMock()
+
+        await _run_interactive(
+            _mock_renderer(),
+            patches,
+            fake_input,
+            extra_patches={
+                "code_puppy.cli_runner.run_prompt_with_attachments": fake_run,
+                "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
+                    return_value=_mock_parse_result("write hello")
+                ),
+                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
+                    return_value=False
+                ),
+            },
+        )
+
+        autosave_mock.assert_called_once_with()
+
+    @pytest.mark.anyio
+    async def test_cancelled_interactive_response_does_not_autosave(self):
+        call_count = 0
+        patches = _interactive_patches()
+        autosave_mock = patches["code_puppy.config.auto_save_session_if_enabled"]
+
+        async def fake_input(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _submission("write hello")
+            return _submission("/exit")
+
+        async def fake_run(*args, **kwargs):
+            return None, MagicMock()
+
+        await _run_interactive(
+            _mock_renderer(),
+            patches,
+            fake_input,
+            extra_patches={
+                "code_puppy.cli_runner.run_prompt_with_attachments": fake_run,
+                "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
+                    return_value=_mock_parse_result("write hello")
+                ),
+                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
+                    return_value=False
+                ),
+            },
+        )
+
+        autosave_mock.assert_not_called()
+
 
 class TestInteractiveQueueHandoff:
     """Test unified queue, interject, and idle-drain behavior."""
@@ -1014,6 +1085,12 @@ class TestInteractiveQueueHandoff:
         second_prompt_seen = asyncio.Event()
         queued_prompt_started = asyncio.Event()
         started_prompts = []
+        patches = _interactive_patches()
+        autosave_mock = patches["code_puppy.config.auto_save_session_if_enabled"]
+        all_autosaves_done = asyncio.Event()
+        autosave_mock.side_effect = lambda: (
+            all_autosaves_done.set() if autosave_mock.call_count >= 2 else None
+        )
         render_notice = MagicMock()
         render_prompt_echo = MagicMock(
             side_effect=lambda text: render_order.append(("echo", text))
@@ -1028,7 +1105,7 @@ class TestInteractiveQueueHandoff:
             if call_count == 2:
                 second_prompt_seen.set()
                 return _submission("queued task", action="queue")
-            await queued_prompt_started.wait()
+            await all_autosaves_done.wait()
             return _submission("/exit")
 
         async def fake_run(*args, **kwargs):
@@ -1039,6 +1116,7 @@ class TestInteractiveQueueHandoff:
                 await second_prompt_seen.wait()
                 await asyncio.sleep(0.05)
             if prompt == "queued task":
+                assert autosave_mock.call_count == 1
                 queued_prompt_started.set()
             result = MagicMock(output=f"done: {prompt}")
             result.all_messages.return_value = []
@@ -1046,7 +1124,7 @@ class TestInteractiveQueueHandoff:
 
         await _run_interactive(
             _mock_renderer(),
-            _interactive_patches(),
+            patches,
             fake_input,
             extra_patches={
                 "code_puppy.cli_runner.run_prompt_with_attachments": fake_run,
@@ -1071,6 +1149,7 @@ class TestInteractiveQueueHandoff:
         queued_echo_idx = render_order.index(("echo", "queued task"))
         queued_start_idx = render_order.index(("start", "queued task"))
         assert queued_notice_idx < queued_echo_idx < queued_start_idx
+        assert autosave_mock.call_count == 2
 
     @pytest.mark.anyio
     async def test_hidden_direct_submission_echoes_before_agent_starts(self):
@@ -1366,6 +1445,12 @@ class TestInteractiveQueueHandoff:
         first_task_started = asyncio.Event()
         queued_prompt_started = asyncio.Event()
         started_prompts = []
+        patches = _interactive_patches()
+        autosave_mock = patches["code_puppy.config.auto_save_session_if_enabled"]
+        all_autosaves_done = asyncio.Event()
+        autosave_mock.side_effect = lambda: (
+            all_autosaves_done.set() if autosave_mock.call_count >= 2 else None
+        )
         render_notice = MagicMock()
         render_order = []
         render_prompt_echo = MagicMock(
@@ -1382,7 +1467,7 @@ class TestInteractiveQueueHandoff:
                 return _submission("second queued", action="queue")
             if call_count == 3:
                 return _submission("steer now", action="interject")
-            await queued_prompt_started.wait()
+            await all_autosaves_done.wait()
             return _submission("/exit")
 
         async def fake_run(*args, **kwargs):
@@ -1393,6 +1478,7 @@ class TestInteractiveQueueHandoff:
                 first_task_started.set()
                 await asyncio.sleep(10)
             if prompt == "second queued":
+                assert autosave_mock.call_count == 1
                 queued_prompt_started.set()
             result = MagicMock(output=f"done: {prompt}")
             result.all_messages.return_value = []
@@ -1400,7 +1486,7 @@ class TestInteractiveQueueHandoff:
 
         await _run_interactive(
             _mock_renderer(),
-            _interactive_patches(),
+            patches,
             fake_input,
             extra_patches={
                 "code_puppy.cli_runner.run_prompt_with_attachments": fake_run,
@@ -1436,6 +1522,7 @@ class TestInteractiveQueueHandoff:
             call.args[0] == "[QUEUE TRIGGERED] steer now"
             for call in render_notice.call_args_list
         )
+        assert autosave_mock.call_count == 2
 
     @pytest.mark.anyio
     async def test_exit_while_running_cancels_runtime_task(self):

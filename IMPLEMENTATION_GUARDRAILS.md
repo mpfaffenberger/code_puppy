@@ -18,6 +18,8 @@ Read this before making changes in this repo.
 - Direct prompts submitted from erasable prompt sessions must echo once into the transcript before any response or tool output.
 - Normal direct follow-up prompts after queue/interject cycles must remain visible in the transcript.
 - Interject injection text must tell the agent to continue the interrupted task after acknowledging the interjection.
+- Auto-save must fire after each successfully completed interactive agent response, including queued and interjected turns, before the next queued turn launches.
+- Cancelled turns, slash commands, and OAuth/background interactive commands must not trigger auto-save.
 - Queue preview must stay above the composer, max 3 visible rows, scroll when over 3, and cap at 25 prompts.
 - Queued prompt preview rows must stay one line, truncated, and never wrap.
 - Keep the composer at a fixed two-line viewport with internal scrolling for long prompts.

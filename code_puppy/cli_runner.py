@@ -1056,6 +1056,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 display_console.file.flush()
 
             await asyncio.sleep(0.1)
+            from code_puppy.config import auto_save_session_if_enabled
+
+            auto_save_session_if_enabled()
             if source_item:
                 emit_interject_queue_lifecycle(
                     runtime,
