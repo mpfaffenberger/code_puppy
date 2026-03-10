@@ -87,6 +87,7 @@ from .message_queue import (
     get_global_queue,
     provide_prompt_response,
 )
+from .legacy_bridge import LegacyQueueToBusBridge
 
 # Message types and enums
 from .messages import (  # Enums, Base, Text, File ops, Diff, Shell, Agent, etc.
@@ -104,6 +105,7 @@ from .messages import (  # Enums, Base, Text, File ops, Diff, Shell, Agent, etc.
     FileListingMessage,
     GrepMatch,
     GrepResultMessage,
+    LegacyQueueMessage,
     MessageCategory,
     MessageLevel,
     SelectionRequest,
@@ -182,6 +184,7 @@ __all__ = [
     "SynchronousInteractiveRenderer",
     "QueueConsole",
     "get_queue_console",
+    "LegacyQueueToBusBridge",
     # -------------------------------------------------------------------------
     # New Structured Messaging API
     # -------------------------------------------------------------------------
@@ -193,6 +196,7 @@ __all__ = [
     "BaseCommand",
     # Message types
     "TextMessage",
+    "LegacyQueueMessage",
     "FileEntry",
     "FileListingMessage",
     "FileContentMessage",

@@ -17,6 +17,81 @@ from rich.markup import escape as escape_rich_markup
 from .message_queue import MessageQueue, MessageType, UIMessage
 
 
+def render_legacy_ui_message(
+    console: Console, message: UIMessage, *, allow_human_input: bool = True
+) -> None:
+    """Render a legacy UIMessage using the old interactive semantics."""
+    if message.type == MessageType.HUMAN_INPUT_REQUEST:
+        if not allow_human_input:
+            safe_content = escape_rich_markup(str(message.content))
+            console.print(f"[dim]Input requested: {safe_content}[/dim]")
+            if hasattr(console.file, "flush"):
+                console.file.flush()
+            return
+
+        prompt_id = message.metadata.get("prompt_id") if message.metadata else None
+        if not prompt_id:
+            console.print("[bold red]Error: Invalid human input request[/bold red]")
+            return
+
+        safe_content = escape_rich_markup(str(message.content))
+        console.print(f"[bold cyan]{safe_content}[/bold cyan]")
+        if hasattr(console.file, "flush"):
+            console.file.flush()
+
+        try:
+            response = input(">>> ")
+            from .message_queue import provide_prompt_response
+
+            provide_prompt_response(prompt_id, response)
+        except (EOFError, KeyboardInterrupt):
+            provide_prompt_response(prompt_id, "")
+        except Exception as e:
+            console.print(f"[bold red]Error getting input: {e}[/bold red]")
+            provide_prompt_response(prompt_id, "")
+        return
+
+    if message.type == MessageType.ERROR:
+        style = "bold red"
+    elif message.type == MessageType.WARNING:
+        style = "yellow"
+    elif message.type == MessageType.SUCCESS:
+        style = "green"
+    elif message.type == MessageType.TOOL_OUTPUT:
+        style = "blue"
+    elif message.type == MessageType.AGENT_REASONING:
+        style = None
+    elif message.type == MessageType.PLANNED_NEXT_STEPS:
+        style = None
+    elif message.type == MessageType.AGENT_RESPONSE:
+        style = None
+    elif message.type == MessageType.SYSTEM:
+        style = "dim"
+    else:
+        style = None
+
+    if isinstance(message.content, str) and (
+        "Current version:" in message.content or "Latest version:" in message.content
+    ):
+        style = "dim"
+
+    if isinstance(message.content, str):
+        if message.type == MessageType.AGENT_RESPONSE:
+            try:
+                console.print(Markdown(message.content))
+            except Exception:
+                console.print(escape_rich_markup(message.content))
+        elif style:
+            console.print(escape_rich_markup(message.content), style=style)
+        else:
+            console.print(escape_rich_markup(message.content))
+    else:
+        console.print(message.content)
+
+    if hasattr(console.file, "flush"):
+        console.file.flush()
+
+
 class MessageRenderer(ABC):
     """Base class for message renderers."""
 
@@ -84,66 +159,7 @@ class InteractiveRenderer(MessageRenderer):
 
     async def render_message(self, message: UIMessage):
         """Render a message using Rich console."""
-        # Handle human input requests
-        if message.type == MessageType.HUMAN_INPUT_REQUEST:
-            await self._handle_human_input_request(message)
-            return
-
-        # Convert message type to appropriate Rich styling
-        if message.type == MessageType.ERROR:
-            style = "bold red"
-        elif message.type == MessageType.WARNING:
-            style = "yellow"
-        elif message.type == MessageType.SUCCESS:
-            style = "green"
-        elif message.type == MessageType.TOOL_OUTPUT:
-            style = "blue"
-        elif message.type == MessageType.AGENT_REASONING:
-            style = None
-        elif message.type == MessageType.PLANNED_NEXT_STEPS:
-            style = None
-        elif message.type == MessageType.AGENT_RESPONSE:
-            # Special handling for agent responses - they'll be rendered as markdown
-            style = None
-        elif message.type == MessageType.SYSTEM:
-            style = "dim"
-        else:
-            style = None
-
-        # Make version messages dim regardless of message type
-        if isinstance(message.content, str):
-            if (
-                "Current version:" in message.content
-                or "Latest version:" in message.content
-            ):
-                style = "dim"
-
-        # Render the content
-        if isinstance(message.content, str):
-            if message.type == MessageType.AGENT_RESPONSE:
-                # Render agent responses as markdown
-                try:
-                    markdown = Markdown(message.content)
-                    self.console.print(markdown)
-                except Exception:
-                    # Fallback to plain text if markdown parsing fails
-                    safe_content = escape_rich_markup(message.content)
-                    self.console.print(safe_content)
-            elif style:
-                # Escape Rich markup to prevent crashes from malformed tags
-                safe_content = escape_rich_markup(message.content)
-                self.console.print(safe_content, style=style)
-            else:
-                safe_content = escape_rich_markup(message.content)
-                self.console.print(safe_content)
-        else:
-            # For complex Rich objects (Tables, Markdown, Text, etc.)
-            self.console.print(message.content)
-
-        # Ensure output is immediately flushed to the terminal
-        # This fixes the issue where messages don't appear until user input
-        if hasattr(self.console.file, "flush"):
-            self.console.file.flush()
+        render_legacy_ui_message(self.console, message, allow_human_input=False)
 
     async def _handle_human_input_request(self, message: UIMessage):
         """Handle a human input request in async mode."""
@@ -218,94 +234,4 @@ class SynchronousInteractiveRenderer:
 
     def _render_message(self, message: UIMessage):
         """Render a message using Rich console."""
-        # Handle human input requests
-        if message.type == MessageType.HUMAN_INPUT_REQUEST:
-            self._handle_human_input_request(message)
-            return
-
-        # Convert message type to appropriate Rich styling
-        if message.type == MessageType.ERROR:
-            style = "bold red"
-        elif message.type == MessageType.WARNING:
-            style = "yellow"
-        elif message.type == MessageType.SUCCESS:
-            style = "green"
-        elif message.type == MessageType.TOOL_OUTPUT:
-            style = "blue"
-        elif message.type == MessageType.AGENT_REASONING:
-            style = None
-        elif message.type == MessageType.AGENT_RESPONSE:
-            # Special handling for agent responses - they'll be rendered as markdown
-            style = None
-        elif message.type == MessageType.SYSTEM:
-            style = "dim"
-        else:
-            style = None
-
-        # Make version messages dim regardless of message type
-        if isinstance(message.content, str):
-            if (
-                "Current version:" in message.content
-                or "Latest version:" in message.content
-            ):
-                style = "dim"
-
-        # Render the content
-        if isinstance(message.content, str):
-            if message.type == MessageType.AGENT_RESPONSE:
-                # Render agent responses as markdown
-                try:
-                    markdown = Markdown(message.content)
-                    self.console.print(markdown)
-                except Exception:
-                    # Fallback to plain text if markdown parsing fails
-                    safe_content = escape_rich_markup(message.content)
-                    self.console.print(safe_content)
-            elif style:
-                # Escape Rich markup to prevent crashes from malformed tags
-                # in shell output or other user-provided content
-                safe_content = escape_rich_markup(message.content)
-                self.console.print(safe_content, style=style)
-            else:
-                safe_content = escape_rich_markup(message.content)
-                self.console.print(safe_content)
-        else:
-            # For complex Rich objects (Tables, Markdown, Text, etc.)
-            self.console.print(message.content)
-
-        # Ensure output is immediately flushed to the terminal
-        # This fixes the issue where messages don't appear until user input
-        if hasattr(self.console.file, "flush"):
-            self.console.file.flush()
-
-    def _handle_human_input_request(self, message: UIMessage):
-        """Handle a human input request in interactive mode."""
-        prompt_id = message.metadata.get("prompt_id") if message.metadata else None
-        if not prompt_id:
-            self.console.print(
-                "[bold red]Error: Invalid human input request[/bold red]"
-            )
-            return
-
-        # Display the prompt - escape to prevent markup injection
-        safe_content = escape_rich_markup(str(message.content))
-        self.console.print(f"[bold cyan]{safe_content}[/bold cyan]")
-        if hasattr(self.console.file, "flush"):
-            self.console.file.flush()
-
-        # Get user input
-        try:
-            # Use basic input for now - could be enhanced with prompt_toolkit later
-            response = input(">>> ")
-
-            # Provide the response back to the queue
-            from .message_queue import provide_prompt_response
-
-            provide_prompt_response(prompt_id, response)
-
-        except (EOFError, KeyboardInterrupt):
-            # Handle Ctrl+C or Ctrl+D
-            provide_prompt_response(prompt_id, "")
-        except Exception as e:
-            self.console.print(f"[bold red]Error getting input: {e}[/bold red]")
-            provide_prompt_response(prompt_id, "")
+        render_legacy_ui_message(self.console, message, allow_human_input=True)

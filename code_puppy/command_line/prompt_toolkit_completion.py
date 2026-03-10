@@ -14,7 +14,12 @@ from typing import Literal, Optional
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
-from prompt_toolkit.completion import Completer, Completion, merge_completers
+from prompt_toolkit.completion import (
+    Completer,
+    Completion,
+    ConditionalCompleter,
+    merge_completers,
+)
 from prompt_toolkit.filters import Condition, is_searching
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
@@ -58,6 +63,7 @@ class PromptSubmission:
     action: Literal["submit", "queue", "interject"]
     text: str
     echo_in_transcript: bool = False
+    allow_command_dispatch: bool = True
 
 
 def _get_runtime() -> PromptRuntimeState | None:
@@ -154,6 +160,11 @@ def _get_queue_preview(
 
 def _is_exit_text(text: str) -> bool:
     return text.strip().lower() in {"exit", "quit", "/exit", "/quit"}
+
+
+def _allows_busy_command_dispatch(text: str) -> bool:
+    stripped = text.strip()
+    return not stripped.startswith("/") or _is_exit_text(stripped)
 
 
 def _sanitize_for_encoding(text: str) -> str:
@@ -812,23 +823,6 @@ async def prompt_for_submission(
     # Use SafeFileHistory to handle encoding errors gracefully on Windows
     history = SafeFileHistory(history_file) if history_file else None
     runtime = _get_runtime()
-    completer = merge_completers(
-        [
-            FilePathCompleter(symbol="@"),
-            ModelNameCompleter(trigger="/model"),
-            ModelNameCompleter(trigger="/m"),
-            CDCompleter(trigger="/cd"),
-            SetCompleter(trigger="/set"),
-            LoadContextCompleter(trigger="/load_context"),
-            PinCompleter(trigger="/pin_model"),
-            UnpinCompleter(trigger="/unpin"),
-            AgentCompleter(trigger="/agent"),
-            AgentCompleter(trigger="/a"),
-            MCPCompleter(trigger="/mcp"),
-            SkillsCompleter(trigger="/skills"),
-            SlashCompleter(),
-        ]
-    )
     # Add custom key bindings and multiline toggle
     bindings = KeyBindings()
     pending_decision_filter = Condition(
@@ -837,12 +831,77 @@ async def prompt_for_submission(
     shell_active_filter = Condition(
         lambda: runtime is not None and runtime.has_active_shell()
     )
+    busy_run_filter = Condition(lambda: runtime is not None and runtime.running)
+    command_completion_filter = Condition(
+        lambda: runtime is None
+        or not (runtime.running or runtime.has_pending_submission())
+    )
+
+    completer = merge_completers(
+        [
+            FilePathCompleter(symbol="@"),
+            ConditionalCompleter(
+                ModelNameCompleter(trigger="/model"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                ModelNameCompleter(trigger="/m"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                CDCompleter(trigger="/cd"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                SetCompleter(trigger="/set"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                LoadContextCompleter(trigger="/load_context"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                PinCompleter(trigger="/pin_model"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                UnpinCompleter(trigger="/unpin"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                AgentCompleter(trigger="/agent"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                AgentCompleter(trigger="/a"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                MCPCompleter(trigger="/mcp"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                SkillsCompleter(trigger="/skills"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                SlashCompleter(),
+                filter=command_completion_filter,
+            ),
+        ]
+    )
 
     # Multiline mode state
     multiline = {"enabled": False}
 
     def awaiting_decision() -> bool:
         return runtime is not None and runtime.has_pending_submission()
+
+    def clear_chooser_input(event) -> None:
+        try:
+            event.app.current_buffer.reset()
+        except Exception:
+            pass
 
     # Ctrl+X keybinding - exit with KeyboardInterrupt for input cancellation
     @bindings.add(Keys.ControlX)
@@ -857,9 +916,43 @@ async def prompt_for_submission(
             # This happens when user presses multiple exit keys in quick succession
             pass
 
-    @bindings.add("c-c", filter=shell_active_filter, eager=True)
+    @bindings.add("c-c", filter=busy_run_filter, eager=True)
     def _(event):
-        _interrupt_shell_from_prompt("Ctrl-C")
+        if runtime is not None and runtime.has_active_shell():
+            _interrupt_shell_from_prompt("Ctrl-C")
+            runtime.set_pending_submission(None)
+            clear_chooser_input(event)
+            return
+        if runtime is not None:
+            runtime.set_pending_submission(None)
+            clear_chooser_input(event)
+            if runtime.request_active_cancel("ctrl_c"):
+                return
+        try:
+            event.app.exit(exception=KeyboardInterrupt)
+        except Exception:
+            pass
+
+    configured_cancel_key = str(get_value("cancel_agent_key") or "ctrl+c").lower()
+    configured_binding = {"ctrl+k": "c-k", "ctrl+q": "c-q"}.get(configured_cancel_key)
+    if configured_binding is not None:
+
+        @bindings.add(configured_binding, filter=busy_run_filter, eager=True)
+        def _(event):
+            if runtime is not None and runtime.has_active_shell():
+                _interrupt_shell_from_prompt(configured_cancel_key.upper())
+                runtime.set_pending_submission(None)
+                clear_chooser_input(event)
+                return
+            if runtime is not None:
+                runtime.set_pending_submission(None)
+                clear_chooser_input(event)
+                if runtime.request_active_cancel(configured_cancel_key):
+                    return
+            try:
+                event.app.exit(exception=KeyboardInterrupt)
+            except Exception:
+                pass
 
     # Escape keybinding - exit with KeyboardInterrupt
     @bindings.add(Keys.Escape)
@@ -875,22 +968,35 @@ async def prompt_for_submission(
             # Ignore "Return value already set" errors when exit was already called
             pass
 
-    # NOTE: We intentionally do NOT override Ctrl+C here.
-    # prompt_toolkit's default Ctrl+C handler properly resets the terminal state on Windows.
-    # Overriding it with event.app.exit(exception=KeyboardInterrupt) can leave the terminal
-    # in a bad state where characters cannot be typed. Let prompt_toolkit handle Ctrl+C natively.
+    # Idle Ctrl+C is still left to prompt_toolkit.
+    # We only intercept it while work is actively running so busy-state cancel stays local
+    # to the interactive runtime instead of tearing down the terminal session.
 
     @bindings.add("i", filter=pending_decision_filter, eager=True)
     @bindings.add("I", filter=pending_decision_filter, eager=True)
     def _(event):
-        text = runtime.take_pending_submission() or event.app.current_buffer.text
-        event.app.exit(result=PromptSubmission(action="interject", text=text))
+        text, allow_command_dispatch = runtime.take_pending_submission_with_policy()
+        clear_chooser_input(event)
+        event.app.exit(
+            result=PromptSubmission(
+                action="interject",
+                text=text or "",
+                allow_command_dispatch=allow_command_dispatch,
+            )
+        )
 
     @bindings.add("q", filter=pending_decision_filter, eager=True)
     @bindings.add("Q", filter=pending_decision_filter, eager=True)
     def _(event):
-        text = runtime.take_pending_submission() or event.app.current_buffer.text
-        event.app.exit(result=PromptSubmission(action="queue", text=text))
+        text, allow_command_dispatch = runtime.take_pending_submission_with_policy()
+        clear_chooser_input(event)
+        event.app.exit(
+            result=PromptSubmission(
+                action="queue",
+                text=text or "",
+                allow_command_dispatch=allow_command_dispatch,
+            )
+        )
 
     # Toggle multiline with Alt+M
     @bindings.add(Keys.Escape, "m")
@@ -937,6 +1043,17 @@ async def prompt_for_submission(
     @bindings.add("enter", filter=~is_searching, eager=True)
     def _(event):
         if awaiting_decision():
+            choice = event.app.current_buffer.text.strip()
+            if _is_exit_text(choice):
+                runtime.set_pending_submission(None)
+                clear_chooser_input(event)
+                event.app.exit(
+                    result=PromptSubmission(
+                        action="submit",
+                        text=choice,
+                        allow_command_dispatch=True,
+                    )
+                )
             return
         text = event.app.current_buffer.text
         if (
@@ -945,7 +1062,11 @@ async def prompt_for_submission(
             and text.strip()
             and not _is_exit_text(text)
         ):
-            runtime.set_pending_submission(text)
+            runtime.set_pending_submission(
+                text,
+                allow_command_dispatch=_allows_busy_command_dispatch(text),
+            )
+            clear_chooser_input(event)
             return
         if multiline["enabled"]:
             event.app.current_buffer.insert_text("\n")
@@ -965,7 +1086,7 @@ async def prompt_for_submission(
         buffer.delete_before_cursor(count=1)
         # Then trigger completion if text starts with '/'
         text = buffer.text.lstrip()
-        if text.startswith("/"):
+        if text.startswith("/") and command_completion_filter():
             buffer.start_completion(select_first=False)
 
     @bindings.add("delete", eager=True)
@@ -977,7 +1098,7 @@ async def prompt_for_submission(
         buffer.delete(count=1)
         # Then trigger completion if text starts with '/'
         text = buffer.text.lstrip()
-        if text.startswith("/"):
+        if text.startswith("/") and command_completion_filter():
             buffer.start_completion(select_first=False)
 
     @bindings.add("c-up", eager=True)
@@ -1118,11 +1239,6 @@ async def prompt_for_submission(
             event.app.current_buffer.insert_text("[❌ clipboard error] ")
             event.app.output.bell()
 
-    @bindings.add("<any>", filter=pending_decision_filter, eager=True)
-    def _(event):
-        # Freeze the submitted text until the user chooses queue or interject.
-        return
-
     from prompt_toolkit.output.defaults import create_output
 
     out = create_output(stdout=sys.stdout)
@@ -1158,6 +1274,7 @@ async def prompt_for_submission(
             action=result.action,
             text=result.text,
             echo_in_transcript=erase_when_done,
+            allow_command_dispatch=result.allow_command_dispatch,
         )
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running
@@ -1167,6 +1284,7 @@ async def prompt_for_submission(
         action="submit",
         text=result,
         echo_in_transcript=erase_when_done,
+        allow_command_dispatch=True,
     )
 
 

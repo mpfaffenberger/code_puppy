@@ -15,10 +15,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from code_puppy.callbacks import register_callback
+from code_puppy.command_line.interactive_command import BackgroundInteractiveCommand
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.model_switching import set_model_and_reload_agent
 
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
+from ..oauth_control import wait_for_event_or_cancel
 from .config import CLAUDE_CODE_OAUTH_CONFIG, get_token_storage_path
 from .utils import (
     OAuthContext,
@@ -112,7 +114,9 @@ def _start_callback_server(
     return None
 
 
-def _await_callback(context: OAuthContext) -> Optional[str]:
+def _await_callback(
+    context: OAuthContext, cancel_event: threading.Event | None = None
+) -> Optional[str]:
     timeout = CLAUDE_CODE_OAUTH_CONFIG["callback_timeout"]
 
     started = _start_callback_server(context)
@@ -153,7 +157,17 @@ def _await_callback(context: OAuthContext) -> Optional[str]:
         "and paste it back into Code Puppy."
     )
 
-    if not event.wait(timeout=timeout):
+    wait_result = wait_for_event_or_cancel(
+        event,
+        timeout=timeout,
+        cancel_event=cancel_event,
+    )
+    if wait_result == "cancelled":
+        emit_info("Claude Code OAuth authentication cancelled.")
+        server.shutdown()
+        return None
+
+    if wait_result == "timeout":
         emit_error("OAuth callback timed out. Please try again.")
         server.shutdown()
         return None
@@ -185,30 +199,36 @@ def _custom_help() -> List[Tuple[str, str]]:
     ]
 
 
-def _perform_authentication() -> None:
+def _perform_authentication(cancel_event: threading.Event | None = None) -> bool:
     context = prepare_oauth_context()
-    code = _await_callback(context)
+    code = _await_callback(context, cancel_event=cancel_event)
     if not code:
-        return
+        return False
+    if cancel_event is not None and cancel_event.is_set():
+        emit_info("Claude Code OAuth authentication cancelled.")
+        return False
 
     emit_info("Exchanging authorization code for tokens…")
     tokens = exchange_code_for_tokens(code, context)
     if not tokens:
         emit_error("Token exchange failed. Please retry the authentication flow.")
-        return
+        return False
+    if cancel_event is not None and cancel_event.is_set():
+        emit_info("Claude Code OAuth authentication cancelled.")
+        return False
 
     if not save_tokens(tokens):
         emit_error(
             "Tokens retrieved but failed to save locally. Check file permissions."
         )
-        return
+        return False
 
     emit_success("Claude Code OAuth authentication successful!")
 
     access_token = tokens.get("access_token")
     if not access_token:
         emit_warning("No access token returned; skipping model discovery.")
-        return
+        return True
 
     emit_info("Fetching available Claude Code models…")
     models = fetch_claude_code_models(access_token)
@@ -216,16 +236,27 @@ def _perform_authentication() -> None:
         emit_warning(
             "Claude Code authentication succeeded but no models were returned."
         )
-        return
+        return True
+    if cancel_event is not None and cancel_event.is_set():
+        emit_info("Claude Code OAuth authentication cancelled.")
+        return False
 
     emit_info(f"Discovered {len(models)} models: {', '.join(models)}")
     if add_models_to_extra_config(models):
         emit_success(
             "Claude Code models added to your configuration. Use the `claude-code-` prefix!"
         )
+    return True
 
 
-def _handle_custom_command(command: str, name: str) -> Optional[bool]:
+def start_claude_code_oauth_setup(cancel_event: threading.Event) -> bool:
+    success = _perform_authentication(cancel_event=cancel_event)
+    if success and not cancel_event.is_set():
+        set_model_and_reload_agent("claude-code-claude-opus-4-6")
+    return success
+
+
+def _handle_custom_command(command: str, name: str) -> object | None:
     if not name:
         return None
 
@@ -236,9 +267,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
             emit_warning(
                 "Existing Claude Code tokens found. Continuing will overwrite them."
             )
-        _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-6")
-        return True
+        return BackgroundInteractiveCommand(run=start_claude_code_oauth_setup)
 
     if name == "claude-code-status":
         tokens = load_stored_tokens()

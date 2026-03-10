@@ -41,6 +41,7 @@ from .messages import (
     FileContentMessage,
     FileListingMessage,
     GrepResultMessage,
+    LegacyQueueMessage,
     MessageLevel,
     SelectionRequest,
     ShellLineMessage,
@@ -57,6 +58,8 @@ from .messages import (
     UserInputRequest,
     VersionCheckMessage,
 )
+from .message_queue import MessageType, UIMessage
+from .renderers import render_legacy_ui_message
 
 # Note: Text and Tree were removed - no longer used in this implementation
 
@@ -390,6 +393,8 @@ class RichConsoleRenderer:
             self._render_version_check(message)
         elif isinstance(message, AgentListMessage):
             self._render_agent_list(message)
+        elif isinstance(message, LegacyQueueMessage):
+            self._render_legacy_queue_message(message)
         elif isinstance(message, SkillListMessage):
             self._render_skill_list(message)
         elif isinstance(message, SkillActivateMessage):
@@ -443,6 +448,27 @@ class RichConsoleRenderer:
         # Escape Rich markup to prevent crashes from malformed tags
         safe_text = escape_rich_markup(msg.text)
         self._console.print(f"{prefix}{safe_text}", style=style)
+
+    def _render_legacy_queue_message(self, msg: LegacyQueueMessage) -> None:
+        """Render wrapped legacy queue output with old semantics."""
+        try:
+            legacy_type = MessageType(msg.legacy_type)
+        except ValueError:
+            legacy_type = MessageType.DEBUG
+
+        legacy_message = UIMessage(
+            type=legacy_type,
+            content=msg.content,
+            metadata=dict(msg.legacy_metadata or {}),
+        )
+        if msg.legacy_timestamp is not None:
+            legacy_message.timestamp = msg.legacy_timestamp
+
+        render_legacy_ui_message(
+            self._console,
+            legacy_message,
+            allow_human_input=False,
+        )
 
     def _get_level_prefix(self, level: MessageLevel) -> str:
         """Get a prefix icon for the message level."""
