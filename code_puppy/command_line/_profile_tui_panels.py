@@ -1,24 +1,18 @@
-"""Panel renderers and helpers for profile_new_tui.
+"""Panel renderers for the profile dual-panel TUI.
 
-Separated into its own module to keep profile_new_tui.py under the 600-line cap.
+Three render functions:
+  render_profile_list  — left panel, always visible
+  render_agent_config  — right panel, browse/edit agent models
+  render_model_picker  — right panel overlay when picking a model
 """
 
-import os
-from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 
-from code_puppy.task_models import TASK_CONFIGS, Task, get_active_profile
+from code_puppy.task_models import TASK_CONFIGS, Task
 
 _TASKS: List[Task] = list(TASK_CONFIGS.keys())
 
-_PLACEHOLDER_NAME = "<press N to enter a name>"
-_PLACEHOLDER_DESC = "<press D to add a description>"
-
-_BROWSE = "browse"
-_PICK = "pick"
-_IMPORT = "import"
-
-VISIBLE = 16  # rows shown in any inline picker
+VISIBLE = 16  # max rows shown in the model picker at once
 
 
 # ── tiny helpers ──────────────────────────────────────────────────────────────
@@ -41,205 +35,193 @@ def load_models() -> List[str]:
         return []
 
 
-def cwd_json_files() -> List[Path]:
-    return sorted(Path(os.getcwd()).glob("*.json"))
+# ── left panel: profile list ──────────────────────────────────────────────────
 
 
-# ── left panel ────────────────────────────────────────────────────────────────
+def render_profile_list(
+    profiles: list,
+    prof_idx: int,
+    active_name: Optional[str],
+    focused: bool,
+) -> list:
+    """Scrollable list of saved profiles with active marker."""
+    header_color = "bold cyan" if focused else "bold"
+    L: list = [
+        (header_color, "  Profiles\n"),
+        ("fg:ansibrightblack", "  ─────────────────────────────\n\n"),
+    ]
+
+    if not profiles:
+        L += [
+            ("fg:ansiyellow", "  No saved profiles yet.\n\n"),
+            ("fg:ansibrightblack", "  Press N to create the first one.\n"),
+        ]
+    else:
+        for i, p in enumerate(profiles):
+            pname = p.get("name", "?")
+            desc = p.get("description", "")
+            is_active = pname == active_name
+            mark = "✓" if is_active else " "
+            is_sel = i == prof_idx
+
+            if is_sel:
+                row_color = "fg:ansigreen bold" if focused else "fg:ansicyan bold"
+                L += [(row_color, f"  ▶{mark} {trunc(pname, 22)}"), ("", "\n")]
+                if desc:
+                    L += [("fg:ansibrightblack", f"      {trunc(desc, 24)}\n")]
+            elif is_active:
+                L += [("fg:ansicyan", f"   {mark} {trunc(pname, 22)}"), ("", "\n")]
+                if desc:
+                    L += [("fg:ansibrightblack", f"      {trunc(desc, 24)}\n")]
+            else:
+                dim = "fg:ansibrightblack"
+                L += [(dim, f"    {trunc(pname, 22)}"), ("", "\n")]
+
+    L += [("", "\n")]
+
+    # key hints adapt to focus
+    if focused:
+        L += [
+            ("fg:ansibrightblack", "  ↑↓      browse\n"),
+            ("fg:ansigreen bold", "  Enter   activate\n"),
+            ("fg:ansibrightblack", "  N       new profile\n"),
+            ("fg:ansibrightblack", "  Tab     configure →\n"),
+            ("fg:ansired", "  Ctrl+C  exit\n"),
+        ]
+    else:
+        L += [
+            ("fg:ansibrightblack", "  Tab     ← switch here\n"),
+        ]
+
+    return L
 
 
-def render_left(name, description, agent_models, agent_idx, error_msg, mode, edit_mode):
-    L = []
-    title = (
-        f"  Edit Profile: {trunc(name, 24)}"
-        if (edit_mode and name)
-        else "  Create New Profile"
+# ── right panel: agent config ─────────────────────────────────────────────────
+
+
+def render_agent_config(
+    agent_models: Dict[Task, str],
+    agent_idx: int,
+    focused: bool,
+    prof_name: str,
+    status: str,
+    active_name: Optional[str],
+) -> list:
+    """Agent-model assignment list with status line and key hints."""
+    is_active = bool(prof_name) and prof_name == active_name
+
+    header_color = "bold cyan" if focused else "bold"
+    active_badge = (
+        ("fg:ansigreen", "  ✓ active")
+        if is_active
+        else ("fg:ansibrightblack", "  (preview)")
     )
-    L += [("bold cyan", title), ("", "\n\n")]
+    display_name = trunc(prof_name, 32) if prof_name else "—"
 
-    L += [
-        ("bold", "  Name  "),
-        ("fg:ansicyan", trunc(name, 30))
-        if name
-        else ("fg:ansibrightblack italic", _PLACEHOLDER_NAME),
-        ("fg:ansibrightblack", "  N\n"),
-    ]
-    L += [
-        ("bold", "  Desc  "),
-        ("fg:ansicyan", trunc(description, 30))
-        if description
-        else ("fg:ansibrightblack italic", _PLACEHOLDER_DESC),
-        ("fg:ansibrightblack", "  D\n"),
+    L: list = [
+        (header_color, f"  {display_name}"),
+        active_badge,
+        ("", "\n"),
+        ("fg:ansibrightblack", "  ─────────────────────────────────────────\n\n"),
     ]
 
-    L += [("", "\n")]
-    if error_msg:
-        L += [("fg:ansired", f"  {error_msg}"), ("", "\n")]
-    L += [("", "\n")]
-
-    L += [
-        ("bold", "  Agent Models\n"),
-        ("fg:ansibrightblack", "  ─────────────────────────────\n"),
-    ]
-    dim = mode != _BROWSE
     for idx, task in enumerate(_TASKS):
-        is_sel = idx == agent_idx
-        model = trunc(agent_models.get(task, "—"), 26)
         label = task.name.lower()
-        if is_sel and not dim:
+        model = trunc(agent_models.get(task, "—"), 36)
+        is_sel = idx == agent_idx
+
+        if is_sel and focused:
             L += [
-                ("fg:ansigreen bold", f"  ▶ {label:<11}"),
+                ("fg:ansigreen bold", f"  ▶ {label:<12}"),
                 ("fg:ansigreen", model),
                 ("", "\n"),
             ]
         elif is_sel:
             L += [
-                ("fg:ansibrightblack bold", f"  ▶ {label:<11}"),
-                ("fg:ansibrightblack", model),
+                ("fg:ansicyan bold", f"  ▶ {label:<12}"),
+                ("fg:ansicyan", model),
                 ("", "\n"),
             ]
         else:
-            s = "fg:ansibrightblack" if dim else ""
+            row_color = "" if focused else "fg:ansibrightblack"
+            model_color = "fg:ansicyan" if focused else "fg:ansibrightblack"
             L += [
-                (s, f"    {label:<11}"),
-                ("fg:ansibrightblack" if dim else "fg:ansicyan", model),
+                (row_color, f"    {label:<12}"),
+                (model_color, model),
                 ("", "\n"),
             ]
 
     L += [("", "\n")]
-    if mode == _BROWSE:
-        for k, a in [
-            ("↑↓", "navigate"),
-            ("Enter", "pick model"),
-            ("N/D", "name/desc"),
-            ("C", "new"),
-            ("U", "duplicate"),
-            ("E", "export"),
-            ("I", "import"),
-            ("R", "reset"),
-        ]:
-            L += [("fg:ansibrightblack", f"  {k:<8}"), ("", f"{a}\n")]
-        L += [("fg:ansigreen bold", "  S       "), ("", "save\n")]
-        L += [("fg:ansired", "  Ctrl+C  "), ("", "cancel\n")]
+
+    if status:
+        err = status.lower().startswith("fail") or status.lower().startswith("error")
+        L += [("fg:ansired" if err else "fg:ansigreen", f"  {status}\n"), ("", "\n")]
     else:
-        L += [("fg:ansibrightblack", "  ↑↓      "), ("", "scroll\n")]
-        L += [("fg:ansigreen bold", "  Enter   "), ("", "confirm\n")]
-        L += [("fg:ansiyellow", "  Esc     "), ("", "back\n")]
+        L += [("", "\n")]
+
+    if focused:
+        L += [
+            ("fg:ansibrightblack", "  ↑↓       navigate agents\n"),
+            ("fg:ansigreen bold", "  Enter    pick model\n"),
+        ]
+        if is_active:
+            L += [("fg:ansigreen bold", "  S        save changes\n")]
+        else:
+            L += [("fg:ansiyellow", "  (activate profile to save)\n")]
+        L += [
+            ("fg:ansibrightblack", "  Tab      ← profiles\n"),
+            ("fg:ansired", "  Ctrl+C   exit\n"),
+        ]
+    else:
+        L += [("fg:ansibrightblack", "  Tab      switch here\n")]
+
     return L
 
 
-# ── right panel: preview ──────────────────────────────────────────────────────
+# ── right panel: model picker overlay ─────────────────────────────────────────
 
 
-def render_preview(name, description, agent_models):
-    L = [("dim cyan", "  PROFILE PREVIEW"), ("", "\n\n"), ("bold", "  Name:  ")]
-    L += [("fg:ansicyan bold", name)] if name else [("fg:ansired", "<name required>")]
-    L += [("", "\n")]
-    if description:
-        L += [
-            ("bold", "  Desc:  "),
-            ("fg:ansibrightblack", trunc(description, 44)),
-            ("", "\n"),
-        ]
-    L += [
-        ("", "\n"),
-        ("bold", "  Models:\n"),
-        ("fg:ansibrightblack", "  ─────────────────────────────────────────\n"),
-    ]
-    for task in _TASKS:
-        L += [
-            ("", f"  {task.name.lower():<12}"),
-            ("fg:ansicyan", trunc(agent_models.get(task, "—"), 34)),
-            ("", "\n"),
-        ]
-    L += [("", "\n")]
-    active = get_active_profile()
-    if active:
-        L += [("fg:ansibrightblack", f"  Based on: {active}\n"), ("", "\n")]
-    if name and valid_name(name):
-        L += [("fg:ansigreen bold", "  ✓ Ready — press S to save")]
-    elif name:
-        L += [("fg:ansired", "  ✗ Name must be alphanumeric (- _ OK)")]
-    else:
-        L += [("fg:ansiyellow", "  Press N to enter a profile name")]
-    L += [("", "\n")]
-    return L
-
-
-# ── right panel: model picker ─────────────────────────────────────────────────
-
-
-def render_model_picker(task, model_names, pick_idx, scroll, current):
-    L = [
+def render_model_picker(
+    task: Task,
+    model_names: List[str],
+    pick_idx: int,
+    scroll: int,
+    current: str,
+) -> list:
+    """Scrollable model list — replaces agent config while picking."""
+    L: list = [
         ("bold cyan", f"  Model for '{task.name.lower()}'\n"),
         ("fg:ansibrightblack", "  ──────────────────────────────────────────\n\n"),
     ]
     total = len(model_names)
     end = min(scroll + VISIBLE, total)
+
     L += (
         [("fg:ansibrightblack", f"  ↑  {scroll} more above\n")]
         if scroll > 0
         else [("", "\n")]
     )
+
     for i in range(scroll, end):
         m = model_names[i]
         mark = " ✓" if m == current else "  "
         if i == pick_idx:
             L += [("fg:ansigreen bold", f"  ▶{mark} {trunc(m, 38)}"), ("", "\n")]
         else:
-            L += [
-                (
-                    "fg:ansicyan" if m == current else "fg:ansibrightblack",
-                    f"   {mark} {trunc(m, 38)}",
-                ),
-                ("", "\n"),
-            ]
+            color = "fg:ansicyan" if m == current else "fg:ansibrightblack"
+            L += [(color, f"   {mark} {trunc(m, 38)}"), ("", "\n")]
+
     rem = total - end
     L += (
         [("fg:ansibrightblack", f"  ↓  {rem} more below\n")]
         if rem > 0
         else [("", "\n")]
     )
-    L += [("", "\n"), ("fg:ansibrightblack", f"  {pick_idx + 1} / {total}\n")]
-    return L
 
-
-# ── right panel: import picker ────────────────────────────────────────────────
-
-
-def render_import_picker(files, imp_idx, scroll):
-    cwd = str(Path(os.getcwd()))
-    L = [
-        ("bold cyan", "  Import profile JSON\n"),
-        ("fg:ansibrightblack", f"  from {trunc(cwd, 44)}\n"),
-        ("fg:ansibrightblack", "  ──────────────────────────────────────────\n\n"),
+    L += [
+        ("", "\n"),
+        ("fg:ansibrightblack", f"  {pick_idx + 1} / {total}\n\n"),
+        ("fg:ansigreen bold", "  Enter  confirm\n"),
+        ("fg:ansiyellow", "  Esc    cancel\n"),
     ]
-    if not files:
-        L += [
-            ("fg:ansiyellow", "  No .json files found in current directory.\n"),
-            ("", "\n"),
-            ("fg:ansibrightblack", "  Export a profile first with E, or cd to\n"),
-            ("fg:ansibrightblack", "  the folder containing your profile JSON.\n"),
-        ]
-        return L
-    total = len(files)
-    end = min(scroll + VISIBLE, total)
-    L += (
-        [("fg:ansibrightblack", f"  ↑  {scroll} more above\n")]
-        if scroll > 0
-        else [("", "\n")]
-    )
-    for i in range(scroll, end):
-        fname = files[i].name
-        if i == imp_idx:
-            L += [("fg:ansigreen bold", f"  ▶ {trunc(fname, 44)}"), ("", "\n")]
-        else:
-            L += [("fg:ansibrightblack", f"    {trunc(fname, 44)}"), ("", "\n")]
-    rem = total - end
-    L += (
-        [("fg:ansibrightblack", f"  ↓  {rem} more below\n")]
-        if rem > 0
-        else [("", "\n")]
-    )
-    L += [("", "\n"), ("fg:ansibrightblack", f"  {imp_idx + 1} / {total}\n")]
     return L
