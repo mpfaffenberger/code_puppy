@@ -1,32 +1,37 @@
 """Interactive TUI wizard for creating / editing a model profile.
 
-Split-panel interface — mirrors the style of agent_menu.py:
+Split-panel interface — mirrors the style of agent_menu.py.  The right panel
+switches between three live views inside the running Application (no exit /
+re-enter, so the terminal layout is never disrupted):
 
-  Left  (Configure):  profile name · description · per-agent model selector
-  Right (Preview):    live preview of what will be saved
-                 ──► switches to an inline model picker on Enter
-
-The model picker renders **inside the right panel** of the running
-Application so no content is ever pushed to the terminal scroll buffer.
+  Preview      live view of what will be saved       (browse mode)
+  Model pick   scrollable model list                 (Enter on an agent)
+  Import pick  scrollable list of .json files        (I key)
 
 Key bindings — browse mode
 ───────────────────────────
-  ↑ / ↓     Navigate the agent list
-  Enter      Open inline model picker for highlighted agent
-  N          Edit profile name  (temporary PromptSession below TUI)
-  D          Edit profile description
-  S          Save and exit
-  R          Reset all agent models to session defaults
-  Ctrl+C     Cancel without saving
+  ↑ / ↓    navigate agent list
+  Enter     inline model picker for highlighted agent
+  N / D     edit name / description  (brief PromptSession)
+  C         clear — start a brand-new blank profile
+  U         dUplicate — keep models, rename via prompt
+  E         export profile JSON to current working directory
+  I         import a profile JSON from current working directory
+  R         reset agent models to session defaults
+  S         save and exit
+  Ctrl+C    cancel without saving
 
-Key bindings — model-pick mode (right panel becomes the picker)
-───────────────────────────────────────────────────────────────
-  ↑ / ↓     Navigate model list
-  Enter      Confirm selection, return to browse mode
-  Escape     Cancel, return to browse mode
+Key bindings — model-pick / import-pick modes
+──────────────────────────────────────────────
+  ↑ / ↓    scroll list
+  Enter     confirm selection
+  Escape    back to browse
 """
 
+import json
+import os
 import sys
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from prompt_toolkit.application import Application
@@ -35,11 +40,20 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
-from code_puppy.messaging import emit_error, emit_success
+from code_puppy.command_line._profile_tui_panels import (
+    VISIBLE,
+    cwd_json_files,
+    load_models,
+    render_import_picker,
+    render_left,
+    render_model_picker,
+    render_preview,
+    valid_name,
+)
+from code_puppy.messaging import emit_error, emit_success, emit_warning
 from code_puppy.task_models import (
     TASK_CONFIGS,
     Task,
-    get_active_profile,
     get_model_for,
     list_profiles,
     profile_exists,
@@ -47,244 +61,13 @@ from code_puppy.task_models import (
 )
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
-# All tasks in display order
 _TASKS: List[Task] = list(TASK_CONFIGS.keys())
-
-_PLACEHOLDER_NAME = "<press N to enter a name>"
-_PLACEHOLDER_DESC = "<press D to add a description>"
-
-# How many model rows to show at once inside the right panel picker
-_PICK_VISIBLE = 18
-
-# Internal mode constants
 _BROWSE = "browse"
 _PICK = "pick"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Tiny helpers
-# ─────────────────────────────────────────────────────────────────────────────
+_IMPORT = "import"
 
 
-def _trunc(text: str, width: int) -> str:
-    return text if len(text) <= width else text[: width - 1] + "…"
-
-
-def _is_valid_name(name: str) -> bool:
-    return bool(name) and all(c.isalnum() or c in "-_" for c in name)
-
-
-def _load_model_names() -> List[str]:
-    try:
-        from code_puppy.command_line.model_picker_completion import load_model_names
-
-        return load_model_names() or []
-    except Exception:
-        return []
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Panel renderers
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def _render_left(
-    name: str,
-    description: str,
-    agent_models: Dict[Task, str],
-    agent_idx: int,
-    error_msg: str,
-    mode: str,
-    edit_mode: bool,
-) -> List:
-    lines: List = []
-
-    if edit_mode and name:
-        lines += [("bold cyan", f"  Edit Profile: {_trunc(name, 26)}"), ("", "\n\n")]
-    else:
-        lines += [("bold cyan", "  Create New Profile"), ("", "\n\n")]
-
-    # name
-    lines += [("bold", "  Name  ")]
-    lines += [
-        ("fg:ansicyan", _trunc(name, 32))
-        if name
-        else ("fg:ansibrightblack italic", _PLACEHOLDER_NAME)
-    ]
-    lines += [("fg:ansibrightblack", "  N\n")]
-
-    # description
-    lines += [("bold", "  Desc  ")]
-    lines += [
-        ("fg:ansicyan", _trunc(description, 32))
-        if description
-        else ("fg:ansibrightblack italic", _PLACEHOLDER_DESC)
-    ]
-    lines += [("fg:ansibrightblack", "  D\n")]
-
-    # error
-    lines += [("", "\n")]
-    if error_msg:
-        lines += [("fg:ansired", f"  {error_msg}"), ("", "\n")]
-    lines += [("", "\n")]
-
-    # agent list
-    lines += [("bold", "  Agent Models\n")]
-    lines += [("fg:ansibrightblack", "  ─────────────────────────────────\n")]
-
-    for idx, task in enumerate(_TASKS):
-        is_sel = idx == agent_idx
-        # Dim agents when in pick mode so focus is clearly on the right panel
-        dim = mode == _PICK
-        model = _trunc(agent_models.get(task, "—"), 28)
-        label = task.name.lower()
-        if is_sel and not dim:
-            lines += [
-                ("fg:ansigreen bold", f"  ▶ {label:<12}"),
-                ("fg:ansigreen", model),
-                ("", "\n"),
-            ]
-        elif is_sel and dim:
-            lines += [
-                ("fg:ansibrightblack bold", f"  ▶ {label:<12}"),
-                ("fg:ansibrightblack", model),
-                ("", "\n"),
-            ]
-        else:
-            style = "fg:ansibrightblack" if dim else ""
-            lines += [
-                (style, f"    {label:<12}"),
-                ("fg:ansibrightblack" if dim else "fg:ansicyan", model),
-                ("", "\n"),
-            ]
-
-    # key hints — change depending on mode
-    lines += [("", "\n")]
-    if mode == _BROWSE:
-        for key, action in [
-            ("↑↓", "navigate"),
-            ("Enter", "pick model"),
-            ("N / D", "name / desc"),
-            ("R", "reset models"),
-        ]:
-            lines += [("fg:ansibrightblack", f"  {key:<9}"), ("", f"{action}\n")]
-        lines += [("fg:ansigreen bold", "  S         "), ("", "save\n")]
-        lines += [("fg:ansired", "  Ctrl+C    "), ("", "cancel\n")]
-    else:
-        lines += [("fg:ansibrightblack", "  ↑↓       "), ("", "scroll models\n")]
-        lines += [("fg:ansigreen bold", "  Enter    "), ("", "confirm\n")]
-        lines += [("fg:ansiyellow", "  Esc      "), ("", "back\n")]
-
-    return lines
-
-
-def _render_right_preview(
-    name: str,
-    description: str,
-    agent_models: Dict[Task, str],
-) -> List:
-    lines: List = []
-
-    lines += [("dim cyan", "  PROFILE PREVIEW"), ("", "\n\n")]
-
-    lines += [("bold", "  Name:  ")]
-    if name:
-        lines += [("fg:ansicyan bold", name)]
-    else:
-        lines += [("fg:ansired", "<name required>")]
-    lines += [("", "\n")]
-
-    if description:
-        lines += [
-            ("bold", "  Desc:  "),
-            ("fg:ansibrightblack", _trunc(description, 46)),
-            ("", "\n"),
-        ]
-
-    lines += [("", "\n"), ("bold", "  Models:\n")]
-    lines += [("fg:ansibrightblack", "  ─────────────────────────────────────────\n")]
-
-    for task in _TASKS:
-        model = agent_models.get(task, "—")
-        lines += [
-            ("", f"  {task.name.lower():<12}"),
-            ("fg:ansicyan", _trunc(model, 36)),
-            ("", "\n"),
-        ]
-
-    lines += [("", "\n")]
-
-    active = get_active_profile()
-    if active:
-        lines += [("fg:ansibrightblack", f"  Based on: {active}\n"), ("", "\n")]
-
-    if name and _is_valid_name(name):
-        lines += [("fg:ansigreen bold", "  ✓ Ready — press S to save")]
-    elif name:
-        lines += [("fg:ansired", "  ✗ Name must be alphanumeric (- _ OK)")]
-    else:
-        lines += [("fg:ansiyellow", "  Press N to enter a profile name")]
-
-    lines += [("", "\n")]
-    return lines
-
-
-def _render_right_picker(
-    task: Task,
-    model_names: List[str],
-    pick_idx: int,
-    scroll: int,
-    current_model: str,
-) -> List:
-    """Render the model-picker list inside the right panel."""
-    lines: List = []
-
-    label = task.name.lower()
-    lines += [("bold cyan", f"  Select model for '{label}'\n")]
-    lines += [("fg:ansibrightblack", "  ─────────────────────────────────────────\n\n")]
-
-    total = len(model_names)
-    visible_end = min(scroll + _PICK_VISIBLE, total)
-
-    # scroll-up indicator
-    if scroll > 0:
-        lines += [("fg:ansibrightblack", f"  ↑  {scroll} more above\n")]
-    else:
-        lines += [("", "\n")]
-
-    for i in range(scroll, visible_end):
-        m = model_names[i]
-        is_sel = i == pick_idx
-        is_cur = m == current_model
-
-        cur_mark = " ✓" if is_cur else "  "
-
-        if is_sel:
-            lines += [
-                ("fg:ansigreen bold", f"  ▶{cur_mark} {_trunc(m, 40)}"),
-                ("", "\n"),
-            ]
-        else:
-            style = "fg:ansicyan" if is_cur else "fg:ansibrightblack"
-            lines += [(style, f"   {cur_mark} {_trunc(m, 40)}"), ("", "\n")]
-
-    # scroll-down indicator
-    remaining = total - visible_end
-    if remaining > 0:
-        lines += [("fg:ansibrightblack", f"  ↓  {remaining} more below\n")]
-    else:
-        lines += [("", "\n")]
-
-    lines += [("", "\n")]
-    lines += [("fg:ansibrightblack", f"  {pick_idx + 1} / {total}")]
-    lines += [("", "\n")]
-
-    return lines
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Text-input helper  (only for name / description — exits alternate screen
-# briefly so PromptSession can render, then restores it)
-# ─────────────────────────────────────────────────────────────────────────────
+# ── text-input helper (briefly exits alternate screen) ────────────────────────
 
 
 async def _prompt_text(label: str, current: str = "") -> Optional[str]:
@@ -293,41 +76,31 @@ async def _prompt_text(label: str, current: str = "") -> Optional[str]:
     sys.stdout.write("\033[?1049l")
     sys.stdout.flush()
     try:
-        result = await PromptSession().prompt_async(label, default=current)
-        return result.strip()
+        return (await PromptSession().prompt_async(label, default=current)).strip()
     except (KeyboardInterrupt, EOFError):
         return None
     finally:
-        sys.stdout.write("\033[?1049h")
-        sys.stdout.write("\033[2J\033[H")
+        sys.stdout.write("\033[?1049h\033[2J\033[H")
         sys.stdout.flush()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Main entry point
-# ─────────────────────────────────────────────────────────────────────────────
+# ── main entry point ──────────────────────────────────────────────────────────
 
 
 async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
     """
-    Show the /profile TUI — creates new profiles or edits existing ones.
-
-    Model picking happens **inside** the right panel of the running Application
-    so the terminal layout is never disrupted.
+    /profile TUI — create, edit, duplicate, export or import model profiles.
 
     Args:
-        initial_name: Optional pre-filled name.  When it matches an existing
-                      profile the TUI opens in "Edit Profile" mode.
+        initial_name: Pre-filled name; opens in "Edit" mode if the profile exists.
 
     Returns:
-        Saved profile name, or ``None`` if the user cancelled.
+        Saved profile name, or ``None`` if cancelled.
     """
-    # ── edit vs create ────────────────────────────────────────────────────────
     edit_mode = bool(initial_name) and profile_exists(initial_name)
 
-    # ── initial state ─────────────────────────────────────────────────────────
+    # ── state ─────────────────────────────────────────────────────────────────
     name = [initial_name]
-
     initial_desc = ""
     if edit_mode:
         try:
@@ -338,24 +111,25 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
         except Exception:
             pass
     description = [initial_desc]
-
     agent_models: List[Dict[Task, str]] = [{t: get_model_for(t) for t in _TASKS}]
-    agent_idx = [0]  # which task row is highlighted in browse mode
+    agent_idx = [0]
     error_msg = [""]
 
-    # ── model-picker state ────────────────────────────────────────────────────
     mode = [_BROWSE]
-    model_names: List[List[str]] = [[]]  # loaded lazily when picker opens
+    model_names: List[List[str]] = [[]]
     pick_idx = [0]
     pick_scroll = [0]
     pick_task: List[Optional[Task]] = [None]
+    imp_files: List[List[Path]] = [[]]
+    imp_idx = [0]
+    imp_scroll = [0]
 
-    # ── prompt-toolkit widgets ────────────────────────────────────────────────
+    # ── widgets ───────────────────────────────────────────────────────────────
     left_ctrl = FormattedTextControl(text="")
     right_ctrl = FormattedTextControl(text="")
 
     def refresh():
-        left_ctrl.text = _render_left(
+        left_ctrl.text = render_left(
             name[0],
             description[0],
             agent_models[0],
@@ -365,19 +139,20 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
             edit_mode,
         )
         if mode[0] == _PICK and pick_task[0] is not None:
-            right_ctrl.text = _render_right_picker(
+            right_ctrl.text = render_model_picker(
                 pick_task[0],
                 model_names[0],
                 pick_idx[0],
                 pick_scroll[0],
                 agent_models[0].get(pick_task[0], ""),
             )
-        else:
-            right_ctrl.text = _render_right_preview(
-                name[0], description[0], agent_models[0]
+        elif mode[0] == _IMPORT:
+            right_ctrl.text = render_import_picker(
+                imp_files[0], imp_idx[0], imp_scroll[0]
             )
+        else:
+            right_ctrl.text = render_preview(name[0], description[0], agent_models[0])
 
-    # ── layout ────────────────────────────────────────────────────────────────
     layout = Layout(
         VSplit(
             [
@@ -392,7 +167,7 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
                     Window(
                         content=right_ctrl, wrap_lines=False, width=Dimension(weight=58)
                     ),
-                    title="Preview / Model Picker",
+                    title="Preview / Picker",
                     width=Dimension(weight=58),
                 ),
             ]
@@ -402,8 +177,6 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
     # ── key bindings ──────────────────────────────────────────────────────────
     kb = KeyBindings()
 
-    # ·· up / down — context-sensitive ························
-
     @kb.add("up")
     def _up(event):
         if mode[0] == _BROWSE:
@@ -411,11 +184,17 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
                 agent_idx[0] -= 1
                 error_msg[0] = ""
                 refresh()
-        else:
+        elif mode[0] == _PICK:
             if pick_idx[0] > 0:
                 pick_idx[0] -= 1
                 if pick_idx[0] < pick_scroll[0]:
                     pick_scroll[0] = pick_idx[0]
+                refresh()
+        else:
+            if imp_idx[0] > 0:
+                imp_idx[0] -= 1
+                if imp_idx[0] < imp_scroll[0]:
+                    imp_scroll[0] = imp_idx[0]
                 refresh()
 
     @kb.add("down")
@@ -425,67 +204,127 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
                 agent_idx[0] += 1
                 error_msg[0] = ""
                 refresh()
-        else:
+        elif mode[0] == _PICK:
             if pick_idx[0] < len(model_names[0]) - 1:
                 pick_idx[0] += 1
-                if pick_idx[0] >= pick_scroll[0] + _PICK_VISIBLE:
-                    pick_scroll[0] = pick_idx[0] - _PICK_VISIBLE + 1
+                if pick_idx[0] >= pick_scroll[0] + VISIBLE:
+                    pick_scroll[0] = pick_idx[0] - VISIBLE + 1
                 refresh()
-
-    # ·· enter — context-sensitive ····························
+        else:
+            if imp_idx[0] < len(imp_files[0]) - 1:
+                imp_idx[0] += 1
+                if imp_idx[0] >= imp_scroll[0] + VISIBLE:
+                    imp_scroll[0] = imp_idx[0] - VISIBLE + 1
+                refresh()
 
     @kb.add("enter")
     def _enter(event):
         if mode[0] == _BROWSE:
             task = _TASKS[agent_idx[0]]
-            names = _load_model_names()
+            names = load_models()
             if not names:
                 error_msg[0] = "No models available"
                 refresh()
                 return
-            current = agent_models[0].get(task, "")
-            start = names.index(current) if current in names else 0
+            cur = agent_models[0].get(task, "")
+            start = names.index(cur) if cur in names else 0
             pick_task[0] = task
             model_names[0] = names
             pick_idx[0] = start
-            pick_scroll[0] = max(0, start - _PICK_VISIBLE // 2)
+            pick_scroll[0] = max(0, start - VISIBLE // 2)
             mode[0] = _PICK
             error_msg[0] = ""
             refresh()
-        else:
+        elif mode[0] == _PICK:
             if model_names[0] and pick_task[0] is not None:
                 agent_models[0][pick_task[0]] = model_names[0][pick_idx[0]]
             mode[0] = _BROWSE
             pick_task[0] = None
             refresh()
-
-    # ·· escape — only meaningful in pick mode ···············
+        else:  # _IMPORT
+            files = imp_files[0]
+            if not files:
+                mode[0] = _BROWSE
+                refresh()
+                return
+            path = files[imp_idx[0]]
+            try:
+                data = json.loads(path.read_text())
+                name[0] = data.get("name", path.stem)
+                description[0] = data.get("description", "")
+                for task in _TASKS:
+                    m = data.get("models", {}).get(task.name.lower())
+                    if m:
+                        agent_models[0][task] = m
+                error_msg[0] = f"Imported {path.name}"
+            except Exception as exc:
+                error_msg[0] = f"Import failed: {exc}"
+            mode[0] = _BROWSE
+            refresh()
 
     @kb.add("escape")
-    def _escape(event):
-        if mode[0] == _PICK:
+    def _esc(event):
+        if mode[0] != _BROWSE:
             mode[0] = _BROWSE
             pick_task[0] = None
             refresh()
 
-    # ·· browse-only actions ···································
-
     @kb.add("n")
-    def _edit_name(event):
-        if mode[0] != _BROWSE:
-            return
-        event.app._profile_tui_action = "edit_name"
-        event.app.exit()
+    def _kn(event):
+        if mode[0] == _BROWSE:
+            event.app._ptu = "edit_name"
+            event.app.exit()
 
     @kb.add("d")
-    def _edit_desc(event):
+    def _kd(event):
+        if mode[0] == _BROWSE:
+            event.app._ptu = "edit_desc"
+            event.app.exit()
+
+    @kb.add("c")
+    def _kc(event):
         if mode[0] != _BROWSE:
             return
-        event.app._profile_tui_action = "edit_desc"
+        name[0] = ""
+        description[0] = ""
+        agent_models[0] = {t: get_model_for(t) for t in _TASKS}
+        error_msg[0] = "Cleared — enter a name with N to start a new profile"
+        refresh()
+
+    @kb.add("u")
+    def _ku(event):
+        if mode[0] == _BROWSE:
+            event.app._ptu = "duplicate"
+            event.app.exit()
+
+    @kb.add("e")
+    def _ke(event):
+        if mode[0] != _BROWSE:
+            return
+        if not name[0]:
+            error_msg[0] = "Enter a name (N) before exporting"
+            refresh()
+            return
+        if not valid_name(name[0]):
+            error_msg[0] = "Invalid name — alphanumeric only"
+            refresh()
+            return
+        event.app._ptu = "export"
         event.app.exit()
 
+    @kb.add("i")
+    def _ki(event):
+        if mode[0] != _BROWSE:
+            return
+        imp_files[0] = cwd_json_files()
+        imp_idx[0] = 0
+        imp_scroll[0] = 0
+        mode[0] = _IMPORT
+        error_msg[0] = ""
+        refresh()
+
     @kb.add("r")
-    def _reset(event):
+    def _kr(event):
         if mode[0] != _BROWSE:
             return
         agent_models[0] = {t: get_model_for(t) for t in _TASKS}
@@ -493,81 +332,98 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
         refresh()
 
     @kb.add("s")
-    def _save(event):
+    def _ks(event):
         if mode[0] != _BROWSE:
             return
         if not name[0]:
-            error_msg[0] = "Name required — press N to enter one"
+            error_msg[0] = "Name required — press N"
             refresh()
             return
-        if not _is_valid_name(name[0]):
-            error_msg[0] = "Alphanumeric only (dashes / underscores OK)"
+        if not valid_name(name[0]):
+            error_msg[0] = "Alphanumeric only (- _ OK)"
             refresh()
             return
-        event.app._profile_tui_action = "save"
+        event.app._ptu = "save"
         event.app.exit()
 
     @kb.add("c-c")
-    def _cancel(event):
-        event.app._profile_tui_action = "cancel"
+    def _kcc(event):
+        event.app._ptu = "cancel"
         event.app.exit()
 
-    # ── application ───────────────────────────────────────────────────────────
+    # ── run ───────────────────────────────────────────────────────────────────
     app = Application(
-        layout=layout,
-        key_bindings=kb,
-        full_screen=False,
-        mouse_support=False,
+        layout=layout, key_bindings=kb, full_screen=False, mouse_support=False
     )
-    app._profile_tui_action = None  # type: ignore[attr-defined]
+    app._ptu = None  # type: ignore[attr-defined]
 
-    # ── main loop ─────────────────────────────────────────────────────────────
     set_awaiting_user_input(True)
-    sys.stdout.write("\033[?1049h")
-    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.write("\033[?1049h\033[2J\033[H")
     sys.stdout.flush()
-
     saved_name: Optional[str] = None
 
     try:
         while True:
-            app._profile_tui_action = None  # type: ignore[attr-defined]
+            app._ptu = None  # type: ignore[attr-defined]
             refresh()
             sys.stdout.write("\033[2J\033[H")
             sys.stdout.flush()
             await app.run_async()
-
-            action = getattr(app, "_profile_tui_action", None)
+            action = getattr(app, "_ptu", None)
 
             if action == "cancel":
-                emit_error("Profile creation cancelled.")
+                emit_error("Cancelled.")
                 return None
-
             if action == "save":
                 break
 
             if action == "edit_name":
-                new_val = await _prompt_text("  Profile name: ", name[0])
-                if new_val is not None:
-                    name[0] = new_val
+                v = await _prompt_text("  Profile name: ", name[0])
+                if v is not None:
+                    name[0] = v
                 error_msg[0] = ""
-
             elif action == "edit_desc":
-                new_val = await _prompt_text("  Description:  ", description[0])
-                if new_val is not None:
-                    description[0] = new_val
+                v = await _prompt_text("  Description:  ", description[0])
+                if v is not None:
+                    description[0] = v
                 error_msg[0] = ""
+            elif action == "duplicate":
+                v = await _prompt_text("  Duplicate as: ", "")
+                if v:
+                    name[0] = v
+                    error_msg[0] = f"Duplicated — press S to save as '{v}'"
+                else:
+                    error_msg[0] = ""
+            elif action == "export":
+                dest = Path(os.getcwd()) / f"{name[0]}.json"
+                try:
+                    dest.write_text(
+                        json.dumps(
+                            {
+                                "name": name[0],
+                                "description": description[0],
+                                "models": {
+                                    t.name.lower(): m
+                                    for t, m in agent_models[0].items()
+                                },
+                            },
+                            indent=2,
+                        )
+                    )
+                    emit_success(f"✅ Exported to {dest}")
+                    error_msg[0] = f"Exported → {dest.name}"
+                except Exception as exc:
+                    emit_warning(f"Export failed: {exc}")
+                    error_msg[0] = f"Export failed: {exc}"
 
     finally:
         sys.stdout.write("\033[?1049l")
         sys.stdout.flush()
         set_awaiting_user_input(False)
 
-    # ── persist ───────────────────────────────────────────────────────────────
     if save_profile_from_models(name[0], description[0], agent_models[0]):
         emit_success(f"✅ Profile '{name[0]}' saved!")
         saved_name = name[0]
     else:
         emit_error("Failed to save profile.")
-
     return saved_name
