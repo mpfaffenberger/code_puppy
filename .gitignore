@@ -45,3 +45,7 @@ code_puppy/bundled_skills/
 .claude/hooks/ts-hooks/dist/
 
 .json
+
+# Swarm agent runtime artifacts
+.swarm/
+swarmos_debug.log

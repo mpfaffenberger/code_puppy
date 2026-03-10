@@ -156,7 +156,7 @@ class TestSummarizationGaps:
                 return_value=mock_agent,
             ),
             patch(
-                "code_puppy.summarization_agent.get_global_model_name",
+                "code_puppy.task_models.get_compaction_model",
                 return_value="test",
             ),
             patch("code_puppy.model_utils.prepare_prompt_for_model") as mock_prep,
