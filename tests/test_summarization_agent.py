@@ -98,9 +98,7 @@ class TestSummarizationAgent:
             patch(
                 "code_puppy.summarization_agent.ModelFactory.get_model"
             ) as mock_get_model,
-            patch(
-                "code_puppy.summarization_agent.get_global_model_name"
-            ) as mock_get_name,
+            patch("code_puppy.task_models.get_compaction_model") as mock_get_name,
             patch("code_puppy.summarization_agent.Agent") as mock_agent_class,
         ):
             mock_load_config.return_value = mock_models_config
@@ -115,7 +113,6 @@ class TestSummarizationAgent:
                 mock_load_config.call_count >= 1
             )  # May be called multiple times due to imports
             mock_get_model.assert_called_once_with("test-model", mock_models_config)
-            mock_get_name.assert_called_once()
             # Verify Agent() was instantiated with the mock_model
             mock_agent_class.assert_called_once()
             call_kwargs = mock_agent_class.call_args.kwargs
@@ -498,9 +495,7 @@ class TestSummarizationAgentEdgeCases:
         with (
             patch("code_puppy.summarization_agent.ModelFactory.load_config"),
             patch("code_puppy.summarization_agent.ModelFactory.get_model"),
-            patch(
-                "code_puppy.summarization_agent.get_global_model_name"
-            ) as mock_get_name,
+            patch("code_puppy.task_models.get_compaction_model") as mock_get_name,
         ):
             mock_get_name.side_effect = Exception("Model name error")
 

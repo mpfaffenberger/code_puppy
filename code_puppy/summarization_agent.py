@@ -137,9 +137,12 @@ When summarizing:
 def reload_summarization_agent():
     """Create a specialized agent for summarizing messages when context limit is reached."""
     from code_puppy.model_utils import prepare_prompt_for_model
+    from code_puppy.task_models import get_compaction_model
 
     models_config = ModelFactory.load_config()
-    model_name = get_global_model_name()
+    model_name = (
+        get_compaction_model()
+    )  # Use dedicated compaction model for cost savings
     model = ModelFactory.get_model(model_name, models_config)
 
     # Handle claude-code models: swap instructions (prompt prepending happens in run_summarization_sync)
