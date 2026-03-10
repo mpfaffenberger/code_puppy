@@ -1203,25 +1203,19 @@ async def _execute_shell_command(
 
     pause_all_spinners()
 
-    suspend_prompt = False
+    interactive_runtime = None
     release_keyboard_context = False
 
     try:
-        from code_puppy.command_line.prompt_toolkit_completion import (
-            has_active_prompt_surface,
-            set_shell_prompt_suspended,
+        from code_puppy.command_line.interactive_runtime import (
+            get_active_interactive_runtime,
         )
     except ImportError:
-        has_active_prompt_surface = lambda: False  # type: ignore[assignment]
-        set_shell_prompt_suspended = None  # type: ignore[assignment]
+        get_active_interactive_runtime = lambda: None  # type: ignore[assignment]
 
-    if has_active_prompt_surface() and set_shell_prompt_suspended is not None:
-        try:
-            set_shell_prompt_suspended(True)
-            suspend_prompt = True
-        except Exception:
-            _acquire_keyboard_context()
-            release_keyboard_context = True
+    interactive_runtime = get_active_interactive_runtime()
+    if interactive_runtime is not None:
+        interactive_runtime.notify_shell_started()
     else:
         # Acquire shared keyboard context - Ctrl-X/Ctrl-C will kill ALL running commands
         # This is reference-counted: listener starts on first command, stops on last
@@ -1231,11 +1225,8 @@ async def _execute_shell_command(
     try:
         return await _run_command_inner(command, cwd, timeout, group_id, silent=silent)
     finally:
-        if suspend_prompt and set_shell_prompt_suspended is not None:
-            try:
-                set_shell_prompt_suspended(False)
-            except Exception:
-                pass
+        if interactive_runtime is not None:
+            interactive_runtime.notify_shell_finished()
         if release_keyboard_context:
             _release_keyboard_context()
         resume_all_spinners()
