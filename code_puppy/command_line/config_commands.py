@@ -242,7 +242,7 @@ def handle_profile_command(command: str) -> bool:
     from code_puppy.command_line.model_picker_completion import load_model_names
 
     # ── helpers ────────────────────────────────────────────────────────────────
-    _configurable = [t for t in Task if t != Task.MAIN]
+    _configurable = list(Task)  # All tasks including MAIN are configurable
     _agent_names = ", ".join(t.name.lower() for t in _configurable)
 
     def _resolve_agent(name: str) -> Task | None:
@@ -273,14 +273,15 @@ def handle_profile_command(command: str) -> bool:
         _display_profile_table()
         return True
 
-    # ── check first-time wizard ────────────────────────────────────────────────
+    parts = command.strip().split()
+    subcommand = parts[1].lower() if len(parts) > 1 else ""
+
+    # ── check first-time wizard (only short-circuit bare /profile) ───────────────
     if not get_value("profile_wizard_shown"):
         _show_profile_wizard()
         set_value("profile_wizard_shown", "true")
-        return True
-
-    parts = command.strip().split()
-    subcommand = parts[1].lower() if len(parts) > 1 else ""
+        if len(parts) == 1:
+            return True  # bare /profile - stop after wizard
 
     # ── /profile ── open the TUI directly ─────────────────────────────────────
     if len(parts) == 1:

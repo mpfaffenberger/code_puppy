@@ -492,11 +492,14 @@ def load_profile(name: str) -> Tuple[bool, str]:
     models = data.get("models", {})
     applied = []
 
+    # Switch active_profile marker FIRST so subsequent clear/set_model_for()
+    # calls patch the NEW profile (not the previously active one)
+    set_value("active_profile", name)
+
     # Clear existing per-task overrides so keys omitted from this profile
     # don't linger from a previously loaded profile or manual /set.
     for task in Task:
-        if task != Task.MAIN:
-            clear_model_for(task)
+        clear_model_for(task)
 
     # Apply each model setting from the profile
     for task_name, model_name in models.items():
@@ -507,9 +510,6 @@ def load_profile(name: str) -> Tuple[bool, str]:
             applied.append(f"{task_name_upper}={model_name}")
         except KeyError:
             continue  # Unknown task key in profile file, skip
-
-    # Set the profile as active
-    set_value("active_profile", name)
 
     return True, f"Loaded profile '{name}': {', '.join(applied)}"
 
@@ -554,9 +554,10 @@ def get_active_profile() -> Optional[str]:
 
 def clear_active_profile() -> None:
     """Clear all task-specific model settings and the active profile."""
+    # Deactivate profile FIRST so clear_model_for() doesn't patch the saved JSON
+    reset_value("active_profile")
     for task in Task:
         clear_model_for(task)
-    reset_value("active_profile")
 
 
 def save_profile_from_models(
