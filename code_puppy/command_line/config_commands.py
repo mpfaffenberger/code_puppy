@@ -282,14 +282,23 @@ def handle_profile_command(command: str) -> bool:
     parts = command.strip().split()
     subcommand = parts[1].lower() if len(parts) > 1 else ""
 
-    # ── /profile ───────────────────────────────────────────────────────────────
+    # ── /profile ── open the TUI directly ─────────────────────────────────────
     if len(parts) == 1:
-        active = get_active_profile()
-        if active:
-            emit_info(
-                Text.from_markup(f"[dim]Active profile: [bold]{active}[/bold][/dim]")
+        import asyncio
+        import concurrent.futures
+
+        from code_puppy.command_line.profile_new_tui import interactive_new_profile_tui
+
+        # Pre-fill the name with the active profile so the user can edit and
+        # re-save without having to re-type the name.
+        initial_name = get_active_profile() or ""
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(
+                lambda: asyncio.run(interactive_new_profile_tui(initial_name))
             )
-        _display_profile_table()
+            saved = future.result(timeout=300)
+        if saved:
+            _display_profile_table()
         return True
 
     # ── /profile list ──────────────────────────────────────────────────────────

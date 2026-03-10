@@ -32,6 +32,8 @@ from code_puppy.task_models import (
     Task,
     get_active_profile,
     get_model_for,
+    list_profiles,
+    profile_exists,
     save_profile_from_models,
 )
 from code_puppy.tools.command_runner import set_awaiting_user_input
@@ -64,11 +66,15 @@ def _render_left(
     agent_models: Dict[Task, str],
     selected_idx: int,
     error_msg: str,
+    edit_mode: bool = False,
 ) -> List:
     """Build formatted-text lines for the left (Configure) panel."""
     lines: List = []
 
-    lines += [("bold cyan", "  Create New Profile"), ("", "\n\n")]
+    if edit_mode and name:
+        lines += [("bold cyan", f"  Edit Profile: {_trunc(name, 28)}"), ("", "\n\n")]
+    else:
+        lines += [("bold cyan", "  Create New Profile"), ("", "\n\n")]
 
     # ── name field ────────────────────────────────────────────────────────────
     lines += [("bold", "  Name  ")]
@@ -258,20 +264,39 @@ async def _pick_model(task: Task, current_model: str) -> Optional[str]:
 
 async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
     """
-    Show the /profile new TUI wizard.
+    Show the /profile TUI — both for creating new profiles and editing existing ones.
 
-    The wizard pre-populates all agent models with the current session's
-    effective values so the user can start from a known state.
+    Pre-populates all agent models with the current session's effective values.
+    When *initial_name* matches an existing profile the wizard enters edit mode:
+    the title changes and the saved description is restored.
 
     Args:
-        initial_name: Optional pre-filled profile name (from /profile new <name>).
+        initial_name: Optional pre-filled profile name.  When it matches an
+                      existing profile the TUI shows "Edit Profile" instead of
+                      "Create New Profile".
 
     Returns:
         The saved profile name on success, or ``None`` if the user cancelled.
     """
+
+    # ── detect edit vs create ─────────────────────────────────────────────────
+    edit_mode = bool(initial_name) and profile_exists(initial_name)
+
     # ── mutable state ─────────────────────────────────────────────────────────
     name = [initial_name]
-    description = [""]
+
+    # Restore description from existing profile file when editing
+    initial_desc = ""
+    if edit_mode:
+        try:
+            for p in list_profiles():
+                if p["name"] == initial_name:
+                    initial_desc = p.get("description", "")
+                    break
+        except Exception:
+            pass
+    description = [initial_desc]
+
     agent_models = [{task: get_model_for(task) for task in _TASKS}]
     selected_idx = [0]
     pending_action: List[Optional[str]] = [None]
@@ -283,7 +308,12 @@ async def interactive_new_profile_tui(initial_name: str = "") -> Optional[str]:
 
     def refresh():
         left_ctrl.text = _render_left(
-            name[0], description[0], agent_models[0], selected_idx[0], error_msg[0]
+            name[0],
+            description[0],
+            agent_models[0],
+            selected_idx[0],
+            error_msg[0],
+            edit_mode=edit_mode,
         )
         right_ctrl.text = _render_right(name[0], description[0], agent_models[0])
 
