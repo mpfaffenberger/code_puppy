@@ -20,6 +20,7 @@ from prompt_toolkit.completion import (
     ConditionalCompleter,
     merge_completers,
 )
+from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition, is_searching
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
@@ -751,7 +752,12 @@ def _build_prompt_parts(
         is_interject or (runtime is not None and runtime.has_pending_submission())
     ):
         # Add hint above the prompt line to keep the cursor position consistent
-        parts.append(("class:queue-item", "  [i]nterject or [q]ueue\n"))
+        parts.append(
+            (
+                "class:queue-item",
+                "  [i]nterject [q]ueue [e]dit [esc]ape\n",
+            )
+        )
 
     parts.extend([
         ("class:separator", "╰─"),
@@ -923,6 +929,22 @@ async def prompt_for_submission(
         except Exception:
             pass
 
+    def restore_pending_submission_to_buffer(event) -> None:
+        if runtime is None:
+            return
+
+        text = runtime.take_pending_submission() or ""
+        try:
+            event.app.current_buffer.document = Document(
+                text=text,
+                cursor_position=len(text),
+            )
+        except Exception:
+            try:
+                event.app.current_buffer.text = text
+            except Exception:
+                pass
+
     # Ctrl+X keybinding - exit with KeyboardInterrupt for input cancellation
     @bindings.add(Keys.ControlX)
     def _(event):
@@ -979,6 +1001,7 @@ async def prompt_for_submission(
     def _(event):
         if awaiting_decision():
             runtime.set_pending_submission(None)
+            clear_chooser_input(event)
             return
         if runtime is not None and runtime.has_active_shell():
             return
@@ -1017,6 +1040,13 @@ async def prompt_for_submission(
                 allow_command_dispatch=allow_command_dispatch,
             )
         )
+
+    @bindings.add("e", filter=pending_decision_filter, eager=True)
+    @bindings.add("E", filter=pending_decision_filter, eager=True)
+    @bindings.add("up", filter=pending_decision_filter, eager=True)
+    def _(event):
+        clear_chooser_input(event)
+        restore_pending_submission_to_buffer(event)
 
     # Toggle multiline with Alt+M
     @bindings.add(Keys.Escape, "m")
