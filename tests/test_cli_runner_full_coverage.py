@@ -48,12 +48,16 @@ def _mock_clipboard(images=None):
 
 
 def _submission(
-    text: str, action: str = "submit", echo_in_transcript: bool = False
+    text: str,
+    action: str = "submit",
+    echo_in_transcript: bool = False,
+    allow_command_dispatch: bool = True,
 ) -> PromptSubmission:
     return PromptSubmission(
         action=action,
         text=text,
         echo_in_transcript=echo_in_transcript,
+        allow_command_dispatch=allow_command_dispatch,
     )
 
 
@@ -1850,6 +1854,131 @@ class TestInteractiveQueueHandoff:
                 "code_puppy.command_line.wiggum_state.stop_wiggum": MagicMock(),
             },
         )
+
+    @pytest.mark.anyio
+    async def test_wiggum_queued_prompt_runs_before_reloop_and_resumes(self):
+        call_count = 0
+        queued_submitted = asyncio.Event()
+        started_prompts = []
+        patches = _interactive_patches()
+        autosave_mock = patches["code_puppy.config.auto_save_session_if_enabled"]
+        all_autosaves_done = asyncio.Event()
+        autosave_mock.side_effect = lambda: (
+            all_autosaves_done.set() if autosave_mock.call_count >= 3 else None
+        )
+
+        async def fake_input(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _submission("write hello")
+            if call_count == 2:
+                queued_submitted.set()
+                return _submission("queued task", action="queue")
+            await all_autosaves_done.wait()
+            return _submission("/exit")
+
+        def fake_wiggum_active():
+            return len(started_prompts) >= 1 and len(started_prompts) < 3
+
+        async def fake_run(*a, **kw):
+            prompt = a[1]
+            started_prompts.append(prompt)
+            if prompt == "write hello":
+                await queued_submitted.wait()
+                await asyncio.sleep(0.05)
+            result = MagicMock(output=f"done: {prompt}")
+            result.all_messages.return_value = []
+            return result, MagicMock()
+
+        await _run_interactive(
+            _mock_renderer(),
+            patches,
+            fake_input,
+            extra_patches={
+                "code_puppy.cli_runner.run_prompt_with_attachments": fake_run,
+                "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
+                    side_effect=lambda text: _mock_parse_result(text)
+                ),
+                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
+                    side_effect=fake_wiggum_active
+                ),
+                "code_puppy.command_line.wiggum_state.get_wiggum_prompt": MagicMock(
+                    return_value="repeat"
+                ),
+                "code_puppy.command_line.wiggum_state.increment_wiggum_count": MagicMock(
+                    return_value=1
+                ),
+                "code_puppy.command_line.wiggum_state.stop_wiggum": MagicMock(),
+            },
+        )
+
+        assert started_prompts[:3] == ["write hello", "queued task", "repeat"]
+        assert autosave_mock.call_count == 3
+
+    @pytest.mark.anyio
+    async def test_wiggum_queued_busy_slash_text_stays_literal_before_reloop(self):
+        call_count = 0
+        queued_submitted = asyncio.Event()
+        repeat_finished = asyncio.Event()
+        started_prompts = []
+        handle_command = MagicMock(return_value=True)
+
+        async def fake_input(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _submission("write hello")
+            if call_count == 2:
+                queued_submitted.set()
+                return _submission(
+                    "/agent",
+                    action="queue",
+                    allow_command_dispatch=False,
+                )
+            await repeat_finished.wait()
+            return _submission("/exit")
+
+        def fake_wiggum_active():
+            return len(started_prompts) >= 1 and len(started_prompts) < 3
+
+        async def fake_run(*a, **kw):
+            prompt = a[1]
+            started_prompts.append(prompt)
+            if prompt == "write hello":
+                await queued_submitted.wait()
+                await asyncio.sleep(0.05)
+            result = MagicMock(output=f"done: {prompt}")
+            result.all_messages.return_value = []
+            if prompt == "repeat":
+                repeat_finished.set()
+            return result, MagicMock()
+
+        await _run_interactive(
+            _mock_renderer(),
+            _interactive_patches(),
+            fake_input,
+            extra_patches={
+                "code_puppy.cli_runner.run_prompt_with_attachments": fake_run,
+                "code_puppy.command_line.command_handler.handle_command": handle_command,
+                "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
+                    side_effect=lambda text: _mock_parse_result(text)
+                ),
+                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
+                    side_effect=fake_wiggum_active
+                ),
+                "code_puppy.command_line.wiggum_state.get_wiggum_prompt": MagicMock(
+                    return_value="repeat"
+                ),
+                "code_puppy.command_line.wiggum_state.increment_wiggum_count": MagicMock(
+                    return_value=1
+                ),
+                "code_puppy.command_line.wiggum_state.stop_wiggum": MagicMock(),
+            },
+        )
+
+        assert started_prompts[:3] == ["write hello", "/agent", "repeat"]
+        handle_command.assert_not_called()
 
     @pytest.mark.anyio
     async def test_wiggum_loop_cancelled(self):

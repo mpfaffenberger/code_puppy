@@ -8,6 +8,8 @@ Run this before merging changes that touch the interactive runtime, prompt surfa
 - Run `/show`, `/cd` with no args, `/tools`, and `/skills list` and confirm `Text`, `Table`, and `Markdown` output still render cleanly above the composer.
 - Trigger one invalid command such as a bad `/set` value and confirm warning/error text is visible above the composer.
 - Confirm no raw ANSI fragments or prompt corruption appear while command output is printed.
+- Interject during repeated directory listings or other multi-line tool output and confirm listings/notice text do not interleave or leak raw `?[32m`-style fragments.
+- Repeat the directory-listing/interject check on a second machine or terminal when possible, since the bug is timing-sensitive.
 
 ## OAuth Setup And Escape Paths
 
@@ -43,6 +45,12 @@ Run this before merging changes that touch the interactive runtime, prompt surfa
 - Verify `[QUEUE TRIGGERED]` still prints before the echoed queued prompt.
 - Verify a normal direct prompt after a queue/interject cycle still appears in the transcript once.
 - Confirm the composer stays fixed, the shell output remains plain text, and the queue/interject visuals do not regress.
+
+## Wiggum
+
+- Start `/wiggum hello`, queue a normal follow-up, and confirm the queued turn runs before the next Wiggum rerun.
+- After that queued turn completes, confirm Wiggum resumes its stored loop prompt.
+- While Wiggum is active, queue a slash-prefixed prompt such as `/agent` and confirm it is treated as literal agent text, not executed as a slash command.
 
 ## Autosave
 

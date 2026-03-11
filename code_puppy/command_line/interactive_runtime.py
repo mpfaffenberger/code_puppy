@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -11,6 +12,10 @@ from typing import Callable, Literal
 MAX_PROMPT_QUEUE = 25
 PROMPT_STATUS_FRAME_INTERVAL = 0.09
 PROMPT_STATUS_BACKOFF_WINDOW = 0.045
+_ABOVE_PROMPT_RENDER_ACTIVE: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "above_prompt_render_active",
+    default=False,
+)
 
 
 @dataclass
@@ -46,6 +51,12 @@ class PromptRuntimeState:
     prompt_session: object | None = None
     prompt_status_started_at: float | None = None
     prompt_status_task: asyncio.Task | None = None
+    above_prompt_lock: asyncio.Lock | None = field(default=None, init=False, repr=False)
+    above_prompt_lock_loop: asyncio.AbstractEventLoop | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
     last_prompt_invalidation_at: float = 0.0
     last_spinner_invalidation_at: float = 0.0
     active_run_kind: Literal["agent", "interactive_command"] | None = None
@@ -211,6 +222,9 @@ class PromptRuntimeState:
     def has_prompt_surface(self) -> bool:
         return self.prompt_session is not None
 
+    def is_rendering_above_prompt(self) -> bool:
+        return _ABOVE_PROMPT_RENDER_ACTIVE.get()
+
     def get_prompt_status_frame(self) -> str:
         from code_puppy.messaging.spinner.spinner_base import SpinnerBase
 
@@ -255,6 +269,26 @@ class PromptRuntimeState:
 
     def _should_refresh_prompt_status(self) -> bool:
         return self.running and self.has_prompt_surface()
+
+    def _get_above_prompt_lock(
+        self, loop: asyncio.AbstractEventLoop
+    ) -> asyncio.Lock:
+        if self.above_prompt_lock is None or self.above_prompt_lock_loop is not loop:
+            self.above_prompt_lock = asyncio.Lock()
+            self.above_prompt_lock_loop = loop
+        return self.above_prompt_lock
+
+    async def _run_above_prompt_serialized(self, func: Callable[[], None]) -> None:
+        from prompt_toolkit.application import run_in_terminal
+
+        loop = asyncio.get_running_loop()
+        lock = self._get_above_prompt_lock(loop)
+        async with lock:
+            token = _ABOVE_PROMPT_RENDER_ACTIVE.set(True)
+            try:
+                await run_in_terminal(func)
+            finally:
+                _ABOVE_PROMPT_RENDER_ACTIVE.reset(token)
 
     def _ensure_prompt_status_task(self) -> None:
         if not self._should_refresh_prompt_status():
@@ -302,10 +336,8 @@ class PromptRuntimeState:
         if current_loop is loop:
             return False
 
-        from prompt_toolkit.application import run_in_terminal
-
         async def _runner() -> None:
-            await run_in_terminal(func)
+            await self._run_above_prompt_serialized(func)
 
         future = asyncio.run_coroutine_threadsafe(_runner(), loop)
         try:
@@ -327,10 +359,8 @@ class PromptRuntimeState:
         except RuntimeError:
             return False
 
-        from prompt_toolkit.application import run_in_terminal
-
         async def _runner() -> None:
-            await run_in_terminal(func)
+            await self._run_above_prompt_serialized(func)
 
         try:
             if current_loop is loop:
