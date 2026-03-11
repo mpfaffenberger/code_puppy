@@ -762,6 +762,106 @@ async def test_get_input_key_binding_escape(mock_prompt_session_cls):
     mock_event.app.exit.assert_called_once_with(exception=KeyboardInterrupt)
 
 
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+async def test_get_input_key_binding_escape_drops_pending_submission(
+    mock_prompt_session_cls, active_runtime
+):
+    mock_session_instance = MagicMock()
+    mock_session_instance.prompt_async = AsyncMock(return_value="test")
+    mock_prompt_session_cls.return_value = mock_session_instance
+
+    await get_input_with_combined_completion()
+
+    bindings = mock_prompt_session_cls.call_args[1]["key_bindings"]
+    escape_binding = next(
+        binding_obj
+        for binding_obj in bindings.bindings
+        if binding_obj.keys == (Keys.Escape,)
+    )
+
+    active_runtime.set_pending_submission("queued task")
+
+    buffer = Buffer(document=Document(text="stray chooser text", cursor_position=18))
+    mock_event = MagicMock()
+    mock_event.app = MagicMock()
+    mock_event.app.current_buffer = buffer
+
+    escape_binding.handler(mock_event)
+
+    assert active_runtime.has_pending_submission() is False
+    assert buffer.text == ""
+    mock_event.app.exit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+async def test_get_input_key_binding_up_restores_pending_submission(
+    mock_prompt_session_cls, active_runtime
+):
+    mock_session_instance = MagicMock()
+    mock_session_instance.prompt_async = AsyncMock(return_value="test")
+    mock_prompt_session_cls.return_value = mock_session_instance
+
+    await get_input_with_combined_completion()
+
+    bindings = mock_prompt_session_cls.call_args[1]["key_bindings"]
+    up_binding = next(
+        binding_obj for binding_obj in bindings.bindings if binding_obj.keys == (Keys.Up,)
+    )
+
+    assert up_binding.filter() is False
+
+    active_runtime.set_pending_submission("queued task")
+    assert up_binding.filter() is True
+
+    buffer = Buffer(document=Document(text="stray chooser text", cursor_position=18))
+    mock_event = MagicMock()
+    mock_event.app = MagicMock()
+    mock_event.app.current_buffer = buffer
+
+    up_binding.handler(mock_event)
+
+    assert active_runtime.has_pending_submission() is False
+    assert buffer.text == "queued task"
+    assert buffer.cursor_position == len("queued task")
+    mock_event.app.exit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+async def test_get_input_key_binding_edit_restores_pending_submission(
+    mock_prompt_session_cls, active_runtime
+):
+    mock_session_instance = MagicMock()
+    mock_session_instance.prompt_async = AsyncMock(return_value="test")
+    mock_prompt_session_cls.return_value = mock_session_instance
+
+    await get_input_with_combined_completion()
+
+    bindings = mock_prompt_session_cls.call_args[1]["key_bindings"]
+    edit_binding = next(
+        binding_obj for binding_obj in bindings.bindings if binding_obj.keys == ("e",)
+    )
+
+    assert edit_binding.filter() is False
+
+    active_runtime.set_pending_submission("queued task")
+    assert edit_binding.filter() is True
+
+    buffer = Buffer(document=Document(text="stray chooser text", cursor_position=18))
+    mock_event = MagicMock()
+    mock_event.app = MagicMock()
+    mock_event.app.current_buffer = buffer
+
+    edit_binding.handler(mock_event)
+
+    assert active_runtime.has_pending_submission() is False
+    assert buffer.text == "queued task"
+    assert buffer.cursor_position == len("queued task")
+    mock_event.app.exit.assert_not_called()
+
+
 def test_prompt_runtime_registry_round_trip(active_runtime):
     session = MagicMock()
     session.app = MagicMock()
@@ -984,6 +1084,43 @@ def test_get_prompt_with_active_model_shows_thinking_status(monkeypatch, active_
     assert "(  🐶  ) " in rendered
     assert "Tokens: 1,650/272,000 (0.6% used)" in rendered
     assert rendered.index("Buddy is thinking...") < rendered.index("─" * 80)
+    clear_active_prompt_surface()
+
+
+def test_get_prompt_with_active_model_shows_pending_hint_copy(monkeypatch, active_runtime):
+    clear_active_prompt_surface()
+    session = MagicMock()
+    session.app = MagicMock()
+    register_active_prompt_surface("main", session)
+    active_runtime.set_pending_submission("queued task")
+
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.get_puppy_name",
+        lambda: "Buddy",
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.get_active_model",
+        lambda: "gpt-test",
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.os.getcwd",
+        lambda: "/tmp/demo",
+    )
+
+    agent = MagicMock()
+    agent.display_name = "code-puppy"
+    agent.get_model_name.return_value = "gpt-test"
+
+    with (
+        patch(
+            "code_puppy.agents.agent_manager.get_current_agent",
+            return_value=agent,
+        ),
+        patch("shutil.get_terminal_size", return_value=os.terminal_size((80, 24))),
+    ):
+        rendered = "".join(text for _style, text in get_prompt_with_active_model())
+
+    assert "[i]nterject [q]ueue [e]dit [esc]ape" in rendered
     clear_active_prompt_surface()
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")

@@ -63,6 +63,10 @@ Read this before making changes in this repo.
 - While work is active, only `/exit` and `/quit` keep slash-command semantics.
 - Busy slash-prefixed text other than `/exit` and `/quit` must remain literal user text if queued or interjected.
 - The chooser state must not show slash-command menus or execute slash commands.
+- While the chooser is visible, `e` must restore the saved drafted prompt back into the composer.
+- `Up Arrow` may remain as a compatibility alias for restore, but chooser copy should advertise `e`.
+- While the chooser is visible, `Esc` must drop the saved drafted prompt and leave the composer empty.
+- Keep chooser hint copy concise; do not turn the inline chooser row into a sentence-length help block.
 - Keep `@` as attachment/path completion, not as a picker-style command menu.
 - Bare `@` should continue to offer current-directory completion candidates.
 - `@` completion must keep prompt_toolkit-style semantics: `Tab` only cycles/advances completions, prompt_toolkit accept-completion keys remain available, and `Enter` keeps submit semantics.

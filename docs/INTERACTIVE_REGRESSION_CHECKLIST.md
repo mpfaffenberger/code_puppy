@@ -30,6 +30,10 @@ Run this before merging changes that touch the interactive runtime, prompt surfa
 - While active work is running, submit `/model` and interject it; confirm it is treated as literal text for the agent, not executed as a command.
 - While active work is running, verify `/exit` and `/quit` still bypass queue/interject handling immediately.
 - While the inline chooser is visible, confirm slash-command menus do not appear and stray typing does not replace the stored pending prompt.
+- While the inline chooser is visible, press `e` and confirm the saved draft returns to the composer exactly as written.
+- If `Up Arrow` is still supported as an alias, confirm it also restores the saved draft.
+- While the inline chooser is visible, press `Esc` and confirm the saved draft is dropped and the composer is empty.
+- Confirm the chooser hint stays compact and readable while still exposing `i`, `q`, `e`, and `Esc`.
 - In the idle composer, type bare `@` and confirm current-directory file/path completions appear.
 - Confirm `@` completion behaves like prompt_toolkit completion, not a picker: `Tab` should only cycle/advance candidates, the prompt_toolkit accept-completion keys should still work, and `Enter` should still submit the buffer.
 - After an `@` path is in the buffer, confirm typing space just continues the prompt normally; it is not a special acceptance key.
