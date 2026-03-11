@@ -30,6 +30,12 @@ Run this before merging changes that touch the interactive runtime, prompt surfa
 - While active work is running, submit `/model` and interject it; confirm it is treated as literal text for the agent, not executed as a command.
 - While active work is running, verify `/exit` and `/quit` still bypass queue/interject handling immediately.
 - While the inline chooser is visible, confirm slash-command menus do not appear and stray typing does not replace the stored pending prompt.
+- In the idle composer, type bare `@` and confirm current-directory file/path completions appear.
+- Confirm `@` completion behaves like prompt_toolkit completion, not a picker: `Tab` should only cycle/advance candidates, the prompt_toolkit accept-completion keys should still work, and `Enter` should still submit the buffer.
+- After an `@` path is in the buffer, confirm typing space just continues the prompt normally; it is not a special acceptance key.
+- While active work is running and the chooser is not visible yet, type `@` and confirm file/document completion still works for composing a future prompt.
+- Once the chooser is visible, confirm `@` completion does not appear and attachment placeholder rendering does not activate for chooser typing.
+- Queue or interject a prompt that already includes `@...` before the chooser opens, then confirm attachments still resolve when that stored prompt later runs.
 
 ## Cancel Behavior
 
@@ -45,6 +51,13 @@ Run this before merging changes that touch the interactive runtime, prompt surfa
 - Verify `[QUEUE TRIGGERED]` still prints before the echoed queued prompt.
 - Verify a normal direct prompt after a queue/interject cycle still appears in the transcript once.
 - Confirm the composer stays fixed, the shell output remains plain text, and the queue/interject visuals do not regress.
+
+## Tokens And Hooks
+
+- Run a normal prompt with a link or document attachment and confirm the top-level token/context line still seeds sensibly before the response starts.
+- Invoke a sub-agent and confirm token counting still updates in the sub-agent console path rather than corrupting the top-level prompt line.
+- Run `/hooks`, `/hook list`, and `/hooks status` and confirm they still execute and render above the composer in the mounted-composer fork.
+- Re-run the hook-engine regression slice if hook-related code or command output wiring changes.
 
 ## Wiggum
 

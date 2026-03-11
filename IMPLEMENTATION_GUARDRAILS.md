@@ -50,6 +50,8 @@ Read this before making changes in this repo.
 - Spinner redraws must stay low-priority and yield behind real prompt/state redraws.
 - Token/context updates should invalidate promptly on their own and should not wait on spinner timing.
 - Seed the token/context line at run start so it does not show stale data from the previous run.
+- Keep seeded token/context estimation parity-safe: active-agent token estimates, context length, and attachment/link overhead must still feed the top-level prompt status line.
+- Keep sub-agent token accumulation in the sub-agent console path; do not collapse it into the top-level prompt status line.
 - Keep the prompt-native spinner; do not bring back the old Rich live spinner for interactive runs.
 
 ## Command And OAuth Rules
@@ -61,7 +63,14 @@ Read this before making changes in this repo.
 - While work is active, only `/exit` and `/quit` keep slash-command semantics.
 - Busy slash-prefixed text other than `/exit` and `/quit` must remain literal user text if queued or interjected.
 - The chooser state must not show slash-command menus or execute slash commands.
+- Keep `@` as attachment/path completion, not as a picker-style command menu.
+- Bare `@` should continue to offer current-directory completion candidates.
+- `@` completion must keep prompt_toolkit-style semantics: `Tab` only cycles/advances completions, prompt_toolkit accept-completion keys remain available, and `Enter` keeps submit semantics.
+- Typing a space after an `@` path is normal text continuation, not a special acceptance action.
+- Busy `@` attachment completion is allowed while the always-on composer is open, but the chooser state must stay modal and must not show `@` completions or attachment placeholder transforms.
+- Chooser typing must not mutate the stored pending submission.
 - `Ctrl+C` from the composer must remain the universal busy-state cancel path: shell interrupt, background command cancel, or agent cancel as appropriate.
+- Hook commands and hook-engine behavior must remain functional in the mounted-composer fork; preserve their legacy command output path rather than rewriting them.
 
 ## Wiggum Rules
 

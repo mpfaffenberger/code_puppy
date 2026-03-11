@@ -140,6 +140,30 @@ async def test_busy_slash_text_queues_as_literal_prompt():
     handle_command.assert_not_called()
 
 
+@pytest.mark.anyio
+async def test_hooks_list_dispatches_as_idle_command():
+    handle_command = MagicMock(return_value=True)
+
+    async def prompt_side_effect(*_args, **_kwargs):
+        prompt_side_effect.calls += 1
+        if prompt_side_effect.calls == 1:
+            return _submission("/hooks list")
+        return _submission("/exit")
+
+    prompt_side_effect.calls = 0
+
+    async def run_prompt_side_effect(_agent, prompt, **_kwargs):
+        raise AssertionError(f"unexpected agent run for {prompt}")
+
+    await _run_interactive(
+        prompt_side_effect,
+        run_prompt_side_effect=run_prompt_side_effect,
+        handle_command=handle_command,
+    )
+
+    handle_command.assert_called_once_with("/hooks list")
+
+
 def test_chatgpt_auth_returns_background_interactive_command():
     from code_puppy.plugins.chatgpt_oauth.register_callbacks import (
         _handle_custom_command,
