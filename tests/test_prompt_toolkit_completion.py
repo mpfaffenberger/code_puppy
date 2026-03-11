@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.completion import ConditionalCompleter
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.keys import Keys
@@ -127,6 +128,21 @@ def test_completion_with_hidden_file(tmp_path):
         doc = Document(text="@.", cursor_position=2)
         completions = list(completer.get_completions(doc, None))
         assert any(".hiddenfile" in c.text for c in completions)
+    finally:
+        os.chdir(cwd)
+
+
+def test_completion_bare_at_lists_current_directory(tmp_path):
+    setup_files(tmp_path)
+    completer = FilePathCompleter(symbol="@")
+    cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        doc = Document(text="@", cursor_position=1)
+        completions = list(completer.get_completions(doc, None))
+        values = {c.text for c in completions}
+        assert any("file3.txt" in value for value in values)
+        assert any("dir" in value for value in values)
     finally:
         os.chdir(cwd)
 
@@ -660,6 +676,34 @@ async def test_prompt_for_submission_sets_echo_flag_when_erasing_prompt(
     )
 
 
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.patch_stdout")
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion.merge_completers")
+async def test_prompt_for_submission_allows_at_completion_while_busy_but_blocks_it_in_chooser(
+    mock_merge_completers,
+    mock_prompt_session_cls,
+    mock_patch_stdout,
+    active_runtime,
+):
+    active_runtime.running = True
+    mock_session_instance = MagicMock()
+    mock_session_instance.prompt_async = AsyncMock(return_value="test input")
+    mock_prompt_session_cls.return_value = mock_session_instance
+    mock_merge_completers.return_value = MagicMock()
+    mock_patch_stdout.return_value.__enter__ = MagicMock()
+    mock_patch_stdout.return_value.__exit__ = MagicMock(return_value=False)
+
+    await prompt_for_submission()
+
+    attachment_completer = mock_merge_completers.call_args.args[0][0]
+    assert isinstance(attachment_completer, ConditionalCompleter)
+    assert attachment_completer.filter() is True
+
+    active_runtime.set_pending_submission("queued task")
+    assert attachment_completer.filter() is False
+
+
 # To test key bindings, we need to inspect the KeyBindings object passed to PromptSession
 # We can get it from the mock_prompt_session_cls.call_args
 
@@ -1079,3 +1123,34 @@ async def test_attachment_placeholder_processor_renders_images(tmp_path: Path) -
 
     assert "[png image]" in rendered_text
     assert "fluffy pupper" not in rendered_text
+
+
+def test_attachment_placeholder_processor_skips_replacement_while_chooser_visible(
+    tmp_path: Path, active_runtime
+) -> None:
+    image_path = tmp_path / "chooser.png"
+    image_path.write_bytes(b"png")
+    active_runtime.set_pending_submission("queued task")
+
+    processor = AttachmentPlaceholderProcessor()
+    document_text = f"describe {image_path} now"
+    document = Document(text=document_text, cursor_position=len(document_text))
+
+    fragments = [("", document_text)]
+    buffer = Buffer(document=document)
+    control = BufferControl(buffer=buffer)
+    transformation_input = TransformationInput(
+        buffer_control=control,
+        document=document,
+        lineno=0,
+        source_to_display=lambda i: i,
+        fragments=fragments,
+        width=len(document_text),
+        height=1,
+    )
+
+    transformed = processor.apply_transformation(transformation_input)
+    rendered_text = "".join(text for _style, text in transformed.fragments)
+
+    assert str(image_path) in rendered_text
+    assert "[png image]" not in rendered_text

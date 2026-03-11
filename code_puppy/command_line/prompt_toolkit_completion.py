@@ -292,6 +292,10 @@ class AttachmentPlaceholderProcessor(Processor):
     _MAX_TEXT_LENGTH_FOR_REALTIME = 500
 
     def apply_transformation(self, transformation_input):
+        runtime = _get_runtime()
+        if runtime is not None and runtime.has_pending_submission():
+            return Transformation(list(transformation_input.fragments))
+
         document = transformation_input.document
         text = document.text
         if not text:
@@ -846,10 +850,16 @@ async def prompt_for_submission(
         lambda: runtime is None
         or not (runtime.running or runtime.has_pending_submission())
     )
+    attachment_completion_filter = Condition(
+        lambda: runtime is None or not runtime.has_pending_submission()
+    )
 
     completer = merge_completers(
         [
-            FilePathCompleter(symbol="@"),
+            ConditionalCompleter(
+                FilePathCompleter(symbol="@"),
+                filter=attachment_completion_filter,
+            ),
             ConditionalCompleter(
                 ModelNameCompleter(trigger="/model"),
                 filter=command_completion_filter,
