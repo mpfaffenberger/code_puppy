@@ -763,12 +763,6 @@ def render_submitted_prompt_echo(text: str) -> None:
     if not echo_text:
         return
 
-    from prompt_toolkit.output.defaults import create_output
-
-    out = create_output(stdout=sys.__stdout__)
-    if hasattr(out, "enable_cpr"):
-        out.enable_cpr = False
-
     parts = _build_prompt_parts(
         is_interject=False,
         include_queue_preview=False,
@@ -778,17 +772,28 @@ def render_submitted_prompt_echo(text: str) -> None:
     parts.append(("", "\n"))
     formatted = FormattedText(parts)
     style = _build_prompt_style()
-
     runtime = _get_runtime()
-    app = getattr(getattr(runtime, "prompt_session", None), "app", None)
-    if app is not None:
+
+    def _print_echo() -> None:
+        from prompt_toolkit.output.defaults import create_output
+
+        out = create_output(stdout=sys.__stdout__)
+        if hasattr(out, "enable_cpr"):
+            out.enable_cpr = False
+        print_formatted_text(formatted, style=style, output=out)
+
+    if (
+        runtime is not None
+        and runtime.has_prompt_surface()
+        and not runtime.is_rendering_above_prompt()
+    ):
         try:
-            app.print_text(formatted, style=style)
-            return
+            if runtime.run_above_prompt(_print_echo):
+                return
         except Exception:
             pass
 
-    print_formatted_text(formatted, style=style, output=out)
+    _print_echo()
 
 
 def render_transcript_notice(text: str) -> None:
@@ -797,24 +802,29 @@ def render_transcript_notice(text: str) -> None:
     if not notice_text:
         return
 
-    from prompt_toolkit.output.defaults import create_output
-
-    out = create_output(stdout=sys.__stdout__)
-    if hasattr(out, "enable_cpr"):
-        out.enable_cpr = False
-
     formatted = FormattedText([("", notice_text), ("", "\n")])
-
     runtime = _get_runtime()
-    app = getattr(getattr(runtime, "prompt_session", None), "app", None)
-    if app is not None:
+
+    def _print_notice() -> None:
+        from prompt_toolkit.output.defaults import create_output
+
+        out = create_output(stdout=sys.__stdout__)
+        if hasattr(out, "enable_cpr"):
+            out.enable_cpr = False
+        print_formatted_text(formatted, output=out)
+
+    if (
+        runtime is not None
+        and runtime.has_prompt_surface()
+        and not runtime.is_rendering_above_prompt()
+    ):
         try:
-            app.print_text(formatted)
-            return
+            if runtime.run_above_prompt(_print_notice):
+                return
         except Exception:
             pass
 
-    print_formatted_text(formatted, output=out)
+    _print_notice()
 
 
 async def prompt_for_submission(

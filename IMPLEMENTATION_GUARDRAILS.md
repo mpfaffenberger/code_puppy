@@ -30,6 +30,7 @@ Read this before making changes in this repo.
 - Final `AGENT RESPONSE` output must render as a proper banner above the prompt.
 - Structured banners like `AGENT REASONING`, listings, and tool blocks must use the prompt-safe render path.
 - Shell output with the prompt mounted must stay plain text. Do not reintroduce Rich dim styling or raw ANSI fragments there.
+- Above-prompt Rich blocks and transcript notices must share one serialized render path and must never interleave at the byte level.
 - Do not reintroduce the shell warning line in the prompt header if typing is still enabled.
 - Legacy slash-command output emitted through `emit_info`, `emit_warning`, `emit_error`, `emit_success`, and divider output must remain visible in interactive mode.
 - Rich slash-command renderables like `Text`, `Table`, and `Markdown` must still render above the mounted composer.
@@ -61,6 +62,12 @@ Read this before making changes in this repo.
 - Busy slash-prefixed text other than `/exit` and `/quit` must remain literal user text if queued or interjected.
 - The chooser state must not show slash-command menus or execute slash commands.
 - `Ctrl+C` from the composer must remain the universal busy-state cancel path: shell interrupt, background command cancel, or agent cancel as appropriate.
+
+## Wiggum Rules
+
+- When Wiggum mode is active, queued work must drain before the next Wiggum rerun starts.
+- After queued work completes, Wiggum should resume its stored loop prompt if Wiggum mode is still active.
+- Busy slash-prefixed text queued during Wiggum must remain literal agent text, not execute as a slash command.
 
 ## Config And Runtime Notes
 

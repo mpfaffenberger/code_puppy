@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import os
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -273,11 +274,13 @@ def test_render_submitted_prompt_echo_uses_prompt_app_when_available(
     session = MagicMock()
     session.app = MagicMock()
     active_runtime.register_prompt_surface(session)
+    active_runtime.run_above_prompt = MagicMock(return_value=True)
 
     render_submitted_prompt_echo("queued task")
 
-    session.app.print_text.assert_called_once()
-    mock_create_output.assert_called_once()
+    active_runtime.run_above_prompt.assert_called_once()
+    session.app.print_text.assert_not_called()
+    mock_create_output.assert_not_called()
     mock_print_formatted_text.assert_not_called()
 
 
@@ -303,11 +306,13 @@ def test_render_transcript_notice_uses_prompt_app_when_available(
     session = MagicMock()
     session.app = MagicMock()
     active_runtime.register_prompt_surface(session)
+    active_runtime.run_above_prompt = MagicMock(return_value=True)
 
     render_transcript_notice("[QUEUE TRIGGERED] queued task")
 
-    session.app.print_text.assert_called_once()
-    mock_create_output.assert_called_once()
+    active_runtime.run_above_prompt.assert_called_once()
+    session.app.print_text.assert_not_called()
+    mock_create_output.assert_not_called()
     mock_print_formatted_text.assert_not_called()
 
 
@@ -757,6 +762,99 @@ def test_spinner_invalidation_yields_to_recent_prompt_redraw(monkeypatch, active
 
     active_runtime.invalidate_prompt_for_spinner()
     session.app.invalidate.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_run_above_prompt_async_serializes_callbacks(active_runtime, monkeypatch):
+    session = MagicMock()
+    session.app = MagicMock()
+    session.app.loop = asyncio.get_running_loop()
+    active_runtime.register_prompt_surface(session)
+
+    active_count = 0
+    max_active = 0
+    seen: list[str] = []
+
+    async def fake_run_in_terminal(func):
+        nonlocal active_count, max_active
+        active_count += 1
+        max_active = max(max_active, active_count)
+        await asyncio.sleep(0.01)
+        func()
+        await asyncio.sleep(0.01)
+        active_count -= 1
+
+    monkeypatch.setattr(
+        "prompt_toolkit.application.run_in_terminal",
+        fake_run_in_terminal,
+    )
+
+    first = asyncio.create_task(
+        active_runtime.run_above_prompt_async(lambda: seen.append("first"))
+    )
+    await asyncio.sleep(0)
+    second = asyncio.create_task(
+        active_runtime.run_above_prompt_async(lambda: seen.append("second"))
+    )
+
+    assert await first is True
+    assert await second is True
+    assert seen == ["first", "second"]
+    assert max_active == 1
+
+
+@pytest.mark.asyncio
+async def test_run_above_prompt_sync_and_async_share_serialization(
+    active_runtime, monkeypatch
+):
+    session = MagicMock()
+    session.app = MagicMock()
+    session.app.loop = asyncio.get_running_loop()
+    active_runtime.register_prompt_surface(session)
+
+    active_count = 0
+    max_active = 0
+    seen: list[str] = []
+    sync_result: dict[str, bool] = {}
+
+    async def fake_run_in_terminal(func):
+        nonlocal active_count, max_active
+        active_count += 1
+        max_active = max(max_active, active_count)
+        await asyncio.sleep(0.01)
+        func()
+        await asyncio.sleep(0.01)
+        active_count -= 1
+
+    monkeypatch.setattr(
+        "prompt_toolkit.application.run_in_terminal",
+        fake_run_in_terminal,
+    )
+
+    async_task = asyncio.create_task(
+        active_runtime.run_above_prompt_async(lambda: seen.append("async"))
+    )
+    await asyncio.sleep(0.005)
+
+    def call_sync() -> None:
+        sync_result["ok"] = active_runtime.run_above_prompt(
+            lambda: seen.append("sync"),
+            timeout=1.0,
+        )
+
+    thread = threading.Thread(target=call_sync)
+    thread.start()
+
+    assert await async_task is True
+    for _ in range(50):
+        if "ok" in sync_result:
+            break
+        await asyncio.sleep(0.01)
+    thread.join()
+
+    assert sync_result == {"ok": True}
+    assert seen == ["async", "sync"]
+    assert max_active == 1
 
 
 def test_get_prompt_with_active_model_omits_shell_status(monkeypatch, active_runtime):
