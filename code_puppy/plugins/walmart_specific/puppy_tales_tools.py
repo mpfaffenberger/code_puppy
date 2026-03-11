@@ -223,6 +223,10 @@ def _submit_to_api_sync(story_data: dict) -> tuple[bool, str]:
     Returns:
         Tuple of (success, message)
     """
+    # Stops tests from pushing to prod puppy pages
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return False, "Skipped API submission (test environment)"
+
     api_url = _get_api_url()
     token = _get_auth_token()
     
