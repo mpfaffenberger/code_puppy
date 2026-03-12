@@ -106,6 +106,16 @@ def get_commands_help():
             line.append_text(right)
             lines.append(line)
 
+    # Display Shell Pass-through section
+    lines.append(Text(""))
+    lines.append(Text("Shell Pass-through", style="bold magenta"))
+    shell_left = Text("!<command>".ljust(column_width), style="cyan")
+    shell_right = Text("Run a shell command directly (e.g., !git status)")
+    shell_line = Text()
+    shell_line.append_text(shell_left)
+    shell_line.append_text(shell_right)
+    lines.append(shell_line)
+
     final_text = Text()
     for i, line in enumerate(lines):
         if i > 0:

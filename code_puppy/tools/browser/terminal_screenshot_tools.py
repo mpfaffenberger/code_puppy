@@ -462,17 +462,13 @@ def register_load_image(agent):
         context: RunContext,
         image_path: str,
     ) -> Union[ToolReturn, Dict[str, Any]]:
-        """
-        Load an image file so you can see and analyze it.
-
-        Returns the image via ToolReturn with BinaryContent that you can
-        see directly.
+        """Load an image file so you can see and analyze it.
 
         Args:
             image_path: Path to the image file.
 
         Returns:
-            ToolReturn with the image you can analyze, or error dict.
+            ToolReturn with the image, or error dict.
         """
         # Session is set by invoke_agent via contextvar
         return await load_image(image_path=image_path)

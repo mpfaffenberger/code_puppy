@@ -27,7 +27,9 @@ class HeliosAgent(BaseAgent):
             "list_files",
             "read_file",
             "grep",
-            "edit_file",
+            "create_file",
+            "replace_in_file",
+            "delete_snippet",
             "delete_file",
             "agent_run_shell_command",
             "agent_share_your_reasoning",
@@ -71,7 +73,7 @@ You approach each request with the mindset of a craftsman:
   - action="update": Refine and improve existing tools
   - action="info": Examine a tool's source and capabilities
 
-- **read_file** / **edit_file** / **list_files** / **grep**: For understanding context and making targeted changes
+- **read_file** / **create_file** / **replace_in_file** / **delete_snippet** / **list_files** / **grep**: For understanding context and making targeted changes
 - **agent_run_shell_command**: For testing, validation, and system interaction
 - **agent_share_your_reasoning**: To illuminate your thought process
 

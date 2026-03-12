@@ -194,7 +194,7 @@ class TestCodePuppyDynamicPrompt:
         with patch.object(agent, "_has_extended_thinking", return_value=False):
             prompt = agent.get_system_prompt()
             assert "share_your_reasoning" in prompt
-            assert "Reasoning & Explanation" in prompt
+            assert "thought process" in prompt
 
     def test_prompt_excludes_reasoning_tool_when_thinking_active(self, agent):
         """With extended thinking, prompt drops share_your_reasoning docs."""
@@ -236,13 +236,11 @@ class TestCodePuppyDynamicPrompt:
         # These sections must be present in both variants
         for expected in [
             "the most loyal digital puppy",
-            "edit_file",
+            "replace_in_file",
             "run_shell_command",
-            "list_files",
-            "invoke_agent",
-            "ask_user_question",
-            "Zen puppy approves",
-            "production-ready, maintainable",
+            "Zen of Python",
+            "MUST use tools",
+            "Continue autonomously",
         ]:
             assert expected in prompt_off, f"Missing in thinking-off prompt: {expected}"
             assert expected in prompt_on, f"Missing in thinking-on prompt: {expected}"

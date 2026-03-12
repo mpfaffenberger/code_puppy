@@ -354,7 +354,7 @@ class TestHuskyAgent:
         """Test Husky has file operation tools for coding work."""
         tools = agent.get_available_tools()
         # Husky needs to do actual coding work
-        assert "edit_file" in tools or "agent_run_shell_command" in tools
+        assert "replace_in_file" in tools or "agent_run_shell_command" in tools
 
     def test_tools_include_reasoning(self, agent):
         """Test Husky has reasoning tool."""

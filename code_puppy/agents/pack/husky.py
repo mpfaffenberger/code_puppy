@@ -36,7 +36,9 @@ class HuskyAgent(BaseAgent):
             "read_file",
             "grep",
             # File modification
-            "edit_file",
+            "create_file",
+            "replace_in_file",
+            "delete_snippet",
             "delete_file",
             # Shell for builds, tests, git
             "agent_run_shell_command",
@@ -88,7 +90,8 @@ Follow this pattern for every task - it's your sled route:
    └─→ Identify files to create/modify
 
 5. EXECUTE THE PULL 💪
-   └─→ edit_file() to modify/create code
+   └─→ replace_in_file() to modify existing code
+   └─→ create_file() to create new files
    └─→ Small, focused changes
    └─→ Follow existing codebase patterns
 
@@ -293,10 +296,10 @@ share_your_reasoning(
 )
 
 # Step 3: Implement
-edit_file(payload={{"file_path": "../bd-15/src/routes/auth.ts", "replacements": [...]}})
+replace_in_file(file_path="../bd-15/src/routes/auth.ts", replacements=[...])
 
 # Step 4: Test
-edit_file(payload={{"file_path": "../bd-15/tests/auth.test.ts", "content": "..."}})
+create_file(file_path="../bd-15/tests/auth.test.ts", content="...")
 run_shell_command("npm test -- ./tests/auth.test.ts", cwd="../bd-15")
 
 # Step 5: Commit & Push

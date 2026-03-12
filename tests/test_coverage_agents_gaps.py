@@ -93,7 +93,9 @@ class TestCodePuppyAgentTools:
 
         agent = CodePuppyAgent()
         tools = agent.get_available_tools()
-        assert "edit_file" in tools
+        assert "create_file" in tools
+        assert "replace_in_file" in tools
+        assert "delete_snippet" in tools
         assert "invoke_agent" in tools
 
 

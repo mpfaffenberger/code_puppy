@@ -122,7 +122,14 @@ class TestAgentCreatorAgent:
 
     def test_get_system_prompt_comprehensive_injection(self, monkeypatch):
         """Test that get_system_prompt() correctly injects all dynamic content."""
-        mock_tools = ["list_files", "read_file", "edit_file", "invoke_agent"]
+        mock_tools = [
+            "list_files",
+            "read_file",
+            "create_file",
+            "replace_in_file",
+            "delete_snippet",
+            "invoke_agent",
+        ]
         mock_agents_dir = "/home/user/.code_puppy/agents"
         mock_models_config = {
             "gpt-5": {"type": "OpenAI", "context_length": "128k"},
@@ -179,9 +186,9 @@ class TestAgentCreatorAgent:
             expected_tools = [
                 "list_files",
                 "read_file",
-                "edit_file",
-                "grep",
-                "agent_run_shell_command",
+                "create_file",
+                "replace_in_file",
+                "delete_snippet",
                 "agent_share_your_reasoning",
                 "ask_user_question",
                 "list_agents",
@@ -204,9 +211,9 @@ class TestAgentCreatorAgent:
             expected_tools = [
                 "list_files",
                 "read_file",
-                "edit_file",
-                "grep",
-                "agent_run_shell_command",
+                "create_file",
+                "replace_in_file",
+                "delete_snippet",
                 "agent_share_your_reasoning",
                 "ask_user_question",
                 "list_agents",
