@@ -10,6 +10,7 @@ from rich.console import Console
 
 from code_puppy.messaging.bus import MessageBus
 from code_puppy.messaging.messages import (
+    AgentListMessage,
     AgentReasoningMessage,
     AgentResponseMessage,
     ConfirmationRequest,
@@ -374,6 +375,22 @@ def test_render_shell_line(renderer, console):
     assert "hello output" in out
 
 
+def test_render_shell_line_with_prompt_surface_uses_plain_stdout(renderer):
+    msg = ShellLineMessage(line="hello output", stream="stdout")
+    runtime = MagicMock()
+    runtime.has_prompt_surface.return_value = True
+    mock_stdout = MagicMock()
+
+    with (
+        patch.object(renderer, "_get_prompt_runtime", return_value=runtime),
+        patch("sys.stdout", mock_stdout),
+    ):
+        renderer._render_shell_line(msg)
+
+    mock_stdout.write.assert_called_once_with("hello output\n")
+    mock_stdout.flush.assert_called_once()
+
+
 def test_render_shell_line_with_cr(renderer, console):
     msg = ShellLineMessage(line="progress\r50%", stream="stdout")
     renderer._render_shell_line(msg)
@@ -413,6 +430,55 @@ def test_render_agent_response(renderer, console):
 def test_render_agent_response_plain(renderer, console):
     msg = AgentResponseMessage(content="plain text", is_markdown=False)
     renderer._render_agent_response(msg)
+
+
+def test_do_render_agent_response_when_prompt_surface_active(renderer, console):
+    msg = AgentResponseMessage(content="plain text", is_markdown=False)
+
+    with patch.object(renderer, "_should_render_above_prompt", return_value=False):
+        renderer._do_render(msg)
+
+    out = output(console)
+    assert "AGENT RESPONSE" in out
+
+
+def test_do_render_agent_response_uses_prompt_runtime(renderer):
+    msg = AgentResponseMessage(content="plain text", is_markdown=False)
+    runtime = MagicMock()
+    runtime.has_prompt_surface.return_value = True
+    runtime.run_above_prompt.return_value = True
+
+    with (
+        patch.object(renderer, "_get_prompt_runtime", return_value=runtime),
+        patch.object(renderer, "_render_agent_response") as mock_render,
+    ):
+        renderer._do_render(msg)
+
+    runtime.run_above_prompt.assert_called_once()
+    mock_render.assert_not_called()
+
+
+def test_do_render_file_listing_uses_prompt_runtime(renderer):
+    msg = FileListingMessage(
+        directory="/tmp",
+        files=[],
+        recursive=False,
+        total_size=0,
+        dir_count=0,
+        file_count=0,
+    )
+    runtime = MagicMock()
+    runtime.has_prompt_surface.return_value = True
+    runtime.run_above_prompt.return_value = True
+
+    with (
+        patch.object(renderer, "_get_prompt_runtime", return_value=runtime),
+        patch.object(renderer, "_render_file_listing") as mock_render,
+    ):
+        renderer._do_render(msg)
+
+    runtime.run_above_prompt.assert_called_once()
+    mock_render.assert_not_called()
 
 
 @patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
@@ -677,6 +743,36 @@ def test_render_version_check_current(renderer, console):
 
 
 # =========================================================================
+# Agent Lists
+# =========================================================================
+
+
+@patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
+def test_render_agent_list(mock_sub, renderer, console):
+    msg = AgentListMessage(agent_count=3)
+    renderer._render_agent_list(msg)
+    out = output(console)
+    assert "LIST AGENTS" in out
+    assert "Found 3 agent(s)." in out
+
+
+@patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
+def test_render_agent_list_before_subagent_invocation(mock_sub, renderer, console):
+    renderer._render_agent_list(AgentListMessage(agent_count=2))
+    renderer._render_subagent_invocation(
+        SubAgentInvocationMessage(
+            agent_name="python-programmer",
+            session_id="python-programmer-session-1",
+            prompt="hello",
+            is_new_session=True,
+            message_count=0,
+        )
+    )
+    out = output(console)
+    assert out.index("LIST AGENTS") < out.index("INVOKE AGENT")
+
+
+# =========================================================================
 # Skills
 # =========================================================================
 
@@ -855,6 +951,12 @@ def test_do_render_universal_constructor_dispatch(mock_sub, renderer, console):
 @patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
 def test_do_render_skill_list_dispatch(mock_sub, renderer, console):
     msg = SkillListMessage(skills=[], total_count=0)
+    renderer._do_render(msg)
+
+
+@patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
+def test_do_render_agent_list_dispatch(mock_sub, renderer, console):
+    msg = AgentListMessage(agent_count=4)
     renderer._do_render(msg)
 
 

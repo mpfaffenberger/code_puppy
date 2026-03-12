@@ -8,6 +8,11 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from code_puppy.command_line.interactive_runtime import (
+    PromptRuntimeState,
+    clear_active_interactive_runtime,
+    register_active_interactive_runtime,
+)
 
 
 class TestRunPromptWithAttachments:
@@ -168,6 +173,84 @@ class TestRunPromptWithAttachments:
             # The cleaned prompt should have placeholder removed
             call_args = mock_agent.run_with_mcp.call_args
             assert "clipboard image" not in call_args[0][0]
+
+    @pytest.mark.anyio
+    async def test_interactive_runtime_disables_spinner(self):
+        from code_puppy.cli_runner import run_prompt_with_attachments
+
+        runtime = PromptRuntimeState(running=True)
+        register_active_interactive_runtime(runtime)
+
+        mock_agent = MagicMock()
+        mock_result = MagicMock()
+        mock_agent.run_with_mcp = AsyncMock(return_value=mock_result)
+
+        try:
+            with (
+                patch("code_puppy.cli_runner.parse_prompt_attachments") as mock_parse,
+                patch("code_puppy.cli_runner.get_clipboard_manager") as mock_clip,
+                patch("code_puppy.agents.event_stream_handler.set_streaming_console"),
+                patch("code_puppy.messaging.spinner.ConsoleSpinner") as mock_spinner,
+            ):
+                mock_parse.return_value = MagicMock(
+                    prompt="do stuff",
+                    warnings=[],
+                    attachments=[],
+                    link_attachments=[],
+                )
+                clip_mgr = MagicMock()
+                clip_mgr.get_pending_images.return_value = []
+                clip_mgr.get_pending_count.return_value = 0
+                mock_clip.return_value = clip_mgr
+
+                console = MagicMock()
+                result, _task = await run_prompt_with_attachments(
+                    mock_agent, "do stuff", spinner_console=console, use_spinner=True
+                )
+
+            assert result is mock_result
+            mock_spinner.assert_not_called()
+        finally:
+            clear_active_interactive_runtime(runtime)
+
+    @pytest.mark.anyio
+    async def test_seeds_spinner_context_before_agent_updates(self):
+        from code_puppy.cli_runner import run_prompt_with_attachments
+
+        mock_agent = MagicMock()
+        mock_result = MagicMock()
+        mock_agent.run_with_mcp = AsyncMock(return_value=mock_result)
+        mock_agent.get_message_history.return_value = ["m1", "m2"]
+        mock_agent.estimate_tokens_for_message.side_effect = [100, 200]
+        mock_agent.estimate_context_overhead_tokens.return_value = 400
+        mock_agent.estimate_token_count.side_effect = lambda text: len(text) * 10
+        mock_agent.get_model_context_length.return_value = 10000
+
+        with (
+            patch("code_puppy.cli_runner.parse_prompt_attachments") as mock_parse,
+            patch("code_puppy.cli_runner.get_clipboard_manager") as mock_clip,
+            patch("code_puppy.agents.event_stream_handler.set_streaming_console"),
+            patch("code_puppy.messaging.spinner.clear_spinner_context") as mock_clear,
+            patch("code_puppy.messaging.spinner.update_spinner_context") as mock_update,
+        ):
+            mock_parse.return_value = MagicMock(
+                prompt="do stuff",
+                warnings=[],
+                attachments=[],
+                link_attachments=[MagicMock(url_part="https://example.com")],
+            )
+            clip_mgr = MagicMock()
+            clip_mgr.get_pending_images.return_value = []
+            clip_mgr.get_pending_count.return_value = 0
+            mock_clip.return_value = clip_mgr
+
+            result, _task = await run_prompt_with_attachments(
+                mock_agent, "do stuff", use_spinner=False
+            )
+
+        assert result is mock_result
+        mock_clear.assert_called_once()
+        mock_update.assert_called_once_with("Tokens: 970/10,000 (9.7% used)")
 
 
 class TestExecuteSinglePrompt:

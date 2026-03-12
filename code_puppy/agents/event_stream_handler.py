@@ -85,6 +85,50 @@ def _should_suppress_output() -> bool:
     return is_subagent() and not get_subagent_verbose()
 
 
+def _has_active_prompt_surface() -> bool:
+    """Return True when the always-on prompt surface is mounted."""
+    try:
+        from code_puppy.command_line.interactive_runtime import (
+            get_active_interactive_runtime,
+        )
+
+        runtime = get_active_interactive_runtime()
+        return runtime.has_prompt_surface() if runtime is not None else False
+    except Exception:
+        return False
+
+
+async def _consume_events_without_console(events: AsyncIterable[Any]) -> None:
+    """Consume stream events without terminal rendering, but keep callbacks alive."""
+    async for event in events:
+        if isinstance(event, PartStartEvent):
+            _fire_stream_event(
+                "part_start",
+                {
+                    "index": event.index,
+                    "part_type": type(event.part).__name__,
+                    "part": event.part,
+                },
+            )
+        elif isinstance(event, PartDeltaEvent):
+            _fire_stream_event(
+                "part_delta",
+                {
+                    "index": event.index,
+                    "delta_type": type(event.delta).__name__,
+                    "delta": event.delta,
+                },
+            )
+        elif isinstance(event, PartEndEvent):
+            _fire_stream_event(
+                "part_end",
+                {
+                    "index": event.index,
+                    "next_part_kind": getattr(event, "next_part_kind", None),
+                },
+            )
+
+
 async def event_stream_handler(
     ctx: RunContext,
     events: AsyncIterable[Any],
@@ -104,6 +148,13 @@ async def event_stream_handler(
             pass  # Just consume events without rendering
         return
 
+    # The always-on prompt surface cannot safely coexist with live terminal streaming.
+    # In that mode, we keep callbacks/events flowing and render the final response
+    # through the normal AgentResponseMessage banner path instead.
+    if _has_active_prompt_surface():
+        await _consume_events_without_console(events)
+        return
+
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
 
@@ -118,7 +169,9 @@ async def event_stream_handler(
     banner_printed: set[int] = set()  # Track if banner was already printed
     token_count: dict[int, int] = {}  # Track token count per text/tool part
     tool_names: dict[int, str] = {}  # Track tool name per tool part index
+    tool_progress_announced: set[int] = set()
     did_stream_anything = False  # Track if we streamed any content
+    spinner_paused = False
 
     # Termflow streaming state for text parts
     termflow_parsers: dict[int, TermflowParser] = {}
@@ -127,11 +180,12 @@ async def event_stream_handler(
 
     async def _print_thinking_banner() -> None:
         """Print the THINKING banner with spinner pause and line clear."""
-        nonlocal did_stream_anything
+        nonlocal did_stream_anything, spinner_paused
 
-        pause_all_spinners()
-        await asyncio.sleep(0.1)  # Delay to let spinner fully clear
-        # Clear line and print newline before banner
+        if not spinner_paused:
+            pause_all_spinners()
+            spinner_paused = True
+            await asyncio.sleep(0.02)
         console.print(" " * 50, end="\r")
         console.print()  # Newline before banner
         # Bold banner with configurable color and lightning bolt
@@ -146,11 +200,12 @@ async def event_stream_handler(
 
     async def _print_response_banner() -> None:
         """Print the AGENT RESPONSE banner with spinner pause and line clear."""
-        nonlocal did_stream_anything
+        nonlocal did_stream_anything, spinner_paused
 
-        pause_all_spinners()
-        await asyncio.sleep(0.1)  # Delay to let spinner fully clear
-        # Clear line and print newline before banner
+        if not spinner_paused:
+            pause_all_spinners()
+            spinner_paused = True
+            await asyncio.sleep(0.02)
         console.print(" " * 50, end="\r")
         console.print()  # Newline before banner
         response_color = get_banner_color("agent_response")
@@ -254,6 +309,7 @@ async def event_stream_handler(
                             escaped = escape(delta.content_delta)
                             console.print(f"[dim]{escaped}[/dim]", end="")
                 elif isinstance(delta, ToolCallPartDelta):
+                    prompt_surface_active = _has_active_prompt_surface()
                     # For tool calls, estimate tokens from args_delta content
                     # args_delta contains the streaming JSON arguments
                     args_delta = getattr(delta, "args_delta", "") or ""
@@ -275,17 +331,23 @@ async def event_stream_handler(
                     # Use stored tool name for display
                     tool_name = tool_names.get(event.index, "")
                     count = token_count[event.index]
-                    # Display with tool wrench icon and tool name
-                    if tool_name:
-                        console.print(
-                            f"  \U0001f527 Calling {tool_name}... {count} token(s)   ",
-                            end="\r",
-                        )
+                    if prompt_surface_active:
+                        if event.index not in tool_progress_announced:
+                            label = tool_name or "tool"
+                            console.print(f"  \U0001f527 Calling {label}...")
+                            tool_progress_announced.add(event.index)
                     else:
-                        console.print(
-                            f"  \U0001f527 Calling tool... {count} token(s)   ",
-                            end="\r",
-                        )
+                        # Display with tool wrench icon and tool name
+                        if tool_name:
+                            console.print(
+                                f"  \U0001f527 Calling {tool_name}... {count} token(s)   ",
+                                end="\r",
+                            )
+                        else:
+                            console.print(
+                                f"  \U0001f527 Calling tool... {count} token(s)   ",
+                                end="\r",
+                            )
 
         # PartEndEvent - finish the streaming with a newline
         elif isinstance(event, PartEndEvent):
@@ -322,8 +384,9 @@ async def event_stream_handler(
                         del termflow_line_buffers[event.index]
                 # For tool parts, clear the chunk counter line
                 elif event.index in tool_parts:
-                    # Clear the chunk counter line by printing spaces and returning
-                    console.print(" " * 50, end="\r")
+                    if not _has_active_prompt_surface():
+                        # Clear the chunk counter line by printing spaces and returning
+                        console.print(" " * 50, end="\r")
                 # For thinking parts, just print newline
                 elif event.index in banner_printed:
                     console.print()  # Final newline after streaming
@@ -331,6 +394,7 @@ async def event_stream_handler(
                 # Clean up token count and tool names
                 token_count.pop(event.index, None)
                 tool_names.pop(event.index, None)
+                tool_progress_announced.discard(event.index)
                 # Clean up all tracking sets
                 streaming_parts.discard(event.index)
                 thinking_parts.discard(event.index)
@@ -344,5 +408,8 @@ async def event_stream_handler(
                 next_kind = getattr(event, "next_part_kind", None)
                 if next_kind not in ("text", "thinking", "tool-call"):
                     resume_all_spinners()
+                    spinner_paused = False
 
     # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)
+    if spinner_paused:
+        resume_all_spinners()

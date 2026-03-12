@@ -752,13 +752,23 @@ class TestHandleCustomCommand:
         mock_set_model,
     ):
         """Test antigravity-auth command."""
+        from code_puppy.command_line.interactive_command import (
+            BackgroundInteractiveCommand,
+        )
+
         mock_load_tokens.return_value = {}
         mock_perform_auth.return_value = True
 
         result = _handle_custom_command("custom_command", "antigravity-auth")
 
-        assert result is True
-        mock_perform_auth.assert_called_once_with(reload_agent=False)
+        assert isinstance(result, BackgroundInteractiveCommand)
+        cancel_event = threading.Event()
+        assert result.run(cancel_event) is True
+        mock_perform_auth.assert_called_once_with(
+            add_account=False,
+            reload_agent=False,
+            cancel_event=cancel_event,
+        )
         mock_set_model.assert_called_once_with("antigravity-gemini-3-pro-high")
 
     @patch(
@@ -771,6 +781,10 @@ class TestHandleCustomCommand:
         mock_perform_auth,
     ):
         """Test antigravity-add command."""
+        from code_puppy.command_line.interactive_command import (
+            BackgroundInteractiveCommand,
+        )
+
         mock_perform_auth.return_value = True
 
         with patch(
@@ -782,10 +796,14 @@ class TestHandleCustomCommand:
 
             result = _handle_custom_command("custom_command", "antigravity-add")
 
-        assert result is True
-        # Verify add_account=True was passed
-        call_kwargs = mock_perform_auth.call_args
-        assert call_kwargs[1].get("add_account") is True
+        assert isinstance(result, BackgroundInteractiveCommand)
+        cancel_event = threading.Event()
+        assert result.run(cancel_event) is True
+        mock_perform_auth.assert_called_once_with(
+            add_account=True,
+            reload_agent=False,
+            cancel_event=cancel_event,
+        )
 
     @patch("code_puppy.plugins.antigravity_oauth.register_callbacks._handle_status")
     def test_handle_custom_command_status(self, mock_handle_status):

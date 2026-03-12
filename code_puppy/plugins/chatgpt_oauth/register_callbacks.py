@@ -7,9 +7,11 @@ the 'chatgpt_oauth' model type handler.
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 from code_puppy.callbacks import register_callback
+from code_puppy.command_line.interactive_command import BackgroundInteractiveCommand
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 from code_puppy.model_switching import set_model_and_reload_agent
 
@@ -79,14 +81,19 @@ def _handle_chatgpt_logout() -> None:
     emit_success("ChatGPT logout complete")
 
 
-def _handle_custom_command(command: str, name: str) -> Optional[bool]:
+def start_chatgpt_oauth_setup(cancel_event: threading.Event) -> bool:
+    success = run_oauth_flow(cancel_event=cancel_event)
+    if success and not cancel_event.is_set():
+        set_model_and_reload_agent("chatgpt-gpt-5.3-codex")
+    return success
+
+
+def _handle_custom_command(command: str, name: str) -> object | None:
     if not name:
         return None
 
     if name == "chatgpt-auth":
-        run_oauth_flow()
-        set_model_and_reload_agent("chatgpt-gpt-5.3-codex")
-        return True
+        return BackgroundInteractiveCommand(run=start_chatgpt_oauth_setup)
 
     if name == "chatgpt-status":
         _handle_chatgpt_status()

@@ -170,7 +170,7 @@ def handle_paste_command(command: str) -> bool:
     usage="/tutorial",
     category="core",
 )
-def handle_tutorial_command(command: str) -> bool:
+def handle_tutorial_command(command: str):
     """Run the interactive tutorial wizard.
 
     Usage:
@@ -179,11 +179,11 @@ def handle_tutorial_command(command: str) -> bool:
     import asyncio
     import concurrent.futures
 
+    from code_puppy.command_line.interactive_command import BackgroundInteractiveCommand
     from code_puppy.command_line.onboarding_wizard import (
         reset_onboarding,
         run_onboarding_wizard,
     )
-    from code_puppy.model_switching import set_model_and_reload_agent
 
     # Always reset so user can re-run the tutorial anytime
     reset_onboarding()
@@ -195,18 +195,18 @@ def handle_tutorial_command(command: str) -> bool:
 
     if result == "chatgpt":
         emit_info("🔐 Starting ChatGPT OAuth flow...")
-        from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
+        from code_puppy.plugins.chatgpt_oauth.register_callbacks import (
+            start_chatgpt_oauth_setup,
+        )
 
-        run_oauth_flow()
-        set_model_and_reload_agent("chatgpt-gpt-5.3-codex")
+        return BackgroundInteractiveCommand(run=start_chatgpt_oauth_setup)
     elif result == "claude":
         emit_info("🔐 Starting Claude Code OAuth flow...")
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (
-            _perform_authentication,
+            start_claude_code_oauth_setup,
         )
 
-        _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-6")
+        return BackgroundInteractiveCommand(run=start_claude_code_oauth_setup)
     elif result == "completed":
         emit_info("🎉 Tutorial complete! Happy coding!")
     elif result == "skipped":

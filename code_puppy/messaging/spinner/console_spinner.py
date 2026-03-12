@@ -29,6 +29,7 @@ class ConsoleSpinner(SpinnerBase):
         self._stop_event = threading.Event()
         self._paused = False
         self._live = None
+        self._last_render_at = 0.0
 
         # Register this spinner for global management
         from . import register_spinner
@@ -44,14 +45,11 @@ class ConsoleSpinner(SpinnerBase):
         if self._thread and self._thread.is_alive():
             return
 
-        # Print blank line before spinner for visual separation from content
-        self.console.print()
-
         # Create a Live display for the spinner
         self._live = Live(
             self._generate_spinner_panel(),
             console=self.console,
-            refresh_per_second=20,
+            refresh_per_second=10,
             transient=True,  # Clear the spinner line when stopped (no puppy litter!)
             auto_refresh=False,  # Don't auto-refresh to avoid wiping out user input
         )
@@ -151,9 +149,13 @@ class ConsoleSpinner(SpinnerBase):
 
                 # Update the live display only if not paused and not awaiting input
                 if self._live and not self._paused and not awaiting_input:
-                    # Manually refresh instead of auto-refresh to avoid wiping input
-                    self._live.update(self._generate_spinner_panel())
-                    self._live.refresh()
+                    # Throttle refresh to reduce redraw churn/flicker.
+                    now = time.time()
+                    if now - self._last_render_at >= 0.09:
+                        # Manually refresh instead of auto-refresh to avoid wiping input
+                        self._live.update(self._generate_spinner_panel())
+                        self._live.refresh()
+                        self._last_render_at = now
 
                 # Short sleep to control animation speed
                 time.sleep(0.05)
@@ -202,13 +204,10 @@ class ConsoleSpinner(SpinnerBase):
                     sys.stdout.write("\x1b[K")  # Clear to end of line
                     sys.stdout.flush()
 
-                    # Print blank line before spinner for visual separation
-                    self.console.print()
-
                     self._live = Live(
                         self._generate_spinner_panel(),
                         console=self.console,
-                        refresh_per_second=20,
+                        refresh_per_second=10,
                         transient=True,  # Clear spinner line when stopped
                         auto_refresh=False,
                     )

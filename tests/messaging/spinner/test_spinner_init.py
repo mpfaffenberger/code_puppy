@@ -8,6 +8,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from code_puppy.command_line.interactive_runtime import (
+    PromptRuntimeState,
+    clear_active_interactive_runtime,
+    register_active_interactive_runtime,
+)
 from code_puppy.messaging.spinner import (
     _active_spinners,
     clear_spinner_context,
@@ -234,3 +239,32 @@ class TestSpinnerContext:
         update_spinner_context("Second")
 
         assert SpinnerBase.get_context_info() == "Second"
+
+    def test_update_spinner_context_invalidates_active_prompt(self):
+        runtime = PromptRuntimeState()
+        register_active_interactive_runtime(runtime)
+        session = MagicMock()
+        session.app = MagicMock()
+        runtime.register_prompt_surface(session)
+
+        try:
+            session.app.invalidate.reset_mock()
+            update_spinner_context("Tokens: 42/100 (42.0% used)")
+            session.app.invalidate.assert_called_once()
+        finally:
+            clear_active_interactive_runtime(runtime)
+
+    def test_clear_spinner_context_invalidates_active_prompt(self):
+        runtime = PromptRuntimeState()
+        register_active_interactive_runtime(runtime)
+        session = MagicMock()
+        session.app = MagicMock()
+        runtime.register_prompt_surface(session)
+
+        try:
+            update_spinner_context("Tokens: 42/100 (42.0% used)")
+            session.app.invalidate.reset_mock()
+            clear_spinner_context()
+            session.app.invalidate.assert_called_once()
+        finally:
+            clear_active_interactive_runtime(runtime)

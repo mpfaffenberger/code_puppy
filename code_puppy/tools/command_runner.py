@@ -285,6 +285,16 @@ def set_awaiting_user_input(awaiting=True):
             pass  # Spinner functionality not available
 
 
+def _normalize_shell_cwd(cwd: str | None) -> str | None:
+    """Normalize empty shell cwd values to None."""
+    if cwd is None:
+        return None
+    normalized = cwd.strip()
+    if not normalized:
+        return None
+    return normalized
+
+
 class ShellCommandOutput(BaseModel):
     success: bool
     command: str | None
@@ -338,6 +348,12 @@ def _listen_for_ctrl_x_windows(
                     # Note: msvcrt.getwch() returns unicode string on Windows
                     key = msvcrt.getwch()
 
+                    if key in {"\x00", "\xe0"}:
+                        # Discard the follow-up code for special keys.
+                        if msvcrt.kbhit():
+                            msvcrt.getwch()
+                        continue
+
                     # Check for Ctrl+X (\x18) or other interrupt keys
                     # Some terminals might not send \x18, so also check for 'x' with modifier
                     if key == "\x18":  # Standard Ctrl+X
@@ -347,6 +363,7 @@ def _listen_for_ctrl_x_windows(
                             emit_warning(
                                 "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
                             )
+                        continue
                     # Note: In some Windows terminals, Ctrl+X might not be captured
                     # Users can use Ctrl+C as alternative, which is handled by signal handler
                 except (OSError, ValueError):
@@ -399,8 +416,12 @@ def _listen_for_ctrl_x_posix(
                     emit_warning(
                         "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
                     )
+                continue
     finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
+        except Exception:
+            pass
 
 
 def _spawn_ctrl_x_key_listener(
@@ -934,10 +955,12 @@ def run_shell_command_streaming(
 async def run_shell_command(
     context: RunContext,
     command: str,
-    cwd: str = None,
+    cwd: str | None = None,
     timeout: int = 60,
     background: bool = False,
 ) -> ShellCommandOutput:
+    cwd = _normalize_shell_cwd(cwd)
+
     # Generate unique group_id for this command execution
     group_id = generate_group_id("shell_command", command)
 
@@ -1163,6 +1186,8 @@ async def _execute_shell_command(
     Returns:
         ShellCommandOutput with execution results
     """
+    cwd = _normalize_shell_cwd(cwd)
+
     # Always emit the ShellStartMessage banner (even for sub-agents)
     bus = get_message_bus()
     bus.emit(
@@ -1178,13 +1203,32 @@ async def _execute_shell_command(
 
     pause_all_spinners()
 
-    # Acquire shared keyboard context - Ctrl-X/Ctrl-C will kill ALL running commands
-    # This is reference-counted: listener starts on first command, stops on last
-    _acquire_keyboard_context()
+    interactive_runtime = None
+    release_keyboard_context = False
+
+    try:
+        from code_puppy.command_line.interactive_runtime import (
+            get_active_interactive_runtime,
+        )
+    except ImportError:
+        get_active_interactive_runtime = lambda: None  # type: ignore[assignment]
+
+    interactive_runtime = get_active_interactive_runtime()
+    if interactive_runtime is not None:
+        interactive_runtime.notify_shell_started()
+    else:
+        # Acquire shared keyboard context - Ctrl-X/Ctrl-C will kill ALL running commands
+        # This is reference-counted: listener starts on first command, stops on last
+        _acquire_keyboard_context()
+        release_keyboard_context = True
+
     try:
         return await _run_command_inner(command, cwd, timeout, group_id, silent=silent)
     finally:
-        _release_keyboard_context()
+        if interactive_runtime is not None:
+            interactive_runtime.notify_shell_finished()
+        if release_keyboard_context:
+            _release_keyboard_context()
         resume_all_spinners()
 
 
@@ -1319,7 +1363,7 @@ def register_agent_run_shell_command(agent):
     async def agent_run_shell_command(
         context: RunContext,
         command: str = "",
-        cwd: str = None,
+        cwd: str | None = None,
         timeout: int = 60,
         background: bool = False,
     ) -> ShellCommandOutput:

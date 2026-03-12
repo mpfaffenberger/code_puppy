@@ -15,6 +15,7 @@ import requests
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
+from ..oauth_control import wait_for_predicate_or_cancel
 from .config import CHATGPT_OAUTH_CONFIG
 from .utils import (
     add_models_to_extra_config,
@@ -248,7 +249,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         threading.Thread(target=_later, daemon=True).start()
 
 
-def run_oauth_flow() -> None:
+def run_oauth_flow(cancel_event: threading.Event | None = None) -> bool:
     existing_tokens = load_stored_tokens()
     if existing_tokens and existing_tokens.get("access_token"):
         emit_warning("Existing ChatGPT tokens will be overwritten.")
@@ -258,7 +259,7 @@ def run_oauth_flow() -> None:
     except OSError as exc:
         emit_error(f"Could not start OAuth server on port {REQUIRED_PORT}: {exc}")
         emit_info(f"Use `lsof -ti:{REQUIRED_PORT} | xargs kill` to free the port.")
-        return
+        return False
 
     auth_url = server.auth_url()
     emit_info(f"Open this URL in your browser: {auth_url}")
@@ -284,26 +285,31 @@ def run_oauth_flow() -> None:
 
     emit_info("Waiting for authentication callback…")
 
-    elapsed = 0.0
-    timeout = CHATGPT_OAUTH_CONFIG["callback_timeout"]
-    interval = 0.25
-    while elapsed < timeout:
-        time.sleep(interval)
-        elapsed += interval
-        if server.exit_code == 0:
-            break
+    wait_result = wait_for_predicate_or_cancel(
+        lambda: server.exit_code == 0,
+        timeout=CHATGPT_OAUTH_CONFIG["callback_timeout"],
+        cancel_event=cancel_event,
+        poll_interval=0.25,
+    )
 
     server.shutdown()
     server_thread.join(timeout=5)
 
-    if server.exit_code != 0:
+    if wait_result == "cancelled":
+        emit_info("ChatGPT OAuth authentication cancelled.")
+        return False
+
+    if wait_result == "timeout" or server.exit_code != 0:
         emit_error("Authentication failed or timed out.")
-        return
+        return False
+    if cancel_event is not None and cancel_event.is_set():
+        emit_info("ChatGPT OAuth authentication cancelled.")
+        return False
 
     tokens = load_stored_tokens()
     if not tokens:
         emit_error("Tokens saved during OAuth flow could not be loaded.")
-        return
+        return False
 
     api_key = tokens.get("api_key")
     if api_key:
@@ -323,7 +329,11 @@ def run_oauth_flow() -> None:
         account_id = tokens.get("account_id", "")
         models = fetch_chatgpt_models(api_key, account_id)
         if models:
+            if cancel_event is not None and cancel_event.is_set():
+                emit_info("ChatGPT OAuth authentication cancelled.")
+                return False
             if add_models_to_extra_config(models):
                 emit_success(
                     "ChatGPT models registered. Use the `chatgpt-` prefix in /model."
                 )
+    return True
