@@ -862,6 +862,28 @@ async def test_get_input_key_binding_edit_restores_pending_submission(
     mock_event.app.exit.assert_not_called()
 
 
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+async def test_get_input_chooser_makes_buffer_read_only(
+    mock_prompt_session_cls, active_runtime
+):
+    mock_session_instance = MagicMock()
+    mock_session_instance.prompt_async = AsyncMock(return_value="test")
+    mock_session_instance.default_buffer = MagicMock()
+    mock_prompt_session_cls.return_value = mock_session_instance
+
+    await get_input_with_combined_completion()
+
+    read_only_filter = mock_session_instance.default_buffer.read_only
+    assert read_only_filter() is False
+
+    active_runtime.set_pending_submission("queued task")
+    assert read_only_filter() is True
+
+    active_runtime.set_pending_submission(None)
+    assert read_only_filter() is False
+
+
 def test_prompt_runtime_registry_round_trip(active_runtime):
     session = MagicMock()
     session.app = MagicMock()

@@ -66,6 +66,7 @@ Read this before making changes in this repo.
 - While the chooser is visible, `e` must restore the saved drafted prompt back into the composer.
 - `Up Arrow` may remain as a compatibility alias for restore, but chooser copy should advertise `e`.
 - While the chooser is visible, `Esc` must drop the saved drafted prompt and leave the composer empty.
+- While the chooser is visible, non-chooser typing must be inert; the chooser buffer should be effectively read-only except for the explicit chooser keys and immediate cancel/exit paths.
 - Keep chooser hint copy concise; do not turn the inline chooser row into a sentence-length help block.
 - Keep `@` as attachment/path completion, not as a picker-style command menu.
 - Bare `@` should continue to offer current-directory completion candidates.
