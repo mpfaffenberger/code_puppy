@@ -251,6 +251,10 @@ def test_fetch_chatgpt_models(mock_get):
 
     models = utils.fetch_chatgpt_models("test_access_token", "test_account_id")
     assert models is not None
+    # Required models always injected
+    assert "gpt-5.4" in models
+    assert "gpt-5.3-instant" in models
+    # API-returned models present too
     assert "gpt-4o" in models
     assert "gpt-3.5-turbo" in models
     assert "o1-preview" in models
@@ -267,7 +271,9 @@ def test_fetch_chatgpt_models_fallback(mock_get):
 
     models = utils.fetch_chatgpt_models("test_access_token", "test_account_id")
     assert models is not None
-    # Should return default models
+    # Should return default models (including new required ones)
+    assert "gpt-5.4" in models
+    assert "gpt-5.3-instant" in models
     assert "gpt-5.3-codex-spark" in models
     assert "gpt-5.3-codex" in models
     assert "gpt-5.2-codex" in models

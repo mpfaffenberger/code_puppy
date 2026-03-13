@@ -254,7 +254,8 @@ class TestProactiveTokenRefresh:
 class TestCloudflareErrorDetection:
     """Test detection of Cloudflare HTML error responses."""
 
-    def test_is_cloudflare_html_error_true(self):
+    @pytest.mark.asyncio
+    async def test_is_cloudflare_html_error_true(self):
         """Test that Cloudflare HTML errors are detected."""
         # Create a mock response with Cloudflare HTML error
         cloudflare_html = (
@@ -273,22 +274,24 @@ class TestCloudflareErrorDetection:
         response.text = cloudflare_html
 
         client = ClaudeCacheAsyncClient()
-        result = client._is_cloudflare_html_error(response)
+        result = await client._is_cloudflare_html_error(response)
 
         assert result is True
 
-    def test_is_cloudflare_html_error_false_json(self):
+    @pytest.mark.asyncio
+    async def test_is_cloudflare_html_error_false_json(self):
         """Test that JSON responses are not detected as Cloudflare errors."""
         response = Mock(spec=httpx.Response)
         response.headers = {"content-type": "application/json"}
         response._content = b'{"error": "some error"}'
 
         client = ClaudeCacheAsyncClient()
-        result = client._is_cloudflare_html_error(response)
+        result = await client._is_cloudflare_html_error(response)
 
         assert result is False
 
-    def test_is_cloudflare_html_error_false_different_html(self):
+    @pytest.mark.asyncio
+    async def test_is_cloudflare_html_error_false_different_html(self):
         """Test that non-Cloudflare HTML is not detected as Cloudflare error."""
         response = Mock(spec=httpx.Response)
         response.headers = {"content-type": "text/html"}
@@ -296,11 +299,12 @@ class TestCloudflareErrorDetection:
         response.text = "<html><body>Some other error</body></html>"
 
         client = ClaudeCacheAsyncClient()
-        result = client._is_cloudflare_html_error(response)
+        result = await client._is_cloudflare_html_error(response)
 
         assert result is False
 
-    def test_is_cloudflare_html_error_false_missing_markers(self):
+    @pytest.mark.asyncio
+    async def test_is_cloudflare_html_error_false_missing_markers(self):
         """Test that HTML without both markers is not detected."""
         # Has cloudflare but not "400 bad request"
         response = Mock(spec=httpx.Response)
@@ -309,7 +313,7 @@ class TestCloudflareErrorDetection:
         response.text = "<html><body>cloudflare</body></html>"
 
         client = ClaudeCacheAsyncClient()
-        result = client._is_cloudflare_html_error(response)
+        result = await client._is_cloudflare_html_error(response)
 
         assert result is False
 

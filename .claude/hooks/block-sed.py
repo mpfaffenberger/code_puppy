@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
+import json
 import os
 import re
 import sys
-import json
 
 WRAPPERS = {"sudo", "env", "nohup", "xargs", "time"}
 
@@ -19,12 +19,15 @@ if not cmd:
 
 # Fallback: catch `bash -c "... sed ..."` and subshell/delegation cases.
 # Only match 'sed' when preceded by whitespace or start-of-string (not inside paths).
-if re.search(r'(?:^|\s)sed\b', cmd):
-    print("[BLOCKED] sed usage detected. Use the built-in edit_file / read_file tools to modify files instead.", file=sys.stderr)
+if re.search(r"(?:^|\s)sed\b", cmd):
+    print(
+        "[BLOCKED] sed usage detected. Use the built-in edit_file / read_file tools to modify files instead.",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 # Split by command separators (;, &&, ||, |) to check each segment
-parts = re.split(r'[;&|]+', cmd)
+parts = re.split(r"[;&|]+", cmd)
 for part in parts:
     tokens = part.strip().split()
     if not tokens:
@@ -43,7 +46,10 @@ for part in parts:
     prog = tokens[i] if i < len(tokens) else ""
 
     if os.path.basename(prog) == "sed":
-        print("[BLOCKED] sed is not allowed. Use the built-in edit_file / read_file tools to modify files instead.", file=sys.stderr)
+        print(
+            "[BLOCKED] sed is not allowed. Use the built-in edit_file / read_file tools to modify files instead.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 sys.exit(0)

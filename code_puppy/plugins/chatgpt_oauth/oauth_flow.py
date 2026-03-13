@@ -324,9 +324,10 @@ def run_oauth_flow(cancel_event: threading.Event | None = None) -> bool:
 
     if api_key:
         emit_info("Registering ChatGPT Codex models…")
-        from .utils import DEFAULT_CODEX_MODELS
+        from .utils import fetch_chatgpt_models
 
-        models = DEFAULT_CODEX_MODELS
+        account_id = tokens.get("account_id", "")
+        models = fetch_chatgpt_models(api_key, account_id)
         if models:
             if cancel_event is not None and cancel_event.is_set():
                 emit_info("ChatGPT OAuth authentication cancelled.")

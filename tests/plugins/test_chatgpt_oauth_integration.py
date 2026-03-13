@@ -167,7 +167,11 @@ class TestModelManagement:
 
         models = fetch_chatgpt_models("test_token", "test_account")
 
-        assert models == ["gpt-5.2", "gpt-5.2-codex"]
+        # Required models are prepended if not in API response
+        assert "gpt-5.4" in models
+        assert "gpt-5.3-instant" in models
+        assert "gpt-5.2" in models
+        assert "gpt-5.2-codex" in models
 
     @patch("requests.get")
     def test_fetch_chatgpt_models_api_error(self, mock_get):

@@ -1,10 +1,8 @@
 """Tests for hook configuration validator."""
 
-import pytest
 from code_puppy.hook_engine.validator import (
-    validate_hooks_config,
     format_validation_report,
-    get_config_suggestions,
+    validate_hooks_config,
 )
 
 
@@ -22,7 +20,10 @@ class TestValidateHooksConfig:
     def test_valid_post_tool_use(self):
         config = {
             "PostToolUse": [
-                {"matcher": "Edit", "hooks": [{"type": "command", "command": "black ${file}"}]}
+                {
+                    "matcher": "Edit",
+                    "hooks": [{"type": "command", "command": "black ${file}"}],
+                }
             ]
         }
         is_valid, errors = validate_hooks_config(config)
@@ -36,9 +37,7 @@ class TestValidateHooksConfig:
 
     def test_missing_matcher(self):
         config = {
-            "PreToolUse": [
-                {"hooks": [{"type": "command", "command": "echo test"}]}
-            ]
+            "PreToolUse": [{"hooks": [{"type": "command", "command": "echo test"}]}]
         }
         is_valid, errors = validate_hooks_config(config)
         assert is_valid is False
@@ -61,11 +60,7 @@ class TestValidateHooksConfig:
         assert any("invalid" in e for e in errors)
 
     def test_missing_command(self):
-        config = {
-            "PreToolUse": [
-                {"matcher": "*", "hooks": [{"type": "command"}]}
-            ]
-        }
+        config = {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command"}]}]}
         is_valid, errors = validate_hooks_config(config)
         assert is_valid is False
         assert any("command" in e for e in errors)
@@ -73,7 +68,12 @@ class TestValidateHooksConfig:
     def test_timeout_too_low(self):
         config = {
             "PreToolUse": [
-                {"matcher": "*", "hooks": [{"type": "command", "command": "echo test", "timeout": 50}]}
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {"type": "command", "command": "echo test", "timeout": 50}
+                    ],
+                }
             ]
         }
         is_valid, errors = validate_hooks_config(config)
@@ -85,7 +85,7 @@ class TestValidateHooksConfig:
             "_comment": "This is a comment",
             "PreToolUse": [
                 {"matcher": "*", "hooks": [{"type": "command", "command": "echo test"}]}
-            ]
+            ],
         }
         is_valid, errors = validate_hooks_config(config)
         assert is_valid is True
@@ -97,7 +97,10 @@ class TestValidateHooksConfig:
     def test_valid_prompt_hook(self):
         config = {
             "PreToolUse": [
-                {"matcher": "*", "hooks": [{"type": "prompt", "prompt": "validate this"}]}
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "prompt", "prompt": "validate this"}],
+                }
             ]
         }
         is_valid, errors = validate_hooks_config(config)
@@ -109,8 +112,11 @@ class TestValidateHooksConfig:
                 {"matcher": "*", "hooks": [{"type": "command", "command": "echo pre"}]}
             ],
             "PostToolUse": [
-                {"matcher": "Edit", "hooks": [{"type": "command", "command": "echo post"}]}
-            ]
+                {
+                    "matcher": "Edit",
+                    "hooks": [{"type": "command", "command": "echo post"}],
+                }
+            ],
         }
         is_valid, errors = validate_hooks_config(config)
         assert is_valid is True

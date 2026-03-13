@@ -55,7 +55,7 @@ def handle_cd_command(command: str) -> bool:
     # Use shlex.split to handle quoted paths properly
     import shlex
 
-    from code_puppy.messaging import emit_error, emit_info, emit_success
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     try:
         tokens = shlex.split(command)
@@ -77,6 +77,20 @@ def handle_cd_command(command: str) -> bool:
         if os.path.isdir(target):
             os.chdir(target)
             emit_success(f"Changed directory to: {target}")
+            # Reload the agent so the system prompt and project-local
+            # AGENT.md rules reflect the new working directory.  Without
+            # this, the LLM keeps receiving stale path information for the
+            # remainder of the session (the PydanticAgent instructions are
+            # baked in at construction time and never refreshed otherwise).
+            try:
+                from code_puppy.agents.agent_manager import get_current_agent
+
+                get_current_agent().reload_code_generation_agent()
+            except Exception as e:
+                emit_warning(
+                    f"Directory changed, but agent reload failed: {e}. "
+                    "You may need to run /agent or /model to force a refresh."
+                )
         else:
             emit_error(f"Not a directory: {dirname}")
         return True

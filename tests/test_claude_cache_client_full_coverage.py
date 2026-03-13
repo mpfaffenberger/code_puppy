@@ -533,28 +533,33 @@ class TestUpdateAuthHeaders:
 
 
 class TestCloudflareDetection:
-    def test_true(self):
+    @pytest.mark.asyncio
+    async def test_true(self):
         resp = Mock(spec=httpx.Response)
         resp.headers = {"content-type": "text/html"}
         resp._content = b"<html>cloudflare 400 bad request</html>"
         c = ClaudeCacheAsyncClient()
-        assert c._is_cloudflare_html_error(resp) is True
+        assert await c._is_cloudflare_html_error(resp) is True
 
-    def test_json_content_type(self):
+    @pytest.mark.asyncio
+    async def test_json_content_type(self):
         resp = Mock(spec=httpx.Response)
         resp.headers = {"content-type": "application/json"}
         c = ClaudeCacheAsyncClient()
-        assert c._is_cloudflare_html_error(resp) is False
+        assert await c._is_cloudflare_html_error(resp) is False
 
-    def test_no_content_fallback_to_text(self):
+    @pytest.mark.asyncio
+    async def test_no_content_fallback_to_text(self):
         resp = Mock(spec=httpx.Response)
         resp.headers = {"content-type": "text/html"}
         resp._content = None
         resp.text = "cloudflare 400 bad request"
+        resp.aread = AsyncMock(return_value=resp.text.encode("utf-8"))
         c = ClaudeCacheAsyncClient()
-        assert c._is_cloudflare_html_error(resp) is True
+        assert await c._is_cloudflare_html_error(resp) is True
 
-    def test_outer_exception_path(self):
+    @pytest.mark.asyncio
+    async def test_outer_exception_path(self):
         """Test the outer except Exception in _is_cloudflare_html_error."""
         resp = Mock(spec=httpx.Response)
         resp.headers = {"content-type": "text/html"}
@@ -563,17 +568,19 @@ class TestCloudflareDetection:
         resp._content.__bool__ = lambda s: True
         resp._content.decode = MagicMock(side_effect=Exception("decode boom"))
         c = ClaudeCacheAsyncClient()
-        assert c._is_cloudflare_html_error(resp) is False
+        assert await c._is_cloudflare_html_error(resp) is False
 
-    def test_no_content_text_raises(self):
+    @pytest.mark.asyncio
+    async def test_no_content_text_raises(self):
         resp = Mock(spec=httpx.Response)
         resp.headers = {"content-type": "text/html"}
         resp._content = None
+        resp.aread = AsyncMock(return_value=b"")
         type(resp).text = property(
             lambda s: (_ for _ in ()).throw(Exception("consumed"))
         )
         c = ClaudeCacheAsyncClient()
-        assert c._is_cloudflare_html_error(resp) is False
+        assert await c._is_cloudflare_html_error(resp) is False
 
 
 # --- Refresh token ---

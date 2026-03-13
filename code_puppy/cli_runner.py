@@ -600,6 +600,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             "Use /diff to configure diff highlighting colors for file changes."
         )
         emit_system_message("To re-run the tutorial, use /tutorial.")
+        emit_system_message(
+            "!<command> to run shell commands directly (e.g., !git status)"
+        )
         try:
             from code_puppy.command_line.motd import print_motd
 
@@ -612,6 +615,17 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         # Print truecolor warning LAST so it's the most visible thing on startup
         # Big ugly red box should be impossible to miss! 🔴
         print_truecolor_warning(display_console)
+
+        # Shell pass-through for initial_command: !<cmd> bypasses the agent.
+        if initial_command:
+            from code_puppy.command_line.shell_passthrough import (
+                execute_shell_passthrough,
+                is_shell_passthrough,
+            )
+
+            if is_shell_passthrough(initial_command):
+                execute_shell_passthrough(initial_command)
+                initial_command = None
 
         # Initialize the runtime agent manager
         if initial_command:
@@ -1569,6 +1583,17 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             # Handle Ctrl+D - exit the application
             await shutdown_interactive_session("\nGoodbye! (Ctrl+D)", reason="ctrl_d")
             break
+
+        # Shell pass-through: !<command> executes directly, bypassing the agent.
+        from code_puppy.command_line.shell_passthrough import (
+            execute_shell_passthrough,
+            is_shell_passthrough,
+        )
+
+        if is_shell_passthrough(submission.text):
+            execute_shell_passthrough(submission.text)
+            continue
+
         outcome = await dispatch_submission(
             submission.text,
             requested_action=submission.action,
@@ -1692,6 +1717,15 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     from code_puppy.messaging import emit_info
 
     emit_info(f"Executing prompt: {prompt}")
+
+    from code_puppy.command_line.shell_passthrough import (
+        execute_shell_passthrough,
+        is_shell_passthrough,
+    )
+
+    if is_shell_passthrough(prompt):
+        execute_shell_passthrough(prompt)
+        return
 
     try:
         # Get agent through runtime manager and use helper for attachments

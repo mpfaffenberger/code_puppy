@@ -90,8 +90,8 @@ internal tool name — the matcher treats them as equivalent.
 | `Glob`            | `list_files`              | File glob / directory listing |
 | `Read`            | `read_file`               | Read file contents |
 | `Grep`            | `grep`                    | Text search |
-| `Edit`            | `edit_file`               | Patch / partial edit |
-| `Write`           | `edit_file`               | Full-file overwrite (same tool) |
+| `Edit`            | `replace_in_file`         | Patch / partial edit |
+| `Write`           | `create_file`             | Full-file overwrite |
 | `Delete`          | `delete_file`             | File deletion |
 | `AskUserQuestion` | `ask_user_question`       | Interactive user prompt |
 | `Task`            | `invoke_agent`            | Sub-agent / task spawn |

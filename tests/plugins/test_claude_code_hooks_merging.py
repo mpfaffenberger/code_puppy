@@ -8,7 +8,6 @@ when both configuration files exist.
 import json
 import os
 import tempfile
-import pytest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,10 +20,20 @@ class TestHookMerging:
         from code_puppy.plugins.claude_code_hooks.config import load_hooks_config
 
         project_hooks = {
-            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo project"}]}]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "command", "command": "echo project"}],
+                }
+            ]
         }
         global_hooks_data = {
-            "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo global"}]}]
+            "PostToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "command", "command": "echo global"}],
+                }
+            ]
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -37,7 +46,10 @@ class TestHookMerging:
             with open(global_file, "w") as f:
                 json.dump(global_hooks_data, f)
 
-            with patch("code_puppy.plugins.claude_code_hooks.config.os.getcwd", return_value=tmpdir):
+            with patch(
+                "code_puppy.plugins.claude_code_hooks.config.os.getcwd",
+                return_value=tmpdir,
+            ):
                 with patch(
                     "code_puppy.plugins.claude_code_hooks.config.GLOBAL_HOOKS_FILE",
                     global_file,
@@ -55,10 +67,20 @@ class TestHookMerging:
         from code_puppy.plugins.claude_code_hooks.config import load_hooks_config
 
         project_hooks = {
-            "PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "echo project"}]}]
+            "PreToolUse": [
+                {
+                    "matcher": "Edit",
+                    "hooks": [{"type": "command", "command": "echo project"}],
+                }
+            ]
         }
         global_hooks_data = {
-            "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo global"}]}]
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [{"type": "command", "command": "echo global"}],
+                }
+            ]
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -71,7 +93,10 @@ class TestHookMerging:
             with open(global_file, "w") as f:
                 json.dump(global_hooks_data, f)
 
-            with patch("code_puppy.plugins.claude_code_hooks.config.os.getcwd", return_value=tmpdir):
+            with patch(
+                "code_puppy.plugins.claude_code_hooks.config.os.getcwd",
+                return_value=tmpdir,
+            ):
                 with patch(
                     "code_puppy.plugins.claude_code_hooks.config.GLOBAL_HOOKS_FILE",
                     global_file,
@@ -89,10 +114,20 @@ class TestHookMerging:
         from code_puppy.plugins.claude_code_hooks.config import load_hooks_config
 
         project_hooks = {
-            "SessionStart": [{"matcher": "*", "hooks": [{"type": "command", "command": "project_init"}]}]
+            "SessionStart": [
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "command", "command": "project_init"}],
+                }
+            ]
         }
         global_hooks_data = {
-            "SessionStart": [{"matcher": "*", "hooks": [{"type": "command", "command": "global_init"}]}]
+            "SessionStart": [
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "command", "command": "global_init"}],
+                }
+            ]
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -105,7 +140,10 @@ class TestHookMerging:
             with open(global_file, "w") as f:
                 json.dump(global_hooks_data, f)
 
-            with patch("code_puppy.plugins.claude_code_hooks.config.os.getcwd", return_value=tmpdir):
+            with patch(
+                "code_puppy.plugins.claude_code_hooks.config.os.getcwd",
+                return_value=tmpdir,
+            ):
                 with patch(
                     "code_puppy.plugins.claude_code_hooks.config.GLOBAL_HOOKS_FILE",
                     global_file,
@@ -123,7 +161,12 @@ class TestHookMerging:
         from code_puppy.plugins.claude_code_hooks.config import load_hooks_config
 
         global_hooks_data = {
-            "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo global"}]}]
+            "PostToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "command", "command": "echo global"}],
+                }
+            ]
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -132,7 +175,10 @@ class TestHookMerging:
             with open(global_file, "w") as f:
                 json.dump(global_hooks_data, f)
 
-            with patch("code_puppy.plugins.claude_code_hooks.config.os.getcwd", return_value=tmpdir):
+            with patch(
+                "code_puppy.plugins.claude_code_hooks.config.os.getcwd",
+                return_value=tmpdir,
+            ):
                 with patch(
                     "code_puppy.plugins.claude_code_hooks.config.GLOBAL_HOOKS_FILE",
                     global_file,
@@ -147,7 +193,12 @@ class TestHookMerging:
         from code_puppy.plugins.claude_code_hooks.config import load_hooks_config
 
         project_hooks = {
-            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo project"}]}]
+            "PreToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "command", "command": "echo project"}],
+                }
+            ]
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -157,7 +208,10 @@ class TestHookMerging:
             settings_path.write_text(json.dumps({"hooks": project_hooks}))
 
             # Global file doesn't exist
-            with patch("code_puppy.plugins.claude_code_hooks.config.os.getcwd", return_value=tmpdir):
+            with patch(
+                "code_puppy.plugins.claude_code_hooks.config.os.getcwd",
+                return_value=tmpdir,
+            ):
                 with patch(
                     "code_puppy.plugins.claude_code_hooks.config.GLOBAL_HOOKS_FILE",
                     os.path.join(tmpdir, "nonexistent.json"),
@@ -173,13 +227,22 @@ class TestHookMerging:
 
         project_hooks = {
             "PreToolUse": [
-                {"matcher": "Edit", "hooks": [{"type": "command", "command": "project_1"}]},
-                {"matcher": "Bash", "hooks": [{"type": "command", "command": "project_2"}]},
+                {
+                    "matcher": "Edit",
+                    "hooks": [{"type": "command", "command": "project_1"}],
+                },
+                {
+                    "matcher": "Bash",
+                    "hooks": [{"type": "command", "command": "project_2"}],
+                },
             ]
         }
         global_hooks_data = {
             "PreToolUse": [
-                {"matcher": "ReadFile", "hooks": [{"type": "command", "command": "global_1"}]},
+                {
+                    "matcher": "ReadFile",
+                    "hooks": [{"type": "command", "command": "global_1"}],
+                },
             ]
         }
 
@@ -193,7 +256,10 @@ class TestHookMerging:
             with open(global_file, "w") as f:
                 json.dump(global_hooks_data, f)
 
-            with patch("code_puppy.plugins.claude_code_hooks.config.os.getcwd", return_value=tmpdir):
+            with patch(
+                "code_puppy.plugins.claude_code_hooks.config.os.getcwd",
+                return_value=tmpdir,
+            ):
                 with patch(
                     "code_puppy.plugins.claude_code_hooks.config.GLOBAL_HOOKS_FILE",
                     global_file,
@@ -203,20 +269,27 @@ class TestHookMerging:
                     # Should have 3 groups total (1 from global + 2 from project)
                     assert len(hooks) == 3
                     assert hooks[0]["matcher"] == "ReadFile"  # global first
-                    assert hooks[1]["matcher"] == "Edit"      # project
-                    assert hooks[2]["matcher"] == "Bash"      # project
+                    assert hooks[1]["matcher"] == "Edit"  # project
+                    assert hooks[2]["matcher"] == "Bash"  # project
 
     def test_wrapped_global_hooks_format(self):
         """Global hooks wrapped in {'hooks': ...} format should work."""
         from code_puppy.plugins.claude_code_hooks.config import load_hooks_config
 
         project_hooks = {
-            "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "project"}]}]
+            "PreToolUse": [
+                {"matcher": "*", "hooks": [{"type": "command", "command": "project"}]}
+            ]
         }
         # Global format wrapped in 'hooks' key
         global_hooks_data = {
             "hooks": {
-                "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "global"}]}]
+                "PostToolUse": [
+                    {
+                        "matcher": "*",
+                        "hooks": [{"type": "command", "command": "global"}],
+                    }
+                ]
             }
         }
 
@@ -230,7 +303,10 @@ class TestHookMerging:
             with open(global_file, "w") as f:
                 json.dump(global_hooks_data, f)
 
-            with patch("code_puppy.plugins.claude_code_hooks.config.os.getcwd", return_value=tmpdir):
+            with patch(
+                "code_puppy.plugins.claude_code_hooks.config.os.getcwd",
+                return_value=tmpdir,
+            ):
                 with patch(
                     "code_puppy.plugins.claude_code_hooks.config.GLOBAL_HOOKS_FILE",
                     global_file,

@@ -1427,7 +1427,10 @@ DEFAULT_BANNER_COLORS = {
     "agent_response": "medium_purple4",  # Amethyst - main AI output
     "shell_command": "dark_orange3",  # Amber - system commands
     "read_file": "steel_blue",  # Steel - reading files
-    "edit_file": "dark_goldenrod",  # Gold - modifications
+    "edit_file": "dark_goldenrod",  # Gold - modifications (legacy)
+    "create_file": "dark_goldenrod",  # Gold - file creation
+    "replace_in_file": "dark_goldenrod",  # Gold - file modifications
+    "delete_snippet": "dark_goldenrod",  # Gold - snippet removal
     "grep": "grey37",  # Silver - search results
     "directory_listing": "dodger_blue2",  # Sky - navigation
     "agent_reasoning": "dark_violet",  # Violet - deep thought
@@ -1439,6 +1442,8 @@ DEFAULT_BANNER_COLORS = {
     "terminal_tool": "dark_goldenrod",  # Gold - browser terminal operations
     # MCP tools - distinct from builtin tools
     "mcp_tool_call": "dark_cyan",  # Teal - external MCP tool calls
+    # User-initiated shell pass-through (! prefix) - distinct from agent's shell_command
+    "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
 }
 
 

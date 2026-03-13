@@ -8,13 +8,23 @@ import logging
 from typing import Any, Dict, Optional
 
 from code_puppy.callbacks import register_callback
-from code_puppy.hook_engine import HookEngine, EventData
+from code_puppy.hook_engine import EventData, HookEngine
+
 from .config import load_hooks_config
 
-_SUBAGENT_NAMES = frozenset({
-    "pack_leader", "bloodhound", "husky", "retriever", "shepherd", "terrier",
-    "watchdog", "subagent", "sub_agent",
-})
+_SUBAGENT_NAMES = frozenset(
+    {
+        "pack_leader",
+        "bloodhound",
+        "husky",
+        "retriever",
+        "shepherd",
+        "terrier",
+        "watchdog",
+        "subagent",
+        "sub_agent",
+    }
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +74,9 @@ async def on_pre_tool_call_hook(
         result = await _hook_engine.process_event("PreToolUse", event_data)
 
         if result.blocked:
-            logger.debug(f"Tool '{tool_name}' blocked by hook: {result.blocking_reason}")
+            logger.debug(
+                f"Tool '{tool_name}' blocked by hook: {result.blocking_reason}"
+            )
             return {
                 "blocked": True,
                 "reason": result.blocking_reason,

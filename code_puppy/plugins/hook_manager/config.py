@@ -7,12 +7,13 @@ Supports:
 
 Hooks from both sources are loaded and can be managed independently in the TUI.
 """
+
 import copy
 import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -72,26 +73,36 @@ def load_hooks_config() -> Dict[str, Any]:
 
 def load_all_hooks_config() -> Dict[str, Any]:
     """Load and merge hooks from both global and project sources.
-    
+
     Returns a merged configuration with all hooks.
     """
     global_hooks = _load_global_hooks_config()
     project_hooks = _load_project_hooks_config()
-    
+
     # Simple merge: combine hook groups
     merged = {}
     for event_type in set(list(global_hooks.keys()) + list(project_hooks.keys())):
         if event_type.startswith("_"):
             # Skip comment keys
-            merged[event_type] = project_hooks.get(event_type) or global_hooks.get(event_type)
+            merged[event_type] = project_hooks.get(event_type) or global_hooks.get(
+                event_type
+            )
             continue
-        
-        global_groups = global_hooks.get(event_type, []) if isinstance(global_hooks.get(event_type), list) else []
-        project_groups = project_hooks.get(event_type, []) if isinstance(project_hooks.get(event_type), list) else []
-        
+
+        global_groups = (
+            global_hooks.get(event_type, [])
+            if isinstance(global_hooks.get(event_type), list)
+            else []
+        )
+        project_groups = (
+            project_hooks.get(event_type, [])
+            if isinstance(project_hooks.get(event_type), list)
+            else []
+        )
+
         if global_groups or project_groups:
             merged[event_type] = global_groups + project_groups
-    
+
     return merged
 
 
@@ -117,7 +128,7 @@ def save_hooks_config(hooks: Dict[str, Any]) -> Path:
 
 def save_global_hooks_config(hooks: Dict[str, Any]) -> Path:
     """Persist hooks config to ~/.code_puppy/hooks.json.
-    
+
     Returns the path written.
     """
     path = Path(_GLOBAL_HOOKS_FILE)
@@ -180,7 +191,9 @@ class HookEntry:
         return m[:37] + "..." if len(m) > 40 else m
 
 
-def flatten_hooks(hooks_config: Dict[str, Any], source: HookSource = "project") -> List[HookEntry]:
+def flatten_hooks(
+    hooks_config: Dict[str, Any], source: HookSource = "project"
+) -> List[HookEntry]:
     """Convert nested hooks config into a flat list of HookEntry objects.
 
     Each entry remembers its group_index and hook_index for round-trip
@@ -220,15 +233,15 @@ def flatten_hooks(hooks_config: Dict[str, Any], source: HookSource = "project") 
 
 def flatten_all_hooks() -> List[HookEntry]:
     """Load and flatten hooks from both global and project sources.
-    
+
     Returns a combined list with source information for each hook.
     """
     global_config = _load_global_hooks_config()
     project_config = _load_project_hooks_config()
-    
+
     global_entries = flatten_hooks(global_config, source="global")
     project_entries = flatten_hooks(project_config, source="project")
-    
+
     # Project hooks first for easier viewing
     return project_entries + global_entries
 

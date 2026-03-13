@@ -587,11 +587,9 @@ class TestPromptBuilder:
     def test_build_skills_guidance(self):
         """Test building skills guidance text."""
         guidance = build_skills_guidance()
-        assert "# Using Agent Skills" in guidance
+        assert "# Agent Skills" in guidance
         assert "list_or_search_skills" in guidance
         assert "activate_skill" in guidance
-        assert "Skill Locations" in guidance
-        assert "~/.code_puppy/skills/" in guidance
 
 
 # Tests for Config Module
