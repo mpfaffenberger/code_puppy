@@ -30,6 +30,7 @@ Run this before merging changes that touch the interactive runtime, prompt surfa
 - While active work is running, submit `/model` and interject it; confirm it is treated as literal text for the agent, not executed as a command.
 - While active work is running, verify `/exit` and `/quit` still bypass queue/interject handling immediately.
 - While the inline chooser is visible, confirm slash-command menus do not appear and stray typing does not replace the stored pending prompt.
+- While the inline chooser is visible, mash a few normal typing keys and confirm the buffer stays inert instead of accepting text.
 - While the inline chooser is visible, press `e` and confirm the saved draft returns to the composer exactly as written.
 - If `Up Arrow` is still supported as an alias, confirm it also restores the saved draft.
 - While the inline chooser is visible, press `Esc` and confirm the saved draft is dropped and the composer is empty.

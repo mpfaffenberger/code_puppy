@@ -1303,6 +1303,9 @@ async def prompt_for_submission(
         output=out,
         erase_when_done=erase_when_done,
     )
+    # Keep the chooser truly modal: while a pending submission exists, only the
+    # explicit chooser bindings should work and the buffer should reject edits.
+    session.default_buffer.read_only = pending_decision_filter
     # If they pass a string, backward-compat: convert it to formatted_text
     if isinstance(prompt_str, str):
         from prompt_toolkit.formatted_text import FormattedText
