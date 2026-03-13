@@ -116,65 +116,69 @@ def _find_matching_model(rest: str, model_names: list[str]) -> Optional[str]:
     return None
 
 
+def _process_model_command(
+    text: str, content: str, cmd_prefix: str, model_names: list[str]
+) -> Optional[str]:
+    """Process a model command and return the remaining text.
+
+    Args:
+        text: Original input text (preserves whitespace)
+        content: Stripped content for parsing
+        cmd_prefix: The command prefix to check for (e.g., '/model ' or '/m ')
+        model_names: List of available model names
+
+    Returns:
+        Remaining text after stripping command and model, or None if no match
+    """
+    if not content.lower().startswith(cmd_prefix):
+        return None
+
+    # Extract command and rest
+    cmd = content.split(" ", 1)[0]  # Get the actual command (preserves case)
+    rest = content[len(cmd):].strip()
+
+    # Find the best matching model
+    model = _find_matching_model(rest, model_names)
+    if not model:
+        return None
+
+    # Set the model
+    set_active_model(model)
+
+    # Build pattern to find and remove from original text
+    cmd_and_model_pattern = cmd + " " + rest[: len(model)]
+    idx = text.find(cmd_and_model_pattern)
+    if idx == -1:
+        return None
+
+    return (text[:idx] + text[idx + len(cmd_and_model_pattern) :]).strip()
+
+
 def update_model_in_input(text: str) -> Optional[str]:
-    # If input starts with /model or /m and a model name, set model and strip it out
+    """Parse and handle /model or /m commands in input text.
+
+    If input starts with /model or /m followed by a model name,
+    sets that model as active and returns the remaining text.
+
+    Args:
+        text: The input text to parse
+
+    Returns:
+        Remaining text after stripping command and model, or None if no match
+    """
     content = text.strip()
     model_names = load_model_names()
 
-    # Check for /model command (require space after /model, case-insensitive)
-    if content.lower().startswith("/model "):
-        # Find the actual /model command (case-insensitive)
-        model_cmd = content.split(" ", 1)[0]  # Get the command part
-        rest = content[len(model_cmd) :].strip()  # Remove the actual command
+    # Try /model first (must check before /m since /model starts with /m)
+    result = _process_model_command(text, content, "/model ", model_names)
+    if result is not None:
+        return result
 
-        # Find the best matching model
-        model = _find_matching_model(rest, model_names)
-        if model:
-            # Found a matching model - now extract it properly
-            set_active_model(model)
-
-            # Find the actual model name in the original text (preserving case)
-            # We need to find where the model ends in the original rest string
-            model_end_idx = len(model)
-
-            # Build the full command+model part to remove
-            cmd_and_model_pattern = model_cmd + " " + rest[:model_end_idx]
-            idx = text.find(cmd_and_model_pattern)
-            if idx != -1:
-                new_text = (
-                    text[:idx] + text[idx + len(cmd_and_model_pattern) :]
-                ).strip()
-                return new_text
-            return None
-
-    # Check for /m command (case-insensitive)
-    elif content.lower().startswith("/m ") and not content.lower().startswith(
-        "/model "
-    ):
-        # Find the actual /m command (case-insensitive)
-        m_cmd = content.split(" ", 1)[0]  # Get the command part
-        rest = content[len(m_cmd) :].strip()  # Remove the actual command
-
-        # Find the best matching model
-        model = _find_matching_model(rest, model_names)
-        if model:
-            # Found a matching model - now extract it properly
-            set_active_model(model)
-
-            # Find the actual model name in the original text (preserving case)
-            # We need to find where the model ends in the original rest string
-            model_end_idx = len(model)
-
-            # Build the full command+model part to remove
-            # Handle space variations in the original text
-            cmd_and_model_pattern = m_cmd + " " + rest[:model_end_idx]
-            idx = text.find(cmd_and_model_pattern)
-            if idx != -1:
-                new_text = (
-                    text[:idx] + text[idx + len(cmd_and_model_pattern) :]
-                ).strip()
-                return new_text
-            return None
+    # Try /m (but not if it's actually /model)
+    if not content.lower().startswith("/model"):
+        result = _process_model_command(text, content, "/m ", model_names)
+        if result is not None:
+            return result
 
     return None
 
