@@ -1906,7 +1906,6 @@ class BaseAgent(ABC):
                     # Temporarily add MCP servers to the DBOS agent using internal _toolsets
                     original_toolsets = pydantic_agent._toolsets
                     pydantic_agent._toolsets = original_toolsets + self._mcp_servers
-                    pydantic_agent._toolsets = original_toolsets + self._mcp_servers
 
                     try:
                         # Set the workflow ID for DBOS context so DBOS and Code Puppy ID match
