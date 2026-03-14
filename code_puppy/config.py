@@ -1134,7 +1134,7 @@ def get_resume_message_count() -> int:
     try:
         configured_value = int(val) if val else 50
         # Enforce reasonable bounds: minimum 1, maximum 100
-        return max(1, min(configured_value, 100))
+        return max(0, min(configured_value, 100))
     except (ValueError, TypeError):
         return 50
 
