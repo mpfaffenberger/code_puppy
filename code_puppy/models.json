@@ -49,6 +49,16 @@
     "context_length": 256000,
     "supported_settings": ["temperature", "seed", "top_p"]
   },
+  "synthetic-NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4": {
+    "type": "custom_openai",
+    "name": "hf:nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 131072,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  },
   "Gemini-3": {
     "type": "gemini",
     "name": "gemini-3-pro-preview",
@@ -124,6 +134,18 @@
   "zai-glm-5-api": {
     "type": "zai_api",
     "name": "glm-5",
+    "context_length": 200000,
+    "supported_settings": ["temperature", "top_p"]
+  },
+  "zai-glm-5-turbo-coding": {
+    "type": "zai_coding",
+    "name": "glm-5-turbo",
+    "context_length": 200000,
+    "supported_settings": ["temperature", "top_p"]
+  },
+  "zai-glm-5-turbo-api": {
+    "type": "zai_api",
+    "name": "glm-5-turbo",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   }

@@ -15,10 +15,10 @@ import json
 import os
 import traceback
 import warnings
-from typing import Any, Dict, List, Union
+from typing import Annotated, Any, Dict, List, Union
 
 import json_repair
-from pydantic import BaseModel
+from pydantic import BaseModel, WithJsonSchema
 from pydantic_ai import RunContext
 
 from code_puppy.callbacks import on_delete_file, on_edit_file
@@ -796,6 +796,24 @@ def register_create_file(agent):
         return result
 
 
+# Inline JSON schema for Replacement objects — avoids $defs/$ref that many
+# LLM providers misinterpret, causing frequent validation errors and
+# fallback to full-file rewrites.  See _sanitize_schema_for_gemini and
+# _inline_refs in the antigravity plugin for prior art.
+_REPLACEMENT_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "old_str": {"type": "string"},
+        "new_str": {"type": "string"},
+    },
+    "required": ["old_str", "new_str"],
+}
+
+# Type alias used by the tool signature.  The Annotated + WithJsonSchema
+# tells Pydantic to emit _REPLACEMENT_ITEM_SCHEMA inline instead of a $ref.
+InlineReplacement = Annotated[Dict[str, str], WithJsonSchema(_REPLACEMENT_ITEM_SCHEMA)]
+
+
 def register_replace_in_file(agent):
     """Register the replace_in_file tool for targeted text replacements."""
 
@@ -803,7 +821,7 @@ def register_replace_in_file(agent):
     def replace_in_file(
         context: RunContext,
         file_path: str = "",
-        replacements: List[Replacement] = [],
+        replacements: List[InlineReplacement] = [],
     ) -> Dict[str, Any]:
         """Apply targeted text replacements to an existing file.
 
@@ -811,8 +829,9 @@ def register_replace_in_file(agent):
         Replacements are applied sequentially. Prefer this over full file rewrites.
         """
         group_id = generate_group_id("replace_in_file", file_path)
+        # replacements arrive as plain dicts — pass them straight through
         replacements_dict = [
-            {"old_str": rep.old_str, "new_str": rep.new_str} for rep in replacements
+            {"old_str": r["old_str"], "new_str": r["new_str"]} for r in replacements
         ]
         result = _replace_in_file_helper(
             context, file_path, replacements_dict, message_group=group_id
@@ -821,7 +840,13 @@ def register_replace_in_file(agent):
             del result["diff"]
 
         # Trigger legacy edit_file callbacks for backward compatibility
-        payload = ReplacementsPayload(file_path=file_path, replacements=replacements)
+        payload = ReplacementsPayload(
+            file_path=file_path,
+            replacements=[
+                Replacement(old_str=r["old_str"], new_str=r["new_str"])
+                for r in replacements
+            ],
+        )
         enhanced_results = on_edit_file(context, result, payload)
         if enhanced_results:
             for enhanced_result in enhanced_results:
