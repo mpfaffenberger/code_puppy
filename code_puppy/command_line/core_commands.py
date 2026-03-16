@@ -77,20 +77,22 @@ def handle_cd_command(command: str) -> bool:
         if os.path.isdir(target):
             os.chdir(target)
             emit_success(f"Changed directory to: {target}")
-            # Reload the agent so the system prompt and project-local
-            # AGENT.md rules reflect the new working directory.  Without
-            # this, the LLM keeps receiving stale path information for the
-            # remainder of the session (the PydanticAgent instructions are
-            # baked in at construction time and never refreshed otherwise).
+            
+            # Reload the agent to pick up new working directory context
+            # This ensures AGENTS.md is re-read and system prompt is updated
             try:
                 from code_puppy.agents.agent_manager import get_current_agent
-
-                get_current_agent().reload_code_generation_agent()
+                
+                current_agent = get_current_agent()
+                if current_agent:
+                    # Clear cached puppy rules so AGENTS.md is re-read from new directory
+                    current_agent._puppy_rules = None
+                    # Reload agent to rebuild system prompt with new working directory
+                    current_agent.reload_code_generation_agent()
+                    emit_info("Agent context updated for new directory")
             except Exception as e:
-                emit_warning(
-                    f"Directory changed, but agent reload failed: {e}. "
-                    "You may need to run /agent or /model to force a refresh."
-                )
+                # Non-fatal: directory change succeeded even if reload failed
+                emit_error(f"Warning: Could not reload agent context: {e}")
         else:
             emit_error(f"Not a directory: {dirname}")
         return True
