@@ -9,16 +9,25 @@
 import asyncio
 import os
 import sys
-from typing import Optional
+from dataclasses import dataclass
+from typing import Literal, Optional
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import Completer, Completion, merge_completers
-from prompt_toolkit.filters import is_searching
+from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.completion import (
+    Completer,
+    Completion,
+    ConditionalCompleter,
+    merge_completers,
+)
+from prompt_toolkit.document import Document
+from prompt_toolkit.filters import Condition, is_searching
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout.processors import Processor, Transformation
+from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.styles import Style
 
 from code_puppy.command_line.attachments import (
@@ -33,6 +42,10 @@ from code_puppy.command_line.clipboard import (
 )
 from code_puppy.command_line.command_registry import get_unique_commands
 from code_puppy.command_line.file_path_completion import FilePathCompleter
+from code_puppy.command_line.interactive_runtime import (
+    PromptRuntimeState,
+    get_active_interactive_runtime,
+)
 from code_puppy.command_line.load_context_completion import LoadContextCompleter
 from code_puppy.command_line.mcp_completion import MCPCompleter
 from code_puppy.command_line.model_picker_completion import (
@@ -42,12 +55,117 @@ from code_puppy.command_line.model_picker_completion import (
 from code_puppy.command_line.pin_command_completion import PinCompleter, UnpinCompleter
 from code_puppy.command_line.skills_completion import SkillsCompleter
 from code_puppy.command_line.utils import list_directory
-from code_puppy.config import (
-    COMMAND_HISTORY_FILE,
-    get_config_keys,
-    get_puppy_name,
-    get_value,
-)
+from code_puppy.config import COMMAND_HISTORY_FILE, get_config_keys, get_puppy_name, get_value
+from code_puppy.messaging.spinner.spinner_base import SpinnerBase
+
+
+@dataclass(frozen=True)
+class PromptSubmission:
+    action: Literal["submit", "queue", "interject"]
+    text: str
+    echo_in_transcript: bool = False
+    allow_command_dispatch: bool = True
+
+
+def _get_runtime() -> PromptRuntimeState | None:
+    return get_active_interactive_runtime()
+
+
+def register_active_prompt_surface(
+    kind: Literal["main", "interject"], session: PromptSession
+) -> None:
+    runtime = _get_runtime()
+    if runtime is None:
+        return
+    runtime.register_prompt_surface(session, kind="main")
+
+
+def clear_active_prompt_surface(session: PromptSession | None = None) -> None:
+    runtime = _get_runtime()
+    if runtime is None:
+        return
+    runtime.clear_prompt_surface(session)
+
+
+def get_active_prompt_surface_kind() -> Literal["main", "interject"] | None:
+    runtime = _get_runtime()
+    if runtime is None:
+        return None
+    if runtime.prompt_surface_kind == "main":
+        return "main"
+    return None
+
+
+def has_active_prompt_surface() -> bool:
+    runtime = _get_runtime()
+    return runtime.has_prompt_surface() if runtime is not None else False
+
+
+def is_shell_prompt_suspended() -> bool:
+    runtime = _get_runtime()
+    return runtime.has_active_shell() if runtime is not None else False
+
+
+def set_shell_prompt_suspended(suspended: bool) -> None:
+    """Compatibility shim for tests that now maps to shell-active state."""
+    runtime = _get_runtime()
+    if runtime is None:
+        return
+    if suspended:
+        if not runtime.has_active_shell():
+            runtime.notify_shell_started()
+        return
+    while runtime.has_active_shell():
+        runtime.notify_shell_finished()
+
+
+def _interrupt_shell_from_prompt(label: str) -> None:
+    from code_puppy.messaging import emit_warning
+    from code_puppy.tools.command_runner import kill_all_running_shell_processes
+
+    emit_warning(f"\n🛑 {label} detected! Interrupting shell command...")
+    kill_all_running_shell_processes()
+
+def _truncate_queue_line(text: str, max_len: int) -> str:
+    if max_len <= 2:
+        return ".."
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 2] + ".."
+
+
+def _get_queue_preview(
+    prompts: list[str], term_width: int, max_visible: int = 3
+) -> tuple[list[str], int]:
+    """Return visible queue lines and hidden count from current offset."""
+    runtime = _get_runtime()
+    queue_offset = runtime.queue_view_offset if runtime is not None else 0
+    if not prompts:
+        if runtime is not None:
+            runtime.queue_view_offset = 0
+        return [], 0
+
+    max_start = max(0, len(prompts) - max_visible)
+    queue_offset = max(0, min(queue_offset, max_start))
+    if runtime is not None:
+        runtime.queue_view_offset = queue_offset
+    start = queue_offset
+    visible = prompts[start : start + max_visible]
+    lines: list[str] = []
+    line_room = max(8, term_width - 8)
+    for idx, prompt in enumerate(visible, start=start + 1):
+        lines.append(f"  [{idx}] {_truncate_queue_line(prompt, line_room)}")
+    hidden = max(0, len(prompts) - (start + len(visible)))
+    return lines, hidden
+
+
+def _is_exit_text(text: str) -> bool:
+    return text.strip().lower() in {"exit", "quit", "/exit", "/quit"}
+
+
+def _allows_busy_command_dispatch(text: str) -> bool:
+    stripped = text.strip()
+    return not stripped.startswith("/") or _is_exit_text(stripped)
 
 
 def _sanitize_for_encoding(text: str) -> str:
@@ -175,6 +293,10 @@ class AttachmentPlaceholderProcessor(Processor):
     _MAX_TEXT_LENGTH_FOR_REALTIME = 500
 
     def apply_transformation(self, transformation_input):
+        runtime = _get_runtime()
+        if runtime is not None and runtime.has_pending_submission():
+            return Transformation(list(transformation_input.fragments))
+
         document = transformation_input.document
         text = document.text
         if not text:
@@ -512,11 +634,61 @@ class SlashCompleter(Completer):
             )
 
 
-def get_prompt_with_active_model(base: str = ">>> "):
+def get_prompt_with_active_model(base: str = ">>> ", is_interject: bool = False):
+    return FormattedText(
+        _build_prompt_parts(
+            is_interject=is_interject,
+            include_queue_preview=True,
+            include_pending_hint=True,
+        )
+    )
+
+
+def _build_prompt_style() -> Style:
+    return Style.from_dict(
+        {
+            # Keys must AVOID the 'class:' prefix – that prefix is used only when
+            # tagging tokens in `FormattedText`. See prompt_toolkit docs.
+            "puppy": "bold ansibrightcyan",
+            "owner": "bold ansibrightblue",
+            "agent": "bold ansibrightblue",
+            "model": "bold ansibrightcyan",
+            "cwd": "bold ansibrightgreen",
+            "arrow": "bold ansibrightcyan",
+            "separator": "bold ansigray",
+            "attachment-placeholder": "italic ansicyan",
+            "queue-item": "italic ansiyellow",
+            "thinking": "bold ansibrightcyan",
+            "thinking-context": "bold white",
+        }
+    )
+
+
+def _build_prompt_status_parts(runtime: PromptRuntimeState) -> list[tuple[str, str]]:
+    """Build the lightweight thinking line shown above the prompt separator."""
+    parts: list[tuple[str, str]] = [
+        ("class:thinking", f"{get_puppy_name().title()} is thinking... "),
+        ("class:thinking", runtime.get_prompt_status_frame()),
+    ]
+    context_info = SpinnerBase.get_context_info()
+    if context_info:
+        parts.append(("", " "))
+        parts.append(("class:thinking-context", context_info))
+    parts.append(("", "\n"))
+    return parts
+
+
+def _build_prompt_parts(
+    *,
+    is_interject: bool,
+    include_queue_preview: bool,
+    include_pending_hint: bool,
+) -> list[tuple[str, str]]:
     from code_puppy.agents.agent_manager import get_current_agent
 
     puppy = get_puppy_name()
     global_model = get_active_model() or "(default)"
+    runtime = _get_runtime()
 
     # Get current agent information
     current_agent = get_current_agent()
@@ -544,50 +716,268 @@ def get_prompt_with_active_model(base: str = ">>> "):
         cwd_display = "~" + cwd[len(home) :]
     else:
         cwd_display = cwd
-    return FormattedText(
-        [
-            ("bold", "🐶 "),
-            ("class:puppy", f"{puppy}"),
-            ("", " "),
-            ("class:agent", f"[{agent_display}] "),
-            ("class:model", model_display + " "),
-            ("class:cwd", "(" + str(cwd_display) + ") "),
-            ("class:arrow", str(base)),
-        ]
+
+    # We add a visual top border using terminal width
+    import shutil
+
+    term_width = shutil.get_terminal_size().columns
+    sep_line = "─" * term_width
+
+    parts = [("", "\n")]
+
+    if runtime is not None and runtime.running:
+        parts.extend(_build_prompt_status_parts(runtime))
+
+    parts.append(("class:separator", f"{sep_line}\n"))
+
+    queue_preview = runtime.queue_preview_texts() if runtime is not None else []
+    if include_queue_preview and queue_preview:
+        preview_lines, hidden = _get_queue_preview(queue_preview, term_width=term_width)
+        for line in preview_lines:
+            parts.append(("class:queue-item", f"{line}\n"))
+        if hidden:
+            parts.append(("class:queue-item", f"  ... and {hidden} more\n"))
+
+    parts.extend([
+        ("class:separator", "╭─ "),
+        ("bold", "🐶 "),
+        ("class:puppy", f"{puppy}"),
+        ("", " "),
+        ("class:agent", f"[{agent_display}] "),
+        ("class:model", model_display + " "),
+        ("class:cwd", "(" + str(cwd_display) + ") \n"),
+    ])
+
+    if include_pending_hint and (
+        is_interject or (runtime is not None and runtime.has_pending_submission())
+    ):
+        # Add hint above the prompt line to keep the cursor position consistent
+        parts.append(
+            (
+                "class:queue-item",
+                "  [i]nterject [q]ueue [e]dit [esc]ape\n",
+            )
+        )
+
+    parts.extend([
+        ("class:separator", "╰─"),
+        ("class:arrow", "❯ "),
+    ])
+
+    return parts
+
+
+def render_submitted_prompt_echo(text: str) -> None:
+    """Print a submitted prompt using the same prompt chrome as the composer."""
+    echo_text = text.rstrip("\n")
+    if not echo_text:
+        return
+
+    parts = _build_prompt_parts(
+        is_interject=False,
+        include_queue_preview=False,
+        include_pending_hint=False,
     )
+    parts.append(("", echo_text))
+    parts.append(("", "\n"))
+    formatted = FormattedText(parts)
+    style = _build_prompt_style()
+    runtime = _get_runtime()
+
+    def _print_echo() -> None:
+        from prompt_toolkit.output.defaults import create_output
+
+        out = create_output(stdout=sys.__stdout__)
+        if hasattr(out, "enable_cpr"):
+            out.enable_cpr = False
+        print_formatted_text(formatted, style=style, output=out)
+
+    if (
+        runtime is not None
+        and runtime.has_prompt_surface()
+        and not runtime.is_rendering_above_prompt()
+    ):
+        try:
+            if runtime.run_above_prompt(_print_echo):
+                return
+        except Exception:
+            pass
+
+    _print_echo()
 
 
-async def get_input_with_combined_completion(
-    prompt_str=">>> ", history_file: Optional[str] = None
-) -> str:
+def render_transcript_notice(text: str) -> None:
+    """Print a plain transcript line above the composer without prompt chrome."""
+    notice_text = text.rstrip("\n")
+    if not notice_text:
+        return
+
+    formatted = FormattedText([("", notice_text), ("", "\n")])
+    runtime = _get_runtime()
+
+    def _print_notice() -> None:
+        from prompt_toolkit.output.defaults import create_output
+
+        out = create_output(stdout=sys.__stdout__)
+        if hasattr(out, "enable_cpr"):
+            out.enable_cpr = False
+        print_formatted_text(formatted, output=out)
+
+    if (
+        runtime is not None
+        and runtime.has_prompt_surface()
+        and not runtime.is_rendering_above_prompt()
+    ):
+        try:
+            if runtime.run_above_prompt(_print_notice):
+                return
+        except Exception:
+            pass
+
+    _print_notice()
+
+
+async def prompt_for_submission(
+    prompt_str=">>> ", history_file: Optional[str] = None, erase_when_done: bool = False
+) -> PromptSubmission:
     # Use SafeFileHistory to handle encoding errors gracefully on Windows
     history = SafeFileHistory(history_file) if history_file else None
-    completer = merge_completers(
-        [
-            FilePathCompleter(symbol="@"),
-            ModelNameCompleter(trigger="/model"),
-            ModelNameCompleter(trigger="/m"),
-            CDCompleter(trigger="/cd"),
-            SetCompleter(trigger="/set"),
-            LoadContextCompleter(trigger="/load_context"),
-            PinCompleter(trigger="/pin_model"),
-            UnpinCompleter(trigger="/unpin"),
-            AgentCompleter(trigger="/agent"),
-            AgentCompleter(trigger="/a"),
-            MCPCompleter(trigger="/mcp"),
-            SkillsCompleter(trigger="/skills"),
-            SlashCompleter(),
-        ]
-    )
+    runtime = _get_runtime()
     # Add custom key bindings and multiline toggle
     bindings = KeyBindings()
+    recalled_queue_item = {"item": None}
+    recalled_queue_allow_command_dispatch = {"value": True}
+    pending_decision_filter = Condition(
+        lambda: runtime is not None and runtime.has_pending_submission()
+    )
+    shell_active_filter = Condition(
+        lambda: runtime is not None and runtime.has_active_shell()
+    )
+    busy_run_filter = Condition(lambda: runtime is not None and runtime.running)
+    command_completion_filter = Condition(
+        lambda: runtime is None
+        or not (runtime.running or runtime.has_pending_submission())
+    )
+    attachment_completion_filter = Condition(
+        lambda: runtime is None or not runtime.has_pending_submission()
+    )
+
+    completer = merge_completers(
+        [
+            ConditionalCompleter(
+                FilePathCompleter(symbol="@"),
+                filter=attachment_completion_filter,
+            ),
+            ConditionalCompleter(
+                ModelNameCompleter(trigger="/model"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                ModelNameCompleter(trigger="/m"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                CDCompleter(trigger="/cd"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                SetCompleter(trigger="/set"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                LoadContextCompleter(trigger="/load_context"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                PinCompleter(trigger="/pin_model"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                UnpinCompleter(trigger="/unpin"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                AgentCompleter(trigger="/agent"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                AgentCompleter(trigger="/a"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                MCPCompleter(trigger="/mcp"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                SkillsCompleter(trigger="/skills"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                SlashCompleter(),
+                filter=command_completion_filter,
+            ),
+        ]
+    )
 
     # Multiline mode state
     multiline = {"enabled": False}
 
-    # Ctrl+X keybinding - exit with KeyboardInterrupt for shell command cancellation
+    def awaiting_decision() -> bool:
+        return runtime is not None and runtime.has_pending_submission()
+
+    def clear_chooser_input(event) -> None:
+        try:
+            event.app.current_buffer.reset()
+        except Exception:
+            pass
+
+    def restore_pending_submission_to_buffer(event) -> None:
+        if runtime is None:
+            return
+
+        text = runtime.take_pending_submission() or ""
+        try:
+            event.app.current_buffer.document = Document(
+                text=text,
+                cursor_position=len(text),
+            )
+        except Exception:
+            try:
+                event.app.current_buffer.text = text
+            except Exception:
+                pass
+
+    def recall_next_paused_queue_to_buffer(event) -> bool:
+        if runtime is None:
+            return False
+        if runtime.running or runtime.has_pending_submission():
+            return False
+        if not runtime.is_queue_autodrain_suppressed():
+            return False
+        if not runtime.queue:
+            return False
+
+        item = runtime.queue[0]
+        recalled_queue_item["item"] = item
+        recalled_queue_allow_command_dispatch["value"] = item.allow_command_dispatch
+        try:
+            event.app.current_buffer.document = Document(
+                text=item.text,
+                cursor_position=len(item.text),
+            )
+        except Exception:
+            try:
+                event.app.current_buffer.text = item.text
+            except Exception:
+                return False
+        return True
+
+    # Ctrl+X keybinding - exit with KeyboardInterrupt for input cancellation
     @bindings.add(Keys.ControlX)
     def _(event):
+        if runtime is not None and runtime.has_active_shell():
+            _interrupt_shell_from_prompt("Ctrl-X")
+            return
         try:
             event.app.exit(exception=KeyboardInterrupt)
         except Exception:
@@ -595,23 +985,103 @@ async def get_input_with_combined_completion(
             # This happens when user presses multiple exit keys in quick succession
             pass
 
+    @bindings.add("c-c", filter=busy_run_filter, eager=True)
+    def _(event):
+        if runtime is not None and runtime.has_active_shell():
+            _interrupt_shell_from_prompt("Ctrl-C")
+            runtime.suppress_queue_autodrain()
+            runtime.set_pending_submission(None)
+            clear_chooser_input(event)
+            return
+        if runtime is not None:
+            runtime.set_pending_submission(None)
+            clear_chooser_input(event)
+            if runtime.request_active_cancel("ctrl_c"):
+                return
+        try:
+            event.app.exit(exception=KeyboardInterrupt)
+        except Exception:
+            pass
+
+    configured_cancel_key = str(get_value("cancel_agent_key") or "ctrl+c").lower()
+    configured_binding = {"ctrl+k": "c-k", "ctrl+q": "c-q"}.get(configured_cancel_key)
+    if configured_binding is not None:
+
+        @bindings.add(configured_binding, filter=busy_run_filter, eager=True)
+        def _(event):
+            if runtime is not None and runtime.has_active_shell():
+                _interrupt_shell_from_prompt(configured_cancel_key.upper())
+                runtime.suppress_queue_autodrain()
+                runtime.set_pending_submission(None)
+                clear_chooser_input(event)
+                return
+            if runtime is not None:
+                runtime.set_pending_submission(None)
+                clear_chooser_input(event)
+                if runtime.request_active_cancel(configured_cancel_key):
+                    return
+            try:
+                event.app.exit(exception=KeyboardInterrupt)
+            except Exception:
+                pass
+
     # Escape keybinding - exit with KeyboardInterrupt
     @bindings.add(Keys.Escape)
     def _(event):
+        if awaiting_decision():
+            runtime.set_pending_submission(None)
+            clear_chooser_input(event)
+            return
+        if runtime is not None and runtime.has_active_shell():
+            return
         try:
             event.app.exit(exception=KeyboardInterrupt)
         except Exception:
             # Ignore "Return value already set" errors when exit was already called
             pass
 
-    # NOTE: We intentionally do NOT override Ctrl+C here.
-    # prompt_toolkit's default Ctrl+C handler properly resets the terminal state on Windows.
-    # Overriding it with event.app.exit(exception=KeyboardInterrupt) can leave the terminal
-    # in a bad state where characters cannot be typed. Let prompt_toolkit handle Ctrl+C natively.
+    # Idle Ctrl+C is still left to prompt_toolkit.
+    # We only intercept it while work is actively running so busy-state cancel stays local
+    # to the interactive runtime instead of tearing down the terminal session.
+
+    @bindings.add("i", filter=pending_decision_filter, eager=True)
+    @bindings.add("I", filter=pending_decision_filter, eager=True)
+    def _(event):
+        text, allow_command_dispatch = runtime.take_pending_submission_with_policy()
+        clear_chooser_input(event)
+        event.app.exit(
+            result=PromptSubmission(
+                action="interject",
+                text=text or "",
+                allow_command_dispatch=allow_command_dispatch,
+            )
+        )
+
+    @bindings.add("q", filter=pending_decision_filter, eager=True)
+    @bindings.add("Q", filter=pending_decision_filter, eager=True)
+    def _(event):
+        text, allow_command_dispatch = runtime.take_pending_submission_with_policy()
+        clear_chooser_input(event)
+        event.app.exit(
+            result=PromptSubmission(
+                action="queue",
+                text=text or "",
+                allow_command_dispatch=allow_command_dispatch,
+            )
+        )
+
+    @bindings.add("e", filter=pending_decision_filter, eager=True)
+    @bindings.add("E", filter=pending_decision_filter, eager=True)
+    @bindings.add("up", filter=pending_decision_filter, eager=True)
+    def _(event):
+        clear_chooser_input(event)
+        restore_pending_submission_to_buffer(event)
 
     # Toggle multiline with Alt+M
     @bindings.add(Keys.Escape, "m")
     def _(event):
+        if awaiting_decision():
+            return
         multiline["enabled"] = not multiline["enabled"]
         status = "ON" if multiline["enabled"] else "OFF"
         # Print status for user feedback (version-agnostic)
@@ -622,6 +1092,8 @@ async def get_input_with_combined_completion(
     # Also toggle multiline with F2 (more reliable across platforms)
     @bindings.add("f2")
     def _(event):
+        if awaiting_decision():
+            return
         multiline["enabled"] = not multiline["enabled"]
         status = "ON" if multiline["enabled"] else "OFF"
         sys.stdout.write(f"[multiline] {status}\n")
@@ -631,6 +1103,8 @@ async def get_input_with_combined_completion(
     # Ctrl+J (line feed) works in virtually all terminals; mark eager so it wins
     @bindings.add("c-j", eager=True)
     def _(event):
+        if awaiting_decision():
+            return
         event.app.current_buffer.insert_text("\n")
 
     # Also allow Ctrl+Enter for newline (terminal-dependent)
@@ -638,6 +1112,8 @@ async def get_input_with_combined_completion(
 
         @bindings.add("c-enter", eager=True)
         def _(event):
+            if awaiting_decision():
+                return
             event.app.current_buffer.insert_text("\n")
     except Exception:
         pass
@@ -645,6 +1121,34 @@ async def get_input_with_combined_completion(
     # Enter behavior depends on multiline mode
     @bindings.add("enter", filter=~is_searching, eager=True)
     def _(event):
+        if awaiting_decision():
+            choice = event.app.current_buffer.text.strip()
+            if _is_exit_text(choice):
+                runtime.set_pending_submission(None)
+                clear_chooser_input(event)
+                event.app.exit(
+                    result=PromptSubmission(
+                        action="submit",
+                        text=choice,
+                        allow_command_dispatch=True,
+                    )
+                )
+            return
+        text = event.app.current_buffer.text
+        if not text.strip() and recall_next_paused_queue_to_buffer(event):
+            return
+        if (
+            runtime is not None
+            and runtime.running
+            and text.strip()
+            and not _is_exit_text(text)
+        ):
+            runtime.set_pending_submission(
+                text,
+                allow_command_dispatch=_allows_busy_command_dispatch(text),
+            )
+            clear_chooser_input(event)
+            return
         if multiline["enabled"]:
             event.app.current_buffer.insert_text("\n")
         else:
@@ -656,23 +1160,39 @@ async def get_input_with_combined_completion(
     @bindings.add("c-h", eager=True)  # Backspace (Ctrl+H)
     @bindings.add("backspace", eager=True)
     def handle_backspace_with_completion(event):
+        if awaiting_decision():
+            return
         buffer = event.app.current_buffer
         # Perform the deletion first
         buffer.delete_before_cursor(count=1)
         # Then trigger completion if text starts with '/'
         text = buffer.text.lstrip()
-        if text.startswith("/"):
+        if text.startswith("/") and command_completion_filter():
             buffer.start_completion(select_first=False)
 
     @bindings.add("delete", eager=True)
     def handle_delete_with_completion(event):
+        if awaiting_decision():
+            return
         buffer = event.app.current_buffer
         # Perform the deletion first
         buffer.delete(count=1)
         # Then trigger completion if text starts with '/'
         text = buffer.text.lstrip()
-        if text.startswith("/"):
+        if text.startswith("/") and command_completion_filter():
             buffer.start_completion(select_first=False)
+
+    @bindings.add("c-up", eager=True)
+    def handle_queue_scroll_up(event):
+        if runtime is None or len(runtime.queue) <= 3:
+            return
+        runtime.shift_queue_view_offset(-1)
+
+    @bindings.add("c-down", eager=True)
+    def handle_queue_scroll_down(event):
+        if runtime is None or len(runtime.queue) <= 3:
+            return
+        runtime.shift_queue_view_offset(1)
 
     # Handle bracketed paste - smart detection for text vs images.
     # Most terminals (Windows included!) send Ctrl+V through bracketed paste.
@@ -681,6 +1201,8 @@ async def get_input_with_combined_completion(
     @bindings.add(Keys.BracketedPaste)
     def handle_bracketed_paste(event):
         """Handle bracketed paste - smart text vs image detection."""
+        if awaiting_decision():
+            return
         pasted_data = event.data
 
         # If we have meaningful text content, paste it (don't check for images)
@@ -711,6 +1233,8 @@ async def get_input_with_combined_completion(
     @bindings.add("c-v", eager=True)
     def handle_smart_paste(event):
         """Handle Ctrl+V - auto-detect image vs text in clipboard."""
+        if awaiting_decision():
+            return
         try:
             # Check for image first
             if has_image_in_clipboard():
@@ -778,6 +1302,8 @@ async def get_input_with_combined_completion(
     @bindings.add("f3")
     def handle_image_paste_f3(event):
         """Handle F3 - paste image from clipboard (image-only, shows error if none)."""
+        if awaiting_decision():
+            return
         try:
             if has_image_in_clipboard():
                 placeholder = capture_clipboard_image_to_pending()
@@ -794,37 +1320,92 @@ async def get_input_with_combined_completion(
             event.app.current_buffer.insert_text("[❌ clipboard error] ")
             event.app.output.bell()
 
+    from prompt_toolkit.output.defaults import create_output
+
+    out = create_output(stdout=sys.stdout)
+    if hasattr(out, "enable_cpr"):
+        out.enable_cpr = False
     session = PromptSession(
         completer=completer,
         history=history,
         complete_while_typing=True,
         key_bindings=bindings,
         input_processors=[AttachmentPlaceholderProcessor()],
+        output=out,
+        erase_when_done=erase_when_done,
     )
+    # Keep the chooser truly modal: while a pending submission exists, only the
+    # explicit chooser bindings should work and the buffer should reject edits.
+    session.default_buffer.read_only = pending_decision_filter
     # If they pass a string, backward-compat: convert it to formatted_text
     if isinstance(prompt_str, str):
         from prompt_toolkit.formatted_text import FormattedText
 
         prompt_str = FormattedText([(None, prompt_str)])
-    style = Style.from_dict(
-        {
-            # Keys must AVOID the 'class:' prefix – that prefix is used only when
-            # tagging tokens in `FormattedText`. See prompt_toolkit docs.
-            "puppy": "bold ansibrightcyan",
-            "owner": "bold ansibrightblue",
-            "agent": "bold ansibrightblue",
-            "model": "bold ansibrightcyan",
-            "cwd": "bold ansibrightgreen",
-            "arrow": "bold ansibrightblue",
-            "attachment-placeholder": "italic ansicyan",
-        }
-    )
-    text = await session.prompt_async(prompt_str, style=style)
+    style = _build_prompt_style()
+    register_active_prompt_surface("main", session)
+    try:
+        with patch_stdout():
+            result = await session.prompt_async(prompt_str, style=style)
+    except (KeyboardInterrupt, EOFError):
+        if runtime is not None:
+            runtime.set_pending_submission(None)
+        raise
+    finally:
+        clear_active_prompt_surface(session)
+    if isinstance(result, PromptSubmission):
+        return PromptSubmission(
+            action=result.action,
+            text=result.text,
+            echo_in_transcript=erase_when_done,
+            allow_command_dispatch=result.allow_command_dispatch,
+        )
+    allow_command_dispatch = True
+    recalled_item = recalled_queue_item["item"]
+    if recalled_item is not None:
+        allow_command_dispatch = recalled_queue_allow_command_dispatch["value"]
+        if (
+            runtime is not None
+            and result.strip()
+            and runtime.queue
+            and runtime.queue[0] is recalled_item
+        ):
+            runtime.dequeue()
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running
     # and emitting success messages. Now we let all /model commands fall through to
     # the command handler in main.py for consistent handling.
-    return text
+    return PromptSubmission(
+        action="submit",
+        text=result,
+        echo_in_transcript=erase_when_done,
+        allow_command_dispatch=allow_command_dispatch,
+    )
+
+
+async def get_input_with_combined_completion(
+    prompt_str=">>> ", history_file: Optional[str] = None, erase_when_done: bool = False
+) -> str:
+    submission = await prompt_for_submission(
+        prompt_str=prompt_str,
+        history_file=history_file,
+        erase_when_done=erase_when_done,
+    )
+    return submission.text
+
+
+async def get_interject_action() -> str:
+    """Compatibility shim for tests; interactive_mode no longer uses this."""
+    submission = await prompt_for_submission(
+        prompt_str=lambda: get_prompt_with_active_model(is_interject=True),
+        erase_when_done=True,
+    )
+    if submission.action == "interject":
+        return "i"
+    if submission.action == "queue":
+        return "q"
+    return ""
+
 
 
 if __name__ == "__main__":

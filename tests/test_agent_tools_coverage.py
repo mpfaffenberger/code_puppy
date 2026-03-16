@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from code_puppy.messaging.messages import AgentListMessage, MessageLevel, TextMessage
 from code_puppy.tools.agent_tools import (
     AgentInfo,
     AgentInvokeOutput,
@@ -278,18 +279,9 @@ class TestRegisterListAgentsExecution:
         register_list_agents(mock_agent)
         assert registered_func is not None
 
-        # Mock the agent manager functions and config
-        # Note: get_banner_color is imported from code_puppy.config inside the function
+        mock_bus = MagicMock()
         with (
-            patch(
-                "code_puppy.config.get_banner_color",
-                return_value="blue",
-            ),
-            patch("code_puppy.tools.agent_tools.emit_info"),
-            patch(
-                "code_puppy.tools.agent_tools.generate_group_id",
-                return_value="test-group",
-            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus", return_value=mock_bus),
             patch("code_puppy.agents.get_available_agents") as mock_available,
             patch("code_puppy.agents.get_agent_descriptions") as mock_descriptions,
         ):
@@ -314,6 +306,10 @@ class TestRegisterListAgentsExecution:
             agent_names = [a.name for a in result.agents]
             assert "code-reviewer" in agent_names
             assert "qa-expert" in agent_names
+            mock_bus.emit.assert_called_once()
+            emitted = mock_bus.emit.call_args.args[0]
+            assert isinstance(emitted, AgentListMessage)
+            assert emitted.agent_count == 2
 
     def test_list_agents_handles_exception(self):
         """Test that list_agents handles exceptions gracefully."""
@@ -330,18 +326,9 @@ class TestRegisterListAgentsExecution:
         mock_agent.tool = capture_tool
         register_list_agents(mock_agent)
 
-        # Mock to raise an exception
+        mock_bus = MagicMock()
         with (
-            patch(
-                "code_puppy.config.get_banner_color",
-                return_value="blue",
-            ),
-            patch("code_puppy.tools.agent_tools.emit_info"),
-            patch("code_puppy.tools.agent_tools.emit_error") as mock_emit_error,
-            patch(
-                "code_puppy.tools.agent_tools.generate_group_id",
-                return_value="test-group",
-            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus", return_value=mock_bus),
             patch(
                 "code_puppy.agents.get_available_agents",
                 side_effect=RuntimeError("Database connection failed"),
@@ -353,7 +340,11 @@ class TestRegisterListAgentsExecution:
             assert isinstance(result, ListAgentsOutput)
             assert len(result.agents) == 0
             assert "Database connection failed" in result.error
-            assert mock_emit_error.called
+            mock_bus.emit.assert_called_once()
+            emitted = mock_bus.emit.call_args.args[0]
+            assert isinstance(emitted, TextMessage)
+            assert emitted.level == MessageLevel.ERROR
+            assert emitted.text == "Error listing agents: Database connection failed"
 
     def test_list_agents_with_missing_description(self):
         """Test that list_agents handles missing descriptions."""
@@ -370,16 +361,9 @@ class TestRegisterListAgentsExecution:
         mock_agent.tool = capture_tool
         register_list_agents(mock_agent)
 
+        mock_bus = MagicMock()
         with (
-            patch(
-                "code_puppy.config.get_banner_color",
-                return_value="blue",
-            ),
-            patch("code_puppy.tools.agent_tools.emit_info"),
-            patch(
-                "code_puppy.tools.agent_tools.generate_group_id",
-                return_value="test-group",
-            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus", return_value=mock_bus),
             patch("code_puppy.agents.get_available_agents") as mock_available,
             patch("code_puppy.agents.get_agent_descriptions") as mock_descriptions,
         ):
@@ -394,6 +378,10 @@ class TestRegisterListAgentsExecution:
             # Should use default description
             assert len(result.agents) == 1
             assert result.agents[0].description == "No description available"
+            mock_bus.emit.assert_called_once()
+            emitted = mock_bus.emit.call_args.args[0]
+            assert isinstance(emitted, AgentListMessage)
+            assert emitted.agent_count == 1
 
 
 class TestRegisterInvokeAgentExecution:
@@ -709,13 +697,14 @@ class TestSessionIdValidationInInvokeAgent:
             assert "128 characters or less" in result.error
 
 
-class TestListAgentsEmitsBannerAndInfo:
-    """Test that list_agents properly emits banner and info messages."""
+class TestListAgentsStructuredOutput:
+    """Test that list_agents emits structured output for the bus renderer."""
 
-    def test_emits_banner_message(self):
-        """Test that list_agents emits a banner message."""
+    def test_emits_agent_list_message(self):
+        """Test that list_agents emits a structured agent list summary."""
         mock_agent = MagicMock()
         mock_context = MagicMock()
+        mock_bus = MagicMock()
 
         registered_func = None
 
@@ -728,28 +717,18 @@ class TestListAgentsEmitsBannerAndInfo:
         register_list_agents(mock_agent)
 
         with (
-            patch(
-                "code_puppy.config.get_banner_color",
-                return_value="green",
-            ) as mock_banner_color,
-            patch("code_puppy.tools.agent_tools.emit_info") as mock_emit_info,
-            patch(
-                "code_puppy.tools.agent_tools.generate_group_id",
-                return_value="banner-group",
-            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus", return_value=mock_bus),
             patch(
                 "code_puppy.agents.get_available_agents",
-                return_value={},
+                return_value={"python-programmer": "Python Programmer"},
             ),
             patch(
                 "code_puppy.agents.get_agent_descriptions",
-                return_value={},
+                return_value={"python-programmer": "Writes Python"},
             ),
         ):
             registered_func(mock_context)
-
-            # Verify banner color was fetched
-            mock_banner_color.assert_called_once_with("list_agents")
-
-            # Verify emit_info was called (at least for banner)
-            assert mock_emit_info.called
+            mock_bus.emit.assert_called_once()
+            emitted = mock_bus.emit.call_args.args[0]
+            assert isinstance(emitted, AgentListMessage)
+            assert emitted.agent_count == 1

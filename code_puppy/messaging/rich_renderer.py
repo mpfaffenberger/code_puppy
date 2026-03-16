@@ -7,6 +7,8 @@ The renderer is responsible for ALL presentation decisions - the messages contai
 only structured data with no formatting hints.
 """
 
+import sys
+
 from typing import Dict, Optional, Protocol, runtime_checkable
 
 from rich.console import Console
@@ -29,6 +31,7 @@ from .commands import (
     UserInputResponse,
 )
 from .messages import (
+    AgentListMessage,
     AgentReasoningMessage,
     AgentResponseMessage,
     AnyMessage,
@@ -38,6 +41,7 @@ from .messages import (
     FileContentMessage,
     FileListingMessage,
     GrepResultMessage,
+    LegacyQueueMessage,
     MessageLevel,
     SelectionRequest,
     ShellLineMessage,
@@ -54,6 +58,8 @@ from .messages import (
     UserInputRequest,
     VersionCheckMessage,
 )
+from .message_queue import MessageType, UIMessage
+from .renderers import render_legacy_ui_message
 
 # Note: Text and Tree were removed - no longer used in this implementation
 
@@ -172,6 +178,87 @@ class RichConsoleRenderer:
         """
         return is_subagent() and not get_subagent_verbose()
 
+    def _get_prompt_runtime(self):
+        try:
+            from code_puppy.command_line.interactive_runtime import (
+                get_active_interactive_runtime,
+            )
+
+            return get_active_interactive_runtime()
+        except Exception:
+            return None
+
+    def _should_render_agent_response(self) -> bool:
+        """Render final agent responses when the interactive prompt is mounted."""
+        runtime = self._get_prompt_runtime()
+        return runtime.has_prompt_surface() if runtime is not None else False
+
+    def _build_prompt_safe_console(self) -> Console:
+        """Create a console that writes to the real terminal, not patched stdout."""
+        return Console(
+            file=sys.__stdout__,
+            force_terminal=self._console.is_terminal,
+            width=self._console.width,
+            color_system=self._console.color_system,
+            soft_wrap=self._console.soft_wrap,
+            legacy_windows=self._console.legacy_windows,
+        )
+
+    def _should_render_above_prompt(self, message: AnyMessage) -> bool:
+        """Render styled structured output above the live prompt surface."""
+        runtime = self._get_prompt_runtime()
+        if runtime is None or not runtime.has_prompt_surface():
+            return False
+
+        return not isinstance(
+            message,
+            (
+                ConfirmationRequest,
+                SelectionRequest,
+                ShellLineMessage,
+                SpinnerControl,
+                UserInputRequest,
+            ),
+        )
+
+    def _render_message_with_console(
+        self, message: AnyMessage, console: Console
+    ) -> None:
+        """Temporarily swap consoles so direct renderers can reuse their logic."""
+        original_console = self._console
+        self._console = console
+        try:
+            self._do_render_direct(message)
+        finally:
+            self._console = original_console
+
+    def _render_message_above_prompt(self, message: AnyMessage) -> bool:
+        """Render a structured message above the live prompt."""
+        runtime = self._get_prompt_runtime()
+        if runtime is None or not runtime.has_prompt_surface():
+            return False
+
+        console = self._build_prompt_safe_console()
+        return runtime.run_above_prompt(
+            lambda: self._render_message_with_console(message, console)
+        )
+
+    def _render_agent_response_to_console(
+        self, console: Console, msg: AgentResponseMessage
+    ) -> None:
+        """Render the final agent response using the supplied console."""
+        banner = self._format_banner("agent_response", "AGENT RESPONSE")
+        console.print(f"\n{banner}\n")
+
+        if msg.is_markdown:
+            console.print(Markdown(msg.content))
+        else:
+            console.print(msg.content)
+
+    def _render_agent_response_above_prompt(self, msg: AgentResponseMessage) -> bool:
+        """Render above the mounted prompt so Rich markup is not escaped."""
+        return self._render_message_above_prompt(msg)
+
     # =========================================================================
     # Lifecycle (Synchronous - for compatibility with main.py)
     # =========================================================================
@@ -258,12 +345,8 @@ class RichConsoleRenderer:
     # Main Dispatch
     # =========================================================================
 
-    def _do_render(self, message: AnyMessage) -> None:
-        """Synchronously render a message by dispatching to the appropriate handler.
-
-        Note: User input requests are skipped in sync mode as they require async.
-        """
-        # Dispatch based on message type
+    def _do_render_direct(self, message: AnyMessage) -> None:
+        """Synchronously render a message without prompt-surface handoff."""
         if isinstance(message, TextMessage):
             self._render_text(message)
         elif isinstance(message, FileListingMessage):
@@ -283,8 +366,7 @@ class RichConsoleRenderer:
         elif isinstance(message, AgentReasoningMessage):
             self._render_agent_reasoning(message)
         elif isinstance(message, AgentResponseMessage):
-            # Skip rendering - we now stream agent responses via event_stream_handler
-            pass
+            self._render_agent_response(message)
         elif isinstance(message, SubAgentInvocationMessage):
             self._render_subagent_invocation(message)
         elif isinstance(message, SubAgentResponseMessage):
@@ -309,6 +391,10 @@ class RichConsoleRenderer:
             self._render_status_panel(message)
         elif isinstance(message, VersionCheckMessage):
             self._render_version_check(message)
+        elif isinstance(message, AgentListMessage):
+            self._render_agent_list(message)
+        elif isinstance(message, LegacyQueueMessage):
+            self._render_legacy_queue_message(message)
         elif isinstance(message, SkillListMessage):
             self._render_skill_list(message)
         elif isinstance(message, SkillActivateMessage):
@@ -316,6 +402,17 @@ class RichConsoleRenderer:
         else:
             # Unknown message type - render as debug
             self._console.print(f"[dim]Unknown message: {type(message).__name__}[/dim]")
+
+    def _do_render(self, message: AnyMessage) -> None:
+        """Synchronously render a message by dispatching to the appropriate handler.
+
+        Note: User input requests are skipped in sync mode as they require async.
+        """
+        if self._should_render_above_prompt(message):
+            if self._render_message_above_prompt(message):
+                return
+
+        self._do_render_direct(message)
 
     async def render(self, message: AnyMessage) -> None:
         """Render a message asynchronously (supports user input requests)."""
@@ -351,6 +448,27 @@ class RichConsoleRenderer:
         # Escape Rich markup to prevent crashes from malformed tags
         safe_text = escape_rich_markup(msg.text)
         self._console.print(f"{prefix}{safe_text}", style=style)
+
+    def _render_legacy_queue_message(self, msg: LegacyQueueMessage) -> None:
+        """Render wrapped legacy queue output with old semantics."""
+        try:
+            legacy_type = MessageType(msg.legacy_type)
+        except ValueError:
+            legacy_type = MessageType.DEBUG
+
+        legacy_message = UIMessage(
+            type=legacy_type,
+            content=msg.content,
+            metadata=dict(msg.legacy_metadata or {}),
+        )
+        if msg.legacy_timestamp is not None:
+            legacy_message.timestamp = msg.legacy_timestamp
+
+        render_legacy_ui_message(
+            self._console,
+            legacy_message,
+            allow_human_input=False,
+        )
 
     def _get_level_prefix(self, level: MessageLevel) -> str:
         """Get a prefix icon for the message level."""
@@ -693,6 +811,15 @@ class RichConsoleRenderer:
 
         from rich.text import Text
 
+        runtime = self._get_prompt_runtime()
+        if runtime is not None and runtime.has_prompt_surface():
+            if "\r" in msg.line:
+                sys.stdout.write(msg.line)
+            else:
+                sys.stdout.write(msg.line + "\n")
+            sys.stdout.flush()
+            return
+
         # Check if line contains carriage return (progress bar style output)
         if "\r" in msg.line:
             # Bypass Rich entirely - write directly to stdout so terminal interprets \r
@@ -740,16 +867,7 @@ class RichConsoleRenderer:
 
     def _render_agent_response(self, msg: AgentResponseMessage) -> None:
         """Render agent response with header and markdown formatting."""
-        # Header
-        banner = self._format_banner("agent_response", "AGENT RESPONSE")
-        self._console.print(f"\n{banner}\n")
-
-        # Content (markdown or plain)
-        if msg.is_markdown:
-            md = Markdown(msg.content)
-            self._console.print(md)
-        else:
-            self._console.print(msg.content)
+        self._render_agent_response_to_console(self._console, msg)
 
     def _render_subagent_invocation(self, msg: SubAgentInvocationMessage) -> None:
         """Render sub-agent invocation header with nice formatting."""
@@ -1067,6 +1185,20 @@ class RichConsoleRenderer:
             ".dylib": "⚡",
         }
         return icons.get(ext, "📄")
+
+    # =========================================================================
+    # Agent Lists
+    # =========================================================================
+
+    def _render_agent_list(self, msg: AgentListMessage) -> None:
+        """Render the list_agents summary banner."""
+        if self._should_suppress_subagent_output():
+            return
+
+        banner = self._format_banner("list_agents", "LIST AGENTS")
+        self._console.print(
+            f"\n{banner} [dim]Found {msg.agent_count} agent(s).[/dim]"
+        )
 
     # =========================================================================
     # Skills

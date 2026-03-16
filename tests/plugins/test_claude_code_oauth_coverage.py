@@ -539,6 +539,9 @@ class TestHandleCustomCommand:
         assert _handle_custom_command("/x", "unknown") is None
 
     def test_auth(self):
+        from code_puppy.command_line.interactive_command import (
+            BackgroundInteractiveCommand,
+        )
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (
             _handle_custom_command,
         )
@@ -554,16 +557,23 @@ class TestHandleCustomCommand:
             ),
             patch(
                 "code_puppy.plugins.claude_code_oauth.register_callbacks._perform_authentication"
-            ),
+            ) as mock_auth,
             patch(
                 "code_puppy.plugins.claude_code_oauth.register_callbacks.set_model_and_reload_agent"
-            ),
+            ) as mock_set_model,
         ):
-            assert (
-                _handle_custom_command("/claude-code-auth", "claude-code-auth") is True
-            )
+            mock_auth.return_value = True
+            result = _handle_custom_command("/claude-code-auth", "claude-code-auth")
+            assert isinstance(result, BackgroundInteractiveCommand)
+            cancel_event = threading.Event()
+            assert result.run(cancel_event) is True
+            mock_auth.assert_called_once_with(cancel_event=cancel_event)
+            mock_set_model.assert_called_once_with("claude-code-claude-opus-4-6")
 
     def test_auth_no_existing_tokens(self):
+        from code_puppy.command_line.interactive_command import (
+            BackgroundInteractiveCommand,
+        )
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (
             _handle_custom_command,
         )
@@ -576,14 +586,18 @@ class TestHandleCustomCommand:
             ),
             patch(
                 "code_puppy.plugins.claude_code_oauth.register_callbacks._perform_authentication"
-            ),
+            ) as mock_auth,
             patch(
                 "code_puppy.plugins.claude_code_oauth.register_callbacks.set_model_and_reload_agent"
-            ),
+            ) as mock_set_model,
         ):
-            assert (
-                _handle_custom_command("/claude-code-auth", "claude-code-auth") is True
-            )
+            mock_auth.return_value = True
+            result = _handle_custom_command("/claude-code-auth", "claude-code-auth")
+            assert isinstance(result, BackgroundInteractiveCommand)
+            cancel_event = threading.Event()
+            assert result.run(cancel_event) is True
+            mock_auth.assert_called_once_with(cancel_event=cancel_event)
+            mock_set_model.assert_called_once_with("claude-code-claude-opus-4-6")
 
     def test_status_authenticated(self):
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (

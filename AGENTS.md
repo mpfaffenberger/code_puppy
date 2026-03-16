@@ -1,5 +1,7 @@
 # Contributing to Code Puppy
 
+> Before implementing changes in this repo, read `IMPLEMENTATION_GUARDRAILS.md`.
+
 > **Golden rule:** nearly all new functionality should be a **plugin** under `code_puppy/plugins/`
 > that hooks into core via `code_puppy/callbacks.py`. Don't edit `code_puppy/command_line/`.
 

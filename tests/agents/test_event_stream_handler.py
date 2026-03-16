@@ -523,6 +523,107 @@ class TestEventStreamHandler:
         assert any("token(s)" in str(call) for call in call_args_list)
 
     @pytest.mark.asyncio
+    async def test_tool_call_prompt_surface_mode_avoids_carriage_returns(self, mock_ctx):
+        """Prompt-surface mode should suppress terminal tool streaming entirely."""
+        tool_part = ToolCallPart(tool_call_id="tool_1", tool_name="test_tool", args={})
+        start_event = PartStartEvent(index=0, part=tool_part)
+        delta_event = PartDeltaEvent(
+            index=0,
+            delta=ToolCallPartDelta(tool_name_delta="test_tool", args_delta="{}"),
+        )
+        end_event = PartEndEvent(index=0, part=tool_part, next_part_kind=None)
+
+        async def event_stream():
+            yield start_event
+            yield delta_event
+            yield end_event
+
+        console = MagicMock(spec=Console)
+        set_streaming_console(console)
+
+        with patch(
+            "code_puppy.agents.event_stream_handler._has_active_prompt_surface",
+            return_value=True,
+        ):
+            with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+                with patch(
+                    "code_puppy.agents.event_stream_handler.resume_all_spinners"
+                ):
+                    await event_stream_handler(mock_ctx, event_stream())
+
+        console.print.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_text_banner_prompt_surface_mode_skips_clear_line(self, mock_ctx):
+        """Prompt-surface mode should not emit response banners from the stream handler."""
+        text_part = TextPart(content="hello")
+        start_event = PartStartEvent(index=0, part=text_part)
+        end_event = PartEndEvent(index=0, part=text_part, next_part_kind=None)
+
+        async def event_stream():
+            yield start_event
+            yield end_event
+
+        console = MagicMock(spec=Console, width=80)
+        console.file = StringIO()
+        set_streaming_console(console)
+
+        with patch(
+            "code_puppy.agents.event_stream_handler._has_active_prompt_surface",
+            return_value=True,
+        ):
+            with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+                with patch(
+                    "code_puppy.agents.event_stream_handler.resume_all_spinners"
+                ):
+                    with patch(
+                        "code_puppy.agents.event_stream_handler.get_banner_color",
+                        return_value="blue",
+                    ):
+                        with patch("termflow.Parser") as mock_parser_cls:
+                            mock_parser = MagicMock()
+                            mock_parser.parse_line.return_value = []
+                            mock_parser.finalize.return_value = []
+                            mock_parser_cls.return_value = mock_parser
+
+                            with patch("termflow.Renderer"):
+                                await event_stream_handler(mock_ctx, event_stream())
+
+        console.print.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_prompt_surface_mode_streams_plain_text_response(self, mock_ctx):
+        """Prompt-surface mode should suppress text streaming and skip termflow."""
+        text_part = TextPart(content="")
+        start_event = PartStartEvent(index=0, part=text_part)
+        delta_event = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="hello"))
+        end_event = PartEndEvent(index=0, part=text_part, next_part_kind=None)
+
+        async def event_stream():
+            yield start_event
+            yield delta_event
+            yield end_event
+
+        console = MagicMock(spec=Console, width=80)
+        console.file = StringIO()
+        set_streaming_console(console)
+
+        with patch(
+            "code_puppy.agents.event_stream_handler._has_active_prompt_surface",
+            return_value=True,
+        ):
+            with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+                with patch(
+                    "code_puppy.agents.event_stream_handler.resume_all_spinners"
+                ):
+                    with patch("termflow.Parser") as mock_parser_cls:
+                        with patch("termflow.Renderer"):
+                            await event_stream_handler(mock_ctx, event_stream())
+
+        console.print.assert_not_called()
+        mock_parser_cls.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_thinking_part_without_initial_content_defers_banner(self, mock_ctx):
         """Test that thinking banner is deferred if no initial content."""
         thinking_part = ThinkingPart(content="")  # Empty content
