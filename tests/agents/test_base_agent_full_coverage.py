@@ -2129,9 +2129,11 @@ class TestLoadPuppyRulesFromFiles:
             patch("code_puppy.config.CONFIG_DIR", str(tmp_path / "nonexistent")),
             patch(
                 "pathlib.Path.exists",
-                side_effect=lambda self: str(self) == str(rules_file)
-                or str(self).endswith("AGENTS.md")
-                and "nonexistent" not in str(self),
+                side_effect=lambda self: (
+                    str(self) == str(rules_file)
+                    or str(self).endswith("AGENTS.md")
+                    and "nonexistent" not in str(self)
+                ),
             ),
         ):
             # Complex to test due to pathlib patching, just test cached path
