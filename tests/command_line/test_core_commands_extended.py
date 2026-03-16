@@ -139,7 +139,6 @@ class TestHandleCdCommand:
         from unittest.mock import MagicMock
         
         mock_agent = MagicMock()
-        mock_agent._puppy_rules = "old cached rules"
         
         with patch("code_puppy.messaging.emit_success"):
             with patch("code_puppy.messaging.emit_info"):
@@ -156,10 +155,7 @@ class TestHandleCdCommand:
                                     # Verify directory changed
                                     assert result is True
                                     
-                                    # Verify agent cache was cleared
-                                    assert mock_agent._puppy_rules is None
-                                    
-                                    # Verify agent was reloaded
+                                    # Verify agent was reloaded (public behavior)
                                     mock_agent.reload_code_generation_agent.assert_called_once()
     
     def test_cd_handles_agent_reload_failure_gracefully(self):

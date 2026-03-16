@@ -85,9 +85,8 @@ def handle_cd_command(command: str) -> bool:
                 
                 current_agent = get_current_agent()
                 if current_agent:
-                    # Clear cached puppy rules so AGENTS.md is re-read from new directory
-                    current_agent._puppy_rules = None
-                    # Reload agent to rebuild system prompt with new working directory
+                    # reload_code_generation_agent() invalidates cached rules
+                    # and rebuilds prompt/context from the new cwd
                     current_agent.reload_code_generation_agent()
                     emit_info("Agent context updated for new directory")
             except Exception as e:
