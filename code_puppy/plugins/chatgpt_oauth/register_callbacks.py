@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from code_puppy.callbacks import register_callback
 from code_puppy.command_line.interactive_command import BackgroundInteractiveCommand

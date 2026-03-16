@@ -55,7 +55,12 @@ from code_puppy.command_line.model_picker_completion import (
 from code_puppy.command_line.pin_command_completion import PinCompleter, UnpinCompleter
 from code_puppy.command_line.skills_completion import SkillsCompleter
 from code_puppy.command_line.utils import list_directory
-from code_puppy.config import COMMAND_HISTORY_FILE, get_config_keys, get_puppy_name, get_value
+from code_puppy.config import (
+    COMMAND_HISTORY_FILE,
+    get_config_keys,
+    get_puppy_name,
+    get_value,
+)
 from code_puppy.messaging.spinner.spinner_base import SpinnerBase
 
 
@@ -69,6 +74,23 @@ class PromptSubmission:
 
 def _get_runtime() -> PromptRuntimeState | None:
     return get_active_interactive_runtime()
+
+
+def _get_current_agent_for_prompt():
+    """Best-effort current-agent lookup for prompt rendering.
+
+    Prompt painting should not fail just because optional agent dependencies
+    are unavailable in the current environment.
+    """
+    try:
+        from code_puppy.agents.agent_manager import get_current_agent
+    except Exception:
+        return None
+
+    try:
+        return get_current_agent()
+    except Exception:
+        return None
 
 
 def register_active_prompt_surface(
@@ -125,6 +147,7 @@ def _interrupt_shell_from_prompt(label: str) -> None:
 
     emit_warning(f"\n🛑 {label} detected! Interrupting shell command...")
     kill_all_running_shell_processes()
+
 
 def _truncate_queue_line(text: str, max_len: int) -> str:
     if max_len <= 2:
@@ -684,14 +707,12 @@ def _build_prompt_parts(
     include_queue_preview: bool,
     include_pending_hint: bool,
 ) -> list[tuple[str, str]]:
-    from code_puppy.agents.agent_manager import get_current_agent
-
     puppy = get_puppy_name()
     global_model = get_active_model() or "(default)"
     runtime = _get_runtime()
 
     # Get current agent information
-    current_agent = get_current_agent()
+    current_agent = _get_current_agent_for_prompt()
     agent_display = current_agent.display_name if current_agent else "code-puppy"
 
     # Check if current agent has a pinned model
@@ -738,15 +759,17 @@ def _build_prompt_parts(
         if hidden:
             parts.append(("class:queue-item", f"  ... and {hidden} more\n"))
 
-    parts.extend([
-        ("class:separator", "╭─ "),
-        ("bold", "🐶 "),
-        ("class:puppy", f"{puppy}"),
-        ("", " "),
-        ("class:agent", f"[{agent_display}] "),
-        ("class:model", model_display + " "),
-        ("class:cwd", "(" + str(cwd_display) + ") \n"),
-    ])
+    parts.extend(
+        [
+            ("class:separator", "╭─ "),
+            ("bold", "🐶 "),
+            ("class:puppy", f"{puppy}"),
+            ("", " "),
+            ("class:agent", f"[{agent_display}] "),
+            ("class:model", model_display + " "),
+            ("class:cwd", "(" + str(cwd_display) + ") \n"),
+        ]
+    )
 
     if include_pending_hint and (
         is_interject or (runtime is not None and runtime.has_pending_submission())
@@ -759,10 +782,12 @@ def _build_prompt_parts(
             )
         )
 
-    parts.extend([
-        ("class:separator", "╰─"),
-        ("class:arrow", "❯ "),
-    ])
+    parts.extend(
+        [
+            ("class:separator", "╰─"),
+            ("class:arrow", "❯ "),
+        ]
+    )
 
     return parts
 
@@ -849,9 +874,6 @@ async def prompt_for_submission(
     recalled_queue_allow_command_dispatch = {"value": True}
     pending_decision_filter = Condition(
         lambda: runtime is not None and runtime.has_pending_submission()
-    )
-    shell_active_filter = Condition(
-        lambda: runtime is not None and runtime.has_active_shell()
     )
     busy_run_filter = Condition(lambda: runtime is not None and runtime.running)
     command_completion_filter = Condition(
@@ -1405,7 +1427,6 @@ async def get_interject_action() -> str:
     if submission.action == "queue":
         return "q"
     return ""
-
 
 
 if __name__ == "__main__":

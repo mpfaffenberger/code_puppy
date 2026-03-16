@@ -523,7 +523,9 @@ class TestEventStreamHandler:
         assert any("token(s)" in str(call) for call in call_args_list)
 
     @pytest.mark.asyncio
-    async def test_tool_call_prompt_surface_mode_avoids_carriage_returns(self, mock_ctx):
+    async def test_tool_call_prompt_surface_mode_avoids_carriage_returns(
+        self, mock_ctx
+    ):
         """Prompt-surface mode should suppress terminal tool streaming entirely."""
         tool_part = ToolCallPart(tool_call_id="tool_1", tool_name="test_tool", args={})
         start_event = PartStartEvent(index=0, part=tool_part)
@@ -596,7 +598,9 @@ class TestEventStreamHandler:
         """Prompt-surface mode should suppress text streaming and skip termflow."""
         text_part = TextPart(content="")
         start_event = PartStartEvent(index=0, part=text_part)
-        delta_event = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="hello"))
+        delta_event = PartDeltaEvent(
+            index=0, delta=TextPartDelta(content_delta="hello")
+        )
         end_event = PartEndEvent(index=0, part=text_part, next_part_kind=None)
 
         async def event_stream():

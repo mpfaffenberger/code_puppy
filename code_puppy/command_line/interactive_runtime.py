@@ -9,7 +9,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Literal
 
-MAX_PROMPT_QUEUE = 25
+from code_puppy.config import get_queue_limit
+
+DEFAULT_PROMPT_QUEUE_LIMIT = 25
 PROMPT_STATUS_FRAME_INTERVAL = 0.09
 PROMPT_STATUS_BACKOFF_WINDOW = 0.045
 _ABOVE_PROMPT_RENDER_ACTIVE: contextvars.ContextVar[bool] = contextvars.ContextVar(
@@ -100,7 +102,7 @@ class PromptRuntimeState:
         return True
 
     def _can_enqueue(self) -> bool:
-        return len(self.queue) < MAX_PROMPT_QUEUE
+        return len(self.queue) < get_queue_limit(default=DEFAULT_PROMPT_QUEUE_LIMIT)
 
     def _clamp_queue_view_offset(self, *, max_visible: int = 3) -> None:
         max_start = max(0, len(self.queue) - max_visible)
@@ -274,7 +276,8 @@ class PromptRuntimeState:
                 return
             if (
                 self.last_spinner_invalidation_at > 0
-                and now - self.last_spinner_invalidation_at < PROMPT_STATUS_FRAME_INTERVAL
+                and now - self.last_spinner_invalidation_at
+                < PROMPT_STATUS_FRAME_INTERVAL
             ):
                 return
 
@@ -290,9 +293,7 @@ class PromptRuntimeState:
     def _should_refresh_prompt_status(self) -> bool:
         return self.running and self.has_prompt_surface()
 
-    def _get_above_prompt_lock(
-        self, loop: asyncio.AbstractEventLoop
-    ) -> asyncio.Lock:
+    def _get_above_prompt_lock(self, loop: asyncio.AbstractEventLoop) -> asyncio.Lock:
         if self.above_prompt_lock is None or self.above_prompt_lock_loop is not loop:
             self.above_prompt_lock = asyncio.Lock()
             self.above_prompt_lock_loop = loop
@@ -342,7 +343,9 @@ class PromptRuntimeState:
                 self.prompt_status_task = None
             self.invalidate_prompt()
 
-    def run_above_prompt(self, func: Callable[[], None], *, timeout: float = 5.0) -> bool:
+    def run_above_prompt(
+        self, func: Callable[[], None], *, timeout: float = 5.0
+    ) -> bool:
         """Run a synchronous callback above the mounted prompt surface."""
         app = getattr(self.prompt_session, "app", None)
         loop = getattr(app, "loop", None)

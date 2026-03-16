@@ -1211,7 +1211,9 @@ async def _execute_shell_command(
             get_active_interactive_runtime,
         )
     except ImportError:
-        get_active_interactive_runtime = lambda: None  # type: ignore[assignment]
+
+        def get_active_interactive_runtime():  # type: ignore[no-redef]
+            return None
 
     interactive_runtime = get_active_interactive_runtime()
     if interactive_runtime is not None:

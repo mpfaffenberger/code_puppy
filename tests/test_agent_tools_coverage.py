@@ -281,7 +281,9 @@ class TestRegisterListAgentsExecution:
 
         mock_bus = MagicMock()
         with (
-            patch("code_puppy.tools.agent_tools.get_message_bus", return_value=mock_bus),
+            patch(
+                "code_puppy.tools.agent_tools.get_message_bus", return_value=mock_bus
+            ),
             patch("code_puppy.agents.get_available_agents") as mock_available,
             patch("code_puppy.agents.get_agent_descriptions") as mock_descriptions,
         ):
@@ -328,7 +330,9 @@ class TestRegisterListAgentsExecution:
 
         mock_bus = MagicMock()
         with (
-            patch("code_puppy.tools.agent_tools.get_message_bus", return_value=mock_bus),
+            patch(
+                "code_puppy.tools.agent_tools.get_message_bus", return_value=mock_bus
+            ),
             patch(
                 "code_puppy.agents.get_available_agents",
                 side_effect=RuntimeError("Database connection failed"),
@@ -363,7 +367,9 @@ class TestRegisterListAgentsExecution:
 
         mock_bus = MagicMock()
         with (
-            patch("code_puppy.tools.agent_tools.get_message_bus", return_value=mock_bus),
+            patch(
+                "code_puppy.tools.agent_tools.get_message_bus", return_value=mock_bus
+            ),
             patch("code_puppy.agents.get_available_agents") as mock_available,
             patch("code_puppy.agents.get_agent_descriptions") as mock_descriptions,
         ):
@@ -717,7 +723,9 @@ class TestListAgentsStructuredOutput:
         register_list_agents(mock_agent)
 
         with (
-            patch("code_puppy.tools.agent_tools.get_message_bus", return_value=mock_bus),
+            patch(
+                "code_puppy.tools.agent_tools.get_message_bus", return_value=mock_bus
+            ),
             patch(
                 "code_puppy.agents.get_available_agents",
                 return_value={"python-programmer": "Python Programmer"},

@@ -22,7 +22,9 @@ def wait_for_event_or_cancel(
     while True:
         if cancel_event is not None and cancel_event.is_set():
             return "cancelled"
-        if event.wait(timeout=min(poll_interval, max(0.0, deadline - time.monotonic()))):
+        if event.wait(
+            timeout=min(poll_interval, max(0.0, deadline - time.monotonic()))
+        ):
             return "completed"
         if time.monotonic() >= deadline:
             return "timeout"

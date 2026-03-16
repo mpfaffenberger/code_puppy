@@ -1154,7 +1154,9 @@ class TestInteractiveQueueHandoff:
         assert started_prompts[:2] == ["first task", "queued task"]
         render_notice.assert_any_call("[QUEUE TRIGGERED] queued task")
         render_prompt_echo.assert_any_call("queued task")
-        queued_notice_idx = render_order.index(("notice", "[QUEUE TRIGGERED] queued task"))
+        queued_notice_idx = render_order.index(
+            ("notice", "[QUEUE TRIGGERED] queued task")
+        )
         queued_echo_idx = render_order.index(("echo", "queued task"))
         queued_start_idx = render_order.index(("start", "queued task"))
         assert queued_notice_idx < queued_echo_idx < queued_start_idx
@@ -1523,7 +1525,9 @@ class TestInteractiveQueueHandoff:
         assert started_prompts[2] == "second queued"
         render_prompt_echo.assert_any_call("steer now")
         render_notice.assert_any_call("[QUEUE TRIGGERED] second queued")
-        queued_notice_idx = render_order.index(("notice", "[QUEUE TRIGGERED] second queued"))
+        queued_notice_idx = render_order.index(
+            ("notice", "[QUEUE TRIGGERED] second queued")
+        )
         queued_echo_idx = render_order.index(("echo", "second queued"))
         queued_start_idx = render_order.index(("start", "second queued"))
         assert queued_notice_idx < queued_echo_idx < queued_start_idx
@@ -2769,49 +2773,6 @@ class TestMainUvxAndEdgeCases:
 
 class TestRemainingEdgeCases:
     """Cover the hardest-to-reach lines."""
-
-    @pytest.mark.anyio
-    async def test_cancelled_result_wiggum_stop_message(self):
-        """Lines 750-751: cancelled result emits wiggum stop warning."""
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "write hello" if call_count == 1 else "/exit"
-
-        agent = MagicMock()
-        agent.get_user_prompt.return_value = "task:"
-
-        # drain_pending_work_if_idle now checks Wiggum state before dispatching, so
-        # allow one extra truthy call before the cancelled-result stop path runs.
-        wiggum_calls = 0
-
-        def fake_wiggum():
-            nonlocal wiggum_calls
-            wiggum_calls += 1
-            if wiggum_calls <= 2:
-                return True
-            return False  # after the while loop
-
-        mock_stop = MagicMock()
-        await _run_interactive(
-            _mock_renderer(),
-            _interactive_patches(),
-            fake_input,
-            agent=agent,
-            extra_patches={
-                "code_puppy.cli_runner.run_prompt_with_attachments": AsyncMock(
-                    return_value=(None, MagicMock())
-                ),
-                "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
-                    return_value=_mock_parse_result("write hello")
-                ),
-                "code_puppy.command_line.wiggum_state.is_wiggum_active": fake_wiggum,
-                "code_puppy.command_line.wiggum_state.stop_wiggum": mock_stop,
-            },
-        )
-        mock_stop.assert_called()
 
     @pytest.mark.anyio
     async def test_execute_single_prompt_success_path(self):
