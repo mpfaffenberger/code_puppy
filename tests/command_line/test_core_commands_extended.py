@@ -136,8 +136,6 @@ class TestHandleCdCommand:
 
     def test_cd_reloads_agent_context(self):
         """Test that /cd reloads agent to pick up new directory context (AGENTS.md, etc)."""
-        from unittest.mock import MagicMock
-        
         mock_agent = MagicMock()
         
         with patch("code_puppy.messaging.emit_success"):
@@ -160,8 +158,6 @@ class TestHandleCdCommand:
     
     def test_cd_handles_agent_reload_failure_gracefully(self):
         """Test that /cd continues even if agent reload fails."""
-        from unittest.mock import MagicMock
-        
         mock_agent = MagicMock()
         mock_agent.reload_code_generation_agent.side_effect = Exception("Reload failed")
         
