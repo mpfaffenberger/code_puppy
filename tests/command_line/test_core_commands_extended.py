@@ -139,7 +139,7 @@ class TestHandleCdCommand:
         mock_agent = MagicMock()
 
         with patch("code_puppy.messaging.emit_success"):
-            with patch("code_puppy.messaging.emit_info"):
+            with patch("code_puppy.messaging.emit_info") as mock_emit_info:
                 with patch("os.path.expanduser", side_effect=lambda x: x):
                     with patch("os.path.isabs", return_value=True):
                         with patch("os.path.isdir", return_value=True):
@@ -155,6 +155,11 @@ class TestHandleCdCommand:
 
                                     # Verify agent was reloaded (public behavior)
                                     mock_agent.reload_code_generation_agent.assert_called_once()
+
+                                    # Verify context refresh message was emitted
+                                    mock_emit_info.assert_called_once_with(
+                                        "Agent context updated for new directory"
+                                    )
 
     def test_cd_handles_agent_reload_failure_gracefully(self):
         """Test that /cd continues even if agent reload fails."""
@@ -179,7 +184,6 @@ class TestHandleCdCommand:
                                     # Error should be emitted about reload failure
                                     assert mock_error.called
                                     error_msg = mock_error.call_args[0][0]
-                                    assert "Warning" in error_msg
                                     assert "Could not reload agent context" in error_msg
 
     def test_cd_with_nonexistent_parent(self):

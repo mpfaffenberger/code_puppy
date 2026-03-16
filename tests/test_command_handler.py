@@ -118,7 +118,7 @@ def test_cd_valid_change_reload_failure_is_nonfatal():
             assert "boom" in error_msg
     finally:
         mocks["emit_success"].stop()
-        mocks["emit_warning"].stop()
+        mocks["emit_error"].stop()
 
 
 def test_cd_invalid_directory():

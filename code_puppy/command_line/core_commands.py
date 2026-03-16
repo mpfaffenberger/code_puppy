@@ -91,7 +91,7 @@ def handle_cd_command(command: str) -> bool:
                     emit_info("Agent context updated for new directory")
             except Exception as e:
                 # Non-fatal: directory change succeeded even if reload failed
-                emit_error(f"Warning: Could not reload agent context: {e}")
+                emit_error(f"Could not reload agent context: {e}")
         else:
             emit_error(f"Not a directory: {dirname}")
         return True
