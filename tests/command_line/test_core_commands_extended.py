@@ -182,9 +182,12 @@ class TestHandleCdCommand:
                                     assert result is True
 
                                     # Error should be emitted about reload failure
-                                    assert mock_error.called
+                                    mock_error.assert_called_once()
                                     error_msg = mock_error.call_args[0][0]
-                                    assert "Could not reload agent context" in error_msg
+                                    assert error_msg.startswith(
+                                        "Could not reload agent context:"
+                                    )
+                                    assert "Reload failed" in error_msg
 
     def test_cd_with_nonexistent_parent(self):
         """Test cd command with path containing nonexistent parent directories."""

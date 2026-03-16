@@ -113,11 +113,8 @@ def test_cd_valid_change_reload_failure_is_nonfatal():
             mock_agent.reload_code_generation_agent.assert_called_once()
             # Reload failure should emit an error, not silently pass
             mock_emit_error.assert_called_once()
-            error_msg = str(mock_emit_error.call_args)
-            assert (
-                "agent reload failed" in error_msg
-                or "Could not reload agent context" in error_msg
-            )
+            error_msg = mock_emit_error.call_args[0][0]
+            assert error_msg.startswith("Could not reload agent context:")
             assert "boom" in error_msg
     finally:
         mocks["emit_success"].stop()
