@@ -58,6 +58,7 @@ from code_puppy.terminal_utils import (
 )
 from code_puppy.tools.common import console
 from code_puppy.version_checker import default_version_mismatch_behavior
+
 try:
     from code_puppy.debug_capture import (
         get_active_capture,
@@ -78,6 +79,7 @@ except ImportError:
 
     def start_capture_session():
         return None
+
 
 plugins.load_plugin_callbacks()
 
@@ -208,11 +210,11 @@ def _seed_spinner_context(agent, prompt: str, *, link_attachments: list[str]) ->
 
     try:
         history = (
-            agent.get_message_history()
-            if hasattr(agent, "get_message_history")
-            else []
+            agent.get_message_history() if hasattr(agent, "get_message_history") else []
         ) or []
-        estimate_tokens_for_message = getattr(agent, "estimate_tokens_for_message", None)
+        estimate_tokens_for_message = getattr(
+            agent, "estimate_tokens_for_message", None
+        )
         estimate_context_overhead_tokens = getattr(
             agent, "estimate_context_overhead_tokens", None
         )
@@ -235,7 +237,9 @@ def _seed_spinner_context(agent, prompt: str, *, link_attachments: list[str]) ->
         )
         prompt_tokens = estimate_token_count(prompt) if prompt else 0
         link_tokens = sum(estimate_token_count(url) for url in link_attachments)
-        total_tokens = max(0, history_tokens + overhead_tokens + prompt_tokens + link_tokens)
+        total_tokens = max(
+            0, history_tokens + overhead_tokens + prompt_tokens + link_tokens
+        )
         capacity = max(1, int(get_model_context_length()))
 
         update_spinner_context(
@@ -294,11 +298,11 @@ async def main():
     args = parser.parse_args()
 
     from code_puppy.messaging import (
-        LegacyQueueToBusBridge,
         RichConsoleRenderer,
         get_global_queue,
         get_message_bus,
     )
+    from code_puppy.messaging.legacy_bridge import LegacyQueueToBusBridge
 
     capture_session = None
     if args.debug_capture:
@@ -630,7 +634,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         # Initialize the runtime agent manager
         if initial_command:
             from code_puppy.agents import get_current_agent
-            from code_puppy.messaging import emit_info, emit_success, emit_system_message
+            from code_puppy.messaging import (
+                emit_info,
+                emit_success,
+                emit_system_message,
+            )
 
             agent = get_current_agent()
             emit_info(f"Processing initial command: {initial_command}")
@@ -693,7 +701,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 import subprocess
 
                 subprocess.check_call(
-                    [sys.executable, "-m", "pip", "install", "--quiet", "prompt_toolkit"]
+                    [
+                        sys.executable,
+                        "-m",
+                        "pip",
+                        "install",
+                        "--quiet",
+                        "prompt_toolkit",
+                    ]
                 )
                 from code_puppy.messaging import emit_success
 
@@ -725,7 +740,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.messaging import emit_info
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(lambda: asyncio.run(run_onboarding_wizard()))
+                    future = executor.submit(
+                        lambda: asyncio.run(run_onboarding_wizard())
+                    )
                     result = future.result(timeout=300)
 
                 if result == "chatgpt":
@@ -771,8 +788,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     kill_all_running_shell_processes,
                 )
             except ImportError:
-                get_running_shell_process_count = lambda: 0
-                kill_all_running_shell_processes = lambda: None
+
+                def get_running_shell_process_count() -> int:
+                    return 0
+
+                def kill_all_running_shell_processes() -> None:
+                    return None
 
             active_task = runtime.bg_task
             active_cancel_hook = runtime.active_cancel_hook
@@ -841,7 +862,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         shutdown_requested = True
         emit_success(message)
-        if runtime.running and runtime.bg_task is not None and not runtime.bg_task.done():
+        if (
+            runtime.running
+            and runtime.bg_task is not None
+            and not runtime.bg_task.done()
+        ):
             emit_info("Cancelling running task...")
             await cancel_active_run(reason)
 
@@ -1032,9 +1057,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             level=queue_level(item),
         )
 
-    async def run_agent_bg(
-        task_text, agent, source_item: QueuedPrompt | None = None
-    ):
+    async def run_agent_bg(task_text, agent, source_item: QueuedPrompt | None = None):
         try:
             log_event("agent_start", prompt=task_text)
             if source_item:
@@ -1504,10 +1527,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                             "queue_autodrain_reconciled",
                             origin=origin,
                             had_task=active_task is not None,
-                            task_done=active_task.done() if active_task is not None else None,
+                            task_done=active_task.done()
+                            if active_task is not None
+                            else None,
                         )
                     else:
-                        log_event("queue_autodrain_noop", origin=origin, reason="running")
+                        log_event(
+                            "queue_autodrain_noop", origin=origin, reason="running"
+                        )
                         return handled_any
 
                 from code_puppy.command_line.wiggum_state import is_wiggum_active
@@ -1535,13 +1562,19 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                     outcome = await dispatch_wiggum_if_idle()
                     if outcome == "launched":
-                        log_event("queue_autodrain_triggered", origin=origin, kind="wiggum")
+                        log_event(
+                            "queue_autodrain_triggered", origin=origin, kind="wiggum"
+                        )
                         return True
                     if outcome == "consumed":
-                        log_event("queue_autodrain_consumed", origin=origin, kind="wiggum")
+                        log_event(
+                            "queue_autodrain_consumed", origin=origin, kind="wiggum"
+                        )
                         return True
 
-                    log_event("queue_autodrain_noop", origin=origin, reason="wiggum_idle")
+                    log_event(
+                        "queue_autodrain_noop", origin=origin, reason="wiggum_idle"
+                    )
                     return handled_any
 
                 next_item = runtime.dequeue()
@@ -1647,11 +1680,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             # Windows-specific: Reset terminal state after interrupt to prevent
             # the terminal from becoming unresponsive (can't type characters)
             reset_windows_terminal_full()
-            # Stop wiggum mode on Ctrl+C
-            from code_puppy.command_line.wiggum_state import (
-                is_wiggum_active,
-                stop_wiggum,
-            )
             from code_puppy.messaging import emit_warning
 
             if stop_wiggum_with_notice("\n🍩 Wiggum loop stopped!"):

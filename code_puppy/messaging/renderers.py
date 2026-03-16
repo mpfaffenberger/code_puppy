@@ -24,7 +24,7 @@ def render_legacy_ui_message(
     if message.type == MessageType.HUMAN_INPUT_REQUEST:
         if not allow_human_input:
             safe_content = escape_rich_markup(str(message.content))
-            console.print(f"[dim]Input requested: {safe_content}[/dim]")
+            console.print(f"[bold cyan]INPUT REQUESTED:[/bold cyan] {safe_content}")
             if hasattr(console.file, "flush"):
                 console.file.flush()
             return

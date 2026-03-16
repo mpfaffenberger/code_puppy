@@ -274,7 +274,8 @@ class PromptRuntimeState:
                 return
             if (
                 self.last_spinner_invalidation_at > 0
-                and now - self.last_spinner_invalidation_at < PROMPT_STATUS_FRAME_INTERVAL
+                and now - self.last_spinner_invalidation_at
+                < PROMPT_STATUS_FRAME_INTERVAL
             ):
                 return
 
@@ -290,9 +291,7 @@ class PromptRuntimeState:
     def _should_refresh_prompt_status(self) -> bool:
         return self.running and self.has_prompt_surface()
 
-    def _get_above_prompt_lock(
-        self, loop: asyncio.AbstractEventLoop
-    ) -> asyncio.Lock:
+    def _get_above_prompt_lock(self, loop: asyncio.AbstractEventLoop) -> asyncio.Lock:
         if self.above_prompt_lock is None or self.above_prompt_lock_loop is not loop:
             self.above_prompt_lock = asyncio.Lock()
             self.above_prompt_lock_loop = loop
@@ -342,7 +341,9 @@ class PromptRuntimeState:
                 self.prompt_status_task = None
             self.invalidate_prompt()
 
-    def run_above_prompt(self, func: Callable[[], None], *, timeout: float = 5.0) -> bool:
+    def run_above_prompt(
+        self, func: Callable[[], None], *, timeout: float = 5.0
+    ) -> bool:
         """Run a synchronous callback above the mounted prompt surface."""
         app = getattr(self.prompt_session, "app", None)
         loop = getattr(app, "loop", None)

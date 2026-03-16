@@ -1196,9 +1196,7 @@ class RichConsoleRenderer:
             return
 
         banner = self._format_banner("list_agents", "LIST AGENTS")
-        self._console.print(
-            f"\n{banner} [dim]Found {msg.agent_count} agent(s).[/dim]"
-        )
+        self._console.print(f"\n{banner} [dim]Found {msg.agent_count} agent(s).[/dim]")
 
     # =========================================================================
     # Skills

@@ -25,22 +25,26 @@ from code_puppy.config import (
     get_value,
 )
 from code_puppy.messaging import (
-    AgentListMessage,
     MessageLevel,
     SubAgentInvocationMessage,
     SubAgentResponseMessage,
     TextMessage,
     emit_error,
+    emit_info as _emit_info,
     emit_success,
     get_message_bus,
     get_session_context,
     set_session_context,
 )
+from code_puppy.messaging.messages import AgentListMessage
 from code_puppy.tools.common import generate_group_id
 from code_puppy.tools.subagent_context import subagent_context
 
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
+
+# Preserve the historical module-level symbol for tests and call sites that patch it.
+emit_info = _emit_info
 
 # Atomic counter for DBOS workflow IDs - ensures uniqueness even in rapid back-to-back calls
 # itertools.count() is thread-safe for next() calls

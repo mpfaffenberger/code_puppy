@@ -20,7 +20,9 @@ def _renderer():
     return renderer
 
 
-def _submission(text: str, *, action: str = "submit", allow_command_dispatch: bool = True):
+def _submission(
+    text: str, *, action: str = "submit", allow_command_dispatch: bool = True
+):
     return PromptSubmission(
         action=action,
         text=text,
@@ -28,7 +30,9 @@ def _submission(text: str, *, action: str = "submit", allow_command_dispatch: bo
     )
 
 
-async def _run_interactive(prompt_side_effect, *, run_prompt_side_effect, handle_command):
+async def _run_interactive(
+    prompt_side_effect, *, run_prompt_side_effect, handle_command
+):
     agent = MagicMock()
     agent.get_user_prompt.return_value = "task:"
     fake_agents_pkg = ModuleType("code_puppy.agents")
@@ -78,9 +82,7 @@ async def _run_interactive(prompt_side_effect, *, run_prompt_side_effect, handle
             patch.object(cli_runner_module, "reset_windows_terminal_full")
         )
         stack.enter_context(patch.object(cli_runner_module, "save_command_to_history"))
-        stack.enter_context(
-            patch("code_puppy.command_line.motd.print_motd")
-        )
+        stack.enter_context(patch("code_puppy.command_line.motd.print_motd"))
         stack.enter_context(
             patch(
                 "code_puppy.command_line.onboarding_wizard.should_show_onboarding",
@@ -504,15 +506,19 @@ async def test_wiggum_manual_cancel_does_not_emit_followup_input_cancelled():
     def fake_stop_wiggum():
         wiggum_active["value"] = False
 
-    with patch(
-        "code_puppy.command_line.wiggum_state.is_wiggum_active",
-        side_effect=fake_is_wiggum_active,
-    ), patch(
-        "code_puppy.command_line.wiggum_state.stop_wiggum",
-        side_effect=fake_stop_wiggum,
-    ), patch(
-        "code_puppy.messaging.emit_warning",
-        side_effect=warning_messages.append,
+    with (
+        patch(
+            "code_puppy.command_line.wiggum_state.is_wiggum_active",
+            side_effect=fake_is_wiggum_active,
+        ),
+        patch(
+            "code_puppy.command_line.wiggum_state.stop_wiggum",
+            side_effect=fake_stop_wiggum,
+        ),
+        patch(
+            "code_puppy.messaging.emit_warning",
+            side_effect=warning_messages.append,
+        ),
     ):
         await _run_interactive(
             prompt_side_effect,
@@ -580,12 +586,15 @@ async def test_wiggum_manual_cancel_keeps_queued_prompts_paused():
     def fake_stop_wiggum():
         wiggum_active["value"] = False
 
-    with patch(
-        "code_puppy.command_line.wiggum_state.is_wiggum_active",
-        side_effect=fake_is_wiggum_active,
-    ), patch(
-        "code_puppy.command_line.wiggum_state.stop_wiggum",
-        side_effect=fake_stop_wiggum,
+    with (
+        patch(
+            "code_puppy.command_line.wiggum_state.is_wiggum_active",
+            side_effect=fake_is_wiggum_active,
+        ),
+        patch(
+            "code_puppy.command_line.wiggum_state.stop_wiggum",
+            side_effect=fake_stop_wiggum,
+        ),
     ):
         await _run_interactive(
             prompt_side_effect,
