@@ -90,7 +90,7 @@ def test_cd_valid_change_reload_failure_is_nonfatal():
     """A reload failure after /cd must not abort the directory change."""
     mocks = setup_messaging_mocks()
     mock_emit_success = mocks["emit_success"].start()
-    mock_emit_warning = mocks["emit_warning"].start()
+    mock_emit_error = mocks["emit_error"].start()
 
     try:
         mock_agent = MagicMock()
@@ -111,11 +111,11 @@ def test_cd_valid_change_reload_failure_is_nonfatal():
             mock_chdir.assert_called_once_with("/some/dir")
             mock_emit_success.assert_called_once_with("Changed directory to: /some/dir")
             mock_agent.reload_code_generation_agent.assert_called_once()
-            # Reload failure should emit a warning, not silently pass
-            mock_emit_warning.assert_called_once()
-            warning_msg = str(mock_emit_warning.call_args)
-            assert "agent reload failed" in warning_msg
-            assert "boom" in warning_msg
+            # Reload failure should emit an error, not silently pass
+            mock_emit_error.assert_called_once()
+            error_msg = str(mock_emit_error.call_args)
+            assert "agent reload failed" in error_msg or "Could not reload agent context" in error_msg
+            assert "boom" in error_msg
     finally:
         mocks["emit_success"].stop()
         mocks["emit_warning"].stop()

@@ -77,12 +77,12 @@ def handle_cd_command(command: str) -> bool:
         if os.path.isdir(target):
             os.chdir(target)
             emit_success(f"Changed directory to: {target}")
-            
+
             # Reload the agent to pick up new working directory context
             # This ensures AGENTS.md is re-read and system prompt is updated
             try:
                 from code_puppy.agents.agent_manager import get_current_agent
-                
+
                 current_agent = get_current_agent()
                 if current_agent:
                     # reload_code_generation_agent() invalidates cached rules

@@ -137,7 +137,7 @@ class TestHandleCdCommand:
     def test_cd_reloads_agent_context(self):
         """Test that /cd reloads agent to pick up new directory context (AGENTS.md, etc)."""
         mock_agent = MagicMock()
-        
+
         with patch("code_puppy.messaging.emit_success"):
             with patch("code_puppy.messaging.emit_info"):
                 with patch("os.path.expanduser", side_effect=lambda x: x):
@@ -146,21 +146,21 @@ class TestHandleCdCommand:
                             with patch("os.chdir"):
                                 with patch(
                                     "code_puppy.agents.agent_manager.get_current_agent",
-                                    return_value=mock_agent
+                                    return_value=mock_agent,
                                 ):
                                     result = handle_cd_command("/cd /new/dir")
-                                    
+
                                     # Verify directory changed
                                     assert result is True
-                                    
+
                                     # Verify agent was reloaded (public behavior)
                                     mock_agent.reload_code_generation_agent.assert_called_once()
-    
+
     def test_cd_handles_agent_reload_failure_gracefully(self):
         """Test that /cd continues even if agent reload fails."""
         mock_agent = MagicMock()
         mock_agent.reload_code_generation_agent.side_effect = Exception("Reload failed")
-        
+
         with patch("code_puppy.messaging.emit_success"):
             with patch("code_puppy.messaging.emit_error") as mock_error:
                 with patch("os.path.expanduser", side_effect=lambda x: x):
@@ -169,13 +169,13 @@ class TestHandleCdCommand:
                             with patch("os.chdir"):
                                 with patch(
                                     "code_puppy.agents.agent_manager.get_current_agent",
-                                    return_value=mock_agent
+                                    return_value=mock_agent,
                                 ):
                                     result = handle_cd_command("/cd /new/dir")
-                                    
+
                                     # Directory change should still succeed
                                     assert result is True
-                                    
+
                                     # Error should be emitted about reload failure
                                     assert mock_error.called
                                     error_msg = mock_error.call_args[0][0]
