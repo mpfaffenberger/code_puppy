@@ -55,7 +55,7 @@ def handle_cd_command(command: str) -> bool:
     # Use shlex.split to handle quoted paths properly
     import shlex
 
-    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+    from code_puppy.messaging import emit_error, emit_info, emit_success
 
     try:
         tokens = shlex.split(command)
