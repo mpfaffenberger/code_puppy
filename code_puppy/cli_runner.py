@@ -745,6 +745,23 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         queue_start_lock = asyncio.Lock()
         shutdown_requested = False
+        suppress_next_input_cancel_message = False
+        active_cancel_state = {"reason": None}
+
+        def stop_wiggum_with_notice(message: str) -> bool:
+            nonlocal suppress_next_input_cancel_message
+            from code_puppy.command_line.wiggum_state import (
+                is_wiggum_active,
+                stop_wiggum,
+            )
+            from code_puppy.messaging import emit_warning
+
+            if not is_wiggum_active():
+                return False
+            stop_wiggum()
+            suppress_next_input_cancel_message = True
+            emit_warning(message)
+            return True
 
         async def cancel_active_run(reason: str) -> None:
             """Aggressively stop shell + agent execution and wait for cancellation."""
@@ -765,6 +782,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 return
 
             runtime.cancelling = True
+            active_cancel_state["reason"] = reason
+            if is_manual_cancel_reason(reason):
+                runtime.suppress_queue_autodrain()
             log_event("cancel_start", reason=reason)
 
             if active_cancel_hook is not None:
@@ -921,6 +941,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         """Check if text should terminate interactive mode."""
         return text.strip().lower() in {"exit", "quit", "/exit", "/quit"}
 
+    def is_manual_cancel_reason(reason: str) -> bool:
+        """Return whether a cancel reason should pause queue autodrain."""
+        return reason in {"ctrl_c", "ctrl+k", "ctrl+q"}
+
     def queue_level(item: QueuedPrompt) -> str:
         """Return the lifecycle level for a queued item."""
         return "warning" if item.kind == "interject" else "success"
@@ -1026,6 +1050,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 spinner_console=message_renderer.console,
             )
             if result is None:
+                cancel_reason = active_cancel_state["reason"]
                 reset_windows_terminal_ansi()
                 try:
                     from code_puppy.terminal_utils import ensure_ctrl_c_disabled
@@ -1033,16 +1058,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     ensure_ctrl_c_disabled()
                 except ImportError:
                     pass
-                from code_puppy.command_line.wiggum_state import (
-                    is_wiggum_active,
-                    stop_wiggum,
-                )
-
-                if is_wiggum_active():
-                    stop_wiggum()
-                    from code_puppy.messaging import emit_warning
-
-                    emit_warning("🍩 Wiggum loop stopped due to cancellation")
+                if cancel_reason != "interject" and stop_wiggum_with_notice(
+                    "🍩 Wiggum loop stopped due to cancellation"
+                ):
+                    log_event("wiggum_stopped", reason="cancelled_active_run")
                 if source_item:
                     emit_interject_queue_lifecycle(
                         runtime,
@@ -1098,6 +1117,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             owns_runtime = runtime.is_active_task(active_task)
             was_cancelling = runtime.cancelling if owns_runtime else False
             runtime.mark_idle_if_task(active_task)
+            if owns_runtime:
+                active_cancel_state["reason"] = None
             log_event("agent_end", prompt=task_text)
             if not owns_runtime:
                 return
@@ -1106,6 +1127,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     log_event(
                         "queue_autodrain_skipped",
                         reason="shutdown_requested",
+                        remaining=len(runtime.queue),
+                    )
+                    return
+                if runtime.is_queue_autodrain_suppressed():
+                    log_event(
+                        "queue_autodrain_skipped",
+                        reason="manual_cancel_pause",
                         remaining=len(runtime.queue),
                     )
                     return
@@ -1174,6 +1202,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             owns_runtime = runtime.is_active_task(active_task)
             was_cancelling = runtime.cancelling if owns_runtime else False
             runtime.mark_idle_if_task(active_task)
+            if owns_runtime:
+                active_cancel_state["reason"] = None
             log_event("interactive_command_end", command=command_text)
             if not owns_runtime:
                 return
@@ -1182,6 +1212,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     log_event(
                         "queue_autodrain_skipped",
                         reason="shutdown_requested",
+                        remaining=len(runtime.queue),
+                    )
+                    return
+                if runtime.is_queue_autodrain_suppressed():
+                    log_event(
+                        "queue_autodrain_skipped",
+                        reason="manual_cancel_pause",
                         remaining=len(runtime.queue),
                     )
                     return
@@ -1427,8 +1464,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 allow_command_dispatch=False,
             )
         except KeyboardInterrupt:
-            emit_warning("\n🍩 Wiggum loop interrupted by Ctrl+C")
-            stop_wiggum()
+            runtime.suppress_queue_autodrain()
+            stop_wiggum_with_notice("\n🍩 Wiggum loop stopped!")
             return "consumed"
         except Exception as e:
             from code_puppy.messaging import emit_error
@@ -1451,6 +1488,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     )
                     return handled_any
 
+                if runtime.is_queue_autodrain_suppressed():
+                    log_event(
+                        "queue_autodrain_noop",
+                        origin=origin,
+                        reason="manual_cancel_pause",
+                    )
+                    return handled_any
+
                 if runtime.running:
                     active_task = runtime.bg_task
                     if active_task is None or active_task.done():
@@ -1464,6 +1509,40 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     else:
                         log_event("queue_autodrain_noop", origin=origin, reason="running")
                         return handled_any
+
+                from code_puppy.command_line.wiggum_state import is_wiggum_active
+
+                if is_wiggum_active():
+                    next_item = runtime.dequeue_next_interject()
+                    if next_item is not None:
+                        outcome = await dispatch_submission(
+                            _build_interject_submission_text(next_item.text),
+                            source_item=next_item,
+                            save_history=False,
+                            allow_command_dispatch=next_item.allow_command_dispatch,
+                        )
+                        handled_any = True
+                        if outcome == "launched":
+                            log_event(
+                                "queue_autodrain_triggered",
+                                origin=origin,
+                                remaining=len(runtime.queue),
+                                kind=next_item.kind,
+                                text=next_item.text,
+                            )
+                            return True
+                        continue
+
+                    outcome = await dispatch_wiggum_if_idle()
+                    if outcome == "launched":
+                        log_event("queue_autodrain_triggered", origin=origin, kind="wiggum")
+                        return True
+                    if outcome == "consumed":
+                        log_event("queue_autodrain_consumed", origin=origin, kind="wiggum")
+                        return True
+
+                    log_event("queue_autodrain_noop", origin=origin, reason="wiggum_idle")
+                    return handled_any
 
                 next_item = runtime.dequeue()
                 if next_item is not None:
@@ -1544,6 +1623,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     action=submission.action,
                     text=submission.text,
                 )
+                if submission.text.strip():
+                    suppress_next_input_cancel_message = False
 
                 # Windows+uvx: Re-disable Ctrl+C after prompt_toolkit
                 # (prompt_toolkit restores console mode which re-enables Ctrl+C)
@@ -1573,9 +1654,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             )
             from code_puppy.messaging import emit_warning
 
-            if is_wiggum_active():
-                stop_wiggum()
-                emit_warning("\n🍩 Wiggum loop stopped!")
+            if stop_wiggum_with_notice("\n🍩 Wiggum loop stopped!"):
+                runtime.suppress_queue_autodrain()
+                continue
+            if suppress_next_input_cancel_message:
+                suppress_next_input_cancel_message = False
             else:
                 emit_warning("\nInput cancelled")
             continue
@@ -1591,8 +1674,18 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         )
 
         if is_shell_passthrough(submission.text):
+            if submission.text.strip():
+                runtime.clear_queue_autodrain_suppression()
             execute_shell_passthrough(submission.text)
             continue
+
+        if submission.text.strip() and runtime.is_queue_autodrain_suppressed():
+            runtime.clear_queue_autodrain_suppression()
+            log_event(
+                "queue_autodrain_resumed",
+                reason="explicit_submission",
+                text=submission.text.strip(),
+            )
 
         outcome = await dispatch_submission(
             submission.text,

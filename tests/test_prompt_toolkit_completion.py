@@ -738,6 +738,82 @@ async def test_get_input_key_binding_alt_m(mock_prompt_session_cls):
 
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._interrupt_shell_from_prompt")
+async def test_get_input_key_binding_ctrl_c_shell_interrupt_suppresses_queue_autodrain(
+    mock_interrupt_shell, mock_prompt_session_cls, active_runtime
+):
+    mock_session_instance = MagicMock()
+    mock_session_instance.prompt_async = AsyncMock(return_value="test")
+    mock_prompt_session_cls.return_value = mock_session_instance
+
+    await get_input_with_combined_completion()
+
+    bindings = mock_prompt_session_cls.call_args[1]["key_bindings"]
+    ctrl_c_binding = next(
+        binding_obj for binding_obj in bindings.bindings if binding_obj.keys == ("c-c",)
+    )
+
+    active_runtime.notify_shell_started()
+    active_runtime.request_queue("queued task")
+    active_runtime.set_pending_submission("draft")
+
+    buffer = Buffer(document=Document(text="chooser text", cursor_position=11))
+    mock_event = MagicMock()
+    mock_event.app = MagicMock()
+    mock_event.app.current_buffer = buffer
+
+    ctrl_c_binding.handler(mock_event)
+
+    mock_interrupt_shell.assert_called_once_with("Ctrl-C")
+    assert active_runtime.is_queue_autodrain_suppressed() is True
+    assert active_runtime.has_pending_submission() is False
+    assert buffer.text == ""
+    mock_event.app.exit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._interrupt_shell_from_prompt")
+async def test_get_input_key_binding_configured_cancel_shell_interrupt_suppresses_queue_autodrain(
+    mock_interrupt_shell, mock_prompt_session_cls, active_runtime
+):
+    mock_session_instance = MagicMock()
+    mock_session_instance.prompt_async = AsyncMock(return_value="test")
+    mock_prompt_session_cls.return_value = mock_session_instance
+
+    with patch(
+        "code_puppy.command_line.prompt_toolkit_completion.get_value",
+        side_effect=lambda key, default=None: "ctrl+k"
+        if key == "cancel_agent_key"
+        else default,
+    ):
+        await get_input_with_combined_completion()
+
+    bindings = mock_prompt_session_cls.call_args[1]["key_bindings"]
+    ctrl_k_binding = next(
+        binding_obj for binding_obj in bindings.bindings if binding_obj.keys == ("c-k",)
+    )
+
+    active_runtime.notify_shell_started()
+    active_runtime.request_queue("queued task")
+    active_runtime.set_pending_submission("draft")
+
+    buffer = Buffer(document=Document(text="chooser text", cursor_position=11))
+    mock_event = MagicMock()
+    mock_event.app = MagicMock()
+    mock_event.app.current_buffer = buffer
+
+    ctrl_k_binding.handler(mock_event)
+
+    mock_interrupt_shell.assert_called_once_with("CTRL+K")
+    assert active_runtime.is_queue_autodrain_suppressed() is True
+    assert active_runtime.has_pending_submission() is False
+    assert buffer.text == ""
+    mock_event.app.exit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
 async def test_get_input_key_binding_escape(mock_prompt_session_cls):
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="test")
@@ -860,6 +936,83 @@ async def test_get_input_key_binding_edit_restores_pending_submission(
     assert buffer.text == "queued task"
     assert buffer.cursor_position == len("queued task")
     mock_event.app.exit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+async def test_empty_enter_recalls_next_paused_queue_prompt(
+    mock_prompt_session_cls, active_runtime
+):
+    mock_session_instance = MagicMock()
+    mock_session_instance.prompt_async = AsyncMock(return_value="test")
+    mock_prompt_session_cls.return_value = mock_session_instance
+
+    await get_input_with_combined_completion()
+
+    bindings = mock_prompt_session_cls.call_args[1]["key_bindings"]
+    enter_binding = next(
+        binding_obj
+        for binding_obj in bindings.bindings
+        if binding_obj.keys == (Keys.ControlM,)
+    )
+
+    active_runtime.request_queue("queued task", allow_command_dispatch=False)
+    active_runtime.suppress_queue_autodrain()
+
+    buffer = Buffer(document=Document(text="", cursor_position=0))
+    mock_event = MagicMock()
+    mock_event.app = MagicMock()
+    mock_event.app.current_buffer = buffer
+
+    enter_binding.handler(mock_event)
+
+    assert buffer.text == "queued task"
+    assert buffer.cursor_position == len("queued task")
+    assert len(active_runtime.queue) == 1
+    assert active_runtime.queue[0].text == "queued task"
+    assert active_runtime.queue[0].allow_command_dispatch is False
+    mock_event.app.exit.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion.patch_stdout")
+@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+async def test_prompt_for_submission_recalled_queue_preserves_policy_and_dequeues_on_submit(
+    mock_prompt_session_cls, mock_patch_stdout, active_runtime
+):
+    mock_session_instance = MagicMock()
+    mock_session_instance.default_buffer = Buffer(document=Document(text="", cursor_position=0))
+    mock_prompt_session_cls.return_value = mock_session_instance
+    mock_patch_stdout.return_value.__enter__ = MagicMock()
+    mock_patch_stdout.return_value.__exit__ = MagicMock(return_value=False)
+
+    active_runtime.request_queue("/agent", allow_command_dispatch=False)
+    active_runtime.suppress_queue_autodrain()
+
+    async def fake_prompt_async(*args, **kwargs):
+        bindings = mock_prompt_session_cls.call_args[1]["key_bindings"]
+        enter_binding = next(
+            binding_obj
+            for binding_obj in bindings.bindings
+            if binding_obj.keys == (Keys.ControlM,)
+        )
+        mock_event = MagicMock()
+        mock_event.app = MagicMock()
+        mock_event.app.current_buffer = mock_session_instance.default_buffer
+        enter_binding.handler(mock_event)
+        return mock_session_instance.default_buffer.text
+
+    mock_session_instance.prompt_async = AsyncMock(side_effect=fake_prompt_async)
+
+    result = await prompt_for_submission()
+
+    assert result == PromptSubmission(
+        action="submit",
+        text="/agent",
+        echo_in_transcript=False,
+        allow_command_dispatch=False,
+    )
+    assert active_runtime.queue == []
 
 
 @pytest.mark.asyncio

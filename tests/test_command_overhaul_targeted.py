@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from code_puppy.command_line.interactive_command import BackgroundInteractiveCommand
+from code_puppy.command_line.interactive_runtime import get_active_interactive_runtime
 from code_puppy.command_line.prompt_toolkit_completion import PromptSubmission
 
 
@@ -350,6 +351,247 @@ async def test_queue_during_background_command_drains_after_wait_completes():
 
     assert started_prompts == ["report later"]
     handle_command.assert_called_once_with("/claude-code-auth")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("cancel_reason", ["ctrl_c", "ctrl+k"])
+async def test_manual_cancel_pauses_queued_prompts_until_user_acts(cancel_reason: str):
+    first_cancelled = asyncio.Event()
+    queued_started = asyncio.Event()
+    started_prompts: list[str] = []
+    handle_command = MagicMock(return_value=True)
+
+    async def prompt_side_effect(*_args, **_kwargs):
+        prompt_side_effect.calls += 1
+        if prompt_side_effect.calls == 1:
+            return _submission("first task")
+        if prompt_side_effect.calls == 2:
+            return _submission("queued task", action="queue")
+        if prompt_side_effect.calls == 3:
+            runtime = get_active_interactive_runtime()
+            assert runtime is not None
+            assert runtime.request_active_cancel(cancel_reason) is True
+            return _submission("")
+
+        await first_cancelled.wait()
+        await asyncio.sleep(0.05)
+        runtime = get_active_interactive_runtime()
+        assert runtime is not None
+        assert runtime.is_queue_autodrain_suppressed() is True
+        assert [item.text for item in runtime.queue] == ["queued task"]
+        assert queued_started.is_set() is False
+        return _submission("/exit")
+
+    prompt_side_effect.calls = 0
+
+    async def run_prompt_side_effect(_agent, prompt, **_kwargs):
+        started_prompts.append(prompt)
+        if prompt == "first task":
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                first_cancelled.set()
+                raise
+        if prompt == "queued task":
+            queued_started.set()
+        result = MagicMock()
+        result.output = f"response for {prompt}"
+        result.all_messages.return_value = []
+        return result, MagicMock()
+
+    await _run_interactive(
+        prompt_side_effect,
+        run_prompt_side_effect=run_prompt_side_effect,
+        handle_command=handle_command,
+    )
+
+    assert started_prompts == ["first task"]
+
+
+@pytest.mark.anyio
+async def test_manual_cancel_queue_pause_clears_after_new_submission():
+    first_cancelled = asyncio.Event()
+    queued_started = asyncio.Event()
+    started_prompts: list[str] = []
+    handle_command = MagicMock(return_value=True)
+
+    async def prompt_side_effect(*_args, **_kwargs):
+        prompt_side_effect.calls += 1
+        if prompt_side_effect.calls == 1:
+            return _submission("first task")
+        if prompt_side_effect.calls == 2:
+            return _submission("queued task", action="queue")
+        if prompt_side_effect.calls == 3:
+            runtime = get_active_interactive_runtime()
+            assert runtime is not None
+            assert runtime.request_active_cancel("ctrl_c") is True
+            return _submission("")
+        if prompt_side_effect.calls == 4:
+            await first_cancelled.wait()
+            await asyncio.sleep(0.05)
+            runtime = get_active_interactive_runtime()
+            assert runtime is not None
+            assert runtime.is_queue_autodrain_suppressed() is True
+            assert [item.text for item in runtime.queue] == ["queued task"]
+            return _submission("resume task")
+
+        await queued_started.wait()
+        return _submission("/exit")
+
+    prompt_side_effect.calls = 0
+
+    async def run_prompt_side_effect(_agent, prompt, **_kwargs):
+        started_prompts.append(prompt)
+        if prompt == "first task":
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                first_cancelled.set()
+                raise
+        if prompt == "queued task":
+            queued_started.set()
+        result = MagicMock()
+        result.output = f"response for {prompt}"
+        result.all_messages.return_value = []
+        return result, MagicMock()
+
+    await _run_interactive(
+        prompt_side_effect,
+        run_prompt_side_effect=run_prompt_side_effect,
+        handle_command=handle_command,
+    )
+
+    assert started_prompts[:3] == ["first task", "resume task", "queued task"]
+
+
+@pytest.mark.anyio
+async def test_wiggum_manual_cancel_does_not_emit_followup_input_cancelled():
+    run_started = asyncio.Event()
+    run_cancelled = asyncio.Event()
+    handle_command = MagicMock(return_value=True)
+    warning_messages: list[str] = []
+    wiggum_active = {"value": False}
+
+    async def prompt_side_effect(*_args, **_kwargs):
+        prompt_side_effect.calls += 1
+        if prompt_side_effect.calls == 1:
+            return _submission("first task")
+        if prompt_side_effect.calls == 2:
+            await run_started.wait()
+            runtime = get_active_interactive_runtime()
+            assert runtime is not None
+            assert runtime.request_active_cancel("ctrl_c") is True
+            return _submission("")
+        if prompt_side_effect.calls == 3:
+            await run_cancelled.wait()
+            raise KeyboardInterrupt
+        return _submission("/exit")
+
+    prompt_side_effect.calls = 0
+
+    async def run_prompt_side_effect(_agent, prompt, **_kwargs):
+        wiggum_active["value"] = True
+        run_started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            run_cancelled.set()
+            raise
+
+    def fake_is_wiggum_active():
+        return wiggum_active["value"]
+
+    def fake_stop_wiggum():
+        wiggum_active["value"] = False
+
+    with patch(
+        "code_puppy.command_line.wiggum_state.is_wiggum_active",
+        side_effect=fake_is_wiggum_active,
+    ), patch(
+        "code_puppy.command_line.wiggum_state.stop_wiggum",
+        side_effect=fake_stop_wiggum,
+    ), patch(
+        "code_puppy.messaging.emit_warning",
+        side_effect=warning_messages.append,
+    ):
+        await _run_interactive(
+            prompt_side_effect,
+            run_prompt_side_effect=run_prompt_side_effect,
+            handle_command=handle_command,
+        )
+
+    assert any("🍩 Wiggum loop stopped" in message for message in warning_messages)
+    assert "\nInput cancelled" not in warning_messages
+
+
+@pytest.mark.anyio
+async def test_wiggum_manual_cancel_keeps_queued_prompts_paused():
+    run_started = asyncio.Event()
+    run_cancelled = asyncio.Event()
+    queued_started = asyncio.Event()
+    handle_command = MagicMock(return_value=True)
+    wiggum_active = {"value": False}
+
+    async def prompt_side_effect(*_args, **_kwargs):
+        prompt_side_effect.calls += 1
+        if prompt_side_effect.calls == 1:
+            return _submission("first task")
+        if prompt_side_effect.calls == 2:
+            return _submission("queued task", action="queue")
+        if prompt_side_effect.calls == 3:
+            await run_started.wait()
+            runtime = get_active_interactive_runtime()
+            assert runtime is not None
+            assert runtime.request_active_cancel("ctrl_c") is True
+            return _submission("")
+        if prompt_side_effect.calls == 4:
+            await run_cancelled.wait()
+            raise KeyboardInterrupt
+
+        await asyncio.sleep(0.05)
+        runtime = get_active_interactive_runtime()
+        assert runtime is not None
+        assert runtime.is_queue_autodrain_suppressed() is True
+        assert [item.text for item in runtime.queue] == ["queued task"]
+        assert queued_started.is_set() is False
+        return _submission("/exit")
+
+    prompt_side_effect.calls = 0
+
+    async def run_prompt_side_effect(_agent, prompt, **_kwargs):
+        if prompt == "first task":
+            wiggum_active["value"] = True
+            run_started.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                run_cancelled.set()
+                raise
+        if prompt == "queued task":
+            queued_started.set()
+        result = MagicMock()
+        result.output = f"response for {prompt}"
+        result.all_messages.return_value = []
+        return result, MagicMock()
+
+    def fake_is_wiggum_active():
+        return wiggum_active["value"]
+
+    def fake_stop_wiggum():
+        wiggum_active["value"] = False
+
+    with patch(
+        "code_puppy.command_line.wiggum_state.is_wiggum_active",
+        side_effect=fake_is_wiggum_active,
+    ), patch(
+        "code_puppy.command_line.wiggum_state.stop_wiggum",
+        side_effect=fake_stop_wiggum,
+    ):
+        await _run_interactive(
+            prompt_side_effect,
+            run_prompt_side_effect=run_prompt_side_effect,
+            handle_command=handle_command,
+        )
 
 
 @pytest.mark.anyio
