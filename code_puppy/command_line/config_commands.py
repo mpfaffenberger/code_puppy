@@ -42,6 +42,7 @@ def handle_show_command(command: str) -> bool:
         get_owner_name,
         get_protected_token_count,
         get_puppy_name,
+        get_queue_limit,
         get_resume_message_count,
         get_temperature,
         get_use_dbos,
@@ -77,6 +78,7 @@ def handle_show_command(command: str) -> bool:
 [bold]YOLO_MODE:[/bold]             {"[red]ON[/red]" if yolo_mode else "[yellow]off[/yellow]"}
 [bold]DBOS:[/bold]                  {"[green]enabled[/green]" if get_use_dbos() else "[yellow]disabled[/yellow]"} (toggle: /set enable_dbos true|false)
 [bold]auto_save_session:[/bold]     {"[green]enabled[/green]" if auto_save else "[yellow]disabled[/yellow]"}
+[bold]queue_limit:[/bold]           [cyan]{get_queue_limit()}[/cyan] queued prompts/interjects max
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
 [bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
@@ -241,6 +243,17 @@ def handle_set_command(command: str) -> bool:
                     "[yellow]⚠️ cancel_agent_key changed. Please restart Code Puppy for this change to take effect.[/yellow]"
                 )
             )
+
+        if key == "queue_limit":
+            try:
+                normalized_limit = int(value.strip())
+            except ValueError:
+                emit_error("Invalid queue_limit. Enter a whole number >= 1.")
+                return True
+            if normalized_limit < 1:
+                emit_error("Invalid queue_limit. Enter a whole number >= 1.")
+                return True
+            value = str(normalized_limit)
 
         set_config_value(key, value)
         emit_success(f'Set {key} = "{value}" in puppy.cfg!')

@@ -39,6 +39,7 @@ from code_puppy.config import (
     DBOS_DATABASE_URL,
     ensure_config_exists,
     finalize_autosave_session,
+    get_queue_limit,
     get_use_dbos,
     initialize_command_history_file,
     save_command_to_history,
@@ -1293,7 +1294,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     allow_command_dispatch=allow_command_dispatch,
                 )
                 if not ok:
-                    emit_warning("Queue full (25). Cannot interject right now.")
+                    emit_warning(
+                        f"Queue full ({get_queue_limit()}). Cannot interject right now."
+                    )
                     emit_interject_queue_lifecycle(
                         runtime,
                         "rejected",
@@ -1334,7 +1337,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 allow_command_dispatch=allow_command_dispatch,
             )
             if not ok:
-                emit_warning("Queue full (25). Prompt was not queued.")
+                emit_warning(
+                    f"Queue full ({get_queue_limit()}). Prompt was not queued."
+                )
                 emit_interject_queue_lifecycle(
                     runtime,
                     "rejected",

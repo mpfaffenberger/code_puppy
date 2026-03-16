@@ -9,7 +9,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Literal
 
-MAX_PROMPT_QUEUE = 25
+from code_puppy.config import get_queue_limit
+
+DEFAULT_PROMPT_QUEUE_LIMIT = 25
 PROMPT_STATUS_FRAME_INTERVAL = 0.09
 PROMPT_STATUS_BACKOFF_WINDOW = 0.045
 _ABOVE_PROMPT_RENDER_ACTIVE: contextvars.ContextVar[bool] = contextvars.ContextVar(
@@ -100,7 +102,7 @@ class PromptRuntimeState:
         return True
 
     def _can_enqueue(self) -> bool:
-        return len(self.queue) < MAX_PROMPT_QUEUE
+        return len(self.queue) < get_queue_limit(default=DEFAULT_PROMPT_QUEUE_LIMIT)
 
     def _clamp_queue_view_offset(self, *, max_visible: int = 3) -> None:
         max_start = max(0, len(self.queue) - max_visible)

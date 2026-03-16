@@ -75,6 +75,41 @@ def test_render_submitted_prompt_echo_uses_prompt_app_when_available(
     mock_print_formatted_text.assert_not_called()
 
 
+def test_runtime_request_queue_respects_configured_queue_limit(active_runtime):
+    with patch(
+        "code_puppy.command_line.interactive_runtime.get_queue_limit", return_value=2
+    ):
+        ok, position, item = active_runtime.request_queue("first")
+        assert ok is True
+        assert position == 1
+        assert item is not None
+
+        ok, position, item = active_runtime.request_queue("second")
+        assert ok is True
+        assert position == 2
+        assert item is not None
+
+        ok, position, item = active_runtime.request_queue("third")
+        assert ok is False
+        assert position == 2
+        assert item is None
+
+
+def test_runtime_request_interject_respects_configured_queue_limit(active_runtime):
+    with patch(
+        "code_puppy.command_line.interactive_runtime.get_queue_limit", return_value=1
+    ):
+        ok, position, item = active_runtime.request_interject("now")
+        assert ok is True
+        assert position == 1
+        assert item is not None
+
+        ok, position, item = active_runtime.request_interject("later")
+        assert ok is False
+        assert position == 1
+        assert item is None
+
+
 @patch("code_puppy.command_line.prompt_toolkit_completion.print_formatted_text")
 @patch("prompt_toolkit.output.defaults.create_output")
 def test_render_transcript_notice(mock_create_output, mock_print_formatted_text):

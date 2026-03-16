@@ -42,6 +42,7 @@ class TestHandleShowCommand:
             ),
             patch("code_puppy.config.get_default_agent", return_value="code-puppy"),
             patch("code_puppy.config.get_use_dbos", return_value=dbos),
+            patch("code_puppy.config.get_queue_limit", return_value=25),
             patch("code_puppy.config.get_resume_message_count", return_value=50),
             patch(
                 "code_puppy.config.get_openai_reasoning_effort", return_value="medium"
@@ -76,6 +77,7 @@ class TestHandleShowCommand:
             patches[15],
             patches[16],
             patches[17],
+            patches[18],
         ):
             assert handle_show_command("/show") is True
 
@@ -102,6 +104,7 @@ class TestHandleShowCommand:
             patches[15],
             patches[16],
             patches[17],
+            patches[18],
         ):
             assert handle_show_command("/show") is True
 
@@ -257,6 +260,26 @@ class TestHandleSetCommand:
             patch("code_puppy.messaging.emit_error") as err,
         ):
             assert handle_set_command("/set cancel_agent_key bad_key") is True
+            err.assert_called_once()
+
+    def test_queue_limit_valid(self):
+        from code_puppy.command_line.config_commands import handle_set_command
+
+        mock_agent = MagicMock()
+        with (
+            patch("code_puppy.config.set_config_value") as set_value,
+            patch("code_puppy.messaging.emit_success"),
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.agents.get_current_agent", return_value=mock_agent),
+        ):
+            assert handle_set_command("/set queue_limit 7") is True
+            set_value.assert_called_once_with("queue_limit", "7")
+
+    def test_queue_limit_invalid(self):
+        from code_puppy.command_line.config_commands import handle_set_command
+
+        with patch("code_puppy.messaging.emit_error") as err:
+            assert handle_set_command("/set queue_limit 0") is True
             err.assert_called_once()
 
     def test_agent_reload_failure(self):
