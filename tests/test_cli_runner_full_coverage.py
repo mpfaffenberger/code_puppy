@@ -716,6 +716,7 @@ class TestInteractiveMode:
     async def test_keyboard_interrupt_stops_wiggum(self):
         call_count = 0
         wiggum_active = {"value": False}
+        mock_warning = MagicMock()
 
         async def fake_input(*a, **kw):
             nonlocal call_count
@@ -745,9 +746,13 @@ class TestInteractiveMode:
                 "code_puppy.command_line.wiggum_state.stop_wiggum": MagicMock(
                     side_effect=fake_stop_wiggum
                 ),
+                "code_puppy.messaging.emit_warning": mock_warning,
             },
         )
         mock_stop.assert_called()
+        warning_messages = [call.args[0] for call in mock_warning.call_args_list]
+        assert "\n🍩 Wiggum loop stopped!" in warning_messages
+        assert "\nInput cancelled" not in warning_messages
 
     @pytest.mark.anyio
     async def test_clear_command(self):
@@ -1856,7 +1861,7 @@ class TestInteractiveQueueHandoff:
         )
 
     @pytest.mark.anyio
-    async def test_wiggum_queued_prompt_runs_before_reloop_and_resumes(self):
+    async def test_wiggum_queued_prompt_waits_until_loop_stops(self):
         call_count = 0
         queued_submitted = asyncio.Event()
         started_prompts = []
@@ -1864,7 +1869,7 @@ class TestInteractiveQueueHandoff:
         autosave_mock = patches["code_puppy.config.auto_save_session_if_enabled"]
         all_autosaves_done = asyncio.Event()
         autosave_mock.side_effect = lambda: (
-            all_autosaves_done.set() if autosave_mock.call_count >= 3 else None
+            all_autosaves_done.set() if autosave_mock.call_count >= 4 else None
         )
 
         async def fake_input(*a, **kw):
@@ -1913,14 +1918,14 @@ class TestInteractiveQueueHandoff:
             },
         )
 
-        assert started_prompts[:3] == ["write hello", "queued task", "repeat"]
-        assert autosave_mock.call_count == 3
+        assert started_prompts[:4] == ["write hello", "repeat", "repeat", "queued task"]
+        assert autosave_mock.call_count == 4
 
     @pytest.mark.anyio
-    async def test_wiggum_queued_busy_slash_text_stays_literal_before_reloop(self):
+    async def test_wiggum_queued_busy_slash_text_stays_literal_after_loop_ends(self):
         call_count = 0
         queued_submitted = asyncio.Event()
-        repeat_finished = asyncio.Event()
+        queued_finished = asyncio.Event()
         started_prompts = []
         handle_command = MagicMock(return_value=True)
 
@@ -1936,7 +1941,7 @@ class TestInteractiveQueueHandoff:
                     action="queue",
                     allow_command_dispatch=False,
                 )
-            await repeat_finished.wait()
+            await queued_finished.wait()
             return _submission("/exit")
 
         def fake_wiggum_active():
@@ -1950,8 +1955,8 @@ class TestInteractiveQueueHandoff:
                 await asyncio.sleep(0.05)
             result = MagicMock(output=f"done: {prompt}")
             result.all_messages.return_value = []
-            if prompt == "repeat":
-                repeat_finished.set()
+            if prompt == "/agent":
+                queued_finished.set()
             return result, MagicMock()
 
         await _run_interactive(
@@ -1977,8 +1982,80 @@ class TestInteractiveQueueHandoff:
             },
         )
 
-        assert started_prompts[:3] == ["write hello", "/agent", "repeat"]
+        assert started_prompts[:4] == ["write hello", "repeat", "repeat", "/agent"]
         handle_command.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_wiggum_interject_runs_immediately_and_reloop_resumes(self):
+        call_count = 0
+        repeat_started = asyncio.Event()
+        rerun_finished = asyncio.Event()
+        started_prompts = []
+        repeat_runs = 0
+        stop_wiggum = MagicMock()
+
+        async def fake_input(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _submission("write hello")
+            if call_count == 2:
+                await repeat_started.wait()
+                return _submission("steer now", action="interject")
+            await rerun_finished.wait()
+            return _submission("/exit")
+
+        def fake_wiggum_active():
+            return len(started_prompts) >= 1 and len(started_prompts) < 4
+
+        async def fake_run(*a, **kw):
+            nonlocal repeat_runs
+            prompt = a[1]
+            started_prompts.append(prompt)
+            if prompt == "repeat":
+                repeat_runs += 1
+                if repeat_runs == 1:
+                    repeat_started.set()
+                    try:
+                        await asyncio.Future()
+                    except asyncio.CancelledError:
+                        return None, MagicMock()
+                else:
+                    rerun_finished.set()
+            result = MagicMock(output=f"done: {prompt}")
+            result.all_messages.return_value = []
+            return result, MagicMock()
+
+        await _run_interactive(
+            _mock_renderer(),
+            _interactive_patches(),
+            fake_input,
+            extra_patches={
+                "code_puppy.cli_runner.run_prompt_with_attachments": fake_run,
+                "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
+                    side_effect=lambda text: _mock_parse_result(text)
+                ),
+                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
+                    side_effect=fake_wiggum_active
+                ),
+                "code_puppy.command_line.wiggum_state.get_wiggum_prompt": MagicMock(
+                    return_value="repeat"
+                ),
+                "code_puppy.command_line.wiggum_state.increment_wiggum_count": MagicMock(
+                    return_value=1
+                ),
+                "code_puppy.command_line.wiggum_state.stop_wiggum": stop_wiggum,
+                "code_puppy.tools.command_runner.get_running_shell_process_count": MagicMock(
+                    return_value=0
+                ),
+            },
+        )
+
+        assert started_prompts[0] == "write hello"
+        assert started_prompts[1] == "repeat"
+        assert started_prompts[2].startswith("user interjects - steer now")
+        assert started_prompts[3] == "repeat"
+        stop_wiggum.assert_not_called()
 
     @pytest.mark.anyio
     async def test_wiggum_loop_cancelled(self):
@@ -2044,7 +2121,7 @@ class TestInteractiveQueueHandoff:
         def fake_wiggum():
             nonlocal wiggum_calls
             wiggum_calls += 1
-            return wiggum_calls <= 1
+            return wiggum_calls <= 2
 
         mock_stop = MagicMock()
         await _run_interactive(
@@ -2521,6 +2598,7 @@ class TestInteractiveModeEdgeCases:
     async def test_wiggum_keyboard_interrupt(self):
         """Lines 874-876: KeyboardInterrupt in wiggum loop."""
         call_count = 0
+        mock_warning = MagicMock()
 
         async def fake_input(*a, **kw):
             nonlocal call_count
@@ -2562,8 +2640,11 @@ class TestInteractiveModeEdgeCases:
                     return_value=1
                 ),
                 "code_puppy.command_line.wiggum_state.stop_wiggum": MagicMock(),
+                "code_puppy.messaging.emit_warning": mock_warning,
             },
         )
+        warning_messages = [call.args[0] for call in mock_warning.call_args_list]
+        assert "\nInput cancelled" not in warning_messages
 
 
 # ---------------------------------------------------------------------------
@@ -2702,17 +2783,15 @@ class TestRemainingEdgeCases:
         agent = MagicMock()
         agent.get_user_prompt.return_value = "task:"
 
-        # First call to is_wiggum_active: False (in the result==None block)
-        # But we need the result to be None AND wiggum to be active
-        # The code path: result is None -> reset terminal -> check wiggum -> stop + emit
+        # drain_pending_work_if_idle now checks Wiggum state before dispatching, so
+        # allow one extra truthy call before the cancelled-result stop path runs.
         wiggum_calls = 0
 
         def fake_wiggum():
             nonlocal wiggum_calls
             wiggum_calls += 1
-            # Called from the result==None block
-            if wiggum_calls == 1:
-                return True  # in the cancelled block
+            if wiggum_calls <= 2:
+                return True
             return False  # after the while loop
 
         mock_stop = MagicMock()

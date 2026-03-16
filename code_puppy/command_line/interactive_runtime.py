@@ -62,6 +62,7 @@ class PromptRuntimeState:
     active_run_kind: Literal["agent", "interactive_command"] | None = None
     active_cancel_hook: Callable[[], None] | None = None
     active_cancel_requester: Callable[[str], None] | None = None
+    queue_autodrain_suppressed: bool = False
 
     def mark_running(
         self,
@@ -143,6 +144,16 @@ class PromptRuntimeState:
         self.invalidate_prompt()
         return value
 
+    def dequeue_next_interject(self) -> QueuedPrompt | None:
+        for index, item in enumerate(self.queue):
+            if item.kind != "interject":
+                continue
+            value = self.queue.pop(index)
+            self._clamp_queue_view_offset()
+            self.invalidate_prompt()
+            return value
+        return None
+
     def queue_preview_texts(self) -> list[str]:
         return [item.preview_text() for item in self.queue]
 
@@ -193,6 +204,15 @@ class PromptRuntimeState:
             return False
         self.active_cancel_requester(reason)
         return True
+
+    def suppress_queue_autodrain(self) -> None:
+        self.queue_autodrain_suppressed = True
+
+    def clear_queue_autodrain_suppression(self) -> None:
+        self.queue_autodrain_suppressed = False
+
+    def is_queue_autodrain_suppressed(self) -> bool:
+        return self.queue_autodrain_suppressed
 
     def shift_queue_view_offset(self, delta: int, *, max_visible: int = 3) -> bool:
         old_offset = self.queue_view_offset

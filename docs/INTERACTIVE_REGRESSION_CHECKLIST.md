@@ -45,8 +45,12 @@ Run this before merging changes that touch the interactive runtime, prompt surfa
 ## Cancel Behavior
 
 - During a foreground shell command, press `Ctrl+C` and confirm the shell is interrupted without tearing down the outer session.
+- During a foreground shell command with queued prompts waiting, press `Ctrl+C` and confirm the shell stops and queued prompts remain queued instead of auto-starting.
 - During a background interactive command or sub-agent action, press `Ctrl+C` and confirm the inner work cancels and control returns cleanly.
 - During a normal active agent run, press `Ctrl+C` and confirm the run cancels and the prompt becomes usable again.
+- During a normal active agent run with queued prompts waiting, press `Ctrl+C` and confirm the current run stops but queued prompts do not auto-start.
+- After that manual cancel, submit one fresh prompt and confirm normal queue draining resumes only after that explicit submission path runs.
+- While idle with queue autodrain paused and queued prompts waiting, press `Enter` on an empty composer and confirm the next queued prompt is recalled into the composer for editing instead of auto-starting.
 - If the chooser is visible during active work, press `Ctrl+C` and confirm the active work cancels and the chooser/input state clears.
 
 ## Queue And Prompt Stability
@@ -66,9 +70,11 @@ Run this before merging changes that touch the interactive runtime, prompt surfa
 
 ## Wiggum
 
-- Start `/wiggum hello`, queue a normal follow-up, and confirm the queued turn runs before the next Wiggum rerun.
-- After that queued turn completes, confirm Wiggum resumes its stored loop prompt.
-- While Wiggum is active, queue a slash-prefixed prompt such as `/agent` and confirm it is treated as literal agent text, not executed as a slash command.
+- Start `/wiggum hello`, queue a normal follow-up, and confirm Wiggum keeps rerunning its stored prompt while the queued turn waits.
+- Stop Wiggum, then confirm the queued turn still has not auto-started if Wiggum was stopped manually with `Ctrl+C`.
+- While Wiggum is active, interject a follow-up and confirm it cuts in immediately, affects only the current iteration, and then Wiggum resumes its stored loop prompt.
+- While Wiggum is active, queue a slash-prefixed prompt such as `/agent` and confirm it is treated as literal agent text, not executed as a slash command when it later drains.
+- Press `Ctrl+C` during Wiggum and confirm it stops once cleanly, does not relaunch future loops, and does not print a stray `Input cancelled` after the stop.
 
 ## Autosave
 

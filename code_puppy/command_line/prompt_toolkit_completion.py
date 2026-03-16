@@ -845,6 +845,8 @@ async def prompt_for_submission(
     runtime = _get_runtime()
     # Add custom key bindings and multiline toggle
     bindings = KeyBindings()
+    recalled_queue_item = {"item": None}
+    recalled_queue_allow_command_dispatch = {"value": True}
     pending_decision_filter = Condition(
         lambda: runtime is not None and runtime.has_pending_submission()
     )
@@ -945,6 +947,31 @@ async def prompt_for_submission(
             except Exception:
                 pass
 
+    def recall_next_paused_queue_to_buffer(event) -> bool:
+        if runtime is None:
+            return False
+        if runtime.running or runtime.has_pending_submission():
+            return False
+        if not runtime.is_queue_autodrain_suppressed():
+            return False
+        if not runtime.queue:
+            return False
+
+        item = runtime.queue[0]
+        recalled_queue_item["item"] = item
+        recalled_queue_allow_command_dispatch["value"] = item.allow_command_dispatch
+        try:
+            event.app.current_buffer.document = Document(
+                text=item.text,
+                cursor_position=len(item.text),
+            )
+        except Exception:
+            try:
+                event.app.current_buffer.text = item.text
+            except Exception:
+                return False
+        return True
+
     # Ctrl+X keybinding - exit with KeyboardInterrupt for input cancellation
     @bindings.add(Keys.ControlX)
     def _(event):
@@ -962,6 +989,7 @@ async def prompt_for_submission(
     def _(event):
         if runtime is not None and runtime.has_active_shell():
             _interrupt_shell_from_prompt("Ctrl-C")
+            runtime.suppress_queue_autodrain()
             runtime.set_pending_submission(None)
             clear_chooser_input(event)
             return
@@ -983,6 +1011,7 @@ async def prompt_for_submission(
         def _(event):
             if runtime is not None and runtime.has_active_shell():
                 _interrupt_shell_from_prompt(configured_cancel_key.upper())
+                runtime.suppress_queue_autodrain()
                 runtime.set_pending_submission(None)
                 clear_chooser_input(event)
                 return
@@ -1106,6 +1135,8 @@ async def prompt_for_submission(
                 )
             return
         text = event.app.current_buffer.text
+        if not text.strip() and recall_next_paused_queue_to_buffer(event):
+            return
         if (
             runtime is not None
             and runtime.running
@@ -1329,6 +1360,17 @@ async def prompt_for_submission(
             echo_in_transcript=erase_when_done,
             allow_command_dispatch=result.allow_command_dispatch,
         )
+    allow_command_dispatch = True
+    recalled_item = recalled_queue_item["item"]
+    if recalled_item is not None:
+        allow_command_dispatch = recalled_queue_allow_command_dispatch["value"]
+        if (
+            runtime is not None
+            and result.strip()
+            and runtime.queue
+            and runtime.queue[0] is recalled_item
+        ):
+            runtime.dequeue()
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running
     # and emitting success messages. Now we let all /model commands fall through to
@@ -1337,7 +1379,7 @@ async def prompt_for_submission(
         action="submit",
         text=result,
         echo_in_transcript=erase_when_done,
-        allow_command_dispatch=True,
+        allow_command_dispatch=allow_command_dispatch,
     )
 
 

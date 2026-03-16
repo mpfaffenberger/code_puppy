@@ -75,13 +75,19 @@ Read this before making changes in this repo.
 - Busy `@` attachment completion is allowed while the always-on composer is open, but the chooser state must stay modal and must not show `@` completions or attachment placeholder transforms.
 - Chooser typing must not mutate the stored pending submission.
 - `Ctrl+C` from the composer must remain the universal busy-state cancel path: shell interrupt, background command cancel, or agent cancel as appropriate.
+- Manual cancel from the composer (`Ctrl+C` or configured cancel key) must stop current work without auto-launching queued prompts; queued items should remain queued until the user explicitly submits something new.
+- Manual shell interrupt from the composer must follow the same queue-pause rule: interrupt the shell, keep queued items intact, and stop there until explicit user input resumes flow.
+- When queue autodrain is paused and the runtime is idle, pressing `Enter` on an empty composer should recall the next queued prompt into the composer for editing; it must not auto-run the queued item.
 - Hook commands and hook-engine behavior must remain functional in the mounted-composer fork; preserve their legacy command output path rather than rewriting them.
 
 ## Wiggum Rules
 
-- When Wiggum mode is active, queued work must drain before the next Wiggum rerun starts.
-- After queued work completes, Wiggum should resume its stored loop prompt if Wiggum mode is still active.
-- Busy slash-prefixed text queued during Wiggum must remain literal agent text, not execute as a slash command.
+- When Wiggum mode is active, ordinary queued work must not drain before the next Wiggum rerun starts.
+- Only interject items may bypass an active Wiggum loop; ordinary queued prompts must wait until Wiggum is no longer active.
+- Interjecting during Wiggum must affect only the current iteration; it must not stop the stored Wiggum loop prompt from continuing afterward.
+- Busy slash-prefixed text queued during Wiggum must remain literal agent text, not execute as a slash command when it later drains.
+- `Ctrl+C` during Wiggum must stop future reruns cleanly, without emitting duplicate stop/cancel lines or a stray `Input cancelled` afterward.
+- Manually stopping Wiggum must not auto-trigger ordinary queued prompts; they should remain queued and paused until explicit user input resumes flow.
 
 ## Config And Runtime Notes
 
