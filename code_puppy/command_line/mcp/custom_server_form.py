@@ -638,13 +638,19 @@ class CustomServerForm:
             # previous prompt_toolkit Application left tracking enabled
             # (e.g., due to an exception or threading race), this ensures
             # the terminal stops sending mouse escape sequences.
-            from code_puppy.terminal_utils import disable_mouse_tracking
+            try:
+                from code_puppy.terminal_utils import disable_mouse_tracking
 
-            disable_mouse_tracking()
-            # Exit alternate screen buffer
-            sys.stdout.write("\033[?1049l")
-            sys.stdout.flush()
-            set_awaiting_user_input(False)
+                disable_mouse_tracking()
+            except Exception:
+                pass
+            finally:
+                # Exit alternate screen buffer — must always run even if
+                # disable_mouse_tracking fails, or the terminal stays in
+                # alt screen with input flags stuck.
+                sys.stdout.write("\033[?1049l")
+                sys.stdout.flush()
+                set_awaiting_user_input(False)
 
         # Clear exit message if not installing
         if self.result != "installed":

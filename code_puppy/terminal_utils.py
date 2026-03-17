@@ -151,7 +151,9 @@ def disable_mouse_tracking() -> None:
         pass  # Best effort — silently ignore errors
 
 
-def drain_stdin_escape_sequence(max_bytes: int = 256) -> None:
+def drain_stdin_escape_sequence(
+    stream=None, max_bytes: int = 256
+) -> None:
     """Drain any pending multi-byte escape sequence bytes from stdin.
 
     When reading stdin byte-by-byte in cbreak/raw mode, mouse events and
@@ -164,6 +166,7 @@ def drain_stdin_escape_sequence(max_bytes: int = 256) -> None:
     short timeout window, preventing escape sequence fragments from leaking.
 
     Args:
+        stream: File-like object to drain. Defaults to ``sys.stdin``.
         max_bytes: Safety cap to prevent infinite loops if stdin is flooded
             (e.g., continuous mouse events). 256 bytes covers any realistic
             burst of pending escape sequences.
@@ -174,7 +177,7 @@ def drain_stdin_escape_sequence(max_bytes: int = 256) -> None:
     try:
         import select
 
-        fd = sys.stdin
+        fd = stream if stream is not None else sys.stdin
         # Drain all pending bytes (10 ms timeout per byte — enough for
         # escape sequences which arrive in a burst, but won't block on
         # genuinely empty stdin).
