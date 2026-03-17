@@ -151,7 +151,7 @@ def disable_mouse_tracking() -> None:
         pass  # Best effort — silently ignore errors
 
 
-def drain_stdin_escape_sequence() -> None:
+def drain_stdin_escape_sequence(max_bytes: int = 256) -> None:
     """Drain any pending multi-byte escape sequence bytes from stdin.
 
     When reading stdin byte-by-byte in cbreak/raw mode, mouse events and
@@ -162,6 +162,11 @@ def drain_stdin_escape_sequence() -> None:
 
     This function drains all currently pending bytes from stdin within a
     short timeout window, preventing escape sequence fragments from leaking.
+
+    Args:
+        max_bytes: Safety cap to prevent infinite loops if stdin is flooded
+            (e.g., continuous mouse events). 256 bytes covers any realistic
+            burst of pending escape sequences.
     """
     if platform.system() == "Windows":
         return
@@ -173,8 +178,10 @@ def drain_stdin_escape_sequence() -> None:
         # Drain all pending bytes (10 ms timeout per byte — enough for
         # escape sequences which arrive in a burst, but won't block on
         # genuinely empty stdin).
-        while select.select([fd], [], [], 0.01)[0]:
+        drained = 0
+        while drained < max_bytes and select.select([fd], [], [], 0.01)[0]:
             fd.read(1)
+            drained += 1
     except Exception:
         pass  # Best effort — silently ignore errors
 

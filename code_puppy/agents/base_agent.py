@@ -1776,7 +1776,9 @@ class BaseAgent(ABC):
                 # keys, etc.) so partial sequences don't leak into the
                 # stdin buffer for the next reader (e.g., prompt_toolkit).
                 if data == "\x1b":
-                    while select.select([stdin], [], [], 0.01)[0]:
+                    for _ in range(256):
+                        if not select.select([stdin], [], [], 0.01)[0]:
+                            break
                         stdin.read(1)
                     continue
                 if data == "\x18":  # Ctrl+X
@@ -1797,7 +1799,9 @@ class BaseAgent(ABC):
             # Drain any remaining escape sequence bytes before restoring
             # terminal attrs, so fragments don't leak to prompt_toolkit.
             try:
-                while select.select([stdin], [], [], 0.01)[0]:
+                for _ in range(256):
+                    if not select.select([stdin], [], [], 0.01)[0]:
+                        break
                     stdin.read(1)
             except Exception:
                 pass
