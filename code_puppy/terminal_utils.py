@@ -126,6 +126,59 @@ def reset_windows_terminal_full() -> None:
     flush_windows_keyboard_buffer()
 
 
+def disable_mouse_tracking() -> None:
+    """Explicitly disable all mouse tracking escape sequences.
+
+    Sends the standard VT100 escape sequences to disable mouse click,
+    any-event, urxvt, and SGR mouse tracking modes. This is a safety net
+    for when prompt_toolkit or other TUI components fail to clean up
+    mouse tracking on exit (e.g., due to exceptions or threading issues).
+
+    Safe to call even if mouse tracking was never enabled.
+    """
+    if platform.system() == "Windows":
+        return
+
+    try:
+        sys.stdout.write(
+            "\x1b[?1000l"  # Disable mouse click tracking
+            "\x1b[?1003l"  # Disable any-event mouse tracking
+            "\x1b[?1015l"  # Disable urxvt mouse mode
+            "\x1b[?1006l"  # Disable SGR mouse mode
+        )
+        sys.stdout.flush()
+    except Exception:
+        pass  # Best effort — silently ignore errors
+
+
+def drain_stdin_escape_sequence() -> None:
+    """Drain any pending multi-byte escape sequence bytes from stdin.
+
+    When reading stdin byte-by-byte in cbreak/raw mode, mouse events and
+    other terminal escape sequences produce multi-byte sequences (e.g.,
+    ``\\x1b[<0;15;20M`` for a mouse click). If a reader stops mid-sequence,
+    the remaining bytes stay in the stdin buffer and appear as garbled
+    characters when the next reader (e.g., prompt_toolkit) takes over.
+
+    This function drains all currently pending bytes from stdin within a
+    short timeout window, preventing escape sequence fragments from leaking.
+    """
+    if platform.system() == "Windows":
+        return
+
+    try:
+        import select
+
+        fd = sys.stdin
+        # Drain all pending bytes (10 ms timeout per byte — enough for
+        # escape sequences which arrive in a burst, but won't block on
+        # genuinely empty stdin).
+        while select.select([fd], [], [], 0.01)[0]:
+            fd.read(1)
+    except Exception:
+        pass  # Best effort — silently ignore errors
+
+
 def reset_unix_terminal() -> None:
     """Reset Unix/Linux/macOS terminal to sane state.
 

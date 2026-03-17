@@ -611,7 +611,7 @@ class CustomServerForm:
             layout=layout,
             key_bindings=kb,
             full_screen=False,
-            mouse_support=True,
+            mouse_support=False,
         )
 
         set_awaiting_user_input(True)
@@ -634,6 +634,13 @@ class CustomServerForm:
             app.run(in_thread=True)
 
         finally:
+            # Explicitly disable mouse tracking as a safety net — if any
+            # previous prompt_toolkit Application left tracking enabled
+            # (e.g., due to an exception or threading race), this ensures
+            # the terminal stops sending mouse escape sequences.
+            from code_puppy.terminal_utils import disable_mouse_tracking
+
+            disable_mouse_tracking()
             # Exit alternate screen buffer
             sys.stdout.write("\033[?1049l")
             sys.stdout.flush()
