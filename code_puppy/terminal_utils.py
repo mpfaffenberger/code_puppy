@@ -151,9 +151,7 @@ def disable_mouse_tracking() -> None:
         pass  # Best effort — silently ignore errors
 
 
-def drain_stdin_escape_sequence(
-    stream=None, max_bytes: int = 256
-) -> None:
+def drain_stdin_escape_sequence(stream=None, max_bytes: int = 256) -> None:
     """Drain any pending multi-byte escape sequence bytes from stdin.
 
     When reading stdin byte-by-byte in cbreak/raw mode, mouse events and
