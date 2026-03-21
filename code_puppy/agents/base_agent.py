@@ -1073,10 +1073,17 @@ class BaseAgent(ABC):
             if compaction_strategy == "truncation":
                 # Use truncation instead of summarization
                 protected_tokens = get_protected_token_count()
-                result_messages = self.truncation(
-                    self.filter_huge_messages(messages), protected_tokens
-                )
-                summarized_messages = []  # No summarization in truncation mode
+                filtered_messages = self.filter_huge_messages(messages)
+                result_messages = self.truncation(filtered_messages, protected_tokens)
+                # Track dropped messages by hash so message_history_accumulator
+                # won't re-inject them from pydantic-ai's full message list on
+                # subsequent calls within the same run (fixes ghost-task bug).
+                result_hashes = {self.hash_message(m) for m in result_messages}
+                summarized_messages = [
+                    m
+                    for m in filtered_messages
+                    if self.hash_message(m) not in result_hashes
+                ]
             else:
                 # Default to summarization (safe to proceed - no pending tool calls)
                 result_messages, summarized_messages = self.summarize_messages(
@@ -1474,7 +1481,6 @@ class BaseAgent(ABC):
             self.pydantic_agent = p_agent
             self._code_generation_agent = p_agent
             self._mcp_servers = filtered_mcp_servers
-            self._mcp_servers = mcp_servers
         return self._code_generation_agent
 
     def _create_agent_with_output_type(self, output_type: Type[Any]) -> PydanticAgent:
@@ -1905,7 +1911,6 @@ class BaseAgent(ABC):
                 ):
                     # Temporarily add MCP servers to the DBOS agent using internal _toolsets
                     original_toolsets = pydantic_agent._toolsets
-                    pydantic_agent._toolsets = original_toolsets + self._mcp_servers
                     pydantic_agent._toolsets = original_toolsets + self._mcp_servers
 
                     try:
