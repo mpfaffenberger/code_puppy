@@ -151,10 +151,13 @@ class TestModelSettings:
     def test_load_model_settings_with_openai(
         self, mock_supports, mock_get_all, mock_effort, mock_verb
     ):
-        mock_supports.side_effect = lambda m, s: s in (
-            "temperature",
-            "reasoning_effort",
-            "verbosity",
+        mock_supports.side_effect = lambda m, s: (
+            s
+            in (
+                "temperature",
+                "reasoning_effort",
+                "verbosity",
+            )
         )
         menu = _make_menu()
         menu._load_model_settings("gpt-5")
