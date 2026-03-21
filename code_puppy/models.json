@@ -34,5 +34,17 @@
     "name": "glm-5",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
+  },
+  "zai-glm-5-turbo-coding": {
+    "type": "zai_coding",
+    "name": "glm-5-turbo",
+    "context_length": 200000,
+    "supported_settings": ["temperature", "top_p"]
+  },
+  "zai-glm-5-turbo-api": {
+    "type": "zai_api",
+    "name": "glm-5-turbo",
+    "context_length": 200000,
+    "supported_settings": ["temperature", "top_p"]
   }
 }
