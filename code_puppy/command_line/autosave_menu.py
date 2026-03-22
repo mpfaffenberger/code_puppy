@@ -429,7 +429,8 @@ def display_resumed_history(
     # Use config value if num_messages not explicitly provided
     if num_messages is None:
         num_messages = get_resume_message_count()
-
+    if num_messages <= 0:
+        return
     console = Console()
     total_messages = len(history)
 
