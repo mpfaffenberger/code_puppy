@@ -1,5 +1,6 @@
 # file_operations.py
 
+import math
 import os
 import shutil
 import subprocess
@@ -514,7 +515,7 @@ def _read_file(
                     for char in content
                 )
 
-            # Simple approximation: ~4 characters per token
+            # Token estimation consistent with BaseAgent (~2.5 characters per token)
             num_tokens = max(1, math.floor(len(content) / 2.5))
             if num_tokens > 10000:
                 return ReadFileOutput(
