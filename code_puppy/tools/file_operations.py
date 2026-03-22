@@ -193,10 +193,12 @@ def _list_files(
                     break
 
         if not rg_path and recursive:
-            # Only need ripgrep for recursive listings
-            error_msg = "Error: ripgrep (rg) not found. Please install ripgrep to use this tool."
-            return ListFileOutput(content=error_msg, error=error_msg)
-
+            # Fall back to non-recursive listing when ripgrep is not available
+            output_lines.append(
+                "Warning: ripgrep (rg) not found. Falling back to non-recursive listing. "
+                "Install ripgrep for full recursive support."
+            )
+            recursive = False
         # Only use ripgrep for recursive listings
         if recursive:
             # Build command for ripgrep --files
