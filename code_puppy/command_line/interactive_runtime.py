@@ -53,6 +53,8 @@ class PromptRuntimeState:
     prompt_session: object | None = None
     prompt_status_started_at: float | None = None
     prompt_status_task: asyncio.Task | None = None
+    prompt_ephemeral_status: str | None = None
+    prompt_ephemeral_preview: str | None = None
     above_prompt_lock: asyncio.Lock | None = field(default=None, init=False, repr=False)
     above_prompt_lock_loop: asyncio.AbstractEventLoop | None = field(
         default=None,
@@ -89,6 +91,8 @@ class PromptRuntimeState:
         self.active_run_kind = None
         self.active_cancel_hook = None
         self.prompt_status_started_at = None
+        self.prompt_ephemeral_status = None
+        self.prompt_ephemeral_preview = None
         self._stop_prompt_status_task()
         self.invalidate_prompt()
 
@@ -195,6 +199,26 @@ class PromptRuntimeState:
 
     def has_active_interactive_command(self) -> bool:
         return self.active_run_kind == "interactive_command" and self.running
+
+    def set_prompt_ephemeral_status(self, text: str | None) -> None:
+        normalized = text.strip() if text and text.strip() else None
+        if normalized == self.prompt_ephemeral_status:
+            return
+        self.prompt_ephemeral_status = normalized
+        self.invalidate_prompt_for_spinner()
+
+    def clear_prompt_ephemeral_status(self) -> None:
+        self.set_prompt_ephemeral_status(None)
+
+    def set_prompt_ephemeral_preview(self, text: str | None) -> None:
+        normalized = text if text and text.strip() else None
+        if normalized == self.prompt_ephemeral_preview:
+            return
+        self.prompt_ephemeral_preview = normalized
+        self.invalidate_prompt_for_spinner()
+
+    def clear_prompt_ephemeral_preview(self) -> None:
+        self.set_prompt_ephemeral_preview(None)
 
     def set_active_cancel_requester(
         self, requester: Callable[[str], None] | None

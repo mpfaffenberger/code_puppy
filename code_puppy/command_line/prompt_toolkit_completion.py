@@ -687,6 +687,31 @@ def _build_prompt_style() -> Style:
     )
 
 
+def _truncate_prompt_preview(
+    text: str, *, max_chars: int = 1000, max_lines: int = 6
+) -> str:
+    normalized = text.rstrip("\n")
+    if not normalized.strip():
+        return ""
+
+    char_trimmed = len(normalized) > max_chars
+    if char_trimmed:
+        normalized = normalized[-max_chars:]
+
+    lines = normalized.splitlines()
+    if not lines:
+        lines = [normalized]
+
+    line_trimmed = len(lines) > max_lines
+    if line_trimmed:
+        lines = lines[-max_lines:]
+
+    preview = "\n".join(lines)
+    if char_trimmed or line_trimmed:
+        preview = f"...\n{preview}"
+    return preview
+
+
 def _build_prompt_status_parts(runtime: PromptRuntimeState) -> list[tuple[str, str]]:
     """Build the lightweight thinking line shown above the prompt separator."""
     parts: list[tuple[str, str]] = [
@@ -698,6 +723,17 @@ def _build_prompt_status_parts(runtime: PromptRuntimeState) -> list[tuple[str, s
         parts.append(("", " "))
         parts.append(("class:thinking-context", context_info))
     parts.append(("", "\n"))
+    if runtime.prompt_ephemeral_status:
+        parts.append(("class:thinking-context", runtime.prompt_ephemeral_status))
+        parts.append(("", "\n"))
+    if runtime.prompt_ephemeral_preview:
+        parts.append(
+            (
+                "class:thinking-context",
+                _truncate_prompt_preview(runtime.prompt_ephemeral_preview),
+            )
+        )
+        parts.append(("", "\n"))
     return parts
 
 
