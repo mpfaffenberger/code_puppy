@@ -10,7 +10,7 @@ Covers:
 """
 
 from io import StringIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic_ai import PartDeltaEvent, PartEndEvent, PartStartEvent, RunContext
@@ -523,10 +523,10 @@ class TestEventStreamHandler:
         assert any("token(s)" in str(call) for call in call_args_list)
 
     @pytest.mark.asyncio
-    async def test_tool_call_prompt_surface_mode_avoids_carriage_returns(
+    async def test_tool_call_prompt_surface_mode_hides_tool_progress(
         self, mock_ctx
     ):
-        """Prompt-surface mode should suppress terminal tool streaming entirely."""
+        """Prompt-surface mode should route tool progress into transient prompt state."""
         tool_part = ToolCallPart(tool_call_id="tool_1", tool_name="test_tool", args={})
         start_event = PartStartEvent(index=0, part=tool_part)
         delta_event = PartDeltaEvent(
@@ -542,18 +542,143 @@ class TestEventStreamHandler:
 
         console = MagicMock(spec=Console)
         set_streaming_console(console)
+        safe_console = MagicMock(spec=Console)
+        runtime = MagicMock()
+        runtime.has_prompt_surface.return_value = True
+        runtime.set_prompt_ephemeral_status = MagicMock()
+        runtime.clear_prompt_ephemeral_status = MagicMock()
+
+        async def _run_above_prompt(func):
+            func()
+            return True
+
+        runtime.run_above_prompt_async = AsyncMock(side_effect=_run_above_prompt)
 
         with patch(
-            "code_puppy.agents.event_stream_handler._has_active_prompt_surface",
-            return_value=True,
+            "code_puppy.agents.event_stream_handler._get_active_prompt_runtime",
+            return_value=runtime,
         ):
-            with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
-                with patch(
-                    "code_puppy.agents.event_stream_handler.resume_all_spinners"
-                ):
-                    await event_stream_handler(mock_ctx, event_stream())
+            with patch(
+                "code_puppy.agents.event_stream_handler._build_prompt_safe_console",
+                return_value=safe_console,
+            ):
+                with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+                    with patch(
+                        "code_puppy.agents.event_stream_handler.resume_all_spinners"
+                    ):
+                        await event_stream_handler(mock_ctx, event_stream())
 
         console.print.assert_not_called()
+        safe_console.print.assert_not_called()
+        runtime.run_above_prompt_async.assert_not_awaited()
+        runtime.set_prompt_ephemeral_status.assert_called_once_with(
+            "🔧 Calling test_tool... 1 token(s)"
+        )
+        runtime.clear_prompt_ephemeral_status.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_reasoning_tool_prompt_surface_mode_hides_tool_progress(
+        self, mock_ctx
+    ):
+        """Prompt-surface mode should suppress reasoning-tool status spam."""
+        tool_part = ToolCallPart(
+            tool_call_id="tool_1", tool_name="agent_share_your_reasoning", args={}
+        )
+        start_event = PartStartEvent(index=0, part=tool_part)
+        delta_event = PartDeltaEvent(
+            index=0,
+            delta=ToolCallPartDelta(
+                tool_name_delta="agent_share_your_reasoning",
+                args_delta='{"reasoning":"thinking"}',
+            ),
+        )
+        end_event = PartEndEvent(index=0, part=tool_part, next_part_kind=None)
+
+        async def event_stream():
+            yield start_event
+            yield delta_event
+            yield end_event
+
+        console = MagicMock(spec=Console)
+        set_streaming_console(console)
+        safe_console = MagicMock(spec=Console)
+        runtime = MagicMock()
+        runtime.has_prompt_surface.return_value = True
+        runtime.set_prompt_ephemeral_status = MagicMock()
+        runtime.clear_prompt_ephemeral_status = MagicMock()
+        runtime.run_above_prompt_async = AsyncMock(return_value=True)
+
+        with patch(
+            "code_puppy.agents.event_stream_handler._get_active_prompt_runtime",
+            return_value=runtime,
+        ):
+            with patch(
+                "code_puppy.agents.event_stream_handler._build_prompt_safe_console",
+                return_value=safe_console,
+            ):
+                with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+                    with patch(
+                        "code_puppy.agents.event_stream_handler.resume_all_spinners"
+                    ):
+                        await event_stream_handler(mock_ctx, event_stream())
+
+        console.print.assert_not_called()
+        safe_console.print.assert_not_called()
+        runtime.run_above_prompt_async.assert_not_awaited()
+        runtime.set_prompt_ephemeral_status.assert_not_called()
+        runtime.clear_prompt_ephemeral_status.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_thinking_prompt_surface_mode_renders_above_prompt(self, mock_ctx):
+        """Prompt-surface mode should show thinking output above the prompt."""
+        thinking_part = ThinkingPart(content="")
+        start_event = PartStartEvent(index=0, part=thinking_part)
+        delta_event = PartDeltaEvent(
+            index=0, delta=ThinkingPartDelta(content_delta="Think...")
+        )
+        end_event = PartEndEvent(index=0, part=thinking_part, next_part_kind=None)
+
+        async def event_stream():
+            yield start_event
+            yield delta_event
+            yield end_event
+
+        console = MagicMock(spec=Console)
+        set_streaming_console(console)
+        safe_console = MagicMock(spec=Console)
+        runtime = MagicMock()
+        runtime.has_prompt_surface.return_value = True
+
+        async def _run_above_prompt(func):
+            func()
+            return True
+
+        runtime.run_above_prompt_async = AsyncMock(side_effect=_run_above_prompt)
+
+        with patch(
+            "code_puppy.agents.event_stream_handler._get_active_prompt_runtime",
+            return_value=runtime,
+        ):
+            with patch(
+                "code_puppy.agents.event_stream_handler._build_prompt_safe_console",
+                return_value=safe_console,
+            ):
+                with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+                    with patch(
+                        "code_puppy.agents.event_stream_handler.resume_all_spinners"
+                    ):
+                        with patch(
+                            "code_puppy.agents.event_stream_handler.get_banner_color",
+                            return_value="blue",
+                        ):
+                            await event_stream_handler(mock_ctx, event_stream())
+
+        call_args_list = [str(call) for call in safe_console.print.call_args_list]
+        assert any("THINKING" in call for call in call_args_list)
+        assert any("Think..." in call for call in call_args_list)
+        console.print.assert_not_called()
+        assert safe_console.print.called
+        assert runtime.run_above_prompt_async.await_count >= 2
 
     @pytest.mark.asyncio
     async def test_text_banner_prompt_surface_mode_skips_clear_line(self, mock_ctx):
@@ -570,9 +695,13 @@ class TestEventStreamHandler:
         console.file = StringIO()
         set_streaming_console(console)
 
+        runtime = MagicMock()
+        runtime.has_prompt_surface.return_value = True
+        runtime.run_above_prompt_async = AsyncMock(return_value=True)
+
         with patch(
-            "code_puppy.agents.event_stream_handler._has_active_prompt_surface",
-            return_value=True,
+            "code_puppy.agents.event_stream_handler._get_active_prompt_runtime",
+            return_value=runtime,
         ):
             with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
                 with patch(
@@ -592,10 +721,11 @@ class TestEventStreamHandler:
                                 await event_stream_handler(mock_ctx, event_stream())
 
         console.print.assert_not_called()
+        runtime.run_above_prompt_async.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_prompt_surface_mode_streams_plain_text_response(self, mock_ctx):
-        """Prompt-surface mode should suppress text streaming and skip termflow."""
+        """Prompt-surface mode should route live text into transient preview state."""
         text_part = TextPart(content="")
         start_event = PartStartEvent(index=0, part=text_part)
         delta_event = PartDeltaEvent(
@@ -612,9 +742,14 @@ class TestEventStreamHandler:
         console.file = StringIO()
         set_streaming_console(console)
 
+        runtime = MagicMock()
+        runtime.has_prompt_surface.return_value = True
+        runtime.run_above_prompt_async = AsyncMock(return_value=True)
+        runtime.set_prompt_ephemeral_preview = MagicMock()
+
         with patch(
-            "code_puppy.agents.event_stream_handler._has_active_prompt_surface",
-            return_value=True,
+            "code_puppy.agents.event_stream_handler._get_active_prompt_runtime",
+            return_value=runtime,
         ):
             with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
                 with patch(
@@ -626,6 +761,8 @@ class TestEventStreamHandler:
 
         console.print.assert_not_called()
         mock_parser_cls.assert_not_called()
+        runtime.run_above_prompt_async.assert_not_awaited()
+        runtime.set_prompt_ephemeral_preview.assert_called_once_with("hello")
 
     @pytest.mark.asyncio
     async def test_thinking_part_without_initial_content_defers_banner(self, mock_ctx):

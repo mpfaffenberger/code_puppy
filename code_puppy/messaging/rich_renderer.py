@@ -188,6 +188,27 @@ class RichConsoleRenderer:
         except Exception:
             return None
 
+    def _set_prompt_ephemeral_status(self, text: str | None) -> None:
+        runtime = self._get_prompt_runtime()
+        if runtime is None:
+            return
+        try:
+            runtime.set_prompt_ephemeral_status(text)
+        except Exception:
+            pass
+
+    def _clear_prompt_ephemeral_status(self) -> None:
+        self._set_prompt_ephemeral_status(None)
+
+    def _clear_prompt_ephemeral_preview(self) -> None:
+        runtime = self._get_prompt_runtime()
+        if runtime is None:
+            return
+        try:
+            runtime.clear_prompt_ephemeral_preview()
+        except Exception:
+            pass
+
     def _should_render_agent_response(self) -> bool:
         """Render final agent responses when the interactive prompt is mounted."""
         runtime = self._get_prompt_runtime()
@@ -237,6 +258,9 @@ class RichConsoleRenderer:
         runtime = self._get_prompt_runtime()
         if runtime is None or not runtime.has_prompt_surface():
             return False
+
+        if isinstance(message, AgentResponseMessage):
+            self._clear_prompt_ephemeral_preview()
 
         console = self._build_prompt_safe_console()
         return runtime.run_above_prompt(
@@ -814,9 +838,14 @@ class RichConsoleRenderer:
         runtime = self._get_prompt_runtime()
         if runtime is not None and runtime.has_prompt_surface():
             if "\r" in msg.line:
-                sys.stdout.write(msg.line)
-            else:
-                sys.stdout.write(msg.line + "\n")
+                normalized = Text.from_ansi(msg.line.split("\r")[-1]).plain
+                normalized = normalized.replace("\n", " ")
+                normalized = "".join(
+                    char for char in normalized if char == "\t" or char.isprintable()
+                ).strip()
+                self._set_prompt_ephemeral_status(normalized or None)
+                return
+            sys.stdout.write(msg.line + "\n")
             sys.stdout.flush()
             return
 
@@ -837,6 +866,7 @@ class RichConsoleRenderer:
         Shell command results are already returned to the LLM via tool responses,
         so we don't need to clutter the UI with redundant output.
         """
+        self._clear_prompt_ephemeral_status()
         # Just print trailing newline for spinner separation
         self._console.print()
 

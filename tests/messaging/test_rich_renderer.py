@@ -396,11 +396,42 @@ def test_render_shell_line_with_cr(renderer, console):
     renderer._render_shell_line(msg)
 
 
+def test_render_shell_line_with_cr_and_prompt_surface_uses_ephemeral_status(renderer):
+    msg = ShellLineMessage(line="\x1b[2Kprogress\r50%", stream="stdout")
+    runtime = MagicMock()
+    runtime.has_prompt_surface.return_value = True
+    mock_stdout = MagicMock()
+
+    with (
+        patch.object(renderer, "_get_prompt_runtime", return_value=runtime),
+        patch("sys.stdout", mock_stdout),
+    ):
+        renderer._render_shell_line(msg)
+
+    runtime.set_prompt_ephemeral_status.assert_called_once_with("50%")
+    mock_stdout.write.assert_not_called()
+    mock_stdout.flush.assert_not_called()
+
+
 def test_render_shell_output(renderer, console):
     msg = ShellOutputMessage(
         command="ls", exit_code=0, stdout="", stderr="", duration_seconds=0.5
     )
     renderer._render_shell_output(msg)
+
+
+def test_render_shell_output_clears_ephemeral_status_when_prompt_surface_active(
+    renderer,
+):
+    msg = ShellOutputMessage(
+        command="ls", exit_code=0, stdout="", stderr="", duration_seconds=0.5
+    )
+    runtime = MagicMock()
+
+    with patch.object(renderer, "_get_prompt_runtime", return_value=runtime):
+        renderer._render_shell_output(msg)
+
+    runtime.set_prompt_ephemeral_status.assert_called_once_with(None)
 
 
 # =========================================================================
@@ -451,6 +482,23 @@ def test_do_render_agent_response_uses_prompt_runtime(renderer):
     with (
         patch.object(renderer, "_get_prompt_runtime", return_value=runtime),
         patch.object(renderer, "_render_agent_response") as mock_render,
+    ):
+        renderer._do_render(msg)
+
+    runtime.run_above_prompt.assert_called_once()
+    runtime.clear_prompt_ephemeral_preview.assert_called_once()
+    mock_render.assert_not_called()
+
+
+def test_do_render_agent_reasoning_uses_prompt_runtime(renderer):
+    msg = AgentReasoningMessage(reasoning="Because", next_steps="Do X")
+    runtime = MagicMock()
+    runtime.has_prompt_surface.return_value = True
+    runtime.run_above_prompt.return_value = True
+
+    with (
+        patch.object(renderer, "_get_prompt_runtime", return_value=runtime),
+        patch.object(renderer, "_render_agent_reasoning") as mock_render,
     ):
         renderer._do_render(msg)
 

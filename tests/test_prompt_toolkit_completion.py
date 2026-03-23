@@ -715,6 +715,91 @@ def test_get_prompt_with_active_model_shows_pending_hint_copy(
     clear_active_prompt_surface()
 
 
+def test_get_prompt_with_active_model_shows_ephemeral_status(monkeypatch, active_runtime):
+    clear_active_prompt_surface()
+    session = MagicMock()
+    session.app = MagicMock()
+    register_active_prompt_surface("main", session)
+    active_runtime.running = True
+    active_runtime.prompt_status_started_at = 0.0
+    active_runtime.set_prompt_ephemeral_status("🔧 Calling list_files... 11 token(s)")
+    active_runtime.set_prompt_ephemeral_preview(
+        "\n".join(
+            [
+                "line 1",
+                "line 2",
+                "line 3",
+                "line 4",
+                "line 5",
+                "line 6",
+                "line 7",
+                "line 8",
+            ]
+        )
+    )
+
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.get_puppy_name",
+        lambda: "Buddy",
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.get_active_model",
+        lambda: "gpt-test",
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.os.getcwd",
+        lambda: "/tmp/demo",
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.interactive_runtime.time.monotonic",
+        lambda: 0.18,
+    )
+
+    agent = MagicMock()
+    agent.display_name = "code-puppy"
+    agent.get_model_name.return_value = "gpt-test"
+
+    with (
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion._get_current_agent_for_prompt",
+            return_value=agent,
+        ),
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion.SpinnerBase.get_context_info",
+            return_value="",
+        ),
+        patch("shutil.get_terminal_size", return_value=os.terminal_size((80, 24))),
+    ):
+        rendered = "".join(text for _style, text in get_prompt_with_active_model())
+
+    assert "🔧 Calling list_files... 11 token(s)" in rendered
+    assert "line 1" not in rendered
+    assert "line 2" not in rendered
+    assert "line 3" in rendered
+    assert "line 8" in rendered
+    assert rendered.index("🔧 Calling list_files... 11 token(s)") < rendered.index(
+        "line 3"
+    )
+    active_runtime.clear_prompt_ephemeral_status()
+    active_runtime.clear_prompt_ephemeral_preview()
+    with (
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion._get_current_agent_for_prompt",
+            return_value=agent,
+        ),
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion.SpinnerBase.get_context_info",
+            return_value="",
+        ),
+        patch("shutil.get_terminal_size", return_value=os.terminal_size((80, 24))),
+    ):
+        cleared = "".join(text for _style, text in get_prompt_with_active_model())
+
+    assert "🔧 Calling list_files... 11 token(s)" not in cleared
+    assert "line 8" not in cleared
+    clear_active_prompt_surface()
+
+
 @pytest.mark.asyncio
 @patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
 async def test_get_input_registers_active_prompt_surface(
