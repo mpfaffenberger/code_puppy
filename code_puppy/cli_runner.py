@@ -355,7 +355,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message("Type 'clear' to reset the conversation history.")
     emit_system_message("Type /help to view all commands")
     emit_system_message(
-        "Type @ for path completion, or /model to pick a model. Toggle multiline with Alt+M or F2; newline: Ctrl+J."
+        "Type @ for path completion, or /model to pick a model. Toggle multiline with Alt+M or F2; newline: Shift+Enter or Ctrl+J."
     )
     emit_system_message("Paste images: Ctrl+V (even on Mac!), F3, or /paste command.")
     import platform
