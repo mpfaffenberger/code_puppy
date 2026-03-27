@@ -413,14 +413,57 @@ def handle_agent_command(command: str) -> bool:
         return True
 
 
-async def interactive_model_picker() -> str | None:
-    """Show an interactive arrow-key selector to pick a model (async version).
+from code_puppy.command_line.model_picker_constants import (
+    CURRENT_MODEL_PREFIX,
+    CURRENT_MODEL_SUFFIX,
+    OTHER_MODEL_PREFIX,
+)
+
+
+def build_model_choices(model_names: list[str], current_model: str) -> list[str]:
+    """Build formatted choice strings for the model picker.
+
+    Args:
+        model_names: List of available model names
+        current_model: The currently active model name
+
+    Returns:
+        List of formatted choice strings with indicators for the current model
+    """
+    choices = []
+    for model_name in model_names:
+        if model_name == current_model:
+            choices.append(f"{CURRENT_MODEL_PREFIX}{model_name}{CURRENT_MODEL_SUFFIX}")
+        else:
+            choices.append(f"{OTHER_MODEL_PREFIX}{model_name}")
+    return choices
+
+
+def parse_model_choice(choice: str) -> str:
+    """Extract the model name from a formatted choice string.
+
+    Args:
+        choice: A formatted choice string like '✓ gpt-4 (current)' or '  claude-3'
+
+    Returns:
+        The clean model name (e.g., 'gpt-4' or 'claude-3')
+    """
+    # Remove prefix ("✓ " or "  ")
+    model = choice.lstrip(CURRENT_MODEL_PREFIX.strip()).lstrip(OTHER_MODEL_PREFIX).strip()
+    # Remove suffix (" (current)")
+    if model.endswith(CURRENT_MODEL_SUFFIX):
+        model = model[: -len(CURRENT_MODEL_SUFFIX)].strip()
+    return model
+
+
+def interactive_model_picker() -> str | None:
+    """Show an interactive arrow-key selector to pick a model.
 
     Returns:
         The selected model name, or None if cancelled
     """
-    import asyncio
     import sys
+    import time
 
     from rich.console import Console
     from rich.panel import Panel
@@ -431,19 +474,12 @@ async def interactive_model_picker() -> str | None:
         load_model_names,
     )
     from code_puppy.tools.command_runner import set_awaiting_user_input
-    from code_puppy.tools.common import arrow_select_async
+    from code_puppy.tools.common import arrow_select
 
     # Load available models
     model_names = load_model_names()
     current_model = get_active_model()
-
-    # Build choices with current model indicator
-    choices = []
-    for model_name in model_names:
-        if model_name == current_model:
-            choices.append(f"✓ {model_name} (current)")
-        else:
-            choices.append(f"  {model_name}")
+    choices = build_model_choices(model_names, current_model)
 
     # Create panel content
     panel_content = Text()
@@ -451,7 +487,6 @@ async def interactive_model_picker() -> str | None:
     panel_content.append("Current model: ", style="dim")
     panel_content.append(current_model, style="bold green")
 
-    # Display panel
     panel = Panel(
         panel_content,
         title="[bold white]Model Selection[/bold white]",
@@ -459,47 +494,30 @@ async def interactive_model_picker() -> str | None:
         padding=(1, 2),
     )
 
-    # Pause spinners BEFORE showing panel
+    # Pause spinners and show panel
     set_awaiting_user_input(True)
-    await asyncio.sleep(0.3)  # Let spinners fully stop
-
-    local_console = Console()
-    emit_info("")
-    local_console.print(panel)
-    emit_info("")
-
-    # Flush output before prompt_toolkit takes control
-    sys.stdout.flush()
-    sys.stderr.flush()
-    await asyncio.sleep(0.1)
-
-    selected_model = None
+    time.sleep(0.05)  # Give spinner thread time to notice the flag (runs every 50ms)
 
     try:
-        # Final flush
+        local_console = Console()
+        emit_info("")
+        local_console.print(panel)
+        emit_info("")
         sys.stdout.flush()
 
-        # Show arrow-key selector (async version)
-        choice = await arrow_select_async(
+        # Show arrow-key selector (synchronous - no async complications!)
+        choice = arrow_select(
             "💭 Which model would you like to use?",
             choices,
         )
-
-        # Extract model name from choice (remove prefix and suffix)
-        if choice:
-            # Remove the "✓ " or "  " prefix and " (current)" suffix if present
-            selected_model = choice.strip().lstrip("✓").strip()
-            if selected_model.endswith(" (current)"):
-                selected_model = selected_model[:-10].strip()
+        return parse_model_choice(choice) if choice else None
 
     except (KeyboardInterrupt, EOFError):
         emit_error("Cancelled by user")
-        selected_model = None
+        return None
 
     finally:
         set_awaiting_user_input(False)
-
-    return selected_model
 
 
 @register_command(
@@ -511,8 +529,6 @@ async def interactive_model_picker() -> str | None:
 )
 def handle_model_command(command: str) -> bool:
     """Set the active model."""
-    import asyncio
-
     from code_puppy.command_line.model_picker_completion import (
         get_active_model,
         load_model_names,
@@ -525,17 +541,7 @@ def handle_model_command(command: str) -> bool:
     # If just /model or /m with no args, show interactive picker
     if len(tokens) == 1:
         try:
-            # Run the async picker using asyncio utilities
-            # Since we're called from an async context but this function is sync,
-            # we need to carefully schedule and wait for the coroutine
-            import concurrent.futures
-
-            # Create a new event loop in a thread and run the picker there
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(
-                    lambda: asyncio.run(interactive_model_picker())
-                )
-                selected_model = future.result(timeout=300)  # 5 min timeout
+            selected_model = interactive_model_picker()
 
             if selected_model:
                 set_active_model(selected_model)
@@ -543,12 +549,26 @@ def handle_model_command(command: str) -> bool:
             else:
                 emit_warning("Model selection cancelled")
             return True
-        except Exception as e:
-            # Fallback to old behavior if picker fails
-            import traceback
 
+        except (KeyboardInterrupt, EOFError):
+            # User cancelled - already handled in picker, just return
+            return True
+
+        except RuntimeError as e:
+            # Likely called from async context - show helpful error
+            emit_warning(f"Cannot show interactive picker: {e}")
+            model_names = load_model_names()
+            emit_warning("Usage: /model <model-name> or /m <model-name>")
+            emit_warning(f"Available models: {', '.join(model_names)}")
+            return True
+
+        except Exception as e:
+            # Unexpected error - log details for debugging
+            import traceback
+            from code_puppy.error_logging import log_error
+
+            log_error(e, context="interactive_model_picker")
             emit_warning(f"Interactive picker failed: {e}")
-            emit_warning(f"Traceback: {traceback.format_exc()}")
             model_names = load_model_names()
             emit_warning("Usage: /model <model-name> or /m <model-name>")
             emit_warning(f"Available models: {', '.join(model_names)}")
