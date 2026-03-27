@@ -29,7 +29,7 @@ class ScheduledTask:
     prompt: str = ""
     agent: str = "code-puppy"
     model: str = ""  # Uses default if empty
-    schedule_type: str = "interval"  # "interval", "cron", "daily", "hourly"
+    schedule_type: str = "interval"  # "interval", "cron", "daily", "hourly", "daily_at"
     schedule_value: str = "1h"  # e.g., "30m", "1h", "0 9 * * *" for cron
     working_directory: str = "."
     log_file: str = ""  # Auto-generated if empty
