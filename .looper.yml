@@ -37,8 +37,31 @@ triggers:
   - manual:
       name: manual_release
       call: manual_release()
+  - manual:
+      name: backfill_artifactory
+      call: backfill()
 
 flows:
+  # ---------------------------------------------------------------------------
+  # One-time backfill: copy all GitHub releases → Artifactory generic repo
+  # Trigger manually from Looper UI. ALLOW_ARTIFACTORY injects TWINE_USERNAME,
+  # TWINE_PASSWORD, and REPOSOLNS_GENERIC_RELEASE_REPO automatically.
+  # Pass your GHE personal access token as the GITHUB_ACCESS_KEY parameter.
+  # ---------------------------------------------------------------------------
+  backfill:
+    - node(docker-daemon):
+        - dockerAgent(python-agent):
+            - shell: |
+                pip install --quiet \
+                  --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple \
+                  httpx
+            - shell: |
+                echo "=== Backfill: GitHub → Artifactory ==="
+                echo "GitHub token set: $([ -n "$GITHUB_ACCESS_KEY" ] && echo yes || echo NO)"
+                echo "Artifactory user: $TWINE_USERNAME"
+                echo "Artifactory repo: $REPOSOLNS_GENERIC_RELEASE_REPO"
+                python scripts/backfill_gh_to_artifactory.py
+
   default:
     - node(docker-daemon):
         - dockerAgent(python-agent):
