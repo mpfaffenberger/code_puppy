@@ -75,10 +75,14 @@ flows:
   python_releaseSteps:
     - shell: uv --native-tls build
     - shell: |
-        # REPOSOLNS_PYPI_RELEASE_REPO, REPOSOLNS_PYPI_URL, ARTIFACTORY_USER/PASSWORD
-        # are all auto-injected by Looper when ALLOW_ARTIFACTORY: true
+        echo "=== Looper Artifactory env ==="
+        printenv | grep -E "REPOSOLNS|ARTIFACTORY" || echo "(none found)"
+        echo "=============================="
+        # Use Looper-injected vars if available, fall back to genaica org defaults
+        PYPI_URL="${REPOSOLNS_PYPI_URL:-https://pypi.ci.artifacts.walmart.com/artifactory}"
+        PYPI_REPO="${REPOSOLNS_PYPI_RELEASE_REPO:-genaica-pypi-snapshots-local}"
         uv --native-tls run twine upload \
-          --repository-url "${REPOSOLNS_PYPI_URL}/api/pypi/${REPOSOLNS_PYPI_RELEASE_REPO}/" \
+          --repository-url "${PYPI_URL}/api/pypi/${PYPI_REPO}/" \
           --username "${ARTIFACTORY_USER}" \
           --password "${ARTIFACTORY_PASSWORD}" \
           --skip-existing \
