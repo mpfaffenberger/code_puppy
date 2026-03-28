@@ -13,7 +13,6 @@ envs:
       BUILD_STATUS: ""
       COMMIT_USER: ""
       ALLOW_ARTIFACTORY: true
-      GITHUB_TOKEN: ENC[xguOf6xpju9G2dd+lZ798zQvpyKE+0rF1vMbHL+IIVnIRpi1zkI0zEG+n8vGiiEU]
 
   build_success:
     variables:
@@ -76,25 +75,11 @@ flows:
   python_releaseSteps:
     - shell: uv --native-tls build
     - shell: |
-        # Install GitHub CLI via direct download (more reliable in Docker)
-        curl -fsSL https://github.com/cli/cli/releases/download/v2.40.1/gh_2.40.1_linux_amd64.tar.gz -o gh.tar.gz
-        tar -xzf gh.tar.gz
-        # Add gh to PATH for this session instead of using sudo
-        export PATH="$PWD/gh_2.40.1_linux_amd64/bin:$PATH"
-    - shell: |
-        # Configure gh for GitHub Enterprise and use local gh binary
-        export PATH="$PWD/gh_2.40.1_linux_amd64/bin:$PATH"
-        export GH_HOST=gecgithub01.walmart.com
-        # Authenticate with GitHub using the token
-        echo "${GITHUB_TOKEN}" | gh auth login --with-token
-        VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
-        gh release create "v$VERSION" dist/*.whl \
-          --title "Release v$VERSION" \
-          --notes "Automated release of code-puppy v$VERSION" \
-          --repo genaica/code-puppy
-        # Clean up after release
-        rm -rf gh.tar.gz gh_2.40.1_linux_amd64
-    # - shell: uv --native-tls run twine upload --repository-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/pythonhosted-pypi-release-remote/simple/ dist/*
+        uv --native-tls run twine upload \
+          --repository-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/pythonhosted-pypi-release-remote/simple/ \
+          --username "${ARTIFACTORY_USER}" \
+          --password "${ARTIFACTORY_PASSWORD}" \
+          dist/*
 
   commitVersion:
     - shell: git add pyproject.toml
