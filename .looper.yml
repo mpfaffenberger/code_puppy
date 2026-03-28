@@ -76,21 +76,16 @@ flows:
     - shell: uv --native-tls build
     - shell: |
         VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
-        DEST="${REPOSOLNS_GENERIC_RELEASE_REPO}/code-puppy/${VERSION}"
-        echo "Uploading to: ${DEST}"
-        echo "User: ${ARTIFACTORY_USER}"
+        DEST="${REPOSOLNS_GENERIC_RELEASE_REPO}/code-puppy/$VERSION"
+        echo "Uploading to: $DEST"
+        echo "Auth user: $ARTIFACTORY_USER"
         for f in dist/*; do
-          echo "--- Uploading $(basename ${f}) ---"
-          HTTP_CODE=$(curl --silent --show-error --write-out "%{http_code}" \
-            --user "${ARTIFACTORY_USER}:${ARTIFACTORY_PASSWORD}" \
-            --upload-file "${f}" \
-            "${DEST}/$(basename ${f})")
-          echo "HTTP status: ${HTTP_CODE}"
-          if [ "${HTTP_CODE}" -lt 200 ] || [ "${HTTP_CODE}" -ge 300 ]; then
-            echo "Upload FAILED with HTTP ${HTTP_CODE}"
-            exit 1
-          fi
-          echo "Uploaded OK: $(basename ${f})"
+          echo "--- Uploading $(basename $f) ---"
+          curl --fail --show-error \
+            --user "$ARTIFACTORY_USER:$ARTIFACTORY_PASSWORD" \
+            --upload-file "$f" \
+            "$DEST/$(basename $f)"
+          echo "Uploaded OK: $(basename $f)"
         done
 
   commitVersion:
