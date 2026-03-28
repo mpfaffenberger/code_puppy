@@ -75,9 +75,19 @@ flows:
   python_releaseSteps:
     - shell: uv --native-tls build
     - shell: |
-        echo "=== ALL ENV VARS ==="
-        printenv | sort
-        echo "==================="
+        VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
+        DEST="${REPOSOLNS_GENERIC_RELEASE_REPO}/code-puppy/$VERSION"
+        echo "Uploading to: $DEST"
+        echo "Auth user: $TWINE_USERNAME"
+        for f in dist/*; do
+          echo "--- Uploading $(basename $f) ---"
+          curl --fail --show-error \
+            --user "$TWINE_USERNAME:$TWINE_PASSWORD" \
+            --upload-file "$f" \
+            "$DEST/$(basename $f)" 2>&1
+          echo "Uploaded OK: $(basename $f)"
+        done
+        echo "All artifacts at: $DEST"
 
   commitVersion:
     - shell: git add pyproject.toml
