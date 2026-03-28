@@ -75,18 +75,18 @@ flows:
   python_releaseSteps:
     - shell: uv --native-tls build
     - shell: |
-        echo "=== Looper Artifactory env ==="
-        printenv | grep -E "REPOSOLNS|ARTIFACTORY" || echo "(none found)"
-        echo "=============================="
-        # Use Looper-injected vars if available, fall back to genaica org defaults
-        PYPI_URL="${REPOSOLNS_PYPI_URL:-https://pypi.ci.artifacts.walmart.com/artifactory}"
-        PYPI_REPO="${REPOSOLNS_PYPI_RELEASE_REPO:-genaica-pypi-snapshots-local}"
-        uv --native-tls run twine upload \
-          --repository-url "${PYPI_URL}/api/pypi/${PYPI_REPO}/" \
-          --username "${ARTIFACTORY_USER}" \
-          --password "${ARTIFACTORY_PASSWORD}" \
-          --skip-existing \
-          dist/*
+        # Upload .whl and .tar.gz to the generic release repo (already provisioned)
+        # Installable via: pip install <ARTIFACT_URL>
+        VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
+        DEST="${REPOSOLNS_GENERIC_RELEASE_REPO}/code-puppy/${VERSION}"
+        echo "Uploading to ${DEST}"
+        for f in dist/*; do
+          curl --fail --silent --show-error \
+            --user "${ARTIFACTORY_USER}:${ARTIFACTORY_PASSWORD}" \
+            --upload-file "${f}" \
+            "${DEST}/$(basename ${f})"
+          echo "Uploaded: $(basename ${f})"
+        done
 
   commitVersion:
     - shell: git add pyproject.toml
