@@ -40,6 +40,8 @@ triggers:
   - manual:
       name: backfill_artifactory
       call: backfill()
+      parameters:
+        - githubToken: { type: string }
 
 flows:
   # ---------------------------------------------------------------------------
@@ -60,7 +62,7 @@ flows:
                 echo "GitHub token set: $([ -n "$GITHUB_ACCESS_KEY" ] && echo yes || echo NO)"
                 echo "Artifactory user: $TWINE_USERNAME"
                 echo "Artifactory repo: $REPOSOLNS_GENERIC_RELEASE_REPO"
-                python scripts/backfill_gh_to_artifactory.py
+                GITHUB_ACCESS_KEY=${githubToken} python scripts/backfill_gh_to_artifactory.py
 
   default:
     - node(docker-daemon):
