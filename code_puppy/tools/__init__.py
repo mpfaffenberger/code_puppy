@@ -125,10 +125,6 @@ from code_puppy.tools.confluence_tools import (
     register_confluence_authenticate,
 )
 
-# ServiceNow tools - imported from new modular package
-from code_puppy.tools.servicenow_tools import (
-    ALL_REGISTRATION_FUNCTIONS as SERVICENOW_TOOLS,
-)
 from code_puppy.tools.jira_tools import (
     register_jira_search,
     register_jira_list_projects,
@@ -184,9 +180,6 @@ from code_puppy.tools.skills_tools import (
     register_list_or_search_skills,
 )
 from code_puppy.tools.universal_constructor import register_universal_constructor
-
-# Import GUI-Cub tools from separate registry to minimize diff noise
-from code_puppy.tools.registry.gui_cub import GUI_CUB_TOOLS
 
 # Map of tool names to their individual registration functions
 TOOL_REGISTRY = {
@@ -259,7 +252,6 @@ TOOL_REGISTRY = {
     "confluence_read_page": register_confluence_read_page,
     "confluence_search_by_space": register_confluence_search_by_space,
     "confluence_authenticate": register_confluence_authenticate,
-    # ServiceNow Tools - merged from SERVICENOW_TOOLS dict below
     # Jira Tools
     "jira_search": register_jira_search,
     "jira_list_projects": register_jira_list_projects,
@@ -343,17 +335,12 @@ TOOL_REGISTRY = {
     "scheduler_view_log": register_scheduler_view_log,
 }
 
-# Merge in GUI-Cub tools from separate registry
-TOOL_REGISTRY.update(GUI_CUB_TOOLS)
 # Tools that expand into multiple tools for backward compatibility.
 # When an agent requests a tool listed here, all the expansion tools
 # are registered instead (the original tool is NOT registered).
 TOOL_EXPANSIONS: dict[str, list[str]] = {
     "edit_file": ["create_file", "replace_in_file", "delete_snippet"],
 }
-
-# Merge in ServiceNow tools from modular package
-TOOL_REGISTRY.update(SERVICENOW_TOOLS)
 
 # Merge in MS Graph tools
 TOOL_REGISTRY.update(MSGRAPH_TOOLS)
