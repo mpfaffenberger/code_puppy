@@ -84,7 +84,7 @@ flows:
           curl --fail --show-error \
             --user "$ARTIFACTORY_USER:$ARTIFACTORY_PASSWORD" \
             --upload-file "$f" \
-            "$DEST/$(basename $f)"
+            "$DEST/$(basename $f)" 2>&1
           echo "Uploaded OK: $(basename $f)"
         done
 
