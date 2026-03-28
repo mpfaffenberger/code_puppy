@@ -75,17 +75,22 @@ flows:
   python_releaseSteps:
     - shell: uv --native-tls build
     - shell: |
-        # Upload .whl and .tar.gz to the generic release repo (already provisioned)
-        # Installable via: pip install <ARTIFACT_URL>
         VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
         DEST="${REPOSOLNS_GENERIC_RELEASE_REPO}/code-puppy/${VERSION}"
-        echo "Uploading to ${DEST}"
+        echo "Uploading to: ${DEST}"
+        echo "User: ${ARTIFACTORY_USER}"
         for f in dist/*; do
-          curl --fail --silent --show-error \
+          echo "--- Uploading $(basename ${f}) ---"
+          HTTP_CODE=$(curl --silent --show-error --write-out "%{http_code}" \
             --user "${ARTIFACTORY_USER}:${ARTIFACTORY_PASSWORD}" \
             --upload-file "${f}" \
-            "${DEST}/$(basename ${f})"
-          echo "Uploaded: $(basename ${f})"
+            "${DEST}/$(basename ${f})")
+          echo "HTTP status: ${HTTP_CODE}"
+          if [ "${HTTP_CODE}" -lt 200 ] || [ "${HTTP_CODE}" -ge 300 ]; then
+            echo "Upload FAILED with HTTP ${HTTP_CODE}"
+            exit 1
+          fi
+          echo "Uploaded OK: $(basename ${f})"
         done
 
   commitVersion:
