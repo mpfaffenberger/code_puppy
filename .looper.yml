@@ -75,10 +75,13 @@ flows:
   python_releaseSteps:
     - shell: uv --native-tls build
     - shell: |
+        # REPOSOLNS_PYPI_RELEASE_REPO, REPOSOLNS_PYPI_URL, ARTIFACTORY_USER/PASSWORD
+        # are all auto-injected by Looper when ALLOW_ARTIFACTORY: true
         uv --native-tls run twine upload \
-          --repository-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/pythonhosted-pypi-release-remote/simple/ \
+          --repository-url "${REPOSOLNS_PYPI_URL}/api/pypi/${REPOSOLNS_PYPI_RELEASE_REPO}/" \
           --username "${ARTIFACTORY_USER}" \
           --password "${ARTIFACTORY_PASSWORD}" \
+          --skip-existing \
           dist/*
 
   commitVersion:
