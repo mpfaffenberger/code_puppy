@@ -45,10 +45,9 @@ def start_device_flow() -> Optional[DeviceFlowResponse]:
     try:
         response = requests.post(
             url,
-            json={"client_id": client_id, "scope": scope},
+            data={"client_id": client_id, "scope": scope},
             headers={
                 "Accept": "application/json",
-                "Content-Type": "application/json",
             },
             timeout=30,
         )
@@ -92,14 +91,13 @@ def poll_for_access_token(device_code: str, interval: int) -> Optional[str]:
         try:
             response = requests.post(
                 url,
-                json={
+                data={
                     "client_id": client_id,
                     "device_code": device_code,
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                 },
                 headers={
                     "Accept": "application/json",
-                    "Content-Type": "application/json",
                 },
                 timeout=30,
             )

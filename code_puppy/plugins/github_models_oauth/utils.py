@@ -55,7 +55,8 @@ def prompt_for_token() -> Optional[str]:
     emit_info(
         "🔑 Create a Personal Access Token at:\n"
         "   https://github.com/settings/tokens\n"
-        "   (classic token with 'read:user' scope is sufficient)"
+        "   Fine-grained PAT with 'models:read' permission recommended.\n"
+        "   Classic PATs also work without specific scopes."
     )
     try:
         _reset_windows_console()
@@ -172,6 +173,13 @@ def fetch_github_models(access_token: str) -> List[str]:
             },
             timeout=30,
         )
+        if response.status_code in (401, 403):
+            emit_warning(
+                f"   Catalog returned HTTP {response.status_code} — token lacks access.\n"
+                "   💡 Fine-grained PATs need 'models:read' permission.\n"
+                "   Skipping GitHub Models registration."
+            )
+            return []
         if response.status_code == 200:
             models = _parse_model_list(response.json())
             if models:
@@ -204,6 +212,12 @@ def fetch_copilot_models(access_token: str) -> List[str]:
             },
             timeout=30,
         )
+        if response.status_code in (401, 403):
+            emit_warning(
+                f"   Copilot API returned HTTP {response.status_code} — token lacks access.\n"
+                "   Skipping Copilot models registration."
+            )
+            return []
         if response.status_code == 200:
             models = _parse_model_list(response.json())
             if models:

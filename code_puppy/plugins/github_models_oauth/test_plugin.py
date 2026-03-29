@@ -586,6 +586,14 @@ class TestAuthFlow:
             patch(
                 "code_puppy.plugins.github_models_oauth.register_callbacks.run_device_flow"
             ) as mock_device_flow,
+            patch(
+                "code_puppy.plugins.github_models_oauth.register_callbacks.fetch_copilot_models",
+                return_value=[],
+            ),
+            patch(
+                "code_puppy.plugins.github_models_oauth.register_callbacks.add_copilot_models_to_config",
+                return_value=True,
+            ),
         ):
             _handle_auth()
             mock_device_flow.assert_not_called()
@@ -631,6 +639,14 @@ class TestAuthFlow:
             patch(
                 "code_puppy.plugins.github_models_oauth.register_callbacks.prompt_for_token",
             ) as mock_prompt,
+            patch(
+                "code_puppy.plugins.github_models_oauth.register_callbacks.fetch_copilot_models",
+                return_value=[],
+            ),
+            patch(
+                "code_puppy.plugins.github_models_oauth.register_callbacks.add_copilot_models_to_config",
+                return_value=True,
+            ),
         ):
             _handle_auth()
             mock_prompt.assert_not_called()
@@ -673,6 +689,14 @@ class TestAuthFlow:
             ),
             patch(
                 "code_puppy.plugins.github_models_oauth.register_callbacks.add_models_to_config",
+                return_value=True,
+            ),
+            patch(
+                "code_puppy.plugins.github_models_oauth.register_callbacks.fetch_copilot_models",
+                return_value=[],
+            ),
+            patch(
+                "code_puppy.plugins.github_models_oauth.register_callbacks.add_copilot_models_to_config",
                 return_value=True,
             ),
         ):
@@ -723,6 +747,14 @@ class TestAuthFlow:
             ),
             patch(
                 "code_puppy.plugins.github_models_oauth.register_callbacks.add_models_to_config",
+                return_value=True,
+            ),
+            patch(
+                "code_puppy.plugins.github_models_oauth.register_callbacks.fetch_copilot_models",
+                return_value=[],
+            ),
+            patch(
+                "code_puppy.plugins.github_models_oauth.register_callbacks.add_copilot_models_to_config",
                 return_value=True,
             ),
         ):

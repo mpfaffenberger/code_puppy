@@ -143,9 +143,13 @@ def _handle_status() -> None:
 
 def _handle_logout() -> None:
     token_path = get_token_storage_path()
-    if token_path.exists():
-        token_path.unlink()
-        emit_info("✓ Removed GitHub OAuth tokens")
+    try:
+        if token_path.exists():
+            token_path.unlink()
+            emit_info("✓ Removed GitHub OAuth tokens")
+    except OSError as exc:
+        logger.error("Failed to remove token file: %s", exc)
+        emit_error(f"Failed to remove token file: {exc}")
 
     removed = remove_github_models()
     if removed:
@@ -162,8 +166,11 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
         force = "token" in command.lower().split()[1:] if len(command.split()) > 1 else False
         if _handle_auth(force_prompt=force):
             model = "github-openai-gpt-4.1"
-            set_model_and_reload_agent(model)
-            emit_success(f"🔄 Switched to model: {model}")
+            if load_github_models_config().get(model):
+                set_model_and_reload_agent(model)
+                emit_success(f"🔄 Switched to model: {model}")
+            else:
+                emit_warning("Authenticated, but no default model was registered; skipping auto-switch.")
             try:
                 from code_puppy.config import get_global_model_name
                 current = get_global_model_name()
