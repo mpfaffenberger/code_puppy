@@ -59,6 +59,16 @@
     "context_length": 131072,
     "supported_settings": ["temperature", "seed", "top_p"]
   },
+  "firepass-kimi-k2p5-turbo": {
+    "type": "custom_openai",
+    "name": "accounts/fireworks/routers/kimi-k2p5-turbo",
+    "custom_endpoint": {
+      "url": "https://api.fireworks.ai/inference/v1",
+      "api_key": "$FIREWORKS_API_KEY"
+    },
+    "context_length": 262144,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  },
   "Gemini-3": {
     "type": "gemini",
     "name": "gemini-3-pro-preview",
