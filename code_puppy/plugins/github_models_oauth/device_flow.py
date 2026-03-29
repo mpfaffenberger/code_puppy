@@ -81,12 +81,11 @@ def poll_for_access_token(device_code: str, interval: int) -> Optional[str]:
     url = GITHUB_MODELS_OAUTH_CONFIG["access_token_url"]
     timeout = GITHUB_MODELS_OAUTH_CONFIG["poll_timeout"]
 
-    delay = interval
-    elapsed = 0.0
+    delay = max(1, int(interval))
+    deadline = time.monotonic() + timeout
 
-    while elapsed < timeout:
+    while time.monotonic() < deadline:
         time.sleep(delay)
-        elapsed += delay
 
         try:
             response = requests.post(
@@ -165,7 +164,11 @@ def run_device_flow() -> Optional[str]:
 
     emit_info("⏳ Waiting for authorization (press Ctrl+C to cancel)…")
 
-    token = poll_for_access_token(device.device_code, device.interval)
+    try:
+        token = poll_for_access_token(device.device_code, device.interval)
+    except KeyboardInterrupt:
+        emit_warning("GitHub authentication cancelled by user.")
+        return None
 
     if token:
         emit_success("✅ GitHub authentication successful!")
