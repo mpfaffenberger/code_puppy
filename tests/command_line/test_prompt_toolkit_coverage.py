@@ -985,6 +985,14 @@ class TestKeyBindings:
             handler(event)
             event.app.current_buffer.insert_text.assert_called_with("\n")
 
+    def test_shift_enter_newline(self, captured_bindings):
+        """Test shift-enter inserts newline (terminal-dependent)."""
+        handler = self._find_handler(captured_bindings, "s-enter")
+        if handler is not None:
+            event = MagicMock()
+            handler(event)
+            event.app.current_buffer.insert_text.assert_called_with("\n")
+
     def test_ctrl_v_linux_xsel_fallback_filenotfound(self, captured_bindings):
         """Cover the FileNotFoundError xsel fallback path."""
         handler = self._find_handler(captured_bindings, "c-v")
