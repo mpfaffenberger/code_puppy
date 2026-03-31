@@ -83,6 +83,9 @@ from code_puppy.mcp_.server_registry_catalog import (
 )
 from code_puppy.plugins.walmart_specific.walmart_gemini_model import WalmartGeminiModel
 from code_puppy.plugins.walmart_specific.enterprise_tools import get_enterprise_tools
+from code_puppy.plugins.walmart_specific.codex_model_handler import (
+    create_codex_model,
+)
 
 
 def get_walmart_mcp_servers():
@@ -380,6 +383,23 @@ def get_walmart_agents() -> list[Dict[str, Any]]:
 register_callback("register_model_providers", get_walmart_model_providers)
 register_callback("register_tools", get_enterprise_tools)
 register_callback("register_agents", get_walmart_agents)
+
+
+def get_walmart_model_types():
+    """Return Walmart-specific model type handlers.
+
+    Registers the 'codex' model type which uses the ChatGPTCodexAsyncClient
+    for proper reasoning item handling with the OpenAI Responses API.
+    """
+    return [
+        {
+            "type": "codex",
+            "handler": create_codex_model,
+        },
+    ]
+
+
+register_callback("register_model_type", get_walmart_model_types)
 
 
 # MOTD (Message of the Day) for Walmart internal users
