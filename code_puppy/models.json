@@ -9,6 +9,16 @@
     "context_length": 200000,
     "supported_settings": ["temperature", "seed", "top_p"]
   },
+  "synthetic-GLM-5": {
+    "type": "custom_openai",
+    "name": "hf:zai-org/GLM-5",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 200000,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  },
   "synthetic-MiniMax-M2.5": {
     "type": "custom_openai",
     "name": "hf:MiniMaxAI/MiniMax-M2.5",
