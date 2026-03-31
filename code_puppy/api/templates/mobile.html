@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0f0f0f" />
+  <title>Code Puppy</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0f0f0f;
+      --surface:     #1a1a1a;
+      --surface2:    #242424;
+      --border:      #2e2e2e;
+      --accent:      #3b82f6;
+      --accent-dark: #1d4ed8;
+      --text:        #e5e7eb;
+      --text-dim:    #6b7280;
+      --green:       #22c55e;
+      --red:         #ef4444;
+      --user-bubble: #1e3a5f;
+      --bot-bubble:  #1a1a1a;
+      --code-bg:     #111827;
+      --radius:      14px;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      overflow: hidden;
+    }
+
+    /* ── Layout ── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh; /* dynamic viewport height handles mobile browsers */
+    }
+
+    /* ── Header ── */
+    #header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      padding-top: calc(12px + env(safe-area-inset-top, 0px));
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    #header .logo { font-size: 24px; }
+    #header .title { font-weight: 700; font-size: 17px; flex: 1; }
+    #status-dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--red);
+      transition: background 0.3s;
+    }
+    #status-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    #status-dot.connecting { background: #f59e0b; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.3 } }
+
+    /* ── Messages ── */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+    }
+    #messages::-webkit-scrollbar { width: 4px; }
+    #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .msg {
+      max-width: 88%;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .msg.user { align-self: flex-end; }
+    .msg.bot  { align-self: flex-start; }
+    .msg.system { align-self: center; max-width: 100%; }
+
+    .bubble {
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    .msg.user  .bubble { background: var(--user-bubble); border-bottom-right-radius: 4px; }
+    .msg.bot   .bubble { background: var(--bot-bubble); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .msg.system .bubble {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      font-size: 12px;
+      text-align: center;
+      padding: 2px 8px;
+    }
+
+    /* streaming cursor */
+    .bubble.streaming::after {
+      content: "▌";
+      color: var(--accent);
+      animation: blink 0.8s steps(1) infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* ── Code blocks ── */
+    .code-block {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 4px 0;
+      font-size: 13px;
+    }
+    .code-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 10px;
+      background: #1f2937;
+      border-bottom: 1px solid var(--border);
+    }
+    .code-lang { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .copy-btn {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: color 0.2s, background 0.2s;
+    }
+    .copy-btn:active, .copy-btn:hover { color: var(--text); background: var(--border); }
+    .code-block pre {
+      padding: 10px 12px;
+      overflow-x: auto;
+      font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+      white-space: pre;
+      color: #e2e8f0;
+    }
+
+    /* ── Slash command sheet ── */
+    #cmd-sheet {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: none;
+      flex-direction: column;
+      justify-content: flex-end;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+    }
+    #cmd-sheet.open { display: flex; }
+    #cmd-panel {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-radius: 20px 20px 0 0;
+      padding: 12px 0 calc(12px + var(--safe-bottom));
+      max-height: 60dvh;
+      display: flex;
+      flex-direction: column;
+    }
+    #cmd-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px 10px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #cmd-panel-header span { font-weight: 600; font-size: 15px; }
+    #cmd-close {
+      background: var(--surface2);
+      border: none;
+      color: var(--text-dim);
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      font-size: 16px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #cmd-list {
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      flex: 1;
+    }
+    .cmd-item {
+      display: flex;
+      flex-direction: column;
+      padding: 11px 16px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+    .cmd-item:active, .cmd-item:hover { background: var(--surface2); }
+    .cmd-name { font-weight: 600; color: var(--accent); font-family: monospace; font-size: 14px; }
+    .cmd-desc { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+
+    /* ── Input bar ── */
+    #input-bar {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 10px 12px;
+      padding-bottom: calc(10px + var(--safe-bottom));
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #slash-btn {
+      width: 38px; height: 38px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text-dim);
+      font-size: 18px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    #slash-btn:active { color: var(--accent); border-color: var(--accent); }
+    #input-wrap {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 8px 14px;
+      display: flex;
+      align-items: flex-end;
+      transition: border-color 0.2s;
+    }
+    #input-wrap:focus-within { border-color: var(--accent); }
+    #prompt-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 15px;
+      resize: none;
+      line-height: 1.4;
+      max-height: 120px;
+      min-height: 22px;
+      font-family: inherit;
+    }
+    #prompt-input::placeholder { color: var(--text-dim); }
+    #send-btn {
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      border: none;
+      background: var(--accent);
+      color: white;
+      font-size: 18px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.2s, transform 0.1s;
+    }
+    #send-btn:active { background: var(--accent-dark); transform: scale(0.92); }
+    #send-btn:disabled { background: var(--border); cursor: not-allowed; transform: none; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Header -->
+  <div id="header">
+    <span class="logo">🐶</span>
+    <span class="title">Code Puppy</span>
+    <div id="status-dot" title="Disconnected"></div>
+  </div>
+
+  <!-- Message list -->
+  <div id="messages">
+    <div class="msg system"><div class="bubble">Connect to the server to start chatting.</div></div>
+  </div>
+
+  <!-- Input bar -->
+  <div id="input-bar">
+    <button id="slash-btn" title="Slash commands">/</button>
+    <div id="input-wrap">
+      <textarea id="prompt-input" rows="1" placeholder="Ask Code Puppy…" autocomplete="off" autocorrect="off" spellcheck="true"></textarea>
+    </div>
+    <button id="send-btn" disabled title="Send">&#9658;</button>
+  </div>
+
+</div>
+
+<!-- Slash command sheet -->
+<div id="cmd-sheet">
+  <div id="cmd-panel" role="dialog" aria-modal="true" aria-label="Slash Commands">
+    <div id="cmd-panel-header">
+      <span>Slash Commands</span>
+      <button id="cmd-close" aria-label="Close">&#10005;</button>
+    </div>
+    <div id="cmd-list"></div>
+  </div>
+</div>
+
+<script>
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const ANSI_RE = /\x1b(?:\[[0-9;?]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-_][0-9;]*[A-Za-z]?|\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e])/g;
+const CTRL_RE = /[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]/g;
+
+function stripAnsi(str) {
+  return str.replace(ANSI_RE, '').replace(CTRL_RE, '');
+}
+
+function decodeOutput(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function scrollToBottom(smooth = true) {
+  const m = document.getElementById('messages');
+  m.scrollTo({ top: m.scrollHeight, behavior: smooth ? 'smooth' : 'instant' });
+}
+
+// ── Message rendering ────────────────────────────────────────────────────────
+
+function renderCodeBlocks(text) {
+  const frag = document.createDocumentFragment();
+  const codeRe = /```(\w*)\n?([\s\S]*?)```/g;
+  let last = 0, match;
+
+  while ((match = codeRe.exec(text)) !== null) {
+    if (match.index > last) {
+      const span = document.createElement('span');
+      span.textContent = text.slice(last, match.index);
+      frag.appendChild(span);
+    }
+    const lang = match[1] || 'code';
+    const code = match[2];
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'code-block';
+    wrapper.innerHTML = `
+      <div class="code-header">
+        <span class="code-lang">${lang}</span>
+        <button class="copy-btn" aria-label="Copy code">Copy</button>
+      </div>
+      <pre></pre>`;
+    wrapper.querySelector('pre').textContent = code;
+    wrapper.querySelector('.copy-btn').addEventListener('click', () => {
+      navigator.clipboard.writeText(code).then(() => {
+        const btn = wrapper.querySelector('.copy-btn');
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
+    frag.appendChild(wrapper);
+    last = codeRe.lastIndex;
+  }
+
+  if (last < text.length) {
+    const span = document.createElement('span');
+    span.textContent = text.slice(last);
+    frag.appendChild(span);
+  }
+
+  return frag;
+}
+
+function addMessage(role, text, id = null) {
+  const messages = document.getElementById('messages');
+
+  // Remove "connect" system hint once we have a real message
+  const hint = messages.querySelector('.msg.system');
+  if (hint && (role === 'user' || role === 'bot')) hint.remove();
+
+  const wrap = document.createElement('div');
+  wrap.className = `msg ${role}`;
+  if (id) wrap.id = id;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+
+  if (role === 'bot') {
+    bubble.appendChild(renderCodeBlocks(text));
+  } else if (role === 'system') {
+    bubble.textContent = text;
+  } else {
+    bubble.textContent = text;
+  }
+
+  wrap.appendChild(bubble);
+  messages.appendChild(wrap);
+  scrollToBottom();
+  return { wrap, bubble };
+}
+
+// ── WebSocket ────────────────────────────────────────────────────────────────
+
+let ws = null;
+let botBubble = null;
+let outputBuffer = '';
+let idleTimer = null;
+const IDLE_MS = 3000;
+
+function setStatus(state) {
+  const dot = document.getElementById('status-dot');
+  dot.className = state;
+  dot.title = state.charAt(0).toUpperCase() + state.slice(1);
+}
+
+function finaliseResponse() {
+  if (!botBubble) return;
+  clearTimeout(idleTimer);
+  botBubble.classList.remove('streaming');
+  const clean = outputBuffer.trim();
+  botBubble.innerHTML = '';
+  botBubble.appendChild(renderCodeBlocks(clean || '_(no output)_'));
+  botBubble = null;
+  outputBuffer = '';
+  scrollToBottom();
+}
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const url = `${proto}://${location.host}/ws/terminal`;
+
+  setStatus('connecting');
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    setStatus('connected');
+    document.getElementById('send-btn').disabled = false;
+    addMessage('system', 'Connected — type a prompt or tap / for commands.');
+  };
+
+  ws.onclose = () => {
+    setStatus('disconnected');
+    document.getElementById('send-btn').disabled = true;
+    finaliseResponse();
+    addMessage('system', 'Disconnected. Reconnecting in 3 s…');
+    setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => {
+    setStatus('disconnected');
+  };
+
+  ws.onmessage = (event) => {
+    let msg;
+    try { msg = JSON.parse(event.data); } catch { return; }
+
+    if (msg.type === 'session') return; // handshake, ignore
+
+    if (msg.type === 'output') {
+      const raw = decodeOutput(msg.data);
+      const clean = stripAnsi(raw);
+      if (!clean) return;
+
+      outputBuffer += clean;
+
+      if (!botBubble) {
+        const { bubble } = addMessage('bot', '');
+        botBubble = bubble;
+        botBubble.classList.add('streaming');
+      }
+      botBubble.innerHTML = '';
+      botBubble.appendChild(renderCodeBlocks(outputBuffer));
+      scrollToBottom(false);
+
+      // Reset idle timer
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(finaliseResponse, IDLE_MS);
+    }
+
+    if (msg.type === 'ping') return;
+  };
+}
+
+function sendPrompt(text) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  finaliseResponse(); // flush any previous streaming response
+  addMessage('user', text);
+  ws.send(JSON.stringify({ type: 'input', data: text + '\n' }));
+}
+
+// ── Input handling ───────────────────────────────────────────────────────────
+
+const input = document.getElementById('prompt-input');
+const sendBtn = document.getElementById('send-btn');
+
+input.addEventListener('input', () => autoResize(input));
+
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    doSend();
+  }
+});
+
+sendBtn.addEventListener('click', doSend);
+
+function doSend() {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  autoResize(input);
+  sendPrompt(text);
+}
+
+// ── Slash command sheet ───────────────────────────────────────────────────────
+
+const sheet = document.getElementById('cmd-sheet');
+const cmdList = document.getElementById('cmd-list');
+let commandsLoaded = false;
+
+async function loadCommands() {
+  if (commandsLoaded) return;
+  try {
+    const res = await fetch('/api/commands/');
+    if (!res.ok) return;
+    const cmds = await res.json();
+    cmdList.innerHTML = '';
+    cmds.forEach(cmd => {
+      const item = document.createElement('div');
+      item.className = 'cmd-item';
+      item.innerHTML = `<span class="cmd-name">/${cmd.name}</span><span class="cmd-desc">${cmd.description}</span>`;
+      item.addEventListener('click', () => {
+        sheet.classList.remove('open');
+        input.value = `/${cmd.name} `;
+        input.focus();
+        autoResize(input);
+      });
+      cmdList.appendChild(item);
+    });
+    commandsLoaded = true;
+  } catch (e) {
+    cmdList.innerHTML = '<div style="padding:16px;color:var(--text-dim);font-size:13px;">Could not load commands.</div>';
+  }
+}
+
+document.getElementById('slash-btn').addEventListener('click', async () => {
+  await loadCommands();
+  sheet.classList.add('open');
+});
+
+document.getElementById('cmd-close').addEventListener('click', () => {
+  sheet.classList.remove('open');
+});
+
+sheet.addEventListener('click', (e) => {
+  if (e.target === sheet) sheet.classList.remove('open');
+});
+
+// Keyboard: close sheet on Escape
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') sheet.classList.remove('open');
+});
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+
+connect();
+</script>
+</body>
+</html>
