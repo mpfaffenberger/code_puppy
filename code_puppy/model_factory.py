@@ -412,11 +412,9 @@ class ModelFactory:
                 return None
 
             provider = OpenAIProvider(api_key=api_key)
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
-            if "codex" in model_name:
-                model = OpenAIResponsesModel(
-                    model_name=model_config["name"], provider=provider
-                )
+            model = OpenAIResponsesModel(
+                model_name=model_config["name"], provider=provider
+            )
             model.provider = provider
             return model
 
@@ -567,7 +565,7 @@ class ModelFactory:
                 max_retries=azure_max_retries,
             )
             provider = OpenAIProvider(openai_client=azure_client)
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            model = OpenAIResponsesModel(model_name=model_config["name"], provider=provider)
             model.provider = provider
             return model
 
@@ -581,9 +579,9 @@ class ModelFactory:
             if api_key:
                 provider_args["api_key"] = api_key
             provider = OpenAIProvider(**provider_args)
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
-            if model_name == "chatgpt-gpt-5-codex":
-                model = OpenAIResponsesModel(model_config["name"], provider=provider)
+            model = OpenAIResponsesModel(
+                model_name=model_config["name"], provider=provider
+            )
             model.provider = provider
             return model
         elif model_type == "zai_coding":
