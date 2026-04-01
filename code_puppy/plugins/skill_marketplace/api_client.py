@@ -232,13 +232,103 @@ def is_skill_installed(name: str) -> bool:
     return (SKILLS_DIR / name / "SKILL.md").exists()
 
 
+def _flatten_file_tree(
+    entries: List[Any], shallow_dirs: Optional[List[str]] = None
+) -> tuple[List[str], List[str]]:
+    """Recursively flatten a nested file tree into a list of file paths.
+
+    Handles the MetaRegistry tree structure:
+        {"name": "foo.md", "path": "references/foo.md", "type": "file"}
+        {"name": "subdir", "path": "references/subdir", "type": "directory", "children": [...]}
+
+    Also tracks "shallow" directories (type=directory but no children populated)
+    so we can try the GitHub fallback for those.
+
+    Returns:
+        Tuple of (file_paths, shallow_directory_paths)
+    """
+    if shallow_dirs is None:
+        shallow_dirs = []
+
+    paths: List[str] = []
+    for entry in entries:
+        if isinstance(entry, str):
+            # Simple string path
+            if entry and entry != "SKILL.md":
+                paths.append(entry)
+        elif isinstance(entry, dict):
+            entry_type = entry.get("type", "file")
+            entry_path = entry.get("path", "")
+
+            if entry_type == "file" and entry_path and entry_path != "SKILL.md":
+                paths.append(entry_path)
+            elif entry_type == "directory":
+                children = entry.get("children", [])
+                if children:
+                    # Recurse into children
+                    child_paths, _ = _flatten_file_tree(children, shallow_dirs)
+                    paths.extend(child_paths)
+                elif entry_path:
+                    # Directory with no children - MetaRegistry didn't populate it
+                    shallow_dirs.append(entry_path)
+
+    return paths, shallow_dirs
+
+
+async def _discover_extra_files(
+    skill_key: str, skill_metadata: Optional[Dict[str, Any]] = None
+) -> List[str]:
+    """Fetch the file tree from MetaRegistry and return non-SKILL.md paths.
+
+    Handles nested directory structures by recursively flattening the tree.
+    If MetaRegistry returns "shallow" directories (without children), falls
+    back to the GitHub Git Trees API for a complete recursive listing.
+
+    Args:
+        skill_key: Skill name/key for API calls.
+        skill_metadata: Optional skill metadata containing githubUrl/sourceCommitId.
+
+    Returns:
+        List of file paths (empty on error - install proceeds with just SKILL.md).
+    """
+    try:
+        resp = await metaregistry_client.fetch_skill_files(skill_key)
+        if not resp.get("success"):
+            return []
+
+        raw_data = resp.get("data", [])
+        if isinstance(raw_data, dict):
+            raw_data = raw_data.get("files", [])
+
+        paths, shallow_dirs = _flatten_file_tree(raw_data)
+
+        # If we found shallow directories, try GitHub fallback for complete listing
+        if shallow_dirs and skill_metadata:
+            github_url = skill_metadata.get("githubUrl", "")
+            commit_sha = skill_metadata.get("sourceCommitId")
+
+            if github_url:
+                github_resp = await metaregistry_client.fetch_github_tree_recursive(
+                    skill_key, github_url, commit_sha
+                )
+                if github_resp.get("success"):
+                    # GitHub gives us complete list - use it instead
+                    github_files = github_resp.get("data", [])
+                    # Filter out SKILL.md
+                    return [f for f in github_files if f != "SKILL.md"]
+
+        return paths
+    except Exception:
+        return []
+
+
 async def install_skill_full(
     name: str,
     skill_metadata: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Download and install ALL files for a skill.
 
-    For MetaRegistry skills with scripts/assets, downloads each file.
+    For MetaRegistry skills, downloads a ZIP archive containing everything.
     For E2E skills (SKILL.md only), downloads just the markdown.
 
     Args:
@@ -249,14 +339,50 @@ async def install_skill_full(
         Normalized response with installed file count.
     """
     source = skill_metadata.get("_source", SOURCE_E2E)
-    # MetaRegistry uses 'key' (skill name) for file downloads, NOT 'id' (UUID)
     skill_key = skill_metadata.get("key", skill_metadata.get("name", name))
     skill_dir = SKILLS_DIR / name
     skill_dir.mkdir(parents=True, exist_ok=True)
 
-    installed_files = []
-    errors = []
+    installed_files: List[str] = []
+    errors: List[str] = []
 
+    # MetaRegistry: Use ZIP download for complete skill (includes nested dirs)
+    if source == SOURCE_METAREGISTRY:
+        zip_resp = await metaregistry_client.download_skill_zip(skill_key)
+        if zip_resp.get("success"):
+            files_dict = zip_resp.get("data", {})
+            for file_path, content in files_dict.items():
+                try:
+                    dest = skill_dir / file_path
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+
+                    # Handle SKILL.md frontmatter injection
+                    if file_path == "SKILL.md" and not content.strip().startswith("---"):
+                        content = _build_frontmatter(name, skill_metadata) + content
+
+                    dest.write_text(content, encoding="utf-8")
+
+                    # Make shell/ts scripts executable
+                    if dest.suffix in (".sh", ".ts"):
+                        dest.chmod(dest.stat().st_mode | 0o111)
+
+                    installed_files.append(file_path)
+                except Exception as e:
+                    errors.append(f"{file_path}: {e}")
+
+            result = {
+                "installed_files": installed_files,
+                "file_count": len(installed_files),
+                "skill_dir": str(skill_dir),
+            }
+            if errors:
+                result["warnings"] = errors
+            return _normalize(True, data=result)
+        else:
+            # ZIP failed - fall back to piecemeal download
+            errors.append(f"ZIP download failed: {zip_resp.get('error')}")
+
+    # E2E skills or MetaRegistry ZIP fallback: fetch files individually
     # 1. Install SKILL.md first
     cached_content = None
     content_obj = skill_metadata.get("content")
@@ -292,35 +418,25 @@ async def install_skill_full(
     (skill_dir / "SKILL.md").write_text(final_content, encoding="utf-8")
     installed_files.append("SKILL.md")
 
-    # 2. For MetaRegistry skills, download additional files (scripts, etc.)
+    # 2. For MetaRegistry fallback, try to get extra files via file tree
     if source == SOURCE_METAREGISTRY:
-        files_info = skill_metadata.get("files", {})
-        scripts = files_info.get("scripts", [])
-
-        if scripts:
-            # Download scripts - only create dir if we successfully download at least one
-            scripts_dir = skill_dir / "scripts"
-            downloaded_any = False
-
-            for script_name in scripts:
-                try:
-                    file_path = f"scripts/{script_name}"
-                    resp = await metaregistry_client.fetch_skill_file_content(skill_key, file_path)
-                    if resp.get("success"):
-                        if not downloaded_any:
-                            scripts_dir.mkdir(parents=True, exist_ok=True)
-                            downloaded_any = True
-                        script_content = resp.get("data", "")
-                        dest = scripts_dir / script_name
-                        dest.write_text(script_content, encoding="utf-8")
-                        # Make scripts executable
-                        if script_name.endswith(".sh") or script_name.endswith(".ts"):
-                            dest.chmod(dest.stat().st_mode | 0o111)
-                        installed_files.append(f"scripts/{script_name}")
-                    else:
-                        errors.append(f"{script_name}: {resp.get('error', 'unknown')}")
-                except Exception as e:
-                    errors.append(f"{script_name}: {e}")
+        extra_files = await _discover_extra_files(skill_key, skill_metadata)
+        for file_path in extra_files:
+            try:
+                resp = await metaregistry_client.fetch_skill_file_content(
+                    skill_key, file_path
+                )
+                if resp.get("success"):
+                    dest = skill_dir / file_path
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_text(resp.get("data", ""), encoding="utf-8")
+                    if dest.suffix in (".sh", ".ts"):
+                        dest.chmod(dest.stat().st_mode | 0o111)
+                    installed_files.append(file_path)
+                else:
+                    errors.append(f"{file_path}: {resp.get('error', 'unknown')}")
+            except Exception as e:
+                errors.append(f"{file_path}: {e}")
 
     result = {
         "installed_files": installed_files,
