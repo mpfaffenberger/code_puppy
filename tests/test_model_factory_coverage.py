@@ -85,6 +85,41 @@ class TestMakeModelSettings:
         assert isinstance(settings, dict)
         assert "openai_reasoning_effort" in settings
 
+    def test_make_model_settings_gpt5_maps_reasoning_effort_key(self):
+        """Per-model reasoning_effort should map to openai_reasoning_effort."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={"reasoning_effort": "high"},
+        ):
+            settings = make_model_settings("gpt-5-test", max_tokens=4096)
+
+        assert settings.get("openai_reasoning_effort") == "high"
+        assert "reasoning_effort" not in settings
+
+    def test_make_model_settings_gpt5_codex_keeps_reasoning_effort(self):
+        """Codex GPT-5 should still include normalized openai_reasoning_effort."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={"reasoning_effort": "xhigh"},
+        ):
+            settings = make_model_settings("gpt-5-codex-test", max_tokens=4096)
+
+        assert settings.get("openai_reasoning_effort") == "xhigh"
+        assert "reasoning_effort" not in settings
+
+    def test_make_model_settings_gpt5_uses_text_verbosity(self):
+        """GPT-5 non-codex should place verbosity at extra_body.text.verbosity."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("gpt-5-test", max_tokens=4096)
+        extra_body = settings.get("extra_body", {})
+        assert extra_body.get("text", {}).get("verbosity") in {"low", "medium", "high"}
+        assert "verbosity" not in settings
+
     def test_make_model_settings_gpt5_codex_no_verbosity(self):
         """Test GPT-5 codex model doesn't get verbosity (only supports medium)."""
         from code_puppy.model_factory import make_model_settings

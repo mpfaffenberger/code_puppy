@@ -149,14 +149,32 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
             forced_stream = True  # Only convert if WE forced streaming
             modified = True
 
-        # Add reasoning settings for reasoning models (gpt-5.2, o-series, etc.)
+        # Normalize reasoning settings for reasoning models (gpt-5, o-series, etc.)
+        # Accept aliases from upstream settings and map to Responses API shape.
         model = data.get("model", "")
-        if "reasoning" not in data and _is_reasoning_model(model):
-            data["reasoning"] = {
-                "effort": "medium",
-                "summary": "auto",
-            }
-            modified = True
+        if _is_reasoning_model(model):
+            alias_effort = data.get("openai_reasoning_effort") or data.get(
+                "reasoning_effort"
+            )
+
+            reasoning_payload = data.get("reasoning")
+            if not isinstance(reasoning_payload, dict):
+                reasoning_payload = {"summary": "auto"}
+
+            # Precedence:
+            # 1) explicit alias effort (from model settings)
+            # 2) existing reasoning.effort in payload
+            # 3) fallback medium
+            desired_effort = (
+                alias_effort
+                or reasoning_payload.get("effort")
+                or "medium"
+            )
+
+            if reasoning_payload.get("effort") != desired_effort:
+                reasoning_payload["effort"] = desired_effort
+                data["reasoning"] = reasoning_payload
+                modified = True
 
         # When `store=false` (Codex requirement), the backend does NOT persist input items.
         # That means any later request that tries to reference a previous item by id will 404.
@@ -211,9 +229,16 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
                     item["id"] = f"rs_{item_id}"
                     modified = True
 
-        # Remove unsupported parameters
-        # Note: verbosity should be under "text" object, not top-level
-        unsupported_params = ["max_output_tokens", "max_tokens", "verbosity"]
+        # Remove unsupported/legacy parameters
+        # Note: verbosity should be under "text" object, not top-level.
+        # Reasoning effort aliases are normalized into reasoning.effort above.
+        unsupported_params = [
+            "max_output_tokens",
+            "max_tokens",
+            "verbosity",
+            "openai_reasoning_effort",
+            "reasoning_effort",
+        ]
         for param in unsupported_params:
             if param in data:
                 del data[param]

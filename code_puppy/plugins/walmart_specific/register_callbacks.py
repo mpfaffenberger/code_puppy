@@ -13,7 +13,7 @@ from rich.text import Text
 from code_puppy.callbacks import register_callback
 from code_puppy.config import get_puppy_token
 from code_puppy.http_utils import find_available_port
-from code_puppy.messaging import emit_system_message
+from code_puppy.messaging import emit_system_message, emit_warning
 
 # CRITICAL: Import walmart_specific package to trigger monkey patches
 # This must happen BEFORE any other imports that might use HTTP libraries
@@ -22,6 +22,8 @@ import code_puppy.plugins.walmart_specific  # noqa: F401
 from code_puppy.plugins.walmart_specific.agent_prompt import get_prompt
 from code_puppy.plugins.walmart_specific.auth import (
     authenticate_puppy,
+    get_auth_callback_port,
+    is_puppy_token_valid,
     set_auth_callback_port,
 )
 from code_puppy.plugins.walmart_specific.auto_update import _handle_update
@@ -189,14 +191,45 @@ async def auth_flow() -> None:
 
     register_callback("shutdown", shutdown_http_server)
 
-    await authenticate_puppy(available_port)
+    auth_success = await authenticate_puppy(available_port)
+
+    if not auth_success:
+        emit_warning(
+            "Authentication failed or timed out. Some features may not work correctly.\n"
+            "Run '/login' to retry authentication."
+        )
 
     token = get_puppy_token()
-    os.environ["puppy_token"] = token
+    if token:
+        os.environ["puppy_token"] = token
+    else:
+        emit_warning("No valid puppy token available.")
 
 
 register_callback("startup", ensure_safe_windows_workspace)
 register_callback("startup", auth_flow)
+
+
+async def check_token_before_agent_run(
+    agent_name: str,
+    model_name: str,
+    session_id: str | None = None,
+) -> None:
+    """Check token validity before each agent run, trigger re-auth if expired.
+    
+    This catches mid-session token expiration - if the token expires while
+    the user is working, we re-authenticate before sending the prompt.
+    """
+    if not is_puppy_token_valid():
+        emit_warning("Token expired mid-session, re-authenticating...")
+        port = get_auth_callback_port()
+        if port:
+            await authenticate_puppy(port)
+        else:
+            emit_warning("Cannot re-auth: auth callback port unknown. Restart Code Puppy.")
+
+
+register_callback("agent_run_start", check_token_before_agent_run)
 
 
 def load_model_config() -> Dict[str, Any]:

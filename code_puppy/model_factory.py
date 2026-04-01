@@ -157,11 +157,27 @@ def make_model_settings(
     model_settings: ModelSettings = ModelSettings(**model_settings_dict)
 
     if "gpt-5" in model_name:
-        model_settings_dict["openai_reasoning_effort"] = get_openai_reasoning_effort()
+        # Normalize reasoning effort for OpenAI Responses models.
+        # Per-model settings may include "reasoning_effort"; map that to
+        # pydantic-ai's expected "openai_reasoning_effort" key.
+        configured_effort = model_settings_dict.pop(
+            "reasoning_effort", get_openai_reasoning_effort()
+        )
+        model_settings_dict["openai_reasoning_effort"] = configured_effort
+
+        # OpenAI Responses API moved verbosity under text.verbosity.
+        # Remove any top-level verbosity that may have come from effective settings.
+        model_settings_dict.pop("verbosity", None)
+
         # Verbosity only applies to non-codex GPT-5 models (codex only supports "medium")
         if "codex" not in model_name:
             verbosity = get_openai_verbosity()
-            model_settings_dict["extra_body"] = {"verbosity": verbosity}
+            extra_body = model_settings_dict.get("extra_body") or {}
+            text_config = extra_body.get("text") or {}
+            text_config["verbosity"] = verbosity
+            extra_body["text"] = text_config
+            model_settings_dict["extra_body"] = extra_body
+
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif model_name.startswith("claude-") or model_name.startswith("anthropic-"):
         # Handle Anthropic extended thinking settings
