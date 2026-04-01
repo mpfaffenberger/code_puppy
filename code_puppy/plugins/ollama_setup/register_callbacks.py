@@ -28,19 +28,19 @@ logger = logging.getLogger(__name__)
 
 CLOUD_MODELS: dict[str, dict[str, Any]] = {
     "kimi-k2.5:cloud": {
-        "context_length": 131072,
+        "context_length": 262144,  # 256k
         "description": "Moonshot Kimi K2.5 (cloud)",
     },
     "glm-5:cloud": {
-        "context_length": 131072,
+        "context_length": 204800,  # 200k
         "description": "ZhipuAI GLM-5 (cloud)",
     },
     "minimax-m2.7:cloud": {
-        "context_length": 131072,
+        "context_length": 199680,  # 195k
         "description": "MiniMax M2.7 (cloud)",
     },
     "qwen3.5:cloud": {
-        "context_length": 131072,
+        "context_length": 204800,  # 200k
         "description": "Alibaba Qwen 3.5 (cloud)",
     },
 }
