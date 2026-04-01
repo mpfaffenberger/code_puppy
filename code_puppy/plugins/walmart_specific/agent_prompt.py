@@ -7,7 +7,7 @@ from code_puppy.config import get_git_auto_commit_prompt_enabled
 def _get_git_commit_line() -> str:
     """Return the git auto-commit prompt line if enabled, otherwise empty string."""
     if get_git_auto_commit_prompt_enabled():
-        return " - Commit often to feature branches (never push directly to main). Create a PR for review. Follow ZEN of python, we use git to roll forward and back in time.\n"
+        return " - Commit often, follow ZEN of python, we use git to roll forward and back in time.\n"
     return ""
 
 
