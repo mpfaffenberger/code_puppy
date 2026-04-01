@@ -184,15 +184,40 @@ def handle_truncate_command(command: str) -> bool:
 
 @register_command(
     name="autosave_load",
-    description="Load an autosave session interactively",
-    usage="/autosave_load",
+    description="Load an autosave session interactively, or by name",
+    usage="/autosave_load [session_name]",
     aliases=["resume"],
     category="session",
+    detailed_help="""
+    Load an autosave session.
+
+    Commands:
+      /resume                    Open interactive session picker
+      /resume <session_name>     Load session directly by name
+
+    Examples:
+      /resume
+      /resume auto_session_20260214_175543
+    """,
 )
-def handle_autosave_load_command(command: str) -> bool:
-    """Load an autosave session."""
-    # Return a special marker to indicate we need to run async autosave loading
-    return "__AUTOSAVE_LOAD__"
+def handle_autosave_load_command(command: str) -> "bool | str":
+    """Load an autosave session.
+
+    If no session name is provided, opens interactive picker.
+    If session name is provided, loads that session directly.
+
+    Returns:
+        "__AUTOSAVE_LOAD__" for picker, "__AUTOSAVE_LOAD_DIRECT__:<name>" for direct load.
+    """
+    tokens = command.split()
+
+    if len(tokens) == 1:
+        # No argument = open picker
+        return "__AUTOSAVE_LOAD__"
+
+    # Session name provided = load directly
+    session_name = tokens[1]
+    return f"__AUTOSAVE_LOAD_DIRECT__:{session_name}"
 
 
 @register_command(
