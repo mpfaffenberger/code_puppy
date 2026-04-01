@@ -12,6 +12,8 @@ from typing import Any, Dict, Optional
 
 import httpx
 
+from code_puppy.http_utils import get_cert_bundle_path
+
 from rich.text import Text
 
 from code_puppy.config import get_puppy_token
@@ -206,7 +208,7 @@ class TelemetryQueue:
         try:
             # Use even shorter timeout during shutdown for faster exit
             timeout_val = 2.0 if self._shutdown_event.is_set() else 5.0
-            with httpx.Client(timeout=timeout_val, verify=False) as client:
+            with httpx.Client(timeout=timeout_val, verify=get_cert_bundle_path()) as client:
                 url = get_telemetry_url(Environment.STAGE)
                 headers = {
                     "Content-Type": "application/json",

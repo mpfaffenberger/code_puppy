@@ -411,7 +411,7 @@ def _make_validation_request(
         with httpx.Client(
             cookies=cookies,
             timeout=30.0,
-            verify=False,  # Walmart internal certs
+            # verify omitted - uses system CA bundle
             headers={
                 "User-Agent": "Code-Puppy/1.0",
                 "Accept": "application/json",

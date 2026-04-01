@@ -125,7 +125,7 @@ def validate_command_safety(
         }
 
         # Use the properly configured HTTP session from http_utils
-        client = create_client(verify=False)
+        client = create_client()
         response = client.post(url, json=payload, headers=headers, timeout=timeout)
 
         # If token expired mid-session, try re-auth once and retry

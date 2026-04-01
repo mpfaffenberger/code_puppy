@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from code_puppy.http_utils import get_cert_bundle_path
+
 from . import metaregistry_client
 
 E2E_BASE_URL = "https://e2e-open-skills.walmartlabs.com"
@@ -37,7 +39,7 @@ async def fetch_e2e_skills() -> Dict[str, Any]:
     """
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             resp = await client.get(f"{E2E_BASE_URL}/skills")
             if resp.status_code >= 400:
@@ -118,7 +120,7 @@ async def fetch_skill_detail(name: str) -> Dict[str, Any]:
     """Fetch metadata for a single skill (E2E only)."""
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             resp = await client.get(f"{E2E_BASE_URL}/skills/{name}")
             if resp.status_code >= 400:
@@ -154,7 +156,7 @@ async def fetch_skill_md(
     # Default: E2E
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             resp = await client.get(f"{E2E_BASE_URL}/skills/{name}/SKILL.md")
             if resp.status_code >= 400:
@@ -397,7 +399,7 @@ async def install_skill_full(
         else:
             try:
                 async with httpx.AsyncClient(
-                    timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+                    timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
                 ) as client:
                     r = await client.get(f"{E2E_BASE_URL}/skills/{name}/SKILL.md")
                     if r.status_code >= 400:

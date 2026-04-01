@@ -23,6 +23,8 @@ from typing import Any
 
 import httpx
 
+from code_puppy.http_utils import get_cert_bundle_path
+
 from code_puppy import __version__
 from code_puppy.config import CONFIG_DIR
 from code_puppy.plugins.walmart_specific.auth import (
@@ -249,7 +251,7 @@ class PeteClient:
 
         self.client = httpx.Client(
             timeout=60.0,
-            verify=False,
+            verify=get_cert_bundle_path(),  # Walmart CA bundle
             headers={
                 "User-Agent": user_agent,
                 "Content-Type": "application/json",

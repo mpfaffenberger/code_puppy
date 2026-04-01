@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
+from code_puppy.http_utils import get_cert_bundle_path
+
 DEFAULT_TIMEOUT = 15.0
 
 
@@ -58,7 +60,7 @@ async def fetch_skills() -> Dict[str, Any]:
     base = _get_base_url()
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             resp = await client.get(f"{base}/skill-applications")
             if resp.status_code >= 400:
@@ -92,7 +94,7 @@ async def fetch_skill_files(skill_id: str) -> Dict[str, Any]:
     base = _get_base_url()
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             resp = await client.get(f"{base}/skill-applications/{skill_id}/files")
             if resp.status_code >= 400:
@@ -117,7 +119,7 @@ async def fetch_skill_details(skill_id: str) -> Dict[str, Any]:
     base = _get_base_url()
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             resp = await client.get(f"{base}/skill-applications/{skill_id}")
             if resp.status_code >= 400:
@@ -180,7 +182,7 @@ async def fetch_github_tree_recursive(
 
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             # Get the tree for the branch/commit
             tree_url = f"{api_base}/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
@@ -226,7 +228,7 @@ async def fetch_skill_file_content(
     base = _get_base_url()
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             resp = await client.get(
                 f"{base}/skill-applications/{skill_id}/files/{file_path}"
@@ -258,7 +260,7 @@ async def search_skills(query: str) -> Dict[str, Any]:
     base = _get_base_url()
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             resp = await client.get(
                 f"{base}/skill-applications/hybrid-search",
@@ -293,7 +295,7 @@ async def download_skill_zip(skill_id: str) -> Dict[str, Any]:
     try:
         async with httpx.AsyncClient(
             timeout=30.0,  # Longer timeout for zip download
-            verify=False,
+            verify=get_cert_bundle_path(),
             follow_redirects=True,
         ) as client:
             resp = await client.get(f"{base}/skill-applications/{skill_id}/download")

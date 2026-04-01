@@ -125,7 +125,7 @@ class JiraClient:
         self.client = httpx.Client(
             cookies=self.cookies,
             timeout=30.0,
-            verify=False,  # Walmart internal certs
+            # verify omitted - uses system CA bundle
             headers={
                 "User-Agent": user_agent,
                 "Accept": "application/json",
