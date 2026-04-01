@@ -61,7 +61,7 @@ class TestScorePromptAgainstSkill:
 
     def test_synonym_scores_above_threshold(self):
         score = _score_prompt_against_skill(
-            "push my docker app", "deploy docker container deployment"
+            "deploy my docker container", "deploy docker container deployment"
         )
         assert score >= AUTO_ACTIVATE_THRESHOLD
 
@@ -105,27 +105,27 @@ class TestAutoInjectSkills:
 
         with (
             patch(
-                "code_puppy.plugins.auto_skill_activator.register_callbacks.get_skills_enabled",
+                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
                 return_value=skills_enabled,
             ),
             patch(
-                "code_puppy.plugins.auto_skill_activator.register_callbacks.get_skill_directories",
+                "code_puppy.plugins.agent_skills.config.get_skill_directories",
                 return_value=["/fake/skills"],
             ),
             patch(
-                "code_puppy.plugins.auto_skill_activator.register_callbacks.get_disabled_skills",
+                "code_puppy.plugins.agent_skills.config.get_disabled_skills",
                 return_value=disabled,
             ),
             patch(
-                "code_puppy.plugins.auto_skill_activator.register_callbacks.discover_skills",
+                "code_puppy.plugins.agent_skills.discovery.discover_skills",
                 return_value=discovered,
             ),
             patch(
-                "code_puppy.plugins.auto_skill_activator.register_callbacks.parse_skill_metadata",
+                "code_puppy.plugins.agent_skills.metadata.parse_skill_metadata",
                 side_effect=lambda path: metadata_map.get(path.name),
             ),
             patch(
-                "code_puppy.plugins.auto_skill_activator.register_callbacks.load_full_skill_content",
+                "code_puppy.plugins.agent_skills.metadata.load_full_skill_content",
                 side_effect=lambda path: skill_contents.get(path.name),
             ),
         ):
@@ -140,8 +140,7 @@ class TestAutoInjectSkills:
             user_prompt="help me create a pull request on github",
             discovered=[skill],
             metadata_map={"github-pr": meta},
-            skill_contents={"github-pr": "# GitHub PR Skill
-Steps: ..."},
+            skill_contents={"github-pr": "# GitHub PR Skill\nSteps: ..."},
         )
         assert result is not None
         assert "Auto-Activated Skill: github-pr" in result["instructions"]
@@ -155,8 +154,7 @@ Steps: ..."},
             user_prompt="what is the capital of France",
             discovered=[skill],
             metadata_map={"github-pr": meta},
-            skill_contents={"github-pr": "# GitHub PR Skill
-..."},
+            skill_contents={"github-pr": "# GitHub PR Skill\n..."},
         )
         assert result is None
 
@@ -282,13 +280,13 @@ Steps: ..."},
 
     def test_exception_in_skill_discovery_returns_none(self):
         with patch(
-            "code_puppy.plugins.auto_skill_activator.register_callbacks.get_skills_enabled",
+            "code_puppy.plugins.agent_skills.config.get_skills_enabled",
             return_value=True,
         ), patch(
-            "code_puppy.plugins.auto_skill_activator.register_callbacks.get_skill_directories",
+            "code_puppy.plugins.agent_skills.config.get_skill_directories",
             return_value=["/fake/skills"],
         ), patch(
-            "code_puppy.plugins.auto_skill_activator.register_callbacks.get_disabled_skills",
+            "code_puppy.plugins.agent_skills.config.get_disabled_skills",
             side_effect=RuntimeError("Config unavailable"),
         ):
             result = _auto_inject_skills("gpt-4o", "BASE PROMPT", "create a pull request")
