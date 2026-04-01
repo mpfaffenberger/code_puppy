@@ -134,7 +134,7 @@ class TestTerminalQAToolsTerminal:
 class TestTerminalQAToolsBrowserExcluded:
     """Test Terminal QA Agent does NOT have browser tools.
 
-    Browser tools use CamoufoxManager (a separate web browser) and are
+    Browser tools use BrowserManager (a separate web browser) and are
     designed for HTML DOM interaction - NOT for terminal/TUI apps!
     Terminal apps use keyboard input via terminal_send_keys.
     """
@@ -416,7 +416,7 @@ class TestTerminalQAIntegration:
         """Test browser interaction tools are NOT present (they use wrong browser)."""
         tools = agent.get_available_tools()
 
-        # Browser tools use CamoufoxManager, not ChromiumTerminalManager
+        # Browser tools use BrowserManager, not ChromiumTerminalManager
         # They're for web pages, not terminal/TUI apps!
         browser_tools = [
             "browser_click",

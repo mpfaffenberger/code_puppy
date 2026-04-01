@@ -75,9 +75,6 @@ from code_puppy.plugins.walmart_specific.telemetry_utils import (
     build_telemetry_data,
     enqueue_telemetry_data,
 )
-from code_puppy.plugins.walmart_specific.camoufox_browser import (
-    get_camoufox_browser_types,
-)
 from code_puppy.tools.command_runner import ShellCommandOutput
 from code_puppy.mcp_.server_registry_catalog import (
     MCPServerTemplate,
@@ -149,7 +146,6 @@ set_cert_bundle()
 
 register_callback("version_check", _handle_update)
 register_callback("register_mcp_catalog_servers", get_walmart_mcp_servers)
-register_callback("register_browser_types", get_camoufox_browser_types)
 # Disclaimer is now shown via /disclaimer command instead of on startup
 
 

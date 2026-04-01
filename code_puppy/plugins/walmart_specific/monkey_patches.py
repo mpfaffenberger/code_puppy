@@ -1,7 +1,7 @@
 """Monkey patches for Walmart-specific URL redirections.
 
 This module patches HTTP request libraries to redirect GitHub releases
-to Walmart's internal artifactory mirror for camoufox and other tools.
+to Walmart's internal artifactory mirror for GitHub-hosted tools.
 """
 
 import functools

@@ -207,13 +207,11 @@ class TestSyncCleanup:
 
 
 class TestBackwardsCompat:
-    def test_aliases(self):
+    def test_browser_manager_imports(self):
         from code_puppy.tools.browser.browser_manager import (
             BrowserManager,
-            CamoufoxManager,
             get_browser_manager,
-            get_camoufox_manager,
         )
 
-        assert CamoufoxManager is BrowserManager
-        assert get_camoufox_manager is get_browser_manager
+        assert BrowserManager is not None
+        assert callable(get_browser_manager)

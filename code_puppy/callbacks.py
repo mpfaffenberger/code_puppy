@@ -587,17 +587,17 @@ def on_register_browser_types() -> List[Any]:
 
     Plugins can register callbacks that return a dict mapping browser type names
     to initialization functions. This allows plugins to provide custom browser
-    implementations (like Camoufox for stealth browsing).
+    implementations (such as stealth-focused or hardened browsers).
 
     Each callback should return a dict with:
-    - key: str - the browser type name (e.g., "camoufox", "firefox-stealth")
+    - key: str - the browser type name (e.g., "firefox-stealth", "hardened")
     - value: callable - async initialization function that takes (manager, **kwargs)
                         and sets up the browser on the manager instance
 
     Example callback:
         def register_my_browser_types():
             return {
-                "camoufox": initialize_camoufox,
+                "firefox-stealth": initialize_firefox_stealth,
                 "my-stealth-browser": initialize_my_stealth,
             }
 

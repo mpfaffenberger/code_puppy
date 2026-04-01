@@ -26,7 +26,7 @@ class TerminalQAAgent(BaseAgent):
         """Get the list of tools available to Terminal QA Agent.
 
         Terminal-only tools for TUI/CLI testing. NO browser tools - those use
-        a different browser (CamoufoxManager) and don't work with terminals.
+        a different browser manager and don't work with terminals.
 
         For terminal/TUI apps, you interact via keyboard (send_keys), not
         by clicking on DOM elements like in a web browser.
@@ -50,7 +50,7 @@ class TerminalQAAgent(BaseAgent):
             "load_image_for_analysis",
             # NOTE: Browser tools (browser_click, browser_find_by_text, etc.)
             # are NOT included because:
-            # 1. They use CamoufoxManager (web browser), not ChromiumTerminalManager
+            # 1. They use BrowserManager (web browser), not ChromiumTerminalManager
             # 2. Terminal/TUI apps use keyboard input, not DOM clicking
             # 3. Use terminal_send_keys for all terminal interaction!
         ]
