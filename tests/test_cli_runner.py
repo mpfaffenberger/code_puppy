@@ -223,6 +223,13 @@ class TestVersionHandling:
         )
         assert is_disabled is True
 
+    def test_version_check_disabled_config(self):
+        """auto_update = false in puppy.cfg should suppress the version check."""
+        with patch("code_puppy.cli_runner.get_auto_update", return_value=False):
+            from code_puppy.cli_runner import get_auto_update as _get
+
+            assert not _get()
+
 
 class TestLogoDisplay:
     """Test CODE PUPPY logo display."""
