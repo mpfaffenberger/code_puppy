@@ -3,13 +3,21 @@
 Prepend a prompt with `!` to execute it as a shell command directly,
 bypassing the agent entirely. Inspired by Claude Code's `!` prefix.
 
+Also auto-detects well-known CLI commands (e.g. ``ls``, ``git``, ``grep``)
+so users can type them without the ``!`` prefix and still bypass the AI agent
+— consuming zero tokens.
+
 Examples:
     !ls -la
     !git status
     !python --version
+    ls -la          ← auto-detected, no tokens used
+    git status      ← auto-detected, no tokens used
+    ls | grep test  ← auto-detected, no tokens used
 """
 
 import os
+import re
 import subprocess
 import sys
 import time
@@ -24,6 +32,198 @@ SHELL_PASSTHROUGH_PREFIX = "!"
 
 # Banner identifier — matches the key in DEFAULT_BANNER_COLORS
 _BANNER_NAME = "shell_passthrough"
+
+# ---------------------------------------------------------------------------
+# Auto-detection: known CLI commands that should bypass the AI agent
+# ---------------------------------------------------------------------------
+# When a user types one of these commands directly (without the ``!`` prefix),
+# Code Puppy automatically routes the input to the shell — no tokens consumed.
+#
+# Extend this set to add more commands. Keep it sorted for readability.
+KNOWN_CLI_COMMANDS: frozenset[str] = frozenset(
+    {
+        # ── Archives ──────────────────────────────────────────────────────
+        "bzip2",
+        "gunzip",
+        "gzip",
+        "tar",
+        "unzip",
+        "xz",
+        "zip",
+        # ── Build / package managers ──────────────────────────────────────
+        "cargo",
+        "cmake",
+        "gradle",
+        "make",
+        "maven",
+        "mvn",
+        "npm",
+        "npx",
+        "pip",
+        "pip3",
+        "poetry",
+        "pnpm",
+        "yarn",
+        # ── Containers / orchestration ────────────────────────────────────
+        "docker",
+        "docker-compose",
+        "helm",
+        "kubectl",
+        "podman",
+        # ── File system ───────────────────────────────────────────────────
+        "cat",
+        "cd",
+        "chmod",
+        "chown",
+        "cp",
+        "dir",
+        "du",
+        "file",
+        "find",
+        "head",
+        "la",
+        "less",
+        "ll",
+        "ln",
+        "locate",
+        "ls",
+        "mkdir",
+        "more",
+        "mv",
+        "popd",
+        "pushd",
+        "pwd",
+        "rm",
+        "rmdir",
+        "tail",
+        "touch",
+        "tree",
+        "wc",
+        # ── Language runtimes ─────────────────────────────────────────────
+        "go",
+        "java",
+        "javac",
+        "node",
+        "python",
+        "python3",
+        "ruby",
+        "rustc",
+        # ── Misc utilities ────────────────────────────────────────────────
+        "alias",
+        "cal",
+        "date",
+        "df",
+        "echo",
+        "env",
+        "export",
+        "free",
+        "history",
+        "id",
+        "info",
+        "man",
+        "open",
+        "pbcopy",
+        "pbpaste",
+        "printf",
+        "type",
+        "uname",
+        "unalias",
+        "uptime",
+        "which",
+        "whereis",
+        "whoami",
+        "xclip",
+        "xsel",
+        # ── Network ───────────────────────────────────────────────────────
+        "curl",
+        "dig",
+        "host",
+        "ifconfig",
+        "ip",
+        "nc",
+        "netstat",
+        "nslookup",
+        "ping",
+        "rsync",
+        "scp",
+        "ssh",
+        "wget",
+        # ── Process / system ──────────────────────────────────────────────
+        "bg",
+        "fg",
+        "htop",
+        "jobs",
+        "kill",
+        "killall",
+        "ps",
+        "top",
+        "who",
+        # ── System package managers ───────────────────────────────────────
+        "apt",
+        "apt-get",
+        "dnf",
+        "pacman",
+        "snap",
+        "systemctl",
+        "yum",
+        # ── Text processing ───────────────────────────────────────────────
+        "awk",
+        "cut",
+        "diff",
+        "egrep",
+        "fgrep",
+        "grep",
+        "jq",
+        "patch",
+        "rg",
+        "ripgrep",
+        "sed",
+        "sort",
+        "tee",
+        "tr",
+        "uniq",
+        "xargs",
+        # ── Version control ───────────────────────────────────────────────
+        "git",
+        "hg",
+        "svn",
+    }
+)
+
+# Pre-compiled regex: first "word" of the input (handles leading whitespace)
+_FIRST_WORD_RE = re.compile(r"^\s*(\S+)")
+
+
+def is_known_cli_command(task: str) -> bool:
+    """Return True when *task* starts with a well-known CLI command name.
+
+    This lets users type ``ls -la`` or ``git status`` directly — without the
+    ``!`` prefix — and have Code Puppy route the input to the shell instead of
+    the AI agent (zero tokens consumed).
+
+    The check is intentionally conservative:
+    * Only the very first token is tested against ``KNOWN_CLI_COMMANDS``.
+    * Input that already starts with ``!`` or ``/`` is excluded (handled
+      elsewhere).
+    * Single-word inputs that match (e.g. ``pwd``) are accepted.
+
+    Args:
+        task: Raw user input string.
+
+    Returns:
+        True if the first word of *task* is a known CLI command.
+    """
+    stripped = task.strip()
+    # Already handled by other code paths
+    if stripped.startswith(SHELL_PASSTHROUGH_PREFIX) or stripped.startswith("/"):
+        return False
+
+    match = _FIRST_WORD_RE.match(stripped)
+    if not match:
+        return False
+
+    first_word = match.group(1).lower()
+    return first_word in KNOWN_CLI_COMMANDS
 
 
 def _get_console() -> Console:

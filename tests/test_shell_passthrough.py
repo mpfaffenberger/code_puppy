@@ -9,10 +9,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from code_puppy.command_line.shell_passthrough import (
     _BANNER_NAME,
+    KNOWN_CLI_COMMANDS,
     SHELL_PASSTHROUGH_PREFIX,
     _format_banner,
     execute_shell_passthrough,
     extract_command,
+    is_known_cli_command,
     is_shell_passthrough,
 )
 
@@ -67,6 +69,80 @@ class TestIsShellPassthrough:
     def test_prefix_constant(self):
         """Verify the prefix constant is `!`."""
         assert SHELL_PASSTHROUGH_PREFIX == "!"
+
+
+class TestIsKnownCliCommand:
+    """Test auto-detection of well-known CLI commands.
+
+    Users should be able to type ``ls -la`` or ``git status`` directly and
+    have Code Puppy route the input to the shell without touching the AI agent
+    (zero tokens consumed).
+    """
+
+    # ── Positive cases ────────────────────────────────────────────────────
+
+    def test_ls_alone(self):
+        """Bare `ls` is a known CLI command."""
+        assert is_known_cli_command("ls") is True
+
+    def test_ls_with_flags(self):
+        """`ls -la` is auto-detected."""
+        assert is_known_cli_command("ls -la") is True
+
+    def test_ls_pipe_grep(self):
+        """`ls | grep test` is auto-detected via the leading `ls`."""
+        assert is_known_cli_command("ls | grep test") is True
+
+    def test_git_status(self):
+        """`git status` is auto-detected."""
+        assert is_known_cli_command("git status") is True
+
+    def test_grep_pattern(self):
+        """`grep -r foo .` is auto-detected."""
+        assert is_known_cli_command("grep -r foo .") is True
+
+    def test_pwd(self):
+        """Single-word known command is accepted."""
+        assert is_known_cli_command("pwd") is True
+
+    def test_leading_whitespace(self):
+        """Leading whitespace before a known command is tolerated."""
+        assert is_known_cli_command("  ls -la") is True
+
+    def test_case_insensitive_first_word(self):
+        """First-word check is case-insensitive (LS → ls)."""
+        assert is_known_cli_command("LS -la") is True
+
+    def test_known_commands_set_non_empty(self):
+        """KNOWN_CLI_COMMANDS must contain at least the basics."""
+        for cmd in ("ls", "git", "grep", "cat", "pwd", "find"):
+            assert cmd in KNOWN_CLI_COMMANDS
+
+    # ── Negative cases ────────────────────────────────────────────────────
+
+    def test_natural_language_not_detected(self):
+        """Natural language prompts must NOT be auto-detected as CLI commands."""
+        assert is_known_cli_command("write me a python script") is False
+
+    def test_slash_command_excluded(self):
+        """`/help` is a Code Puppy command, not a shell command."""
+        assert is_known_cli_command("/help") is False
+
+    def test_bang_prefix_excluded(self):
+        """`!ls` is already handled by `is_shell_passthrough`; skip here."""
+        assert is_known_cli_command("!ls") is False
+
+    def test_unknown_command(self):
+        """An unknown first word is not auto-detected."""
+        assert is_known_cli_command("frobnicator --foo") is False
+
+    def test_empty_string(self):
+        """Empty input is not a CLI command."""
+        assert is_known_cli_command("") is False
+
+    def test_whitespace_only(self):
+        """Whitespace-only input is not a CLI command."""
+        assert is_known_cli_command("   ") is False
 
 
 class TestExtractCommand:
