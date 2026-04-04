@@ -13,13 +13,14 @@ Images are automatically resized to reduce token usage.
 
 import io
 import logging
+import mimetypes
 import time
 from datetime import datetime
 from pathlib import Path
 from tempfile import gettempdir, mkdtemp
 from typing import Any, Dict, Union
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from pydantic_ai import BinaryContent, RunContext, ToolReturn
 from rich.text import Text
 
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Default max height for screenshots (reduces token usage significantly)
 DEFAULT_MAX_HEIGHT = 768
+MAX_IMAGE_EDGE = 2048
 
 # Temporary directory for screenshots
 _TEMP_SCREENSHOT_ROOT = Path(
@@ -107,7 +109,7 @@ def _resize_image(image_bytes: bytes, max_height: int = DEFAULT_MAX_HEIGHT) -> b
 
     Args:
         image_bytes: Original PNG image bytes.
-        max_height: Maximum height in pixels (default 384).
+        max_height: Maximum height in pixels (default 768).
 
     Returns:
         Resized PNG image bytes.
@@ -140,6 +142,81 @@ def _resize_image(image_bytes: bytes, max_height: int = DEFAULT_MAX_HEIGHT) -> b
     except Exception as e:
         logger.warning(f"Failed to resize image: {e}, using original")
         return image_bytes
+
+
+def _validate_and_prepare_image(
+    image_bytes: bytes,
+    source_path: str | None = None,
+    max_edge: int | None = None,
+) -> Dict[str, Any]:
+    """Verify image bytes, determine the real MIME type, and optionally resize.
+
+    The MIME type is determined from the decoded image content, not from the file
+    extension. If the image is resized, the output is normalized to PNG so the
+    returned bytes and MIME type stay in sync like civilized software.
+    """
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as verified_image:
+            verified_image.verify()
+    except UnidentifiedImageError as exc:
+        raise ValueError("File is not a valid image") from exc
+    except Exception as exc:
+        raise ValueError(f"Failed to verify image: {exc}") from exc
+
+    with Image.open(io.BytesIO(image_bytes)) as image:
+        image.load()
+        original_width, original_height = image.size
+        image_format = image.format
+        actual_media_type = Image.MIME.get(image_format or "")
+
+        if not actual_media_type or not actual_media_type.startswith("image/"):
+            raise ValueError("Could not determine a valid image MIME type")
+
+        guessed_media_type = None
+        if source_path:
+            guessed_media_type, _ = mimetypes.guess_type(source_path)
+
+        largest_edge = max(original_width, original_height)
+        was_resized = False
+        output_bytes = image_bytes
+        output_media_type = actual_media_type
+        output_width = original_width
+        output_height = original_height
+
+        if max_edge and largest_edge > max_edge:
+            ratio = max_edge / largest_edge
+            output_width = max(1, int(round(original_width * ratio)))
+            output_height = max(1, int(round(original_height * ratio)))
+            resized = image.resize(
+                (output_width, output_height), Image.Resampling.LANCZOS
+            )
+            output = io.BytesIO()
+            resized.save(output, format="PNG", optimize=True)
+            output.seek(0)
+            output_bytes = output.read()
+            output_media_type = "image/png"
+            was_resized = True
+            logger.debug(
+                "Resized image from %sx%s to %sx%s",
+                original_width,
+                original_height,
+                output_width,
+                output_height,
+            )
+
+        return {
+            "image_bytes": output_bytes,
+            "media_type": output_media_type,
+            "actual_media_type": actual_media_type,
+            "guessed_media_type": guessed_media_type,
+            "mime_type_matches_extension": guessed_media_type
+            in (None, output_media_type),
+            "original_width": original_width,
+            "original_height": original_height,
+            "output_width": output_width,
+            "output_height": output_height,
+            "was_resized": was_resized,
+        }
 
 
 async def _capture_terminal_screenshot(
@@ -336,18 +413,19 @@ async def load_image(
 ) -> Union[ToolReturn, Dict[str, Any]]:
     """Load an image from the filesystem for visual analysis.
 
-    Loads any image file, resizes it to reduce token usage, and returns
-    it via ToolReturn with BinaryContent so multimodal models can see it.
+    Verifies the file is a real image, derives the MIME type from the actual
+    decoded content, and downsizes only absurdly large images so multimodal
+    models do not waste tokens on billboard-sized chaos.
 
     Args:
         image_path: Path to the image file.
-        max_height: Maximum height for resizing (default 768px).
+        max_height: Deprecated compatibility arg kept for the tool signature.
 
     Returns:
         ToolReturn containing:
             - return_value: Success message with path info
             - content: List with description and BinaryContent image
-            - metadata: Image details (path, resized height)
+            - metadata: Image details, MIME validation, and resize info
         Or Dict with error info if failed.
     """
     group_id = generate_group_id("load_image", image_path)
@@ -366,11 +444,11 @@ async def load_image(
             emit_error(error_msg, message_group=group_id)
             return {"success": False, "error": error_msg, "image_path": image_path}
 
-        # Read image bytes
-        original_bytes = image_file.read_bytes()
-
-        # Resize to reduce token usage
-        image_bytes = _resize_image(original_bytes, max_height=max_height)
+        prepared_image = _validate_and_prepare_image(
+            image_file.read_bytes(),
+            source_path=str(image_file),
+            max_edge=MAX_IMAGE_EDGE,
+        )
 
         emit_success(f"Loaded image: {image_path}", message_group=group_id)
 
@@ -380,15 +458,31 @@ async def load_image(
             content=[
                 f"Here's the image from {image_file.name}:",
                 BinaryContent(
-                    data=image_bytes,
-                    media_type="image/png",  # Always PNG after resize
+                    data=prepared_image["image_bytes"],
+                    media_type=prepared_image["media_type"],
                 ),
                 "Please analyze what you see in this image.",
             ],
             metadata={
                 "success": True,
                 "image_path": image_path,
+                "media_type": prepared_image["media_type"],
+                "actual_media_type": prepared_image["actual_media_type"],
+                "guessed_media_type": prepared_image["guessed_media_type"],
+                "mime_type_matches_extension": prepared_image[
+                    "mime_type_matches_extension"
+                ],
+                "was_resized": prepared_image["was_resized"],
+                "original_size": [
+                    prepared_image["original_width"],
+                    prepared_image["original_height"],
+                ],
+                "output_size": [
+                    prepared_image["output_width"],
+                    prepared_image["output_height"],
+                ],
                 "max_height": max_height,
+                "max_edge": MAX_IMAGE_EDGE,
                 "timestamp": time.time(),
             },
         )
@@ -518,7 +612,11 @@ def register_terminal_compare_mockup(agent):
             emit_error(error_msg, message_group=group_id)
             return {"success": False, "error": error_msg}
 
-        mockup_bytes = _resize_image(mockup_file.read_bytes())
+        mockup_image = _validate_and_prepare_image(
+            mockup_file.read_bytes(),
+            source_path=str(mockup_file),
+            max_edge=MAX_IMAGE_EDGE,
+        )
 
         emit_success(
             "Both images loaded. Compare them visually.",
@@ -538,8 +636,8 @@ def register_terminal_compare_mockup(agent):
                 ),
                 f"And here's the EXPECTED mockup ({mockup_file.name}):",
                 BinaryContent(
-                    data=mockup_bytes,
-                    media_type="image/png",
+                    data=mockup_image["image_bytes"],
+                    media_type=mockup_image["media_type"],
                 ),
                 "Please compare these images and describe any differences.",
             ],
@@ -547,6 +645,13 @@ def register_terminal_compare_mockup(agent):
                 "success": True,
                 "terminal_path": terminal_path,
                 "mockup_path": mockup_path,
+                "mockup_media_type": mockup_image["media_type"],
+                "mockup_actual_media_type": mockup_image["actual_media_type"],
+                "mockup_guessed_media_type": mockup_image["guessed_media_type"],
+                "mockup_mime_type_matches_extension": mockup_image[
+                    "mime_type_matches_extension"
+                ],
+                "mockup_was_resized": mockup_image["was_resized"],
                 "timestamp": time.time(),
             },
         )
