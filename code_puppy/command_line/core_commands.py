@@ -8,7 +8,10 @@ import os
 
 from code_puppy.command_line.agent_menu import interactive_agent_picker
 from code_puppy.command_line.command_registry import register_command
-from code_puppy.command_line.model_picker_completion import update_model_in_input
+from code_puppy.command_line.model_picker_completion import (
+    interactive_model_picker,
+    update_model_in_input,
+)
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import finalize_autosave_session
@@ -411,95 +414,6 @@ def handle_agent_command(command: str) -> bool:
     else:
         emit_warning("Usage: /agent [agent-name]")
         return True
-
-
-async def interactive_model_picker() -> str | None:
-    """Show an interactive arrow-key selector to pick a model (async version).
-
-    Returns:
-        The selected model name, or None if cancelled
-    """
-    import asyncio
-    import sys
-
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.text import Text
-
-    from code_puppy.command_line.model_picker_completion import (
-        get_active_model,
-        load_model_names,
-    )
-    from code_puppy.tools.command_runner import set_awaiting_user_input
-    from code_puppy.tools.common import arrow_select_async
-
-    # Load available models
-    model_names = load_model_names()
-    current_model = get_active_model()
-
-    # Build choices with current model indicator
-    choices = []
-    for model_name in model_names:
-        if model_name == current_model:
-            choices.append(f"✓ {model_name} (current)")
-        else:
-            choices.append(f"  {model_name}")
-
-    # Create panel content
-    panel_content = Text()
-    panel_content.append("🤖 Select a model to use\n", style="bold cyan")
-    panel_content.append("Current model: ", style="dim")
-    panel_content.append(current_model, style="bold green")
-
-    # Display panel
-    panel = Panel(
-        panel_content,
-        title="[bold white]Model Selection[/bold white]",
-        border_style="cyan",
-        padding=(1, 2),
-    )
-
-    # Pause spinners BEFORE showing panel
-    set_awaiting_user_input(True)
-    await asyncio.sleep(0.3)  # Let spinners fully stop
-
-    local_console = Console()
-    emit_info("")
-    local_console.print(panel)
-    emit_info("")
-
-    # Flush output before prompt_toolkit takes control
-    sys.stdout.flush()
-    sys.stderr.flush()
-    await asyncio.sleep(0.1)
-
-    selected_model = None
-
-    try:
-        # Final flush
-        sys.stdout.flush()
-
-        # Show arrow-key selector (async version)
-        choice = await arrow_select_async(
-            "💭 Which model would you like to use?",
-            choices,
-        )
-
-        # Extract model name from choice (remove prefix and suffix)
-        if choice:
-            # Remove the "✓ " or "  " prefix and " (current)" suffix if present
-            selected_model = choice.strip().lstrip("✓").strip()
-            if selected_model.endswith(" (current)"):
-                selected_model = selected_model[:-10].strip()
-
-    except (KeyboardInterrupt, EOFError):
-        emit_error("Cancelled by user")
-        selected_model = None
-
-    finally:
-        set_awaiting_user_input(False)
-
-    return selected_model
 
 
 @register_command(

@@ -14,6 +14,12 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
+from code_puppy.command_line.pagination import (
+    ensure_visible_page,
+    get_page_bounds,
+    get_page_for_index,
+    get_total_pages,
+)
 from code_puppy.config import (
     get_all_model_settings,
     get_global_model_name,
@@ -220,7 +226,7 @@ class ModelSettingsMenu:
         # Try to pre-select the current model and set correct page
         if self.current_model_name in self.all_models:
             self.model_index = self.all_models.index(self.current_model_name)
-            self.page = self.model_index // self.page_size
+            self.page = get_page_for_index(self.model_index, self.page_size)
 
         # Editing state
         self.editing_mode = False
@@ -235,19 +241,19 @@ class ModelSettingsMenu:
     @property
     def total_pages(self) -> int:
         """Calculate total number of pages."""
-        if not self.all_models:
-            return 1
-        return (len(self.all_models) + self.page_size - 1) // self.page_size
+        return get_total_pages(len(self.all_models), self.page_size)
 
     @property
     def page_start(self) -> int:
         """Get the starting index for the current page."""
-        return self.page * self.page_size
+        start, _ = get_page_bounds(self.page, len(self.all_models), self.page_size)
+        return start
 
     @property
     def page_end(self) -> int:
         """Get the ending index (exclusive) for the current page."""
-        return min(self.page_start + self.page_size, len(self.all_models))
+        _, end = get_page_bounds(self.page, len(self.all_models), self.page_size)
+        return end
 
     @property
     def models_on_page(self) -> List[str]:
@@ -256,10 +262,12 @@ class ModelSettingsMenu:
 
     def _ensure_selection_visible(self):
         """Ensure the current selection is on the visible page."""
-        if self.model_index < self.page_start:
-            self.page = self.model_index // self.page_size
-        elif self.model_index >= self.page_end:
-            self.page = self.model_index // self.page_size
+        self.page = ensure_visible_page(
+            self.model_index,
+            self.page,
+            len(self.all_models),
+            self.page_size,
+        )
 
     def _get_supported_settings(self, model_name: str) -> List[str]:
         """Get list of settings supported by a model."""

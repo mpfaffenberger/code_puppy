@@ -233,6 +233,94 @@ class TestUpdateModelInInput:
             assert "tell me a joke" in result
 
 
+class TestModelSelectionMenu:
+    def test_preselects_active_model_page(self):
+        from code_puppy.command_line.model_picker_completion import (
+            MODEL_PICKER_PAGE_SIZE,
+            ModelSelectionMenu,
+        )
+
+        models = [f"model-{i}" for i in range(MODEL_PICKER_PAGE_SIZE + 5)]
+        active_model = models[-1]
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value=active_model,
+        ):
+            menu = ModelSelectionMenu(models)
+
+        assert menu.selected_index == len(models) - 1
+        assert menu.page == 1
+        assert active_model in menu.models_on_page
+
+    def test_page_navigation_moves_selection_to_page_start(self):
+        from code_puppy.command_line.model_picker_completion import (
+            MODEL_PICKER_PAGE_SIZE,
+            ModelSelectionMenu,
+        )
+
+        models = [f"model-{i}" for i in range(MODEL_PICKER_PAGE_SIZE * 2 + 1)]
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(models)
+
+        menu._page_down()
+        assert menu.page == 1
+        assert menu.selected_index == MODEL_PICKER_PAGE_SIZE
+
+        menu._page_up()
+        assert menu.page == 0
+        assert menu.selected_index == 0
+
+    def test_move_down_keeps_selection_visible(self):
+        from code_puppy.command_line.model_picker_completion import (
+            MODEL_PICKER_PAGE_SIZE,
+            ModelSelectionMenu,
+        )
+
+        models = [f"model-{i}" for i in range(MODEL_PICKER_PAGE_SIZE + 1)]
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(models)
+
+        menu.selected_index = MODEL_PICKER_PAGE_SIZE - 1
+        menu.page = 0
+        menu._move_down()
+
+        assert menu.selected_index == MODEL_PICKER_PAGE_SIZE
+        assert menu.page == 1
+
+
+class TestInteractiveModelPicker:
+    @pytest.mark.asyncio
+    async def test_sets_awaiting_user_input_around_picker(self):
+        from code_puppy.command_line.model_picker_completion import (
+            interactive_model_picker,
+        )
+
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion.ModelSelectionMenu.run_async",
+                return_value="gpt-4",
+            ) as mock_run,
+            patch(
+                "code_puppy.tools.command_runner.set_awaiting_user_input"
+            ) as mock_set,
+        ):
+            result = await interactive_model_picker()
+
+        assert result == "gpt-4"
+        mock_run.assert_called_once()
+        assert mock_set.call_args_list[0].args == (True,)
+        assert mock_set.call_args_list[-1].args == (False,)
+
+
 class TestGetInputWithModelCompletion:
     @pytest.mark.asyncio
     async def test_basic(self):
