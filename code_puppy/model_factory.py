@@ -4,6 +4,7 @@ import os
 import pathlib
 from typing import Any, Dict
 
+import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
@@ -610,10 +611,9 @@ class ModelFactory:
         elif model_type == "custom_openai":
             url, headers, verify, api_key = get_custom_config(model_config)
             client = create_async_client(headers=headers, verify=verify)
-            provider_args = dict(
-                base_url=url,
-                http_client=client,
-            )
+            provider_args = {"base_url": url}
+            if isinstance(client, httpx.AsyncClient):
+                provider_args["http_client"] = client
             if api_key:
                 provider_args["api_key"] = api_key
             provider = make_openai_provider(provider_identity, **provider_args)

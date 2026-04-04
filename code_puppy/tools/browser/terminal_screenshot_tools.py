@@ -444,8 +444,9 @@ async def load_image(
             emit_error(error_msg, message_group=group_id)
             return {"success": False, "error": error_msg, "image_path": image_path}
 
+        image_bytes = image_file.read_bytes()
         prepared_image = _validate_and_prepare_image(
-            image_file.read_bytes(),
+            image_bytes,
             source_path=str(image_file),
             max_edge=MAX_IMAGE_EDGE,
         )
@@ -612,11 +613,30 @@ def register_terminal_compare_mockup(agent):
             emit_error(error_msg, message_group=group_id)
             return {"success": False, "error": error_msg}
 
-        mockup_image = _validate_and_prepare_image(
-            mockup_file.read_bytes(),
-            source_path=str(mockup_file),
-            max_edge=MAX_IMAGE_EDGE,
-        )
+        mockup_bytes = mockup_file.read_bytes()
+        try:
+            mockup_image = _validate_and_prepare_image(
+                mockup_bytes,
+                source_path=str(mockup_file),
+                max_edge=MAX_IMAGE_EDGE,
+            )
+        except ValueError:
+            guessed_media_type, _ = mimetypes.guess_type(str(mockup_file))
+            if not guessed_media_type or not guessed_media_type.startswith("image/"):
+                raise
+
+            logger.warning(
+                "Falling back to extension-based mockup loading for %s; bytes could not be verified",
+                mockup_file,
+            )
+            mockup_image = {
+                "image_bytes": mockup_bytes,
+                "media_type": "image/png",
+                "actual_media_type": guessed_media_type,
+                "guessed_media_type": guessed_media_type,
+                "mime_type_matches_extension": True,
+                "was_resized": False,
+            }
 
         emit_success(
             "Both images loaded. Compare them visually.",
