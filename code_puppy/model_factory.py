@@ -11,6 +11,7 @@ from pydantic_ai.models.openai import (
     OpenAIChatModel,
     OpenAIChatModelSettings,
     OpenAIResponsesModel,
+    OpenAIResponsesModelSettings,
 )
 from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.providers.anthropic import AnthropicProvider
@@ -119,6 +120,7 @@ def make_model_settings(
     from code_puppy.config import (
         get_effective_model_settings,
         get_openai_reasoning_effort,
+        get_openai_reasoning_summary,
         get_openai_verbosity,
         model_supports_setting,
     )
@@ -126,6 +128,7 @@ def make_model_settings(
     model_settings_dict: dict = {}
 
     # Calculate max_tokens if not explicitly provided
+    model_config: dict[str, Any] = {}
     if max_tokens is None:
         # Load model config to get context length
         try:
@@ -137,6 +140,11 @@ def make_model_settings(
             context_length = 128000
         # min 2048, 15% of context, max 65536
         max_tokens = max(2048, min(int(0.15 * context_length), 65536))
+    elif not model_config:
+        try:
+            model_config = ModelFactory.load_config().get(model_name, {})
+        except Exception:
+            model_config = {}
 
     model_settings_dict["max_tokens"] = max_tokens
     effective_settings = get_effective_model_settings(model_name)
@@ -158,11 +166,28 @@ def make_model_settings(
 
     if "gpt-5" in model_name:
         model_settings_dict["openai_reasoning_effort"] = get_openai_reasoning_effort()
-        # Verbosity only applies to non-codex GPT-5 models (codex only supports "medium")
-        if "codex" not in model_name:
-            verbosity = get_openai_verbosity()
-            model_settings_dict["extra_body"] = {"verbosity": verbosity}
-        model_settings = OpenAIChatModelSettings(**model_settings_dict)
+
+        model_type = model_config.get("type")
+        uses_responses_api = (
+            model_type == "chatgpt_oauth"
+            or (model_type == "openai" and "codex" in model_name)
+            or (model_type == "custom_openai" and "codex" in model_name)
+        )
+
+        if uses_responses_api:
+            model_settings_dict["openai_reasoning_summary"] = (
+                get_openai_reasoning_summary()
+            )
+            if "codex" not in model_name:
+                model_settings_dict["openai_text_verbosity"] = get_openai_verbosity()
+            model_settings = OpenAIResponsesModelSettings(**model_settings_dict)
+        else:
+            # Chat Completions models don't support configurable reasoning summaries.
+            # Keep the old verbosity injection path for non-Responses GPT-5 models.
+            if "codex" not in model_name:
+                verbosity = get_openai_verbosity()
+                model_settings_dict["extra_body"] = {"verbosity": verbosity}
+            model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif model_name.startswith("claude-") or model_name.startswith("anthropic-"):
         # Handle Anthropic extended thinking settings
         # Remove top_p as Anthropic doesn't support it with extended thinking

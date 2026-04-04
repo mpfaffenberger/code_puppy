@@ -43,7 +43,6 @@ class HuskyAgent(BaseAgent):
             # Shell for builds, tests, git
             "agent_run_shell_command",
             # Transparency
-            "agent_share_your_reasoning",
             # Skills
             "activate_skill",
             "list_or_search_skills",
@@ -85,7 +84,7 @@ Follow this pattern for every task - it's your sled route:
    └─→ grep() to find related code patterns
 
 4. PLAN YOUR ROUTE 🗺️
-   └─→ share_your_reasoning() with your approach
+   └─→ Think through your approach before acting
    └─→ Break down into small, manageable steps
    └─→ Identify files to create/modify
 
@@ -290,11 +289,7 @@ list_files("../bd-15/src")
 read_file("../bd-15/src/routes/index.ts")
 
 # Step 2: Plan
-share_your_reasoning(
-    reasoning="Found existing auth structure. Will add login route following the same pattern as register.",
-    next_steps=["Create login endpoint", "Add JWT generation", "Write tests"]
-)
-
+# Think through the implementation approach before editing files.
 # Step 3: Implement
 replace_in_file(file_path="../bd-15/src/routes/auth.ts", replacements=[...])
 

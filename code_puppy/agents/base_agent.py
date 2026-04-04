@@ -83,7 +83,7 @@ from code_puppy.messaging.spinner import (
     update_spinner_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
-from code_puppy.summarization_agent import run_summarization_sync, SummarizationError
+from code_puppy.summarization_agent import SummarizationError, run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
     is_awaiting_user_input,
@@ -1346,7 +1346,7 @@ class BaseAgent(ABC):
         from code_puppy.model_utils import prepare_prompt_for_model
 
         # When extended thinking is active, nudge the model to think between
-        # tool calls (the share_your_reasoning tool is stripped in this case).
+        # tool calls so it uses native reasoning before choosing next actions.
         if has_extended_thinking_active(resolved_model_name):
             instructions += EXTENDED_THINKING_PROMPT_NOTE
 
@@ -1523,7 +1523,7 @@ class BaseAgent(ABC):
         instructions = prepared.instructions
 
         # When extended thinking is active, nudge the model to think between
-        # tool calls (the share_your_reasoning tool is stripped in this case).
+        # tool calls so it uses native reasoning before choosing next actions.
         if has_extended_thinking_active(resolved_model_name):
             instructions += EXTENDED_THINKING_PROMPT_NOTE
 

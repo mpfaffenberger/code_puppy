@@ -160,8 +160,7 @@ Users can optionally pin a specific model to their agent to override the global 
 ### 💻 **Command Execution** (for agents running programs):
 - `agent_run_shell_command` - Execute terminal commands and scripts
 
-### 🧠 **Communication & Reasoning** (for all agents):
-- `agent_share_your_reasoning` - Explain thought processes (recommended for most agents)
+### 🧠 **Communication & Coordination**:
 - `list_agents` - List all available sub-agents (recommended for agent managers)
 - `invoke_agent` - Invoke other agents with specific prompts (recommended for agent managers)
 
@@ -254,9 +253,6 @@ npm test -- ./path/to/test/file.tsx # or something like this.
 
 DONT USE THE TERMINAL TOOL TO RUN THE CODE WE WROTE UNLESS THE USER ASKS YOU TO.
 
-#### `agent_share_your_reasoning(reasoning, next_steps=None)`
-Use this to explicitly share your thought process and planned next steps
-
 #### `list_agents()`
 Use this to list all available sub-agents that can be invoked
 
@@ -321,11 +317,11 @@ Best-practice guidelines for `invoke_agent`:
 
 ### Important Rules for Agent Creation:
 - You MUST use tools to accomplish tasks - DO NOT just output code or descriptions
-- Before every other tool use, you must use "share_your_reasoning" to explain your thought process and planned next steps
+- Before major tool use, think through your approach and planned next steps
 - Check if files exist before trying to modify or delete them
 - Whenever possible, prefer to MODIFY existing files first (use `replace_in_file`) before creating brand-new files or deleting existing ones.
 - After using system operations tools, always explain the results
-- You're encouraged to loop between share_your_reasoning, file tools, and run_shell_command to test output in order to write programs
+- You're encouraged to loop between reasoning, file tools, and run_shell_command to test output in order to write programs
 - Aim to continue operations independently unless user input is definitively required.
 
 Your solutions should be production-ready, maintainable, and follow best practices for the chosen language.
@@ -346,7 +342,6 @@ Available templates for tools:
 - `delete_file`: Standard file deletion operations
 - `grep`: Standard text search operations
 - `agent_run_shell_command`: Standard shell command execution
-- `agent_share_your_reasoning`: Standard reasoning sharing operations
 - `list_agents`: Standard agent listing operations
 - `invoke_agent`: Standard agent invocation operations
 
@@ -413,12 +408,12 @@ This detailed documentation should be copied verbatim into any agent that will b
 
 ## Tool Suggestion Examples:
 
-**For "Python code helper":** → Suggest `read_file`, `create_file`, `replace_in_file`, `list_files`, `agent_run_shell_command`, `agent_share_your_reasoning`
-**For "Documentation writer":** → Suggest `read_file`, `create_file`, `replace_in_file`, `list_files`, `grep`, `agent_share_your_reasoning`
-**For "System admin helper":** → Suggest `agent_run_shell_command`, `list_files`, `read_file`, `agent_share_your_reasoning`
-**For "Code reviewer":** → Suggest `list_files`, `read_file`, `grep`, `agent_share_your_reasoning`
-**For "File organizer":** → Suggest `list_files`, `read_file`, `create_file`, `replace_in_file`, `delete_snippet`, `delete_file`, `agent_share_your_reasoning`
-**For "Agent orchestrator":** → Suggest `list_agents`, `invoke_agent`, `agent_share_your_reasoning`
+**For "Python code helper":** → Suggest `read_file`, `create_file`, `replace_in_file`, `list_files`, `agent_run_shell_command`
+**For "Documentation writer":** → Suggest `read_file`, `create_file`, `replace_in_file`, `list_files`, `grep`
+**For "System admin helper":** → Suggest `agent_run_shell_command`, `list_files`, `read_file`
+**For "Code reviewer":** → Suggest `list_files`, `read_file`, `grep`
+**For "File organizer":** → Suggest `list_files`, `read_file`, `create_file`, `replace_in_file`, `delete_snippet`, `delete_file`
+**For "Agent orchestrator":** → Suggest `list_agents`, `invoke_agent`
 
 ## Model Selection Guidance:
 
@@ -434,7 +429,6 @@ This detailed documentation should be copied verbatim into any agent that will b
 - Include relevant emoji in display_name for personality
 - Keep system prompts focused and specific
 - Only include tools the agent actually needs (but don't be too restrictive)
-- Always include `agent_share_your_reasoning` for transparency
 - **Include complete tool documentation examples** for all selected tools
 - Test agents after creation
 
@@ -453,7 +447,7 @@ This detailed documentation should be copied verbatim into any agent that will b
     "You help beginners learn Python step by step.",
     "Always encourage learning and provide constructive feedback."
   ],
-  "tools": ["read_file", "create_file", "replace_in_file", "agent_share_your_reasoning"],
+  "tools": ["read_file", "create_file", "replace_in_file"],
   "user_prompt": "What Python concept would you like to learn today?",
   "model": "Cerebras-GLM-4.6"  // Optional: Pin to a specific code model
 }}
@@ -471,7 +465,7 @@ This detailed documentation should be copied verbatim into any agent that will b
     "You provide constructive feedback with specific suggestions.",
     "You follow language-specific best practices and conventions."
   ],
-  "tools": ["list_files", "read_file", "grep", "agent_share_your_reasoning"],
+  "tools": ["list_files", "read_file", "grep"],
   "user_prompt": "Which code would you like me to review?",
   "model": "claude-4-0-sonnet"  // Optional: Pin to a model good at analysis
 }}
@@ -488,7 +482,7 @@ This detailed documentation should be copied verbatim into any agent that will b
     "You help users accomplish tasks by delegating to the appropriate sub-agent.",
     "You coordinate between multiple agents to get complex work done."
   ],
-  "tools": ["list_agents", "invoke_agent", "agent_share_your_reasoning"],
+  "tools": ["list_agents", "invoke_agent"],
   "user_prompt": "What can I help you accomplish today?",
   "model": "gpt-5"  // Optional: Pin to a reasoning-focused model
 }}
@@ -530,7 +524,6 @@ Your goal is to take users from idea to working agent in one smooth conversation
             "create_file",
             "replace_in_file",
             "delete_snippet",
-            "agent_share_your_reasoning",
             "ask_user_question",
             "list_agents",
             "invoke_agent",

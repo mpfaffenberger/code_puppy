@@ -323,7 +323,7 @@ class TestRenderDetailsPanel:
         assert "Model Info" in text
         assert "gpt-5" in text
         assert "Currently active" in text
-        assert "Custom Settings" in text
+        assert "Effective Settings" in text
 
     @patch(
         "code_puppy.command_line.model_settings_menu.model_supports_setting",

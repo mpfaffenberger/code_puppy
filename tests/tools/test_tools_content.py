@@ -67,15 +67,9 @@ class TestToolsContentToolNames:
             "Expected 'agent_run_shell_command' not found"
         )
 
-    def test_contains_agent_communication_tools(self):
-        """Test that agent communication tools are mentioned."""
-        agent_tools = [
-            "agent_share_your_reasoning",
-        ]
-        for tool in agent_tools:
-            assert tool in tools_content, (
-                f"Expected agent tool '{tool}' not found in tools_content"
-            )
+    def test_agent_communication_section_omits_removed_reasoning_tool(self):
+        """The retired reasoning tool should not be advertised anymore."""
+        assert "agent_share_your_reasoning" not in tools_content
 
 
 class TestToolsContentSections:
@@ -162,10 +156,11 @@ class TestToolsContentUsageGuidance:
         ), "Expected guidance on edit_file replacements"
 
     def test_mentions_reasoning_before_operations(self):
-        """Test that guidance mentions using share_your_reasoning."""
-        assert "reasoning" in tools_content.lower(), (
-            "Expected guidance on sharing reasoning"
+        """Test that guidance still tells the agent to think before acting."""
+        assert "think through the next step" in tools_content.lower(), (
+            "Expected guidance on thinking before operations"
         )
+        assert "agent_share_your_reasoning" not in tools_content
 
     def test_mentions_exploration_before_modification(self):
         """Test that guidance suggests exploring before modifying."""

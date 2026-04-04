@@ -18,10 +18,12 @@ from code_puppy.config import (
     get_all_model_settings,
     get_global_model_name,
     get_openai_reasoning_effort,
+    get_openai_reasoning_summary,
     get_openai_verbosity,
     model_supports_setting,
     set_model_setting,
     set_openai_reasoning_effort,
+    set_openai_reasoning_summary,
     set_openai_verbosity,
 )
 from code_puppy.messaging import emit_info
@@ -71,11 +73,18 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "choices": ["minimal", "low", "medium", "high", "xhigh"],
         "default": "medium",
     },
+    "summary": {
+        "name": "Reasoning Summary",
+        "description": "Controls whether OpenAI Responses models return auto, concise, or detailed reasoning summaries.",
+        "type": "choice",
+        "choices": ["auto", "concise", "detailed"],
+        "default": "auto",
+    },
     "verbosity": {
         "name": "Verbosity",
         "description": "Controls response length. Low = concise, Medium = balanced, High = verbose.",
         "type": "choice",
-        "choices": ["low", "medium", "high", "max"],
+        "choices": ["low", "medium", "high"],
         "default": "medium",
     },
     "extended_thinking": {
@@ -134,6 +143,20 @@ def _load_all_model_names() -> List[str]:
     """Load all available model names from config."""
     models_config = ModelFactory.load_config()
     return list(models_config.keys())
+
+
+def _get_model_display_settings(model_name: str) -> Dict:
+    """Get model settings merged with global OpenAI controls for display."""
+    settings = get_all_model_settings(model_name)
+
+    if model_supports_setting(model_name, "reasoning_effort"):
+        settings["reasoning_effort"] = get_openai_reasoning_effort()
+    if model_supports_setting(model_name, "summary"):
+        settings["summary"] = get_openai_reasoning_summary()
+    if model_supports_setting(model_name, "verbosity"):
+        settings["verbosity"] = get_openai_verbosity()
+
+    return settings
 
 
 def _get_setting_choices(
@@ -250,13 +273,7 @@ class ModelSettingsMenu:
         """Load settings for a specific model."""
         self.selected_model = model_name
         self.supported_settings = self._get_supported_settings(model_name)
-        self.current_settings = get_all_model_settings(model_name)
-
-        # Add global OpenAI settings if model supports them
-        if model_supports_setting(model_name, "reasoning_effort"):
-            self.current_settings["reasoning_effort"] = get_openai_reasoning_effort()
-        if model_supports_setting(model_name, "verbosity"):
-            self.current_settings["verbosity"] = get_openai_verbosity()
+        self.current_settings = _get_model_display_settings(model_name)
 
         self.setting_index = 0
 
@@ -433,9 +450,9 @@ class ModelSettingsMenu:
                 lines.append(("", "\n\n"))
 
             # Show current settings for this model
-            model_settings = get_all_model_settings(model_name)
+            model_settings = _get_model_display_settings(model_name)
             if model_settings:
-                lines.append(("bold", "  Custom Settings:"))
+                lines.append(("bold", "  Effective Settings:"))
                 lines.append(("", "\n"))
                 for setting_key, value in model_settings.items():
                     setting_def = SETTING_DEFINITIONS.get(setting_key, {})
@@ -659,6 +676,9 @@ class ModelSettingsMenu:
         if setting_key == "reasoning_effort":
             if self.edit_value is not None:
                 set_openai_reasoning_effort(self.edit_value)
+        elif setting_key == "summary":
+            if self.edit_value is not None:
+                set_openai_reasoning_summary(self.edit_value)
         elif setting_key == "verbosity":
             if self.edit_value is not None:
                 set_openai_verbosity(self.edit_value)
@@ -698,6 +718,9 @@ class ModelSettingsMenu:
             if setting_key == "reasoning_effort":
                 set_openai_reasoning_effort("medium")  # Default
                 self.current_settings[setting_key] = "medium"
+            elif setting_key == "summary":
+                set_openai_reasoning_summary("auto")  # Default
+                self.current_settings[setting_key] = "auto"
             elif setting_key == "verbosity":
                 set_openai_verbosity("medium")  # Default
                 self.current_settings[setting_key] = "medium"
@@ -909,7 +932,7 @@ def show_model_settings_summary(model_name: Optional[str] = None) -> None:
         model_name: Model to show settings for. If None, uses current global model.
     """
     model = model_name or get_global_model_name()
-    settings = get_all_model_settings(model)
+    settings = _get_model_display_settings(model)
 
     if not settings:
         emit_info(f"No custom settings configured for {model} (using model defaults)")
