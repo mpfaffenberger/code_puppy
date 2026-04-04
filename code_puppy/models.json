@@ -1,6 +1,7 @@
 {
   "synthetic-GLM-4.7": {
     "type": "custom_openai",
+    "provider": "synthetic",
     "name": "hf:zai-org/GLM-4.7",
     "custom_endpoint": {
       "url": "https://api.synthetic.new/openai/v1/",
@@ -11,6 +12,7 @@
   },
   "synthetic-GLM-5": {
     "type": "custom_openai",
+    "provider": "synthetic",
     "name": "hf:zai-org/GLM-5",
     "custom_endpoint": {
       "url": "https://api.synthetic.new/openai/v1/",
@@ -21,6 +23,7 @@
   },
   "synthetic-MiniMax-M2.5": {
     "type": "custom_openai",
+    "provider": "synthetic",
     "name": "hf:MiniMaxAI/MiniMax-M2.5",
     "custom_endpoint": {
       "url": "https://api.synthetic.new/openai/v1/",
@@ -31,6 +34,7 @@
   },
   "synthetic-qwen3.5-397b": {
     "type": "custom_openai",
+    "provider": "synthetic",
     "name": "hf:Qwen/Qwen3.5-397B-A17B",
     "custom_endpoint": {
       "url": "https://api.synthetic.new/openai/v1/",
@@ -41,6 +45,7 @@
   },
   "synthetic-Kimi-K2.5-Thinking": {
     "type": "custom_openai",
+    "provider": "synthetic",
     "name": "hf:moonshotai/Kimi-K2.5",
     "custom_endpoint": {
       "url": "https://api.synthetic.new/openai/v1/",
@@ -51,6 +56,7 @@
   },
   "synthetic-Kimi-K2.5-Thinking-NVFP4": {
     "type": "custom_openai",
+    "provider": "synthetic",
     "name": "hf:nvidia/Kimi-K2.5-NVFP4",
     "custom_endpoint": {
       "url": "https://api.synthetic.new/openai/v1/",
@@ -61,6 +67,7 @@
   },
   "synthetic-NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4": {
     "type": "custom_openai",
+    "provider": "synthetic",
     "name": "hf:nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
     "custom_endpoint": {
       "url": "https://api.synthetic.new/openai/v1/",
@@ -71,6 +78,7 @@
   },
   "firepass-kimi-k2p5-turbo": {
     "type": "custom_openai",
+    "provider": "firepass",
     "name": "accounts/fireworks/routers/kimi-k2p5-turbo",
     "custom_endpoint": {
       "url": "https://api.fireworks.ai/inference/v1",
@@ -81,18 +89,21 @@
   },
   "Gemini-3": {
     "type": "gemini",
+    "provider": "google",
     "name": "gemini-3-pro-preview",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p", "thinking_enabled", "thinking_level"]
   },
   "Gemini-3-Long-Context": {
     "type": "gemini",
+    "provider": "google",
     "name": "gemini-3-pro-preview",
     "context_length": 1000000,
     "supported_settings": ["temperature", "top_p", "thinking_enabled", "thinking_level"]
   },
   "gpt-5.2": {
     "type": "openai",
+    "provider": "openai",
     "name": "gpt-5.1",
     "context_length": 272000,
     "supported_settings": ["temperature", "top_p", "reasoning_effort", "verbosity"],
@@ -100,6 +111,7 @@
   },
   "gpt-5.2-codex-api": {
     "type": "openai",
+    "provider": "openai",
     "name": "gpt-5.2-codex",
     "context_length": 272000,
     "supported_settings": ["temperature", "top_p", "reasoning_effort", "verbosity"],
@@ -107,6 +119,7 @@
   },
   "Cerebras-GLM-4.7": {
     "type": "cerebras",
+    "provider": "cerebras",
     "name": "zai-glm-4.7",
     "custom_endpoint": {
       "url": "https://api.cerebras.ai/v1",
@@ -117,66 +130,77 @@
   },
   "claude-4-5-haiku": {
     "type": "anthropic",
+    "provider": "anthropic",
     "name": "claude-haiku-4-5",
     "context_length": 200000,
     "supported_settings": ["temperature", "extended_thinking", "budget_tokens"]
   },
   "claude-4-5-sonnet": {
     "type": "anthropic",
+    "provider": "anthropic",
     "name": "claude-sonnet-4-5",
     "context_length": 200000,
     "supported_settings": ["temperature", "extended_thinking", "budget_tokens"]
   },
   "claude-4-5-opus": {
     "type": "anthropic",
+    "provider": "anthropic",
     "name": "claude-opus-4-5",
     "context_length": 200000,
     "supported_settings": ["temperature", "extended_thinking", "budget_tokens", "interleaved_thinking"]
   },
   "zai-glm-4.7-coding": {
     "type": "zai_coding",
+    "provider": "zai",
     "name": "glm-4.7",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   },
   "zai-glm-4.7-api": {
     "type": "zai_api",
+    "provider": "zai",
     "name": "glm-4.7",
     "context_length": 200000,
     "supported_settings": ["temperature", "extended_thinking", "budget_tokens", "interleaved_thinking"]
   },
   "zai-glm-5-coding": {
     "type": "zai_coding",
+    "provider": "zai",
     "name": "glm-5",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   },
   "zai-glm-5-api": {
     "type": "zai_api",
+    "provider": "zai",
     "name": "glm-5",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   },
   "zai-glm-5-turbo-coding": {
     "type": "zai_coding",
+    "provider": "zai",
     "name": "glm-5-turbo",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   },
   "zai-glm-5-turbo-api": {
     "type": "zai_api",
+    "provider": "zai",
     "name": "glm-5-turbo",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   },
   "zai-glm-5.1-coding": {
     "type": "zai_coding",
+    "provider": "zai",
     "name": "glm-5.1",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   },
   "zai-glm-5.1-api": {
     "type": "zai_api",
+    "provider": "zai",
     "name": "glm-5.1",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]

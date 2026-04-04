@@ -51,6 +51,34 @@ UNSUPPORTED_PROVIDERS = {
 }
 
 
+PROVIDER_IDENTITY_MAPPING = {
+    "openai": "openai",
+    "anthropic": "anthropic",
+    "google": "google",
+    "google-vertex": "google",
+    "mistral": "mistral",
+    "groq": "groq",
+    "together-ai": "together_ai",
+    "fireworks": "fireworks",
+    "deepseek": "deepseek",
+    "openrouter": "openrouter",
+    "cerebras": "cerebras",
+    "cohere": "cohere",
+    "perplexity": "perplexity",
+    "minimax": "minimax",
+    "azure-openai": "azure_openai",
+    "xai": "xai",
+}
+
+
+def derive_provider_identity(provider: ProviderInfo) -> str:
+    """Derive the persisted provider identity for imported models."""
+    provider_id = (provider.id or "").strip()
+    if not provider_id:
+        return "unknown"
+    return PROVIDER_IDENTITY_MAPPING.get(provider_id, provider_id.replace("-", "_"))
+
+
 class AddModelMenu:
     """Interactive TUI for browsing and adding models."""
 
@@ -589,6 +617,7 @@ class AddModelMenu:
 
         config: dict = {
             "type": model_type,
+            "provider": derive_provider_identity(provider),
             "name": model_name,
         }
 

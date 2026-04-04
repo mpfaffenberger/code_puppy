@@ -14,9 +14,7 @@ from pydantic_ai.models.openai import (
     OpenAIResponsesModelSettings,
 )
 from pydantic_ai.profiles import ModelProfile
-from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
-from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
 
@@ -27,6 +25,11 @@ from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
 from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
+from .provider_identity import (
+    make_anthropic_provider,
+    make_openai_provider,
+    resolve_provider_identity,
+)
 from .round_robin_model import RoundRobinModel
 
 logger = logging.getLogger(__name__)
@@ -407,6 +410,7 @@ class ModelFactory:
             raise ValueError(f"Model '{model_name}' not found in configuration.")
 
         model_type = model_config.get("type")
+        provider_identity = resolve_provider_identity(model_name, model_config)
 
         # Check for plugin-registered model provider classes first
         if model_type in _CUSTOM_MODEL_PROVIDERS:
@@ -438,7 +442,7 @@ class ModelFactory:
                 )
                 return None
 
-            provider = OpenAIProvider(api_key=api_key)
+            provider = make_openai_provider(provider_identity, api_key=api_key)
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             if "codex" in model_name:
                 model = OpenAIResponsesModel(
@@ -488,7 +492,9 @@ class ModelFactory:
             # Ensure cache_control is injected at the Anthropic SDK layer
             patch_anthropic_client_messages(anthropic_client)
 
-            provider = AnthropicProvider(anthropic_client=anthropic_client)
+            provider = make_anthropic_provider(
+                provider_identity, anthropic_client=anthropic_client
+            )
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "custom_anthropic":
@@ -535,7 +541,9 @@ class ModelFactory:
             # Ensure cache_control is injected at the Anthropic SDK layer
             patch_anthropic_client_messages(anthropic_client)
 
-            provider = AnthropicProvider(anthropic_client=anthropic_client)
+            provider = make_anthropic_provider(
+                provider_identity, anthropic_client=anthropic_client
+            )
             return AnthropicModel(model_name=model_config["name"], provider=provider)
         # NOTE: 'claude_code' model type is now handled by the claude_code_oauth plugin
         # via the register_model_type callback. See plugins/claude_code_oauth/register_callbacks.py
@@ -592,7 +600,9 @@ class ModelFactory:
                 api_key=api_key,
                 max_retries=azure_max_retries,
             )
-            provider = OpenAIProvider(openai_client=azure_client)
+            provider = make_openai_provider(
+                provider_identity, openai_client=azure_client
+            )
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             model.provider = provider
             return model
@@ -606,7 +616,7 @@ class ModelFactory:
             )
             if api_key:
                 provider_args["api_key"] = api_key
-            provider = OpenAIProvider(**provider_args)
+            provider = make_openai_provider(provider_identity, **provider_args)
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             if model_name == "chatgpt-gpt-5-codex":
                 model = OpenAIResponsesModel(model_config["name"], provider=provider)
@@ -619,7 +629,8 @@ class ModelFactory:
                     f"ZAI_API_KEY is not set (check config or environment); skipping ZAI coding model '{model_config.get('name')}'."
                 )
                 return None
-            provider = OpenAIProvider(
+            provider = make_openai_provider(
+                provider_identity,
                 api_key=api_key,
                 base_url="https://api.z.ai/api/coding/paas/v4",
             )
@@ -636,7 +647,8 @@ class ModelFactory:
                     f"ZAI_API_KEY is not set (check config or environment); skipping ZAI API model '{model_config.get('name')}'."
                 )
                 return None
-            provider = OpenAIProvider(
+            provider = make_openai_provider(
+                provider_identity,
                 api_key=api_key,
                 base_url="https://api.z.ai/api/paas/v4/",
             )
