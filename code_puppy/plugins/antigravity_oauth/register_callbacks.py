@@ -429,7 +429,7 @@ def _create_antigravity_model(model_name: str, model_config: Dict, config: Dict)
     except ImportError:
         AntigravityModel = None  # type: ignore
 
-    url, headers, verify, api_key = get_custom_config(model_config)
+    url, headers, verify, api_key, timeout = get_custom_config(model_config)
     if not api_key:
         emit_warning(
             f"API key is not set for Antigravity endpoint; skipping model '{model_config.get('name')}'."

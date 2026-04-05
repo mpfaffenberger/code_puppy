@@ -301,7 +301,7 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
     from code_puppy.http_utils import get_cert_bundle_path
     from code_puppy.model_factory import get_custom_config
 
-    url, headers, verify, api_key = get_custom_config(model_config)
+    url, headers, verify, api_key, timeout = get_custom_config(model_config)
 
     # Refresh token if this is from the plugin
     if model_config.get("oauth_source") == "claude-code-plugin":
