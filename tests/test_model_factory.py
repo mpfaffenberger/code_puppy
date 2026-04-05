@@ -199,9 +199,7 @@ def test_custom_anthropic_timeout_config(monkeypatch):
         patch("code_puppy.model_factory.ClaudeCacheAsyncClient") as mock_client,
         patch("code_puppy.model_factory.make_anthropic_provider") as mock_provider,
         patch("code_puppy.model_factory.AsyncAnthropic") as mock_anthropic,
-        patch(
-            "code_puppy.model_factory.get_http2", return_value=False
-        ) as mock_get_http2,
+        patch("code_puppy.model_factory.get_http2", return_value=False),
     ):
         mock_client.return_value = MagicMock()
         mock_provider.return_value = MagicMock()
