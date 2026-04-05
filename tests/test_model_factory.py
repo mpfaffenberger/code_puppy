@@ -1,6 +1,7 @@
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from code_puppy.model_factory import ModelFactory
@@ -124,6 +125,116 @@ def test_custom_openai_happy(monkeypatch):
     model = ModelFactory.get_model("custom", config)
     assert model is not None
     assert hasattr(model.provider, "base_url")
+
+
+def test_custom_openai_timeout_config(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    config = {
+        "custom": {
+            "type": "custom_openai",
+            "name": "cust",
+            "custom_endpoint": {
+                "url": "https://fake.url",
+                "headers": {"X-Api-Key": "$OPENAI_API_KEY"},
+                "ca_certs_path": False,
+                "api_key": "$OPENAI_API_KEY",
+            },
+            "timeout": 600,
+        }
+    }
+
+    with patch("code_puppy.model_factory.create_async_client") as mock_client:
+        mock_client.return_value = httpx.AsyncClient(timeout=600)
+        model = ModelFactory.get_model("custom", config)
+
+    mock_client.assert_called_once_with(headers={"X-Api-Key": "ok"}, verify=False, timeout=600)
+    assert model is not None
+
+
+def test_custom_gemini_timeout_config(monkeypatch):
+    monkeypatch.setenv("CUSTOM_API_KEY", "ok")
+    config = {
+        "custom": {
+            "type": "custom_gemini",
+            "name": "gemini",
+            "custom_endpoint": {
+                "url": "https://fake.url",
+                "headers": {"X-Api-Key": "$CUSTOM_API_KEY"},
+                "ca_certs_path": False,
+                "api_key": "$CUSTOM_API_KEY",
+            },
+            "timeout": 600,
+        }
+    }
+
+    with patch("code_puppy.model_factory.create_async_client") as mock_client:
+        mock_client.return_value = httpx.AsyncClient(timeout=600)
+        model = ModelFactory.get_model("custom", config)
+
+    mock_client.assert_called_once_with(headers={"X-Api-Key": "ok"}, verify=False, timeout=600)
+    assert model is not None
+
+
+def test_custom_anthropic_timeout_config(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    config = {
+        "custom": {
+            "type": "custom_anthropic",
+            "name": "claude",
+            "custom_endpoint": {
+                "url": "https://fake.url",
+                "headers": {"X-Api-Key": "$OPENAI_API_KEY"},
+                "ca_certs_path": False,
+                "api_key": "$OPENAI_API_KEY",
+            },
+            "timeout": 600,
+        }
+    }
+
+    with patch("code_puppy.model_factory.ClaudeCacheAsyncClient") as mock_client, patch(
+        "code_puppy.model_factory.make_anthropic_provider"
+    ) as mock_provider, patch("code_puppy.model_factory.AsyncAnthropic") as mock_anthropic:
+        mock_client.return_value = MagicMock()
+        mock_provider.return_value = MagicMock()
+        mock_anthropic.return_value = MagicMock()
+        model = ModelFactory.get_model("custom", config)
+
+    mock_client.assert_called_once_with(
+        headers={"X-Api-Key": "ok"},
+        verify=False,
+        timeout=600,
+        http2=False,
+    )
+    assert model is not None
+
+
+def test_cerebras_timeout_config(monkeypatch):
+    monkeypatch.setenv("CUSTOM_API_KEY", "ok")
+    config = {
+        "custom": {
+            "type": "cerebras",
+            "name": "zai-glm-4.7",
+            "custom_endpoint": {
+                "url": "https://fake.url",
+                "headers": {"X-Api-Key": "$CUSTOM_API_KEY"},
+                "ca_certs_path": False,
+                "api_key": "$CUSTOM_API_KEY",
+            },
+            "timeout": 600,
+        }
+    }
+
+    with patch("code_puppy.model_factory.create_async_client") as mock_client:
+        mock_client.return_value = httpx.AsyncClient(timeout=600)
+        model = ModelFactory.get_model("custom", config)
+
+    mock_client.assert_called_once_with(
+        headers={"X-Api-Key": "ok", "X-Cerebras-3rd-Party-Integration": "code-puppy"},
+        verify=False,
+        model_name="cerebras",
+        timeout=600,
+    )
+    assert model is not None
 
 
 def test_anthropic_missing_api_key(monkeypatch):
