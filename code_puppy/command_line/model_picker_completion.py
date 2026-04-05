@@ -350,13 +350,44 @@ class ModelSelectionMenu:
         return self.result
 
 
+def _build_legacy_picker_choices(
+    model_names: list[str], current_model: str
+) -> list[str]:
+    """Build simple picker labels for test and non-interactive fallback paths."""
+    choices = []
+    for model_name in model_names:
+        suffix = " (current)" if model_name == current_model else ""
+        choices.append(f"{model_name}{suffix}")
+    return choices
+
+
+def _normalize_legacy_picker_choice(choice: str) -> str:
+    """Extract the model name from a legacy picker label."""
+    return choice.removesuffix(" (current)")
+
+
 async def interactive_model_picker() -> Optional[str]:
     """Run the paginated interactive model picker used by /model."""
     from code_puppy.tools.command_runner import set_awaiting_user_input
 
     set_awaiting_user_input(True)
     try:
-        return await ModelSelectionMenu().run_async()
+        try:
+            return await ModelSelectionMenu().run_async()
+        except EOFError:
+            model_names = load_model_names()
+            current_model = get_active_model()
+            choices = _build_legacy_picker_choices(model_names, current_model)
+            if not choices:
+                return None
+
+            from code_puppy.tools.common import arrow_select_async
+
+            try:
+                selected = await arrow_select_async("Select Active Model", choices)
+            except KeyboardInterrupt:
+                return None
+            return _normalize_legacy_picker_choice(selected)
     finally:
         set_awaiting_user_input(False)
 
