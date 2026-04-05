@@ -736,7 +736,7 @@ def _model_patches(
     with (
         patch(
             f"{_MF}.get_custom_config",
-            return_value=("http://url", headers, verify, api_key),
+            return_value=("http://url", headers, verify, api_key, None),
         ),
         patch(
             f"{_CFG}.get_effective_model_settings",
@@ -761,7 +761,7 @@ class TestCreateClaudeCodeModel:
 
         with (
             patch(
-                f"{_MF}.get_custom_config", return_value=("http://url", {}, None, None)
+                f"{_MF}.get_custom_config", return_value=("http://url", {}, None, None, None)
             ),
             patch(f"{_RC}.emit_warning"),
         ):

@@ -543,7 +543,7 @@ class TestCreateClaudeCodeModel:
     @patch(f"{MOD}.get_valid_access_token", return_value="refreshed_token")
     @patch(
         "code_puppy.model_factory.get_custom_config",
-        return_value=("https://api.example.com", {}, None, "old_key"),
+        return_value=("https://api.example.com", {}, None, "old_key", None),
     )
     @patch(
         "code_puppy.config.get_effective_model_settings",
@@ -566,7 +566,7 @@ class TestCreateClaudeCodeModel:
     @patch(f"{MOD}.get_valid_access_token", return_value=None)
     @patch(
         "code_puppy.model_factory.get_custom_config",
-        return_value=("https://api.example.com", {}, None, None),
+        return_value=("https://api.example.com", {}, None, None, None),
     )
     @patch("code_puppy.config.get_effective_model_settings", return_value={})
     @patch(f"{MOD}.emit_warning")
@@ -582,6 +582,7 @@ class TestCreateClaudeCodeModel:
             {"anthropic-beta": "existing-beta"},
             "/cert",
             "key123",
+            None,
         ),
     )
     @patch(
@@ -603,6 +604,7 @@ class TestCreateClaudeCodeModel:
             {"anthropic-beta": "interleaved-thinking-2025-05-14"},
             "/cert",
             "key123",
+            None,
         ),
     )
     @patch(
@@ -619,7 +621,7 @@ class TestCreateClaudeCodeModel:
 
     @patch(
         "code_puppy.model_factory.get_custom_config",
-        return_value=("https://api.example.com", {}, "/cert", "key123"),
+        return_value=("https://api.example.com", {}, "/cert", "key123", None),
     )
     @patch(
         "code_puppy.config.get_effective_model_settings",
@@ -638,6 +640,7 @@ class TestCreateClaudeCodeModel:
             {"anthropic-beta": "some-other-beta"},
             "/cert",
             "key123",
+            None,
         ),
     )
     @patch(
@@ -652,7 +655,7 @@ class TestCreateClaudeCodeModel:
 
     @patch(
         "code_puppy.model_factory.get_custom_config",
-        return_value=("https://api.example.com", {}, "/cert", "key123"),
+        return_value=("https://api.example.com", {}, "/cert", "key123", None),
     )
     @patch(
         "code_puppy.config.get_effective_model_settings",
@@ -666,7 +669,7 @@ class TestCreateClaudeCodeModel:
 
     @patch(
         "code_puppy.model_factory.get_custom_config",
-        return_value=("https://api.example.com", {}, "/cert", "key123"),
+        return_value=("https://api.example.com", {}, "/cert", "key123", None),
     )
     @patch(
         "code_puppy.config.get_effective_model_settings",
