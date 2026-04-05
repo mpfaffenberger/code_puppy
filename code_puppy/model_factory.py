@@ -313,8 +313,10 @@ def get_custom_config(model_config):
     else:
         verify = None
 
-    timeout = custom_config.get("timeout", model_config.get("timeout"))
+    timeout = model_config.get("timeout", custom_config.get("timeout"))
     if timeout is not None:
+        if isinstance(timeout, bool):
+            raise ValueError("Custom endpoint timeout must be a number")
         if isinstance(timeout, str):
             try:
                 timeout = float(timeout)
@@ -624,7 +626,9 @@ class ModelFactory:
         elif model_type == "custom_openai":
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
             client = create_async_client(
-                headers=headers, verify=verify, timeout=timeout if timeout is not None else 180
+                headers=headers,
+                verify=verify,
+                timeout=timeout if timeout is not None else 180,
             )
             provider_args = {"base_url": url}
             if isinstance(client, httpx.AsyncClient):
@@ -717,7 +721,9 @@ class ModelFactory:
                 return None
 
             client = create_async_client(
-                headers=headers, verify=verify, timeout=timeout if timeout is not None else 180
+                headers=headers,
+                verify=verify,
+                timeout=timeout if timeout is not None else 180,
             )
             model = GeminiModel(
                 model_name=model_config["name"],
