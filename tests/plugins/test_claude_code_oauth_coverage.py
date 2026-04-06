@@ -761,7 +761,8 @@ class TestCreateClaudeCodeModel:
 
         with (
             patch(
-                f"{_MF}.get_custom_config", return_value=("http://url", {}, None, None, None)
+                f"{_MF}.get_custom_config",
+                return_value=("http://url", {}, None, None, None),
             ),
             patch(f"{_RC}.emit_warning"),
         ):
