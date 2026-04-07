@@ -427,6 +427,59 @@ class TestPerformAuthentication:
         calls_args = [str(call) for call in mock_emit_success.call_args_list]
         assert any("Added account" in str(c) for c in calls_args)
 
+    @patch("code_puppy.plugins.antigravity_oauth.register_callbacks.emit_warning")
+    @patch("code_puppy.plugins.antigravity_oauth.register_callbacks.save_tokens")
+    @patch(
+        "code_puppy.plugins.antigravity_oauth.register_callbacks.add_models_to_config"
+    )
+    @patch(
+        "code_puppy.plugins.antigravity_oauth.register_callbacks.exchange_code_for_tokens"
+    )
+    @patch("code_puppy.plugins.antigravity_oauth.register_callbacks._await_callback")
+    @patch(
+        "code_puppy.plugins.antigravity_oauth.register_callbacks.prepare_oauth_context"
+    )
+    def test_perform_authentication_model_registration_failure(
+        self,
+        mock_prepare_context,
+        mock_await_callback,
+        mock_exchange_code,
+        mock_add_models,
+        mock_save_tokens,
+        mock_emit_warning,
+    ):
+        """Authentication should fail if model registration fails."""
+        from code_puppy.plugins.antigravity_oauth.oauth import TokenExchangeSuccess
+
+        mock_context = MagicMock()
+        mock_prepare_context.return_value = mock_context
+        mock_await_callback.return_value = (
+            "code_123",
+            "state_456",
+            "http://localhost:51121/oauth-callback",
+        )
+        mock_exchange_code.return_value = TokenExchangeSuccess(
+            access_token="access_token_123",
+            refresh_token="refresh_token_456",
+            expires_at=time.time() + 3600,
+            email="test@example.com",
+            project_id="project_123",
+        )
+        mock_save_tokens.return_value = True
+        mock_add_models.return_value = False
+
+        with patch(
+            "code_puppy.plugins.antigravity_oauth.register_callbacks.AccountManager"
+        ) as mock_manager_class:
+            mock_manager = MagicMock()
+            mock_manager.account_count = 0
+            mock_manager_class.load_from_disk.return_value = mock_manager
+
+            result = _perform_authentication(reload_agent=False)
+
+        assert result is False
+        mock_emit_warning.assert_called_once()
+
 
 # ============================================================================
 # CUSTOM HELP TESTS

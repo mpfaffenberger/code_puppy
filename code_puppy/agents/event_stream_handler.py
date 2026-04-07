@@ -145,9 +145,20 @@ def _merge_tool_name(current_name: str, tool_name_delta: str) -> str:
         return tool_name_delta
     if tool_name_delta.startswith(current_name):
         return tool_name_delta
-    if current_name.endswith(tool_name_delta):
+    if tool_name_delta in current_name:
         return current_name
+    for overlap in range(min(len(current_name), len(tool_name_delta)), 0, -1):
+        if current_name.endswith(tool_name_delta[:overlap]):
+            return current_name + tool_name_delta[overlap:]
     return current_name + tool_name_delta
+
+
+def _is_reasoning_tool_name(tool_name: str) -> bool:
+    """Return True for the reasoning tool, including streamed prefixes."""
+    reasoning_tool = "agent_share_your_reasoning"
+    return bool(tool_name) and (
+        reasoning_tool.startswith(tool_name) or tool_name.startswith(reasoning_tool)
+    )
 
 
 def _build_prompt_safe_console(source_console: Console) -> Console:
@@ -391,7 +402,7 @@ async def event_stream_handler(
                     # Use stored tool name for display
                     tool_name = tool_names.get(event.index, "")
                     if prompt_surface_active:
-                        if tool_name != "agent_share_your_reasoning":
+                        if not _is_reasoning_tool_name(tool_name):
                             count = token_count[event.index]
                             if tool_name:
                                 _set_prompt_ephemeral_status(

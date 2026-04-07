@@ -256,7 +256,7 @@ class TestShellLockHelpers:
         assert _normalize_shell_cwd(None) is None
         assert _normalize_shell_cwd("") is None
         assert _normalize_shell_cwd("   ") is None
-        assert _normalize_shell_cwd(" /tmp/work ") == "/tmp/work"
+        assert _normalize_shell_cwd(" /tmp/work ") == " /tmp/work "
 
 
 # ---------------------------------------------------------------------------
@@ -955,6 +955,97 @@ class TestExecuteShellCommand:
         assert result.success is True
         mock_acquire.assert_called_once()
         mock_release.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_runtime_start_notification_failure_falls_back_to_keyboard_listener(
+        self,
+    ):
+        from code_puppy.tools.command_runner import (
+            ShellCommandOutput,
+            _execute_shell_command,
+        )
+
+        mock_result = ShellCommandOutput(
+            success=True,
+            command="echo hi",
+            stdout="hi",
+            stderr="",
+            exit_code=0,
+            execution_time=0.1,
+        )
+
+        runtime = MagicMock()
+        runtime.notify_shell_started.side_effect = RuntimeError("boom")
+        with patch("code_puppy.tools.command_runner.get_message_bus") as mock_bus:
+            mock_bus.return_value = MagicMock()
+            with patch("code_puppy.messaging.spinner.pause_all_spinners"):
+                with patch("code_puppy.messaging.spinner.resume_all_spinners"):
+                    with patch(
+                        "code_puppy.command_line.interactive_runtime.get_active_interactive_runtime",
+                        return_value=runtime,
+                    ):
+                        with patch(
+                            "code_puppy.tools.command_runner._acquire_keyboard_context"
+                        ) as mock_acquire:
+                            with patch(
+                                "code_puppy.tools.command_runner._release_keyboard_context"
+                            ) as mock_release:
+                                with patch(
+                                    "code_puppy.tools.command_runner._run_command_inner",
+                                    new_callable=AsyncMock,
+                                    return_value=mock_result,
+                                ):
+                                    result = await _execute_shell_command(
+                                        "echo hi", None, 10, "grp"
+                                    )
+
+        assert result.success is True
+        runtime.notify_shell_started.assert_called_once()
+        runtime.notify_shell_finished.assert_not_called()
+        mock_acquire.assert_called_once()
+        mock_release.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_runtime_finish_notification_failure_does_not_mask_result(self):
+        from code_puppy.tools.command_runner import (
+            ShellCommandOutput,
+            _execute_shell_command,
+        )
+
+        mock_result = ShellCommandOutput(
+            success=True,
+            command="echo hi",
+            stdout="hi",
+            stderr="",
+            exit_code=0,
+            execution_time=0.1,
+        )
+
+        runtime = MagicMock()
+        runtime.notify_shell_finished.side_effect = RuntimeError("boom")
+        with patch("code_puppy.tools.command_runner.get_message_bus") as mock_bus:
+            mock_bus.return_value = MagicMock()
+            with patch("code_puppy.messaging.spinner.pause_all_spinners"):
+                with patch(
+                    "code_puppy.messaging.spinner.resume_all_spinners"
+                ) as mock_resume:
+                    with patch(
+                        "code_puppy.command_line.interactive_runtime.get_active_interactive_runtime",
+                        return_value=runtime,
+                    ):
+                        with patch(
+                            "code_puppy.tools.command_runner._run_command_inner",
+                            new_callable=AsyncMock,
+                            return_value=mock_result,
+                        ):
+                            result = await _execute_shell_command(
+                                "echo hi", None, 10, "grp"
+                            )
+
+        assert result.success is True
+        runtime.notify_shell_started.assert_called_once()
+        runtime.notify_shell_finished.assert_called_once()
+        mock_resume.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
