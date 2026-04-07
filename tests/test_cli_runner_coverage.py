@@ -290,7 +290,7 @@ class TestExecuteSinglePrompt:
             ) as mock_run,
             patch("code_puppy.cli_runner.emit_info"),
         ):
-            mock_run.return_value = None
+            mock_run.return_value = (None, None)
             await execute_single_prompt("hello", mock_renderer)
 
     @pytest.mark.anyio

@@ -292,7 +292,7 @@ def _normalize_shell_cwd(cwd: str | None) -> str | None:
     normalized = cwd.strip()
     if not normalized:
         return None
-    return normalized
+    return cwd
 
 
 class ShellCommandOutput(BaseModel):
@@ -1216,22 +1216,31 @@ async def _execute_shell_command(
             return None
 
     interactive_runtime = get_active_interactive_runtime()
-    if interactive_runtime is not None:
-        interactive_runtime.notify_shell_started()
-    else:
+    if interactive_runtime is None:
         # Acquire shared keyboard context - Ctrl-X/Ctrl-C will kill ALL running commands
         # This is reference-counted: listener starts on first command, stops on last
         _acquire_keyboard_context()
         release_keyboard_context = True
 
     try:
+        if interactive_runtime is not None:
+            try:
+                interactive_runtime.notify_shell_started()
+            except Exception:
+                interactive_runtime = None
+                _acquire_keyboard_context()
+                release_keyboard_context = True
         return await _run_command_inner(command, cwd, timeout, group_id, silent=silent)
     finally:
-        if interactive_runtime is not None:
-            interactive_runtime.notify_shell_finished()
-        if release_keyboard_context:
-            _release_keyboard_context()
-        resume_all_spinners()
+        try:
+            if interactive_runtime is not None:
+                interactive_runtime.notify_shell_finished()
+        except Exception:
+            pass
+        finally:
+            if release_keyboard_context:
+                _release_keyboard_context()
+            resume_all_spinners()
 
 
 def _run_command_sync(

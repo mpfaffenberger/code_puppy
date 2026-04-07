@@ -628,6 +628,57 @@ class TestEventStreamHandler:
         runtime.set_prompt_ephemeral_status.assert_not_called()
         runtime.clear_prompt_ephemeral_status.assert_called_once()
 
+    def test_merge_tool_name_ignores_repeated_prefix_delta(self):
+        from code_puppy.agents.event_stream_handler import _merge_tool_name
+
+        assert (
+            _merge_tool_name("agent_share_your_reasoning", "agent_share")
+            == "agent_share_your_reasoning"
+        )
+
+    @pytest.mark.asyncio
+    async def test_reasoning_tool_partial_prefix_stays_suppressed_on_prompt_surface(
+        self, mock_ctx
+    ):
+        tool_part = ToolCallPart(tool_call_id="tool_1", tool_name="", args={})
+        start_event = PartStartEvent(index=0, part=tool_part)
+        delta_event = PartDeltaEvent(
+            index=0,
+            delta=ToolCallPartDelta(tool_name_delta="agent_share", args_delta="{}"),
+        )
+        end_event = PartEndEvent(index=0, part=tool_part, next_part_kind=None)
+
+        async def event_stream():
+            yield start_event
+            yield delta_event
+            yield end_event
+
+        console = MagicMock(spec=Console)
+        set_streaming_console(console)
+        safe_console = MagicMock(spec=Console)
+        runtime = MagicMock()
+        runtime.has_prompt_surface.return_value = True
+        runtime.set_prompt_ephemeral_status = MagicMock()
+        runtime.clear_prompt_ephemeral_status = MagicMock()
+        runtime.run_above_prompt_async = AsyncMock(return_value=True)
+
+        with patch(
+            "code_puppy.agents.event_stream_handler._get_active_prompt_runtime",
+            return_value=runtime,
+        ):
+            with patch(
+                "code_puppy.agents.event_stream_handler._build_prompt_safe_console",
+                return_value=safe_console,
+            ):
+                with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+                    with patch(
+                        "code_puppy.agents.event_stream_handler.resume_all_spinners"
+                    ):
+                        await event_stream_handler(mock_ctx, event_stream())
+
+        runtime.set_prompt_ephemeral_status.assert_not_called()
+        runtime.clear_prompt_ephemeral_status.assert_called_once()
+
     @pytest.mark.asyncio
     async def test_thinking_prompt_surface_mode_renders_above_prompt(self, mock_ctx):
         """Prompt-surface mode should show thinking output above the prompt."""

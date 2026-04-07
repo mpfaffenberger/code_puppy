@@ -263,6 +263,7 @@ def _perform_authentication(
         )
     else:
         emit_warning("Failed to configure models. Try running /antigravity-auth again.")
+        return False
 
     if reload_agent:
         reload_current_agent()

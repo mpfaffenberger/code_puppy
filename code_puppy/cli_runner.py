@@ -1191,9 +1191,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     level="warning" if source_item.kind == "interject" else "success",
                 )
 
-            await asyncio.to_thread(command_result.run, command_result.cancel_event)
+            completed = await asyncio.to_thread(
+                command_result.run, command_result.cancel_event
+            )
 
-            if source_item and not command_result.cancel_event.is_set():
+            if source_item and completed and not command_result.cancel_event.is_set():
                 emit_interject_queue_lifecycle(
                     runtime,
                     "completed",
@@ -1288,7 +1290,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             if requested_action == "interject":
                 log_event("interject_banner", text=stripped_task)
-                await cancel_active_run("interject")
                 ok, position, item = runtime.request_interject(
                     stripped_task,
                     allow_command_dispatch=allow_command_dispatch,
@@ -1310,6 +1311,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     )
                     return "consumed"
 
+                await cancel_active_run("interject")
                 emit_interject_queue_lifecycle(
                     runtime,
                     "queued",
@@ -1620,117 +1622,120 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         await asyncio.sleep(0)
         return await drain_pending_work_if_idle(origin=origin)
 
-    if startup_oauth_command:
-        startup_outcome = await dispatch_submission(
-            startup_oauth_command,
-            save_history=False,
-            allow_command_dispatch=True,
-        )
-        if startup_outcome == "exit":
-            clear_active_interactive_runtime(runtime)
-            return
+    try:
+        if startup_oauth_command:
+            startup_outcome = await dispatch_submission(
+                startup_oauth_command,
+                save_history=False,
+                allow_command_dispatch=True,
+            )
+            if startup_outcome == "exit":
+                return
 
-    while True:
-        from code_puppy.agents.agent_manager import get_current_agent
-        from code_puppy.messaging import emit_info
+        while True:
+            from code_puppy.agents.agent_manager import get_current_agent
+            from code_puppy.messaging import emit_info
 
-        # Get the custom prompt from the current agent, or use default
-        current_agent = get_current_agent()
-        user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
-        if not runtime.running:
-            handled = await drain_pending_work_if_idle(origin="loop_idle_check")
-            if handled:
-                continue
+            # Get the custom prompt from the current agent, or use default
+            current_agent = get_current_agent()
+            user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
+            if not runtime.running:
+                handled = await drain_pending_work_if_idle(origin="loop_idle_check")
+                if handled:
+                    continue
 
-        if not runtime.running and not runtime.has_pending_submission():
-            emit_info(f"{user_prompt}\n")
+            if not runtime.running and not runtime.has_pending_submission():
+                emit_info(f"{user_prompt}\n")
 
-        try:
-            # Use prompt_toolkit for enhanced input with path completion
             try:
-                # Windows-specific: Reset terminal state before prompting
-                reset_windows_terminal_ansi()
-
-                submission = await prompt_for_submission(
-                    get_prompt_with_active_model,
-                    history_file=COMMAND_HISTORY_FILE,
-                    erase_when_done=runtime.running,
-                )
-                log_event(
-                    "input_received",
-                    action=submission.action,
-                    text=submission.text,
-                )
-                if submission.text.strip():
-                    suppress_next_input_cancel_message = False
-
-                # Windows+uvx: Re-disable Ctrl+C after prompt_toolkit
-                # (prompt_toolkit restores console mode which re-enables Ctrl+C)
+                # Use prompt_toolkit for enhanced input with path completion
                 try:
-                    from code_puppy.terminal_utils import ensure_ctrl_c_disabled
+                    # Windows-specific: Reset terminal state before prompting
+                    reset_windows_terminal_ansi()
 
-                    ensure_ctrl_c_disabled()
+                    submission = await prompt_for_submission(
+                        get_prompt_with_active_model,
+                        history_file=COMMAND_HISTORY_FILE,
+                        erase_when_done=runtime.running,
+                    )
+                    log_event(
+                        "input_received",
+                        action=submission.action,
+                        text=submission.text,
+                    )
+                    if submission.text.strip():
+                        suppress_next_input_cancel_message = False
+
+                    # Windows+uvx: Re-disable Ctrl+C after prompt_toolkit
+                    # (prompt_toolkit restores console mode which re-enables Ctrl+C)
+                    try:
+                        from code_puppy.terminal_utils import ensure_ctrl_c_disabled
+
+                        ensure_ctrl_c_disabled()
+                    except ImportError:
+                        pass
                 except ImportError:
-                    pass
-            except ImportError:
-                # Fall back to basic input if prompt_toolkit is not available
-                from code_puppy.command_line.prompt_toolkit_completion import (
-                    PromptSubmission,
-                )
+                    # Fall back to basic input if prompt_toolkit is not available
+                    from code_puppy.command_line.prompt_toolkit_completion import (
+                        PromptSubmission,
+                    )
 
-                submission = PromptSubmission(action="submit", text=input(">>> "))
+                    submission = PromptSubmission(action="submit", text=input(">>> "))
 
-        except KeyboardInterrupt:
-            # Handle Ctrl+C - cancel input and continue
-            # Windows-specific: Reset terminal state after interrupt to prevent
-            # the terminal from becoming unresponsive (can't type characters)
-            reset_windows_terminal_full()
-            from code_puppy.messaging import emit_warning
+            except KeyboardInterrupt:
+                # Handle Ctrl+C - cancel input and continue
+                # Windows-specific: Reset terminal state after interrupt to prevent
+                # the terminal from becoming unresponsive (can't type characters)
+                reset_windows_terminal_full()
+                from code_puppy.messaging import emit_warning
 
-            if stop_wiggum_with_notice("\n🍩 Wiggum loop stopped!"):
-                runtime.suppress_queue_autodrain()
+                if stop_wiggum_with_notice("\n🍩 Wiggum loop stopped!"):
+                    runtime.suppress_queue_autodrain()
+                    continue
+                if suppress_next_input_cancel_message:
+                    suppress_next_input_cancel_message = False
+                else:
+                    emit_warning("\nInput cancelled")
                 continue
-            if suppress_next_input_cancel_message:
-                suppress_next_input_cancel_message = False
-            else:
-                emit_warning("\nInput cancelled")
-            continue
-        except EOFError:
-            # Handle Ctrl+D - exit the application
-            await shutdown_interactive_session("\nGoodbye! (Ctrl+D)", reason="ctrl_d")
-            break
+            except EOFError:
+                # Handle Ctrl+D - exit the application
+                await shutdown_interactive_session(
+                    "\nGoodbye! (Ctrl+D)", reason="ctrl_d"
+                )
+                break
 
-        # Shell pass-through: !<command> executes directly, bypassing the agent.
-        from code_puppy.command_line.shell_passthrough import (
-            execute_shell_passthrough,
-            is_shell_passthrough,
-        )
-
-        if is_shell_passthrough(submission.text):
-            if submission.text.strip():
-                runtime.clear_queue_autodrain_suppression()
-            execute_shell_passthrough(submission.text)
-            continue
-
-        if submission.text.strip() and runtime.is_queue_autodrain_suppressed():
-            runtime.clear_queue_autodrain_suppression()
-            log_event(
-                "queue_autodrain_resumed",
-                reason="explicit_submission",
-                text=submission.text.strip(),
+            # Shell pass-through: !<command> executes directly, bypassing the agent.
+            from code_puppy.command_line.shell_passthrough import (
+                execute_shell_passthrough,
+                is_shell_passthrough,
             )
 
-        outcome = await dispatch_submission(
-            submission.text,
-            requested_action=submission.action,
-            echo_in_transcript=submission.echo_in_transcript,
-            allow_command_dispatch=submission.allow_command_dispatch,
-        )
-        if outcome == "exit":
-            break
-        if outcome == "launched":
-            await asyncio.sleep(0)
-    clear_active_interactive_runtime(runtime)
+            if is_shell_passthrough(submission.text):
+                if submission.text.strip():
+                    runtime.clear_queue_autodrain_suppression()
+                execute_shell_passthrough(submission.text)
+                continue
+
+            if submission.text.strip() and runtime.is_queue_autodrain_suppressed():
+                runtime.clear_queue_autodrain_suppression()
+                log_event(
+                    "queue_autodrain_resumed",
+                    reason="explicit_submission",
+                    text=submission.text.strip(),
+                )
+
+            outcome = await dispatch_submission(
+                submission.text,
+                requested_action=submission.action,
+                echo_in_transcript=submission.echo_in_transcript,
+                allow_command_dispatch=submission.allow_command_dispatch,
+            )
+            if outcome == "exit":
+                break
+            if outcome == "launched":
+                await asyncio.sleep(0)
+    finally:
+        clear_active_interactive_runtime(runtime)
 
 
 async def run_prompt_with_attachments(
@@ -1856,7 +1861,7 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     try:
         # Get agent through runtime manager and use helper for attachments
         agent = get_current_agent()
-        response = await run_prompt_with_attachments(
+        response, _task = await run_prompt_with_attachments(
             agent,
             prompt,
             spinner_console=message_renderer.console,

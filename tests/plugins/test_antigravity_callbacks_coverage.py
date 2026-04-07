@@ -470,7 +470,7 @@ class TestAntigravityPerformAuth:
                 "code_puppy.plugins.antigravity_oauth.register_callbacks.emit_warning"
             ),
         ):
-            assert _perform_authentication(reload_agent=False) is True
+            assert _perform_authentication(reload_agent=False) is False
 
 
 class TestAntigravityHandleStatus:
@@ -704,6 +704,9 @@ class TestAntigravityHandleCustomCommand:
                 "code_puppy.plugins.antigravity_oauth.register_callbacks._perform_authentication",
                 return_value=False,
             ) as mock_auth,
+            patch(
+                "code_puppy.plugins.antigravity_oauth.register_callbacks.set_model_and_reload_agent"
+            ) as mock_set_model,
         ):
             result = _handle_custom_command("/antigravity-auth", "antigravity-auth")
             assert isinstance(result, BackgroundInteractiveCommand)
@@ -714,6 +717,7 @@ class TestAntigravityHandleCustomCommand:
                 reload_agent=False,
                 cancel_event=cancel_event,
             )
+            mock_set_model.assert_not_called()
 
     def test_add(self):
         from code_puppy.command_line.interactive_command import (
