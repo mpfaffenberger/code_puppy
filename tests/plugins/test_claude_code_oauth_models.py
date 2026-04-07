@@ -174,6 +174,23 @@ class TestModelFiltering:
         assert "claude-opus-4-1-20250805" in filtered
         assert "claude-opus-4-1-20250615" in filtered
 
+    def test_filter_latest_claude_models_sonnet_46_special_case(self):
+        """claude-sonnet-4-6 (no date suffix) should be recognized and win."""
+        models = [
+            "claude-sonnet-3-5-20241022",
+            "claude-sonnet-4-5-20250514",
+            "claude-sonnet-4-6",
+            "claude-haiku-3-5-20241022",
+        ]
+
+        filtered = filter_latest_claude_models(models, max_per_family=1)
+
+        # claude-sonnet-4-6 should be the single latest sonnet
+        assert "claude-sonnet-4-6" in filtered
+        assert "claude-sonnet-4-5-20250514" not in filtered
+        assert "claude-sonnet-3-5-20241022" not in filtered
+        assert "claude-haiku-3-5-20241022" in filtered
+
     def test_filter_latest_claude_models_max_per_family_one(self):
         """Test that max_per_family=1 keeps only the single latest."""
         models = [

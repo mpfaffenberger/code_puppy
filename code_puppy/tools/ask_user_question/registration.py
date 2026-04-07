@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic_ai import RunContext
 
 from .handler import ask_user_question as _ask_user_question_impl
-from .models import AskUserQuestionOutput
+from .models import AskUserQuestionOutput, Question
 
 if TYPE_CHECKING:
     from pydantic_ai import Agent
@@ -19,7 +19,7 @@ def register_ask_user_question(agent: Agent) -> None:
     @agent.tool
     def ask_user_question(
         context: RunContext,  # noqa: ARG001 - Required by framework
-        questions: list[dict[str, Any]],
+        questions: list[Question],
     ) -> AskUserQuestionOutput:
         """Ask the user multiple related questions in an interactive TUI."""
         # Handler returns AskUserQuestionOutput directly - no revalidation needed

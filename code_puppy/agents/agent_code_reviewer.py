@@ -21,7 +21,6 @@ class CodeQualityReviewerAgent(BaseAgent):
     def get_available_tools(self) -> list[str]:
         """Reviewers stick to read-only analysis helpers plus agent collaboration."""
         return [
-            "agent_share_your_reasoning",
             "agent_run_shell_command",
             "list_files",
             "read_file",

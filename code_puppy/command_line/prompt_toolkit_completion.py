@@ -943,6 +943,7 @@ async def prompt_for_submission(
     # Use SafeFileHistory to handle encoding errors gracefully on Windows
     history = SafeFileHistory(history_file) if history_file else None
     runtime = _get_runtime()
+    from code_puppy.plugins.ollama_setup.completer import OllamaSetupCompleter
     # Add custom key bindings and multiline toggle
     bindings = KeyBindings()
     recalled_queue_item = {"item": None}
@@ -1007,6 +1008,10 @@ async def prompt_for_submission(
             ),
             ConditionalCompleter(
                 SkillsCompleter(trigger="/skills"),
+                filter=command_completion_filter,
+            ),
+            ConditionalCompleter(
+                OllamaSetupCompleter(),
                 filter=command_completion_filter,
             ),
             ConditionalCompleter(

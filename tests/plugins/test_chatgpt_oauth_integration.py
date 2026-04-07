@@ -111,6 +111,7 @@ class TestModelManagement:
             == CHATGPT_OAUTH_CONFIG["default_context_length"]
         )
         assert "supported_settings" in model_config
+        assert "summary" in model_config["supported_settings"]
         assert "oauth_source" in model_config
 
     def test_add_models_spark_context_length(self, tmp_path):
@@ -130,6 +131,7 @@ class TestModelManagement:
                 spark_config = models["chatgpt-gpt-5.3-codex-spark"]
                 assert spark_config["context_length"] == 131000
                 assert spark_config["supports_xhigh_reasoning"] is True
+                assert "summary" in spark_config["supported_settings"]
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.get_chatgpt_models_path")
     def test_remove_chatgpt_models(self, mock_path, tmp_path):

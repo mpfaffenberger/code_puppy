@@ -151,10 +151,13 @@ class TestModelSettings:
     def test_load_model_settings_with_openai(
         self, mock_supports, mock_get_all, mock_effort, mock_verb
     ):
-        mock_supports.side_effect = lambda m, s: s in (
-            "temperature",
-            "reasoning_effort",
-            "verbosity",
+        mock_supports.side_effect = lambda m, s: (
+            s
+            in (
+                "temperature",
+                "reasoning_effort",
+                "verbosity",
+            )
         )
         menu = _make_menu()
         menu._load_model_settings("gpt-5")
@@ -320,7 +323,7 @@ class TestRenderDetailsPanel:
         assert "Model Info" in text
         assert "gpt-5" in text
         assert "Currently active" in text
-        assert "Custom Settings" in text
+        assert "Effective Settings" in text
 
     @patch(
         "code_puppy.command_line.model_settings_menu.model_supports_setting",

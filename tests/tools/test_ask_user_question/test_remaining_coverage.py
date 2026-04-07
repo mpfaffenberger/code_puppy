@@ -302,7 +302,9 @@ def test_sanitizer_none_allowed():
 
 
 def test_register_ask_user_question():
-    """Cover the registration function."""
+    """Cover the registration function and verify nested schema."""
+    from pydantic_ai import Agent
+
     from code_puppy.tools.ask_user_question.registration import (
         register_ask_user_question,
     )
@@ -311,6 +313,17 @@ def test_register_ask_user_question():
     # The decorator should be called
     mock_agent.tool = lambda f: f  # identity decorator
     register_ask_user_question(mock_agent)
+
+    real_agent = Agent("test")
+    register_ask_user_question(real_agent)
+    schema = real_agent._function_toolset.tools[
+        "ask_user_question"
+    ].function_schema.json_schema
+
+    assert schema["properties"]["questions"]["items"]["$ref"] == "#/$defs/Question"
+    assert schema["$defs"]["Question"]["properties"]["options"]["items"]["$ref"] == (
+        "#/$defs/QuestionOption"
+    )
 
 
 # ---------------------------------------------------------------------------

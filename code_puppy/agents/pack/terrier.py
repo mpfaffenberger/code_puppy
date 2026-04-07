@@ -31,7 +31,6 @@ class TerrierAgent(BaseAgent):
             # Shell for git commands
             "agent_run_shell_command",
             # Transparency
-            "agent_share_your_reasoning",
             # Check worktree contents
             "list_files",
         ]

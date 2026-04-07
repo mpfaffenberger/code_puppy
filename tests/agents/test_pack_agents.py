@@ -128,10 +128,10 @@ class TestPackLeaderAgent:
         tools = agent.get_available_tools()
         assert "agent_run_shell_command" in tools
 
-    def test_tools_include_reasoning(self, agent):
-        """Test Pack Leader has reasoning tool."""
+    def test_tools_exclude_retired_reasoning_tool(self, agent):
+        """Test Pack Leader does not expose the retired reasoning tool."""
         tools = agent.get_available_tools()
-        assert "agent_share_your_reasoning" in tools
+        assert "agent_share_your_reasoning" not in tools
 
     def test_tools_include_agent_coordination(self, agent):
         """Test Pack Leader has agent coordination tools."""
@@ -208,10 +208,10 @@ class TestBloodhoundAgent:
         tools = agent.get_available_tools()
         assert "agent_run_shell_command" in tools
 
-    def test_tools_include_reasoning(self, agent):
-        """Test Bloodhound has reasoning tool."""
+    def test_tools_exclude_retired_reasoning_tool(self, agent):
+        """Test Bloodhound does not expose the retired reasoning tool."""
         tools = agent.get_available_tools()
-        assert "agent_share_your_reasoning" in tools
+        assert "agent_share_your_reasoning" not in tools
 
     def test_system_prompt_not_empty(self, agent):
         """Test Bloodhound has a system prompt."""
@@ -257,10 +257,10 @@ class TestTerrierAgent:
         tools = agent.get_available_tools()
         assert "agent_run_shell_command" in tools
 
-    def test_tools_include_reasoning(self, agent):
-        """Test Terrier has reasoning tool."""
+    def test_tools_exclude_retired_reasoning_tool(self, agent):
+        """Test Terrier does not expose the retired reasoning tool."""
         tools = agent.get_available_tools()
-        assert "agent_share_your_reasoning" in tools
+        assert "agent_share_your_reasoning" not in tools
 
     def test_system_prompt_not_empty(self, agent):
         """Test Terrier has a system prompt."""
@@ -306,10 +306,10 @@ class TestRetrieverAgent:
         tools = agent.get_available_tools()
         assert "agent_run_shell_command" in tools
 
-    def test_tools_include_reasoning(self, agent):
-        """Test Retriever has reasoning tool."""
+    def test_tools_exclude_retired_reasoning_tool(self, agent):
+        """Test Retriever does not expose the retired reasoning tool."""
         tools = agent.get_available_tools()
-        assert "agent_share_your_reasoning" in tools
+        assert "agent_share_your_reasoning" not in tools
 
     def test_system_prompt_not_empty(self, agent):
         """Test Retriever has a system prompt."""
@@ -356,10 +356,10 @@ class TestHuskyAgent:
         # Husky needs to do actual coding work
         assert "replace_in_file" in tools or "agent_run_shell_command" in tools
 
-    def test_tools_include_reasoning(self, agent):
-        """Test Husky has reasoning tool."""
+    def test_tools_exclude_retired_reasoning_tool(self, agent):
+        """Test Husky does not expose the retired reasoning tool."""
         tools = agent.get_available_tools()
-        assert "agent_share_your_reasoning" in tools
+        assert "agent_share_your_reasoning" not in tools
 
     def test_system_prompt_not_empty(self, agent):
         """Test Husky has a system prompt."""
@@ -412,10 +412,10 @@ class TestShepherdAgent:
         tools = agent.get_available_tools()
         assert "agent_run_shell_command" in tools
 
-    def test_tools_include_reasoning(self, agent):
-        """Test Shepherd has reasoning tool."""
+    def test_tools_exclude_retired_reasoning_tool(self, agent):
+        """Test Shepherd does not expose the retired reasoning tool."""
         tools = agent.get_available_tools()
-        assert "agent_share_your_reasoning" in tools
+        assert "agent_share_your_reasoning" not in tools
 
     def test_system_prompt_not_empty(self, agent):
         """Test Shepherd has a system prompt."""
@@ -473,10 +473,10 @@ class TestWatchdogAgent:
         tools = agent.get_available_tools()
         assert "agent_run_shell_command" in tools
 
-    def test_tools_include_reasoning(self, agent):
-        """Test Watchdog has reasoning tool."""
+    def test_tools_exclude_retired_reasoning_tool(self, agent):
+        """Test Watchdog does not expose the retired reasoning tool."""
         tools = agent.get_available_tools()
-        assert "agent_share_your_reasoning" in tools
+        assert "agent_share_your_reasoning" not in tools
 
     def test_system_prompt_not_empty(self, agent):
         """Test Watchdog has a system prompt."""
@@ -685,9 +685,9 @@ class TestPackIntegration:
             agent = load_agent(agent_name)
             tools = agent.get_available_tools()
 
-            # All pack agents should have reasoning capability
-            assert "agent_share_your_reasoning" in tools, (
-                f"{agent_name} missing reasoning tool"
+            # The retired reasoning tool should not appear in any pack agent
+            assert "agent_share_your_reasoning" not in tools, (
+                f"{agent_name} still exposes retired reasoning tool"
             )
 
             # All pack agents should be able to run shell commands

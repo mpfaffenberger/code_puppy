@@ -4,6 +4,7 @@ import os
 import pathlib
 from typing import Any, Dict
 
+import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
@@ -11,11 +12,10 @@ from pydantic_ai.models.openai import (
     OpenAIChatModel,
     OpenAIChatModelSettings,
     OpenAIResponsesModel,
+    OpenAIResponsesModelSettings,
 )
 from pydantic_ai.profiles import ModelProfile
-from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.cerebras import CerebrasProvider
-from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
 
@@ -26,6 +26,11 @@ from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
 from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
+from .provider_identity import (
+    make_anthropic_provider,
+    make_openai_provider,
+    resolve_provider_identity,
+)
 from .round_robin_model import RoundRobinModel
 
 logger = logging.getLogger(__name__)
@@ -119,6 +124,7 @@ def make_model_settings(
     from code_puppy.config import (
         get_effective_model_settings,
         get_openai_reasoning_effort,
+        get_openai_reasoning_summary,
         get_openai_verbosity,
         model_supports_setting,
     )
@@ -126,6 +132,7 @@ def make_model_settings(
     model_settings_dict: dict = {}
 
     # Calculate max_tokens if not explicitly provided
+    model_config: dict[str, Any] = {}
     if max_tokens is None:
         # Load model config to get context length
         try:
@@ -137,6 +144,11 @@ def make_model_settings(
             context_length = 128000
         # min 2048, 15% of context, max 65536
         max_tokens = max(2048, min(int(0.15 * context_length), 65536))
+    elif not model_config:
+        try:
+            model_config = ModelFactory.load_config().get(model_name, {})
+        except Exception:
+            model_config = {}
 
     model_settings_dict["max_tokens"] = max_tokens
     effective_settings = get_effective_model_settings(model_name)
@@ -158,11 +170,28 @@ def make_model_settings(
 
     if "gpt-5" in model_name:
         model_settings_dict["openai_reasoning_effort"] = get_openai_reasoning_effort()
-        # Verbosity only applies to non-codex GPT-5 models (codex only supports "medium")
-        if "codex" not in model_name:
-            verbosity = get_openai_verbosity()
-            model_settings_dict["extra_body"] = {"verbosity": verbosity}
-        model_settings = OpenAIChatModelSettings(**model_settings_dict)
+
+        model_type = model_config.get("type")
+        uses_responses_api = (
+            model_type == "chatgpt_oauth"
+            or (model_type == "openai" and "codex" in model_name)
+            or (model_type == "custom_openai" and "codex" in model_name)
+        )
+
+        if uses_responses_api:
+            model_settings_dict["openai_reasoning_summary"] = (
+                get_openai_reasoning_summary()
+            )
+            if "codex" not in model_name:
+                model_settings_dict["openai_text_verbosity"] = get_openai_verbosity()
+            model_settings = OpenAIResponsesModelSettings(**model_settings_dict)
+        else:
+            # Chat Completions models don't support configurable reasoning summaries.
+            # Keep the old verbosity injection path for non-Responses GPT-5 models.
+            if "codex" not in model_name:
+                verbosity = get_openai_verbosity()
+                model_settings_dict["extra_body"] = {"verbosity": verbosity}
+            model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif model_name.startswith("claude-") or model_name.startswith("anthropic-"):
         # Handle Anthropic extended thinking settings
         # Remove top_p as Anthropic doesn't support it with extended thinking
@@ -382,6 +411,7 @@ class ModelFactory:
             raise ValueError(f"Model '{model_name}' not found in configuration.")
 
         model_type = model_config.get("type")
+        provider_identity = resolve_provider_identity(model_name, model_config)
 
         # Check for plugin-registered model provider classes first
         if model_type in _CUSTOM_MODEL_PROVIDERS:
@@ -413,7 +443,7 @@ class ModelFactory:
                 )
                 return None
 
-            provider = OpenAIProvider(api_key=api_key)
+            provider = make_openai_provider(provider_identity, api_key=api_key)
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             if "codex" in model_name:
                 model = OpenAIResponsesModel(
@@ -463,7 +493,9 @@ class ModelFactory:
             # Ensure cache_control is injected at the Anthropic SDK layer
             patch_anthropic_client_messages(anthropic_client)
 
-            provider = AnthropicProvider(anthropic_client=anthropic_client)
+            provider = make_anthropic_provider(
+                provider_identity, anthropic_client=anthropic_client
+            )
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "custom_anthropic":
@@ -510,7 +542,9 @@ class ModelFactory:
             # Ensure cache_control is injected at the Anthropic SDK layer
             patch_anthropic_client_messages(anthropic_client)
 
-            provider = AnthropicProvider(anthropic_client=anthropic_client)
+            provider = make_anthropic_provider(
+                provider_identity, anthropic_client=anthropic_client
+            )
             return AnthropicModel(model_name=model_config["name"], provider=provider)
         # NOTE: 'claude_code' model type is now handled by the claude_code_oauth plugin
         # via the register_model_type callback. See plugins/claude_code_oauth/register_callbacks.py
@@ -567,7 +601,9 @@ class ModelFactory:
                 api_key=api_key,
                 max_retries=azure_max_retries,
             )
-            provider = OpenAIProvider(openai_client=azure_client)
+            provider = make_openai_provider(
+                provider_identity, openai_client=azure_client
+            )
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             model.provider = provider
             return model
@@ -575,13 +611,12 @@ class ModelFactory:
         elif model_type == "custom_openai":
             url, headers, verify, api_key = get_custom_config(model_config)
             client = create_async_client(headers=headers, verify=verify)
-            provider_args = dict(
-                base_url=url,
-                http_client=client,
-            )
+            provider_args = {"base_url": url}
+            if isinstance(client, httpx.AsyncClient):
+                provider_args["http_client"] = client
             if api_key:
                 provider_args["api_key"] = api_key
-            provider = OpenAIProvider(**provider_args)
+            provider = make_openai_provider(provider_identity, **provider_args)
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             if model_name == "chatgpt-gpt-5-codex":
                 model = OpenAIResponsesModel(model_config["name"], provider=provider)
@@ -594,7 +629,8 @@ class ModelFactory:
                     f"ZAI_API_KEY is not set (check config or environment); skipping ZAI coding model '{model_config.get('name')}'."
                 )
                 return None
-            provider = OpenAIProvider(
+            provider = make_openai_provider(
+                provider_identity,
                 api_key=api_key,
                 base_url="https://api.z.ai/api/coding/paas/v4",
             )
@@ -611,7 +647,8 @@ class ModelFactory:
                     f"ZAI_API_KEY is not set (check config or environment); skipping ZAI API model '{model_config.get('name')}'."
                 )
                 return None
-            provider = OpenAIProvider(
+            provider = make_openai_provider(
+                provider_identity,
                 api_key=api_key,
                 base_url="https://api.z.ai/api/paas/v4/",
             )
