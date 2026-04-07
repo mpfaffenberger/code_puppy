@@ -4,7 +4,7 @@ The Pack consists of:
 - Pack Leader: Main orchestrator for parallel workflows
 - Bloodhound: Issue tracking specialist (bd only)
 - Terrier: Worktree management (git worktree) from base branch
-- Husky: Task execution in worktrees
+- Code-Puppy: Task execution in worktrees
 - Shepherd: Code review critic
 - Watchdog: QA/testing critic
 - Retriever: Local branch merging to base branch
@@ -46,11 +46,11 @@ class TestPackImports:
 
         assert RetrieverAgent is not None
 
-    def test_import_husky(self):
-        """Test Husky agent can be imported."""
-        from code_puppy.agents.pack.husky import HuskyAgent
+    def test_import_code_puppy(self):
+        """Test Code-Puppy agent can be imported."""
+        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
-        assert HuskyAgent is not None
+        assert CodePuppyAgent is not None
 
     def test_import_shepherd(self):
         """Test Shepherd agent can be imported."""
@@ -66,9 +66,9 @@ class TestPackImports:
 
     def test_import_from_pack_init(self):
         """Test all pack agents can be imported from pack __init__."""
+        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
         from code_puppy.agents.pack import (
             BloodhoundAgent,
-            HuskyAgent,
             RetrieverAgent,
             ShepherdAgent,
             TerrierAgent,
@@ -78,7 +78,7 @@ class TestPackImports:
         assert BloodhoundAgent is not None
         assert TerrierAgent is not None
         assert RetrieverAgent is not None
-        assert HuskyAgent is not None
+        assert CodePuppyAgent is not None
         assert ShepherdAgent is not None
         assert WatchdogAgent is not None
 
@@ -146,7 +146,7 @@ class TestPackLeaderAgent:
         assert "bloodhound" in prompt.lower()
         assert "terrier" in prompt.lower()
         assert "retriever" in prompt.lower()
-        assert "husky" in prompt.lower()
+        assert "code-puppy" in prompt.lower()
 
     def test_system_prompt_mentions_bd(self, agent):
         """Test Pack Leader system prompt mentions bd CLI."""
@@ -319,50 +319,50 @@ class TestRetrieverAgent:
 
 
 # =============================================================================
-# Husky Tests
+# Code-Puppy Executor Tests
 # =============================================================================
 
 
-class TestHuskyAgent:
-    """Test Husky agent properties and configuration."""
+class TestCodePuppyExecutorAgent:
+    """Test Code-Puppy remains the pack's task executor."""
 
     @pytest.fixture
     def agent(self):
-        """Create a Husky agent instance."""
-        from code_puppy.agents.pack.husky import HuskyAgent
+        """Create a Code-Puppy agent instance."""
+        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
-        return HuskyAgent()
+        return CodePuppyAgent()
 
     def test_inherits_base_agent(self, agent):
-        """Test Husky inherits from BaseAgent."""
+        """Test Code-Puppy inherits from BaseAgent."""
         assert isinstance(agent, BaseAgent)
 
     def test_name(self, agent):
-        """Test Husky has correct name."""
-        assert agent.name == "husky"
+        """Test Code-Puppy has correct name."""
+        assert agent.name == "code-puppy"
 
     def test_display_name(self, agent):
-        """Test Husky has correct display name."""
-        assert "Husky" in agent.display_name
+        """Test Code-Puppy has correct display name."""
+        assert "Code-Puppy" in agent.display_name
 
-    def test_description_mentions_task_execution(self, agent):
-        """Test Husky description mentions task execution."""
+    def test_description_mentions_coding_tasks(self, agent):
+        """Test Code-Puppy description mentions coding work."""
         desc = agent.description.lower()
-        assert "task" in desc or "execut" in desc or "work" in desc
+        assert "coding" in desc or "code" in desc or "tasks" in desc
 
     def test_tools_include_file_operations(self, agent):
-        """Test Husky has file operation tools for coding work."""
+        """Test Code-Puppy has file operation tools for coding work."""
         tools = agent.get_available_tools()
-        # Husky needs to do actual coding work
-        assert "replace_in_file" in tools or "agent_run_shell_command" in tools
+        assert "replace_in_file" in tools
+        assert "agent_run_shell_command" in tools
 
     def test_tools_exclude_retired_reasoning_tool(self, agent):
-        """Test Husky does not expose the retired reasoning tool."""
+        """Test Code-Puppy does not expose the retired reasoning tool."""
         tools = agent.get_available_tools()
         assert "agent_share_your_reasoning" not in tools
 
     def test_system_prompt_not_empty(self, agent):
-        """Test Husky has a system prompt."""
+        """Test Code-Puppy has a system prompt."""
         prompt = agent.get_system_prompt()
         assert prompt is not None
         assert len(prompt) > 0
@@ -533,12 +533,12 @@ class TestPackDiscovery:
         agents = get_available_agents()
         assert "retriever" in agents
 
-    def test_husky_discoverable(self):
-        """Test Husky is discoverable."""
+    def test_code_puppy_discoverable(self):
+        """Test Code-Puppy is discoverable."""
         from code_puppy.agents import get_available_agents
 
         agents = get_available_agents()
-        assert "husky" in agents
+        assert "code-puppy" in agents
 
     def test_shepherd_discoverable(self):
         """Test Shepherd is discoverable."""
@@ -564,7 +564,6 @@ class TestPackDiscovery:
             "bloodhound",
             "terrier",
             "retriever",
-            "husky",
             "shepherd",
             "watchdog",
         ]
@@ -581,7 +580,6 @@ class TestPackDiscovery:
             "bloodhound",
             "terrier",
             "retriever",
-            "husky",
             "shepherd",
             "watchdog",
         ]
@@ -602,7 +600,6 @@ class TestPackDiscovery:
             "bloodhound",
             "terrier",
             "retriever",
-            "husky",
             "shepherd",
             "watchdog",
         ]
@@ -637,11 +634,11 @@ class TestPackIntegration:
         agent = PackLeaderAgent()
         prompt = agent.get_system_prompt().lower()
 
-        # Pack Leader should know about all pack members
+        # Pack Leader should know about all pack members and executors
         assert "bloodhound" in prompt
         assert "terrier" in prompt
         assert "retriever" in prompt
-        assert "husky" in prompt
+        assert "code-puppy" in prompt
         assert "shepherd" in prompt
         assert "watchdog" in prompt
 
@@ -655,7 +652,6 @@ class TestPackIntegration:
             "bloodhound",
             "terrier",
             "retriever",
-            "husky",
             "shepherd",
             "watchdog",
         ]
@@ -676,7 +672,6 @@ class TestPackIntegration:
             "bloodhound",
             "terrier",
             "retriever",
-            "husky",
             "shepherd",
             "watchdog",
         ]
@@ -779,7 +774,6 @@ class TestPackAgentsConfig:
         expected_agents = {
             "pack-leader",
             "bloodhound",
-            "husky",
             "shepherd",
             "terrier",
             "watchdog",
@@ -801,7 +795,7 @@ class TestPackAgentsConfig:
         monkeypatch.setattr(config, "get_pack_agents_enabled", lambda: False)
 
         # Should still be able to load pack agents directly
-        for pack_agent in ["pack-leader", "bloodhound", "husky"]:
+        for pack_agent in ["pack-leader", "bloodhound"]:
             agent = load_agent(pack_agent)
             assert agent is not None
             assert agent.name == pack_agent

@@ -94,7 +94,6 @@ PACK_AGENT_NAMES = frozenset(
     [
         "pack-leader",
         "bloodhound",
-        "husky",
         "shepherd",
         "terrier",
         "watchdog",
@@ -109,7 +108,7 @@ UC_AGENT_NAMES = frozenset(["helios"])
 def get_pack_agents_enabled() -> bool:
     """Return True if pack agents are enabled (default False).
 
-    When False (default), pack agents (pack-leader, bloodhound, husky, shepherd,
+    When False (default), pack agents (pack-leader, bloodhound, shepherd,
     terrier, watchdog, retriever) are hidden from `list_agents` tool and `/agents`
     command. They cannot be invoked by other agents or selected by users.
 
