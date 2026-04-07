@@ -302,7 +302,7 @@ def test_sanitizer_none_allowed():
 
 
 def test_register_ask_user_question():
-    """Cover the registration function and verify nested schema."""
+    """Cover the registration function and verify schema."""
     from pydantic_ai import Agent
 
     from code_puppy.tools.ask_user_question.registration import (
@@ -320,10 +320,10 @@ def test_register_ask_user_question():
         "ask_user_question"
     ].function_schema.json_schema
 
-    assert schema["properties"]["questions"]["items"]["$ref"] == "#/$defs/Question"
-    assert schema["$defs"]["Question"]["properties"]["options"]["items"]["$ref"] == (
-        "#/$defs/QuestionOption"
-    )
+    # Schema uses simplified type for provider compatibility
+    assert schema["properties"]["questions"]["type"] == "array"
+    assert schema["properties"]["questions"]["items"]["type"] == "object"
+    assert "description" in schema["properties"]["questions"]
 
 
 # ---------------------------------------------------------------------------
