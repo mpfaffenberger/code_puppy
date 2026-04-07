@@ -21,6 +21,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from code_puppy.config import get_subagent_verbose
+from code_puppy.terminal_utils import supports_live_terminal_updates
 from code_puppy.tools.common import format_diff_with_colors
 from code_puppy.tools.subagent_context import is_subagent
 
@@ -188,7 +189,14 @@ class RichConsoleRenderer:
         except Exception:
             return None
 
-    def _set_prompt_ephemeral_status(self, text: str | None) -> None:
+    def _is_background_session_message(self, message: AnyMessage | None) -> bool:
+        return bool(getattr(message, "session_id", None))
+
+    def _set_prompt_ephemeral_status(
+        self, text: str | None, message: AnyMessage | None = None
+    ) -> None:
+        if self._is_background_session_message(message):
+            return
         runtime = self._get_prompt_runtime()
         if runtime is None:
             return
@@ -197,10 +205,16 @@ class RichConsoleRenderer:
         except Exception:
             pass
 
-    def _clear_prompt_ephemeral_status(self) -> None:
-        self._set_prompt_ephemeral_status(None)
+    def _clear_prompt_ephemeral_status(
+        self, message: AnyMessage | None = None
+    ) -> None:
+        self._set_prompt_ephemeral_status(None, message=message)
 
-    def _clear_prompt_ephemeral_preview(self) -> None:
+    def _clear_prompt_ephemeral_preview(
+        self, message: AnyMessage | None = None
+    ) -> None:
+        if self._is_background_session_message(message):
+            return
         runtime = self._get_prompt_runtime()
         if runtime is None:
             return
@@ -260,7 +274,7 @@ class RichConsoleRenderer:
             return False
 
         if isinstance(message, AgentResponseMessage):
-            self._clear_prompt_ephemeral_preview()
+            self._clear_prompt_ephemeral_preview(message=message)
 
         console = self._build_prompt_safe_console()
         return runtime.run_above_prompt(
@@ -843,7 +857,7 @@ class RichConsoleRenderer:
                 normalized = "".join(
                     char for char in normalized if char == "\t" or char.isprintable()
                 ).strip()
-                self._set_prompt_ephemeral_status(normalized or None)
+                self._set_prompt_ephemeral_status(normalized or None, message=msg)
                 return
             sys.stdout.write(msg.line + "\n")
             sys.stdout.flush()
@@ -851,10 +865,14 @@ class RichConsoleRenderer:
 
         # Check if line contains carriage return (progress bar style output)
         if "\r" in msg.line:
-            # Bypass Rich entirely - write directly to stdout so terminal interprets \r
-            # Apply dim styling manually via ANSI codes
-            sys.stdout.write(f"\033[2m{msg.line}\033[0m")
-            sys.stdout.flush()
+            if supports_live_terminal_updates(self._console):
+                # Bypass Rich entirely - write directly to stdout so terminal interprets \r
+                # Apply dim styling manually via ANSI codes
+                sys.stdout.write(f"\033[2m{msg.line}\033[0m")
+                sys.stdout.flush()
+            else:
+                normalized = Text.from_ansi(msg.line.split("\r")[-1])
+                self._console.print(normalized, style="dim")
         else:
             # Normal line: use Rich for nice formatting
             text = Text.from_ansi(msg.line)
@@ -866,7 +884,7 @@ class RichConsoleRenderer:
         Shell command results are already returned to the LLM via tool responses,
         so we don't need to clutter the UI with redundant output.
         """
-        self._clear_prompt_ephemeral_status()
+        self._clear_prompt_ephemeral_status(message=msg)
         # Just print trailing newline for spinner separation
         self._console.print()
 

@@ -191,6 +191,45 @@ def _allows_busy_command_dispatch(text: str) -> bool:
     return not stripped.startswith("/") or _is_exit_text(stripped)
 
 
+def _run_text_clipboard_command(command: list[str]) -> str | None:
+    import subprocess
+
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=2)
+    except FileNotFoundError:
+        return None
+
+    if result.returncode == 0:
+        return result.stdout
+    return None
+
+
+def _read_text_clipboard_fallback() -> str | None:
+    import platform
+
+    system = platform.system()
+    if system == "Darwin":
+        return _run_text_clipboard_command(["pbpaste"])
+    if system == "Windows":
+        for command in (
+            ["pwsh", "-NoProfile", "-Command", "Get-Clipboard -Raw"],
+            ["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"],
+        ):
+            text = _run_text_clipboard_command(command)
+            if text is not None:
+                return text
+        return None
+
+    for command in (
+        ["xclip", "-selection", "clipboard", "-o"],
+        ["xsel", "--clipboard", "--output"],
+    ):
+        text = _run_text_clipboard_command(command)
+        if text is not None:
+            return text
+    return None
+
+
 def _sanitize_for_encoding(text: str) -> str:
     """Remove or replace characters that can't be safely encoded.
 
@@ -1309,43 +1348,7 @@ async def prompt_for_submission(
         # No image (or error) - do normal text paste
         # prompt_toolkit doesn't have built-in paste, so we handle it manually
         try:
-            import platform
-            import subprocess
-
-            text = None
-            system = platform.system()
-
-            if system == "Darwin":  # macOS
-                result = subprocess.run(
-                    ["pbpaste"], capture_output=True, text=True, timeout=2
-                )
-                if result.returncode == 0:
-                    text = result.stdout
-            elif system == "Windows":
-                # Windows - use powershell
-                result = subprocess.run(
-                    ["powershell", "-command", "Get-Clipboard"],
-                    capture_output=True,
-                    text=True,
-                    timeout=2,
-                )
-                if result.returncode == 0:
-                    text = result.stdout
-            else:  # Linux
-                # Try xclip first, then xsel
-                for cmd in [
-                    ["xclip", "-selection", "clipboard", "-o"],
-                    ["xsel", "--clipboard", "--output"],
-                ]:
-                    try:
-                        result = subprocess.run(
-                            cmd, capture_output=True, text=True, timeout=2
-                        )
-                        if result.returncode == 0:
-                            text = result.stdout
-                            break
-                    except FileNotFoundError:
-                        continue
+            text = _read_text_clipboard_fallback()
 
             if text:
                 # Normalize Windows line endings to Unix style

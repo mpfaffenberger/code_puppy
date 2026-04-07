@@ -730,7 +730,10 @@ class TestTruecolorDetection:
     def test_rich_fallback_truecolor(self):
         """Test Rich fallback detects truecolor."""
         with patch.dict(os.environ, {}, clear=True):
-            with patch("rich.console.Console") as mock_console_class:
+            with (
+                patch("code_puppy.terminal_utils._stream_is_tty", return_value=True),
+                patch("rich.console.Console") as mock_console_class,
+            ):
                 mock_console = MagicMock()
                 mock_console.color_system = "truecolor"
                 mock_console_class.return_value = mock_console
