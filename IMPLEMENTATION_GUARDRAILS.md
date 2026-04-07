@@ -6,3 +6,5 @@
 - When the live prompt surface is active, shell output with carriage-return progress must use the prompt-local ephemeral status strip; ordinary shell lines remain on the durable shell output path.
 - Durable structured outputs like `AGENT REASONING` and `DIRECTORY LISTING` should still render above the prompt.
 - Prompt-surface stream fixes must not duplicate the final `AGENT RESPONSE`.
+- The prompt-local ephemeral status/preview is foreground-only; session-tagged sub-agent messages must never write to it or clear it.
+- Terminal/emulator-specific behavior must flow through the shared terminal-capability helper in `terminal_utils` rather than adding new scattered env checks.

@@ -865,10 +865,47 @@ class TestKeyBindings:
                 return_value=False,
             ),
             patch("platform.system", return_value="Windows"),
-            patch("subprocess.run", return_value=mock_result),
+            patch("subprocess.run", return_value=mock_result) as mock_run,
         ):
             handler(event)
             event.app.current_buffer.insert_text.assert_called()
+            assert mock_run.call_args.args[0] == [
+                "pwsh",
+                "-NoProfile",
+                "-Command",
+                "Get-Clipboard -Raw",
+            ]
+
+    def test_ctrl_v_no_image_windows_falls_back_to_powershell(
+        self, captured_bindings
+    ):
+        handler = self._find_handler(captured_bindings, "c-v")
+        event = MagicMock()
+
+        def run_side_effect(cmd, **kwargs):
+            if cmd[0] == "pwsh":
+                raise FileNotFoundError()
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "windows text\r\n"
+            return result
+
+        with (
+            patch(
+                "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
+                return_value=False,
+            ),
+            patch("platform.system", return_value="Windows"),
+            patch("subprocess.run", side_effect=run_side_effect) as mock_run,
+        ):
+            handler(event)
+            event.app.current_buffer.insert_text.assert_called_with("windows text")
+            assert mock_run.call_args.args[0] == [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "Get-Clipboard -Raw",
+            ]
 
     def test_ctrl_v_no_image_linux(self, captured_bindings):
         handler = self._find_handler(captured_bindings, "c-v")

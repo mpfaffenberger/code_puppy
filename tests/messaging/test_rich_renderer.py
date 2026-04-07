@@ -396,6 +396,17 @@ def test_render_shell_line_with_cr(renderer, console):
     renderer._render_shell_line(msg)
 
 
+def test_render_shell_line_with_cr_without_live_updates_uses_console(renderer, console):
+    msg = ShellLineMessage(line="progress\r50%", stream="stdout")
+    with patch(
+        "code_puppy.messaging.rich_renderer.supports_live_terminal_updates",
+        return_value=False,
+    ):
+        renderer._render_shell_line(msg)
+    out = output(console)
+    assert "50%" in out
+
+
 def test_render_shell_line_with_cr_and_prompt_surface_uses_ephemeral_status(renderer):
     msg = ShellLineMessage(line="\x1b[2Kprogress\r50%", stream="stdout")
     runtime = MagicMock()
@@ -409,6 +420,27 @@ def test_render_shell_line_with_cr_and_prompt_surface_uses_ephemeral_status(rend
         renderer._render_shell_line(msg)
 
     runtime.set_prompt_ephemeral_status.assert_called_once_with("50%")
+    mock_stdout.write.assert_not_called()
+    mock_stdout.flush.assert_not_called()
+
+
+def test_render_shell_line_with_cr_and_prompt_surface_skips_subagent_ephemeral_status(
+    renderer,
+):
+    msg = ShellLineMessage(
+        line="\x1b[2Kprogress\r50%", stream="stdout", session_id="subagent-1"
+    )
+    runtime = MagicMock()
+    runtime.has_prompt_surface.return_value = True
+    mock_stdout = MagicMock()
+
+    with (
+        patch.object(renderer, "_get_prompt_runtime", return_value=runtime),
+        patch("sys.stdout", mock_stdout),
+    ):
+        renderer._render_shell_line(msg)
+
+    runtime.set_prompt_ephemeral_status.assert_not_called()
     mock_stdout.write.assert_not_called()
     mock_stdout.flush.assert_not_called()
 
@@ -432,6 +464,25 @@ def test_render_shell_output_clears_ephemeral_status_when_prompt_surface_active(
         renderer._render_shell_output(msg)
 
     runtime.set_prompt_ephemeral_status.assert_called_once_with(None)
+
+
+def test_render_shell_output_with_session_id_does_not_clear_foreground_ephemeral_status(
+    renderer,
+):
+    msg = ShellOutputMessage(
+        command="ls",
+        exit_code=0,
+        stdout="",
+        stderr="",
+        duration_seconds=0.5,
+        session_id="subagent-1",
+    )
+    runtime = MagicMock()
+
+    with patch.object(renderer, "_get_prompt_runtime", return_value=runtime):
+        renderer._render_shell_output(msg)
+
+    runtime.set_prompt_ephemeral_status.assert_not_called()
 
 
 # =========================================================================
@@ -487,6 +538,27 @@ def test_do_render_agent_response_uses_prompt_runtime(renderer):
 
     runtime.run_above_prompt.assert_called_once()
     runtime.clear_prompt_ephemeral_preview.assert_called_once()
+    mock_render.assert_not_called()
+
+
+def test_do_render_session_tagged_agent_response_does_not_clear_foreground_preview(
+    renderer,
+):
+    msg = AgentResponseMessage(
+        content="plain text", is_markdown=False, session_id="subagent-1"
+    )
+    runtime = MagicMock()
+    runtime.has_prompt_surface.return_value = True
+    runtime.run_above_prompt.return_value = True
+
+    with (
+        patch.object(renderer, "_get_prompt_runtime", return_value=runtime),
+        patch.object(renderer, "_render_agent_response") as mock_render,
+    ):
+        renderer._do_render(msg)
+
+    runtime.run_above_prompt.assert_called_once()
+    runtime.clear_prompt_ephemeral_preview.assert_not_called()
     mock_render.assert_not_called()
 
 
