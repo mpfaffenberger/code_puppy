@@ -341,6 +341,7 @@ class ModelFactory:
             CHATGPT_MODELS_FILE,
             CLAUDE_MODELS_FILE,
             GEMINI_MODELS_FILE,
+            GITHUB_MODELS_FILE,
         )
 
         # Build list of extra model sources
@@ -350,6 +351,7 @@ class ModelFactory:
             (pathlib.Path(CLAUDE_MODELS_FILE), "Claude Code OAuth models", True),
             (pathlib.Path(GEMINI_MODELS_FILE), "Gemini OAuth models", False),
             (pathlib.Path(ANTIGRAVITY_MODELS_FILE), "Antigravity OAuth models", False),
+            (pathlib.Path(GITHUB_MODELS_FILE), "GitHub Models OAuth models", False),
         ]
 
         for source_path, label, use_filtered in extra_sources:
