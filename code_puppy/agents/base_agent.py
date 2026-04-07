@@ -83,7 +83,7 @@ from code_puppy.messaging.spinner import (
     update_spinner_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
-from code_puppy.summarization_agent import run_summarization_sync, SummarizationError
+from code_puppy.summarization_agent import SummarizationError, run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
     is_awaiting_user_input,
@@ -1073,10 +1073,17 @@ class BaseAgent(ABC):
             if compaction_strategy == "truncation":
                 # Use truncation instead of summarization
                 protected_tokens = get_protected_token_count()
-                result_messages = self.truncation(
-                    self.filter_huge_messages(messages), protected_tokens
-                )
-                summarized_messages = []  # No summarization in truncation mode
+                filtered_messages = self.filter_huge_messages(messages)
+                result_messages = self.truncation(filtered_messages, protected_tokens)
+                # Track dropped messages by hash so message_history_accumulator
+                # won't re-inject them from pydantic-ai's full message list on
+                # subsequent calls within the same run (fixes ghost-task bug).
+                result_hashes = {self.hash_message(m) for m in result_messages}
+                summarized_messages = [
+                    m
+                    for m in filtered_messages
+                    if self.hash_message(m) not in result_hashes
+                ]
             else:
                 # Default to summarization (safe to proceed - no pending tool calls)
                 result_messages, summarized_messages = self.summarize_messages(
@@ -1339,7 +1346,7 @@ class BaseAgent(ABC):
         from code_puppy.model_utils import prepare_prompt_for_model
 
         # When extended thinking is active, nudge the model to think between
-        # tool calls (the share_your_reasoning tool is stripped in this case).
+        # tool calls so it uses native reasoning before choosing next actions.
         if has_extended_thinking_active(resolved_model_name):
             instructions += EXTENDED_THINKING_PROMPT_NOTE
 
@@ -1474,7 +1481,6 @@ class BaseAgent(ABC):
             self.pydantic_agent = p_agent
             self._code_generation_agent = p_agent
             self._mcp_servers = filtered_mcp_servers
-            self._mcp_servers = mcp_servers
         return self._code_generation_agent
 
     def _create_agent_with_output_type(self, output_type: Type[Any]) -> PydanticAgent:
@@ -1517,7 +1523,7 @@ class BaseAgent(ABC):
         instructions = prepared.instructions
 
         # When extended thinking is active, nudge the model to think between
-        # tool calls (the share_your_reasoning tool is stripped in this case).
+        # tool calls so it uses native reasoning before choosing next actions.
         if has_extended_thinking_active(resolved_model_name):
             instructions += EXTENDED_THINKING_PROMPT_NOTE
 
@@ -1905,7 +1911,6 @@ class BaseAgent(ABC):
                 ):
                     # Temporarily add MCP servers to the DBOS agent using internal _toolsets
                     original_toolsets = pydantic_agent._toolsets
-                    pydantic_agent._toolsets = original_toolsets + self._mcp_servers
                     pydantic_agent._toolsets = original_toolsets + self._mcp_servers
 
                     try:

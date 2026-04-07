@@ -249,6 +249,94 @@ class TestBaseAgentAccumulator:
         # Should preserve existing messages (just filtering)
         assert len(result) >= 0  # May be filtered if it's empty thinking
 
+    def test_truncation_ghost_task_not_reinjected_on_second_accumulator_call(
+        self, agent, mock_run_context
+    ):
+        """Regression test for the ghost-task bug (reported by Rajeevan V).
+
+        Scenario:
+          1. Task A completes; its response is large and gets dropped when
+             truncation fires at the start of Task B.
+          2. pydantic-ai calls message_history_accumulator a SECOND time after
+             a tool use inside Task B, re-passing the full message list
+             (including the old Task A message).
+          3. Before the fix: Task A's message passed the dedup guard
+             (not in stored history AND not in compacted_message_hashes) and
+             got silently re-injected, confusing the model into re-doing Task A.
+          4. After the fix: its hash is registered in compacted_message_hashes
+             during truncation so the second call ignores it correctly.
+        """
+        # System prompt - always kept
+        system_msg = ModelRequest(parts=[TextPart(content="You are code-puppy.")])
+
+        # Task A completed response - big enough to exceed protected_tokens=50.
+        # estimate_token_count = floor(len / 2.5), so 500 chars = 200 tokens.
+        task_a_msg = ModelResponse(
+            parts=[TextPart(content="Task A result " + "a" * 500)]
+        )
+
+        # Task B user prompt - small, survives truncation
+        task_b_msg = ModelRequest(parts=[TextPart(content="Now do Task B")])
+
+        patches = [
+            patch("code_puppy.agents.base_agent.update_spinner_context"),
+            patch(
+                "code_puppy.agents.base_agent.get_compaction_threshold",
+                return_value=0.0,
+            ),
+            patch(
+                "code_puppy.agents.base_agent.get_compaction_strategy",
+                return_value="truncation",
+            ),
+            patch(
+                "code_puppy.agents.base_agent.get_protected_token_count",
+                return_value=50,
+            ),
+        ]
+
+        def apply_patches(fn):
+            """Apply all patches and call fn inside them."""
+            with patches[0], patches[1], patches[2], patches[3]:
+                return fn()
+
+        # --- First accumulator call (start of Task B) -----------------------
+        apply_patches(
+            lambda: agent.message_history_accumulator(
+                mock_run_context, [system_msg, task_a_msg, task_b_msg]
+            )
+        )
+
+        # Task A must now be in compacted hashes (dropped by truncation)
+        assert agent.hash_message(task_a_msg) in agent.get_compacted_message_hashes()
+
+        # Task B must be in live history; Task A must not
+        live_hashes = {agent.hash_message(m) for m in agent.get_message_history()}
+        assert agent.hash_message(task_b_msg) in live_hashes
+        assert agent.hash_message(task_a_msg) not in live_hashes
+
+        # --- Second accumulator call (after a tool use inside Task B) -------
+        # pydantic-ai replays the full list plus a new tool-result message
+        tool_result_msg = ModelRequest(parts=[TextPart(content="tool result")])
+
+        result = apply_patches(
+            lambda: agent.message_history_accumulator(
+                mock_run_context,
+                [system_msg, task_a_msg, task_b_msg, tool_result_msg],
+            )
+        )
+
+        result_hashes = {agent.hash_message(m) for m in result}
+
+        # Ghost must stay dead - Task A's message must NOT reappear
+        assert agent.hash_message(task_a_msg) not in result_hashes, (
+            "Ghost-task bug: Task A was re-injected on the second accumulator "
+            "call despite being dropped by truncation."
+        )
+
+        # Current task and tool result must be present
+        assert agent.hash_message(task_b_msg) in result_hashes
+        assert agent.hash_message(tool_result_msg) in result_hashes
+
     def test_message_history_accumulator_hash_stability(self, agent, mock_run_context):
         """Test that message hashes are stable for the same content."""
         # Create two messages with identical content

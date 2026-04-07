@@ -287,6 +287,7 @@ def get_config_keys():
         "queue_limit",
         "allow_recursion",
         "openai_reasoning_effort",
+        "openai_reasoning_summary",
         "openai_verbosity",
         "auto_save_session",
         "max_saved_sessions",
@@ -610,6 +611,32 @@ def set_openai_reasoning_effort(value: str) -> None:
             f"Invalid reasoning effort '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
         )
     set_config_value("openai_reasoning_effort", normalized)
+
+
+def get_openai_reasoning_summary() -> str:
+    """Return the configured OpenAI reasoning summary mode.
+
+    Supported values:
+    - auto: let the provider decide the best summary style
+    - concise: shorter reasoning summaries
+    - detailed: fuller reasoning summaries
+    """
+    allowed_values = {"auto", "concise", "detailed"}
+    configured = (get_value("openai_reasoning_summary") or "auto").strip().lower()
+    if configured not in allowed_values:
+        return "auto"
+    return configured
+
+
+def set_openai_reasoning_summary(value: str) -> None:
+    """Persist the OpenAI reasoning summary mode ensuring it remains valid."""
+    allowed_values = {"auto", "concise", "detailed"}
+    normalized = (value or "").strip().lower()
+    if normalized not in allowed_values:
+        raise ValueError(
+            f"Invalid reasoning summary '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
+        )
+    set_config_value("openai_reasoning_summary", normalized)
 
 
 def get_openai_verbosity() -> str:

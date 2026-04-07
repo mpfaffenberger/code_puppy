@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 from code_puppy.tools import (
+    REMOVED_LEGACY_TOOLS,
     TOOL_REGISTRY,
     get_available_tool_names,
     has_extended_thinking_active,
@@ -23,7 +24,6 @@ class TestToolRegistration:
             "edit_file",
             "delete_file",
             "agent_run_shell_command",
-            "agent_share_your_reasoning",
             "list_agents",
             "invoke_agent",
         ]
@@ -46,6 +46,7 @@ class TestToolRegistration:
 
         assert isinstance(tools, list)
         assert len(tools) == len(TOOL_REGISTRY)
+        assert "agent_share_your_reasoning" in tools
 
         for tool in tools:
             assert tool in TOOL_REGISTRY
@@ -106,9 +107,8 @@ class TestToolRegistration:
         assert True
 
 
-class TestExtendedThinkingReasoningToolSkip:
-    """Test that agent_share_your_reasoning is dynamically skipped
-    when Anthropic models have extended thinking enabled or adaptive."""
+class TestRemovedReasoningToolBehavior:
+    """Test that the retired reasoning tool is hidden from agent-facing use."""
 
     def testhas_extended_thinking_active_none_model(self):
         """Returns False when model_name is None and global model is None."""
@@ -163,98 +163,22 @@ class TestExtendedThinkingReasoningToolSkip:
         mock_settings.return_value = {}  # No extended_thinking key
         assert has_extended_thinking_active("claude-sonnet-4-20250514") is True
 
-    @patch("code_puppy.tools.has_extended_thinking_active", return_value=True)
-    def test_reasoning_tool_skipped_when_thinking_active(self, mock_thinking):
-        """agent_share_your_reasoning is NOT registered when thinking is active."""
+    def test_legacy_reasoning_tool_remains_in_registry_for_custom_agents(self):
+        """Custom JSON agents can still request the legacy reasoning tool."""
+        assert "agent_share_your_reasoning" in TOOL_REGISTRY
+        assert "agent_share_your_reasoning" not in REMOVED_LEGACY_TOOLS
+
+    @patch("code_puppy.tools.emit_warning")
+    def test_legacy_reasoning_tool_can_be_registered_without_warning(
+        self, mock_warning
+    ):
+        """Old custom agent configs should still register the legacy tool cleanly."""
         mock_agent = MagicMock()
 
-        # Track which register functions are called
-        called_tools = []
-        TOOL_REGISTRY.copy()
+        register_tools_for_agent(
+            mock_agent,
+            ["list_files", "agent_share_your_reasoning"],
+            model_name="chatgpt-gpt-5.4",
+        )
 
-        def make_tracker(name):
-            def tracker(agent):
-                called_tools.append(name)
-
-            return tracker
-
-        with patch.dict(
-            "code_puppy.tools.TOOL_REGISTRY",
-            {
-                "list_files": make_tracker("list_files"),
-                "agent_share_your_reasoning": make_tracker(
-                    "agent_share_your_reasoning"
-                ),
-            },
-            clear=True,
-        ):
-            register_tools_for_agent(
-                mock_agent,
-                ["list_files", "agent_share_your_reasoning"],
-                model_name="claude-sonnet-4-20250514",
-            )
-
-        assert "list_files" in called_tools
-        assert "agent_share_your_reasoning" not in called_tools
-
-    @patch("code_puppy.tools.has_extended_thinking_active", return_value=False)
-    def test_reasoning_tool_registered_when_thinking_off(self, mock_thinking):
-        """agent_share_your_reasoning IS registered when thinking is off."""
-        mock_agent = MagicMock()
-
-        called_tools = []
-
-        def make_tracker(name):
-            def tracker(agent):
-                called_tools.append(name)
-
-            return tracker
-
-        with patch.dict(
-            "code_puppy.tools.TOOL_REGISTRY",
-            {
-                "list_files": make_tracker("list_files"),
-                "agent_share_your_reasoning": make_tracker(
-                    "agent_share_your_reasoning"
-                ),
-            },
-            clear=True,
-        ):
-            register_tools_for_agent(
-                mock_agent,
-                ["list_files", "agent_share_your_reasoning"],
-                model_name="gpt-4o",
-            )
-
-        assert "list_files" in called_tools
-        assert "agent_share_your_reasoning" in called_tools
-
-    @patch("code_puppy.tools.has_extended_thinking_active", return_value=False)
-    def test_reasoning_tool_registered_for_non_anthropic(self, mock_thinking):
-        """Non-Anthropic models always get the reasoning tool."""
-        mock_agent = MagicMock()
-
-        called_tools = []
-
-        def make_tracker(name):
-            def tracker(agent):
-                called_tools.append(name)
-
-            return tracker
-
-        with patch.dict(
-            "code_puppy.tools.TOOL_REGISTRY",
-            {
-                "agent_share_your_reasoning": make_tracker(
-                    "agent_share_your_reasoning"
-                ),
-            },
-            clear=True,
-        ):
-            register_tools_for_agent(
-                mock_agent,
-                ["agent_share_your_reasoning"],
-                model_name="gemini-2.5-pro",
-            )
-
-        assert "agent_share_your_reasoning" in called_tools
+        mock_warning.assert_not_called()

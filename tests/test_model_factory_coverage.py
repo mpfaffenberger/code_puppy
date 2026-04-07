@@ -577,7 +577,7 @@ class TestClaudeCodeModel:
                                 "code_puppy.claude_cache_client.patch_anthropic_client_messages"
                             ):
                                 with patch(
-                                    "pydantic_ai.providers.anthropic.AnthropicProvider"
+                                    "code_puppy.plugins.claude_code_oauth.register_callbacks.make_anthropic_provider"
                                 ):
                                     with patch(
                                         "pydantic_ai.models.anthropic.AnthropicModel"
@@ -590,6 +590,65 @@ class TestClaudeCodeModel:
                                                 "claude-code-test", config
                                             )
                                             mock_model.assert_called_once()
+
+    def test_claude_code_provider_name_is_distinct(self):
+        """Test claude_code models use a distinct runtime provider identity."""
+        from types import SimpleNamespace
+
+        from code_puppy.model_factory import ModelFactory
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _create_claude_code_model,
+        )
+        from code_puppy.provider_identity import AliasedAnthropicProvider
+
+        config = {
+            "claude-code-test": {
+                "type": "claude_code",
+                "provider": "claude_code",
+                "name": "claude-3-opus",
+                "custom_endpoint": {
+                    "url": "https://api.anthropic.com",
+                    "api_key": "test-key",
+                },
+            }
+        }
+
+        mock_handler_return = [
+            {"type": "claude_code", "handler": _create_claude_code_model}
+        ]
+        created_provider = None
+
+        def fake_model(*, model_name, provider):
+            nonlocal created_provider
+            created_provider = provider
+            return SimpleNamespace(model_name=model_name, provider=provider)
+
+        with patch(
+            "code_puppy.model_factory.callbacks.on_register_model_types",
+            return_value=mock_handler_return,
+        ):
+            with patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None):
+                with patch("code_puppy.http_utils.get_http2", return_value=True):
+                    with patch("code_puppy.claude_cache_client.ClaudeCacheAsyncClient"):
+                        with patch("anthropic.AsyncAnthropic"):
+                            with patch(
+                                "code_puppy.claude_cache_client.patch_anthropic_client_messages"
+                            ):
+                                with patch(
+                                    "pydantic_ai.models.anthropic.AnthropicModel",
+                                    side_effect=fake_model,
+                                ):
+                                    with patch(
+                                        "code_puppy.config.get_effective_model_settings",
+                                        return_value={"interleaved_thinking": True},
+                                    ):
+                                        model = ModelFactory.get_model(
+                                            "claude-code-test", config
+                                        )
+
+        assert isinstance(created_provider, AliasedAnthropicProvider)
+        assert created_provider.name == "claude_code"
+        assert model.provider.name == "claude_code"
 
     def test_claude_code_model_interleaved_thinking_header(self):
         """Test interleaved thinking header handling."""
@@ -628,7 +687,7 @@ class TestClaudeCodeModel:
                                 "code_puppy.claude_cache_client.patch_anthropic_client_messages"
                             ):
                                 with patch(
-                                    "pydantic_ai.providers.anthropic.AnthropicProvider"
+                                    "code_puppy.plugins.claude_code_oauth.register_callbacks.make_anthropic_provider"
                                 ):
                                     with patch(
                                         "pydantic_ai.models.anthropic.AnthropicModel"
@@ -687,7 +746,7 @@ class TestClaudeCodeModel:
                                 "code_puppy.claude_cache_client.patch_anthropic_client_messages"
                             ):
                                 with patch(
-                                    "pydantic_ai.providers.anthropic.AnthropicProvider"
+                                    "code_puppy.plugins.claude_code_oauth.register_callbacks.make_anthropic_provider"
                                 ):
                                     with patch(
                                         "pydantic_ai.models.anthropic.AnthropicModel"
@@ -750,7 +809,7 @@ class TestClaudeCodeModel:
                                     "code_puppy.claude_cache_client.patch_anthropic_client_messages"
                                 ):
                                     with patch(
-                                        "pydantic_ai.providers.anthropic.AnthropicProvider"
+                                        "code_puppy.plugins.claude_code_oauth.register_callbacks.make_anthropic_provider"
                                     ):
                                         with patch(
                                             "pydantic_ai.models.anthropic.AnthropicModel"
@@ -806,6 +865,43 @@ class TestClaudeCodeModel:
                     mock_warn.assert_called()
 
 
+class TestProviderIdentityResolution:
+    def test_resolve_provider_identity_precedence(self):
+        from code_puppy.provider_identity import resolve_provider_identity
+
+        assert (
+            resolve_provider_identity(
+                "custom-model",
+                {"type": "custom_anthropic", "provider": "minimax"},
+            )
+            == "minimax"
+        )
+        assert (
+            resolve_provider_identity("whatever", {"type": "claude_code"})
+            == "claude_code"
+        )
+        assert resolve_provider_identity("openrouter-foo", {}) == "openrouter"
+        assert resolve_provider_identity("chatgpt-gpt-5", {}) == "chatgpt"
+        assert (
+            resolve_provider_identity("custom-model", {"type": "custom_openai"})
+            == "custom_openai"
+        )
+
+    def test_minimax_and_claude_code_resolve_to_different_provider_identities(self):
+        from code_puppy.provider_identity import resolve_provider_identity
+
+        minimax_provider = resolve_provider_identity(
+            "minimax-text-01", {"type": "custom_anthropic", "provider": "minimax"}
+        )
+        claude_code_provider = resolve_provider_identity(
+            "claude-code-sonnet", {"type": "claude_code"}
+        )
+
+        assert minimax_provider == "minimax"
+        assert claude_code_provider == "claude_code"
+        assert minimax_provider != claude_code_provider
+
+
 class TestCustomAnthropicModel:
     """Test custom_anthropic model type."""
 
@@ -831,7 +927,9 @@ class TestCustomAnthropicModel:
                         with patch(
                             "code_puppy.model_factory.patch_anthropic_client_messages"
                         ):
-                            with patch("code_puppy.model_factory.AnthropicProvider"):
+                            with patch(
+                                "code_puppy.model_factory.make_anthropic_provider"
+                            ):
                                 with patch(
                                     "code_puppy.model_factory.AnthropicModel"
                                 ) as mock_model:
@@ -841,6 +939,61 @@ class TestCustomAnthropicModel:
                                     ):
                                         ModelFactory.get_model("custom-claude", config)
                                         mock_model.assert_called_once()
+                                        provider_args = (
+                                            mock_model.call_args.kwargs["provider"]
+                                            if mock_model.call_args
+                                            else None
+                                        )
+                                        assert provider_args is not None
+
+    def test_custom_anthropic_provider_name_uses_resolved_identity(self):
+        """Test custom_anthropic provider gets a distinct runtime identity."""
+        from types import SimpleNamespace
+
+        from code_puppy.model_factory import ModelFactory
+        from code_puppy.provider_identity import AliasedAnthropicProvider
+
+        config = {
+            "minimax-claude": {
+                "type": "custom_anthropic",
+                "provider": "minimax",
+                "name": "claude-3-opus",
+                "custom_endpoint": {
+                    "url": "https://api.minimax.io/anthropic",
+                    "api_key": "custom-api-key",
+                },
+            }
+        }
+
+        created_provider = None
+
+        def fake_model(*, model_name, provider):
+            nonlocal created_provider
+            created_provider = provider
+            return SimpleNamespace(model_name=model_name, provider=provider)
+
+        with patch("code_puppy.model_factory.get_cert_bundle_path", return_value=None):
+            with patch("code_puppy.model_factory.get_http2", return_value=True):
+                with patch("code_puppy.model_factory.ClaudeCacheAsyncClient"):
+                    with patch("code_puppy.model_factory.AsyncAnthropic"):
+                        with patch(
+                            "code_puppy.model_factory.patch_anthropic_client_messages"
+                        ):
+                            with patch(
+                                "code_puppy.model_factory.AnthropicModel",
+                                side_effect=fake_model,
+                            ):
+                                with patch(
+                                    "code_puppy.config.get_effective_model_settings",
+                                    return_value={},
+                                ):
+                                    model = ModelFactory.get_model(
+                                        "minimax-claude", config
+                                    )
+
+        assert isinstance(created_provider, AliasedAnthropicProvider)
+        assert created_provider.name == "minimax"
+        assert model.provider.name == "minimax"
 
     def test_custom_anthropic_interleaved_thinking(self):
         """Test custom_anthropic with interleaved thinking."""
@@ -866,7 +1019,9 @@ class TestCustomAnthropicModel:
                         with patch(
                             "code_puppy.model_factory.patch_anthropic_client_messages"
                         ):
-                            with patch("code_puppy.model_factory.AnthropicProvider"):
+                            with patch(
+                                "code_puppy.model_factory.make_anthropic_provider"
+                            ):
                                 with patch("code_puppy.model_factory.AnthropicModel"):
                                     with patch(
                                         "code_puppy.config.get_effective_model_settings",
@@ -1041,7 +1196,7 @@ class TestOpenAICodexModels:
         }
 
         with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
-            with patch("code_puppy.model_factory.OpenAIProvider"):
+            with patch("code_puppy.model_factory.make_openai_provider"):
                 with patch(
                     "code_puppy.model_factory.OpenAIResponsesModel"
                 ) as mock_responses:
@@ -1065,12 +1220,37 @@ class TestOpenAICodexModels:
         }
 
         with patch("code_puppy.model_factory.create_async_client"):
-            with patch("code_puppy.model_factory.OpenAIProvider"):
+            with patch("code_puppy.model_factory.make_openai_provider"):
                 with patch(
                     "code_puppy.model_factory.OpenAIResponsesModel"
                 ) as mock_responses:
                     ModelFactory.get_model("chatgpt-gpt-5-codex", config)
                     mock_responses.assert_called_once()
+
+
+class TestOpenAIProviderIdentity:
+    def test_custom_openai_provider_name_uses_resolved_identity(self):
+        """Test custom_openai provider gets a distinct runtime identity."""
+        from code_puppy.model_factory import ModelFactory
+        from code_puppy.provider_identity import AliasedOpenAIProvider
+
+        config = {
+            "minimax-openai": {
+                "type": "custom_openai",
+                "provider": "minimax",
+                "name": "minimax-text-01",
+                "custom_endpoint": {
+                    "url": "https://api.minimax.io/openai/v1",
+                    "api_key": "custom-api-key",
+                },
+            }
+        }
+
+        with patch("code_puppy.model_factory.create_async_client"):
+            model = ModelFactory.get_model("minimax-openai", config)
+
+        assert isinstance(model.provider, AliasedOpenAIProvider)
+        assert model.provider.name == "minimax"
 
 
 class TestZaiApiModel:
@@ -1088,7 +1268,9 @@ class TestZaiApiModel:
         }
 
         with patch.dict(os.environ, {"ZAI_API_KEY": "test-zai-key"}):
-            with patch("code_puppy.model_factory.OpenAIProvider") as mock_provider:
+            with patch(
+                "code_puppy.model_factory.make_openai_provider"
+            ) as mock_provider:
                 model = ModelFactory.get_model("zai-api-test", config)
                 assert model is not None
                 # Check base_url for ZAI API
@@ -1133,7 +1315,7 @@ class TestAzureOpenAIExtended:
         }
 
         with patch("code_puppy.model_factory.AsyncAzureOpenAI") as mock_azure:
-            with patch("code_puppy.model_factory.OpenAIProvider"):
+            with patch("code_puppy.model_factory.make_openai_provider"):
                 with patch("code_puppy.model_factory.OpenAIChatModel"):
                     ModelFactory.get_model("azure-test", config)
                     call_args = mock_azure.call_args
@@ -1155,7 +1337,7 @@ class TestAzureOpenAIExtended:
 
         with patch.dict(os.environ, {"AZURE_API_VERSION": "2024-02-15-preview"}):
             with patch("code_puppy.model_factory.AsyncAzureOpenAI") as mock_azure:
-                with patch("code_puppy.model_factory.OpenAIProvider"):
+                with patch("code_puppy.model_factory.make_openai_provider"):
                     with patch("code_puppy.model_factory.OpenAIChatModel"):
                         ModelFactory.get_model("azure-test", config)
                         call_args = mock_azure.call_args
@@ -1443,7 +1625,7 @@ class TestAnthropicInterleaved:
                                 "code_puppy.model_factory.patch_anthropic_client_messages"
                             ):
                                 with patch(
-                                    "code_puppy.model_factory.AnthropicProvider"
+                                    "code_puppy.model_factory.make_anthropic_provider"
                                 ):
                                     with patch(
                                         "code_puppy.model_factory.AnthropicModel"
@@ -1490,7 +1672,7 @@ class TestAnthropicInterleaved:
                                 "code_puppy.model_factory.patch_anthropic_client_messages"
                             ):
                                 with patch(
-                                    "code_puppy.model_factory.AnthropicProvider"
+                                    "code_puppy.model_factory.make_anthropic_provider"
                                 ):
                                     with patch(
                                         "code_puppy.model_factory.AnthropicModel"

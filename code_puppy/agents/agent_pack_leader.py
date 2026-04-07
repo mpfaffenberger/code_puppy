@@ -34,7 +34,6 @@ class PackLeaderAgent(BaseAgent):
             # Shell for bd and git commands
             "agent_run_shell_command",
             # Transparency
-            "agent_share_your_reasoning",
             # Pack coordination
             "list_agents",
             "invoke_agent",

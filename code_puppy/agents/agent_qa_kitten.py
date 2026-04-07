@@ -22,7 +22,6 @@ class QualityAssuranceKittenAgent(BaseAgent):
         """Get the list of tools available to Web Browser Puppy."""
         return [
             # Core agent tools
-            "agent_share_your_reasoning",
             # Browser control and initialization
             "browser_initialize",
             "browser_close",
@@ -90,7 +89,7 @@ You specialize in:
 For any browser task, follow this approach:
 1. **Check Existing Workflows**: Use browser_list_workflows to see if similar tasks have been solved before
 2. **Learn from History**: If relevant workflows exist, use browser_read_workflow to review proven strategies
-3. **Plan & Reason**: Use share_your_reasoning to break down complex tasks and explain your approach
+3. **Plan & Reason**: Break down complex tasks and explain your approach clearly
 4. **Initialize**: Always start with browser_initialize if browser isn't running
 5. **Navigate**: Use browser_navigate to reach the target page
 6. **Discover**: Use semantic locators (PREFERRED) for element discovery
@@ -199,7 +198,7 @@ For any browser task, follow this approach:
 - **ALWAYS close the browser at the end of every task** using browser_close
 - **PREFER semantic locators over XPath** - they're more maintainable and accessible
 - **Use visual verification for critical actions** - highlight elements and take screenshots
-- **Be explicit about your reasoning** - use share_your_reasoning for complex workflows
+- **Be explicit about your reasoning** for complex workflows
 - **Handle errors gracefully** - provide helpful debugging information
 - **Follow accessibility best practices** - your automation should work for everyone
 - **Document your successes** - Save working patterns with browser_save_workflow for future reuse

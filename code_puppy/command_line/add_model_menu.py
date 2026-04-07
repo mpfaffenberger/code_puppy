@@ -17,6 +17,12 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
+from code_puppy.command_line.pagination import (
+    ensure_visible_page,
+    get_page_bounds,
+    get_page_for_index,
+    get_total_pages,
+)
 from code_puppy.command_line.utils import safe_input
 from code_puppy.config import EXTRA_MODELS_FILE, set_config_value
 from code_puppy.messaging import emit_error, emit_info, emit_warning
@@ -49,6 +55,34 @@ UNSUPPORTED_PROVIDERS = {
     "v0": "Vercel v0 - not yet supported",
     "ollama-cloud": "Requires user-specific Ollama instance URL",
 }
+
+
+PROVIDER_IDENTITY_MAPPING = {
+    "openai": "openai",
+    "anthropic": "anthropic",
+    "google": "google",
+    "google-vertex": "google",
+    "mistral": "mistral",
+    "groq": "groq",
+    "together-ai": "together_ai",
+    "fireworks": "fireworks",
+    "deepseek": "deepseek",
+    "openrouter": "openrouter",
+    "cerebras": "cerebras",
+    "cohere": "cohere",
+    "perplexity": "perplexity",
+    "minimax": "minimax",
+    "azure-openai": "azure_openai",
+    "xai": "xai",
+}
+
+
+def derive_provider_identity(provider: ProviderInfo) -> str:
+    """Derive the persisted provider identity for imported models."""
+    provider_id = (provider.id or "").strip()
+    if not provider_id:
+        return "unknown"
+    return PROVIDER_IDENTITY_MAPPING.get(provider_id, provider_id.replace("-", "_"))
 
 
 class AddModelMenu:
@@ -121,6 +155,49 @@ class AddModelMenu:
             return self.selected_model_idx == len(self.current_models)
         return False
 
+    def _get_total_items(self) -> int:
+        """Return the number of items in the active list view."""
+        if self.view_mode == "providers":
+            return len(self.providers)
+        return len(self.current_models) + 1
+
+    def _get_selected_index(self) -> int:
+        """Return the selected absolute index for the active list view."""
+        if self.view_mode == "providers":
+            return self.selected_provider_idx
+        return self.selected_model_idx
+
+    def _set_selected_index(self, index: int) -> None:
+        """Set the selected absolute index for the active list view."""
+        if self.view_mode == "providers":
+            self.selected_provider_idx = index
+        else:
+            self.selected_model_idx = index
+
+    def _ensure_selection_visible(self) -> None:
+        """Keep the selected item on the current page."""
+        self.current_page = ensure_visible_page(
+            self._get_selected_index(),
+            self.current_page,
+            self._get_total_items(),
+            PAGE_SIZE,
+        )
+
+    def _go_to_previous_page(self) -> None:
+        """Move to the previous page and select its first item."""
+        if self.current_page <= 0:
+            return
+        self.current_page -= 1
+        self._set_selected_index(self.current_page * PAGE_SIZE)
+
+    def _go_to_next_page(self) -> None:
+        """Move to the next page and select its first item."""
+        total_pages = get_total_pages(self._get_total_items(), PAGE_SIZE)
+        if self.current_page >= total_pages - 1:
+            return
+        self.current_page += 1
+        self._set_selected_index(self.current_page * PAGE_SIZE)
+
     def _render_provider_list(self) -> List:
         """Render the provider list panel."""
         lines = []
@@ -135,9 +212,12 @@ class AddModelMenu:
             return lines
 
         # Show providers for current page
-        total_pages = (len(self.providers) + PAGE_SIZE - 1) // PAGE_SIZE
-        start_idx = self.current_page * PAGE_SIZE
-        end_idx = min(start_idx + PAGE_SIZE, len(self.providers))
+        total_pages = get_total_pages(len(self.providers), PAGE_SIZE)
+        start_idx, end_idx = get_page_bounds(
+            self.current_page,
+            len(self.providers),
+            PAGE_SIZE,
+        )
 
         for i in range(start_idx, end_idx):
             provider = self.providers[i]
@@ -183,9 +263,8 @@ class AddModelMenu:
 
         # Total items = models + 1 for custom model option
         total_items = len(self.current_models) + 1
-        total_pages = (total_items + PAGE_SIZE - 1) // PAGE_SIZE
-        start_idx = self.current_page * PAGE_SIZE
-        end_idx = min(start_idx + PAGE_SIZE, total_items)
+        total_pages = get_total_pages(total_items, PAGE_SIZE)
+        start_idx, end_idx = get_page_bounds(self.current_page, total_items, PAGE_SIZE)
 
         # Render models from the current page
         for i in range(start_idx, end_idx):
@@ -589,6 +668,7 @@ class AddModelMenu:
 
         config: dict = {
             "type": model_type,
+            "provider": derive_provider_identity(provider),
             "name": model_name,
         }
 
@@ -665,7 +745,7 @@ class AddModelMenu:
         self.current_models = self.registry.get_models(provider.id)
         self.view_mode = "models"
         self.selected_model_idx = 0
-        self.current_page = 0
+        self.current_page = get_page_for_index(self.selected_model_idx, PAGE_SIZE)
         self.update_display()
 
     def _go_back_to_providers(self):
@@ -674,7 +754,7 @@ class AddModelMenu:
         self.current_provider = None
         self.current_models = []
         self.selected_model_idx = 0
-        self.current_page = 0
+        self.current_page = get_page_for_index(self.selected_provider_idx, PAGE_SIZE)
         self.update_display()
 
     def _add_current_model(self):
@@ -900,11 +980,11 @@ class AddModelMenu:
             if self.view_mode == "providers":
                 if self.selected_provider_idx > 0:
                     self.selected_provider_idx -= 1
-                    self.current_page = self.selected_provider_idx // PAGE_SIZE
+                    self._ensure_selection_visible()
             else:  # models view
                 if self.selected_model_idx > 0:
                     self.selected_model_idx -= 1
-                    self.current_page = self.selected_model_idx // PAGE_SIZE
+                    self._ensure_selection_visible()
             self.update_display()
 
         @kb.add("down")
@@ -913,43 +993,25 @@ class AddModelMenu:
             if self.view_mode == "providers":
                 if self.selected_provider_idx < len(self.providers) - 1:
                     self.selected_provider_idx += 1
-                    self.current_page = self.selected_provider_idx // PAGE_SIZE
+                    self._ensure_selection_visible()
             else:  # models view - include custom model option at the end
                 # Max index is len(current_models) which is the "Custom model" option
                 if self.selected_model_idx < len(self.current_models):
                     self.selected_model_idx += 1
-                    self.current_page = self.selected_model_idx // PAGE_SIZE
+                    self._ensure_selection_visible()
             self.update_display()
 
         @kb.add("left")
         def _(event):
             """Previous page."""
-            if self.current_page > 0:
-                self.current_page -= 1
-                # Update selected index to first item on new page
-                if self.view_mode == "providers":
-                    self.selected_provider_idx = self.current_page * PAGE_SIZE
-                else:
-                    self.selected_model_idx = self.current_page * PAGE_SIZE
-                self.update_display()
+            self._go_to_previous_page()
+            self.update_display()
 
         @kb.add("right")
         def _(event):
             """Next page."""
-            if self.view_mode == "providers":
-                total_items = len(self.providers)
-            else:
-                total_items = len(self.current_models) + 1  # +1 for custom model option
-
-            total_pages = (total_items + PAGE_SIZE - 1) // PAGE_SIZE
-            if self.current_page < total_pages - 1:
-                self.current_page += 1
-                # Update selected index to first item on new page
-                if self.view_mode == "providers":
-                    self.selected_provider_idx = self.current_page * PAGE_SIZE
-                else:
-                    self.selected_model_idx = self.current_page * PAGE_SIZE
-                self.update_display()
+            self._go_to_next_page()
+            self.update_display()
 
         @kb.add("enter")
         def _(event):

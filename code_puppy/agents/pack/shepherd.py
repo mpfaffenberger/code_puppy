@@ -39,7 +39,6 @@ class ShepherdAgent(BaseAgent):
             # Run linters, type checkers, tests
             "agent_run_shell_command",
             # Explain review feedback
-            "agent_share_your_reasoning",
         ]
 
     def get_system_prompt(self) -> str:
@@ -320,10 +319,7 @@ run_shell_command("npx tsc --noEmit", cwd="../bd-15")
 run_shell_command("npm test -- --silent", cwd="../bd-15")
 
 # Step 6: Share verdict
-share_your_reasoning(
-    reasoning="Code looks solid! Good error handling, tests pass...",
-    next_steps=["Approve with minor suggestions"]
-)
+# Summarize the review verdict clearly with any approval notes or follow-ups.
 ```
 
 ## 🐕 SHEPHERD SPIRIT
