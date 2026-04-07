@@ -8,7 +8,9 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from code_puppy.command_line.shell_passthrough import (
+    _AMBIGUOUS_CLI_COMMANDS,
     _BANNER_NAME,
+    _SHELL_INTENT_RE,
     KNOWN_CLI_COMMANDS,
     SHELL_PASSTHROUGH_PREFIX,
     _format_banner,
@@ -77,46 +79,74 @@ class TestIsKnownCliCommand:
     Users should be able to type ``ls -la`` or ``git status`` directly and
     have Code Puppy route the input to the shell without touching the AI agent
     (zero tokens consumed).
+
+    The detection uses a three-stage filter:
+      1. First word must be in KNOWN_CLI_COMMANDS.
+      2. Executable must exist on PATH (shutil.which).
+      3. Ambiguous English words (find, open, …) require shell-intent evidence.
     """
 
     # ── Positive cases ────────────────────────────────────────────────────
 
     def test_ls_alone(self):
         """Bare `ls` is a known CLI command."""
-        assert is_known_cli_command("ls") is True
+        with patch("shutil.which", return_value="/bin/ls"):
+            assert is_known_cli_command("ls") is True
 
     def test_ls_with_flags(self):
         """`ls -la` is auto-detected."""
-        assert is_known_cli_command("ls -la") is True
+        with patch("shutil.which", return_value="/bin/ls"):
+            assert is_known_cli_command("ls -la") is True
 
     def test_ls_pipe_grep(self):
-        """`ls | grep test` is auto-detected via the leading `ls`."""
-        assert is_known_cli_command("ls | grep test") is True
+        """`ls | grep test` is auto-detected — pipe is shell-intent evidence."""
+        with patch("shutil.which", return_value="/bin/ls"):
+            assert is_known_cli_command("ls | grep test") is True
 
     def test_git_status(self):
         """`git status` is auto-detected."""
-        assert is_known_cli_command("git status") is True
+        with patch("shutil.which", return_value="/usr/bin/git"):
+            assert is_known_cli_command("git status") is True
 
-    def test_grep_pattern(self):
-        """`grep -r foo .` is auto-detected."""
-        assert is_known_cli_command("grep -r foo .") is True
+    def test_grep_pattern_with_flag(self):
+        """`grep -r foo .` is auto-detected (has a flag)."""
+        with patch("shutil.which", return_value="/bin/grep"):
+            assert is_known_cli_command("grep -r foo .") is True
 
-    def test_pwd(self):
-        """Single-word known command is accepted."""
-        assert is_known_cli_command("pwd") is True
+    def test_pwd_single_word(self):
+        """Single-word known command is accepted without shell-intent check."""
+        with patch("shutil.which", return_value="/bin/pwd"):
+            assert is_known_cli_command("pwd") is True
 
     def test_leading_whitespace(self):
         """Leading whitespace before a known command is tolerated."""
-        assert is_known_cli_command("  ls -la") is True
+        with patch("shutil.which", return_value="/bin/ls"):
+            assert is_known_cli_command("  ls -la") is True
 
     def test_case_insensitive_first_word(self):
         """First-word check is case-insensitive (LS → ls)."""
-        assert is_known_cli_command("LS -la") is True
+        with patch("shutil.which", return_value="/bin/ls"):
+            assert is_known_cli_command("LS -la") is True
 
     def test_known_commands_set_non_empty(self):
         """KNOWN_CLI_COMMANDS must contain at least the basics."""
         for cmd in ("ls", "git", "grep", "cat", "pwd", "find"):
             assert cmd in KNOWN_CLI_COMMANDS
+
+    def test_find_with_flag_passes_ambiguity_guard(self):
+        """`find . -name foo` has a flag → passes ambiguity guard."""
+        with patch("shutil.which", return_value="/usr/bin/find"):
+            assert is_known_cli_command("find . -name foo") is True
+
+    def test_find_with_path_passes_ambiguity_guard(self):
+        """`find ./src` has a path → passes ambiguity guard."""
+        with patch("shutil.which", return_value="/usr/bin/find"):
+            assert is_known_cli_command("find ./src") is True
+
+    def test_find_with_pipe_passes_ambiguity_guard(self):
+        """`find . | head` has a pipe → passes ambiguity guard."""
+        with patch("shutil.which", return_value="/usr/bin/find"):
+            assert is_known_cli_command("find . | head") is True
 
     # ── Negative cases ────────────────────────────────────────────────────
 
@@ -143,6 +173,54 @@ class TestIsKnownCliCommand:
     def test_whitespace_only(self):
         """Whitespace-only input is not a CLI command."""
         assert is_known_cli_command("   ") is False
+
+    def test_command_not_on_path_rejected(self):
+        """Known command name is rejected when not installed on PATH."""
+        with patch("shutil.which", return_value=None):
+            assert is_known_cli_command("kubectl get pods") is False
+
+    # ── Ambiguity guard (stage 3) ─────────────────────────────────────────
+
+    def test_find_natural_language_blocked(self):
+        """`find memory leak in parser` looks like NL — blocked by ambiguity guard."""
+        with patch("shutil.which", return_value="/usr/bin/find"):
+            assert is_known_cli_command("find memory leak in parser") is False
+
+    def test_open_natural_language_blocked(self):
+        """`open the config file` looks like NL — blocked."""
+        with patch("shutil.which", return_value="/usr/bin/open"):
+            assert is_known_cli_command("open the config file") is False
+
+    def test_date_natural_language_blocked(self):
+        """`date of the last release` looks like NL — blocked."""
+        with patch("shutil.which", return_value="/bin/date"):
+            assert is_known_cli_command("date of the last release") is False
+
+    def test_type_natural_language_blocked(self):
+        """`type the password` looks like NL — blocked."""
+        with patch("shutil.which", return_value="/usr/bin/type"):
+            assert is_known_cli_command("type the password") is False
+
+    def test_ambiguous_set_contains_expected_words(self):
+        """_AMBIGUOUS_CLI_COMMANDS must include the risky English words."""
+        for word in ("find", "open", "date", "type", "history", "who"):
+            assert word in _AMBIGUOUS_CLI_COMMANDS
+
+    def test_shell_intent_re_matches_flag(self):
+        """_SHELL_INTENT_RE detects a CLI flag."""
+        assert _SHELL_INTENT_RE.search("find . -name foo") is not None
+
+    def test_shell_intent_re_matches_pipe(self):
+        """_SHELL_INTENT_RE detects a pipe operator."""
+        assert _SHELL_INTENT_RE.search("find . | head") is not None
+
+    def test_shell_intent_re_matches_relative_path(self):
+        """_SHELL_INTENT_RE detects a relative path."""
+        assert _SHELL_INTENT_RE.search("find ./src") is not None
+
+    def test_shell_intent_re_no_match_on_natural_language(self):
+        """_SHELL_INTENT_RE does NOT match plain English prose."""
+        assert _SHELL_INTENT_RE.search("memory leak in parser") is None
 
 
 class TestExtractCommand:

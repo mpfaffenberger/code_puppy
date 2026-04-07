@@ -18,6 +18,7 @@ Examples:
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -190,31 +191,62 @@ KNOWN_CLI_COMMANDS: frozenset[str] = frozenset(
     }
 )
 
+# Commands that double as common English words and frequently appear at the
+# start of natural-language prompts (e.g. "find memory leak in parser",
+# "open the config file", "type the password").  For these we require stronger
+# shell intent evidence before auto-routing.
+_AMBIGUOUS_CLI_COMMANDS: frozenset[str] = frozenset(
+    {
+        "date",
+        "find",
+        "history",
+        "id",
+        "info",
+        "man",
+        "open",
+        "type",
+        "which",
+        "who",
+    }
+)
+
+# Patterns that strongly indicate the user intends a real shell invocation:
+#   |  &  ;  <  >  `  $  ( )   — shell operators / substitution
+#   -flag                       — a CLI flag (-v, --verbose, -la …)
+#   ./path  ../path  /abs/path  — explicit filesystem paths
+_SHELL_INTENT_RE = re.compile(r"[|&;<>`$()]|(?:^|\s)-\w|(?:^|\s)(\.{1,2}/|/)")
+
 # Pre-compiled regex: first "word" of the input (handles leading whitespace)
 _FIRST_WORD_RE = re.compile(r"^\s*(\S+)")
 
 
 def is_known_cli_command(task: str) -> bool:
-    """Return True when *task* starts with a well-known CLI command name.
+    """Return True when *task* starts with a well-known CLI command name **and**
+    the overall input looks like a real shell invocation rather than natural
+    language.
 
-    This lets users type ``ls -la`` or ``git status`` directly — without the
-    ``!`` prefix — and have Code Puppy route the input to the shell instead of
-    the AI agent (zero tokens consumed).
+    Three-stage filter (conservative by design):
 
-    The check is intentionally conservative:
-    * Only the very first token is tested against ``KNOWN_CLI_COMMANDS``.
-    * Input that already starts with ``!`` or ``/`` is excluded (handled
-      elsewhere).
-    * Single-word inputs that match (e.g. ``pwd``) are accepted.
+    1. **Known list** — first token must be in ``KNOWN_CLI_COMMANDS``.
+    2. **PATH check** — the executable must actually exist on ``$PATH``
+       (via ``shutil.which``).  This rejects invented commands that happen to
+       share a name with a list entry on this machine.
+    3. **Ambiguity guard** — for commands that are also common English words
+       (``find``, ``open``, ``date`` …) the rest of the input must show at
+       least one strong shell-intent signal: a flag (``-v``), a path
+       (``./src``), or a shell operator (``|``, ``>``, etc.).
+
+    Single-word inputs (``pwd``, ``git``) skip stage 3 — they're unambiguous.
 
     Args:
         task: Raw user input string.
 
     Returns:
-        True if the first word of *task* is a known CLI command.
+        True if the input should be routed directly to the shell.
     """
     stripped = task.strip()
-    # Already handled by other code paths
+
+    # Already handled by other code paths — skip early.
     if stripped.startswith(SHELL_PASSTHROUGH_PREFIX) or stripped.startswith("/"):
         return False
 
@@ -223,7 +255,25 @@ def is_known_cli_command(task: str) -> bool:
         return False
 
     first_word = match.group(1).lower()
-    return first_word in KNOWN_CLI_COMMANDS
+
+    # Stage 1: must be a known CLI command.
+    if first_word not in KNOWN_CLI_COMMANDS:
+        return False
+
+    # Stage 2: executable must exist on PATH (prevents false positives on
+    # machines where the command isn't installed, and catches typos).
+    if shutil.which(first_word) is None:
+        return False
+
+    # Single-word commands are unambiguous — accept immediately.
+    if " " not in stripped:
+        return True
+
+    # Stage 3: ambiguous English words require explicit shell-intent evidence.
+    if first_word in _AMBIGUOUS_CLI_COMMANDS and not _SHELL_INTENT_RE.search(stripped):
+        return False
+
+    return True
 
 
 def _get_console() -> Console:
