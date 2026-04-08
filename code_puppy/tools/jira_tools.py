@@ -1091,6 +1091,7 @@ def jira_create_issue(
     issue_type: str,
     summary: str,
     description: str | None = None,
+    assignee: str | None = None,
     labels: list[str] | None = None,
     components: list[str] | None = None,
     epic_link: str | None = None,
@@ -1106,6 +1107,8 @@ def jira_create_issue(
         issue_type: Issue type name (e.g., "Story", "Bug", "Task", "Epic").
         summary: Issue title/summary.
         description: Detailed description. Defaults to None.
+        assignee: Username of the person to assign this issue to (e.g., "jsmith").
+            Use the Walmart ID / short username, not email. Defaults to None (unassigned).
         labels: List of label strings to apply (e.g., ["backend", "urgent"]).
             Defaults to None.
         components: List of component names (e.g., ["API", "Frontend"]).
@@ -1127,6 +1130,7 @@ def jira_create_issue(
             - issue_key (str): The created issue key (e.g., "PROJ-456").
             - issue_id (str): The created issue ID.
             - summary (str): The issue summary that was set.
+            - assignee (str, optional): Assignee that was set.
             - labels (list[str], optional): Labels that were applied.
             - components (list[str], optional): Components that were applied.
             - epic_link (str, optional): Epic that was linked.
@@ -1153,6 +1157,8 @@ def jira_create_issue(
 
     # Build info message with optional fields
     info_parts = [f"➕ [bold cyan]{project_key}[/bold cyan] - {issue_type}"]
+    if assignee:
+        info_parts.append(f"assignee: {assignee}")
     if labels:
         info_parts.append(f"labels: {labels}")
     if components:
@@ -1176,6 +1182,10 @@ def jira_create_issue(
     try:
         # Build extra fields for labels, components, and epic link
         extra_fields: dict[str, Any] = {}
+
+        if assignee:
+            # Assignee requires the {"name": "..."} format with username
+            extra_fields["assignee"] = {"name": assignee}
 
         if labels:
             extra_fields["labels"] = labels
@@ -1242,6 +1252,8 @@ def jira_create_issue(
             }
 
             # Include applied fields in response for confirmation
+            if assignee:
+                response["assignee"] = assignee
             if labels:
                 response["labels"] = labels
             if components:
