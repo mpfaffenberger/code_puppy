@@ -168,10 +168,52 @@ def make_model_settings(
 
     model_settings: ModelSettings = ModelSettings(**model_settings_dict)
 
-    if "gpt-5" in model_name:
+    # Copilot models use OpenAI-compatible format even for Claude backends.
+    # Claude thinking translates to reasoning_effort; GPT models get the
+    # standard OpenAI reasoning settings.
+    model_type = model_config.get("type")
+    is_copilot = model_type == "copilot"
+    copilot_underlying = model_config.get("name", "").lower() if is_copilot else ""
+
+    if is_copilot and copilot_underlying.startswith("claude-"):
+        # Copilot wraps Claude behind an OpenAI-compatible API.
+        # Translate extended_thinking / effort into reasoning_effort.
+        from code_puppy.model_utils import get_default_extended_thinking
+
+        default_thinking = get_default_extended_thinking(copilot_underlying)
+        extended_thinking = effective_settings.get(
+            "extended_thinking", default_thinking
+        )
+        # Legacy boolean compat
+        if extended_thinking is True:
+            extended_thinking = "enabled"
+        elif extended_thinking is False:
+            extended_thinking = "off"
+
+        if extended_thinking in ("enabled", "adaptive"):
+            # Map effort setting to reasoning_effort for the OpenAI format
+            effort = effective_settings.get("effort", "high")
+            model_settings_dict["openai_reasoning_effort"] = effort
+
+        # Strip Anthropic-only keys that leaked from effective_settings
+        for key in ("extended_thinking", "budget_tokens", "interleaved_thinking"):
+            model_settings_dict.pop(key, None)
+
+        model_settings = OpenAIChatModelSettings(**model_settings_dict)
+
+    elif is_copilot and (
+        copilot_underlying.startswith("gpt-")
+        or copilot_underlying.startswith("o3")
+        or copilot_underlying.startswith("o4")
+    ):
+        # Copilot GPT/O-series — the Copilot API currently does NOT
+        # support reasoning_effort for GPT models (400 Bad Request).
+        # Just use plain OpenAIChatModelSettings without reasoning params.
+        model_settings = OpenAIChatModelSettings(**model_settings_dict)
+
+    elif "gpt-5" in model_name:
         model_settings_dict["openai_reasoning_effort"] = get_openai_reasoning_effort()
 
-        model_type = model_config.get("type")
         uses_responses_api = (
             model_type == "chatgpt_oauth"
             or (model_type == "openai" and "codex" in model_name)
@@ -340,6 +382,7 @@ class ModelFactory:
             ANTIGRAVITY_MODELS_FILE,
             CHATGPT_MODELS_FILE,
             CLAUDE_MODELS_FILE,
+            COPILOT_MODELS_FILE,
             GEMINI_MODELS_FILE,
         )
 
@@ -350,6 +393,7 @@ class ModelFactory:
             (pathlib.Path(CLAUDE_MODELS_FILE), "Claude Code OAuth models", True),
             (pathlib.Path(GEMINI_MODELS_FILE), "Gemini OAuth models", False),
             (pathlib.Path(ANTIGRAVITY_MODELS_FILE), "Antigravity OAuth models", False),
+            (pathlib.Path(COPILOT_MODELS_FILE), "Copilot models", False),
         ]
 
         for source_path, label, use_filtered in extra_sources:
