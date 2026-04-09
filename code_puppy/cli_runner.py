@@ -11,6 +11,7 @@ apply_all_patches()
 import argparse
 import asyncio
 import os
+import platform
 import sys
 import time
 import traceback
@@ -561,9 +562,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         except KeyboardInterrupt:
             # Handle Ctrl+C - cancel input and continue
-            # Windows-specific: Reset terminal state after interrupt to prevent
-            # the terminal from becoming unresponsive (can't type characters)
-            reset_windows_terminal_full()
+            # Reset terminal to fix CSI u mode garbage (^[[27;5;99~)
+            if platform.system() != "Windows":
+                reset_unix_terminal()
+            else:
+                reset_windows_terminal_full()
             # Stop wiggum mode on Ctrl+C
             from code_puppy.command_line.wiggum_state import (
                 is_wiggum_active,
