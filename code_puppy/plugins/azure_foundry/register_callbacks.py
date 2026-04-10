@@ -363,9 +363,10 @@ def _create_azure_foundry_model(
             beta_parts.append(CONTEXT_1M_BETA)
 
         if beta_parts:
-            # Set default headers on the client
-            anthropic_client._custom_headers = anthropic_client._custom_headers or {}
-            anthropic_client._custom_headers["anthropic-beta"] = ",".join(beta_parts)
+            # Set default headers using the public API
+            anthropic_client = anthropic_client.with_options(
+                default_headers={"anthropic-beta": ",".join(beta_parts)}
+            )
 
         # Create the pydantic-ai provider and model
         provider_identity = resolve_provider_identity(model_name, model_config)
