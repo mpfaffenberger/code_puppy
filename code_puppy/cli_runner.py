@@ -396,14 +396,17 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.command_line.shell_passthrough import (
             execute_shell_passthrough,
             is_known_cli_command,
+            is_powershell_cmdlet,
             is_shell_passthrough,
         )
 
         if is_shell_passthrough(initial_command):
             execute_shell_passthrough(initial_command)
             initial_command = None
-        elif is_known_cli_command(initial_command):
-            # Auto-detect known CLI commands — bypass AI agent, zero tokens
+        elif is_known_cli_command(initial_command) or is_powershell_cmdlet(
+            initial_command
+        ):
+            # Auto-detect known CLI / PowerShell commands — bypass AI, zero tokens
             execute_shell_passthrough(f"!{initial_command.strip()}")
             initial_command = None
 
@@ -603,6 +606,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.command_line.shell_passthrough import (
             execute_shell_passthrough,
             is_known_cli_command,
+            is_powershell_cmdlet,
             is_shell_passthrough,
         )
 
@@ -611,8 +615,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             continue
 
         # Auto-detect known CLI commands (e.g. `ls`, `git status`, `grep …`)
-        # and route them directly to the shell — zero tokens consumed.
-        if is_known_cli_command(task):
+        # and PowerShell cmdlets (e.g. `Get-ChildItem`, `Set-Location`)
+        # — route directly to the shell, zero tokens consumed.
+        if is_known_cli_command(task) or is_powershell_cmdlet(task):
             execute_shell_passthrough(f"!{task.strip()}")
             continue
 
@@ -1027,6 +1032,7 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     from code_puppy.command_line.shell_passthrough import (
         execute_shell_passthrough,
         is_known_cli_command,
+        is_powershell_cmdlet,
         is_shell_passthrough,
     )
 
@@ -1034,8 +1040,8 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         execute_shell_passthrough(prompt)
         return
 
-    # Auto-detect known CLI commands — bypass AI agent, zero tokens consumed
-    if is_known_cli_command(prompt):
+    # Auto-detect known CLI / PowerShell commands — bypass AI, zero tokens
+    if is_known_cli_command(prompt) or is_powershell_cmdlet(prompt):
         execute_shell_passthrough(f"!{prompt.strip()}")
         return
 

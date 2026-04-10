@@ -5,18 +5,23 @@ Code Puppy prompt without any agent processing.
 """
 
 import asyncio
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import code_puppy.command_line.shell_passthrough as shell_passthrough_module
 from code_puppy.command_line.shell_passthrough import (
     _AMBIGUOUS_CLI_COMMANDS,
     _BANNER_NAME,
+    _PS_CMDLET_RE,
     _SHELL_INTENT_RE,
     KNOWN_CLI_COMMANDS,
     SHELL_PASSTHROUGH_PREFIX,
     _format_banner,
+    _get_platform_shell,
     execute_shell_passthrough,
     extract_command,
     is_known_cli_command,
+    is_powershell_cmdlet,
     is_shell_passthrough,
 )
 
@@ -222,6 +227,186 @@ class TestIsKnownCliCommand:
         """_SHELL_INTENT_RE does NOT match plain English prose."""
         assert _SHELL_INTENT_RE.search("memory leak in parser") is None
 
+    # ── Windows path detection (shell intent regex) ───────────────────────
+
+    def test_shell_intent_re_matches_windows_backslash_relative(self):
+        r"""_SHELL_INTENT_RE detects Windows relative path ``.\src``."""
+        assert _SHELL_INTENT_RE.search(r"find .\src") is not None
+
+    def test_shell_intent_re_matches_windows_parent_path(self):
+        r"""_SHELL_INTENT_RE detects Windows parent path ``..\config``."""
+        assert _SHELL_INTENT_RE.search(r"find ..\config") is not None
+
+    def test_shell_intent_re_matches_windows_drive_letter(self):
+        r"""_SHELL_INTENT_RE detects Windows absolute path ``C:\Users``."""
+        assert _SHELL_INTENT_RE.search(r"find C:\Users") is not None
+
+
+class TestIsPowershellCmdlet:
+    """Test auto-detection of PowerShell Verb-Noun cmdlets.
+
+    PowerShell Core (pwsh) runs on Windows, macOS, AND Linux.
+    Detection is gated by ``pwsh``/``powershell`` being on PATH — not by
+    platform.  The PATH check is cached, so we reset the cache in each test.
+    """
+
+    def _reset_ps_cache(self):
+        """Reset the cached PowerShell availability before each test."""
+        shell_passthrough_module._powershell_available = None
+
+    # ── Positive cases (pwsh on PATH) ─────────────────────────────────────
+
+    def test_get_childitem_detected(self):
+        """Get-ChildItem is a valid PowerShell cmdlet."""
+        self._reset_ps_cache()
+        with patch("shutil.which", return_value="/usr/local/bin/pwsh"):
+            assert is_powershell_cmdlet("Get-ChildItem") is True
+
+    def test_set_location_detected(self):
+        """Set-Location C:\\projects is detected."""
+        self._reset_ps_cache()
+        with patch("shutil.which", return_value="/usr/local/bin/pwsh"):
+            assert is_powershell_cmdlet("Set-Location C:\\projects") is True
+
+    def test_invoke_webrequest_detected(self):
+        """Invoke-WebRequest is detected."""
+        self._reset_ps_cache()
+        with patch("shutil.which", return_value="/usr/local/bin/pwsh"):
+            assert is_powershell_cmdlet("Invoke-WebRequest https://example.com") is True
+
+    def test_select_string_detected(self):
+        """Select-String is detected (PowerShell grep equivalent)."""
+        self._reset_ps_cache()
+        with patch("shutil.which", return_value="/usr/local/bin/pwsh"):
+            assert is_powershell_cmdlet("Select-String -Pattern foo") is True
+
+    def test_works_on_macos_with_pwsh(self):
+        """PowerShell cmdlets work on macOS when pwsh is installed."""
+        self._reset_ps_cache()
+        with patch("shutil.which", return_value="/usr/local/bin/pwsh"):
+            assert is_powershell_cmdlet("Get-ChildItem") is True
+
+    def test_works_on_linux_with_pwsh(self):
+        """PowerShell cmdlets work on Linux when pwsh is installed."""
+        self._reset_ps_cache()
+        with patch("shutil.which", return_value="/usr/bin/pwsh"):
+            assert is_powershell_cmdlet("Get-ChildItem") is True
+
+    # ── Negative cases ────────────────────────────────────────────────────
+
+    def test_natural_language_not_detected(self):
+        """'Get some coffee' does NOT match Verb-Noun pattern."""
+        self._reset_ps_cache()
+        with patch("shutil.which", return_value="/usr/local/bin/pwsh"):
+            assert is_powershell_cmdlet("Get some coffee") is False
+
+    def test_no_powershell_on_path_rejected(self):
+        """Even valid cmdlets are rejected if pwsh/powershell not on PATH."""
+        self._reset_ps_cache()
+        with patch("shutil.which", return_value=None):
+            assert is_powershell_cmdlet("Get-ChildItem") is False
+
+    def test_bang_prefix_excluded(self):
+        """!Get-ChildItem is handled by is_shell_passthrough."""
+        self._reset_ps_cache()
+        with patch("shutil.which", return_value="/usr/local/bin/pwsh"):
+            assert is_powershell_cmdlet("!Get-ChildItem") is False
+
+    def test_slash_prefix_excluded(self):
+        """/Get-ChildItem is a Code Puppy command."""
+        self._reset_ps_cache()
+        with patch("shutil.which", return_value="/usr/local/bin/pwsh"):
+            assert is_powershell_cmdlet("/Get-ChildItem") is False
+
+    def test_ps_cmdlet_regex_pattern(self):
+        """_PS_CMDLET_RE matches the Verb-Noun pattern."""
+        assert _PS_CMDLET_RE.match("Get-ChildItem") is not None
+        assert _PS_CMDLET_RE.match("Set-Location") is not None
+        assert _PS_CMDLET_RE.match("Invoke-WebRequest") is not None
+        assert _PS_CMDLET_RE.match("ConvertFrom-Json") is not None
+        assert _PS_CMDLET_RE.match("Get some coffee") is None
+        assert _PS_CMDLET_RE.match("ls -la") is None
+
+
+class TestGetPlatformShell:
+    """Test platform-aware shell resolution.
+
+    _get_platform_shell() caches its result per session, so each test must
+    reset the cache to exercise different branches.
+    """
+
+    def _reset_shell_cache(self):
+        """Reset the cached platform shell before each test."""
+        shell_passthrough_module._cached_platform_shell = None
+
+    def test_unix_uses_shell_env(self):
+        """On Unix, _get_platform_shell uses $SHELL."""
+        self._reset_shell_cache()
+        with (
+            patch("code_puppy.command_line.shell_passthrough.sys") as mock_sys,
+            patch.dict(os.environ, {"SHELL": "/bin/zsh"}),
+        ):
+            mock_sys.platform = "linux"
+            assert _get_platform_shell() == ["/bin/zsh", "-c"]
+
+    def test_unix_fallback_to_sh(self):
+        """On Unix without $SHELL, fallback to /bin/sh."""
+        self._reset_shell_cache()
+        with (
+            patch("code_puppy.command_line.shell_passthrough.sys") as mock_sys,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            mock_sys.platform = "linux"
+            assert _get_platform_shell() == ["/bin/sh", "-c"]
+
+    def test_windows_prefers_pwsh(self):
+        """On Windows, prefer pwsh over powershell."""
+        self._reset_shell_cache()
+        with (
+            patch("code_puppy.command_line.shell_passthrough.sys") as mock_sys,
+            patch("shutil.which", side_effect=lambda x: "C:\\pwsh.exe" if x == "pwsh" else None),
+        ):
+            mock_sys.platform = "win32"
+            assert _get_platform_shell() == ["pwsh", "-Command"]
+
+    def test_windows_falls_back_to_powershell(self):
+        """On Windows without pwsh, fall back to powershell."""
+        self._reset_shell_cache()
+        with (
+            patch("code_puppy.command_line.shell_passthrough.sys") as mock_sys,
+            patch(
+                "shutil.which",
+                side_effect=lambda x: "C:\\powershell.exe" if x == "powershell" else None,
+            ),
+        ):
+            mock_sys.platform = "win32"
+            assert _get_platform_shell() == ["powershell", "-Command"]
+
+    def test_windows_falls_back_to_cmd(self):
+        """On Windows without pwsh or powershell, fall back to cmd."""
+        self._reset_shell_cache()
+        with (
+            patch("code_puppy.command_line.shell_passthrough.sys") as mock_sys,
+            patch("shutil.which", return_value=None),
+        ):
+            mock_sys.platform = "win32"
+            assert _get_platform_shell() == ["cmd", "/c"]
+
+    def test_result_is_cached(self):
+        """Second call returns cached result without re-querying shutil.which."""
+        self._reset_shell_cache()
+        with (
+            patch("code_puppy.command_line.shell_passthrough.sys") as mock_sys,
+            patch.dict(os.environ, {"SHELL": "/bin/bash"}),
+        ):
+            mock_sys.platform = "linux"
+            first = _get_platform_shell()
+            assert first == ["/bin/bash", "-c"]
+
+        # Second call should return cached value even without the patch
+        second = _get_platform_shell()
+        assert second == ["/bin/bash", "-c"]
+
 
 class TestExtractCommand:
     """Test command extraction from pass-through input."""
@@ -288,29 +473,33 @@ class TestExecuteShellPassthrough:
         """Create a mock Rich Console for capturing print calls."""
         return MagicMock()
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell")
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
-    def test_successful_command(self, mock_get_console, mock_run):
+    def test_successful_command(self, mock_get_console, mock_run, mock_shell):
         """Successful commands show a success message."""
         console = self._mock_console()
         mock_get_console.return_value = console
         mock_run.return_value = MagicMock(returncode=0)
+        mock_shell.return_value = ["/bin/sh", "-c"]
 
         execute_shell_passthrough("!echo hello")
 
         mock_run.assert_called_once()
         call_kwargs = mock_run.call_args
-        assert call_kwargs[1]["shell"] is True
-        assert call_kwargs[0][0] == "echo hello"
+        assert call_kwargs[1]["shell"] is False
+        # Command is passed as [*shell_args, command]
+        assert call_kwargs[0][0] == ["/bin/sh", "-c", "echo hello"]
 
         # Should have printed banner, context line, and success
         assert console.print.call_count == 3
         last_call = str(console.print.call_args_list[-1])
         assert "Done" in last_call
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell", return_value=["/bin/sh", "-c"])
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
-    def test_failed_command_shows_exit_code(self, mock_get_console, mock_run):
+    def test_failed_command_shows_exit_code(self, mock_get_console, mock_run, _):
         """Non-zero exit codes show the exit code."""
         console = self._mock_console()
         mock_get_console.return_value = console
@@ -321,9 +510,10 @@ class TestExecuteShellPassthrough:
         last_call = str(console.print.call_args_list[-1])
         assert "Exit code 1" in last_call
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell", return_value=["/bin/sh", "-c"])
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
-    def test_exit_code_127(self, mock_get_console, mock_run):
+    def test_exit_code_127(self, mock_get_console, mock_run, _):
         """Exit code 127 (command not found) is reported properly."""
         console = self._mock_console()
         mock_get_console.return_value = console
@@ -334,9 +524,10 @@ class TestExecuteShellPassthrough:
         last_call = str(console.print.call_args_list[-1])
         assert "127" in last_call
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell", return_value=["/bin/sh", "-c"])
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
-    def test_keyboard_interrupt(self, mock_get_console, mock_run):
+    def test_keyboard_interrupt(self, mock_get_console, mock_run, _):
         """Ctrl+C during execution shows interrupted message."""
         console = self._mock_console()
         mock_get_console.return_value = console
@@ -347,9 +538,10 @@ class TestExecuteShellPassthrough:
         last_call = str(console.print.call_args_list[-1])
         assert "Interrupted" in last_call
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell", return_value=["/bin/sh", "-c"])
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
-    def test_generic_exception(self, mock_get_console, mock_run):
+    def test_generic_exception(self, mock_get_console, mock_run, _):
         """Generic exceptions are caught and reported."""
         console = self._mock_console()
         mock_get_console.return_value = console
@@ -372,9 +564,10 @@ class TestExecuteShellPassthrough:
         call_arg = str(console.print.call_args)
         assert "Usage" in call_arg or "Empty" in call_arg
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell", return_value=["/bin/sh", "-c"])
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
-    def test_inherits_stdio(self, mock_get_console, mock_run):
+    def test_inherits_stdio(self, mock_get_console, mock_run, _):
         """Command should inherit stdin/stdout/stderr from parent."""
         import sys
 
@@ -389,10 +582,11 @@ class TestExecuteShellPassthrough:
         assert call_kwargs["stdout"] is sys.stdout
         assert call_kwargs["stderr"] is sys.stderr
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell", return_value=["/bin/sh", "-c"])
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
     @patch("code_puppy.command_line.shell_passthrough.os.getcwd", return_value="/tmp")
-    def test_uses_current_working_directory(self, mock_cwd, mock_get_console, mock_run):
+    def test_uses_current_working_directory(self, mock_cwd, mock_get_console, mock_run, _):
         """Command should run in the current working directory."""
         console = self._mock_console()
         mock_get_console.return_value = console
@@ -403,9 +597,10 @@ class TestExecuteShellPassthrough:
         call_kwargs = mock_run.call_args[1]
         assert call_kwargs["cwd"] == "/tmp"
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell", return_value=["/bin/sh", "-c"])
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
-    def test_banner_shown_before_command(self, mock_get_console, mock_run):
+    def test_banner_shown_before_command(self, mock_get_console, mock_run, _):
         """The banner should display with SHELL PASSTHROUGH label."""
         console = self._mock_console()
         mock_get_console.return_value = console
@@ -417,9 +612,10 @@ class TestExecuteShellPassthrough:
         assert "SHELL PASSTHROUGH" in first_call
         assert "git status" in first_call
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell", return_value=["/bin/sh", "-c"])
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
-    def test_context_hint_shown(self, mock_get_console, mock_run):
+    def test_context_hint_shown(self, mock_get_console, mock_run, _):
         """A context line should clarify this bypasses the AI."""
         console = self._mock_console()
         mock_get_console.return_value = console
@@ -430,9 +626,10 @@ class TestExecuteShellPassthrough:
         second_call = str(console.print.call_args_list[1])
         assert "Bypassing AI" in second_call
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell", return_value=["/bin/sh", "-c"])
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
-    def test_rich_markup_escaped_in_command(self, mock_get_console, mock_run):
+    def test_rich_markup_escaped_in_command(self, mock_get_console, mock_run, _):
         """Commands with Rich markup chars should be escaped to prevent injection."""
         console = self._mock_console()
         mock_get_console.return_value = console
@@ -440,11 +637,13 @@ class TestExecuteShellPassthrough:
 
         execute_shell_passthrough("!echo [bold red]oops[/bold red]")
 
-        assert mock_run.call_args[0][0] == "echo [bold red]oops[/bold red]"
+        # Command is the last element of [*shell_args, command]
+        assert mock_run.call_args[0][0][-1] == "echo [bold red]oops[/bold red]"
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell", return_value=["/bin/sh", "-c"])
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     @patch("code_puppy.command_line.shell_passthrough._get_console")
-    def test_rich_markup_escaped_in_error(self, mock_get_console, mock_run):
+    def test_rich_markup_escaped_in_error(self, mock_get_console, mock_run, _):
         """Error messages with Rich markup chars should be escaped."""
         console = self._mock_console()
         mock_get_console.return_value = console
@@ -467,10 +666,11 @@ class TestInitialCommandPassthrough:
     entry point that must honour the same passthrough guarantee.
     """
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell", return_value=["/bin/sh", "-c"])
     @patch("code_puppy.command_line.shell_passthrough._get_console")
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
     def test_interactive_mode_initial_command_calls_passthrough(
-        self, mock_run, mock_get_console
+        self, mock_run, mock_get_console, _
     ):
         """interactive_mode with initial_command='!ls -la' should execute shell, not agent.
 
@@ -516,13 +716,15 @@ class TestInitialCommandPassthrough:
 
             # Shell command should have been executed via subprocess
             mock_run.assert_called_once()
-            assert mock_run.call_args[0][0] == "ls -la"
+            # Command is last element: ["/bin/sh", "-c", "ls -la"]
+            assert mock_run.call_args[0][0][-1] == "ls -la"
             # Agent processing must NOT have been triggered
             mock_run_prompt.assert_not_called()
 
+    @patch("code_puppy.command_line.shell_passthrough._get_platform_shell", return_value=["/bin/sh", "-c"])
     @patch("code_puppy.command_line.shell_passthrough._get_console")
     @patch("code_puppy.command_line.shell_passthrough.subprocess.run")
-    def test_execute_single_prompt_calls_passthrough(self, mock_run, mock_console):
+    def test_execute_single_prompt_calls_passthrough(self, mock_run, mock_console, _):
         """execute_single_prompt with '!ls' should run shell, not the agent."""
         from code_puppy.cli_runner import execute_single_prompt
 
@@ -541,7 +743,8 @@ class TestInitialCommandPassthrough:
 
             # Shell command should have been executed
             mock_run.assert_called_once()
-            assert mock_run.call_args[0][0] == "ls -la"
+            # Command is last element: ["/bin/sh", "-c", "ls -la"]
+            assert mock_run.call_args[0][0][-1] == "ls -la"
             # Agent should NOT have been called
             mock_agent.assert_not_called()
             mock_run_prompt.assert_not_called()

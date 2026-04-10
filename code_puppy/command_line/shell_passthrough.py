@@ -211,10 +211,17 @@ _AMBIGUOUS_CLI_COMMANDS: frozenset[str] = frozenset(
 )
 
 # Patterns that strongly indicate the user intends a real shell invocation:
-#   |  &  ;  <  >  `  $  ( )   — shell operators / substitution
-#   -flag                       — a CLI flag (-v, --verbose, -la …)
-#   ./path  ../path  /abs/path  — explicit filesystem paths
-_SHELL_INTENT_RE = re.compile(r"[|&;<>`$()]|(?:^|\s)-\w|(?:^|\s)(\.{1,2}/|/)")
+#   |  &  ;  <  >  `  $  ( )       — shell operators / substitution
+#   -flag                           — a CLI flag (-v, --verbose, -la …)
+#   ./path  ../path  /abs/path      — explicit Unix filesystem paths
+#   .\path  ..\path  C:\abs\path    — explicit Windows filesystem paths
+_SHELL_INTENT_RE = re.compile(
+    r"[|&;<>`$()]"
+    r"|(?:^|\s)-\w"
+    r"|(?:^|\s)\.{1,2}[/\\]"
+    r"|(?:^|\s)/"
+    r"|(?:^|\s)[A-Za-z]:\\"
+)
 
 # Pre-compiled regex: first "word" of the input (handles leading whitespace)
 _FIRST_WORD_RE = re.compile(r"^\s*(\S+)")
@@ -274,6 +281,123 @@ def is_known_cli_command(task: str) -> bool:
         return False
 
     return True
+
+
+# ---------------------------------------------------------------------------
+# PowerShell Verb-Noun cmdlet detection (cross-platform)
+# ---------------------------------------------------------------------------
+# PowerShell cmdlets follow an approved Verb-Noun naming convention:
+#   Get-ChildItem, Set-Location, Invoke-WebRequest, etc.
+# These are NOT in KNOWN_CLI_COMMANDS because they use a unique naming pattern.
+# PowerShell Core (pwsh) runs on Windows, macOS, AND Linux — so this detection
+# is NOT gated by platform.  Instead, we check for `pwsh`/`powershell` on PATH.
+_PS_CMDLET_RE = re.compile(
+    r"^(?:Get|Set|New|Remove|Start|Stop|Invoke|Write|Read|"
+    r"Copy|Move|Rename|Test|Out|Format|Select|Where|Sort|"
+    r"Add|Clear|Compare|Convert|ConvertFrom|ConvertTo|"
+    r"Disable|Enable|Enter|Exit|Export|Import|Join|"
+    r"Limit|Measure|Merge|Pop|Push|Redo|Reset|"
+    r"Restore|Resume|Save|Search|Send|Split|"
+    r"Step|Submit|Switch|Sync|Undo|Uninstall|"
+    r"Unlock|Unregister|Update|Use|Wait|Watch)-\w+",
+    re.IGNORECASE,
+)
+
+# Cache for PowerShell availability — computed once per session.
+# None means "not yet checked", True/False is the cached result.
+_powershell_available: bool | None = None
+
+
+def _is_powershell_on_path() -> bool:
+    """Return True if ``pwsh`` or ``powershell`` is available on ``$PATH``.
+
+    Result is cached for the lifetime of the process so we only pay the
+    ``shutil.which`` cost once per session — not on every keystroke.
+    """
+    global _powershell_available
+    if _powershell_available is None:
+        _powershell_available = (
+            shutil.which("pwsh") is not None
+            or shutil.which("powershell") is not None
+        )
+    return _powershell_available
+
+
+def is_powershell_cmdlet(task: str) -> bool:
+    """Return True when *task* looks like a PowerShell Verb-Noun cmdlet.
+
+    Works on **any platform** where PowerShell Core (``pwsh``) or legacy
+    ``powershell`` is installed.  The availability check is cached so only
+    the very first call per session incurs a ``shutil.which`` lookup.
+
+    Examples that match:
+        Get-ChildItem
+        Get-ChildItem -Path ./src
+        Set-Location C:\\projects
+        Invoke-WebRequest https://example.com
+
+    Examples that do NOT match:
+        Get some coffee           (not Verb-Noun)
+        ls -la                    (handled by is_known_cli_command)
+        Select the right option   (no hyphen-joined noun)
+
+    Args:
+        task: Raw user input string.
+
+    Returns:
+        True if the input should be routed to PowerShell directly.
+    """
+    stripped = task.strip()
+
+    # Already handled by other code paths.
+    if stripped.startswith(SHELL_PASSTHROUGH_PREFIX) or stripped.startswith("/"):
+        return False
+
+    # Must match Verb-Noun pattern first (cheap regex check).
+    if not _PS_CMDLET_RE.match(stripped):
+        return False
+
+    # Must have PowerShell available (cached after first call).
+    return _is_powershell_on_path()
+
+
+# ---------------------------------------------------------------------------
+# Platform-aware shell resolution
+# ---------------------------------------------------------------------------
+
+# Cache for the resolved shell — computed once per session.
+_cached_platform_shell: list[str] | None = None
+
+
+def _get_platform_shell() -> list[str]:
+    """Return the shell executable + invocation flag for the current platform.
+
+    - **Windows**: prefer ``pwsh`` (PowerShell Core) → ``powershell``
+      (legacy) → ``cmd``.
+    - **Unix**: use ``$SHELL`` env var → fallback to ``/bin/sh``.
+
+    Result is cached for the lifetime of the process so we only pay the
+    ``shutil.which`` cost once — not on every command.
+
+    Returns:
+        A list like ``["pwsh", "-Command"]`` or ``["/bin/zsh", "-c"]``
+        suitable for ``subprocess.run([*shell, command], ...)``.
+    """
+    global _cached_platform_shell
+    if _cached_platform_shell is not None:
+        return _cached_platform_shell
+
+    if sys.platform == "win32":
+        for ps in ("pwsh", "powershell"):
+            if shutil.which(ps):
+                _cached_platform_shell = [ps, "-Command"]
+                return _cached_platform_shell
+        _cached_platform_shell = ["cmd", "/c"]
+    else:
+        shell = os.environ.get("SHELL", "/bin/sh")
+        _cached_platform_shell = [shell, "-c"]
+
+    return _cached_platform_shell
 
 
 def _get_console() -> Console:
@@ -363,9 +487,10 @@ def execute_shell_passthrough(task: str) -> None:
     start_time = time.monotonic()
 
     try:
+        shell_args = _get_platform_shell()
         result = subprocess.run(
-            command,
-            shell=True,
+            [*shell_args, command],
+            shell=False,
             cwd=os.getcwd(),
             # Inherit stdio — output goes straight to the terminal
             stdin=sys.stdin,
