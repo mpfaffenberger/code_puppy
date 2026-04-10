@@ -249,7 +249,9 @@ def remove_foundry_models_from_config() -> list[str]:
         removed_models.append(key)
 
     if removed_models:
-        save_extra_models(models)
+        if not save_extra_models(models):
+            logger.error("Failed to persist model removal")
+            return []
 
     return removed_models
 
