@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any
 
 from .config import (
@@ -18,6 +19,54 @@ from .config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Context window suffix pattern: [<number><unit>] where unit is k or m (case-insensitive)
+# Examples: [200k], [500k], [1m], [2m]
+_CONTEXT_SUFFIX_PATTERN = re.compile(r"\[(\d+)([km])\]", re.IGNORECASE)
+
+# Multipliers for context window units
+_CONTEXT_MULTIPLIERS = {
+    "k": 1_000,
+    "m": 1_000_000,
+}
+
+
+def parse_context_window_suffix(name: str) -> tuple[str, int | None]:
+    """Parse and extract context window suffix from a model/deployment name.
+
+    Supports Claude Code format: [<number><unit>] where unit is 'k' (thousands)
+    or 'm' (millions). Examples: [200k], [500k], [1m], [2m]
+
+    Args:
+        name: The model or deployment name, possibly with context suffix.
+              e.g., "it-entra-claude-opus-4-6[1m]"
+
+    Returns:
+        A tuple of (stripped_name, context_length):
+        - stripped_name: The name with the suffix removed
+        - context_length: The parsed context length in tokens, or None if no suffix
+
+    Examples:
+        >>> parse_context_window_suffix("claude-opus-4-6[1m]")
+        ('claude-opus-4-6', 1000000)
+        >>> parse_context_window_suffix("claude-sonnet[200k]")
+        ('claude-sonnet', 200000)
+        >>> parse_context_window_suffix("claude-haiku-4-5")
+        ('claude-haiku-4-5', None)
+    """
+    match = _CONTEXT_SUFFIX_PATTERN.search(name)
+    if not match:
+        return name, None
+
+    number = int(match.group(1))
+    unit = match.group(2).lower()
+    multiplier = _CONTEXT_MULTIPLIERS[unit]
+    context_length = number * multiplier
+
+    # Remove the suffix from the name
+    stripped_name = _CONTEXT_SUFFIX_PATTERN.sub("", name).strip()
+
+    return stripped_name, context_length
 
 
 def resolve_env_var(value: str) -> str:
@@ -120,7 +169,9 @@ def build_foundry_model_config(
     if context_length is None:
         context_length = DEFAULT_CONTEXT_LENGTHS.get(model_tier.lower(), 200000)
 
-    resource_value = foundry_resource if foundry_resource else f"${ENV_FOUNDRY_RESOURCE}"
+    resource_value = (
+        foundry_resource if foundry_resource else f"${ENV_FOUNDRY_RESOURCE}"
+    )
 
     return {
         "type": "azure_foundry",
@@ -160,13 +211,11 @@ def add_foundry_models_to_config(
 
     for tier, deployment, model_key in deployments:
         if deployment:
-            # Check for 1M context indicator in deployment name
-            context_length = None
-            if "[1m]" in deployment.lower() or "1m" in deployment.lower():
-                context_length = 1000000
+            # Parse context window suffix (Claude Code format: [200k], [1m], etc.)
+            actual_deployment, context_length = parse_context_window_suffix(deployment)
 
             config = build_foundry_model_config(
-                deployment_name=deployment,
+                deployment_name=actual_deployment,
                 model_tier=tier,
                 foundry_resource=resource_name,
                 context_length=context_length,
@@ -190,7 +239,8 @@ def remove_foundry_models_from_config() -> list[str]:
     removed_models: list[str] = []
 
     keys_to_remove = [
-        key for key, config in models.items()
+        key
+        for key, config in models.items()
         if isinstance(config, dict) and config.get("type") == "azure_foundry"
     ]
 
@@ -212,6 +262,7 @@ def get_foundry_models_from_config() -> dict[str, Any]:
     """
     models = load_extra_models()
     return {
-        key: config for key, config in models.items()
+        key: config
+        for key, config in models.items()
         if isinstance(config, dict) and config.get("type") == "azure_foundry"
     }
