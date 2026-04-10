@@ -20,9 +20,32 @@ from code_puppy.scheduler.config import (
     load_tasks,
 )
 from code_puppy.scheduler.executor import execute_task
+from code_puppy.scheduler.time_utils import parse_times_hhmm
 
 # Global flag for graceful shutdown
 _shutdown_requested = False
+
+
+def parse_daily_at_times(schedule_value: str) -> list:
+    """Parse a comma-separated list of HH:MM times.
+
+    Returns a list of (hour, minute) tuples for valid entries.
+    Invalid entries are skipped with a warning printed to stdout.
+
+    Examples:
+        "09:00"          -> [(9, 0)]
+        "09:00,17:30"    -> [(9, 0), (17, 30)]
+    """
+
+    def _warn(entry: str) -> None:
+        print(
+            f"[Scheduler] Warning: Invalid time '{entry}' in daily_at schedule, skipping."
+        )
+
+    return [
+        (int(hhmm[:2]), int(hhmm[3:]))
+        for hhmm in parse_times_hhmm(schedule_value, on_invalid=_warn)
+    ]
 
 
 def parse_interval(interval_str: str) -> Optional[timedelta]:
@@ -72,6 +95,47 @@ def should_run_task(task: ScheduledTask, now: datetime) -> bool:
             return True
         last_run = datetime.fromisoformat(task.last_run)
         return (now - last_run) >= timedelta(days=1)
+
+    elif task.schedule_type == "daily_at":
+        # schedule_value is a comma-separated list of HH:MM wall-clock times.
+        # Fire if *any* target time in the past 24 hours has not been run since.
+        # We check candidates on both today and yesterday so that a daemon that
+        # was down overnight and restarts before today's first target still
+        # catches the missed run from the previous day.
+        #
+        # Example: target=09:00, last_run=Feb 24 09:02, now=Feb 26 07:30
+        #   today's    candidate = Feb 26 09:00 → 07:30 < 09:00, skip
+        #   yesterday's candidate = Feb 25 09:00 → last_run < Feb 25 09:00 ✓ fire
+        #
+        # TIMEZONE NOTE: `now` is a naive datetime (system local time via
+        # datetime.now()). All HH:MM targets are therefore evaluated against
+        # the host's local clock. If the system timezone changes (e.g. DST
+        # transition or a manual tzdata update) task fire times will shift
+        # accordingly. Full tz-aware scheduling (zoneinfo / pytz) is left
+        # for a future iteration.
+        times = parse_daily_at_times(task.schedule_value)
+        if not times:
+            print(
+                f"[Scheduler] Warning: No valid times in daily_at schedule for: {task.name}"
+            )
+            return False
+
+        last_run = datetime.fromisoformat(task.last_run) if task.last_run else None
+
+        for hour, minute in times:
+            for day_offset in (timedelta(0), timedelta(days=1)):
+                # Only look back to yesterday for tasks that have run before.
+                # A brand-new task (last_run=None) should wait for the next
+                # scheduled occurrence, not retroactively claim missed windows
+                # it never actually had.
+                if day_offset and last_run is None:
+                    continue
+                target = (now - day_offset).replace(
+                    hour=hour, minute=minute, second=0, microsecond=0
+                )
+                if target <= now and (last_run is None or last_run < target):
+                    return True
+        return False
 
     elif task.schedule_type == "cron":
         # Cron expressions not yet supported - would need croniter library
