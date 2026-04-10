@@ -134,7 +134,7 @@ Configured Models (3):
 2. **Token Refresh**: The `get_bearer_token_provider` function handles automatic
    token refresh before expiry
 
-3. **API Calls**: Creates an `AsyncAnthropicAzure` client that uses the native
+3. **API Calls**: Creates an `AsyncAnthropicFoundry` client that uses the native
    Anthropic Messages API (not OpenAI format)
 
 4. **Integration**: Wraps the client in pydantic-ai's `AnthropicModel` for
