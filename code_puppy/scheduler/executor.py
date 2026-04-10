@@ -95,13 +95,19 @@ def execute_task(task: ScheduledTask) -> Tuple[bool, int, str]:
             log_f.flush()
 
             # Execute the command
+            # Force UTF-8 encoding on Windows to prevent cp1252 encoding errors
+            # when Code Puppy prints emoji (🐶) on startup
+            task_env = os.environ.copy()
+            task_env["PYTHONIOENCODING"] = "utf-8"
+            task_env["PYTHONUTF8"] = "1"  # Python 3.7+ UTF-8 mode
+
             process = subprocess.Popen(
                 cmd,
                 cwd=working_dir,
                 stdout=log_f,
                 stderr=subprocess.STDOUT,
                 shell=False,
-                env=os.environ.copy(),
+                env=task_env,
             )
 
             # Wait for completion
