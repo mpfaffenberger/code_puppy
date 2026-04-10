@@ -11,14 +11,14 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Callable, Optional, Tuple
+from collections.abc import Callable
 
 from .config import AZURE_COGNITIVE_SCOPE, TOKEN_REFRESH_BUFFER
 
 logger = logging.getLogger(__name__)
 
 # Singleton instance of the token provider
-_token_provider_instance: Optional["AzureFoundryTokenProvider"] = None
+_token_provider_instance: "AzureFoundryTokenProvider | None" = None
 
 
 class AzureFoundryTokenProvider:
@@ -43,9 +43,9 @@ class AzureFoundryTokenProvider:
         """
         self._scope = scope
         self._credential = None
-        self._token_provider_func: Optional[Callable[[], str]] = None
+        self._token_provider_func: Callable[[], str] | None = None
         self._initialized = False
-        self._init_error: Optional[str] = None
+        self._init_error: str | None = None
 
     def _ensure_initialized(self) -> bool:
         """Lazily initialize the Azure credential.
@@ -105,7 +105,7 @@ class AzureFoundryTokenProvider:
             logger.error(f"Failed to acquire token: {e}")
             raise RuntimeError(f"Failed to acquire Azure AD token: {e}") from e
 
-    def check_auth_status(self) -> Tuple[bool, str, Optional[str]]:
+    def check_auth_status(self) -> tuple[bool, str, str | None]:
         """Check if Azure CLI authentication is valid.
 
         Returns:

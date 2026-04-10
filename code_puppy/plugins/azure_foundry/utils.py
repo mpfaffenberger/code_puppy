@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .config import (
     DEFAULT_CONTEXT_LENGTHS,
@@ -49,7 +49,7 @@ def resolve_env_var(value: str) -> str:
     return value
 
 
-def load_extra_models() -> Dict[str, Any]:
+def load_extra_models() -> dict[str, Any]:
     """Load the extra_models.json configuration file.
 
     Returns:
@@ -71,7 +71,7 @@ def load_extra_models() -> Dict[str, Any]:
         return {}
 
 
-def save_extra_models(models: Dict[str, Any]) -> bool:
+def save_extra_models(models: dict[str, Any]) -> bool:
     """Save model configurations to extra_models.json.
 
     Args:
@@ -103,9 +103,9 @@ def save_extra_models(models: Dict[str, Any]) -> bool:
 def build_foundry_model_config(
     deployment_name: str,
     model_tier: str,
-    foundry_resource: Optional[str] = None,
-    context_length: Optional[int] = None,
-) -> Dict[str, Any]:
+    foundry_resource: str | None = None,
+    context_length: int | None = None,
+) -> dict[str, Any]:
     """Build a Code Puppy model configuration for an Azure Foundry deployment.
 
     Args:
@@ -134,10 +134,10 @@ def build_foundry_model_config(
 
 def add_foundry_models_to_config(
     resource_name: str,
-    opus_deployment: Optional[str] = None,
-    sonnet_deployment: Optional[str] = None,
-    haiku_deployment: Optional[str] = None,
-) -> List[str]:
+    opus_deployment: str | None = None,
+    sonnet_deployment: str | None = None,
+    haiku_deployment: str | None = None,
+) -> list[str]:
     """Add Azure Foundry model configurations to extra_models.json.
 
     Args:
@@ -150,7 +150,7 @@ def add_foundry_models_to_config(
         List of model keys that were added.
     """
     models = load_extra_models()
-    added_models: List[str] = []
+    added_models: list[str] = []
 
     deployments = [
         ("opus", opus_deployment, "foundry-claude-opus"),
@@ -180,14 +180,14 @@ def add_foundry_models_to_config(
     return []
 
 
-def remove_foundry_models_from_config() -> List[str]:
+def remove_foundry_models_from_config() -> list[str]:
     """Remove all Azure Foundry model configurations from extra_models.json.
 
     Returns:
         List of model keys that were removed.
     """
     models = load_extra_models()
-    removed_models: List[str] = []
+    removed_models: list[str] = []
 
     keys_to_remove = [
         key for key, config in models.items()
@@ -204,7 +204,7 @@ def remove_foundry_models_from_config() -> List[str]:
     return removed_models
 
 
-def get_foundry_models_from_config() -> Dict[str, Any]:
+def get_foundry_models_from_config() -> dict[str, Any]:
     """Get all Azure Foundry model configurations from extra_models.json.
 
     Returns:
