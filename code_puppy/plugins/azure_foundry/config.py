@@ -21,9 +21,9 @@ TOKEN_REFRESH_BUFFER = 300
 
 # Default context lengths for different model tiers
 DEFAULT_CONTEXT_LENGTHS: dict[str, int] = {
-    "opus": 1000000,    # 1M tokens for Opus models
+    "opus": 1000000,  # 1M tokens for Opus models
     "sonnet": 1000000,  # 1M tokens for Sonnet models
-    "haiku": 200000,    # 200K tokens for Haiku models
+    "haiku": 200000,  # 200K tokens for Haiku models
 }
 
 # Default deployment name patterns (can be overridden by user)

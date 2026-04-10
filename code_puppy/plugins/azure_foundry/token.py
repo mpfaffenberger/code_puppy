@@ -139,7 +139,11 @@ class AzureFoundryTokenProvider:
                         payload += "=" * padding
                     decoded = base64.urlsafe_b64decode(payload)
                     claims = json.loads(decoded)
-                    user_info = claims.get("upn") or claims.get("email") or claims.get("preferred_username")
+                    user_info = (
+                        claims.get("upn")
+                        or claims.get("email")
+                        or claims.get("preferred_username")
+                    )
             except Exception:
                 # Ignore errors in user info extraction
                 pass
@@ -147,7 +151,11 @@ class AzureFoundryTokenProvider:
             if expires_in > TOKEN_REFRESH_BUFFER:
                 return True, f"Valid (expires in {expires_in // 60} minutes)", user_info
             else:
-                return True, f"Valid but expiring soon ({expires_in} seconds)", user_info
+                return (
+                    True,
+                    f"Valid but expiring soon ({expires_in} seconds)",
+                    user_info,
+                )
 
         except Exception as e:
             error_name = type(e).__name__

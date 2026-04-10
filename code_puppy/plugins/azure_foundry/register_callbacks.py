@@ -181,14 +181,22 @@ def _handle_foundry_setup() -> None:
 
     # Set environment variable hint
     if not get_foundry_resource():
-        _print(f"   Tip: Set {ENV_FOUNDRY_RESOURCE}={resource_name} in your environment")
+        _print(
+            f"   Tip: Set {ENV_FOUNDRY_RESOURCE}={resource_name} in your environment"
+        )
 
     # Add models to config
     added_models = add_foundry_models_to_config(
         resource_name=resource_name,
-        opus_deployment=opus_deployment if opus_deployment != opus_default or opus_input else None,
-        sonnet_deployment=sonnet_deployment if sonnet_deployment != sonnet_default or sonnet_input else None,
-        haiku_deployment=haiku_deployment if haiku_deployment != haiku_default or haiku_input else None,
+        opus_deployment=opus_deployment
+        if opus_deployment != opus_default or opus_input
+        else None,
+        sonnet_deployment=sonnet_deployment
+        if sonnet_deployment != sonnet_default or sonnet_input
+        else None,
+        haiku_deployment=haiku_deployment
+        if haiku_deployment != haiku_default or haiku_input
+        else None,
     )
 
     # If user entered defaults, add them too
@@ -235,7 +243,10 @@ def _handle_foundry_remove() -> None:
 def _custom_help() -> list[tuple[str, str]]:
     """Return help entries for custom commands."""
     return [
-        ("foundry-status", "Check Azure AI Foundry authentication and configuration status"),
+        (
+            "foundry-status",
+            "Check Azure AI Foundry authentication and configuration status",
+        ),
         ("foundry-setup", "Interactive wizard to configure Azure Foundry models"),
         ("foundry-remove", "Remove all Azure Foundry model configurations"),
     ]

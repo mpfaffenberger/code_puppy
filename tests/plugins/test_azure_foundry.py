@@ -367,6 +367,91 @@ class TestBuildFoundryModelConfig:
         assert config["context_length"] == 500000
 
 
+class TestParseContextWindowSuffix:
+    """Tests for parse_context_window_suffix function."""
+
+    def test_parse_1m_suffix(self):
+        """Test parsing [1m] suffix."""
+        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
+
+        name, context = parse_context_window_suffix("claude-opus-4-6[1m]")
+        assert name == "claude-opus-4-6"
+        assert context == 1_000_000
+
+    def test_parse_200k_suffix(self):
+        """Test parsing [200k] suffix."""
+        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
+
+        name, context = parse_context_window_suffix("claude-haiku[200k]")
+        assert name == "claude-haiku"
+        assert context == 200_000
+
+    def test_parse_500k_suffix(self):
+        """Test parsing [500k] suffix."""
+        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
+
+        name, context = parse_context_window_suffix("my-model[500k]")
+        assert name == "my-model"
+        assert context == 500_000
+
+    def test_parse_2m_suffix(self):
+        """Test parsing [2m] suffix for future models."""
+        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
+
+        name, context = parse_context_window_suffix("future-model[2m]")
+        assert name == "future-model"
+        assert context == 2_000_000
+
+    def test_case_insensitive_m(self):
+        """Test that suffix parsing is case-insensitive for M."""
+        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
+
+        name, context = parse_context_window_suffix("model[1M]")
+        assert name == "model"
+        assert context == 1_000_000
+
+    def test_case_insensitive_k(self):
+        """Test that suffix parsing is case-insensitive for K."""
+        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
+
+        name, context = parse_context_window_suffix("model[200K]")
+        assert name == "model"
+        assert context == 200_000
+
+    def test_no_suffix(self):
+        """Test model name without context suffix."""
+        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
+
+        name, context = parse_context_window_suffix("claude-haiku-4-5")
+        assert name == "claude-haiku-4-5"
+        assert context is None
+
+    def test_preserves_other_brackets(self):
+        """Test that non-context brackets are preserved."""
+        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
+
+        # [beta] doesn't match the pattern [<number><k|m>], so it's preserved
+        name, context = parse_context_window_suffix("model-[beta]-v1")
+        assert name == "model-[beta]-v1"
+        assert context is None
+
+    def test_empty_string(self):
+        """Test handling of empty string."""
+        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
+
+        name, context = parse_context_window_suffix("")
+        assert name == ""
+        assert context is None
+
+    def test_multiple_numbers(self):
+        """Test parsing larger numbers like [10m]."""
+        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
+
+        name, context = parse_context_window_suffix("model[10m]")
+        assert name == "model"
+        assert context == 10_000_000
+
+
 class TestAddRemoveFoundryModels:
     """Test adding and removing Foundry models from config."""
 
@@ -395,7 +480,10 @@ class TestAddRemoveFoundryModels:
 
             models = load_extra_models()
             assert "foundry-claude-opus" in models
-            assert models["foundry-claude-opus"]["name"] == "it-entra-claude-opus-4-6[1m]"
+            # [1m] suffix is stripped from deployment name
+            assert models["foundry-claude-opus"]["name"] == "it-entra-claude-opus-4-6"
+            # Context length is set based on parsed suffix
+            assert models["foundry-claude-opus"]["context_length"] == 1_000_000
 
     def test_remove_foundry_models(self, tmp_path, sample_foundry_config):
         """Test removing Foundry models from configuration."""

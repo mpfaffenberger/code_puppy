@@ -97,10 +97,36 @@ Models are stored in `~/.code_puppy/extra_models.json`:
 **Configuration Fields:**
 
 - `type`: Must be `"azure_foundry"` to route to this plugin
-- `name`: Your Azure deployment name (e.g., `it-entra-claude-opus-4-6[1m]`)
+- `name`: Your Azure deployment name (e.g., `it-entra-claude-opus-4-6`)
 - `foundry_resource`: Resource name (supports `$ENV_VAR` syntax)
 - `context_length`: Model context window in tokens
 - `supported_settings`: List of supported model settings
+
+## Context Window Configuration
+
+Deployment names can include a context window suffix following the Claude Code format:
+- `[1m]` - 1 million tokens
+- `[2m]` - 2 million tokens
+- `[200k]` - 200 thousand tokens
+- `[500k]` - 500 thousand tokens
+
+When you specify a deployment name with a context suffix (e.g., `it-entra-claude-opus-4-6[1m]`):
+1. The suffix is **automatically stripped** before sending to Azure
+2. The `context_length` is set based on the parsed suffix
+
+**Example:**
+
+During `/foundry-setup`, if you enter:
+```
+Opus deployment name: it-entra-claude-opus-4-6[1m]
+```
+
+The saved configuration will have:
+- `name`: `it-entra-claude-opus-4-6` (suffix stripped)
+- `context_length`: `1000000` (parsed from `[1m]`)
+
+This is useful when your Azure deployment names don't include the context indicator,
+but you want to configure the context length.
 
 ## Slash Commands
 
