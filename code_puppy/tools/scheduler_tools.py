@@ -390,7 +390,7 @@ def register_scheduler_view_log(agent):
             return f"📄 **No log file yet for task:** {task.name} (`{task_id}`)\n\nThe log will be created when the task runs for the first time."
 
         try:
-            with open(log_file, "r") as f:
+            with open(log_file, "r", encoding="utf-8") as f:
                 content = f.read()
 
             log_lines = content.split("\n")
