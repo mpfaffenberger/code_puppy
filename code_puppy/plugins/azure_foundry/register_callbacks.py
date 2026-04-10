@@ -378,10 +378,16 @@ def _create_azure_foundry_model(
             anthropic_client=anthropic_client,
         )
 
+        model = AnthropicModel(model_name=deployment_name, provider=provider)
+        # Preserve the public model.provider attribute (convention used by other model factories)
+        model.provider = provider
         logger.info(
-            f"Created Azure Foundry model: {model_name} -> {deployment_name} @ {resource_name}"
+            "Created Azure Foundry model: %s -> %s @ %s",
+            model_name,
+            deployment_name,
+            resource_name,
         )
-        return AnthropicModel(model_name=deployment_name, provider=provider)
+        return model
 
     except Exception as e:
         emit_error(f"Failed to create Azure Foundry model '{model_name}': {e}")
