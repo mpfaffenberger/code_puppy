@@ -59,16 +59,24 @@ def _handle_foundry_status() -> None:
     else:
         emit_warning(f"Authentication: {status_msg}")
 
-    # Check resource configuration
+    # List configured models and check resource
+    foundry_models = get_foundry_models_from_config()
+
+    # Check resource - from env var or from configured models
     resource = get_foundry_resource()
+    if not resource and foundry_models:
+        # Get resource from first configured model
+        first_model = next(iter(foundry_models.values()))
+        resource = first_model.get("foundry_resource", "")
+        if resource.startswith("$"):
+            resource = None  # It's an unresolved env var reference
+
     emit_info("")
     if resource:
         emit_info(f"Foundry Resource: {resource}")
     else:
         emit_warning(f"Foundry Resource: Not set (set {ENV_FOUNDRY_RESOURCE})")
 
-    # List configured models
-    foundry_models = get_foundry_models_from_config()
     emit_info("")
     if foundry_models:
         emit_info(f"Configured Models ({len(foundry_models)}):")
@@ -86,83 +94,94 @@ def _handle_foundry_setup() -> None:
     """Handle the /foundry-setup command.
 
     Interactive wizard to configure Azure Foundry models.
+    Uses print() for synchronous output to avoid message bus buffering issues.
     """
-    emit_info("")
-    emit_info("Azure AI Foundry Setup")
-    emit_info("=" * 40)
-    emit_info("")
+    import sys
+
+    def _print(msg: str = "") -> None:
+        """Print with immediate flush."""
+        print(msg, flush=True)
+
+    _print()
+    _print("Azure AI Foundry Setup")
+    _print("=" * 40)
+    _print()
 
     # Check Azure CLI authentication first
-    emit_info("Step 1: Checking Azure CLI authentication...")
+    _print("Step 1: Checking Azure CLI authentication...")
     token_provider = get_token_provider()
     is_auth, status_msg, user_info = token_provider.check_auth_status()
 
     if not is_auth:
-        emit_error(f"   {status_msg}")
-        emit_info("")
-        emit_info("Please run 'az login' first, then try again.")
+        _print(f"   ERROR: {status_msg}")
+        _print()
+        _print("Please run 'az login' first, then try again.")
         return
 
-    emit_success(f"   Authenticated: {status_msg}")
+    _print(f"   OK: {status_msg}")
     if user_info:
-        emit_info(f"   User: {user_info}")
-    emit_info("")
+        _print(f"   User: {user_info}")
+    _print()
 
     # Get resource name
+    _print("Step 2: Azure Resource Name")
+    current_resource = get_foundry_resource()
+    if current_resource:
+        _print(f"   Current: {current_resource}")
+
+    resource_prompt = "   Enter resource name"
+    if current_resource:
+        resource_prompt += f" [{current_resource}]"
+    resource_prompt += ": "
+
     set_awaiting_user_input(True)
     try:
-        emit_info("Step 2: Azure Resource Name")
-        current_resource = get_foundry_resource()
-        if current_resource:
-            emit_info(f"   Current: {current_resource}")
-
-        resource_prompt = "Enter your Azure Foundry resource name"
-        if current_resource:
-            resource_prompt += f" [{current_resource}]"
-        resource_prompt += ": "
-
+        sys.stdout.flush()
         resource_input = safe_input(resource_prompt).strip()
         resource_name = resource_input if resource_input else current_resource
 
         if not resource_name:
-            emit_error("Resource name is required.")
+            _print("   ERROR: Resource name is required.")
             return
 
-        emit_info("")
+        _print()
 
         # Get deployment names
-        emit_info("Step 3: Model Deployments")
-        emit_info("   Enter deployment names (press Enter to skip a model)")
-        emit_info("")
+        _print("Step 3: Model Deployments")
+        _print("   Enter deployment names (press Enter to use default)")
+        _print()
 
         opus_default = DEFAULT_DEPLOYMENT_NAMES["opus"]
         sonnet_default = DEFAULT_DEPLOYMENT_NAMES["sonnet"]
         haiku_default = DEFAULT_DEPLOYMENT_NAMES["haiku"]
 
-        opus_input = safe_input(f"   Opus deployment name [{opus_default}]: ").strip()
+        sys.stdout.flush()
+        opus_input = safe_input(f"   Opus [{opus_default}]: ").strip()
         opus_deployment = opus_input if opus_input else opus_default
 
-        sonnet_input = safe_input(f"   Sonnet deployment name [{sonnet_default}]: ").strip()
+        sys.stdout.flush()
+        sonnet_input = safe_input(f"   Sonnet [{sonnet_default}]: ").strip()
         sonnet_deployment = sonnet_input if sonnet_input else sonnet_default
 
-        haiku_input = safe_input(f"   Haiku deployment name [{haiku_default}]: ").strip()
+        sys.stdout.flush()
+        haiku_input = safe_input(f"   Haiku [{haiku_default}]: ").strip()
         haiku_deployment = haiku_input if haiku_input else haiku_default
 
     except (KeyboardInterrupt, EOFError):
-        emit_info("")
-        emit_warning("Setup cancelled.")
+        _print()
+        _print("Setup cancelled.")
         return
     finally:
         set_awaiting_user_input(False)
 
-    emit_info("")
+    _print()
 
     # Save configuration
-    emit_info("Step 4: Saving configuration...")
+    _print("Step 4: Saving configuration...")
 
     # Set environment variable hint
     if not get_foundry_resource():
-        emit_info(f"   Set {ENV_FOUNDRY_RESOURCE}={resource_name} in your environment")
+        _print(f"   Tip: Set {ENV_FOUNDRY_RESOURCE}={resource_name} in your environment")
 
     # Add models to config
     added_models = add_foundry_models_to_config(
@@ -181,17 +200,17 @@ def _handle_foundry_setup() -> None:
             haiku_deployment=haiku_deployment,
         )
 
-    emit_info("")
+    _print()
     if added_models:
-        emit_success(f"Configuration saved! Added {len(added_models)} model(s):")
+        _print(f"OK: Configuration saved! Added {len(added_models)} model(s):")
         for model_key in added_models:
-            emit_info(f"   - {model_key}")
-        emit_info("")
-        emit_info(f"Use '/model {added_models[0]}' to switch to a Foundry model.")
+            _print(f"   - {model_key}")
+        _print()
+        _print(f"Use '/model {added_models[0]}' to switch to a Foundry model.")
     else:
-        emit_warning("No models were added. Check the configuration.")
+        _print("WARNING: No models were added. Check the configuration.")
 
-    emit_info("")
+    _print()
 
 
 def _handle_foundry_remove() -> None:
