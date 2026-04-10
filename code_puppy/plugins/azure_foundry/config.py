@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from code_puppy.config import DATA_DIR
 
@@ -20,14 +20,14 @@ AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
 TOKEN_REFRESH_BUFFER = 300
 
 # Default context lengths for different model tiers
-DEFAULT_CONTEXT_LENGTHS: Dict[str, int] = {
+DEFAULT_CONTEXT_LENGTHS: dict[str, int] = {
     "opus": 1000000,    # 1M tokens for Opus models
     "sonnet": 1000000,  # 1M tokens for Sonnet models
     "haiku": 200000,    # 200K tokens for Haiku models
 }
 
 # Default deployment name patterns (can be overridden by user)
-DEFAULT_DEPLOYMENT_NAMES: Dict[str, str] = {
+DEFAULT_DEPLOYMENT_NAMES: dict[str, str] = {
     "opus": "claude-opus-4-6",
     "sonnet": "claude-sonnet-4-6",
     "haiku": "claude-haiku-4-5",
@@ -77,7 +77,7 @@ def get_extra_models_path() -> Path:
 
 
 # Plugin configuration for model creation
-AZURE_FOUNDRY_CONFIG: Dict[str, Any] = {
+AZURE_FOUNDRY_CONFIG: dict[str, Any] = {
     "scope": AZURE_COGNITIVE_SCOPE,
     "token_refresh_buffer": TOKEN_REFRESH_BUFFER,
     "supported_settings": ["temperature", "extended_thinking", "budget_tokens"],

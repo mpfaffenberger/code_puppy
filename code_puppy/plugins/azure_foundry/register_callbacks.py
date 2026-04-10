@@ -10,7 +10,8 @@ the need for API keys.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+import sys
+from typing import Any
 
 from code_puppy.callbacks import register_callback
 from code_puppy.command_line.utils import safe_input
@@ -96,7 +97,6 @@ def _handle_foundry_setup() -> None:
     Interactive wizard to configure Azure Foundry models.
     Uses print() for synchronous output to avoid message bus buffering issues.
     """
-    import sys
 
     def _print(msg: str = "") -> None:
         """Print with immediate flush."""
@@ -232,7 +232,7 @@ def _handle_foundry_remove() -> None:
 # ============================================================================
 
 
-def _custom_help() -> List[Tuple[str, str]]:
+def _custom_help() -> list[tuple[str, str]]:
     """Return help entries for custom commands."""
     return [
         ("foundry-status", "Check Azure AI Foundry authentication and configuration status"),
@@ -241,7 +241,7 @@ def _custom_help() -> List[Tuple[str, str]]:
     ]
 
 
-def _handle_custom_command(command: str, name: str) -> Optional[bool]:
+def _handle_custom_command(command: str, name: str) -> bool | None:
     """Handle custom slash commands for the Azure Foundry plugin.
 
     Args:
@@ -272,7 +272,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
 
 def _create_azure_foundry_model(
-    model_name: str, model_config: Dict, config: Dict
+    model_name: str, model_config: dict, config: dict
 ) -> Any:
     """Create an Azure Foundry model instance.
 
@@ -342,7 +342,7 @@ def _create_azure_foundry_model(
         interleaved_thinking = effective_settings.get("interleaved_thinking", False)
 
         # Build anthropic-beta header if needed
-        beta_parts: List[str] = []
+        beta_parts: list[str] = []
         if interleaved_thinking:
             beta_parts.append("interleaved-thinking-2025-05-14")
 
@@ -380,7 +380,7 @@ def _create_azure_foundry_model(
         return None
 
 
-def _register_model_types() -> List[Dict[str, Any]]:
+def _register_model_types() -> list[dict[str, Any]]:
     """Register the azure_foundry model type handler."""
     return [{"type": "azure_foundry", "handler": _create_azure_foundry_model}]
 
