@@ -11,6 +11,7 @@ from code_puppy.tools.file_modifications import (
     ReplacementsPayload,
     _delete_file,
     _edit_file,
+    register_replace_in_file,
 )
 
 
@@ -220,6 +221,27 @@ def func3():
         assert "return 2 + 1" in content
         assert "def func1():" in content  # Should remain
         assert "def func3():" in content  # Should remain
+
+    def test_register_replace_in_file_rejects_missing_old_str(self, tmp_path):
+        registered = {}
+
+        class Agent:
+            def tool(self, fn):
+                registered[fn.__name__] = fn
+                return fn
+
+        register_replace_in_file(Agent())
+        fn = registered["replace_in_file"]
+
+        result = fn(
+            Mock(),
+            file_path=str(tmp_path / "test.py"),
+            replacements=[{"new_str": "updated"}],
+        )
+
+        assert result["success"] is False
+        assert result["changed"] is False
+        assert "old_str" in result["message"]
 
     def test_error_recovery_file_permissions(self, tmp_path):
         """Test error recovery when file permissions prevent modification."""

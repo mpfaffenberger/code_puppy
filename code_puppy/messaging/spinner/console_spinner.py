@@ -10,6 +10,13 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
+from code_puppy.terminal_utils import (
+    clear_live_terminal_line,
+    flush_windows_keyboard_buffer,
+    reset_windows_terminal_ansi,
+    supports_live_terminal_updates,
+)
+
 from .spinner_base import SpinnerBase
 
 
@@ -29,6 +36,7 @@ class ConsoleSpinner(SpinnerBase):
         self._stop_event = threading.Event()
         self._paused = False
         self._live = None
+        self._last_render_at = 0.0
 
         # Register this spinner for global management
         from . import register_spinner
@@ -40,18 +48,21 @@ class ConsoleSpinner(SpinnerBase):
         super().start()
         self._stop_event.clear()
 
+        if not supports_live_terminal_updates(self.console):
+            return
+
         # Don't start a new thread if one is already running
         if self._thread and self._thread.is_alive():
             return
 
-        # Print blank line before spinner for visual separation from content
+        # Print blank line before spinner for visual separation.
         self.console.print()
 
         # Create a Live display for the spinner
         self._live = Live(
             self._generate_spinner_panel(),
             console=self.console,
-            refresh_per_second=20,
+            refresh_per_second=10,
             transient=True,  # Clear the spinner line when stopped (no puppy litter!)
             auto_refresh=False,  # Don't auto-refresh to avoid wiping out user input
         )
@@ -79,32 +90,10 @@ class ConsoleSpinner(SpinnerBase):
 
         self._thread = None
 
-        # Windows-specific cleanup: Rich's Live display can leave terminal in corrupted state
         if platform.system() == "Windows":
-            import sys
-
-            try:
-                # Reset ANSI formatting for both stdout and stderr
-                sys.stdout.write("\x1b[0m")  # Reset all attributes
-                sys.stdout.flush()
-                sys.stderr.write("\x1b[0m")
-                sys.stderr.flush()
-
-                # Clear the line and reposition cursor
-                sys.stdout.write("\r")  # Return to start of line
-                sys.stdout.write("\x1b[K")  # Clear to end of line
-                sys.stdout.flush()
-
-                # Flush keyboard input buffer to clear any stuck keys
-                try:
-                    import msvcrt
-
-                    while msvcrt.kbhit():
-                        msvcrt.getch()
-                except ImportError:
-                    pass  # msvcrt not available (not Windows or different Python impl)
-            except Exception:
-                pass  # Fail silently if cleanup doesn't work
+            reset_windows_terminal_ansi()
+            clear_live_terminal_line()
+            flush_windows_keyboard_buffer()
 
         # Unregister this spinner from global management
         from . import unregister_spinner
@@ -151,9 +140,13 @@ class ConsoleSpinner(SpinnerBase):
 
                 # Update the live display only if not paused and not awaiting input
                 if self._live and not self._paused and not awaiting_input:
-                    # Manually refresh instead of auto-refresh to avoid wiping input
-                    self._live.update(self._generate_spinner_panel())
-                    self._live.refresh()
+                    # Throttle refresh to reduce redraw churn/flicker.
+                    now = time.time()
+                    if now - self._last_render_at >= 0.09:
+                        # Manually refresh instead of auto-refresh to avoid wiping input
+                        self._live.update(self._generate_spinner_panel())
+                        self._live.refresh()
+                        self._last_render_at = now
 
                 # Short sleep to control animation speed
                 time.sleep(0.05)
@@ -173,12 +166,7 @@ class ConsoleSpinner(SpinnerBase):
                 try:
                     self._live.stop()
                     self._live = None
-                    # Clear the line to remove any artifacts
-                    import sys
-
-                    sys.stdout.write("\r")  # Return to start of line
-                    sys.stdout.write("\x1b[K")  # Clear to end of line
-                    sys.stdout.flush()
+                    clear_live_terminal_line(console=self.console)
                 except Exception:
                     pass
 
@@ -192,23 +180,20 @@ class ConsoleSpinner(SpinnerBase):
 
         if self._is_spinning and self._paused:
             self._paused = False
+            if not supports_live_terminal_updates(self.console):
+                return
             # Restart the live display if it was stopped during pause
             if not self._live:
                 try:
-                    # Clear any leftover artifacts before starting
-                    import sys
+                    clear_live_terminal_line(console=self.console)
 
-                    sys.stdout.write("\r")  # Return to start of line
-                    sys.stdout.write("\x1b[K")  # Clear to end of line
-                    sys.stdout.flush()
-
-                    # Print blank line before spinner for visual separation
+                    # Print blank line before spinner for visual separation.
                     self.console.print()
 
                     self._live = Live(
                         self._generate_spinner_panel(),
                         console=self.console,
-                        refresh_per_second=20,
+                        refresh_per_second=10,
                         transient=True,  # Clear spinner line when stopped
                         auto_refresh=False,
                     )
@@ -220,10 +205,7 @@ class ConsoleSpinner(SpinnerBase):
                 try:
                     # Force Rich to reset any cached console state
                     if hasattr(self.console, "_buffer"):
-                        # Clear Rich's internal buffer to prevent artifacts
-                        self.console.file.write("\r")  # Return to start
-                        self.console.file.write("\x1b[K")  # Clear line
-                        self.console.file.flush()
+                        clear_live_terminal_line(stream=self.console.file, console=self.console)
 
                     self._live.update(self._generate_spinner_panel())
                     self._live.refresh()

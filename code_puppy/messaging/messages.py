@@ -7,7 +7,7 @@ Renderers decide how to display these structured messages.
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -75,6 +75,28 @@ class TextMessage(BaseMessage):
     category: MessageCategory = MessageCategory.SYSTEM
     level: MessageLevel = Field(description="Severity level of this message")
     text: str = Field(description="Plain text content - NO Rich markup allowed")
+
+
+class LegacyQueueMessage(BaseMessage):
+    """Wrapped legacy MessageQueue output for prompt-safe bus rendering."""
+
+    category: MessageCategory = MessageCategory.SYSTEM
+    legacy_type: str = Field(description="Original legacy MessageType value")
+    content: Any = Field(description="Original legacy content object")
+    legacy_metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Original legacy UIMessage metadata",
+    )
+    legacy_timestamp: Optional[datetime] = Field(
+        default=None,
+        description="Original legacy UIMessage timestamp",
+    )
+
+    model_config = {
+        "frozen": False,
+        "extra": "forbid",
+        "arbitrary_types_allowed": True,
+    }
 
 
 # =============================================================================
@@ -456,6 +478,13 @@ class SkillEntry(BaseModel):
     model_config = {"frozen": True, "extra": "forbid"}
 
 
+class AgentListMessage(BaseMessage):
+    """Summary banner for list_agents tool output."""
+
+    category: MessageCategory = MessageCategory.TOOL_OUTPUT
+    agent_count: int = Field(ge=0, description="Total number of available agents")
+
+
 class SkillListMessage(BaseMessage):
     """Result of listing or searching skills."""
 
@@ -491,6 +520,7 @@ class SkillActivateMessage(BaseMessage):
 # All concrete message types (excludes BaseMessage itself)
 AnyMessage = Union[
     TextMessage,
+    LegacyQueueMessage,
     FileListingMessage,
     FileContentMessage,
     GrepResultMessage,
@@ -511,6 +541,7 @@ AnyMessage = Union[
     DividerMessage,
     StatusPanelMessage,
     VersionCheckMessage,
+    AgentListMessage,
     SkillListMessage,
     SkillActivateMessage,
 ]
@@ -529,6 +560,7 @@ __all__ = [
     "BaseMessage",
     # Text
     "TextMessage",
+    "LegacyQueueMessage",
     # File operations
     "FileEntry",
     "FileListingMessage",
@@ -560,6 +592,7 @@ __all__ = [
     # Status
     "StatusPanelMessage",
     "VersionCheckMessage",
+    "AgentListMessage",
     # Skills
     "SkillEntry",
     "SkillListMessage",

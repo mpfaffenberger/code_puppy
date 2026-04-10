@@ -14,10 +14,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from code_puppy.callbacks import register_callback
+from code_puppy.command_line.interactive_command import BackgroundInteractiveCommand
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.model_switching import set_model_and_reload_agent
 
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
+from ..oauth_control import wait_for_event_or_cancel
 from .accounts import AccountManager
 from .config import (
     ANTIGRAVITY_OAUTH_CONFIG,
@@ -125,7 +127,9 @@ def _start_callback_server(
     return None
 
 
-def _await_callback(context: Any) -> Optional[Tuple[str, str, str]]:
+def _await_callback(
+    context: Any, cancel_event: threading.Event | None = None
+) -> Optional[Tuple[str, str, str]]:
     """Wait for OAuth callback and return (code, state, redirect_uri)."""
     timeout = ANTIGRAVITY_OAUTH_CONFIG["callback_timeout"]
 
@@ -157,7 +161,17 @@ def _await_callback(context: Any) -> Optional[Tuple[str, str, str]]:
 
     emit_info(f"⏳ Waiting for callback on {redirect_uri}")
 
-    if not event.wait(timeout=timeout):
+    wait_result = wait_for_event_or_cancel(
+        event,
+        timeout=timeout,
+        cancel_event=cancel_event,
+    )
+    if wait_result == "cancelled":
+        emit_info("Antigravity OAuth authentication cancelled.")
+        server.shutdown()
+        return None
+
+    if wait_result == "timeout":
         emit_error("OAuth callback timed out. Please try again.")
         server.shutdown()
         return None
@@ -174,6 +188,7 @@ def _await_callback(context: Any) -> Optional[Tuple[str, str, str]]:
 def _perform_authentication(
     add_account: bool = False,
     reload_agent: bool = True,
+    cancel_event: threading.Event | None = None,
 ) -> bool:
     """Run the OAuth authentication flow.
 
@@ -182,9 +197,12 @@ def _perform_authentication(
         reload_agent: Whether to reload the current agent after auth.
     """
     context = prepare_oauth_context()
-    callback_result = _await_callback(context)
+    callback_result = _await_callback(context, cancel_event=cancel_event)
 
     if not callback_result:
+        return False
+    if cancel_event is not None and cancel_event.is_set():
+        emit_info("Antigravity OAuth authentication cancelled.")
         return False
 
     code, state, redirect_uri = callback_result
@@ -194,6 +212,9 @@ def _perform_authentication(
 
     if not isinstance(result, TokenExchangeSuccess):
         emit_error(f"Token exchange failed: {result.error}")
+        return False
+    if cancel_event is not None and cancel_event.is_set():
+        emit_info("Antigravity OAuth authentication cancelled.")
         return False
 
     # Save tokens
@@ -231,6 +252,9 @@ def _perform_authentication(
 
     # Add models
     emit_info("📦 Configuring available models…")
+    if cancel_event is not None and cancel_event.is_set():
+        emit_info("Antigravity OAuth authentication cancelled.")
+        return False
     if add_models_to_config(result.access_token, result.project_id):
         model_count = len(ANTIGRAVITY_MODELS)
         emit_success(f"✅ {model_count} Antigravity models configured!")
@@ -239,10 +263,24 @@ def _perform_authentication(
         )
     else:
         emit_warning("Failed to configure models. Try running /antigravity-auth again.")
+        return False
 
     if reload_agent:
         reload_current_agent()
     return True
+
+
+def start_antigravity_oauth_setup(
+    cancel_event: threading.Event, *, add_account: bool = False
+) -> bool:
+    success = _perform_authentication(
+        add_account=add_account,
+        reload_agent=False,
+        cancel_event=cancel_event,
+    )
+    if success and not cancel_event.is_set() and not add_account:
+        set_model_and_reload_agent("antigravity-gemini-3-pro-high")
+    return success
 
 
 def _custom_help() -> List[Tuple[str, str]]:
@@ -379,7 +417,7 @@ def _handle_logout() -> None:
     emit_success("👋 Antigravity logout complete")
 
 
-def _handle_custom_command(command: str, name: str) -> Optional[bool]:
+def _handle_custom_command(command: str, name: str) -> object | None:
     """Handle Antigravity custom commands."""
     if not name:
         return None
@@ -391,17 +429,18 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
             emit_warning(
                 "Existing tokens found. This will refresh your authentication."
             )
-
-        if _perform_authentication(reload_agent=False):
-            set_model_and_reload_agent("antigravity-gemini-3-pro-high")
-        return True
+        return BackgroundInteractiveCommand(run=start_antigravity_oauth_setup)
 
     if name == "antigravity-add":
         emit_info("➕ Adding another Google account…")
         manager = AccountManager.load_from_disk()
         emit_info(f"Current accounts: {manager.account_count}")
-        _perform_authentication(add_account=True)
-        return True
+        return BackgroundInteractiveCommand(
+            run=lambda cancel_event: start_antigravity_oauth_setup(
+                cancel_event,
+                add_account=True,
+            )
+        )
 
     if name == "antigravity-status":
         _handle_status()

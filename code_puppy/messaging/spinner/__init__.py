@@ -64,11 +64,31 @@ def resume_all_spinners():
 def update_spinner_context(info: str) -> None:
     """Update the shared context information displayed beside active spinners."""
     SpinnerBase.set_context_info(info)
+    try:
+        from code_puppy.command_line.interactive_runtime import (
+            get_active_interactive_runtime,
+        )
+
+        runtime = get_active_interactive_runtime()
+        if runtime is not None:
+            runtime.invalidate_prompt()
+    except Exception:
+        pass
 
 
 def clear_spinner_context() -> None:
     """Clear any context information displayed beside active spinners."""
     SpinnerBase.clear_context_info()
+    try:
+        from code_puppy.command_line.interactive_runtime import (
+            get_active_interactive_runtime,
+        )
+
+        runtime = get_active_interactive_runtime()
+        if runtime is not None:
+            runtime.invalidate_prompt()
+    except Exception:
+        pass
 
 
 __all__ = [

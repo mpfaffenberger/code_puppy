@@ -382,12 +382,22 @@ class TestHandleCustomCommand:
     def test_auth_with_existing_tokens(
         self, mock_warn, mock_info, mock_set, mock_auth, mock_tokens
     ):
+        from code_puppy.command_line.interactive_command import (
+            BackgroundInteractiveCommand,
+        )
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (
             _handle_custom_command,
         )
 
-        assert _handle_custom_command("/claude-code-auth", "claude-code-auth") is True
+        mock_auth.return_value = True
+        result = _handle_custom_command("/claude-code-auth", "claude-code-auth")
+
+        assert isinstance(result, BackgroundInteractiveCommand)
+        cancel_event = threading.Event()
+        assert result.run(cancel_event) is True
         mock_warn.assert_called()  # warns about overwriting
+        mock_auth.assert_called_once_with(cancel_event=cancel_event)
+        mock_set.assert_called_once_with("claude-code-claude-opus-4-6")
 
     @patch(
         f"{MOD}.load_stored_tokens",

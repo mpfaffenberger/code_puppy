@@ -840,6 +840,7 @@ class TestRun:
         menu = _make_menu_with_providers([p])
         mock_app = MagicMock()
         mock_app_cls.return_value = mock_app
+        mock_input.return_value = "test-credential"
 
         def run_side_effect(**kwargs):
             menu.result = "pending_credentials"

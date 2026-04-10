@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from unittest.mock import MagicMock, patch
 
 
@@ -146,17 +147,28 @@ class TestHandleCustomCommand:
         assert _handle_custom_command("/x", "unknown") is None
 
     def test_auth(self):
+        from code_puppy.command_line.interactive_command import (
+            BackgroundInteractiveCommand,
+        )
         from code_puppy.plugins.chatgpt_oauth.register_callbacks import (
             _handle_custom_command,
         )
 
         with (
-            patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.run_oauth_flow"),
+            patch(
+                "code_puppy.plugins.chatgpt_oauth.register_callbacks.run_oauth_flow",
+                return_value=True,
+            ) as mock_oauth,
             patch(
                 "code_puppy.plugins.chatgpt_oauth.register_callbacks.set_model_and_reload_agent"
-            ),
+            ) as mock_set_model,
         ):
-            assert _handle_custom_command("/chatgpt-auth", "chatgpt-auth") is True
+            result = _handle_custom_command("/chatgpt-auth", "chatgpt-auth")
+            assert isinstance(result, BackgroundInteractiveCommand)
+            cancel_event = threading.Event()
+            assert result.run(cancel_event) is True
+            mock_oauth.assert_called_once_with(cancel_event=cancel_event)
+            mock_set_model.assert_called_once_with("chatgpt-gpt-5.3-codex")
 
     def test_status(self):
         from code_puppy.plugins.chatgpt_oauth.register_callbacks import (
