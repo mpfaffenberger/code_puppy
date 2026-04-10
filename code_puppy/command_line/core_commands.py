@@ -58,7 +58,7 @@ def handle_cd_command(command: str) -> bool:
     # Use shlex.split to handle quoted paths properly
     import shlex
 
-    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+    from code_puppy.messaging import emit_error, emit_info, emit_success
 
     try:
         tokens = shlex.split(command)
@@ -80,20 +80,21 @@ def handle_cd_command(command: str) -> bool:
         if os.path.isdir(target):
             os.chdir(target)
             emit_success(f"Changed directory to: {target}")
-            # Reload the agent so the system prompt and project-local
-            # AGENT.md rules reflect the new working directory.  Without
-            # this, the LLM keeps receiving stale path information for the
-            # remainder of the session (the PydanticAgent instructions are
-            # baked in at construction time and never refreshed otherwise).
+
+            # Reload the agent to pick up new working directory context
+            # This ensures AGENTS.md is re-read and system prompt is updated
             try:
                 from code_puppy.agents.agent_manager import get_current_agent
 
-                get_current_agent().reload_code_generation_agent()
+                current_agent = get_current_agent()
+                if current_agent:
+                    # reload_code_generation_agent() invalidates cached rules
+                    # and rebuilds prompt/context from the new cwd
+                    current_agent.reload_code_generation_agent()
+                    emit_info("Agent context updated for new directory")
             except Exception as e:
-                emit_warning(
-                    f"Directory changed, but agent reload failed: {e}. "
-                    "You may need to run /agent or /model to force a refresh."
-                )
+                # Non-fatal: directory change succeeded even if reload failed
+                emit_error(f"Could not reload agent context: {e}")
         else:
             emit_error(f"Not a directory: {dirname}")
         return True
