@@ -185,28 +185,14 @@ def _handle_foundry_setup() -> None:
             f"   Tip: Set {ENV_FOUNDRY_RESOURCE}={resource_name} in your environment"
         )
 
-    # Add models to config
+    # Add models to config — always pass the resolved deployment names so that
+    # pressing Enter (which keeps the default) is persisted, not treated as None.
     added_models = add_foundry_models_to_config(
         resource_name=resource_name,
-        opus_deployment=opus_deployment
-        if opus_deployment != opus_default or opus_input
-        else None,
-        sonnet_deployment=sonnet_deployment
-        if sonnet_deployment != sonnet_default or sonnet_input
-        else None,
-        haiku_deployment=haiku_deployment
-        if haiku_deployment != haiku_default or haiku_input
-        else None,
+        opus_deployment=opus_deployment,
+        sonnet_deployment=sonnet_deployment,
+        haiku_deployment=haiku_deployment,
     )
-
-    # If user entered defaults, add them too
-    if not added_models:
-        added_models = add_foundry_models_to_config(
-            resource_name=resource_name,
-            opus_deployment=opus_deployment,
-            sonnet_deployment=sonnet_deployment,
-            haiku_deployment=haiku_deployment,
-        )
 
     _print()
     if added_models:
@@ -262,19 +248,23 @@ def _handle_custom_command(command: str, name: str) -> bool | None:
     Returns:
         True if the command was handled, None otherwise.
     """
-    if name == "foundry-status":
-        _handle_foundry_status()
-        return True
+    handlers = {
+        "foundry-status": _handle_foundry_status,
+        "foundry-setup": _handle_foundry_setup,
+        "foundry-remove": _handle_foundry_remove,
+    }
 
-    if name == "foundry-setup":
-        _handle_foundry_setup()
-        return True
+    handler = handlers.get(name)
+    if handler is None:
+        return None
 
-    if name == "foundry-remove":
-        _handle_foundry_remove()
+    try:
+        handler()
         return True
-
-    return None
+    except Exception as e:
+        logger.exception("Error handling /%s command: %s", name, e)
+        emit_error(f"Command /{name} failed: {e}")
+        return False
 
 
 # ============================================================================
@@ -298,8 +288,15 @@ def _create_azure_foundry_model(
     Returns:
         An AnthropicModel instance configured for Azure Foundry, or None on error.
     """
-    from anthropic import AsyncAnthropicFoundry
-    from pydantic_ai.models.anthropic import AnthropicModel
+    try:
+        from anthropic import AsyncAnthropicFoundry
+        from pydantic_ai.models.anthropic import AnthropicModel
+    except ImportError as e:
+        emit_error(
+            f"Failed to create Azure Foundry model '{model_name}': "
+            f"Missing dependency - {e}"
+        )
+        return None
 
     from code_puppy.claude_cache_client import patch_anthropic_client_messages
     from code_puppy.config import get_effective_model_settings
@@ -338,16 +335,6 @@ def _create_azure_foundry_model(
         return None
 
     try:
-        # Create the Azure Foundry Anthropic client with token provider
-        # AsyncAnthropicFoundry uses the resource name to construct the endpoint
-        anthropic_client = AsyncAnthropicFoundry(
-            resource=resource_name,
-            azure_ad_token_provider=token_provider.get_token,
-        )
-
-        # Patch for cache control injection
-        patch_anthropic_client_messages(anthropic_client)
-
         # Check for interleaved thinking setting
         effective_settings = get_effective_model_settings(model_name)
         interleaved_thinking = effective_settings.get("interleaved_thinking", False)
@@ -362,11 +349,22 @@ def _create_azure_foundry_model(
         if context_length >= 1_000_000:
             beta_parts.append(CONTEXT_1M_BETA)
 
+        # Build default headers dict if we have beta features
+        default_headers: dict[str, str] | None = None
         if beta_parts:
-            # Set default headers using the public API
-            anthropic_client = anthropic_client.with_options(
-                default_headers={"anthropic-beta": ",".join(beta_parts)}
-            )
+            default_headers = {"anthropic-beta": ",".join(beta_parts)}
+
+        # Create the Azure Foundry Anthropic client with token provider
+        # Note: We pass default_headers here because AsyncAnthropicFoundry.with_options()
+        # has a bug where copy() passes auth_token which isn't a valid __init__ param
+        anthropic_client = AsyncAnthropicFoundry(
+            resource=resource_name,
+            azure_ad_token_provider=token_provider.get_token,
+            default_headers=default_headers,
+        )
+
+        # Patch for cache control injection
+        patch_anthropic_client_messages(anthropic_client)
 
         # Create the pydantic-ai provider and model
         provider_identity = resolve_provider_identity(model_name, model_config)
