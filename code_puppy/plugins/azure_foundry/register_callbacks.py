@@ -241,12 +241,17 @@ def _custom_help() -> list[tuple[str, str]]:
 def _handle_custom_command(command: str, name: str) -> bool | None:
     """Handle custom slash commands for the Azure Foundry plugin.
 
+    Dispatches to handlers for "foundry-status", "foundry-setup", and
+    "foundry-remove" commands.
+
     Args:
         command: The full command string.
         name: The command name (without slash).
 
     Returns:
-        True if the command was handled, None otherwise.
+        True if the command was handled successfully.
+        False if the command was recognized but handler() raised an exception.
+        None if the command is not handled by this plugin.
     """
     handlers = {
         "foundry-status": _handle_foundry_status,
@@ -378,12 +383,6 @@ def _create_azure_foundry_model(
         )
         return AnthropicModel(model_name=deployment_name, provider=provider)
 
-    except ImportError as e:
-        emit_error(
-            f"Failed to create Azure Foundry model '{model_name}': "
-            f"Missing dependency - {e}"
-        )
-        return None
     except Exception as e:
         emit_error(f"Failed to create Azure Foundry model '{model_name}': {e}")
         logger.exception(f"Error creating Azure Foundry model: {e}")
