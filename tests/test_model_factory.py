@@ -16,8 +16,8 @@ def test_ollama_load_model():
         pytest.skip("Model 'ollama-llama2' not found in configuration, skipping test.")
 
     model = ModelFactory.get_model("ollama-llama2", config)
-    assert hasattr(model, "provider")
-    assert model.provider.model_name == "llama2"
+    assert hasattr(model, "_provider")
+    assert model.model_name == "llama2"
     assert "chat" in dir(model), "OllamaModel must have a .chat method!"
 
 
@@ -29,8 +29,8 @@ def test_anthropic_load_model():
         pytest.skip("ANTHROPIC_API_KEY not set in environment, skipping test.")
 
     model = ModelFactory.get_model("anthropic-test", config)
-    assert hasattr(model, "provider")
-    assert hasattr(model.provider, "anthropic_client")
+    assert hasattr(model, "_provider")
+    assert hasattr(model._provider, "_client")
     # Note: Do not make actual Anthropic network calls in CI, just validate instantiation.
 
 
@@ -104,7 +104,7 @@ def test_openai_load_model(monkeypatch):
     config = {"openai": {"type": "openai", "name": "fake-openai-model"}}
     model = ModelFactory.get_model("openai", config)
     assert model is not None
-    assert hasattr(model, "provider")
+    assert hasattr(model, "_provider")
 
 
 def test_custom_openai_happy(monkeypatch):
@@ -123,7 +123,7 @@ def test_custom_openai_happy(monkeypatch):
     }
     model = ModelFactory.get_model("custom", config)
     assert model is not None
-    assert hasattr(model.provider, "base_url")
+    assert hasattr(model._provider, "base_url")
 
 
 def test_anthropic_missing_api_key(monkeypatch):

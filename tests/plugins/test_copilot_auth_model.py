@@ -9,12 +9,11 @@ from dataclasses import dataclass
 from unittest.mock import patch
 
 import httpx
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class FakeCopilotToken:
@@ -44,6 +43,7 @@ def _model_config(name: str = "gpt-4o", host: str = "github.com") -> dict:
 # ---------------------------------------------------------------------------
 # _CopilotAuth auth flow tests
 # ---------------------------------------------------------------------------
+
 
 class TestCopilotAuth:
     """Test the _CopilotAuth httpx.Auth subclass injected per-request."""
@@ -78,13 +78,18 @@ class TestCopilotAuth:
         mock_get_token.return_value = "fresh_session_token_abc"
 
         auth = self._make_auth("ghp_oauth_token", "github.com")
-        request = httpx.Request("POST", "https://api.githubcopilot.com/chat/completions")
+        request = httpx.Request(
+            "POST", "https://api.githubcopilot.com/chat/completions"
+        )
 
         # Exhaust the generator (httpx auth_flow protocol)
         flow = auth.auth_flow(request)
         modified_request = next(flow)
 
-        assert modified_request.headers["Authorization"] == "Bearer fresh_session_token_abc"
+        assert (
+            modified_request.headers["Authorization"]
+            == "Bearer fresh_session_token_abc"
+        )
         mock_get_token.assert_called_once_with("ghp_oauth_token", "github.com")
 
     @patch("code_puppy.plugins.copilot_auth.utils.get_valid_session_token")
@@ -93,7 +98,9 @@ class TestCopilotAuth:
         mock_get_token.return_value = None
 
         auth = self._make_auth("ghp_dead_token", "github.com")
-        request = httpx.Request("POST", "https://api.githubcopilot.com/chat/completions")
+        request = httpx.Request(
+            "POST", "https://api.githubcopilot.com/chat/completions"
+        )
 
         flow = auth.auth_flow(request)
         modified_request = next(flow)
@@ -109,7 +116,9 @@ class TestCopilotAuth:
         auth = self._make_auth()
 
         for i, expected in enumerate(["token_1", "token_2", "token_3"], 1):
-            request = httpx.Request("POST", "https://api.githubcopilot.com/chat/completions")
+            request = httpx.Request(
+                "POST", "https://api.githubcopilot.com/chat/completions"
+            )
             flow = auth.auth_flow(request)
             modified = next(flow)
             assert modified.headers["Authorization"] == f"Bearer {expected}"
@@ -122,24 +131,29 @@ class TestCopilotAuth:
         mock_get_token.return_value = "ghe_token"
 
         auth = self._make_auth("ghp_enterprise", "github.enterprise.com")
-        request = httpx.Request("POST", "https://api.githubcopilot.com/chat/completions")
+        request = httpx.Request(
+            "POST", "https://api.githubcopilot.com/chat/completions"
+        )
 
         flow = auth.auth_flow(request)
         next(flow)
 
-        mock_get_token.assert_called_once_with("ghp_enterprise", "github.enterprise.com")
+        mock_get_token.assert_called_once_with(
+            "ghp_enterprise", "github.enterprise.com"
+        )
 
 
 # ---------------------------------------------------------------------------
 # _create_copilot_model integration tests
 # ---------------------------------------------------------------------------
 
+
 class TestCreateCopilotModel:
     """Test the _create_copilot_model factory function."""
 
     MODULE = "code_puppy.plugins.copilot_auth.register_callbacks"
 
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
     def test_returns_none_when_no_token(self, mock_get_token):
         """Should return None and warn when no Copilot token is available."""
         mock_get_token.return_value = None
@@ -155,8 +169,8 @@ class TestCreateCopilotModel:
         mock_warn.assert_called_once()
         assert "No Copilot token" in mock_warn.call_args[0][0]
 
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
     def test_returns_none_when_session_token_fails(self, mock_get_token, mock_session):
         """Should return None when session token exchange fails."""
         mock_get_token.return_value = FakeCopilotToken(
@@ -175,9 +189,11 @@ class TestCreateCopilotModel:
         mock_warn.assert_called_once()
         assert "session token" in mock_warn.call_args[0][0]
 
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
+    @patch(
+        "code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host"
+    )
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
     def test_creates_model_with_dynamic_auth(
         self, mock_get_token, mock_session, mock_endpoint
     ):
@@ -197,20 +213,22 @@ class TestCreateCopilotModel:
 
         assert result is not None
         # Verify the model was created
-        assert hasattr(result, "provider")
+        assert hasattr(result, "_provider")
 
         # Verify the HTTP client has auth attached
-        # provider.client is AsyncOpenAI; provider.client._client is the httpx client
-        http_client = result.provider.client._client
+        # _provider.client is AsyncOpenAI; _provider.client._client is the httpx client
+        http_client = result._provider.client._client
         assert http_client.auth is not None
         # The auth should be an instance of the inner _CopilotAuth class
         assert hasattr(http_client.auth, "_oauth_token")
         assert http_client.auth._oauth_token == "ghp_real"
         assert http_client.auth._host == "github.com"
 
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
+    @patch(
+        "code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host"
+    )
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
     def test_provider_uses_placeholder_api_key(
         self, mock_get_token, mock_session, mock_endpoint
     ):
@@ -229,12 +247,14 @@ class TestCreateCopilotModel:
         assert result is not None
 
         # The provider should NOT have the session token baked in as api_key.
-        # The api_key lives on the AsyncOpenAI client inside the provider.
-        assert result.provider.client.api_key == "copilot-session-managed"
+        # The api_key lives on the AsyncOpenAI client inside the _provider.
+        assert result._provider.client.api_key == "copilot-session-managed"
 
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
+    @patch(
+        "code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host"
+    )
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
     def test_falls_back_to_config_url(
         self, mock_get_token, mock_session, mock_endpoint
     ):
@@ -255,12 +275,14 @@ class TestCreateCopilotModel:
         assert result is not None
 
         # Should have fallen back to the custom_endpoint URL
-        provider = result.provider
+        provider = result._provider
         assert "custom.example.com" in str(provider.base_url)
 
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
+    @patch(
+        "code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host"
+    )
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
     def test_uses_discovered_endpoint(
         self, mock_get_token, mock_session, mock_endpoint
     ):
@@ -278,12 +300,14 @@ class TestCreateCopilotModel:
         result = _create_copilot_model("copilot-gpt-4o", _model_config(), {})
         assert result is not None
 
-        provider = result.provider
+        provider = result._provider
         assert "copilot-proxy.us-east.com" in str(provider.base_url)
 
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
+    @patch(
+        "code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host"
+    )
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
     def test_client_has_copilot_headers(
         self, mock_get_token, mock_session, mock_endpoint
     ):
@@ -301,17 +325,25 @@ class TestCreateCopilotModel:
         result = _create_copilot_model("copilot-gpt-4o", _model_config(), {})
         assert result is not None
 
-        client = result.provider.client._client
+        client = result._provider.client._client
         client_headers = dict(client.headers)
 
         assert client_headers.get("editor-version") == FAKE_CONFIG["editor_version"]
-        assert client_headers.get("editor-plugin-version") == FAKE_CONFIG["editor_plugin_version"]
-        assert client_headers.get("copilot-integration-id") == FAKE_CONFIG["copilot_integration_id"]
+        assert (
+            client_headers.get("editor-plugin-version")
+            == FAKE_CONFIG["editor_plugin_version"]
+        )
+        assert (
+            client_headers.get("copilot-integration-id")
+            == FAKE_CONFIG["copilot_integration_id"]
+        )
         assert client_headers.get("openai-intent") == FAKE_CONFIG["openai_intent"]
 
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
+    @patch(
+        "code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host"
+    )
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
     def test_ghe_host_is_passed_through(
         self, mock_get_token, mock_session, mock_endpoint
     ):
@@ -335,12 +367,14 @@ class TestCreateCopilotModel:
         mock_session.assert_called_once_with("ghp_ghe", ghe_host)
 
         # Auth should use the GHE host
-        auth = result.provider.client._client.auth
+        auth = result._provider.client._client.auth
         assert auth._host == ghe_host
 
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
+    @patch(
+        "code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host"
+    )
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
     def test_claude_model_has_interleaved_thinking_profile(
         self, mock_get_token, mock_session, mock_endpoint
     ):
@@ -372,9 +406,11 @@ class TestCreateCopilotModel:
         # Must be 'field' — NOT False — so thinking persists across tool calls
         assert profile.openai_chat_send_back_thinking_parts == "field"
 
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
-    @patch(f"code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
+    @patch(
+        "code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host"
+    )
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_valid_session_token")
+    @patch("code_puppy.plugins.copilot_auth.register_callbacks.get_token_for_host")
     def test_non_claude_model_has_no_thinking_profile(
         self, mock_get_token, mock_session, mock_endpoint
     ):
