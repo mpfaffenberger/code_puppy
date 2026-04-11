@@ -241,7 +241,7 @@ requires-dist = [
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pydantic", specifier = ">=2.4.0" },
     { name = "pydantic-ai-slim", extras = ["anthropic", "mcp"], specifier = "==1.80.0" },
-    { name = "pydantic-harness", extras = ["code-mode"], git = "https://github.com/pydantic/pydantic-harness.git?rev=main" },
+    { name = "pydantic-harness", extras = ["code-mode"] },
     { name = "pyfiglet", specifier = ">=0.8.post1" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rapidfuzz", specifier = ">=3.13.0" },
@@ -1031,7 +1031,7 @@ wheels = [
 [[package]]
 name = "pydantic-ai-slim"
 version = "1.80.0"
-source = { git = "https://github.com/pydantic/pydantic-ai.git?subdirectory=pydantic_ai_slim&branch=main#4dcfb01e74867485fdb41f8eb3dc535e6e057a90" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "genai-prices" },
     { name = "griffelib" },
@@ -1040,6 +1040,10 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-graph" },
     { name = "typing-inspection" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/de/27/aa309951a8973a8525fdf9e45b49960105bc78ebc8dba48366c2853538ae/pydantic_ai_slim-1.80.0.tar.gz", hash = "sha256:034f7f910dfce5d82528c74a717a99065ae548390f0b906165972cd13a87d2cf", size = 549153, upload-time = "2026-04-10T23:31:19.862Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/23/bf/ef273265ef3530cf432fd6d0014ceed57d1cc5b1550fd975bc91152633c8/pydantic_ai_slim-1.80.0-py3-none-any.whl", hash = "sha256:160ad31f522c3d091f3ce32b478d26034c05b6c2c84798a4c8b191c7f9f94bee", size = 703157, upload-time = "2026-04-10T23:31:12Z" },
 ]
 
 [package.optional-dependencies]
@@ -1122,20 +1126,28 @@ wheels = [
 [[package]]
 name = "pydantic-graph"
 version = "1.80.0"
-source = { git = "https://github.com/pydantic/pydantic-ai.git?subdirectory=pydantic_graph&branch=main#4dcfb01e74867485fdb41f8eb3dc535e6e057a90" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "logfire-api" },
     { name = "pydantic" },
     { name = "typing-inspection" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/a9/7b/03a8791e4916cb0f841fcd77ef6b6bf504419bf03d1c16e4ef80bfd553ad/pydantic_graph-1.80.0.tar.gz", hash = "sha256:94b8c2dd20730ce3cd0fa544ca9c31011a7bb0c5b9f5ca1dade6a6bed7719e8c", size = 59243, upload-time = "2026-04-10T23:31:22.504Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/12/483b7402d302021ff8537a746eebf018f4e0bb5892c7bef769ab968e03c1/pydantic_graph-1.80.0-py3-none-any.whl", hash = "sha256:60315c2042597d0377689ad48e9439760ec75d4ccda78830d2890ce9c94c6d84", size = 73065, upload-time = "2026-04-10T23:31:15.382Z" },
+]
 
 [[package]]
 name = "pydantic-harness"
-version = "0.0.1.dev18+9be00eb"
-source = { git = "https://github.com/pydantic/pydantic-harness.git?rev=main#9be00eb00dfa2942debb28601c7384bf821bab24" }
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic-ai-slim" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/44/f2/78401828d1fc0b0b39d0f1102a3684b263252ac7b7a0cf98a3455df54bad/pydantic_harness-0.1.0.tar.gz", hash = "sha256:c15f5637566f4c02aa5a0cb25a5a36ca51b4b7a438805a4ec5a279287a9c9f69", size = 139547, upload-time = "2026-04-11T01:33:40.855Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ed/8c/6849ab13307c70d73fb53de94a2a3025417d3a1e3034734841b3815489fa/pydantic_harness-0.1.0-py3-none-any.whl", hash = "sha256:87dfbe47800b522bf8c9516a74d0280b59b69217bddb7338d37d11246014a13e", size = 21714, upload-time = "2026-04-11T01:33:39.684Z" },
 ]
 
 [package.optional-dependencies]

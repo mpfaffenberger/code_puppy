@@ -9,7 +9,7 @@ description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "pydantic-ai-slim[anthropic,mcp]==1.80.0",
+    "pydantic-ai-slim[openai,anthropic,mcp]==1.80.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",
     "httpx[http2]>=0.24.1",
@@ -94,9 +94,6 @@ omit = ["code_puppy/main.py"]
 
 [tool.uv]
 python-preference = "only-managed"
-
-[tool.uv.sources]
-pydantic-harness = { git = "https://github.com/pydantic/pydantic-harness.git", rev = "main" }
 
 [dependency-groups]
 dev = [
