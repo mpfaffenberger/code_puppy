@@ -37,6 +37,8 @@ PhaseType = Literal[
     "register_model_providers",
     "message_history_processor_start",
     "message_history_processor_end",
+    "api_retry_start",
+    "api_retry_end",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -74,6 +76,8 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_model_providers": [],
     "message_history_processor_start": [],
     "message_history_processor_end": [],
+    "api_retry_start": [],
+    "api_retry_end": [],
 }
 
 logger = logging.getLogger(__name__)
