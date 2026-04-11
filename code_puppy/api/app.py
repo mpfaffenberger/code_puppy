@@ -138,6 +138,9 @@ def create_app() -> FastAPI:
             <a href="/terminal" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg text-lg font-semibold">
                 Open Terminal
             </a>
+            <a href="/mobile" class="px-6 py-3 bg-green-700 hover:bg-green-600 rounded-lg text-lg font-semibold">
+                Mobile UI
+            </a>
             <a href="/docs" class="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-lg">
                 API Docs
             </a>
@@ -159,6 +162,17 @@ def create_app() -> FastAPI:
             return FileResponse(html_file, media_type="text/html")
         return HTMLResponse(
             content="<h1>Terminal template not found</h1>",
+            status_code=404,
+        )
+
+    @app.get("/mobile")
+    async def mobile_page():
+        """Serve the mobile-optimised web UI (chat-style, touch-friendly)."""
+        html_file = templates_dir / "mobile.html"
+        if html_file.exists():
+            return FileResponse(html_file, media_type="text/html")
+        return HTMLResponse(
+            content="<h1>Mobile template not found</h1>",
             status_code=404,
         )
 
