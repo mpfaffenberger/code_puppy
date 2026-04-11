@@ -30,6 +30,12 @@ except ImportError:
 
 # Constants
 DEFAULT_QUERY_TIMEOUT_SECONDS = 300  # 5 minutes
+
+
+def _is_access_denied(exc: Exception) -> bool:
+    """Return True if exception looks like a GCP HTTP 403 / permission denial."""
+    msg = str(exc).lower()
+    return "403" in str(exc) or "access denied" in msg or "permission denied" in msg
 DEFAULT_MAX_RESULTS = 100
 MAX_RESULTS_LIMIT = 10000  # Hard limit to prevent OOM
 
@@ -87,6 +93,12 @@ class BigQueryAuthError(BigQueryError):
 
 class BigQueryAPIError(BigQueryError):
     """Raised when BigQuery API call fails."""
+
+    pass
+
+
+class BigQueryAccessDeniedError(BigQueryError):
+    """Raised when user lacks permission to access a BQ resource (HTTP 403)."""
 
     pass
 
@@ -292,6 +304,8 @@ class BigQueryClient:
                 raise BigQueryNotFoundError(
                     f"Dataset '{dataset_id}' not found in project '{project}'"
                 ) from e
+            if _is_access_denied(e):
+                raise BigQueryAccessDeniedError(str(e)) from e
             raise BigQueryAPIError(f"Failed to list tables: {e}") from e
 
     def _validate_query_safety(self, query: str) -> None:
@@ -466,6 +480,8 @@ class BigQueryClient:
                 "bytes_billed": query_job.total_bytes_billed,
             }
         except Exception as e:
+            if _is_access_denied(e):
+                raise BigQueryAccessDeniedError(str(e)) from e
             raise BigQueryAPIError(f"Query execution failed: {e}") from e
 
     def get_table_schema(
@@ -504,4 +520,6 @@ class BigQueryClient:
                 raise BigQueryNotFoundError(
                     f"Table '{table_id}' not found in '{project}.{dataset_id}'"
                 ) from e
+            if _is_access_denied(e):
+                raise BigQueryAccessDeniedError(str(e)) from e
             raise BigQueryAPIError(f"Failed to get table schema: {e}") from e
