@@ -328,6 +328,34 @@ class TestModelSelectionMenu:
         assert menu.visible_model_names == ["claude-3-opus"]
         assert menu.selected_index == 0
 
+    def test_accept_selection_returns_false_when_filter_has_no_matches(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["gpt-5-mini", "claude-3-sonnet"])
+
+        menu._set_filter_text("nope")
+
+        assert menu._accept_selection() is False
+        assert menu.result is None
+
+    def test_accept_selection_guards_invalid_selected_index(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["gpt-5-mini"])
+
+        menu.selected_index = 99
+
+        assert menu._accept_selection() is False
+        assert menu.result is None
+
 
 class TestInteractiveModelPicker:
     @pytest.mark.asyncio

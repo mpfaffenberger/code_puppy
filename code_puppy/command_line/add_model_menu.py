@@ -936,6 +936,14 @@ class AddModelMenu:
             self.pending_provider = provider
             self.result = "pending_credentials"  # Signal to prompt for credentials
 
+    def _try_add_current_model(self) -> bool:
+        """Attempt to add the current model selection and report success."""
+        if self.view_mode != "models" or self._get_total_items() <= 0:
+            return False
+
+        self._add_current_model()
+        return self.result is not None
+
     def _get_missing_env_vars(self, provider: ProviderInfo) -> List[str]:
         """Check which required env vars are missing for a provider."""
         missing = []
@@ -1170,8 +1178,8 @@ class AddModelMenu:
                 self._enter_provider()
             elif self.view_mode == "models":
                 # Enter adds the model when viewing models
-                self._add_current_model()
-                event.app.exit()
+                if self._try_add_current_model():
+                    event.app.exit()
 
         @kb.add("escape")
         def _(event):

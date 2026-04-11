@@ -279,6 +279,14 @@ class ModelSelectionMenu:
         if self.filter_text:
             self._set_filter_text(self.filter_text[:-1])
 
+    def _accept_selection(self) -> bool:
+        """Store the currently selected visible model if one is available."""
+        selected_model = self._get_selected_model_name()
+        if selected_model is None:
+            return False
+        self.result = selected_model
+        return True
+
     def _move_up(self) -> None:
         if self.selected_index > 0:
             self.selected_index -= 1
@@ -412,8 +420,8 @@ class ModelSelectionMenu:
 
         @kb.add("enter")
         def _(event):
-            if self.visible_model_names:
-                self.result = self.visible_model_names[self.selected_index]
+            if not self._accept_selection():
+                return
             event.app.exit()
 
         @kb.add("escape")
