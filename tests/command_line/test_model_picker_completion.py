@@ -296,6 +296,38 @@ class TestModelSelectionMenu:
         assert menu.selected_index == MODEL_PICKER_PAGE_SIZE
         assert menu.page == 1
 
+    def test_filter_keeps_current_model_selected_when_visible(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="claude-3-sonnet",
+        ):
+            menu = ModelSelectionMenu(
+                ["gpt-5-mini", "claude-3-sonnet", "claude-3-opus"]
+            )
+
+        menu._set_filter_text("claude")
+
+        assert menu.visible_model_names == ["claude-3-sonnet", "claude-3-opus"]
+        assert menu.selected_index == 0
+
+    def test_filter_resets_to_first_visible_match_when_selection_disappears(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="gpt-5-mini",
+        ):
+            menu = ModelSelectionMenu(
+                ["gpt-5-mini", "claude-3-sonnet", "claude-3-opus"]
+            )
+
+        menu._set_filter_text("opus")
+
+        assert menu.visible_model_names == ["claude-3-opus"]
+        assert menu.selected_index == 0
+
 
 class TestInteractiveModelPicker:
     @pytest.mark.asyncio

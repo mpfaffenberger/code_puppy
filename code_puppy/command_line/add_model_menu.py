@@ -25,6 +25,7 @@ from code_puppy.command_line.pagination import (
 )
 from code_puppy.command_line.utils import safe_input
 from code_puppy.config import EXTRA_MODELS_FILE, set_config_value
+from code_puppy.list_filtering import query_matches_text
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.models_dev_parser import ModelInfo, ModelsDevRegistry, ProviderInfo
 from code_puppy.tools.command_runner import set_awaiting_user_input
@@ -101,6 +102,8 @@ class AddModelMenu:
         self.selected_model_idx = 0
         self.current_page = 0
         self.result = None  # Track if user added a model
+        self.provider_filter = ""
+        self.model_filter = ""
 
         # Pending model for credential prompting
         self.pending_model: Optional[ModelInfo] = None
@@ -132,8 +135,9 @@ class AddModelMenu:
 
     def _get_current_provider(self) -> Optional[ProviderInfo]:
         """Get the currently selected provider."""
-        if 0 <= self.selected_provider_idx < len(self.providers):
-            return self.providers[self.selected_provider_idx]
+        filtered_providers = self._filtered_providers()
+        if 0 <= self.selected_provider_idx < len(filtered_providers):
+            return filtered_providers[self.selected_provider_idx]
         return None
 
     def _get_current_model(self) -> Optional[ModelInfo]:
@@ -143,23 +147,140 @@ class AddModelMenu:
         """
         if self.view_mode == "models" and self.current_provider:
             # Check if custom model option is selected (it's the last item)
-            if self.selected_model_idx == len(self.current_models):
+            filtered_models = self._filtered_models()
+            if self._should_show_custom_model() and (
+                self.selected_model_idx == len(filtered_models)
+            ):
                 return None  # Custom model selected
-            if 0 <= self.selected_model_idx < len(self.current_models):
-                return self.current_models[self.selected_model_idx]
+            if 0 <= self.selected_model_idx < len(filtered_models):
+                return filtered_models[self.selected_model_idx]
         return None
 
     def _is_custom_model_selected(self) -> bool:
         """Check if the custom model option is currently selected."""
         if self.view_mode == "models" and self.current_provider:
-            return self.selected_model_idx == len(self.current_models)
+            return self._should_show_custom_model() and (
+                self.selected_model_idx == len(self._filtered_models())
+            )
         return False
+
+    def _filtered_providers(self) -> List[ProviderInfo]:
+        provider_filter = getattr(self, "provider_filter", "")
+        if not provider_filter:
+            return self.providers
+        return [
+            provider
+            for provider in self.providers
+            if query_matches_text(provider_filter, provider.name, provider.id)
+        ]
+
+    def _filtered_models(self) -> List[ModelInfo]:
+        model_filter = getattr(self, "model_filter", "")
+        if not model_filter:
+            return self.current_models
+        return [
+            model
+            for model in self.current_models
+            if query_matches_text(
+                model_filter,
+                model.name,
+                model.model_id,
+                getattr(model, "full_id", ""),
+            )
+        ]
+
+    def _should_show_custom_model(self) -> bool:
+        model_filter = getattr(self, "model_filter", "")
+        return not model_filter or query_matches_text(model_filter, "custom model")
+
+    def _get_active_filter_text(self) -> str:
+        if self.view_mode == "providers":
+            return getattr(self, "provider_filter", "")
+        return getattr(self, "model_filter", "")
+
+    def _sync_provider_selection(
+        self, preferred_provider: Optional[ProviderInfo]
+    ) -> None:
+        filtered_providers = self._filtered_providers()
+        if not filtered_providers:
+            self.selected_provider_idx = 0
+            self.current_page = 0
+            return
+
+        if preferred_provider and preferred_provider in filtered_providers:
+            self.selected_provider_idx = filtered_providers.index(preferred_provider)
+        else:
+            self.selected_provider_idx = min(
+                self.selected_provider_idx, len(filtered_providers) - 1
+            )
+        self._ensure_selection_visible()
+
+    def _sync_model_selection(
+        self, preferred_model: Optional[ModelInfo], preferred_custom: bool
+    ) -> None:
+        filtered_models = self._filtered_models()
+        total_items = len(filtered_models) + int(self._should_show_custom_model())
+        if total_items <= 0:
+            self.selected_model_idx = 0
+            self.current_page = 0
+            return
+
+        if preferred_custom and self._should_show_custom_model():
+            self.selected_model_idx = len(filtered_models)
+        elif preferred_model and preferred_model in filtered_models:
+            self.selected_model_idx = filtered_models.index(preferred_model)
+        else:
+            self.selected_model_idx = min(self.selected_model_idx, total_items - 1)
+        self._ensure_selection_visible()
+
+    def _set_provider_filter(self, value: str) -> None:
+        preferred_provider = self._get_current_provider()
+        self.provider_filter = value
+        self._sync_provider_selection(preferred_provider)
+
+    def _set_model_filter(self, value: str) -> None:
+        preferred_model = self._get_current_model()
+        preferred_custom = self._is_custom_model_selected()
+        self.model_filter = value
+        self._sync_model_selection(preferred_model, preferred_custom)
+
+    def _append_filter_char(self, value: str) -> None:
+        if self.view_mode == "providers":
+            self._set_provider_filter(getattr(self, "provider_filter", "") + value)
+        else:
+            self._set_model_filter(getattr(self, "model_filter", "") + value)
+
+    def _delete_filter_char(self) -> bool:
+        if self.view_mode == "providers":
+            provider_filter = getattr(self, "provider_filter", "")
+            if not provider_filter:
+                return False
+            self._set_provider_filter(provider_filter[:-1])
+            return True
+
+        model_filter = getattr(self, "model_filter", "")
+        if not model_filter:
+            return False
+        self._set_model_filter(model_filter[:-1])
+        return True
+
+    def _clear_active_filter(self) -> bool:
+        if self.view_mode == "providers":
+            if not getattr(self, "provider_filter", ""):
+                return False
+            self._set_provider_filter("")
+            return True
+
+        if not getattr(self, "model_filter", ""):
+            return False
+        self._set_model_filter("")
+        return True
 
     def _get_total_items(self) -> int:
         """Return the number of items in the active list view."""
         if self.view_mode == "providers":
-            return len(self.providers)
-        return len(self.current_models) + 1
+            return len(self._filtered_providers())
+        return len(self._filtered_models()) + int(self._should_show_custom_model())
 
     def _get_selected_index(self) -> int:
         """Return the selected absolute index for the active list view."""
@@ -211,16 +332,27 @@ class AddModelMenu:
             self._render_navigation_hints(lines)
             return lines
 
+        filter_label = getattr(self, "provider_filter", "") or "type to filter"
+        lines.append(("fg:ansibrightblack", f" Filter: {filter_label}"))
+        lines.append(("", "\n\n"))
+
+        filtered_providers = self._filtered_providers()
+        if not filtered_providers:
+            lines.append(("fg:yellow", "  No providers match the current filter."))
+            lines.append(("", "\n\n"))
+            self._render_navigation_hints(lines)
+            return lines
+
         # Show providers for current page
-        total_pages = get_total_pages(len(self.providers), PAGE_SIZE)
+        total_pages = get_total_pages(len(filtered_providers), PAGE_SIZE)
         start_idx, end_idx = get_page_bounds(
             self.current_page,
-            len(self.providers),
+            len(filtered_providers),
             PAGE_SIZE,
         )
 
         for i in range(start_idx, end_idx):
-            provider = self.providers[i]
+            provider = filtered_providers[i]
             is_selected = i == self.selected_provider_idx
             is_unsupported = provider.id in UNSUPPORTED_PROVIDERS
 
@@ -259,17 +391,28 @@ class AddModelMenu:
             return lines
 
         lines.append(("", f" {self.current_provider.name} Models"))
+        lines.append(("", "\n"))
+        filter_label = getattr(self, "model_filter", "") or "type to filter"
+        lines.append(("fg:ansibrightblack", f" Filter: {filter_label}"))
         lines.append(("", "\n\n"))
 
+        filtered_models = self._filtered_models()
+        custom_visible = self._should_show_custom_model()
+        if not filtered_models and not custom_visible:
+            lines.append(("fg:yellow", "  No models match the current filter."))
+            lines.append(("", "\n\n"))
+            self._render_navigation_hints(lines)
+            return lines
+
         # Total items = models + 1 for custom model option
-        total_items = len(self.current_models) + 1
+        total_items = len(filtered_models) + int(custom_visible)
         total_pages = get_total_pages(total_items, PAGE_SIZE)
         start_idx, end_idx = get_page_bounds(self.current_page, total_items, PAGE_SIZE)
 
         # Render models from the current page
         for i in range(start_idx, end_idx):
             # Check if this is the custom model option (last item)
-            if i == len(self.current_models):
+            if custom_visible and i == len(filtered_models):
                 is_selected = i == self.selected_model_idx
                 if is_selected:
                     lines.append(("fg:ansicyan bold", " > ✨ Custom model..."))
@@ -278,7 +421,7 @@ class AddModelMenu:
                 lines.append(("", "\n"))
                 continue
 
-            model = self.current_models[i]
+            model = filtered_models[i]
             is_selected = i == self.selected_model_idx
 
             # Create capability icons
@@ -315,6 +458,12 @@ class AddModelMenu:
         lines.append(("", "Navigate  "))
         lines.append(("fg:ansibrightblack", "←/→ "))
         lines.append(("", "Page\n"))
+        lines.append(("fg:ansibrightblack", "  Type "))
+        lines.append(("", "Filter list\n"))
+        lines.append(("fg:ansibrightblack", "  Backspace "))
+        lines.append(("", "Delete filter char\n"))
+        lines.append(("fg:ansibrightblack", "  Ctrl+U "))
+        lines.append(("", "Clear filter\n"))
         if self.view_mode == "providers":
             lines.append(("fg:green", "  Enter  "))
             lines.append(("", "Select\n"))
@@ -744,6 +893,7 @@ class AddModelMenu:
         self.current_provider = provider
         self.current_models = self.registry.get_models(provider.id)
         self.view_mode = "models"
+        self.model_filter = ""
         self.selected_model_idx = 0
         self.current_page = get_page_for_index(self.selected_model_idx, PAGE_SIZE)
         self.update_display()
@@ -753,6 +903,7 @@ class AddModelMenu:
         self.view_mode = "providers"
         self.current_provider = None
         self.current_models = []
+        self.model_filter = ""
         self.selected_model_idx = 0
         self.current_page = get_page_for_index(self.selected_provider_idx, PAGE_SIZE)
         self.update_display()
@@ -991,12 +1142,12 @@ class AddModelMenu:
         @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
         def _(event):
             if self.view_mode == "providers":
-                if self.selected_provider_idx < len(self.providers) - 1:
+                if self.selected_provider_idx < len(self._filtered_providers()) - 1:
                     self.selected_provider_idx += 1
                     self._ensure_selection_visible()
             else:  # models view - include custom model option at the end
-                # Max index is len(current_models) which is the "Custom model" option
-                if self.selected_model_idx < len(self.current_models):
+                max_index = self._get_total_items() - 1
+                if self.selected_model_idx < max_index:
                     self.selected_model_idx += 1
                     self._ensure_selection_visible()
             self.update_display()
@@ -1029,8 +1180,23 @@ class AddModelMenu:
 
         @kb.add("backspace")
         def _(event):
+            if self._delete_filter_char():
+                self.update_display()
+                return
             if self.view_mode == "models":
                 self._go_back_to_providers()
+
+        @kb.add("c-u")
+        def _(event):
+            if self._clear_active_filter():
+                self.update_display()
+
+        @kb.add("<any>")
+        def _(event):
+            if not event.data or not event.data.isprintable():
+                return
+            self._append_filter_char(event.data)
+            self.update_display()
 
         @kb.add("c-c")
         def _(event):

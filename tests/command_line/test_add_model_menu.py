@@ -529,3 +529,75 @@ class TestSharedPaginationState:
         assert menu.view_mode == "providers"
         assert menu.current_page == 1
         assert menu.selected_provider_idx == PAGE_SIZE + 1
+
+
+class TestFilteringBehavior:
+    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
+    def test_provider_filter_reduces_visible_providers(self, mock_registry_class):
+        providers = [
+            _make_provider("OpenAI", "openai"),
+            _make_provider("Anthropic", "anthropic"),
+            _make_provider("Google", "google"),
+        ]
+        mock_registry = MagicMock()
+        mock_registry.get_providers.return_value = providers
+        mock_registry_class.return_value = mock_registry
+
+        menu = AddModelMenu()
+        menu._set_provider_filter("anth")
+
+        assert menu._filtered_providers() == [providers[1]]
+        assert menu._get_current_provider() == providers[1]
+
+    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
+    def test_model_filter_preserves_custom_selection_when_visible(
+        self, mock_registry_class
+    ):
+        provider = _make_provider("OpenAI", "openai")
+        models = [
+            MagicMock(name="GPT-5", model_id="gpt-5", full_id="openai/gpt-5"),
+            MagicMock(name="o3-mini", model_id="o3-mini", full_id="openai/o3-mini"),
+        ]
+        models[0].name = "GPT-5"
+        models[1].name = "o3-mini"
+        mock_registry = MagicMock()
+        mock_registry.get_providers.return_value = [provider]
+        mock_registry.get_models.return_value = models
+        mock_registry_class.return_value = mock_registry
+
+        menu = AddModelMenu()
+        menu.current_provider = provider
+        menu.current_models = models
+        menu.view_mode = "models"
+        menu.selected_model_idx = len(models)
+
+        menu._set_model_filter("custom")
+
+        assert menu._filtered_models() == []
+        assert menu._is_custom_model_selected() is True
+
+    @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
+    def test_model_filter_matches_model_id_and_name(self, mock_registry_class):
+        provider = _make_provider("OpenAI", "openai")
+        named_model = MagicMock(
+            name="GPT Five", model_id="gpt-5-mini", full_id="openai/gpt-5-mini"
+        )
+        named_model.name = "GPT Five"
+        other_model = MagicMock(
+            name="Claude Sonnet",
+            model_id="claude-sonnet",
+            full_id="anthropic/claude-sonnet",
+        )
+        other_model.name = "Claude Sonnet"
+        mock_registry = MagicMock()
+        mock_registry.get_providers.return_value = [provider]
+        mock_registry_class.return_value = mock_registry
+
+        menu = AddModelMenu()
+        menu.current_provider = provider
+        menu.current_models = [named_model, other_model]
+        menu.view_mode = "models"
+
+        menu._set_model_filter("mini")
+
+        assert menu._filtered_models() == [named_model]
