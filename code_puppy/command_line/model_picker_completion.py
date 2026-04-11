@@ -16,6 +16,7 @@ from code_puppy.command_line.pagination import (
     get_total_pages,
 )
 from code_puppy.config import get_global_model_name
+from code_puppy.list_filtering import query_matches_text
 from code_puppy.model_switching import set_model_and_reload_agent
 
 MODEL_PICKER_PAGE_SIZE = 15
@@ -75,8 +76,8 @@ class ModelNameCompleter(Completer):
 
         # Filter model names based on what's typed after /model (case-insensitive)
         for model_name in self.model_names:
-            if text_after_trigger and not model_name.lower().startswith(
-                text_after_trigger.lower()
+            if text_after_trigger and not query_matches_text(
+                text_after_trigger, model_name
             ):
                 continue  # Skip models that don't match the typed text
 
@@ -123,6 +124,11 @@ def _find_matching_model(rest: str, model_names: list[str]) -> Optional[str]:
     # Check for prefix/completion match (input is partial model name)
     for model in sorted_models:
         if model.lower().startswith(rest_lower):
+            return model
+
+    # Fall back to the same fuzzy matcher used by the completer.
+    for model in sorted_models:
+        if query_matches_text(rest, model):
             return model
 
     return None
@@ -199,40 +205,92 @@ class ModelSelectionMenu:
             list(model_names) if model_names is not None else load_model_names()
         )
         self.current_model = get_active_model()
+        self.filter_text = ""
         self.selected_index = 0
         self.page = 0
         self.page_size = MODEL_PICKER_PAGE_SIZE
         self.result: Optional[str] = None
 
-        if self.current_model in self.model_names:
-            self.selected_index = self.model_names.index(self.current_model)
+        if self.current_model in self.visible_model_names:
+            self.selected_index = self.visible_model_names.index(self.current_model)
             self.page = get_page_for_index(self.selected_index, self.page_size)
 
     @property
     def total_pages(self) -> int:
-        return get_total_pages(len(self.model_names), self.page_size)
+        return get_total_pages(len(self.visible_model_names), self.page_size)
 
     @property
     def page_start(self) -> int:
-        start, _ = get_page_bounds(self.page, len(self.model_names), self.page_size)
+        start, _ = get_page_bounds(
+            self.page, len(self.visible_model_names), self.page_size
+        )
         return start
 
     @property
     def page_end(self) -> int:
-        _, end = get_page_bounds(self.page, len(self.model_names), self.page_size)
+        _, end = get_page_bounds(
+            self.page, len(self.visible_model_names), self.page_size
+        )
         return end
 
     @property
     def models_on_page(self) -> list[str]:
-        return self.model_names[self.page_start : self.page_end]
+        return self.visible_model_names[self.page_start : self.page_end]
+
+    @property
+    def visible_model_names(self) -> list[str]:
+        if not self.filter_text:
+            return self.model_names
+        return [
+            model_name
+            for model_name in self.model_names
+            if query_matches_text(self.filter_text, model_name)
+        ]
+
+    def _get_selected_model_name(self) -> Optional[str]:
+        if 0 <= self.selected_index < len(self.visible_model_names):
+            return self.visible_model_names[self.selected_index]
+        return None
 
     def _ensure_selection_visible(self) -> None:
         self.page = ensure_visible_page(
             self.selected_index,
             self.page,
-            len(self.model_names),
+            len(self.visible_model_names),
             self.page_size,
         )
+
+    def _set_filter_text(self, value: str) -> None:
+        selected_model = self._get_selected_model_name()
+        self.filter_text = value
+        visible_models = self.visible_model_names
+        if not visible_models:
+            self.selected_index = 0
+            self.page = 0
+            return
+
+        if selected_model and selected_model in visible_models:
+            self.selected_index = visible_models.index(selected_model)
+        elif self.current_model in visible_models:
+            self.selected_index = visible_models.index(self.current_model)
+        else:
+            self.selected_index = 0
+        self._ensure_selection_visible()
+
+    def _append_filter_char(self, value: str) -> None:
+        self._set_filter_text(self.filter_text + value)
+
+    def _delete_filter_char(self) -> None:
+        if self.filter_text:
+            self._set_filter_text(self.filter_text[:-1])
+
+    def _accept_selection(self) -> bool:
+        """Store the currently selected visible model if one is available."""
+        selected_model = self._get_selected_model_name()
+        if selected_model is None:
+            return False
+        self.result = selected_model
+        return True
 
     def _move_up(self) -> None:
         if self.selected_index > 0:
@@ -240,7 +298,7 @@ class ModelSelectionMenu:
             self._ensure_selection_visible()
 
     def _move_down(self) -> None:
-        if self.selected_index < len(self.model_names) - 1:
+        if self.selected_index < len(self.visible_model_names) - 1:
             self.selected_index += 1
             self._ensure_selection_visible()
 
@@ -256,14 +314,28 @@ class ModelSelectionMenu:
 
     def _render(self):
         lines = [("bold cyan", " 🤖 Select Active Model")]
+        filter_label = self.filter_text or "type to filter"
+        lines.append(("fg:ansibrightblack", f"\n  Filter: {filter_label}"))
         if self.total_pages > 1:
             lines.append(
                 ("fg:ansibrightblack", f"  (Page {self.page + 1}/{self.total_pages})")
             )
         lines.append(("", "\n"))
 
-        if not self.model_names:
-            lines.append(("fg:ansiyellow", "\n  No models available.\n"))
+        if not self.visible_model_names:
+            empty_message = (
+                "No models match the current filter."
+                if self.filter_text
+                else "No models available."
+            )
+            lines.append(("fg:ansiyellow", f"\n  {empty_message}\n"))
+            lines.append(("fg:ansibrightblack", "  Type  "))
+            lines.append(("", "Adjust filter\n"))
+            lines.append(("fg:ansibrightblack", "  Backspace  "))
+            lines.append(("", "Delete filter char\n"))
+            if self.filter_text:
+                lines.append(("fg:ansibrightblack", "  Ctrl+U  "))
+                lines.append(("", "Clear filter\n"))
             lines.append(("fg:ansiyellow", "  Esc  "))
             lines.append(("", "Exit\n"))
             return lines
@@ -288,6 +360,12 @@ class ModelSelectionMenu:
         if self.total_pages > 1:
             lines.append(("fg:ansibrightblack", "  PgUp/PgDn  "))
             lines.append(("", "Change page\n"))
+        lines.append(("fg:ansibrightblack", "  Type  "))
+        lines.append(("", "Filter models\n"))
+        lines.append(("fg:ansibrightblack", "  Backspace  "))
+        lines.append(("", "Delete filter char\n"))
+        lines.append(("fg:ansibrightblack", "  Ctrl+U  "))
+        lines.append(("", "Clear filter\n"))
         lines.append(("fg:ansigreen", "  Enter  "))
         lines.append(("", "Select model\n"))
         lines.append(("fg:ansiyellow", "  Esc  "))
@@ -329,10 +407,34 @@ class ModelSelectionMenu:
             refresh()
             event.app.invalidate()
 
+        @kb.add("backspace")
+        def _(event):
+            if not self.filter_text:
+                return
+            self._delete_filter_char()
+            refresh()
+            event.app.invalidate()
+
+        @kb.add("c-u")
+        def _(event):
+            if not self.filter_text:
+                return
+            self._set_filter_text("")
+            refresh()
+            event.app.invalidate()
+
+        @kb.add("<any>")
+        def _(event):
+            if not event.data or not event.data.isprintable():
+                return
+            self._append_filter_char(event.data)
+            refresh()
+            event.app.invalidate()
+
         @kb.add("enter")
         def _(event):
-            if self.model_names:
-                self.result = self.model_names[self.selected_index]
+            if not self._accept_selection():
+                return
             event.app.exit()
 
         @kb.add("escape")
