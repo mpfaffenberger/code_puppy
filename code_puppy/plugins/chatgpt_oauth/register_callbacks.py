@@ -161,9 +161,7 @@ def _create_chatgpt_oauth_model(
     )
 
     # ChatGPT Codex API only supports Responses format
-    model = OpenAIResponsesModel(model_name=model_config["name"], provider=provider)
-    model.provider = provider
-    return model
+    return OpenAIResponsesModel(model_name=model_config["name"], provider=provider)
 
 
 def _register_model_types() -> List[Dict[str, Any]]:

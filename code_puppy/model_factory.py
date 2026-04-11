@@ -493,7 +493,6 @@ class ModelFactory:
                 model = OpenAIResponsesModel(
                     model_name=model_config["name"], provider=provider
                 )
-            model.provider = provider
             return model
 
         elif model_type == "anthropic":
@@ -648,9 +647,7 @@ class ModelFactory:
             provider = make_openai_provider(
                 provider_identity, openai_client=azure_client
             )
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
-            model.provider = provider
-            return model
+            return OpenAIChatModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "custom_openai":
             url, headers, verify, api_key = get_custom_config(model_config)
@@ -664,7 +661,6 @@ class ModelFactory:
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             if model_name == "chatgpt-gpt-5-codex":
                 model = OpenAIResponsesModel(model_config["name"], provider=provider)
-            model.provider = provider
             return model
         elif model_type == "zai_coding":
             api_key = get_api_key("ZAI_API_KEY")
@@ -678,12 +674,10 @@ class ModelFactory:
                 api_key=api_key,
                 base_url="https://api.z.ai/api/coding/paas/v4",
             )
-            zai_model = ZaiChatModel(
+            return ZaiChatModel(
                 model_name=model_config["name"],
                 provider=provider,
             )
-            zai_model.provider = provider
-            return zai_model
         elif model_type == "zai_api":
             api_key = get_api_key("ZAI_API_KEY")
             if not api_key:
@@ -696,12 +690,10 @@ class ModelFactory:
                 api_key=api_key,
                 base_url="https://api.z.ai/api/paas/v4/",
             )
-            zai_model = ZaiChatModel(
+            return ZaiChatModel(
                 model_name=model_config["name"],
                 provider=provider,
             )
-            zai_model.provider = provider
-            return zai_model
         # NOTE: 'antigravity' model type is now handled by the antigravity_oauth plugin
         # via the register_model_type callback. See plugins/antigravity_oauth/register_callbacks.py
 
@@ -784,9 +776,7 @@ class ModelFactory:
             )
             provider = ZaiCerebrasProvider(**provider_args)
 
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
-            model.provider = provider
-            return model
+            return OpenAIChatModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "openrouter":
             # Get API key from config, which can be an environment variable reference or raw value
@@ -817,9 +807,7 @@ class ModelFactory:
 
             provider = OpenRouterProvider(api_key=api_key)
 
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
-            model.provider = provider
-            return model
+            return OpenAIChatModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "gemini_oauth":
             # Gemini OAuth models use the Code Assist API (cloudcode-pa.googleapis.com)

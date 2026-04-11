@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 # /help entries
 # ---------------------------------------------------------------------------
 
+
 def _custom_help() -> List[Tuple[str, str]]:
     return [
         (
@@ -52,6 +53,7 @@ def _custom_help() -> List[Tuple[str, str]]:
 # ---------------------------------------------------------------------------
 # /copilot-status
 # ---------------------------------------------------------------------------
+
 
 def _handle_copilot_status() -> None:
     tokens = load_device_tokens()
@@ -75,24 +77,30 @@ def _handle_copilot_status() -> None:
         if session:
             emit_info(f"   ✅ {t.host}: active session (auto-refreshes on expiry)")
         else:
-            emit_warning(f"   ⚠️  {t.host}: could not obtain a session token — may be expired")
+            emit_warning(
+                f"   ⚠️  {t.host}: could not obtain a session token — may be expired"
+            )
             emit_info(f"      Run /copilot-login {t.host} to re-authenticate.")
 
     # Registered models
     models = load_copilot_models()
     copilot_models = [
-        name for name, cfg in models.items()
+        name
+        for name, cfg in models.items()
         if cfg.get("oauth_source") == "copilot-auth-plugin"
     ]
     if copilot_models:
         emit_info(f"🎯 Registered Copilot models: {', '.join(sorted(copilot_models))}")
     else:
-        emit_warning("⚠️  No Copilot models registered yet. Run /copilot-login to set up.")
+        emit_warning(
+            "⚠️  No Copilot models registered yet. Run /copilot-login to set up."
+        )
 
 
 # ---------------------------------------------------------------------------
 # /copilot-logout
 # ---------------------------------------------------------------------------
+
 
 def _handle_copilot_logout() -> None:
     errors: list[str] = []
@@ -120,7 +128,11 @@ def _handle_copilot_logout() -> None:
     # 4. If the active model was a copilot model, reset it so the app
     #    doesn't keep trying to use a model whose tokens are gone.
     try:
-        from code_puppy.config import clear_model_cache, get_model_name, reset_session_model
+        from code_puppy.config import (
+            clear_model_cache,
+            get_model_name,
+            reset_session_model,
+        )
 
         current = get_model_name()
         if current and current.startswith(COPILOT_AUTH_CONFIG["prefix"]):
@@ -142,6 +154,7 @@ def _handle_copilot_logout() -> None:
 # ---------------------------------------------------------------------------
 # /copilot-login — browser-based GitHub Device Flow
 # ---------------------------------------------------------------------------
+
 
 def _normalize_github_host(raw_host: str) -> str | None:
     """Validate and normalize a GitHub hostname for safe URL interpolation.
@@ -231,7 +244,9 @@ def _handle_copilot_login(command: str) -> None:
         return
 
     user_code = device_resp["user_code"]
-    verification_uri = device_resp.get("verification_uri", f"https://{host}/login/device")
+    verification_uri = device_resp.get(
+        "verification_uri", f"https://{host}/login/device"
+    )
     expires_in = int(device_resp.get("expires_in", 900))
     interval = int(device_resp.get("interval", 5))
 
@@ -309,6 +324,7 @@ def _handle_copilot_login(command: str) -> None:
 # custom_command dispatcher
 # ---------------------------------------------------------------------------
 
+
 def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if not name:
         return None
@@ -328,9 +344,8 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 # Model-type handler — creates OpenAI-compatible model for Copilot API
 # ---------------------------------------------------------------------------
 
-def _create_copilot_model(
-    model_name: str, model_config: Dict, config: Dict
-) -> Any:
+
+def _create_copilot_model(model_name: str, model_config: Dict, config: Dict) -> Any:
     """Create an OpenAI-compatible model backed by GitHub Copilot API.
 
     Called by ``model_factory`` when ``type == "copilot"``.
@@ -427,13 +442,11 @@ def _create_copilot_model(
         )
         patch_client_for_reasoning_opaque(client, thinking_field="reasoning_text")
 
-    model = OpenAIChatModel(
+    return OpenAIChatModel(
         model_name=model_config["name"],
         provider=provider,
         profile=profile,
     )
-    model.provider = provider
-    return model
 
 
 def _register_model_types() -> List[Dict[str, Any]]:
@@ -448,4 +461,3 @@ def _register_model_types() -> List[Dict[str, Any]]:
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
 register_callback("register_model_type", _register_model_types)
-
