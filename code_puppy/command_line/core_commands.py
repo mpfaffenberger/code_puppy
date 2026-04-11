@@ -168,6 +168,41 @@ def handle_paste_command(command: str) -> bool:
 
 
 @register_command(
+    name="clear",
+    description="Clear conversation history and rotate autosave session",
+    usage="/clear",
+    aliases=[],
+    category="core",
+)
+def handle_clear_command(command: str) -> bool:
+    """Clear conversation history, rotate autosave session, and clear pending clipboard images.
+
+    Resets the agent's context so it starts fresh, persists the current session
+    to autosave, and notifies the user of the cleanup.
+    """
+
+    from code_puppy.command_line.clipboard import get_clipboard_manager
+    from code_puppy.messaging import emit_warning, emit_system_message, emit_info
+    from code_puppy.agents import get_current_agent
+    from code_puppy.config import finalize_autosave_session
+
+    agent = get_current_agent()
+    new_session_id = finalize_autosave_session()
+    agent.clear_message_history()
+    emit_warning("Conversation history cleared!")
+    emit_system_message("The agent will not remember previous interactions.")
+    emit_info(f"Auto-save session rotated to: {new_session_id}")
+
+    # Also clear pending clipboard images
+    clipboard_manager = get_clipboard_manager()
+    clipboard_count = clipboard_manager.get_pending_count()
+    clipboard_manager.clear_pending()
+    if clipboard_count > 0:
+        emit_info(f"Cleared {clipboard_count} pending clipboard image(s)")
+    return True
+
+
+@register_command(
     name="tutorial",
     description="Run the interactive tutorial wizard",
     usage="/tutorial",
