@@ -170,7 +170,7 @@ def handle_paste_command(command: str) -> bool:
 @register_command(
     name="clear",
     description="Clear conversation history and rotate autosave session",
-    usage="/clear, clear",
+    usage="/clear",
     aliases=[],
     category="core",
 )
