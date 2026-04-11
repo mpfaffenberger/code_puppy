@@ -603,11 +603,13 @@ class TestFilteringBehavior:
         assert menu._filtered_models() == [named_model]
 
     @patch("code_puppy.command_line.add_model_menu.ModelsDevRegistry")
-    def test_try_add_current_model_returns_false_when_filter_hides_all_entries(
+    def test_try_add_current_model_uses_custom_entry_when_filter_hides_builtins(
         self, mock_registry_class
     ):
         provider = _make_provider("OpenAI", "openai")
-        model = MagicMock(name="GPT Five", model_id="gpt-5-mini", full_id="openai/gpt-5-mini")
+        model = MagicMock(
+            name="GPT Five", model_id="gpt-5-mini", full_id="openai/gpt-5-mini"
+        )
         model.name = "GPT Five"
         mock_registry = MagicMock()
         mock_registry.get_providers.return_value = [provider]
@@ -620,6 +622,8 @@ class TestFilteringBehavior:
 
         menu._set_model_filter("nope")
 
-        assert menu._get_total_items() == 0
-        assert menu._try_add_current_model() is False
-        assert menu.result is None
+        assert menu._filtered_models() == []
+        assert menu._should_show_custom_model() is True
+        assert menu._get_total_items() == 1
+        assert menu._try_add_current_model() is True
+        assert menu.result == "pending_custom_model"

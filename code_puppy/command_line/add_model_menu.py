@@ -191,7 +191,11 @@ class AddModelMenu:
 
     def _should_show_custom_model(self) -> bool:
         model_filter = getattr(self, "model_filter", "")
-        return not model_filter or query_matches_text(model_filter, "custom model")
+        return (
+            not model_filter
+            or not self._filtered_models()
+            or query_matches_text(model_filter, "custom model")
+        )
 
     def _get_active_filter_text(self) -> str:
         if self.view_mode == "providers":

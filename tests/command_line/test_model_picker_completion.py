@@ -129,6 +129,16 @@ class TestFindMatchingModel:
 
         assert _find_matching_model("gpt", ["gpt-4", "claude-3"]) == "gpt-4"
 
+    def test_query_match_fallback(self):
+        from code_puppy.command_line.model_picker_completion import (
+            _find_matching_model,
+        )
+
+        assert (
+            _find_matching_model("4.1", ["gpt-4o", "gpt-4.1-mini"])
+            == "gpt-4.1-mini"
+        )
+
     def test_no_match(self):
         from code_puppy.command_line.model_picker_completion import (
             _find_matching_model,
@@ -355,6 +365,22 @@ class TestModelSelectionMenu:
 
         assert menu._accept_selection() is False
         assert menu.result is None
+
+    def test_render_no_matches_mentions_filter_and_clear_shortcut(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["gpt-5-mini", "claude-3-sonnet"])
+
+        menu._set_filter_text("nope")
+
+        rendered = "".join(text for _, text in menu._render())
+
+        assert "No models match the current filter." in rendered
+        assert "Clear filter" in rendered
 
 
 class TestInteractiveModelPicker:

@@ -126,6 +126,11 @@ def _find_matching_model(rest: str, model_names: list[str]) -> Optional[str]:
         if model.lower().startswith(rest_lower):
             return model
 
+    # Fall back to the same fuzzy matcher used by the completer.
+    for model in sorted_models:
+        if query_matches_text(rest, model):
+            return model
+
     return None
 
 
@@ -318,11 +323,19 @@ class ModelSelectionMenu:
         lines.append(("", "\n"))
 
         if not self.visible_model_names:
-            lines.append(("fg:ansiyellow", "\n  No models available.\n"))
+            empty_message = (
+                "No models match the current filter."
+                if self.filter_text
+                else "No models available."
+            )
+            lines.append(("fg:ansiyellow", f"\n  {empty_message}\n"))
             lines.append(("fg:ansibrightblack", "  Type  "))
             lines.append(("", "Adjust filter\n"))
             lines.append(("fg:ansibrightblack", "  Backspace  "))
             lines.append(("", "Delete filter char\n"))
+            if self.filter_text:
+                lines.append(("fg:ansibrightblack", "  Ctrl+U  "))
+                lines.append(("", "Clear filter\n"))
             lines.append(("fg:ansiyellow", "  Esc  "))
             lines.append(("", "Exit\n"))
             return lines
