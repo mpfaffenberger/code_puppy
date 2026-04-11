@@ -1,0 +1,9 @@
+{
+  "name": "claude-glm5",
+  "description": "",
+  "models": {
+    "main": "claude-code-claude-haiku-4-5-20251001",
+    "compaction": "synthetic-GLM-4.7",
+    "subagent": "zai-glm-5-api"
+  }
+}
