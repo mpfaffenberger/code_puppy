@@ -1,19 +1,11 @@
-"""Monkey patches for pydantic-ai.
+"""Monkey patches for pydantic-ai used by code-puppy."""
 
-This module contains all monkey patches needed to customize pydantic-ai behavior.
-These patches MUST be applied before any other pydantic-ai imports to work correctly.
-
-Usage:
-    from code_puppy.pydantic_patches import apply_all_patches
-    apply_all_patches()
-"""
-
+import asyncio
 import importlib.metadata
-from typing import Any
+import inspect
 
 
 def _get_code_puppy_version() -> str:
-    """Get the current code-puppy version."""
     try:
         return importlib.metadata.version("code-puppy")
     except Exception:
@@ -21,43 +13,35 @@ def _get_code_puppy_version() -> str:
 
 
 def patch_user_agent() -> None:
-    """Patch pydantic-ai's User-Agent to use Code-Puppy's version.
-
-    pydantic-ai sets its own User-Agent ('pydantic-ai/x.x.x') via a @cache-decorated
-    function. We replace it with a dynamic function that returns:
-    - 'KimiCLI/0.63' for Kimi models
-    - 'Code-Puppy/{version}' for all other models
-
-    This MUST be called before any pydantic-ai models are created.
-    """
     try:
         import pydantic_ai.models as pydantic_models
-
-        version = _get_code_puppy_version()
-
-        # Clear cache if already called
-        if hasattr(pydantic_models.get_user_agent, "cache_clear"):
-            pydantic_models.get_user_agent.cache_clear()
-
-        def _get_dynamic_user_agent() -> str:
-            """Return User-Agent based on current model selection."""
-            try:
-                from code_puppy.config import get_global_model_name
-
-                model_name = get_global_model_name()
-                if model_name and "kimi" in model_name.lower():
-                    return "KimiCLI/0.63"
-            except Exception:
-                pass
-            return f"Code-Puppy/{version}"
-
-        pydantic_models.get_user_agent = _get_dynamic_user_agent
     except Exception:
-        pass  # Don't crash on patch failure
+        return
+
+    version = _get_code_puppy_version()
+
+    try:
+        cache_clear = getattr(pydantic_models.get_user_agent, "cache_clear", None)
+        if cache_clear:
+            cache_clear()
+    except Exception:
+        pass
+
+    def _get_dynamic_user_agent() -> str:
+        try:
+            from code_puppy.config import get_global_model_name
+
+            model_name = get_global_model_name()
+            if model_name and "kimi" in model_name.lower():
+                return "KimiCLI/0.63"
+        except Exception:
+            pass
+        return f"Code-Puppy/{version}"
+
+    pydantic_models.get_user_agent = _get_dynamic_user_agent
 
 
 def patch_message_history_cleaning() -> None:
-    """Disable overly strict message history cleaning in pydantic-ai."""
     try:
         from pydantic_ai import _agent_graph
 
@@ -67,288 +51,151 @@ def patch_message_history_cleaning() -> None:
 
 
 def patch_process_message_history() -> None:
-    """Patch _process_message_history to skip strict ModelRequest validation.
-
-    Pydantic AI added a validation that history must end with ModelRequest,
-    but this breaks valid conversation flows. We patch it to skip that validation.
-    """
     try:
         from pydantic_ai import _agent_graph
-
-        async def _patched_process_message_history(messages, processors, run_context):
-            """Patched version that doesn't enforce ModelRequest at end."""
-            from pydantic_ai._agent_graph import (
-                _HistoryProcessorAsync,
-                _HistoryProcessorSync,
-                _HistoryProcessorSyncWithCtx,
-                cast,
-                exceptions,
-                is_async_callable,
-                is_takes_ctx,
-                run_in_executor,
-            )
-
-            for processor in processors:
-                takes_ctx = is_takes_ctx(processor)
-
-                if is_async_callable(processor):
-                    if takes_ctx:
-                        messages = await processor(run_context, messages)
-                    else:
-                        async_processor = cast(_HistoryProcessorAsync, processor)
-                        messages = await async_processor(messages)
-                else:
-                    if takes_ctx:
-                        sync_processor_with_ctx = cast(
-                            _HistoryProcessorSyncWithCtx, processor
-                        )
-                        messages = await run_in_executor(
-                            sync_processor_with_ctx, run_context, messages
-                        )
-                    else:
-                        sync_processor = cast(_HistoryProcessorSync, processor)
-                        messages = await run_in_executor(sync_processor, messages)
-
-            if len(messages) == 0:
-                raise exceptions.UserError("Processed history cannot be empty.")
-
-            # NOTE: We intentionally skip the "must end with ModelRequest" validation
-            # that was added in newer Pydantic AI versions.
-
-            return messages
-
-        _agent_graph._process_message_history = _patched_process_message_history
     except Exception:
-        pass
+        return
+
+    async def _run_sync(func, *args):
+        return await asyncio.to_thread(func, *args)
+
+    def _takes_ctx(processor) -> bool:
+        try:
+            params = [
+                p
+                for p in inspect.signature(processor).parameters.values()
+                if p.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            ]
+            return len(params) >= 2
+        except Exception:
+            return False
+
+    async def _process_message_history(messages, processors, run_context):
+        for processor in processors:
+            if inspect.iscoroutinefunction(processor):
+                messages = await (
+                    processor(run_context, messages)
+                    if _takes_ctx(processor)
+                    else processor(messages)
+                )
+            else:
+                messages = await (
+                    _run_sync(processor, run_context, messages)
+                    if _takes_ctx(processor)
+                    else _run_sync(processor, messages)
+                )
+        if not messages:
+            raise ValueError("Processed history cannot be empty")
+        return messages
+
+    _agent_graph._process_message_history = _process_message_history
 
 
 def patch_tool_call_json_repair() -> None:
-    """Patch pydantic-ai's _call_tool to auto-repair malformed JSON arguments.
-
-    LLMs sometimes produce slightly broken JSON in tool calls (trailing commas,
-    missing quotes, etc.). This patch intercepts tool calls and runs json_repair
-    on the arguments before validation, preventing unnecessary retries.
-    """
     try:
-        import json_repair
         from pydantic_ai._tool_manager import ToolManager
+    except Exception:
+        return
 
-        # Store the original method
-        _original_call_tool = ToolManager._call_tool
+    original = ToolManager._call_tool
+    if getattr(original, "_code_puppy_json_repair_patch", False):
+        return
 
-        async def _patched_call_tool(
+    async def _patched_call_tool(
+        self, call, *, allow_partial, wrap_validation_errors, approved, metadata=None
+    ):
+        if isinstance(getattr(call, "args", None), str) and call.args:
+            try:
+                import json_repair
+
+                repaired = json_repair.repair_json(call.args)
+                if repaired:
+                    call.args = repaired
+            except Exception:
+                pass
+        return await original(
             self,
             call,
-            *,
-            allow_partial: bool,
-            wrap_validation_errors: bool,
-            approved: bool,
-            metadata: Any = None,
-        ):
-            """Patched _call_tool that repairs malformed JSON before validation."""
-            # Only attempt repair if args is a string (JSON)
-            if isinstance(call.args, str) and call.args:
-                try:
-                    repaired = json_repair.repair_json(call.args)
-                    if repaired != call.args:
-                        # Update the call args with repaired JSON
-                        call.args = repaired
-                except Exception:
-                    pass  # If repair fails, let original validation handle it
+            allow_partial=allow_partial,
+            wrap_validation_errors=wrap_validation_errors,
+            approved=approved,
+            metadata=metadata,
+        )
 
-            # Call the original method
-            return await _original_call_tool(
-                self,
-                call,
-                allow_partial=allow_partial,
-                wrap_validation_errors=wrap_validation_errors,
-                approved=approved,
-                metadata=metadata,
-            )
-
-        # Apply the patch
-        ToolManager._call_tool = _patched_call_tool
-
-    except ImportError:
-        pass  # json_repair or pydantic_ai not available
-    except Exception:
-        pass  # Don't crash on patch failure
+    _patched_call_tool._code_puppy_json_repair_patch = True
+    ToolManager._call_tool = _patched_call_tool
 
 
 def patch_tool_call_callbacks() -> None:
-    """Patch pydantic-ai tool handling to support callbacks and Claude Code tool names.
-
-    Claude Code OAuth prefixes tool names with ``cp_`` on the wire.  pydantic-ai
-    classifies tool calls *before* ``_call_tool`` runs, so unprefixing only in
-    ``_call_tool`` is too late: prefixed tools get marked as ``unknown`` and can
-    burn through result retries, eventually raising ``UnexpectedModelBehavior``.
-
-    This patch normalizes Claude Code tool names early (during lookup/dispatch)
-    and wraps ``_call_tool`` so every tool invocation also triggers the
-    ``pre_tool_call`` and ``post_tool_call`` callbacks defined in
-    ``code_puppy.callbacks``.
-    """
-    import time
-
     try:
         from pydantic_ai._tool_manager import ToolManager
-
-        _original_call_tool = ToolManager._call_tool
-        _original_get_tool_def = ToolManager.get_tool_def
-        _original_handle_call = ToolManager.handle_call
-
-        # Tool name prefix used by Claude Code OAuth - tools are prefixed on
-        # outgoing requests, so we need to unprefix them when they come back.
-        TOOL_PREFIX = "cp_"
-
-        def _normalize_tool_name(name: Any) -> Any:
-            """Strip the ``cp_`` prefix if present."""
-            if isinstance(name, str) and name.startswith(TOOL_PREFIX):
-                return name[len(TOOL_PREFIX) :]
-            return name
-
-        def _normalize_call_tool_name(call: Any) -> tuple[Any, Any]:
-            """Normalize the tool_name on a call object in-place."""
-            tool_name = getattr(call, "tool_name", None)
-            normalized_name = _normalize_tool_name(tool_name)
-            if normalized_name != tool_name:
-                try:
-                    call.tool_name = normalized_name
-                except (AttributeError, TypeError):
-                    pass
-            return normalized_name, call
-
-        # -- Early normalization patches -----------------------------------------
-        # These run *before* pydantic-ai classifies the tool as function/output/
-        # unknown, so prefixed names resolve correctly.
-
-        def _patched_get_tool_def(self, name: str):
-            return _original_get_tool_def(self, _normalize_tool_name(name))
-
-        async def _patched_handle_call(
-            self,
-            call,
-            allow_partial: bool = False,
-            wrap_validation_errors: bool = True,
-            *,
-            approved: bool = False,
-            metadata: Any = None,
-        ):
-            _normalize_call_tool_name(call)
-            return await _original_handle_call(
-                self,
-                call,
-                allow_partial=allow_partial,
-                wrap_validation_errors=wrap_validation_errors,
-                approved=approved,
-                metadata=metadata,
-            )
-
-        # -- _call_tool wrapper with callbacks -----------------------------------
-
-        async def _patched_call_tool(
-            self,
-            call,
-            *,
-            allow_partial: bool,
-            wrap_validation_errors: bool,
-            approved: bool,
-            metadata: Any = None,
-        ):
-            tool_name, call = _normalize_call_tool_name(call)
-
-            # Normalise args to a dict for the callback contract
-            tool_args: dict = {}
-            if isinstance(call.args, dict):
-                tool_args = call.args
-            elif isinstance(call.args, str):
-                try:
-                    import json
-
-                    tool_args = json.loads(call.args)
-                except Exception:
-                    tool_args = {"raw": call.args}
-
-            # --- pre_tool_call (with blocking support) ---
-            # Returns a string tool-result on block so pydantic-ai sees a clean
-            # "BLOCKED: ..." message and the agent can react gracefully, without
-            # triggering UnexpectedModelBehavior crashes.
-            try:
-                from code_puppy import callbacks
-                from code_puppy.messaging import emit_warning
-
-                callback_results = await callbacks.on_pre_tool_call(
-                    tool_name, tool_args
-                )
-
-                for callback_result in callback_results:
-                    if (
-                        callback_result
-                        and isinstance(callback_result, dict)
-                        and callback_result.get("blocked")
-                    ):
-                        raw_reason = (
-                            callback_result.get("error_message")
-                            or callback_result.get("reason")
-                            or ""
-                        )
-                        if "[BLOCKED]" in raw_reason:
-                            clean_reason = raw_reason[
-                                raw_reason.index("[BLOCKED]") :
-                            ].strip()
-                        else:
-                            clean_reason = (
-                                raw_reason.strip() or "Tool execution blocked by hook"
-                            )
-                        block_msg = f"🚫 Hook blocked this tool call: {clean_reason}"
-                        emit_warning(block_msg)
-                        return f"ERROR: {block_msg}\n\nThe hook policy prevented this tool from running. Please inform the user and do not retry this specific command."
-            except Exception:
-                pass  # other errors don't block tool execution
-
-            start = time.perf_counter()
-            error: Exception | None = None
-            result = None
-            try:
-                result = await _original_call_tool(
-                    self,
-                    call,
-                    allow_partial=allow_partial,
-                    wrap_validation_errors=wrap_validation_errors,
-                    approved=approved,
-                    metadata=metadata,
-                )
-                return result
-            except Exception as exc:
-                error = exc
-                raise
-            finally:
-                duration_ms = (time.perf_counter() - start) * 1000
-                final_result = result if error is None else {"error": str(error)}
-                try:
-                    from code_puppy import callbacks
-
-                    await callbacks.on_post_tool_call(
-                        tool_name, tool_args, final_result, duration_ms
-                    )
-                except Exception:
-                    pass  # never block tool execution
-
-        ToolManager.get_tool_def = _patched_get_tool_def
-        ToolManager.handle_call = _patched_handle_call
-        ToolManager._call_tool = _patched_call_tool
-
-    except ImportError:
-        pass
     except Exception:
-        pass
+        return
+
+    original_get = ToolManager.get_tool_def
+    original_handle = ToolManager.handle_call
+    original_call = ToolManager._call_tool
+
+    def _normalize(name):
+        if isinstance(name, str) and name.startswith("cp_"):
+            return name[3:]
+        return name
+
+    def _normalize_call(call):
+        tool_name = getattr(call, "tool_name", None)
+        normalized = _normalize(tool_name)
+        if normalized != tool_name:
+            try:
+                call.tool_name = normalized
+            except Exception:
+                pass
+        return normalized
+
+    def _patched_get_tool_def(self, name):
+        return original_get(self, _normalize(name))
+
+    async def _patched_handle_call(
+        self,
+        call,
+        allow_partial=False,
+        wrap_validation_errors=True,
+        *,
+        approved=False,
+        metadata=None,
+    ):
+        _normalize_call(call)
+        return await original_handle(
+            self,
+            call,
+            allow_partial=allow_partial,
+            wrap_validation_errors=wrap_validation_errors,
+            approved=approved,
+            metadata=metadata,
+        )
+
+    async def _patched_call_tool(
+        self, call, *, allow_partial, wrap_validation_errors, approved, metadata=None
+    ):
+        _normalize_call(call)
+        return await original_call(
+            self,
+            call,
+            allow_partial=allow_partial,
+            wrap_validation_errors=wrap_validation_errors,
+            approved=approved,
+            metadata=metadata,
+        )
+
+    ToolManager.get_tool_def = _patched_get_tool_def
+    ToolManager.handle_call = _patched_handle_call
+    ToolManager._call_tool = _patched_call_tool
 
 
 def apply_all_patches() -> None:
-    """Apply all pydantic-ai monkey patches.
-
-    Call this at the very top of main.py, before any other imports.
-    """
     patch_user_agent()
     patch_message_history_cleaning()
     patch_process_message_history()

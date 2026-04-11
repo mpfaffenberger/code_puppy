@@ -228,6 +228,17 @@ class BaseAgent(ABC):
         """
         return None
 
+    def get_capabilities(self) -> List[Any]:
+        """Get list of capabilities for this agent.
+
+        Capabilities are composable units of agent behavior (from pydantic-ai).
+        Subclasses can override to add specific capabilities.
+
+        Returns:
+            List of capability instances, or empty list for default behavior.
+        """
+        return []
+
     def get_user_prompt(self) -> Optional[str]:
         """Get custom user prompt for this agent.
 
@@ -1428,6 +1439,9 @@ class BaseAgent(ABC):
         # Wrap it with DBOS, but handle MCP servers separately to avoid serialization issues
         global _reload_count
         _reload_count += 1
+
+        capabilities = self.get_capabilities()
+
         if get_use_dbos():
             # Don't pass MCP servers to the agent constructor when using DBOS
             # This prevents the "cannot pickle async_generator object" error
@@ -1440,6 +1454,7 @@ class BaseAgent(ABC):
                 toolsets=[],  # Don't include MCP servers here
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
+                capabilities=capabilities,
             )
 
             # Register regular tools (non-MCP) on the new agent
@@ -1471,6 +1486,7 @@ class BaseAgent(ABC):
                 toolsets=filtered_mcp_servers,
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
+                capabilities=capabilities,
             )
             # Register regular tools on the agent
             agent_tools = self.get_available_tools()
@@ -1539,6 +1555,7 @@ class BaseAgent(ABC):
                 toolsets=[],
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
+                capabilities=self.get_capabilities(),
             )
             agent_tools = self.get_available_tools()
             register_tools_for_agent(
@@ -1560,6 +1577,7 @@ class BaseAgent(ABC):
                 toolsets=mcp_servers,
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
+                capabilities=self.get_capabilities(),
             )
             agent_tools = self.get_available_tools()
             register_tools_for_agent(
@@ -1963,6 +1981,11 @@ class BaseAgent(ABC):
                 emit_info("Cancelled")
                 if get_use_dbos():
                     await DBOS.cancel_workflow_async(group_id)
+                # pydantic-ai 1.80.0 can surface cancellations inside an
+                # ExceptionGroup. Preserve normal cancellation semantics so the
+                # outer task and CLI both see a real cancellation instead of a
+                # misleading `None` result.
+                raise asyncio.CancelledError()
             except* InterruptedError as ie:
                 emit_info(f"Interrupted: {str(ie)}")
                 if get_use_dbos():
@@ -2006,8 +2029,12 @@ class BaseAgent(ABC):
                     self.prune_interrupted_tool_calls(self.get_message_history())
                 )
 
-        # Create the task FIRST
-        agent_task = asyncio.create_task(run_agent_task())
+        # Run directly in the current task instead of spawning a wrapper task.
+        # pydantic-ai capabilities and streaming handlers use contextvars for
+        # run context tracking; adding an extra asyncio task boundary here can
+        # leave pending model-request coroutines behind during cancellation and
+        # trigger "Token was created in a different Context" during teardown.
+        agent_task = asyncio.current_task()
 
         # Fire agent_run_start hook - plugins can use this to start background tasks
         # (e.g., token refresh heartbeats for OAuth models)
@@ -2089,8 +2116,8 @@ class BaseAgent(ABC):
                     on_cancel_agent=schedule_agent_cancel,
                 )
 
-            # Wait for the task to complete or be cancelled
-            result = await agent_task
+            # Run inline so model streaming/capability cleanup stays in one task/context.
+            result = await run_agent_task()
 
             # Update MCP tool cache after successful run for accurate token estimation
             if hasattr(self, "_mcp_servers") and self._mcp_servers:
@@ -2116,13 +2143,16 @@ class BaseAgent(ABC):
             _run_success = False
             _run_error = None  # Cancellation is not an error
             _run_response_text = ""
-            agent_task.cancel()
+            current_task = asyncio.current_task()
+            if current_task is not None and hasattr(current_task, "uncancel"):
+                current_task.uncancel()
         except KeyboardInterrupt:
             _run_success = False
             _run_error = None  # User interrupt is not an error
             _run_response_text = ""
-            if not agent_task.done():
-                agent_task.cancel()
+            current_task = asyncio.current_task()
+            if current_task is not None and hasattr(current_task, "uncancel"):
+                current_task.uncancel()
         except Exception as e:
             _run_success = False
             _run_error = e

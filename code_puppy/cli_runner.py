@@ -915,6 +915,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 pass
 
 
+def _is_cancellation_exception(exc: BaseException) -> bool:
+    """Return True for direct or grouped cancellation exceptions."""
+    if isinstance(exc, asyncio.CancelledError):
+        return True
+    if isinstance(exc, BaseExceptionGroup):
+        return all(_is_cancellation_exception(child) for child in exc.exceptions)
+    return False
+
+
 async def run_prompt_with_attachments(
     agent,
     raw_prompt: str,
@@ -977,9 +986,14 @@ async def run_prompt_with_attachments(
     # IMPORTANT: Set the shared console for streaming output so it
     # uses the same console as the spinner. This prevents Live display conflicts
     # that cause line duplication during markdown streaming.
-    from code_puppy.agents.event_stream_handler import set_streaming_console
+    from code_puppy.agents.event_stream_handler import (
+        clear_foreground_stream,
+        set_streaming_console,
+        start_foreground_stream,
+    )
 
     set_streaming_console(spinner_console)
+    foreground_stream_token = start_foreground_stream()
 
     # Create the agent task first so we can track and cancel it
     agent_task = asyncio.create_task(
@@ -990,23 +1004,30 @@ async def run_prompt_with_attachments(
         )
     )
 
-    if use_spinner and spinner_console is not None:
-        from code_puppy.messaging.spinner import ConsoleSpinner
+    try:
+        if use_spinner and spinner_console is not None:
+            from code_puppy.messaging.spinner import ConsoleSpinner
 
-        with ConsoleSpinner(console=spinner_console):
+            with ConsoleSpinner(console=spinner_console):
+                try:
+                    result = await agent_task
+                    return result, agent_task
+                except BaseException as exc:
+                    if not _is_cancellation_exception(exc):
+                        raise
+                    emit_info("Agent task cancelled")
+                    return None, agent_task
+        else:
             try:
                 result = await agent_task
                 return result, agent_task
-            except asyncio.CancelledError:
+            except BaseException as exc:
+                if not _is_cancellation_exception(exc):
+                    raise
                 emit_info("Agent task cancelled")
                 return None, agent_task
-    else:
-        try:
-            result = await agent_task
-            return result, agent_task
-        except asyncio.CancelledError:
-            emit_info("Agent task cancelled")
-            return None, agent_task
+    finally:
+        clear_foreground_stream(foreground_stream_token)
 
 
 async def execute_single_prompt(prompt: str, message_renderer) -> None:
