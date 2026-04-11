@@ -75,6 +75,11 @@ def patch_process_message_history() -> None:
     try:
         from pydantic_ai import _agent_graph
 
+        # In pydantic-ai >= 1.80, _process_message_history was removed;
+        # the validation this patch bypassed no longer exists.
+        if not hasattr(_agent_graph, "_process_message_history"):
+            return
+
         async def _patched_process_message_history(messages, processors, run_context):
             """Patched version that doesn't enforce ModelRequest at end."""
             from pydantic_ai._agent_graph import (

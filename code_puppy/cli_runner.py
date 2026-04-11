@@ -764,6 +764,14 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
                 # Check if the task was cancelled (but don't show message if we just killed processes)
                 if result is None:
+                    # Safety: ensure the agent task is fully done so its
+                    # internal wrap_task does not become an orphan.
+                    if current_agent_task and not current_agent_task.done():
+                        current_agent_task.cancel()
+                        try:
+                            await current_agent_task
+                        except (asyncio.CancelledError, KeyboardInterrupt):
+                            pass
                     # Windows-specific: Reset terminal state after cancellation
                     reset_windows_terminal_ansi()
                     # Re-disable Ctrl+C if needed (uvx mode)
@@ -814,6 +822,24 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     0.1
                 )  # Brief pause to ensure all messages are rendered
 
+            except KeyboardInterrupt:
+                # Safety net: if KeyboardInterrupt slips through run_prompt_with_attachments,
+                # make sure we cancel the agent task and continue the REPL loop.
+                from code_puppy.agents.event_stream_handler import (
+                    request_stream_cancellation as _rsc,
+                )
+
+                _rsc()
+                if current_agent_task and not current_agent_task.done():
+                    current_agent_task.cancel()
+                    try:
+                        await current_agent_task
+                    except (asyncio.CancelledError, KeyboardInterrupt):
+                        pass
+                from code_puppy.messaging import emit_info as _emit_info
+
+                _emit_info("Cancelled")
+                continue
             except Exception:
                 from code_puppy.messaging.queue_console import get_queue_console
 
@@ -977,9 +1003,14 @@ async def run_prompt_with_attachments(
     # IMPORTANT: Set the shared console for streaming output so it
     # uses the same console as the spinner. This prevents Live display conflicts
     # that cause line duplication during markdown streaming.
-    from code_puppy.agents.event_stream_handler import set_streaming_console
+    from code_puppy.agents.event_stream_handler import (
+        clear_stream_cancellation,
+        request_stream_cancellation,
+        set_streaming_console,
+    )
 
     set_streaming_console(spinner_console)
+    clear_stream_cancellation()  # Reset for a fresh run
 
     # Create the agent task first so we can track and cancel it
     agent_task = asyncio.create_task(
@@ -990,23 +1021,39 @@ async def run_prompt_with_attachments(
         )
     )
 
+    async def _await_and_cancel_on_interrupt(task):
+        """Await an agent task, properly cancelling it on KeyboardInterrupt or CancelledError."""
+        try:
+            result = await task
+            # If the task returned None, it may have caught CancelledError internally
+            # (e.g. run_with_mcp except* CancelledError). Stop the stream handler.
+            if result is None:
+                request_stream_cancellation()
+            return result, task
+
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            # CancelledError: asyncio cancelled the *main* task (SIGINT),
+            #   but the agent task may still be running.
+            # KeyboardInterrupt: Ctrl+C reached us directly.
+            # Either way, stop the stream handler and tear down the agent task
+            # so pydantic-ai's internal wrap_task is properly awaited.
+            request_stream_cancellation()
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, KeyboardInterrupt):
+                    pass
+            emit_info("Agent task cancelled")
+            return None, task
+
     if use_spinner and spinner_console is not None:
         from code_puppy.messaging.spinner import ConsoleSpinner
 
         with ConsoleSpinner(console=spinner_console):
-            try:
-                result = await agent_task
-                return result, agent_task
-            except asyncio.CancelledError:
-                emit_info("Agent task cancelled")
-                return None, agent_task
+            return await _await_and_cancel_on_interrupt(agent_task)
     else:
-        try:
-            result = await agent_task
-            return result, agent_task
-        except asyncio.CancelledError:
-            emit_info("Agent task cancelled")
-            return None, agent_task
+        return await _await_and_cancel_on_interrupt(agent_task)
 
 
 async def execute_single_prompt(prompt: str, message_renderer) -> None:

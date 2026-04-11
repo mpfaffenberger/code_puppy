@@ -85,6 +85,18 @@ class TestPatchMessageHistoryCleaning:
         assert _agent_graph._clean_message_history(msgs) is msgs
 
 
+# _process_message_history was removed in pydantic-ai >= 1.80;
+# these tests only apply to older versions that had the function.
+_has_process_message_history = hasattr(
+    __import__("pydantic_ai._agent_graph", fromlist=["_process_message_history"]),
+    "_process_message_history",
+)
+
+
+@pytest.mark.skipif(
+    not _has_process_message_history,
+    reason="pydantic-ai >= 1.80 removed _process_message_history",
+)
 class TestPatchProcessMessageHistory:
     @pytest.mark.anyio
     async def test_patched_process_runs_processors(self):
