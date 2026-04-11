@@ -175,6 +175,12 @@ def handle_paste_command(command: str) -> bool:
     category="core",
 )
 def handle_clear_command(command: str) -> bool:
+    """Clear conversation history, rotate autosave session, and clear pending clipboard images.
+
+    Resets the agent's context so it starts fresh, persists the current session
+    to autosave, and notifies the user of the cleanup.
+    """
+
     from code_puppy.command_line.clipboard import get_clipboard_manager
     from code_puppy.messaging import emit_warning, emit_system_message, emit_info
     from code_puppy.agents import get_current_agent
