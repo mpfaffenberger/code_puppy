@@ -395,11 +395,19 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     if initial_command:
         from code_puppy.command_line.shell_passthrough import (
             execute_shell_passthrough,
+            is_known_cli_command,
+            is_powershell_cmdlet,
             is_shell_passthrough,
         )
 
         if is_shell_passthrough(initial_command):
             execute_shell_passthrough(initial_command)
+            initial_command = None
+        elif is_known_cli_command(initial_command) or is_powershell_cmdlet(
+            initial_command
+        ):
+            # Auto-detect known CLI / PowerShell commands — bypass AI, zero tokens
+            execute_shell_passthrough(f"!{initial_command.strip()}")
             initial_command = None
 
     # Initialize the runtime agent manager
@@ -597,11 +605,20 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         # Shell pass-through: !<command> executes directly, bypassing the agent
         from code_puppy.command_line.shell_passthrough import (
             execute_shell_passthrough,
+            is_known_cli_command,
+            is_powershell_cmdlet,
             is_shell_passthrough,
         )
 
         if is_shell_passthrough(task):
             execute_shell_passthrough(task)
+            continue
+
+        # Auto-detect known CLI commands (e.g. `ls`, `git status`, `grep …`)
+        # and PowerShell cmdlets (e.g. `Get-ChildItem`, `Set-Location`)
+        # — route directly to the shell, zero tokens consumed.
+        if is_known_cli_command(task) or is_powershell_cmdlet(task):
+            execute_shell_passthrough(f"!{task.strip()}")
             continue
 
         # Check for exit commands (plain text or command form)
@@ -1014,11 +1031,18 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     # Shell pass-through: !<cmd> bypasses the agent even in -p mode
     from code_puppy.command_line.shell_passthrough import (
         execute_shell_passthrough,
+        is_known_cli_command,
+        is_powershell_cmdlet,
         is_shell_passthrough,
     )
 
     if is_shell_passthrough(prompt):
         execute_shell_passthrough(prompt)
+        return
+
+    # Auto-detect known CLI / PowerShell commands — bypass AI, zero tokens
+    if is_known_cli_command(prompt) or is_powershell_cmdlet(prompt):
+        execute_shell_passthrough(f"!{prompt.strip()}")
         return
 
     from code_puppy.messaging import emit_info
