@@ -58,6 +58,10 @@ from code_puppy.callbacks import (
     on_message_history_processor_end,
     on_message_history_processor_start,
 )
+from code_puppy.cancellation_capability import (
+    _cancellation_capabilities,
+    cancel_active_model_requests,
+)
 
 # Consolidated relative imports
 from code_puppy.config import (
@@ -1364,6 +1368,7 @@ class BaseAgent(ABC):
             toolsets=mcp_servers,
             history_processors=[self.message_history_accumulator],
             model_settings=model_settings,
+            capabilities=_cancellation_capabilities(),
         )
 
         agent_tools = self.get_available_tools()
@@ -1440,6 +1445,7 @@ class BaseAgent(ABC):
                 toolsets=[],  # Don't include MCP servers here
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
+                capabilities=_cancellation_capabilities(),
             )
 
             # Register regular tools (non-MCP) on the new agent
@@ -1471,6 +1477,7 @@ class BaseAgent(ABC):
                 toolsets=filtered_mcp_servers,
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
+                capabilities=_cancellation_capabilities(),
             )
             # Register regular tools on the agent
             agent_tools = self.get_available_tools()
@@ -1539,6 +1546,7 @@ class BaseAgent(ABC):
                 toolsets=[],
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
+                capabilities=_cancellation_capabilities(),
             )
             agent_tools = self.get_available_tools()
             register_tools_for_agent(
@@ -1560,6 +1568,7 @@ class BaseAgent(ABC):
                 toolsets=mcp_servers,
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
+                capabilities=_cancellation_capabilities(),
             )
             agent_tools = self.get_available_tools()
             register_tools_for_agent(
@@ -2043,6 +2052,9 @@ class BaseAgent(ABC):
                 ):  # Create a copy since we'll be modifying the set
                     if not task.done():
                         loop.call_soon_threadsafe(task.cancel)
+            # Cancel pydantic-ai inner model-request tasks FIRST so the HTTP
+            # stream closes before the parent task cleanup runs.
+            cancel_active_model_requests(loop)
             loop.call_soon_threadsafe(agent_task.cancel)
 
         def keyboard_interrupt_handler(_sig, _frame):

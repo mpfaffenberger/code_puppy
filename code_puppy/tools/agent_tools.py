@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext, UsageLimits
 from pydantic_ai.messages import ModelMessage
 
+from code_puppy.cancellation_capability import _cancellation_capabilities
 from code_puppy.config import (
     DATA_DIR,
     get_message_limit,
@@ -450,6 +451,7 @@ def register_invoke_agent(agent):
                     toolsets=[],  # MCP servers added separately for DBOS
                     history_processors=[agent_config.message_history_accumulator],
                     model_settings=model_settings,
+                    capabilities=_cancellation_capabilities(),
                 )
 
                 # Register the tools that the agent needs
@@ -477,6 +479,7 @@ def register_invoke_agent(agent):
                     toolsets=mcp_servers,
                     history_processors=[agent_config.message_history_accumulator],
                     model_settings=model_settings,
+                    capabilities=_cancellation_capabilities(),
                 )
 
                 # Register the tools that the agent needs
