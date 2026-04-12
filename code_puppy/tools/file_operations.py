@@ -513,7 +513,7 @@ def _read_file(
                 )
 
             # Simple approximation: ~4 characters per token
-            num_tokens = max(1, math.floor(len(content) / 2.5))
+            num_tokens = len(content) // 4
             if num_tokens > 10000:
                 return ReadFileOutput(
                     content=None,
