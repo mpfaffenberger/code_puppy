@@ -75,21 +75,21 @@ Models are stored in `~/.code_puppy/extra_models.json`:
     "name": "it-entra-claude-opus-4-6[1m]",
     "foundry_resource": "$ANTHROPIC_FOUNDRY_RESOURCE",
     "context_length": 1000000,
-    "supported_settings": ["temperature", "extended_thinking", "budget_tokens"]
+    "supported_settings": ["temperature", "extended_thinking", "effort"]
   },
   "foundry-claude-sonnet": {
     "type": "azure_foundry",
     "name": "it-entra-claude-sonnet-4-6[1m]",
     "foundry_resource": "$ANTHROPIC_FOUNDRY_RESOURCE",
     "context_length": 1000000,
-    "supported_settings": ["temperature", "extended_thinking", "budget_tokens"]
+    "supported_settings": ["temperature", "interleaved_thinking", "thinking_budget"]
   },
   "foundry-claude-haiku": {
     "type": "azure_foundry",
     "name": "it-entra-claude-haiku-4-5",
     "foundry_resource": "$ANTHROPIC_FOUNDRY_RESOURCE",
     "context_length": 200000,
-    "supported_settings": ["temperature", "extended_thinking", "budget_tokens"]
+    "supported_settings": ["temperature", "interleaved_thinking", "thinking_budget"]
   }
 }
 ```
@@ -101,6 +101,18 @@ Models are stored in `~/.code_puppy/extra_models.json`:
 - `foundry_resource`: Resource name (supports `$ENV_VAR` syntax)
 - `context_length`: Model context window in tokens
 - `supported_settings`: List of supported model settings
+
+## Model Settings by Tier
+
+### Opus 4.6 Models
+- `temperature`: Temperature for sampling (0-1)
+- `extended_thinking`: Enable thinking (defaults to "adaptive")
+- `effort`: Thinking effort level ("low", "medium", "high")
+
+### Sonnet & Haiku Models
+- `temperature`: Temperature for sampling (0-1)
+- `interleaved_thinking`: Enable interleaved thinking (boolean)
+- `thinking_budget`: Maximum tokens for internal reasoning
 
 ## Context Window Configuration
 
