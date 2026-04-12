@@ -9,9 +9,7 @@ Verifies that reasoning_client.py correctly:
 
 from __future__ import annotations
 
-import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -30,6 +28,7 @@ from code_puppy.plugins.copilot_auth.reasoning_client import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _sse_line(data: dict) -> bytes:
     return f"data: {json.dumps(data)}\n\n".encode()
@@ -59,16 +58,20 @@ def _make_non_streaming_response(
     reasoning_text: str,
     reasoning_opaque: str,
 ) -> bytes:
-    return json.dumps({
-        "choices": [{
-            "message": {
-                "role": "assistant",
-                "content": "Hello!",
-                "reasoning_text": reasoning_text,
-                "reasoning_opaque": reasoning_opaque,
-            }
-        }]
-    }).encode()
+    return json.dumps(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "Hello!",
+                        "reasoning_text": reasoning_text,
+                        "reasoning_opaque": reasoning_opaque,
+                    }
+                }
+            ]
+        }
+    ).encode()
 
 
 def _make_request_body(messages: list[dict]) -> bytes:
@@ -93,6 +96,7 @@ class FakeAsyncStream:
 # _text_key
 # ---------------------------------------------------------------------------
 
+
 class TestTextKey:
     def test_deterministic(self):
         assert _text_key("hello") == _text_key("hello")
@@ -107,6 +111,7 @@ class TestTextKey:
 # ---------------------------------------------------------------------------
 # _OpaqueCapturingStream
 # ---------------------------------------------------------------------------
+
 
 class TestOpaqueCapturingStream:
     @pytest.mark.asyncio
@@ -194,6 +199,7 @@ class TestOpaqueCapturingStream:
 # _capture_from_content (non-streaming)
 # ---------------------------------------------------------------------------
 
+
 class TestCaptureFromContent:
     def test_captures_from_non_streaming_response(self):
         cache: dict[str, str] = {}
@@ -206,9 +212,9 @@ class TestCaptureFromContent:
 
     def test_ignores_response_without_opaque(self):
         cache: dict[str, str] = {}
-        content = json.dumps({
-            "choices": [{"message": {"reasoning_text": "thoughts"}}]
-        }).encode()
+        content = json.dumps(
+            {"choices": [{"message": {"reasoning_text": "thoughts"}}]}
+        ).encode()
         _capture_from_content(content, cache, "reasoning_text")
         assert cache == {}
 
@@ -222,6 +228,7 @@ class TestCaptureFromContent:
 # _inject_opaque_into_request
 # ---------------------------------------------------------------------------
 
+
 class TestInjectOpaqueIntoRequest:
     def test_injects_opaque_for_matching_assistant_message(self):
         thinking_text = "I'm thinking deeply"
@@ -232,7 +239,9 @@ class TestInjectOpaqueIntoRequest:
             {"role": "assistant", "reasoning_text": thinking_text, "content": "Hello!"},
         ]
         body = _make_request_body(messages)
-        request = httpx.Request("POST", "https://api.example.com/v1/chat/completions", content=body)
+        request = httpx.Request(
+            "POST", "https://api.example.com/v1/chat/completions", content=body
+        )
 
         client = httpx.AsyncClient()
         _inject_opaque_into_request(request, cache, client, "reasoning_text")
@@ -254,7 +263,9 @@ class TestInjectOpaqueIntoRequest:
             },
         ]
         body = _make_request_body(messages)
-        request = httpx.Request("POST", "https://api.example.com/v1/chat/completions", content=body)
+        request = httpx.Request(
+            "POST", "https://api.example.com/v1/chat/completions", content=body
+        )
 
         client = httpx.AsyncClient()
         _inject_opaque_into_request(request, cache, client, "reasoning_text")
@@ -267,7 +278,9 @@ class TestInjectOpaqueIntoRequest:
         cache = {_text_key("stuff"): "opaque"}
         messages = [{"role": "user", "content": "Hi", "reasoning_text": "stuff"}]
         body = _make_request_body(messages)
-        request = httpx.Request("POST", "https://api.example.com/v1/chat/completions", content=body)
+        request = httpx.Request(
+            "POST", "https://api.example.com/v1/chat/completions", content=body
+        )
 
         original_content = request.content
         client = httpx.AsyncClient()
@@ -280,10 +293,16 @@ class TestInjectOpaqueIntoRequest:
         """When no opaque is cached, reasoning_text is stripped to prevent 400."""
         cache: dict[str, str] = {}
         messages = [
-            {"role": "assistant", "reasoning_text": "unknown thoughts", "content": "Hi"},
+            {
+                "role": "assistant",
+                "reasoning_text": "unknown thoughts",
+                "content": "Hi",
+            },
         ]
         body = _make_request_body(messages)
-        request = httpx.Request("POST", "https://api.example.com/v1/chat/completions", content=body)
+        request = httpx.Request(
+            "POST", "https://api.example.com/v1/chat/completions", content=body
+        )
 
         client = httpx.AsyncClient()
         _inject_opaque_into_request(request, cache, client, "reasoning_text")
@@ -304,7 +323,8 @@ class TestInjectOpaqueIntoRequest:
     def test_handles_non_json_body_gracefully(self):
         cache = {_text_key("x"): "y"}
         request = httpx.Request(
-            "POST", "https://api.example.com/v1/chat/completions",
+            "POST",
+            "https://api.example.com/v1/chat/completions",
             content=b"not json",
         )
         client = httpx.AsyncClient()
@@ -314,6 +334,7 @@ class TestInjectOpaqueIntoRequest:
 # ---------------------------------------------------------------------------
 # _strip_all_reasoning_fields (recovery layer)
 # ---------------------------------------------------------------------------
+
 
 class TestStripAllReasoningFields:
     def test_strips_both_fields_from_assistant_messages(self):
@@ -333,7 +354,9 @@ class TestStripAllReasoningFields:
             },
         ]
         body = _make_request_body(messages)
-        request = httpx.Request("POST", "https://api.example.com/v1/chat/completions", content=body)
+        request = httpx.Request(
+            "POST", "https://api.example.com/v1/chat/completions", content=body
+        )
         client = httpx.AsyncClient()
 
         result = _strip_all_reasoning_fields(request, client, "reasoning_text")
@@ -353,7 +376,9 @@ class TestStripAllReasoningFields:
             {"role": "assistant", "content": "Hello!"},
         ]
         body = _make_request_body(messages)
-        request = httpx.Request("POST", "https://api.example.com/v1/chat/completions", content=body)
+        request = httpx.Request(
+            "POST", "https://api.example.com/v1/chat/completions", content=body
+        )
         client = httpx.AsyncClient()
 
         result = _strip_all_reasoning_fields(request, client, "reasoning_text")
@@ -364,7 +389,9 @@ class TestStripAllReasoningFields:
             {"role": "user", "content": "Hi", "reasoning_text": "sneaky"},
         ]
         body = _make_request_body(messages)
-        request = httpx.Request("POST", "https://api.example.com/v1/chat/completions", content=body)
+        request = httpx.Request(
+            "POST", "https://api.example.com/v1/chat/completions", content=body
+        )
         client = httpx.AsyncClient()
 
         result = _strip_all_reasoning_fields(request, client, "reasoning_text")
@@ -380,6 +407,7 @@ class TestStripAllReasoningFields:
 # ---------------------------------------------------------------------------
 # 400 retry integration (patch_client_for_reasoning_opaque)
 # ---------------------------------------------------------------------------
+
 
 class TestRetryOn400:
     @pytest.mark.asyncio
@@ -400,7 +428,6 @@ class TestRetryOn400:
         )
 
         opaque_cache: dict[str, str] = {}  # Empty — will trigger stripping
-        real_build = client.build_request
 
         async def tracking_send(request, *args, **kwargs):
             nonlocal call_count
@@ -417,7 +444,11 @@ class TestRetryOn400:
 
         messages = [
             {"role": "user", "content": "Hi"},
-            {"role": "assistant", "reasoning_text": "deep thoughts", "content": "Hello!"},
+            {
+                "role": "assistant",
+                "reasoning_text": "deep thoughts",
+                "content": "Hello!",
+            },
         ]
         body = json.dumps({"model": "claude-sonnet-4", "messages": messages}).encode()
         request = httpx.Request(
@@ -508,6 +539,7 @@ class TestRetryOn400:
 # patch_client_for_reasoning_opaque (integration)
 # ---------------------------------------------------------------------------
 
+
 class TestPatchClientIntegration:
     """End-to-end tests through the actual patched client pipeline.
 
@@ -541,9 +573,7 @@ class TestPatchClientIntegration:
         req1 = httpx.Request(
             "POST",
             "https://api.example.com/chat/completions",
-            content=_make_request_body(
-                [{"role": "user", "content": "Hi"}]
-            ),
+            content=_make_request_body([{"role": "user", "content": "Hi"}]),
         )
         await client.send(req1)
 
@@ -552,11 +582,17 @@ class TestPatchClientIntegration:
         req2 = httpx.Request(
             "POST",
             "https://api.example.com/chat/completions",
-            content=_make_request_body([
-                {"role": "user", "content": "Hi"},
-                {"role": "assistant", "reasoning_text": thinking, "content": "Hello!"},
-                {"role": "user", "content": "Follow up?"},
-            ]),
+            content=_make_request_body(
+                [
+                    {"role": "user", "content": "Hi"},
+                    {
+                        "role": "assistant",
+                        "reasoning_text": thinking,
+                        "content": "Hello!",
+                    },
+                    {"role": "user", "content": "Follow up?"},
+                ]
+            ),
         )
         await client.send(req2)
 
@@ -628,9 +664,7 @@ class TestPatchClientIntegration:
         req1 = httpx.Request(
             "POST",
             "https://api.example.com/chat/completions",
-            content=_make_request_body(
-                [{"role": "user", "content": "Hi"}]
-            ),
+            content=_make_request_body([{"role": "user", "content": "Hi"}]),
         )
         await client.send(req1)
 
@@ -639,11 +673,17 @@ class TestPatchClientIntegration:
         req2 = httpx.Request(
             "POST",
             "https://api.example.com/chat/completions",
-            content=_make_request_body([
-                {"role": "user", "content": "Hi"},
-                {"role": "assistant", "reasoning_text": thinking, "content": "Hello!"},
-                {"role": "user", "content": "Now what?"},
-            ]),
+            content=_make_request_body(
+                [
+                    {"role": "user", "content": "Hi"},
+                    {
+                        "role": "assistant",
+                        "reasoning_text": thinking,
+                        "content": "Hello!",
+                    },
+                    {"role": "user", "content": "Now what?"},
+                ]
+            ),
         )
         resp = await client.send(req2)
 
@@ -695,9 +735,7 @@ class TestPatchClientIntegration:
         req1 = httpx.Request(
             "POST",
             "https://api.example.com/chat/completions",
-            content=_make_request_body(
-                [{"role": "user", "content": "Hi"}]
-            ),
+            content=_make_request_body([{"role": "user", "content": "Hi"}]),
         )
         await client.send(req1)
 
@@ -705,10 +743,16 @@ class TestPatchClientIntegration:
         req2 = httpx.Request(
             "POST",
             "https://api.example.com/chat/completions",
-            content=_make_request_body([
-                {"role": "user", "content": "Hi"},
-                {"role": "assistant", "reasoning_text": thinking, "content": "Hello!"},
-            ]),
+            content=_make_request_body(
+                [
+                    {"role": "user", "content": "Hi"},
+                    {
+                        "role": "assistant",
+                        "reasoning_text": thinking,
+                        "content": "Hello!",
+                    },
+                ]
+            ),
         )
         resp = await client.send(req2)
 
@@ -720,6 +764,7 @@ class TestPatchClientIntegration:
 # ---------------------------------------------------------------------------
 # Cache eviction
 # ---------------------------------------------------------------------------
+
 
 class TestCacheEviction:
     @pytest.mark.asyncio

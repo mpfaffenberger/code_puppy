@@ -103,6 +103,18 @@ def get_api_key(env_var_name: str) -> str | None:
     return os.environ.get(env_var_name)
 
 
+# Model types that use the Anthropic Messages API under the hood.
+# These all need Anthropic-specific settings (thinking, effort, etc.).
+_ANTHROPIC_MODEL_TYPES = frozenset({"anthropic", "azure_foundry", "claude_code"})
+
+
+def _is_anthropic_model(model_name: str, model_config: dict[str, Any]) -> bool:
+    """Check if a model uses the Anthropic API (by name prefix or config type)."""
+    if model_name.startswith("claude-") or model_name.startswith("anthropic-"):
+        return True
+    return model_config.get("type") in _ANTHROPIC_MODEL_TYPES
+
+
 def make_model_settings(
     model_name: str, max_tokens: int | None = None
 ) -> ModelSettings:
@@ -234,7 +246,7 @@ def make_model_settings(
                 verbosity = get_openai_verbosity()
                 model_settings_dict["extra_body"] = {"verbosity": verbosity}
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
-    elif model_name.startswith("claude-") or model_name.startswith("anthropic-"):
+    elif _is_anthropic_model(model_name, model_config):
         # Handle Anthropic extended thinking settings
         # Remove top_p as Anthropic doesn't support it with extended thinking
         model_settings_dict.pop("top_p", None)
@@ -271,7 +283,12 @@ def make_model_settings(
         # pydantic-ai doesn't have a native field for output_config yet,
         # so we inject it through extra_body which gets merged into the
         # HTTP request body.
-        if model_supports_setting(model_name, "effort"):
+        # NOTE: effort/output_config only applies to adaptive thinking.
+        # With standard "enabled" thinking, budget_tokens controls depth.
+        if (
+            model_supports_setting(model_name, "effort")
+            and extended_thinking == "adaptive"
+        ):
             effort = effective_settings.get("effort", "high")
             if "anthropic_thinking" in model_settings_dict:
                 extra_body = model_settings_dict.get("extra_body") or {}

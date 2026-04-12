@@ -39,6 +39,7 @@ _MAX_CACHE_ENTRIES = 256
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _text_key(text: str) -> str:
     """Short SHA-256 prefix — enough to avoid collisions in practice."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:32]
@@ -47,6 +48,7 @@ def _text_key(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Stream wrapper — captures opaque data as SSE events flow through
 # ---------------------------------------------------------------------------
+
 
 class _OpaqueCapturingStream(AsyncByteStream):
     """Async byte-stream wrapper that taps ``reasoning_opaque`` from SSE.
@@ -162,6 +164,7 @@ class _OpaqueCapturingStream(AsyncByteStream):
 # Non-streaming capture (safety net)
 # ---------------------------------------------------------------------------
 
+
 def _capture_from_content(
     content: bytes,
     opaque_cache: Dict[str, str],
@@ -183,6 +186,7 @@ def _capture_from_content(
 # ---------------------------------------------------------------------------
 # Request-side injection
 # ---------------------------------------------------------------------------
+
 
 def _rebuild_request_body(
     request: httpx.Request,
@@ -336,6 +340,7 @@ def _strip_all_reasoning_fields(
 # Public API — single entry-point
 # ---------------------------------------------------------------------------
 
+
 def patch_client_for_reasoning_opaque(
     client: httpx.AsyncClient,
     thinking_field: str = "reasoning_text",
@@ -360,9 +365,7 @@ def patch_client_for_reasoning_opaque(
         # 1) Inject reasoning_opaque into outgoing POST bodies.
         #    Also strips orphaned reasoning_text with no cached opaque.
         if request.method == "POST":
-            _inject_opaque_into_request(
-                request, opaque_cache, client, thinking_field
-            )
+            _inject_opaque_into_request(request, opaque_cache, client, thinking_field)
 
         # 2) Let the real send (incl. auth + retries) run.
         response = await original_send(request, *args, **kwargs)
@@ -371,10 +374,7 @@ def patch_client_for_reasoning_opaque(
         #    our reasoning fields are wrong/stale.  Strip them all and
         #    retry once.  This degrades to "no thinking after tool calls"
         #    but keeps the conversation alive.
-        if (
-            response.status_code == 400
-            and request.method == "POST"
-        ):
+        if response.status_code == 400 and request.method == "POST":
             # Read the error body for diagnostics before retrying.
             try:
                 err_body = response.content.decode("utf-8", errors="replace")
@@ -394,17 +394,14 @@ def patch_client_for_reasoning_opaque(
                     )
                 else:
                     logger.warning(
-                        "Recovery retry also failed (%d) — returning "
-                        "retry response.",
+                        "Recovery retry also failed (%d) — returning retry response.",
                         response.status_code,
                     )
 
         # 4) Capture reasoning_opaque from successful responses.
         if response.status_code == 200:
             if response.is_stream_consumed:
-                _capture_from_content(
-                    response.content, opaque_cache, thinking_field
-                )
+                _capture_from_content(response.content, opaque_cache, thinking_field)
             elif hasattr(response, "stream") and response.stream is not None:
                 response.stream = _OpaqueCapturingStream(
                     response.stream, opaque_cache, thinking_field
