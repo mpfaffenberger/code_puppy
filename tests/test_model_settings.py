@@ -52,8 +52,8 @@ class TestPerModelSettings:
 
     def test_sanitize_model_name_handles_dashes(self):
         """Model names with dashes should be sanitized."""
-        result = cp_config._sanitize_model_name_for_key("claude-4-5-sonnet")
-        assert result == "claude_4_5_sonnet"
+        result = cp_config._sanitize_model_name_for_key("zai-glm-5.1-api")
+        assert result == "zai_glm_5_1_api"
 
     def test_sanitize_model_name_handles_slashes(self):
         """Model names with slashes should be sanitized."""
