@@ -134,10 +134,7 @@ class TestFindMatchingModel:
             _find_matching_model,
         )
 
-        assert (
-            _find_matching_model("4.1", ["gpt-4o", "gpt-4.1-mini"])
-            == "gpt-4.1-mini"
-        )
+        assert _find_matching_model("4.1", ["gpt-4o", "gpt-4.1-mini"]) == "gpt-4.1-mini"
 
     def test_no_match(self):
         from code_puppy.command_line.model_picker_completion import (
