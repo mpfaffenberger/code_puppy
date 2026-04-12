@@ -189,7 +189,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.450"
+version = "0.0.451"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
