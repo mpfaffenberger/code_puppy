@@ -80,5 +80,8 @@ def get_extra_models_path() -> Path:
 AZURE_FOUNDRY_CONFIG: dict[str, Any] = {
     "scope": AZURE_COGNITIVE_SCOPE,
     "token_refresh_buffer": TOKEN_REFRESH_BUFFER,
-    "supported_settings": ["temperature", "extended_thinking", "budget_tokens"],
 }
+
+# Note: supported_settings is determined per-tier in build_foundry_model_config():
+# - Opus 4.6: ["temperature", "extended_thinking", "effort"]
+# - Sonnet/Haiku: ["temperature", "interleaved_thinking", "thinking_budget"]

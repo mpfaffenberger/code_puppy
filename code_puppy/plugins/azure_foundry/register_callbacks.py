@@ -340,9 +340,9 @@ def _create_azure_foundry_model(
         return None
 
     try:
-        # Check for interleaved thinking setting
+        # Check for interleaved thinking setting (default True for Foundry models)
         effective_settings = get_effective_model_settings(model_name)
-        interleaved_thinking = effective_settings.get("interleaved_thinking", False)
+        interleaved_thinking = effective_settings.get("interleaved_thinking", True)
 
         # Build anthropic-beta header if needed
         beta_parts: list[str] = []
