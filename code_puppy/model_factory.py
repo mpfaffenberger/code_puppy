@@ -280,7 +280,7 @@ def make_model_settings(
 
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
-    # Handle Gemini thinking models (Gemini-3)
+    # Handle thinking models (e.g. Antigravity Gemini models)
     # Check if model supports thinking settings and apply defaults
     if model_supports_setting(model_name, "thinking_level"):
         # Apply defaults if not explicitly set by user
@@ -766,7 +766,7 @@ class ModelFactory:
             headers["X-Cerebras-3rd-Party-Integration"] = "code-puppy"
             # Pass "cerebras" so RetryingAsyncClient knows to ignore Cerebras's
             # absurdly aggressive Retry-After headers (they send 60s!)
-            # Note: model_config["name"] is "zai-glm-4.7", not "cerebras"
+            # Note: model_config["name"] is the model's internal name, not the provider
             client = create_async_client(
                 headers=headers, verify=verify, model_name="cerebras"
             )

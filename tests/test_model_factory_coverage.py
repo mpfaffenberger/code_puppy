@@ -1249,8 +1249,8 @@ class TestOpenAIProviderIdentity:
         with patch("code_puppy.model_factory.create_async_client"):
             model = ModelFactory.get_model("minimax-openai", config)
 
-        assert isinstance(model.provider, AliasedOpenAIProvider)
-        assert model.provider.name == "minimax"
+        assert isinstance(model._provider, AliasedOpenAIProvider)
+        assert model._provider.name == "minimax"
 
 
 class TestZaiApiModel:

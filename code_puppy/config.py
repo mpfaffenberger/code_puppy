@@ -718,7 +718,7 @@ def get_model_setting(
     """Get a specific setting for a model.
 
     Args:
-        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
         setting: The setting name (e.g., 'temperature', 'top_p', 'seed')
         default: Default value if not set
 
@@ -742,7 +742,7 @@ def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> 
     """Set a specific setting for a model.
 
     Args:
-        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
         setting: The setting name (e.g., 'temperature', 'seed')
         value: The value to set, or None to clear
     """

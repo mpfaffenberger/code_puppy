@@ -10,7 +10,6 @@ from unittest.mock import patch
 
 import httpx
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
@@ -214,11 +213,11 @@ class TestCreateCopilotModel:
 
         assert result is not None
         # Verify the model was created
-        assert hasattr(result, "provider")
+        assert hasattr(result, "_provider")
 
         # Verify the HTTP client has auth attached
-        # provider.client is AsyncOpenAI; provider.client._client is the httpx client
-        http_client = result.provider.client._client
+        # _provider.client is AsyncOpenAI; _provider.client._client is the httpx client
+        http_client = result._provider.client._client
         assert http_client.auth is not None
         # The auth should be an instance of the inner _CopilotAuth class
         assert hasattr(http_client.auth, "_oauth_token")
@@ -248,8 +247,8 @@ class TestCreateCopilotModel:
         assert result is not None
 
         # The provider should NOT have the session token baked in as api_key.
-        # The api_key lives on the AsyncOpenAI client inside the provider.
-        assert result.provider.client.api_key == "copilot-session-managed"
+        # The api_key lives on the AsyncOpenAI client inside the _provider.
+        assert result._provider.client.api_key == "copilot-session-managed"
 
     @patch(
         "code_puppy.plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host"
@@ -276,7 +275,7 @@ class TestCreateCopilotModel:
         assert result is not None
 
         # Should have fallen back to the custom_endpoint URL
-        provider = result.provider
+        provider = result._provider
         assert "custom.example.com" in str(provider.base_url)
 
     @patch(
@@ -301,7 +300,7 @@ class TestCreateCopilotModel:
         result = _create_copilot_model("copilot-gpt-4o", _model_config(), {})
         assert result is not None
 
-        provider = result.provider
+        provider = result._provider
         assert "copilot-proxy.us-east.com" in str(provider.base_url)
 
     @patch(
@@ -326,7 +325,7 @@ class TestCreateCopilotModel:
         result = _create_copilot_model("copilot-gpt-4o", _model_config(), {})
         assert result is not None
 
-        client = result.provider.client._client
+        client = result._provider.client._client
         client_headers = dict(client.headers)
 
         assert client_headers.get("editor-version") == FAKE_CONFIG["editor_version"]
@@ -368,7 +367,7 @@ class TestCreateCopilotModel:
         mock_session.assert_called_once_with("ghp_ghe", ghe_host)
 
         # Auth should use the GHE host
-        auth = result.provider.client._client.auth
+        auth = result._provider.client._client.auth
         assert auth._host == ghe_host
 
     @patch(

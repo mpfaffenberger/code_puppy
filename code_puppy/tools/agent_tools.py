@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext, UsageLimits
 from pydantic_ai.messages import ModelMessage
 
+from code_puppy.cancellation_capability import _cancellation_capabilities
 from code_puppy.config import (
     DATA_DIR,
     get_message_limit,
@@ -450,6 +451,7 @@ def register_invoke_agent(agent):
                     toolsets=[],  # MCP servers added separately for DBOS
                     history_processors=[agent_config.message_history_accumulator],
                     model_settings=model_settings,
+                    capabilities=_cancellation_capabilities(),
                 )
 
                 # Register the tools that the agent needs
@@ -477,6 +479,7 @@ def register_invoke_agent(agent):
                     toolsets=mcp_servers,
                     history_processors=[agent_config.message_history_accumulator],
                     model_settings=model_settings,
+                    capabilities=_cancellation_capabilities(),
                 )
 
                 # Register the tools that the agent needs
@@ -487,37 +490,30 @@ def register_invoke_agent(agent):
 
                 subagent_mcp_servers = None
 
-            # Run the temporary agent directly in the current task.
-            # Creating a fresh asyncio task here introduces a separate contextvars
-            # boundary, which can break pydantic-ai cleanup during streaming
-            # (`Token was created in a different Context`). We still track the
-            # current task for cooperative cancellation from the parent agent.
+            # Run the temporary agent with the provided prompt as an asyncio task
+            # Pass the message_history from the session to continue the conversation
             workflow_id = None  # Track for potential cancellation
 
             # Always use subagent_stream_handler to silence output and update console manager
             # This ensures all sub-agent output goes through the aggregated dashboard
             stream_handler = partial(subagent_stream_handler, session_id=session_id)
-            current_task = asyncio.current_task()
 
             # Wrap the agent run in subagent context for tracking
             with subagent_context(agent_name):
-                if current_task is not None:
-                    _active_subagent_tasks.add(current_task)
+                if get_use_dbos():
+                    # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
+                    workflow_id = _generate_dbos_workflow_id(group_id)
 
-                try:
-                    if get_use_dbos():
-                        # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
-                        workflow_id = _generate_dbos_workflow_id(group_id)
+                    # Add MCP servers to the DBOS agent's toolsets
+                    # (temp_agent is discarded after this invocation, so no need to restore)
+                    if subagent_mcp_servers:
+                        temp_agent._toolsets = (
+                            temp_agent._toolsets + subagent_mcp_servers
+                        )
 
-                        # Add MCP servers to the DBOS agent's toolsets
-                        # (temp_agent is discarded after this invocation, so no need to restore)
-                        if subagent_mcp_servers:
-                            temp_agent._toolsets = (
-                                temp_agent._toolsets + subagent_mcp_servers
-                            )
-
-                        with SetWorkflowID(workflow_id):
-                            result = await temp_agent.run(
+                    with SetWorkflowID(workflow_id):
+                        task = asyncio.create_task(
+                            temp_agent.run(
                                 prompt,
                                 message_history=message_history,
                                 usage_limits=UsageLimits(
@@ -525,23 +521,26 @@ def register_invoke_agent(agent):
                                 ),
                                 event_stream_handler=stream_handler,
                             )
-                    else:
-                        result = await temp_agent.run(
+                        )
+                        _active_subagent_tasks.add(task)
+                else:
+                    task = asyncio.create_task(
+                        temp_agent.run(
                             prompt,
                             message_history=message_history,
                             usage_limits=UsageLimits(request_limit=get_message_limit()),
                             event_stream_handler=stream_handler,
                         )
+                    )
+                    _active_subagent_tasks.add(task)
+
+                try:
+                    result = await task
                 finally:
-                    if current_task is not None:
-                        _active_subagent_tasks.discard(current_task)
-                    if (
-                        current_task is not None
-                        and current_task.cancelled()
-                        and get_use_dbos()
-                        and workflow_id
-                    ):
-                        await DBOS.cancel_workflow_async(workflow_id)
+                    _active_subagent_tasks.discard(task)
+                    if task.cancelled():
+                        if get_use_dbos() and workflow_id:
+                            await DBOS.cancel_workflow_async(workflow_id)
 
             # Extract the response from the result
             response = result.output

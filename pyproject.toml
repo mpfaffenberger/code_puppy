@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.444"
+version = "0.0.451"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "pydantic-ai-slim[openai,anthropic,mcp]==1.80.0",
     "typer>=0.12.0",
-    "mcp>=1.9.4",
+    "mcp>=1.9.4",    
     "httpx[http2]>=0.24.1",
     "requests>=2.28.0",
     "rich>=13.4.2",
@@ -31,8 +31,7 @@ dependencies = [
     "websockets>=12.0",
     "termflow-md>=0.1.8",
     "Pillow>=10.0.0",
-    "anthropic>=0.80.0",
-    "pydantic-harness[code-mode]",
+    "anthropic>=0.80.0"
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
@@ -94,9 +93,6 @@ omit = ["code_puppy/main.py"]
 
 [tool.uv]
 python-preference = "only-managed"
-
-[tool.uv.sources]
-pydantic-harness = { git = "https://github.com/pydantic/pydantic-harness.git", rev = "main" }
 
 [dependency-groups]
 dev = [

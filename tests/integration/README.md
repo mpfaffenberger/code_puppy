@@ -16,7 +16,7 @@ This folder contains the reusable pyexpect harness that powers Code Puppy's end-
 | --- | --- | --- | --- |
 | `CI` | Disables Rich Live() display | **Yes** | Set to `1` or `true`. Prevents streaming handler from using interactive display. |
 | `CODE_PUPPY_TEST_FAST` | Puts the CLI into fast/lean mode | **Yes** | Set to `1` or `true`. Skips nonessential animations. |
-| `SYN_API_KEY` | Primary provider for live integration coverage | For LLM tests | Required for real LLM calls with synthetic-GLM-4.7 model. |
+| `SYN_API_KEY` | Primary provider for live integration coverage | For LLM tests | Required for real LLM calls with synthetic-GLM-5.1 model. |
 | `MODEL_NAME` | Optional override for the default model | No | Useful when pointing at alternate providers (OpenAI, Gemini, etc.). |
 | Provider-specific keys | `OPENAI_API_KEY`, `GEMINI_API_KEY`, `CEREBRAS_API_KEY`, … | No | Set whichever keys you expect the CLI to fall back to. |
 

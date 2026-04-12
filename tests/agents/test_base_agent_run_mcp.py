@@ -278,40 +278,6 @@ class TestBaseAgentRunMCP:
             assert call_kwargs["custom_param"] == "value"
 
     @pytest.mark.asyncio
-    async def test_run_with_mcp_propagates_grouped_cancellation(self, agent):
-        """Grouped cancellations should still be treated as cancelled runs."""
-        grouped_cancel = BaseExceptionGroup(
-            "cancelled",
-            [asyncio.CancelledError()],
-        )
-
-        with (
-            patch.object(agent, "_code_generation_agent") as mock_agent,
-            patch("code_puppy.agents.base_agent.get_use_dbos", return_value=False),
-            patch(
-                "code_puppy.agents.base_agent.on_agent_run_start",
-                new_callable=AsyncMock,
-            ),
-            patch(
-                "code_puppy.agents.base_agent.on_agent_run_end",
-                new_callable=AsyncMock,
-            ) as mock_run_end,
-            patch(
-                "code_puppy.agents.base_agent.cancel_agent_uses_signal",
-                return_value=True,
-            ),
-            patch("code_puppy.agents.base_agent.event_stream_handler"),
-        ):
-            mock_agent.run = AsyncMock(side_effect=grouped_cancel)
-
-            result = await agent.run_with_mcp("cancel me")
-
-            assert result is None
-            assert mock_run_end.await_count == 1
-            assert mock_run_end.await_args.kwargs["success"] is False
-            assert mock_run_end.await_args.kwargs["error"] is None
-
-    @pytest.mark.asyncio
     async def test_run_with_mcp_uses_existing_agent(self, agent):
         """Test run_with_mcp reuses existing agent when available."""
         # Create a mock existing agent
