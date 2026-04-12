@@ -129,6 +129,13 @@ class TestFindMatchingModel:
 
         assert _find_matching_model("gpt", ["gpt-4", "claude-3"]) == "gpt-4"
 
+    def test_query_match_fallback(self):
+        from code_puppy.command_line.model_picker_completion import (
+            _find_matching_model,
+        )
+
+        assert _find_matching_model("4.1", ["gpt-4o", "gpt-4.1-mini"]) == "gpt-4.1-mini"
+
     def test_no_match(self):
         from code_puppy.command_line.model_picker_completion import (
             _find_matching_model,
@@ -295,6 +302,82 @@ class TestModelSelectionMenu:
 
         assert menu.selected_index == MODEL_PICKER_PAGE_SIZE
         assert menu.page == 1
+
+    def test_filter_keeps_current_model_selected_when_visible(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="claude-3-sonnet",
+        ):
+            menu = ModelSelectionMenu(
+                ["gpt-5-mini", "claude-3-sonnet", "claude-3-opus"]
+            )
+
+        menu._set_filter_text("claude")
+
+        assert menu.visible_model_names == ["claude-3-sonnet", "claude-3-opus"]
+        assert menu.selected_index == 0
+
+    def test_filter_resets_to_first_visible_match_when_selection_disappears(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="gpt-5-mini",
+        ):
+            menu = ModelSelectionMenu(
+                ["gpt-5-mini", "claude-3-sonnet", "claude-3-opus"]
+            )
+
+        menu._set_filter_text("opus")
+
+        assert menu.visible_model_names == ["claude-3-opus"]
+        assert menu.selected_index == 0
+
+    def test_accept_selection_returns_false_when_filter_has_no_matches(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["gpt-5-mini", "claude-3-sonnet"])
+
+        menu._set_filter_text("nope")
+
+        assert menu._accept_selection() is False
+        assert menu.result is None
+
+    def test_accept_selection_guards_invalid_selected_index(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["gpt-5-mini"])
+
+        menu.selected_index = 99
+
+        assert menu._accept_selection() is False
+        assert menu.result is None
+
+    def test_render_no_matches_mentions_filter_and_clear_shortcut(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["gpt-5-mini", "claude-3-sonnet"])
+
+        menu._set_filter_text("nope")
+
+        rendered = "".join(text for _, text in menu._render())
+
+        assert "No models match the current filter." in rendered
+        assert "Clear filter" in rendered
 
 
 class TestInteractiveModelPicker:
