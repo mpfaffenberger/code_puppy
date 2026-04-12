@@ -24,22 +24,6 @@ from code_puppy.tools.subagent_context import is_subagent
 
 logger = logging.getLogger(__name__)
 
-# Cooperative cancellation flag: set to True to make the event_stream_handler
-# stop processing events immediately, even before CancelledError propagates.
-_stream_cancelled: bool = False
-
-
-def request_stream_cancellation() -> None:
-    """Signal the event stream handler to stop processing events immediately."""
-    global _stream_cancelled
-    _stream_cancelled = True
-
-
-def clear_stream_cancellation() -> None:
-    """Reset the cancellation flag for a new agent run."""
-    global _stream_cancelled
-    _stream_cancelled = False
-
 
 def _fire_stream_event(event_type: str, event_data: Any) -> None:
     """Fire a stream event callback asynchronously (non-blocking).
@@ -114,9 +98,6 @@ async def event_stream_handler(
         ctx: The run context.
         events: Async iterable of streaming events (PartStartEvent, PartDeltaEvent, etc.).
     """
-    # Cooperative cancellation: bail out if a cancel was requested.
-    if _stream_cancelled:
-        return
     # If we're in a sub-agent and verbose mode is disabled, silently consume events
     if _should_suppress_output():
         async for _ in events:
@@ -181,9 +162,6 @@ async def event_stream_handler(
         did_stream_anything = True
 
     async for event in events:
-        # Cooperative cancellation: bail out immediately when requested.
-        if _stream_cancelled:
-            return
         # PartStartEvent - register the part but defer banner until content arrives
         if isinstance(event, PartStartEvent):
             # Fire stream event callback for part_start
