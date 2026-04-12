@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # Token storage — persisted tokens obtained via the Device Flow
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CopilotToken:
     """An OAuth token for a GitHub host."""
@@ -56,6 +57,7 @@ def get_token_for_host(host: str) -> Optional[CopilotToken]:
 # Device Flow — browser-based GitHub OAuth (no IDE required)
 # ---------------------------------------------------------------------------
 
+
 def start_device_flow(host: str = "github.com") -> Optional[Dict[str, Any]]:
     """Initiate the GitHub Device Flow and return the device code response.
 
@@ -77,7 +79,9 @@ def start_device_flow(host: str = "github.com") -> Optional[Dict[str, Any]]:
             logger.warning("Device flow response missing required fields: %s", data)
         else:
             logger.warning(
-                "Device flow initiation failed: %s %s", resp.status_code, resp.text[:300]
+                "Device flow initiation failed: %s %s",
+                resp.status_code,
+                resp.text[:300],
             )
     except Exception as exc:
         logger.warning("Device flow error: %s", exc)
@@ -187,13 +191,16 @@ def load_device_tokens() -> List[CopilotToken]:
 # Copilot API bearer token (typically valid ~30 min).
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class SessionToken:
     """A short-lived Copilot API session token."""
 
     token: str
     expires_at: float  # Unix timestamp
-    api_endpoint: str = ""  # API base URL from the token response (may differ per region/host)
+    api_endpoint: str = (
+        ""  # API base URL from the token response (may differ per region/host)
+    )
 
 
 # Module-level cache keyed by (host, oauth_token[:16])
@@ -266,7 +273,9 @@ def exchange_for_session_token(
             )
         else:
             logger.warning(
-                "Copilot token exchange failed: %s %s", resp.status_code, resp.text[:200]
+                "Copilot token exchange failed: %s %s",
+                resp.status_code,
+                resp.text[:200],
             )
     except requests.exceptions.Timeout:
         logger.warning("Timeout exchanging Copilot token for host %s", host)
@@ -318,10 +327,14 @@ def _load_persisted_session(host: str, oauth_token: str = "") -> Optional[Sessio
             # Verify the stored fingerprint matches the current OAuth token
             stored_fp = entry.get("oauth_fingerprint", "")
             if oauth_token and stored_fp and stored_fp != oauth_token[:16]:
-                logger.debug("Persisted session fingerprint mismatch for %s — skipping", host)
+                logger.debug(
+                    "Persisted session fingerprint mismatch for %s — skipping", host
+                )
                 return None
 
-            api_endpoint = entry.get("api_endpoint", COPILOT_AUTH_CONFIG["api_base_url"])
+            api_endpoint = entry.get(
+                "api_endpoint", COPILOT_AUTH_CONFIG["api_base_url"]
+            )
             # Restore the host→endpoint mapping
             if api_endpoint:
                 _host_api_endpoints[host] = api_endpoint
@@ -391,6 +404,7 @@ def clear_caches() -> None:
 # Model persistence — copilot_models.json
 # ---------------------------------------------------------------------------
 
+
 def load_copilot_models() -> Dict[str, Any]:
     """Load registered Copilot models from copilot_models.json."""
     try:
@@ -436,9 +450,7 @@ def remove_copilot_models() -> int:
     return 0
 
 
-def fetch_copilot_models(
-    session_token: str, host: str = "github.com"
-) -> List[str]:
+def fetch_copilot_models(session_token: str, host: str = "github.com") -> List[str]:
     """Try to fetch the model catalogue from the Copilot API.
 
     Falls back to ``DEFAULT_COPILOT_MODELS`` if the endpoint is unavailable.
@@ -486,11 +498,7 @@ def _is_claude_model(model_name: str) -> bool:
 def _is_openai_model(model_name: str) -> bool:
     """Check if a model name refers to an OpenAI/GPT model."""
     lower = model_name.lower()
-    return (
-        lower.startswith("gpt-")
-        or lower.startswith("o3")
-        or lower.startswith("o4")
-    )
+    return lower.startswith("gpt-") or lower.startswith("o3") or lower.startswith("o4")
 
 
 def _build_claude_model_settings(model_name: str) -> Dict[str, Any]:
@@ -577,4 +585,3 @@ def add_models_to_config(
     except Exception as exc:
         logger.error("Error adding Copilot models to config: %s", exc)
     return False
-

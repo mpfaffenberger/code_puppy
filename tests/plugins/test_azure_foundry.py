@@ -165,7 +165,9 @@ class TestAzureFoundryTokenProvider:
         mock_token_func = Mock(return_value="test_token_123")
 
         with patch("azure.identity.AzureCliCredential", return_value=mock_cred):
-            with patch("azure.identity.get_bearer_token_provider", return_value=mock_token_func):
+            with patch(
+                "azure.identity.get_bearer_token_provider", return_value=mock_token_func
+            ):
                 provider = AzureFoundryTokenProvider()
                 token = provider.get_token()
 
@@ -203,7 +205,9 @@ class TestAzureFoundryTokenProvider:
 
         mock_cred = Mock()
         # Simulate CredentialUnavailableError
-        mock_cred.get_token.side_effect = Exception("CredentialUnavailableError: Not logged in")
+        mock_cred.get_token.side_effect = Exception(
+            "CredentialUnavailableError: Not logged in"
+        )
 
         with patch("azure.identity.AzureCliCredential", return_value=mock_cred):
             with patch("azure.identity.get_bearer_token_provider", return_value=Mock()):
@@ -222,7 +226,9 @@ class TestAzureFoundryTokenProvider:
         reset_token_provider()
 
         # Create a provider that will fail to initialize
-        with patch("azure.identity.AzureCliCredential", side_effect=Exception("Init failed")):
+        with patch(
+            "azure.identity.AzureCliCredential", side_effect=Exception("Init failed")
+        ):
             provider = AzureFoundryTokenProvider()
             is_auth, status, user_info = provider.check_auth_status()
 
@@ -487,7 +493,9 @@ class TestAddRemoveFoundryModels:
 
     def test_remove_foundry_models(self, tmp_path, sample_foundry_config):
         """Test removing Foundry models from configuration."""
-        from code_puppy.plugins.azure_foundry.utils import remove_foundry_models_from_config
+        from code_puppy.plugins.azure_foundry.utils import (
+            remove_foundry_models_from_config,
+        )
 
         models_path = tmp_path / "models.json"
         with open(models_path, "w") as f:
@@ -510,7 +518,9 @@ class TestGetFoundryModelsFromConfig:
 
     def test_get_foundry_models(self, temp_extra_models, sample_foundry_config):
         """Test filtering Foundry models from config."""
-        from code_puppy.plugins.azure_foundry.utils import get_foundry_models_from_config
+        from code_puppy.plugins.azure_foundry.utils import (
+            get_foundry_models_from_config,
+        )
 
         with patch(
             "code_puppy.plugins.azure_foundry.utils.get_extra_models_path",
@@ -521,7 +531,9 @@ class TestGetFoundryModelsFromConfig:
 
     def test_get_foundry_models_mixed_types(self, tmp_path):
         """Test filtering when other model types present."""
-        from code_puppy.plugins.azure_foundry.utils import get_foundry_models_from_config
+        from code_puppy.plugins.azure_foundry.utils import (
+            get_foundry_models_from_config,
+        )
 
         mixed_config = {
             "foundry-model": {"type": "azure_foundry", "name": "test"},
@@ -551,14 +563,23 @@ class TestSlashCommands:
 
     @patch("code_puppy.plugins.azure_foundry.register_callbacks.get_token_provider")
     @patch("code_puppy.plugins.azure_foundry.register_callbacks.get_foundry_resource")
-    @patch("code_puppy.plugins.azure_foundry.register_callbacks.get_foundry_models_from_config")
+    @patch(
+        "code_puppy.plugins.azure_foundry.register_callbacks.get_foundry_models_from_config"
+    )
     @patch("code_puppy.plugins.azure_foundry.register_callbacks.emit_info")
     @patch("code_puppy.plugins.azure_foundry.register_callbacks.emit_success")
     def test_handle_foundry_status_authenticated(
-        self, mock_emit_success, mock_emit_info, mock_get_models, mock_get_resource, mock_get_provider
+        self,
+        mock_emit_success,
+        mock_emit_info,
+        mock_get_models,
+        mock_get_resource,
+        mock_get_provider,
     ):
         """Test /foundry-status when authenticated."""
-        from code_puppy.plugins.azure_foundry.register_callbacks import _handle_foundry_status
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _handle_foundry_status,
+        )
 
         mock_provider = Mock()
         mock_provider.check_auth_status.return_value = (
@@ -586,7 +607,9 @@ class TestSlashCommands:
         self, mock_emit_info, mock_emit_warning, mock_get_provider
     ):
         """Test /foundry-status when not authenticated."""
-        from code_puppy.plugins.azure_foundry.register_callbacks import _handle_foundry_status
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _handle_foundry_status,
+        )
 
         mock_provider = Mock()
         mock_provider.check_auth_status.return_value = (
@@ -602,7 +625,9 @@ class TestSlashCommands:
 
     def test_handle_custom_command_status(self):
         """Test custom command routing to status."""
-        from code_puppy.plugins.azure_foundry.register_callbacks import _handle_custom_command
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _handle_custom_command,
+        )
 
         with patch(
             "code_puppy.plugins.azure_foundry.register_callbacks._handle_foundry_status"
@@ -613,7 +638,9 @@ class TestSlashCommands:
 
     def test_handle_custom_command_setup(self):
         """Test custom command routing to setup."""
-        from code_puppy.plugins.azure_foundry.register_callbacks import _handle_custom_command
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _handle_custom_command,
+        )
 
         with patch(
             "code_puppy.plugins.azure_foundry.register_callbacks._handle_foundry_setup"
@@ -624,7 +651,9 @@ class TestSlashCommands:
 
     def test_handle_custom_command_remove(self):
         """Test custom command routing to remove."""
-        from code_puppy.plugins.azure_foundry.register_callbacks import _handle_custom_command
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _handle_custom_command,
+        )
 
         with patch(
             "code_puppy.plugins.azure_foundry.register_callbacks._handle_foundry_remove"
@@ -635,7 +664,9 @@ class TestSlashCommands:
 
     def test_handle_custom_command_unknown(self):
         """Test custom command returns None for unknown commands."""
-        from code_puppy.plugins.azure_foundry.register_callbacks import _handle_custom_command
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _handle_custom_command,
+        )
 
         result = _handle_custom_command("/other-command", "other-command")
         assert result is None
@@ -658,7 +689,9 @@ class TestRegisterModelTypes:
 
     def test_register_model_types(self):
         """Test that azure_foundry model type is registered."""
-        from code_puppy.plugins.azure_foundry.register_callbacks import _register_model_types
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _register_model_types,
+        )
 
         registrations = _register_model_types()
         assert len(registrations) == 1
@@ -671,12 +704,16 @@ class TestCreateAzureFoundryModel:
 
     def test_create_model_no_resource(self):
         """Test model creation fails without resource."""
-        from code_puppy.plugins.azure_foundry.register_callbacks import _create_azure_foundry_model
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _create_azure_foundry_model,
+        )
 
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop("ANTHROPIC_FOUNDRY_RESOURCE", None)
 
-            with patch("code_puppy.plugins.azure_foundry.register_callbacks.emit_warning") as mock_warn:
+            with patch(
+                "code_puppy.plugins.azure_foundry.register_callbacks.emit_warning"
+            ) as mock_warn:
                 result = _create_azure_foundry_model(
                     model_name="foundry-test",
                     model_config={"name": "test-deployment"},
@@ -688,9 +725,13 @@ class TestCreateAzureFoundryModel:
 
     def test_create_model_no_deployment_name(self):
         """Test model creation fails without deployment name."""
-        from code_puppy.plugins.azure_foundry.register_callbacks import _create_azure_foundry_model
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _create_azure_foundry_model,
+        )
 
-        with patch("code_puppy.plugins.azure_foundry.register_callbacks.emit_warning") as mock_warn:
+        with patch(
+            "code_puppy.plugins.azure_foundry.register_callbacks.emit_warning"
+        ) as mock_warn:
             result = _create_azure_foundry_model(
                 model_name="foundry-test",
                 model_config={"foundry_resource": "my-resource"},  # Missing 'name'
@@ -702,7 +743,9 @@ class TestCreateAzureFoundryModel:
 
     def test_create_model_auth_failed(self):
         """Test model creation fails when not authenticated."""
-        from code_puppy.plugins.azure_foundry.register_callbacks import _create_azure_foundry_model
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _create_azure_foundry_model,
+        )
 
         mock_provider = Mock()
         mock_provider.check_auth_status.return_value = (
@@ -711,8 +754,13 @@ class TestCreateAzureFoundryModel:
             None,
         )
 
-        with patch("code_puppy.plugins.azure_foundry.register_callbacks.get_token_provider", return_value=mock_provider):
-            with patch("code_puppy.plugins.azure_foundry.register_callbacks.emit_warning") as mock_warn:
+        with patch(
+            "code_puppy.plugins.azure_foundry.register_callbacks.get_token_provider",
+            return_value=mock_provider,
+        ):
+            with patch(
+                "code_puppy.plugins.azure_foundry.register_callbacks.emit_warning"
+            ) as mock_warn:
                 result = _create_azure_foundry_model(
                     model_name="foundry-test",
                     model_config={
@@ -727,7 +775,9 @@ class TestCreateAzureFoundryModel:
 
     def test_create_model_success(self):
         """Test successful model creation."""
-        from code_puppy.plugins.azure_foundry.register_callbacks import _create_azure_foundry_model
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _create_azure_foundry_model,
+        )
 
         # Setup mocks
         mock_provider = Mock()
@@ -738,14 +788,33 @@ class TestCreateAzureFoundryModel:
         mock_client._custom_headers = {}
         mock_model = Mock()
 
-        with patch("code_puppy.plugins.azure_foundry.register_callbacks.get_token_provider", return_value=mock_provider):
+        with patch(
+            "code_puppy.plugins.azure_foundry.register_callbacks.get_token_provider",
+            return_value=mock_provider,
+        ):
             # Patch at anthropic module since it's imported inside the function
-            with patch("anthropic.AsyncAnthropicFoundry", return_value=mock_client) as mock_azure_class:
-                with patch("code_puppy.claude_cache_client.patch_anthropic_client_messages"):
-                    with patch("code_puppy.config.get_effective_model_settings", return_value={}):
-                        with patch("code_puppy.provider_identity.resolve_provider_identity", return_value="identity"):
-                            with patch("code_puppy.provider_identity.make_anthropic_provider", return_value=Mock()):
-                                with patch("pydantic_ai.models.anthropic.AnthropicModel", return_value=mock_model):
+            with patch(
+                "anthropic.AsyncAnthropicFoundry", return_value=mock_client
+            ) as mock_azure_class:
+                with patch(
+                    "code_puppy.claude_cache_client.patch_anthropic_client_messages"
+                ):
+                    with patch(
+                        "code_puppy.config.get_effective_model_settings",
+                        return_value={},
+                    ):
+                        with patch(
+                            "code_puppy.provider_identity.resolve_provider_identity",
+                            return_value="identity",
+                        ):
+                            with patch(
+                                "code_puppy.provider_identity.make_anthropic_provider",
+                                return_value=Mock(),
+                            ):
+                                with patch(
+                                    "pydantic_ai.models.anthropic.AnthropicModel",
+                                    return_value=mock_model,
+                                ):
                                     result = _create_azure_foundry_model(
                                         model_name="foundry-claude-opus",
                                         model_config={

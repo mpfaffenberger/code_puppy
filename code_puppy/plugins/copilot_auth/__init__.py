@@ -9,4 +9,3 @@ Commands:
 - ``/copilot-status`` — show auth & model status
 - ``/copilot-logout`` — remove tokens and registered models
 """
-

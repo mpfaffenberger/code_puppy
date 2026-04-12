@@ -72,7 +72,6 @@ COPILOT_MODEL_CONTEXT_LENGTHS: Dict[str, int] = {
 }
 
 
-
 def get_copilot_models_path() -> Path:
     """Return path for persisted copilot_models.json (XDG_DATA_HOME)."""
     data_dir = Path(config.DATA_DIR)
@@ -92,4 +91,3 @@ def get_device_token_storage_path() -> Path:
     data_dir = Path(config.DATA_DIR)
     data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     return data_dir / "copilot_device_tokens.json"
-
