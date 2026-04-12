@@ -61,6 +61,7 @@ from code_puppy.callbacks import (
 from code_puppy.cancellation_capability import (
     _cancellation_capabilities,
     cancel_active_model_requests,
+    install_cancellation_exception_handler,
 )
 
 # Consolidated relative imports
@@ -2030,6 +2031,7 @@ class BaseAgent(ABC):
             pass  # Don't fail agent run if hook fails
 
         loop = asyncio.get_running_loop()
+        install_cancellation_exception_handler(loop)
 
         def schedule_agent_cancel() -> None:
             from code_puppy.tools.command_runner import _RUNNING_PROCESSES

@@ -11,6 +11,12 @@ This capability captures references to those inner tasks by recording
 as an "Unhandled exception in event loop" when pydantic-ai's cleanup race
 leaves the exception unretrieved.
 
+Additionally, ``install_cancellation_exception_handler`` installs a targeted
+asyncio exception handler that suppresses "Task was destroyed but it is
+pending" warnings from pydantic-ai's internal ``Event.wait()`` tasks that
+get garbage-collected during cancellation before the event loop can process
+their cancellation.
+
 On pydantic-ai < 1.80 the capability API doesn't exist, so this module
 gracefully degrades to a no-op (``HAS_CAPABILITIES = False``).
 """
@@ -61,6 +67,54 @@ def cancel_active_model_requests(loop: asyncio.AbstractEventLoop) -> int:
     if cancelled:
         logger.debug("Cancelled %d active model-request task(s)", cancelled)
     return cancelled
+
+
+# ── Asyncio exception handler ──────────────────────────────────────────────
+
+_default_handler: Any = None
+
+
+def install_cancellation_exception_handler(loop: asyncio.AbstractEventLoop) -> None:
+    """Install a custom exception handler that suppresses cancellation noise.
+
+    pydantic-ai's ``stream()`` creates internal ``Event.wait()`` tasks
+    (e.g. ``ready_waiter``) that can be garbage-collected while still pending
+    when external cancellation causes ``CancelledError`` to propagate out
+    before the event loop processes their cancellation.  This produces:
+
+        Task was destroyed but it is pending!
+        task: <Task pending coro=<Event.wait() ...>>
+
+    This handler suppresses that specific warning and delegates everything
+    else to the default handler.
+    """
+    global _default_handler
+    _default_handler = loop.get_exception_handler()
+
+    def _handler(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+        message = context.get("message", "")
+
+        # Suppress "Task was destroyed but it is pending" for Event.wait() tasks.
+        # These are pydantic-ai's internal ready_waiter / stream_done waiter tasks
+        # that get GC'd during cancellation before the event loop can finalize them.
+        if "Task was destroyed but it is pending" in message:
+            task = context.get("task") or context.get("future")
+            if task is not None:
+                coro = getattr(task, "get_coro", lambda: None)()
+                coro_name = getattr(coro, "__qualname__", "") if coro else ""
+                if "Event.wait" in coro_name:
+                    logger.debug(
+                        "Suppressed 'Task destroyed but pending' for %s", coro_name
+                    )
+                    return
+
+        # Delegate to the original handler (or asyncio's default).
+        if _default_handler is not None:
+            _default_handler(loop, context)
+        else:
+            loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_handler)
 
 
 # ── Capability (only available on pydantic-ai >= 1.80) ──────────────────────
