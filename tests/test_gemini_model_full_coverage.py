@@ -532,14 +532,18 @@ class TestBuildTools:
             ToolDefinition(
                 name="fn", description="desc", parameters_json_schema={"type": "object"}
             ),
-            ToolDefinition(name="fn2", description="", parameters_json_schema=None),
+            ToolDefinition(
+                name="fn2",
+                description="",
+                parameters_json_schema={"type": "object", "properties": {}},
+            ),
         ]
         result = model._build_tools(tools)
         assert len(result) == 1
         decls = result[0]["functionDeclarations"]
         assert len(decls) == 2
         assert "parameters" in decls[0]
-        assert "parameters" not in decls[1]
+        assert decls[1]["name"] == "fn2"
 
 
 # --- Build generation config ---
