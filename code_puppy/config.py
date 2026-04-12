@@ -284,6 +284,7 @@ def get_config_keys():
         "protected_token_count",
         "compaction_threshold",
         "message_limit",
+        "queue_limit",
         "allow_recursion",
         "openai_reasoning_effort",
         "openai_reasoning_summary",
@@ -1234,6 +1235,20 @@ def get_message_limit(default: int = 1000) -> int:
         return int(val) if val else default
     except (ValueError, TypeError):
         return default
+
+
+def get_queue_limit(default: int = 25) -> int:
+    """
+    Returns the user-configured interactive prompt queue limit.
+    Defaults to 25 if unset or misconfigured.
+    Configurable by 'queue_limit' key.
+    """
+    val = get_value("queue_limit")
+    try:
+        parsed = int(val) if val else default
+    except (ValueError, TypeError):
+        return default
+    return max(1, parsed)
 
 
 def save_command_to_history(command: str):

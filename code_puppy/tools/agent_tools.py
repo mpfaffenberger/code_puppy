@@ -25,20 +25,26 @@ from code_puppy.config import (
     get_value,
 )
 from code_puppy.messaging import (
+    MessageLevel,
     SubAgentInvocationMessage,
     SubAgentResponseMessage,
+    TextMessage,
     emit_error,
-    emit_info,
+    emit_info as _emit_info,
     emit_success,
     get_message_bus,
     get_session_context,
     set_session_context,
 )
+from code_puppy.messaging.messages import AgentListMessage
 from code_puppy.tools.common import generate_group_id
 from code_puppy.tools.subagent_context import subagent_context
 
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
+
+# Preserve the historical module-level symbol for tests and call sites that patch it.
+emit_info = _emit_info
 
 # Atomic counter for DBOS workflow IDs - ensures uniqueness even in rapid back-to-back calls
 # itertools.count() is thread-safe for next() calls
@@ -240,15 +246,6 @@ def register_list_agents(agent):
     @agent.tool
     def list_agents(context: RunContext) -> ListAgentsOutput:
         """List all available sub-agents that can be invoked."""
-        # Generate a group ID for this tool execution
-        group_id = generate_group_id("list_agents")
-
-        from rich.text import Text
-
-        from code_puppy.config import get_banner_color
-
-        list_agents_color = get_banner_color("list_agents")
-
         try:
             from code_puppy.agents import get_agent_descriptions, get_available_agents
 
@@ -266,21 +263,15 @@ def register_list_agents(agent):
                 for name, display_name in agents_dict.items()
             ]
 
-            # Quiet output - banner and count on same line
-            agent_count = len(agents)
-            emit_info(
-                Text.from_markup(
-                    f"[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}] "
-                    f"[dim]Found {agent_count} agent(s).[/dim]"
-                ),
-                message_group=group_id,
-            )
+            get_message_bus().emit(AgentListMessage(agent_count=len(agents)))
 
             return ListAgentsOutput(agents=agents)
 
         except Exception as e:
             error_msg = f"Error listing agents: {str(e)}"
-            emit_error(error_msg, message_group=group_id)
+            get_message_bus().emit(
+                TextMessage(level=MessageLevel.ERROR, text=error_msg)
+            )
             return ListAgentsOutput(agents=[], error=error_msg)
 
     return list_agents
@@ -298,6 +289,13 @@ def register_invoke_agent(agent):
         context: RunContext, agent_name: str, prompt: str, session_id: str | None = None
     ) -> AgentInvokeOutput:
         """Invoke a specific sub-agent with a given prompt.
+
+        Args:
+            agent_name: The name of the agent to invoke
+            prompt: The prompt to send to the agent
+            session_id: Optional session ID for maintaining conversation memory across invocations.
+                       Must be kebab-case. Hash suffix auto-appended for new sessions.
+                       To continue a session, use the full session_id from the previous response.
 
         Returns:
             AgentInvokeOutput: Contains response, agent_name, session_id, and error fields.

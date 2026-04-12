@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sys
 from collections.abc import AsyncIterable
 from typing import Any, Optional
 
@@ -85,6 +86,108 @@ def _should_suppress_output() -> bool:
     return is_subagent() and not get_subagent_verbose()
 
 
+def _get_active_prompt_runtime() -> Any | None:
+    """Return the active interactive runtime, if available."""
+    try:
+        from code_puppy.command_line.interactive_runtime import (
+            get_active_interactive_runtime,
+        )
+
+        return get_active_interactive_runtime()
+    except Exception:
+        return None
+
+
+def _has_active_prompt_surface() -> bool:
+    """Return True when the always-on prompt surface is mounted."""
+    runtime = _get_active_prompt_runtime()
+    return runtime.has_prompt_surface() if runtime is not None else False
+
+
+def _set_prompt_ephemeral_status(text: str | None) -> None:
+    """Update transient prompt-local status for mutable stream output."""
+    runtime = _get_active_prompt_runtime()
+    if runtime is None:
+        return
+    try:
+        runtime.set_prompt_ephemeral_status(text)
+    except Exception:
+        pass
+
+
+def _clear_prompt_ephemeral_status() -> None:
+    """Clear transient prompt-local status."""
+    runtime = _get_active_prompt_runtime()
+    if runtime is None:
+        return
+    try:
+        runtime.clear_prompt_ephemeral_status()
+    except Exception:
+        pass
+
+
+def _set_prompt_ephemeral_preview(text: str | None) -> None:
+    """Update transient prompt-local preview for live response text."""
+    runtime = _get_active_prompt_runtime()
+    if runtime is None:
+        return
+    try:
+        runtime.set_prompt_ephemeral_preview(text)
+    except Exception:
+        pass
+
+
+def _merge_tool_name(current_name: str, tool_name_delta: str) -> str:
+    """Merge a streamed tool name delta without duplicating already-known names."""
+    if not tool_name_delta:
+        return current_name
+    if not current_name:
+        return tool_name_delta
+    if tool_name_delta.startswith(current_name):
+        return tool_name_delta
+    if tool_name_delta in current_name:
+        return current_name
+    for overlap in range(min(len(current_name), len(tool_name_delta)), 0, -1):
+        if current_name.endswith(tool_name_delta[:overlap]):
+            return current_name + tool_name_delta[overlap:]
+    return current_name + tool_name_delta
+
+
+def _is_reasoning_tool_name(tool_name: str) -> bool:
+    """Return True for the reasoning tool, including streamed prefixes."""
+    reasoning_tool = "agent_share_your_reasoning"
+    return bool(tool_name) and (
+        reasoning_tool.startswith(tool_name) or tool_name.startswith(reasoning_tool)
+    )
+
+
+def _build_prompt_safe_console(source_console: Console) -> Console:
+    """Create a console that writes to the real terminal above the prompt."""
+    return Console(
+        file=sys.__stdout__,
+        force_terminal=source_console.is_terminal,
+        width=source_console.width,
+        color_system=source_console.color_system,
+        soft_wrap=source_console.soft_wrap,
+        legacy_windows=source_console.legacy_windows,
+    )
+
+
+async def _print_stream_output(
+    console: Console, *args: Any, **kwargs: Any
+) -> None:
+    """Render stream output above the prompt when the prompt surface is mounted."""
+    runtime = _get_active_prompt_runtime()
+    if runtime is not None and runtime.has_prompt_surface():
+        prompt_safe_console = _build_prompt_safe_console(console)
+        rendered = await runtime.run_above_prompt_async(
+            lambda: prompt_safe_console.print(*args, **kwargs)
+        )
+        if rendered:
+            return
+    console.print(*args, **kwargs)
+
+
 async def event_stream_handler(
     ctx: RunContext,
     events: AsyncIterable[Any],
@@ -119,6 +222,8 @@ async def event_stream_handler(
     token_count: dict[int, int] = {}  # Track token count per text/tool part
     tool_names: dict[int, str] = {}  # Track tool name per tool part index
     did_stream_anything = False  # Track if we streamed any content
+    spinner_paused = False
+    prompt_surface_response_preview = ""
 
     # Termflow streaming state for text parts
     termflow_parsers: dict[int, TermflowParser] = {}
@@ -127,16 +232,22 @@ async def event_stream_handler(
 
     async def _print_thinking_banner() -> None:
         """Print the THINKING banner with spinner pause and line clear."""
-        nonlocal did_stream_anything
+        nonlocal did_stream_anything, spinner_paused
 
-        pause_all_spinners()
-        await asyncio.sleep(0.1)  # Delay to let spinner fully clear
-        # Clear line and print newline before banner
-        console.print(" " * 50, end="\r")
-        console.print()  # Newline before banner
+        prompt_surface_active = _has_active_prompt_surface()
+        if not spinner_paused:
+            pause_all_spinners()
+            spinner_paused = True
+            await asyncio.sleep(0.02)
+        if prompt_surface_active:
+            await _print_stream_output(console)
+        else:
+            await _print_stream_output(console, " " * 50, end="\r")
+            await _print_stream_output(console)  # Newline before banner
         # Bold banner with configurable color and lightning bolt
         thinking_color = get_banner_color("thinking")
-        console.print(
+        await _print_stream_output(
+            console,
             Text.from_markup(
                 f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}] [dim]\u26a1 "
             ),
@@ -146,15 +257,21 @@ async def event_stream_handler(
 
     async def _print_response_banner() -> None:
         """Print the AGENT RESPONSE banner with spinner pause and line clear."""
-        nonlocal did_stream_anything
+        nonlocal did_stream_anything, spinner_paused
 
-        pause_all_spinners()
-        await asyncio.sleep(0.1)  # Delay to let spinner fully clear
-        # Clear line and print newline before banner
-        console.print(" " * 50, end="\r")
-        console.print()  # Newline before banner
+        prompt_surface_active = _has_active_prompt_surface()
+        if not spinner_paused:
+            pause_all_spinners()
+            spinner_paused = True
+            await asyncio.sleep(0.02)
+        if prompt_surface_active:
+            await _print_stream_output(console)
+        else:
+            await _print_stream_output(console, " " * 50, end="\r")
+            await _print_stream_output(console)  # Newline before banner
         response_color = get_banner_color("agent_response")
-        console.print(
+        await _print_stream_output(
+            console,
             Text.from_markup(
                 f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
             )
@@ -182,32 +299,33 @@ async def event_stream_handler(
                 if part.content and part.content.strip():
                     await _print_thinking_banner()
                     escaped = escape(part.content)
-                    console.print(f"[dim]{escaped}[/dim]", end="")
+                    await _print_stream_output(console, f"[dim]{escaped}[/dim]", end="")
                     banner_printed.add(event.index)
             elif isinstance(part, TextPart):
                 streaming_parts.add(event.index)
                 text_parts.add(event.index)
-                # Initialize termflow streaming for this text part
-                termflow_parsers[event.index] = TermflowParser()
-                termflow_renderers[event.index] = TermflowRenderer(
-                    output=console.file, width=console.width
-                )
-                termflow_line_buffers[event.index] = ""
-                # Handle initial content if present
-                if part.content and part.content.strip():
-                    await _print_response_banner()
-                    banner_printed.add(event.index)
-                    termflow_line_buffers[event.index] = part.content
+                if _has_active_prompt_surface():
+                    if part.content:
+                        prompt_surface_response_preview += part.content
+                        _set_prompt_ephemeral_preview(prompt_surface_response_preview)
+                else:
+                    # Initialize termflow streaming for this text part
+                    termflow_parsers[event.index] = TermflowParser()
+                    termflow_renderers[event.index] = TermflowRenderer(
+                        output=console.file, width=console.width
+                    )
+                    termflow_line_buffers[event.index] = ""
+                    # Handle initial content if present
+                    if part.content and part.content.strip():
+                        await _print_response_banner()
+                        banner_printed.add(event.index)
+                        termflow_line_buffers[event.index] = part.content
             elif isinstance(part, ToolCallPart):
                 streaming_parts.add(event.index)
                 tool_parts.add(event.index)
                 token_count[event.index] = 0  # Initialize token counter
                 # Capture tool name from the start event
                 tool_names[event.index] = part.tool_name or ""
-                # Track tool name for display
-                banner_printed.add(
-                    event.index
-                )  # Use banner_printed to track if we've shown tool info
 
         # PartDeltaEvent - stream the content as it arrives
         elif isinstance(event, PartDeltaEvent):
@@ -227,6 +345,12 @@ async def event_stream_handler(
                     if delta.content_delta:
                         # For text parts, stream markdown with termflow
                         if event.index in text_parts:
+                            if _has_active_prompt_surface():
+                                prompt_surface_response_preview += delta.content_delta
+                                _set_prompt_ephemeral_preview(
+                                    prompt_surface_response_preview
+                                )
+                                continue
                             # Print banner on first content
                             if event.index not in banner_printed:
                                 await _print_response_banner()
@@ -252,8 +376,11 @@ async def event_stream_handler(
                                 await _print_thinking_banner()
                                 banner_printed.add(event.index)
                             escaped = escape(delta.content_delta)
-                            console.print(f"[dim]{escaped}[/dim]", end="")
+                            await _print_stream_output(
+                                console, f"[dim]{escaped}[/dim]", end=""
+                            )
                 elif isinstance(delta, ToolCallPartDelta):
+                    prompt_surface_active = _has_active_prompt_surface()
                     # For tool calls, estimate tokens from args_delta content
                     # args_delta contains the streaming JSON arguments
                     args_delta = getattr(delta, "args_delta", "") or ""
@@ -268,21 +395,35 @@ async def event_stream_handler(
                     # Update tool name if delta provides more of it
                     tool_name_delta = getattr(delta, "tool_name_delta", "") or ""
                     if tool_name_delta:
-                        tool_names[event.index] = (
-                            tool_names.get(event.index, "") + tool_name_delta
+                        tool_names[event.index] = _merge_tool_name(
+                            tool_names.get(event.index, ""), tool_name_delta
                         )
 
                     # Use stored tool name for display
                     tool_name = tool_names.get(event.index, "")
+                    if prompt_surface_active:
+                        if not _is_reasoning_tool_name(tool_name):
+                            count = token_count[event.index]
+                            if tool_name:
+                                _set_prompt_ephemeral_status(
+                                    f"\U0001f527 Calling {tool_name}... {count} token(s)"
+                                )
+                            else:
+                                _set_prompt_ephemeral_status(
+                                    f"\U0001f527 Calling tool... {count} token(s)"
+                                )
+                        continue
                     count = token_count[event.index]
                     # Display with tool wrench icon and tool name
                     if tool_name:
-                        console.print(
+                        await _print_stream_output(
+                            console,
                             f"  \U0001f527 Calling {tool_name}... {count} token(s)   ",
                             end="\r",
                         )
                     else:
-                        console.print(
+                        await _print_stream_output(
+                            console,
                             f"  \U0001f527 Calling tool... {count} token(s)   ",
                             end="\r",
                         )
@@ -322,11 +463,14 @@ async def event_stream_handler(
                         del termflow_line_buffers[event.index]
                 # For tool parts, clear the chunk counter line
                 elif event.index in tool_parts:
-                    # Clear the chunk counter line by printing spaces and returning
-                    console.print(" " * 50, end="\r")
+                    if _has_active_prompt_surface():
+                        _clear_prompt_ephemeral_status()
+                    else:
+                        # Clear the chunk counter line by printing spaces and returning
+                        await _print_stream_output(console, " " * 50, end="\r")
                 # For thinking parts, just print newline
                 elif event.index in banner_printed:
-                    console.print()  # Final newline after streaming
+                    await _print_stream_output(console)  # Final newline after streaming
 
                 # Clean up token count and tool names
                 token_count.pop(event.index, None)
@@ -344,5 +488,8 @@ async def event_stream_handler(
                 next_kind = getattr(event, "next_part_kind", None)
                 if next_kind not in ("text", "thinking", "tool-call"):
                     resume_all_spinners()
+                    spinner_paused = False
 
     # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)
+    if spinner_paused:
+        resume_all_spinners()

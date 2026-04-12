@@ -181,6 +181,7 @@ def handle_command(command: str):
     """
     from rich.text import Text
 
+    from code_puppy.command_line.interactive_command import BackgroundInteractiveCommand
     from code_puppy.command_line.command_registry import get_command
     from code_puppy.messaging import emit_info, emit_warning
 
@@ -256,6 +257,8 @@ def handle_command(command: str):
             for res in results:
                 if res is True:
                     return True
+                if isinstance(res, BackgroundInteractiveCommand):
+                    return res
                 if MarkdownCommandResult and isinstance(res, MarkdownCommandResult):
                     # Special case: markdown command that should be processed as input
                     # Replace the command with the markdown content and let it be processed

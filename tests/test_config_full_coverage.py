@@ -230,6 +230,22 @@ class TestNumericGetters:
         cp_config.reset_value("message_limit")
         assert cp_config.get_message_limit(default=50) == 50
 
+    def test_get_queue_limit_default(self):
+        cp_config.reset_value("queue_limit")
+        assert cp_config.get_queue_limit() == 25
+
+    def test_get_queue_limit_custom(self):
+        cp_config.set_config_value("queue_limit", "7")
+        assert cp_config.get_queue_limit() == 7
+
+    def test_get_queue_limit_invalid(self):
+        cp_config.set_config_value("queue_limit", "bad")
+        assert cp_config.get_queue_limit() == 25
+
+    def test_get_queue_limit_clamped_low(self):
+        cp_config.set_config_value("queue_limit", "0")
+        assert cp_config.get_queue_limit() == 1
+
     def test_get_diff_context_lines_default(self):
         cp_config.reset_value("diff_context_lines")
         assert cp_config.get_diff_context_lines() == 6
@@ -730,6 +746,7 @@ class TestConfigKeys:
         assert "enable_dbos" in keys
         assert "enable_streaming" in keys
         assert "cancel_agent_key" in keys
+        assert "queue_limit" in keys
         assert "resume_message_count" in keys
 
 

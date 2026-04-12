@@ -360,6 +360,24 @@ class TestDetectTruecolorSupport:
         monkeypatch.setenv("WT_SESSION", "abc")
         assert terminal_utils.detect_truecolor_support() is True
 
+    def test_ghostty_term_is_detected(self, monkeypatch):
+        monkeypatch.delenv("COLORTERM", raising=False)
+        monkeypatch.setenv("TERM", "xterm-ghostty")
+        assert terminal_utils.detect_truecolor_support() is True
+
+    def test_terminal_app_profile_is_degraded_not_unknown(self, monkeypatch):
+        monkeypatch.delenv("COLORTERM", raising=False)
+        monkeypatch.delenv("TERM", raising=False)
+        monkeypatch.setenv("TERM_PROGRAM", "Apple_Terminal")
+        profile = terminal_utils.get_terminal_profile()
+        assert profile.terminal_family == "terminal_app"
+        assert profile.supports_truecolor is False
+
+    def test_windows_terminal_profile_is_detected(self, monkeypatch):
+        monkeypatch.setenv("WT_SESSION", "abc")
+        profile = terminal_utils.get_terminal_profile()
+        assert profile.terminal_family == "windows_terminal"
+
     def test_rich_fallback_truecolor(self, monkeypatch):
         monkeypatch.delenv("COLORTERM", raising=False)
         monkeypatch.setenv("TERM", "dumb")
@@ -367,6 +385,7 @@ class TestDetectTruecolorSupport:
         monkeypatch.delenv("KITTY_WINDOW_ID", raising=False)
         monkeypatch.delenv("ALACRITTY_SOCKET", raising=False)
         monkeypatch.delenv("WT_SESSION", raising=False)
+        monkeypatch.setattr(terminal_utils, "_stream_is_tty", lambda _stream: True)
         mock_console_cls = MagicMock()
         mock_console_cls.return_value.color_system = "truecolor"
         monkeypatch.setattr(
@@ -430,7 +449,7 @@ class TestPrintTruecolorWarning:
         mock_console.color_system = "standard"
         import rich.console
 
-        monkeypatch.setattr(rich.console, "Console", lambda: mock_console)
+        monkeypatch.setattr(rich.console, "Console", lambda *args, **kwargs: mock_console)
         terminal_utils.print_truecolor_warning(console=None)
         assert mock_console.print.call_count > 10
 
@@ -460,3 +479,15 @@ class TestPrintTruecolorWarning:
         # Should use "unknown" for color_system
         calls = [str(c) for c in mock_console.print.call_args_list]
         assert any("unknown" in c for c in calls)
+
+class TestLiveTerminalUpdates:
+    def test_windows_terminal_allows_live_updates(self, monkeypatch):
+        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Windows")
+        monkeypatch.setenv("WT_SESSION", "abc")
+        monkeypatch.setattr(terminal_utils, "_stream_is_tty", lambda _stream: True)
+        assert terminal_utils.supports_live_terminal_updates() is True
+
+    def test_ci_disables_live_updates(self, monkeypatch):
+        monkeypatch.setattr(terminal_utils, "_stream_is_tty", lambda _stream: True)
+        monkeypatch.setenv("CI", "1")
+        assert terminal_utils.supports_live_terminal_updates() is False

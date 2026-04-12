@@ -150,13 +150,20 @@ class TestBrowserWorkflowsRemainingLines:
         wf_dir.mkdir()
         bad_file = wf_dir / "bad.md"
         bad_file.write_text("test")
+        original_stat = type(bad_file).stat
+
+        def fake_stat(path_obj):
+            if path_obj == bad_file:
+                raise OSError("fail")
+            return original_stat(path_obj)
 
         with (
             patch(f"{MOD_WF}.get_workflows_directory", return_value=wf_dir),
+            patch.object(type(wf_dir), "glob", return_value=[bad_file]),
             patch(f"{MOD_WF}.emit_info"),
             patch(f"{MOD_WF}.emit_warning") as mock_warn,
             patch(f"{MOD_WF}.emit_success"),
-            patch.object(type(bad_file), "stat", side_effect=OSError("fail")),
+            patch.object(type(bad_file), "stat", side_effect=fake_stat),
         ):
             r = await list_workflows()
             assert r["success"] is True

@@ -829,10 +829,28 @@ def register_replace_in_file(agent):
         Replacements are applied sequentially. Prefer this over full file rewrites.
         """
         group_id = generate_group_id("replace_in_file", file_path)
-        # replacements arrive as plain dicts — pass them straight through
-        replacements_dict = [
-            {"old_str": r["old_str"], "new_str": r["new_str"]} for r in replacements
-        ]
+        invalid_payload_result = {
+            "success": False,
+            "path": os.path.abspath(file_path) if file_path else file_path,
+            "message": (
+                "Invalid replacements payload: each replacement must include "
+                "string 'old_str' and 'new_str' fields."
+            ),
+            "changed": False,
+        }
+        try:
+            replacements_dict = [
+                {"old_str": r["old_str"], "new_str": r["new_str"]}
+                for r in replacements
+            ]
+        except (KeyError, TypeError):
+            return invalid_payload_result
+        if any(
+            not isinstance(r["old_str"], str) or not isinstance(r["new_str"], str)
+            for r in replacements_dict
+        ):
+            return invalid_payload_result
+
         result = _replace_in_file_helper(
             context, file_path, replacements_dict, message_group=group_id
         )
@@ -844,7 +862,7 @@ def register_replace_in_file(agent):
             file_path=file_path,
             replacements=[
                 Replacement(old_str=r["old_str"], new_str=r["new_str"])
-                for r in replacements
+                for r in replacements_dict
             ],
         )
         enhanced_results = on_edit_file(context, result, payload)

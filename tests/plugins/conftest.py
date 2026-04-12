@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from types import ModuleType
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -13,15 +14,59 @@ from pydantic_ai.models import ModelRequestParameters
 # Skip antigravity tests if pydantic/MCP conflict is detected
 def pytest_configure(config):
     """Configure pytest with compatibility workarounds."""
-    # Pre-patch sys.modules to provide a mock mcp.types during collection
-    # This prevents the ValueError in pydantic's RootModel metaclass
+    # Pre-patch sys.modules to provide a lightweight MCP package during
+    # collection. Some plugin tests only need the names to import cleanly, but
+    # later suites may import pydantic_ai.mcp, which expects package-shaped
+    # modules such as mcp.client.sse to exist.
     if "mcp" not in sys.modules:
-        mcp_mock = MagicMock()
-        mcp_mock.types = MagicMock()
-        sys.modules["mcp"] = mcp_mock
-        sys.modules["mcp.types"] = mcp_mock.types
-        sys.modules["mcp.client"] = MagicMock()
-        sys.modules["mcp.client.session"] = MagicMock()
+        mcp_pkg = ModuleType("mcp")
+        types_mod = ModuleType("mcp.types")
+        client_pkg = ModuleType("mcp.client")
+        session_mod = ModuleType("mcp.client.session")
+        sse_mod = ModuleType("mcp.client.sse")
+        stdio_mod = ModuleType("mcp.client.stdio")
+        streamable_http_mod = ModuleType("mcp.client.streamable_http")
+        shared_pkg = ModuleType("mcp.shared")
+        exceptions_mod = ModuleType("mcp.shared.exceptions")
+        context_mod = ModuleType("mcp.shared.context")
+        message_mod = ModuleType("mcp.shared.message")
+        session_shared_mod = ModuleType("mcp.shared.session")
+
+        session_mod.ClientSession = MagicMock()
+        session_mod.ElicitationFnT = MagicMock()
+        session_mod.LoggingFnT = MagicMock()
+        sse_mod.sse_client = MagicMock()
+        stdio_mod.StdioServerParameters = MagicMock()
+        stdio_mod.stdio_client = MagicMock()
+        streamable_http_mod.streamable_http_client = MagicMock()
+        context_mod.RequestContext = MagicMock()
+        message_mod.SessionMessage = MagicMock()
+        session_shared_mod.RequestResponder = MagicMock()
+
+        mcp_pkg.types = types_mod
+        mcp_pkg.client = client_pkg
+        mcp_pkg.shared = shared_pkg
+        client_pkg.session = session_mod
+        client_pkg.sse = sse_mod
+        client_pkg.stdio = stdio_mod
+        client_pkg.streamable_http = streamable_http_mod
+        shared_pkg.exceptions = exceptions_mod
+        shared_pkg.context = context_mod
+        shared_pkg.message = message_mod
+        shared_pkg.session = session_shared_mod
+
+        sys.modules["mcp"] = mcp_pkg
+        sys.modules["mcp.types"] = types_mod
+        sys.modules["mcp.client"] = client_pkg
+        sys.modules["mcp.client.session"] = session_mod
+        sys.modules["mcp.client.sse"] = sse_mod
+        sys.modules["mcp.client.stdio"] = stdio_mod
+        sys.modules["mcp.client.streamable_http"] = streamable_http_mod
+        sys.modules["mcp.shared"] = shared_pkg
+        sys.modules["mcp.shared.exceptions"] = exceptions_mod
+        sys.modules["mcp.shared.context"] = context_mod
+        sys.modules["mcp.shared.message"] = message_mod
+        sys.modules["mcp.shared.session"] = session_shared_mod
 
 
 class ClientShim:

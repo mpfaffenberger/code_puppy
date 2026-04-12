@@ -186,6 +186,24 @@ class TestConsoleSpinnerStart:
         # Should not create a new thread
         mock_thread_class.assert_not_called()
 
+    def test_start_skips_live_display_when_terminal_updates_are_unsafe(self):
+        from code_puppy.messaging.spinner.console_spinner import ConsoleSpinner
+
+        mock_console = MagicMock(spec=Console)
+        spinner = ConsoleSpinner(console=mock_console)
+
+        with (
+            patch(
+                "code_puppy.messaging.spinner.console_spinner.supports_live_terminal_updates",
+                return_value=False,
+            ),
+            patch("code_puppy.messaging.spinner.console_spinner.Live") as mock_live_cls,
+        ):
+            spinner.start()
+
+        mock_live_cls.assert_not_called()
+        mock_console.print.assert_not_called()
+
 
 class TestConsoleSpinnerStop:
     """Tests for ConsoleSpinner.stop() method."""
@@ -612,13 +630,12 @@ class TestConsoleSpinnerPause:
         mock_live = MagicMock()
         spinner._live = mock_live
 
-        mock_stdout = MagicMock()
-
-        with patch.object(sys, "stdout", mock_stdout):
+        with patch(
+            "code_puppy.messaging.spinner.console_spinner.clear_live_terminal_line"
+        ) as mock_clear_line:
             spinner.pause()
 
-        # Should write cursor/line clear codes
-        mock_stdout.write.assert_called()
+        mock_clear_line.assert_called_once()
 
     def test_pause_does_nothing_when_not_spinning(self):
         """Test that pause does nothing when not spinning."""
