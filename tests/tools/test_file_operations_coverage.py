@@ -8,7 +8,6 @@ import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
-import code_puppy.tools.file_operations as _fo_module
 from code_puppy.tools.file_operations import (
     GrepOutput,
     ListFileOutput,
@@ -691,72 +690,3 @@ class TestIgnoreFileCleanup:
 
         # Should complete without errors
         assert result is not None
-
-
-class TestFileReadCache:
-    """Tests for the session-scoped read cache in _read_file."""
-
-    def setup_method(self):
-        """Clear the cache before each test."""
-        _fo_module._file_read_cache.clear()
-
-    def test_cache_hit_returns_same_object(self, tmp_path):
-        """Cache hit: second call returns equal content and file is only opened once."""
-        test_file = tmp_path / "sample.txt"
-        test_file.write_text("hello cache\n")
-
-        with patch("builtins.open", wraps=open) as mock_open:
-            result1 = _read_file(None, str(test_file))
-            result2 = _read_file(None, str(test_file))
-
-        assert result1.content == result2.content
-        # open() should have been called exactly once (second call is a cache hit)
-        assert mock_open.call_count == 1
-
-    def test_cache_invalidates_on_modification(self, tmp_path):
-        """Cache is invalidated when the file's mtime changes."""
-        test_file = tmp_path / "changing.txt"
-        test_file.write_text("original content\n")
-
-        result1 = _read_file(None, str(test_file))
-
-        # Write new content (changes mtime)
-        import time
-        time.sleep(0.01)  # ensure mtime is different on fast filesystems
-        test_file.write_text("updated content\n")
-
-        result2 = _read_file(None, str(test_file))
-
-        assert "original content" in result1.content
-        assert "updated content" in result2.content
-
-    def test_different_slice_args_are_separate_entries(self, tmp_path):
-        """Different start_line/num_lines combos produce independent cache entries."""
-        test_file = tmp_path / "multiline.txt"
-        test_file.write_text("line1\nline2\nline3\nline4\n")
-
-        result_a = _read_file(None, str(test_file), start_line=1, num_lines=2)
-        result_b = _read_file(None, str(test_file), start_line=3, num_lines=2)
-
-        assert "line1" in result_a.content
-        assert "line3" in result_b.content
-        assert "line3" not in result_a.content
-        assert "line1" not in result_b.content
-
-    def test_error_cases_not_cached(self, tmp_path):
-        """Error responses (nonexistent path) must not populate the cache."""
-        nonexistent = str(tmp_path / "ghost.txt")
-
-        result = _read_file(None, nonexistent)
-
-        assert result.error is not None
-        assert len(_fo_module._file_read_cache) == 0
-
-    def test_math_import_regression(self, tmp_path):
-        """math.floor executes without NameError on the success path."""
-        test_file = tmp_path / "tokens.txt"
-        test_file.write_text("a" * 100)
-
-        result = _read_file(None, str(test_file))
-
-        assert result.num_tokens > 0

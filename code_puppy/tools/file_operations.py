@@ -1,6 +1,5 @@
 # file_operations.py
 
-import math
 import os
 import shutil
 import subprocess
@@ -23,10 +22,6 @@ from code_puppy.messaging import (  # New structured messaging types
 )
 
 
-# Cache for _read_file: maps (abs_path, start_line, num_lines) -> (mtime, ReadFileOutput)
-_file_read_cache: dict[tuple, tuple[float, "ReadFileOutput"]] = {}
-
-
 # Pydantic models for tool return types
 class ListedFile(BaseModel):
     path: str | None
@@ -43,7 +38,7 @@ class ListFileOutput(BaseModel):
 
 class ReadFileOutput(BaseModel):
     content: str | None
-    num_tokens: conint(lt=16001)
+    num_tokens: conint(lt=10000)
     error: str | None = None
 
 
@@ -477,21 +472,6 @@ def _read_file(
     if not os.path.isfile(file_path):
         error_msg = f"{file_path} is not a file"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-
-    # Cache lookup
-    cache_key = (file_path, start_line, num_lines)
-    current_mtime = None
-    try:
-        current_mtime = os.stat(file_path).st_mtime
-        if cache_key in _file_read_cache:
-            cached_mtime, cached_result = _file_read_cache[cache_key]
-            if cached_mtime == current_mtime:
-                return cached_result
-            else:
-                del _file_read_cache[cache_key]
-    except OSError:
-        pass  # can't stat; fall through to normal read
-
     try:
         # Use errors="surrogateescape" to handle files with invalid UTF-8 sequences
         # This is common on Windows when files contain emojis or were created by
@@ -532,13 +512,12 @@ def _read_file(
                     for char in content
                 )
 
-            # Simple approximation: ~2.5 characters per token
-            raw_tokens = math.floor(len(content) / 2.5)
-            num_tokens = max(1, raw_tokens) if content else 0
-            if num_tokens > 16000:
+            # Simple approximation: ~4 characters per token
+            num_tokens = max(1, math.floor(len(content) / 2.5))
+            if num_tokens > 10000:
                 return ReadFileOutput(
                     content=None,
-                    error="The file is massive, greater than 16,000 tokens which is dangerous to read entirely. Please read this file in chunks.",
+                    error="The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks.",
                     num_tokens=0,
                 )
 
@@ -565,10 +544,7 @@ def _read_file(
             )
             get_message_bus().emit(file_content_msg)
 
-        result = ReadFileOutput(content=content, num_tokens=num_tokens)
-        if current_mtime is not None:
-            _file_read_cache[cache_key] = (current_mtime, result)
-        return result
+        return ReadFileOutput(content=content, num_tokens=num_tokens)
     except FileNotFoundError:
         error_msg = "FILE NOT FOUND"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
