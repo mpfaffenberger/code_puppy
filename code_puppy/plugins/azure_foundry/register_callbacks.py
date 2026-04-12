@@ -379,8 +379,6 @@ def _create_azure_foundry_model(
         )
 
         model = AnthropicModel(model_name=deployment_name, provider=provider)
-        # Preserve the public model.provider attribute (convention used by other model factories)
-        model.provider = provider
         logger.info(
             "Created Azure Foundry model: %s -> %s @ %s",
             model_name,
