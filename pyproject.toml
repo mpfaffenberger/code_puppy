@@ -9,7 +9,7 @@ description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "pydantic-ai-slim[openai,anthropic,mcp]==1.80.0",
+    "pydantic-ai-slim[openai,anthropic,mcp]==1.56.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",    
     "httpx[http2]>=0.24.1",
@@ -31,8 +31,8 @@ dependencies = [
     "websockets>=12.0",
     "termflow-md>=0.1.8",
     "Pillow>=10.0.0",
-    "anthropic>=0.80.0",
-    "azure-identity>=1.15.0"
+    "azure-identity>=1.15.0",
+    "anthropic==0.79.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
