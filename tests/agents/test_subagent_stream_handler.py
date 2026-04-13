@@ -58,7 +58,7 @@ class TestEstimateTokens:
         assert _estimate_tokens("abcd") == 1
 
     def test_longer_content_scales_correctly(self):
-        """Longer content should scale at ~4 chars per token."""
+        """Longer content should scale at ~2.5 chars per token."""
         # 8 chars = 3 tokens
         assert _estimate_tokens("abcdefgh") == 3
         # 16 chars = 6 tokens
