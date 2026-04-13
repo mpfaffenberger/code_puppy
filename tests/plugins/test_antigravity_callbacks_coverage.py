@@ -756,7 +756,7 @@ class TestCreateAntigravityModel:
         with (
             patch(
                 "code_puppy.model_factory.get_custom_config",
-                return_value=("http://url", {}, None, None),
+                return_value=("http://url", {}, None, None, None),
             ),
             patch(
                 "code_puppy.plugins.antigravity_oauth.register_callbacks.emit_warning"
@@ -772,7 +772,7 @@ class TestCreateAntigravityModel:
         with (
             patch(
                 "code_puppy.model_factory.get_custom_config",
-                return_value=("http://url", {}, None, "key"),
+                return_value=("http://url", {}, None, "key", None),
             ),
             patch(
                 "code_puppy.plugins.antigravity_oauth.register_callbacks.load_stored_tokens",
@@ -792,7 +792,7 @@ class TestCreateAntigravityModel:
         with (
             patch(
                 "code_puppy.model_factory.get_custom_config",
-                return_value=("http://url", {}, None, "key"),
+                return_value=("http://url", {}, None, "key", None),
             ),
             patch(
                 "code_puppy.plugins.antigravity_oauth.register_callbacks.load_stored_tokens",
@@ -831,7 +831,7 @@ class TestCreateAntigravityModel:
         with (
             patch(
                 "code_puppy.model_factory.get_custom_config",
-                return_value=("http://url", {}, None, "key"),
+                return_value=("http://url", {}, None, "key", None),
             ),
             patch(
                 "code_puppy.plugins.antigravity_oauth.register_callbacks.load_stored_tokens",
@@ -873,7 +873,7 @@ class TestCreateAntigravityModel:
         with (
             patch(
                 "code_puppy.model_factory.get_custom_config",
-                return_value=("http://url", {}, None, "key"),
+                return_value=("http://url", {}, None, "key", None),
             ),
             patch(
                 "code_puppy.plugins.antigravity_oauth.register_callbacks.load_stored_tokens",
@@ -907,7 +907,7 @@ class TestCreateAntigravityModel:
         with (
             patch(
                 "code_puppy.model_factory.get_custom_config",
-                return_value=("http://url", {}, None, "key"),
+                return_value=("http://url", {}, None, "key", None),
             ),
             patch(
                 "code_puppy.plugins.antigravity_oauth.register_callbacks.load_stored_tokens",
@@ -953,7 +953,7 @@ class TestCreateAntigravityModel:
         with (
             patch(
                 "code_puppy.model_factory.get_custom_config",
-                return_value=("http://url", {}, None, "key"),
+                return_value=("http://url", {}, None, "key", None),
             ),
             patch(
                 "code_puppy.plugins.antigravity_oauth.register_callbacks.load_stored_tokens",

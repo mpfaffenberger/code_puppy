@@ -371,7 +371,22 @@ def get_custom_config(model_config):
         verify = custom_config["ca_certs_path"]
     else:
         verify = None
-    return url, headers, verify, api_key
+
+    timeout = model_config.get("timeout", custom_config.get("timeout"))
+    if timeout is not None:
+        if isinstance(timeout, bool):
+            raise ValueError("Custom endpoint timeout must be a number")
+        if isinstance(timeout, str):
+            try:
+                timeout = float(timeout)
+            except ValueError:
+                raise ValueError("Custom endpoint timeout must be a number")
+        if not isinstance(timeout, (int, float)):
+            raise ValueError("Custom endpoint timeout must be a number")
+        if timeout <= 0:
+            raise ValueError("Custom endpoint timeout must be greater than zero")
+
+    return url, headers, verify, api_key, timeout
 
 
 class ModelFactory:
@@ -559,7 +574,7 @@ class ModelFactory:
             return AnthropicModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "custom_anthropic":
-            url, headers, verify, api_key = get_custom_config(model_config)
+            url, headers, verify, api_key, timeout = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
                     f"API key is not set for custom Anthropic endpoint; skipping model '{model_config.get('name')}'."
@@ -575,7 +590,7 @@ class ModelFactory:
             client = ClaudeCacheAsyncClient(
                 headers=headers,
                 verify=verify,
-                timeout=180,
+                timeout=timeout if timeout is not None else 180,
                 http2=http2_enabled,
             )
 
@@ -667,8 +682,12 @@ class ModelFactory:
             return OpenAIChatModel(model_name=model_config["name"], provider=provider)
 
         elif model_type == "custom_openai":
-            url, headers, verify, api_key = get_custom_config(model_config)
-            client = create_async_client(headers=headers, verify=verify)
+            url, headers, verify, api_key, timeout = get_custom_config(model_config)
+            client = create_async_client(
+                headers=headers,
+                verify=verify,
+                timeout=timeout if timeout is not None else 180,
+            )
             provider_args = {"base_url": url}
             if isinstance(client, httpx.AsyncClient):
                 provider_args["http_client"] = client
@@ -747,14 +766,18 @@ class ModelFactory:
                 )
                 return None
 
-            url, headers, verify, api_key = get_custom_config(model_config)
+            url, headers, verify, api_key, timeout = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
                     f"API key is not set for custom Gemini endpoint; skipping model '{model_config.get('name')}'."
                 )
                 return None
 
-            client = create_async_client(headers=headers, verify=verify)
+            client = create_async_client(
+                headers=headers,
+                verify=verify,
+                timeout=timeout if timeout is not None else 180,
+            )
             model = GeminiModel(
                 model_name=model_config["name"],
                 api_key=api_key,
@@ -773,7 +796,7 @@ class ModelFactory:
                         profile = profile.update(qwen_model_profile("qwen-3-coder"))
                     return profile
 
-            url, headers, verify, api_key = get_custom_config(model_config)
+            url, headers, verify, api_key, timeout = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
                     f"API key is not set for Cerebras endpoint; skipping model '{model_config.get('name')}'."
@@ -785,7 +808,10 @@ class ModelFactory:
             # absurdly aggressive Retry-After headers (they send 60s!)
             # Note: model_config["name"] is the model's internal name, not the provider
             client = create_async_client(
-                headers=headers, verify=verify, model_name="cerebras"
+                headers=headers,
+                verify=verify,
+                model_name="cerebras",
+                timeout=timeout if timeout is not None else 180,
             )
             provider_args = dict(
                 api_key=api_key,

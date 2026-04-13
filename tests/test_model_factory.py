@@ -1,6 +1,7 @@
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from code_puppy.model_factory import ModelFactory
@@ -126,6 +127,123 @@ def test_custom_openai_happy(monkeypatch):
     assert hasattr(model._provider, "base_url")
 
 
+def test_custom_openai_timeout_config(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    config = {
+        "custom": {
+            "type": "custom_openai",
+            "name": "cust",
+            "custom_endpoint": {
+                "url": "https://fake.url",
+                "headers": {"X-Api-Key": "$OPENAI_API_KEY"},
+                "ca_certs_path": False,
+                "api_key": "$OPENAI_API_KEY",
+            },
+            "timeout": 600,
+        }
+    }
+
+    with patch("code_puppy.model_factory.create_async_client") as mock_client:
+        mock_client.return_value = httpx.AsyncClient(timeout=600)
+        model = ModelFactory.get_model("custom", config)
+
+    mock_client.assert_called_once_with(
+        headers={"X-Api-Key": "ok"}, verify=False, timeout=600
+    )
+    assert model is not None
+
+
+def test_custom_gemini_timeout_config(monkeypatch):
+    monkeypatch.setenv("CUSTOM_API_KEY", "ok")
+    config = {
+        "custom": {
+            "type": "custom_gemini",
+            "name": "gemini",
+            "custom_endpoint": {
+                "url": "https://fake.url",
+                "headers": {"X-Api-Key": "$CUSTOM_API_KEY"},
+                "ca_certs_path": False,
+                "api_key": "$CUSTOM_API_KEY",
+            },
+            "timeout": 600,
+        }
+    }
+
+    with patch("code_puppy.model_factory.create_async_client") as mock_client:
+        mock_client.return_value = httpx.AsyncClient(timeout=600)
+        model = ModelFactory.get_model("custom", config)
+
+    mock_client.assert_called_once_with(
+        headers={"X-Api-Key": "ok"}, verify=False, timeout=600
+    )
+    assert model is not None
+
+
+def test_custom_anthropic_timeout_config(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    config = {
+        "custom": {
+            "type": "custom_anthropic",
+            "name": "claude",
+            "custom_endpoint": {
+                "url": "https://fake.url",
+                "headers": {"X-Api-Key": "$OPENAI_API_KEY"},
+                "ca_certs_path": False,
+                "api_key": "$OPENAI_API_KEY",
+            },
+            "timeout": 600,
+        }
+    }
+
+    with (
+        patch("code_puppy.model_factory.ClaudeCacheAsyncClient") as mock_client,
+        patch("code_puppy.model_factory.make_anthropic_provider") as mock_provider,
+        patch("code_puppy.model_factory.AsyncAnthropic") as mock_anthropic,
+        patch("code_puppy.model_factory.get_http2", return_value=False),
+    ):
+        mock_client.return_value = MagicMock()
+        mock_provider.return_value = MagicMock()
+        mock_anthropic.return_value = MagicMock()
+        model = ModelFactory.get_model("custom", config)
+
+    mock_client.assert_called_once_with(
+        headers={"X-Api-Key": "ok"},
+        verify=False,
+        timeout=600,
+        http2=False,
+    )
+    assert model is not None
+
+
+def test_cerebras_timeout_config(monkeypatch):
+    monkeypatch.setenv("CUSTOM_API_KEY", "ok")
+    config = {
+        "custom": {
+            "type": "cerebras",
+            "name": "zai-glm-4.7",
+            "custom_endpoint": {
+                "url": "https://fake.url",
+                "headers": {"X-Api-Key": "$CUSTOM_API_KEY"},
+                "ca_certs_path": False,
+                "api_key": "$CUSTOM_API_KEY",
+            },
+            "timeout": 600,
+        }
+    }
+
+    with patch("code_puppy.model_factory.create_async_client") as mock_client:
+        mock_client.return_value = httpx.AsyncClient(timeout=600)
+        model = ModelFactory.get_model("custom", config)
+
+    mock_client.assert_called_once_with(
+        headers={"X-Api-Key": "ok", "X-Cerebras-3rd-Party-Integration": "code-puppy"},
+        verify=False,
+        model_name="cerebras",
+        timeout=600,
+    )
+    assert model is not None
+
+
 def test_anthropic_missing_api_key(monkeypatch):
     config = {"anthropic": {"type": "anthropic", "name": "claude-v2"}}
     if "ANTHROPIC_API_KEY" in os.environ:
@@ -230,3 +348,64 @@ def test_extra_models_exception_handling(tmp_path, monkeypatch, caplog):
 
     # Check that warning was logged
     assert "Failed to load extra models config" in caplog.text
+
+
+def test_custom_timeout_invalid_values():
+    """Test that invalid timeout values are rejected."""
+    config = {
+        "custom": {
+            "type": "custom_openai",
+            "name": "gpt-4",
+            "custom_endpoint": {
+                "url": "https://api.example.com/v1",
+                "api_key": "$API_KEY",
+            },
+        }
+    }
+
+    # Test invalid timeout values that should be rejected as non-numeric
+    invalid_non_numeric = ["abc", True]
+    for invalid_timeout in invalid_non_numeric:
+        config["custom"]["custom_endpoint"]["timeout"] = invalid_timeout
+        with pytest.raises(
+            ValueError, match="Custom endpoint timeout must be a number"
+        ):
+            ModelFactory.get_model("custom", config)
+
+    # Test invalid numeric values (zero or negative)
+    invalid_numeric = [0, -1]
+    for invalid_timeout in invalid_numeric:
+        config["custom"]["custom_endpoint"]["timeout"] = invalid_timeout
+        with pytest.raises(
+            ValueError, match="Custom endpoint timeout must be greater than zero"
+        ):
+            ModelFactory.get_model("custom", config)
+
+
+def test_custom_timeout_precedence(monkeypatch):
+    """Test that top-level timeout takes precedence over custom_endpoint.timeout."""
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    config = {
+        "custom": {
+            "type": "custom_openai",
+            "name": "gpt-4",
+            "timeout": 300,  # Top-level timeout
+            "custom_endpoint": {
+                "url": "https://api.example.com/v1",
+                "api_key": "$OPENAI_API_KEY",
+                "timeout": 600,  # Custom endpoint timeout (should be ignored)
+            },
+        }
+    }
+
+    with patch("code_puppy.model_factory.create_async_client") as mock_client:
+        mock_client.return_value = httpx.AsyncClient(timeout=300)
+        model = ModelFactory.get_model("custom", config)
+
+    # Should use top-level timeout (300), not custom_endpoint timeout (600)
+    mock_client.assert_called_once_with(
+        headers={},
+        verify=None,
+        timeout=300,
+    )
+    assert model is not None

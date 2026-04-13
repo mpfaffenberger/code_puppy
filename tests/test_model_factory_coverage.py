@@ -306,7 +306,7 @@ class TestGetCustomConfig:
         with patch(
             "code_puppy.model_factory.get_api_key", return_value="resolved-token"
         ):
-            url, headers, verify, api_key = get_custom_config(config)
+            url, headers, verify, api_key, timeout = get_custom_config(config)
             assert headers["Authorization"] == "resolved-token"
 
     def test_get_custom_config_inline_env_vars_with_spaces(self):
@@ -331,7 +331,7 @@ class TestGetCustomConfig:
             "code_puppy.model_factory.get_api_key", side_effect=mock_get_api_key
         ):
             with patch("code_puppy.model_factory.emit_warning"):
-                url, headers, verify, api_key = get_custom_config(config)
+                url, headers, verify, api_key, timeout = get_custom_config(config)
                 assert headers["Authorization"] == "Bearer my-token part2 extra-value"
 
     def test_get_custom_config_inline_env_var_missing(self):
@@ -347,7 +347,7 @@ class TestGetCustomConfig:
 
         with patch("code_puppy.model_factory.get_api_key", return_value=None):
             with patch("code_puppy.model_factory.emit_warning") as mock_warn:
-                url, headers, verify, api_key = get_custom_config(config)
+                url, headers, verify, api_key, timeout = get_custom_config(config)
                 assert headers["Auth"] == "prefix  suffix"
                 mock_warn.assert_called()
 
@@ -365,7 +365,7 @@ class TestGetCustomConfig:
         with patch(
             "code_puppy.model_factory.get_api_key", return_value="resolved-api-key"
         ):
-            url, headers, verify, api_key = get_custom_config(config)
+            url, headers, verify, api_key, timeout = get_custom_config(config)
             assert api_key == "resolved-api-key"
 
     def test_get_custom_config_api_key_missing_env(self):
@@ -381,7 +381,7 @@ class TestGetCustomConfig:
 
         with patch("code_puppy.model_factory.get_api_key", return_value=None):
             with patch("code_puppy.model_factory.emit_warning") as mock_warn:
-                url, headers, verify, api_key = get_custom_config(config)
+                url, headers, verify, api_key, timeout = get_custom_config(config)
                 assert api_key is None
                 mock_warn.assert_called()
 
@@ -396,7 +396,7 @@ class TestGetCustomConfig:
             }
         }
 
-        url, headers, verify, api_key = get_custom_config(config)
+        url, headers, verify, api_key, timeout = get_custom_config(config)
         assert api_key == "raw-api-key-value"
 
     def test_get_custom_config_ca_certs_path(self):
@@ -410,7 +410,7 @@ class TestGetCustomConfig:
             }
         }
 
-        url, headers, verify, api_key = get_custom_config(config)
+        url, headers, verify, api_key, timeout = get_custom_config(config)
         assert verify == "/path/to/certs.pem"
 
 
