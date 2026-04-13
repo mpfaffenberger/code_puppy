@@ -158,9 +158,7 @@ class TestGeminiCodeAssistModel:
                 },
             ),
             ToolDefinition(
-                name="bare_tool",
-                description="",
-                parameters_json_schema={"type": "object", "properties": {}},
+                name="bare_tool", description="", parameters_json_schema=None
             ),
         ]
         params = ModelRequestParameters(function_tools=tools, allow_text_output=True)
@@ -169,8 +167,7 @@ class TestGeminiCodeAssistModel:
         assert len(decls) == 2
         assert decls[0]["name"] == "my_tool"
         assert "parametersJsonSchema" in decls[0]
-        # bare_tool still gets a schema since pydantic-ai always provides one
-        assert decls[1]["name"] == "bare_tool"
+        assert "parametersJsonSchema" not in decls[1]
 
     def test_build_generation_config_none(self, model):
         assert model._build_generation_config(None) is None

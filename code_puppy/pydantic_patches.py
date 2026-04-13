@@ -71,16 +71,9 @@ def patch_process_message_history() -> None:
 
     Pydantic AI added a validation that history must end with ModelRequest,
     but this breaks valid conversation flows. We patch it to skip that validation.
-
-    Note: newer pydantic-ai versions removed ``_process_message_history``
-    entirely, so this patch is only applied when the target function exists.
     """
     try:
         from pydantic_ai import _agent_graph
-
-        # Guard: only patch if the target function still exists in this version
-        if not hasattr(_agent_graph, "_process_message_history"):
-            return
 
         async def _patched_process_message_history(messages, processors, run_context):
             """Patched version that doesn't enforce ModelRequest at end."""
