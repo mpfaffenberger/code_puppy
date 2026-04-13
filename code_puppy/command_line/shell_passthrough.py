@@ -317,8 +317,7 @@ def _is_powershell_on_path() -> bool:
     global _powershell_available
     if _powershell_available is None:
         _powershell_available = (
-            shutil.which("pwsh") is not None
-            or shutil.which("powershell") is not None
+            shutil.which("pwsh") is not None or shutil.which("powershell") is not None
         )
     return _powershell_available
 
