@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextvars import ContextVar
 from typing import Any, Dict, List, Optional
 
 from code_puppy.callbacks import register_callback
@@ -43,9 +44,12 @@ MAX_AUTO_ACTIVATE = 3
 # Falls back to rapidfuzz if no steering model is available.
 STEERING_MODEL_DEFAULT = "claude-haiku-4"
 
-# Module-level state: tracks last activated skills for compaction re-injection
-_last_activated_skills: List[str] = []
-_last_user_prompt: str = ""
+# Session-scoped state: tracks last activated skills for compaction re-injection.
+# Uses ContextVar for thread-safety when multiple agents run concurrently.
+_last_activated_skills: ContextVar[List[str]] = ContextVar(
+    "_last_activated_skills", default=[]
+)
+_last_user_prompt: ContextVar[str] = ContextVar("_last_user_prompt", default="")
 
 
 def _get_steering_model_name() -> str:
@@ -129,15 +133,30 @@ def _score_skills_with_llm(
             loop = None
 
         if loop and loop.is_running():
-            # We're inside an async context — use nest_asyncio or run in thread
+            # We're inside an async context — run in a thread with proper
+            # cancellation via asyncio.wait_for to prevent thread leakage.
             import concurrent.futures
+
+            async def _run_with_timeout():
+                return await asyncio.wait_for(
+                    scoring_agent.run(user_message), timeout=15
+                )
+
             with concurrent.futures.ThreadPoolExecutor() as pool:
-                result = pool.submit(
-                    lambda: asyncio.run(scoring_agent.run(user_message))
-                ).result(timeout=15)
+                future = pool.submit(lambda: asyncio.run(_run_with_timeout()))
+                try:
+                    result = future.result(timeout=20)
+                except concurrent.futures.TimeoutError:
+                    logger.warning(
+                        "[AutoSkillActivator] Steering model timed out, "
+                        "falling back to fuzzy matching"
+                    )
+                    return _score_skills_with_fuzz(user_prompt, skill_descriptions)
             response_text = result.data
         else:
-            result = asyncio.run(scoring_agent.run(user_message))
+            result = asyncio.run(
+                asyncio.wait_for(scoring_agent.run(user_message), timeout=15)
+            )
             response_text = result.data
 
         # Parse the JSON response
@@ -211,8 +230,6 @@ def _auto_inject_skills(
     for matches above AUTO_ACTIVATE_THRESHOLD.
     Returns None if no matches (leaves prompt untouched).
     """
-    global _last_activated_skills, _last_user_prompt
-
     if not user_prompt or not user_prompt.strip():
         return None
 
@@ -299,8 +316,8 @@ def _auto_inject_skills(
             return None
 
         # Store state for compaction re-injection
-        _last_activated_skills = activated_names
-        _last_user_prompt = user_prompt
+        _last_activated_skills.set(activated_names)
+        _last_user_prompt.set(user_prompt)
 
         logger.info(
             f"[AutoSkillActivator] Auto-activated skills: {', '.join(activated_names)}"
@@ -309,7 +326,7 @@ def _auto_inject_skills(
         return {
             "instructions": default_system_prompt + "".join(injected),
             "user_prompt": user_prompt,
-            "handled": False,  # Allow other handlers (claude-code, etc.) to also run
+            "handled": True,  # model_utils.py only accepts results where handled is truthy
         }
 
     except Exception as exc:
@@ -331,9 +348,7 @@ def _on_message_history_processor_end(
     the message history and re-injects them if needed. This ensures skill
     content persists across the full session even when context is compacted.
     """
-    global _last_activated_skills, _last_user_prompt
-
-    if not _last_activated_skills or not _last_user_prompt:
+    if not _last_activated_skills.get() or not _last_user_prompt.get():
         return
 
     try:
@@ -351,7 +366,7 @@ def _on_message_history_processor_end(
 
         # Check if skill markers are still present
         missing_skills = []
-        for skill_name in _last_activated_skills:
+        for skill_name in _last_activated_skills.get():
             marker = f"Auto-Activated Skill: {skill_name}"
             if marker not in history_text:
                 missing_skills.append(skill_name)
@@ -367,8 +382,8 @@ def _on_message_history_processor_end(
         # Reset state so next get_model_system_prompt call re-evaluates
         # The next prompt will trigger _auto_inject_skills which will re-score
         # and re-inject the relevant skills
-        _last_activated_skills = []
-        _last_user_prompt = ""
+        _last_activated_skills.set([])
+        _last_user_prompt.set("")
 
     except Exception as exc:
         logger.error(f"[AutoSkillActivator] Compaction re-injection error: {exc}")
