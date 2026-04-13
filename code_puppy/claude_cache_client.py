@@ -597,9 +597,37 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
         modified = False
 
-        # Minimal, deterministic strategy:
-        # Add cache_control only on the single most recent block:
-        # the last dict content block of the last message (if any).
+        # Anthropic supports up to 4 cache breakpoints.  We place them on
+        # the three most impactful, stable prefixes so that content which
+        # doesn't change between turns is independently cached:
+        #   1. System prompt  – static across the whole session
+        #   2. Tool definitions – static across the whole session
+        #   3. Last message    – caches the growing conversation prefix
+
+        # 1. System prompt
+        system = data.get("system")
+        if isinstance(system, list) and system:
+            last_sys = system[-1]
+            if isinstance(last_sys, dict) and "cache_control" not in last_sys:
+                last_sys["cache_control"] = {"type": "ephemeral"}
+                modified = True
+        elif isinstance(system, str) and system:
+            # Convert bare string to content-block list so we can attach
+            # cache_control (the Anthropic API accepts both formats).
+            data["system"] = [
+                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+            ]
+            modified = True
+
+        # 2. Tool definitions
+        tools = data.get("tools")
+        if isinstance(tools, list) and tools:
+            last_tool = tools[-1]
+            if isinstance(last_tool, dict) and "cache_control" not in last_tool:
+                last_tool["cache_control"] = {"type": "ephemeral"}
+                modified = True
+
+        # 3. Last message content block
         messages = data.get("messages")
         if isinstance(messages, list) and messages:
             last = messages[-1]
@@ -621,8 +649,34 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
 
 def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
-    """In-place cache_control injection on Anthropic messages.create payload."""
+    """In-place cache_control injection on Anthropic messages.create payload.
 
+    Places up to three cache breakpoints (Anthropic allows 4) on the most
+    valuable, stable prefixes:
+      1. System prompt  – never changes between turns
+      2. Tool defs      – never changes between turns
+      3. Last message   – caches the growing conversation prefix
+    """
+
+    # 1. System prompt
+    system = payload.get("system")
+    if isinstance(system, list) and system:
+        last_sys = system[-1]
+        if isinstance(last_sys, dict) and "cache_control" not in last_sys:
+            last_sys["cache_control"] = {"type": "ephemeral"}
+    elif isinstance(system, str) and system:
+        payload["system"] = [
+            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+        ]
+
+    # 2. Tool definitions
+    tools = payload.get("tools")
+    if isinstance(tools, list) and tools:
+        last_tool = tools[-1]
+        if isinstance(last_tool, dict) and "cache_control" not in last_tool:
+            last_tool["cache_control"] = {"type": "ephemeral"}
+
+    # 3. Last message content block
     messages = payload.get("messages")
     if isinstance(messages, list) and messages:
         last = messages[-1]
@@ -632,10 +686,6 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
                 last_block = content[-1]
                 if isinstance(last_block, dict) and "cache_control" not in last_block:
                     last_block["cache_control"] = {"type": "ephemeral"}
-
-    # No extra markers in production mode; keep payload clean.
-    # (Function kept for potential future use.)
-    return
 
 
 def _make_cache_wrapper(original_create: Callable[..., Any]) -> Callable[..., Any]:
