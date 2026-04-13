@@ -9,6 +9,7 @@ Covers:
 - Error handling and edge cases
 """
 
+import math
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -58,18 +59,18 @@ class TestEstimateTokens:
 
     def test_longer_content_scales_correctly(self):
         """Longer content should scale at ~4 chars per token."""
-        # 8 chars = 2 tokens
-        assert _estimate_tokens("abcdefgh") == 2
-        # 16 chars = 4 tokens
-        assert _estimate_tokens("a" * 16) == 4
-        # 100 chars = 25 tokens
-        assert _estimate_tokens("x" * 100) == 25
+        # 8 chars = 3 tokens
+        assert _estimate_tokens("abcdefgh") == 3
+        # 16 chars = 6 tokens
+        assert _estimate_tokens("a" * 16) == 6
+        # 100 chars = 40 tokens
+        assert _estimate_tokens("x" * 100) == 40
 
     def test_realistic_text_estimation(self):
         """Test with realistic text content."""
         text = "Hello, this is a test message for token estimation."
-        # len(text) // 4 = estimated tokens
-        expected = len(text) // 4
+        # math.floor(len(text) / 2.5) = estimated tokens
+        expected = math.floor(len(text) / 2.5)
         assert _estimate_tokens(text) == expected
 
 
