@@ -13,6 +13,7 @@ Usage:
 
 import asyncio
 import logging
+import math
 from collections.abc import AsyncIterable
 from typing import Any, Optional
 
@@ -70,19 +71,19 @@ def _fire_callback(event_type: str, event_data: Any, session_id: Optional[str]) 
 def _estimate_tokens(content: str) -> int:
     """Estimate token count from content string.
 
-    Uses a rough heuristic: ~4 characters per token for English text.
-    This is a ballpark estimate - actual tokenization varies by model.
+    Uses the same ~2.5 characters per token heuristic as BaseAgent.estimate_token_count
+    and file_operations._read_file to keep streaming metrics consistent with compaction
+    decisions.
 
     Args:
         content: The text content to estimate tokens for
 
     Returns:
-        Estimated token count (minimum 1 for non-empty content)
+        Estimated token count (minimum 1 for non-empty content, 0 for empty)
     """
     if not content:
         return 0
-    # Rough estimate: 4 chars = 1 token, minimum 1 for any content
-    return max(1, len(content) // 4)
+    return max(1, math.floor(len(content) / 2.5))
 
 
 # =============================================================================
