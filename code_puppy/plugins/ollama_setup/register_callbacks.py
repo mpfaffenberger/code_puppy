@@ -4,7 +4,7 @@ Pulls an Ollama `:cloud` model and registers it in extra_models.json so the
 model is immediately available for use in Code Puppy.
 
 Cloud models supported (the Ollama "Recommended Models" cloud tier):
-    kimi-k2.5:cloud, glm-5:cloud, minimax-m2.7:cloud, qwen3.5:cloud
+    kimi-k2.5:cloud, glm-5:cloud, glm-5.1:cloud, minimax-m2.7:cloud, qwen3.5:cloud
 """
 
 from __future__ import annotations
@@ -23,24 +23,28 @@ from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warni
 logger = logging.getLogger(__name__)
 
 # ── Cloud model catalogue ───────────────────────────────────────────────────
-# Only the four `:cloud` models from the Ollama recommended list.
+# The `:cloud` models from the Ollama recommended list.
 # Each entry maps the ollama tag → extra_models.json config metadata.
 
 CLOUD_MODELS: dict[str, dict[str, Any]] = {
     "kimi-k2.5:cloud": {
-        "context_length": 131072,
+        "context_length": 262144,  # 256k
         "description": "Moonshot Kimi K2.5 (cloud)",
     },
     "glm-5:cloud": {
-        "context_length": 131072,
+        "context_length": 204800,  # 200k
         "description": "ZhipuAI GLM-5 (cloud)",
     },
+    "glm-5.1:cloud": {
+        "context_length": 204800,  # 200k
+        "description": "ZhipuAI GLM-5.1 (cloud)",
+    },
     "minimax-m2.7:cloud": {
-        "context_length": 131072,
+        "context_length": 199680,  # 195k
         "description": "MiniMax M2.7 (cloud)",
     },
     "qwen3.5:cloud": {
-        "context_length": 131072,
+        "context_length": 204800,  # 200k
         "description": "Alibaba Qwen 3.5 (cloud)",
     },
 }

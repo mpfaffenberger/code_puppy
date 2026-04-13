@@ -58,6 +58,11 @@ from code_puppy.callbacks import (
     on_message_history_processor_end,
     on_message_history_processor_start,
 )
+from code_puppy.cancellation_capability import (
+    _cancellation_capabilities,
+    cancel_active_model_requests,
+    install_cancellation_exception_handler,
+)
 
 # Consolidated relative imports
 from code_puppy.config import (
@@ -83,7 +88,7 @@ from code_puppy.messaging.spinner import (
     update_spinner_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
-from code_puppy.summarization_agent import run_summarization_sync, SummarizationError
+from code_puppy.summarization_agent import SummarizationError, run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
     is_awaiting_user_input,
@@ -1346,7 +1351,7 @@ class BaseAgent(ABC):
         from code_puppy.model_utils import prepare_prompt_for_model
 
         # When extended thinking is active, nudge the model to think between
-        # tool calls (the share_your_reasoning tool is stripped in this case).
+        # tool calls so it uses native reasoning before choosing next actions.
         if has_extended_thinking_active(resolved_model_name):
             instructions += EXTENDED_THINKING_PROMPT_NOTE
 
@@ -1364,6 +1369,7 @@ class BaseAgent(ABC):
             toolsets=mcp_servers,
             history_processors=[self.message_history_accumulator],
             model_settings=model_settings,
+            capabilities=_cancellation_capabilities(),
         )
 
         agent_tools = self.get_available_tools()
@@ -1440,6 +1446,7 @@ class BaseAgent(ABC):
                 toolsets=[],  # Don't include MCP servers here
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
+                capabilities=_cancellation_capabilities(),
             )
 
             # Register regular tools (non-MCP) on the new agent
@@ -1471,6 +1478,7 @@ class BaseAgent(ABC):
                 toolsets=filtered_mcp_servers,
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
+                capabilities=_cancellation_capabilities(),
             )
             # Register regular tools on the agent
             agent_tools = self.get_available_tools()
@@ -1523,7 +1531,7 @@ class BaseAgent(ABC):
         instructions = prepared.instructions
 
         # When extended thinking is active, nudge the model to think between
-        # tool calls (the share_your_reasoning tool is stripped in this case).
+        # tool calls so it uses native reasoning before choosing next actions.
         if has_extended_thinking_active(resolved_model_name):
             instructions += EXTENDED_THINKING_PROMPT_NOTE
 
@@ -1539,6 +1547,7 @@ class BaseAgent(ABC):
                 toolsets=[],
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
+                capabilities=_cancellation_capabilities(),
             )
             agent_tools = self.get_available_tools()
             register_tools_for_agent(
@@ -1560,6 +1569,7 @@ class BaseAgent(ABC):
                 toolsets=mcp_servers,
                 history_processors=[self.message_history_accumulator],
                 model_settings=model_settings,
+                capabilities=_cancellation_capabilities(),
             )
             agent_tools = self.get_available_tools()
             register_tools_for_agent(
@@ -2021,6 +2031,7 @@ class BaseAgent(ABC):
             pass  # Don't fail agent run if hook fails
 
         loop = asyncio.get_running_loop()
+        install_cancellation_exception_handler(loop)
 
         def schedule_agent_cancel() -> None:
             from code_puppy.tools.command_runner import _RUNNING_PROCESSES
@@ -2043,6 +2054,9 @@ class BaseAgent(ABC):
                 ):  # Create a copy since we'll be modifying the set
                     if not task.done():
                         loop.call_soon_threadsafe(task.cancel)
+            # Cancel pydantic-ai inner model-request tasks FIRST so the HTTP
+            # stream closes before the parent task cleanup runs.
+            cancel_active_model_requests(loop)
             loop.call_soon_threadsafe(agent_task.cancel)
 
         def keyboard_interrupt_handler(_sig, _frame):

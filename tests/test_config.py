@@ -324,6 +324,7 @@ class TestGetConfigKeys:
                 "message_limit",
                 "model",
                 "openai_reasoning_effort",
+                "openai_reasoning_summary",
                 "openai_verbosity",
                 "protected_token_count",
                 "resume_message_count",
@@ -381,6 +382,7 @@ class TestGetConfigKeys:
                 "message_limit",
                 "model",
                 "openai_reasoning_effort",
+                "openai_reasoning_summary",
                 "openai_verbosity",
                 "protected_token_count",
                 "resume_message_count",
@@ -689,11 +691,11 @@ class TestDefaultModelSelection:
     ):
         # When no model is stored in config, get_model_name should return the default model
         mock_get_value.return_value = None
-        mock_default_model.return_value = "synthetic-GLM-4.7"
+        mock_default_model.return_value = "synthetic-GLM-5.1"
 
         result = cp_config.get_global_model_name()
 
-        assert result == "synthetic-GLM-4.7"
+        assert result == "synthetic-GLM-5.1"
         mock_get_value.assert_called_once_with("model")
         mock_validate_model_exists.assert_not_called()
         mock_default_model.assert_called_once()
@@ -707,11 +709,11 @@ class TestDefaultModelSelection:
         # When stored model doesn't exist in models.json, should return default model
         mock_get_value.return_value = "invalid-model"
         mock_validate_model_exists.return_value = False
-        mock_default_model.return_value = "synthetic-GLM-4.7"
+        mock_default_model.return_value = "synthetic-GLM-5.1"
 
         result = cp_config.get_global_model_name()
 
-        assert result == "synthetic-GLM-4.7"
+        assert result == "synthetic-GLM-5.1"
         mock_get_value.assert_called_once_with("model")
         mock_validate_model_exists.assert_called_once_with("invalid-model")
         mock_default_model.assert_called_once()

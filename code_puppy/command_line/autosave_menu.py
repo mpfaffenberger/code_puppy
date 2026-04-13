@@ -20,6 +20,11 @@ from prompt_toolkit.widgets import Frame
 from rich.console import Console
 from rich.markdown import Markdown
 
+from code_puppy.command_line.pagination import (
+    ensure_visible_page,
+    get_page_bounds,
+    get_total_pages,
+)
 from code_puppy.config import AUTOSAVE_DIR
 from code_puppy.session_storage import list_sessions, load_session
 from code_puppy.tools.command_runner import set_awaiting_user_input
@@ -161,9 +166,8 @@ def _render_menu_panel(
 ) -> List:
     """Render the left menu panel with pagination."""
     lines = []
-    total_pages = (len(entries) + PAGE_SIZE - 1) // PAGE_SIZE if entries else 1
-    start_idx = page * PAGE_SIZE
-    end_idx = min(start_idx + PAGE_SIZE, len(entries))
+    total_pages = get_total_pages(len(entries), PAGE_SIZE)
+    start_idx, end_idx = get_page_bounds(page, len(entries), PAGE_SIZE)
 
     lines.append(("", f" Session Page(s): ({page + 1}/{total_pages})"))
     lines.append(("", "\n\n"))
@@ -519,7 +523,7 @@ async def interactive_autosave_picker() -> Optional[str]:
     message_idx = [0]  # Current message index (0 = most recent)
     cached_history = [None]  # Cached history for current session in browse mode
 
-    total_pages = (len(entries) + PAGE_SIZE - 1) // PAGE_SIZE
+    total_pages = get_total_pages(len(entries), PAGE_SIZE)
 
     def get_current_entry() -> Optional[Tuple[str, dict]]:
         if 0 <= selected_idx[0] < len(entries):
@@ -578,8 +582,12 @@ async def interactive_autosave_picker() -> Optional[str]:
             # Normal mode: navigate sessions
             if selected_idx[0] > 0:
                 selected_idx[0] -= 1
-                # Update page if needed
-                current_page[0] = selected_idx[0] // PAGE_SIZE
+                current_page[0] = ensure_visible_page(
+                    selected_idx[0],
+                    current_page[0],
+                    len(entries),
+                    PAGE_SIZE,
+                )
                 update_display()
 
     @kb.add("down")
@@ -594,8 +602,12 @@ async def interactive_autosave_picker() -> Optional[str]:
             # Normal mode: navigate sessions
             if selected_idx[0] < len(entries) - 1:
                 selected_idx[0] += 1
-                # Update page if needed
-                current_page[0] = selected_idx[0] // PAGE_SIZE
+                current_page[0] = ensure_visible_page(
+                    selected_idx[0],
+                    current_page[0],
+                    len(entries),
+                    PAGE_SIZE,
+                )
                 update_display()
 
     @kb.add("left")

@@ -25,6 +25,11 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
+from code_puppy.command_line.pagination import (
+    ensure_visible_page,
+    get_page_bounds,
+    get_total_pages,
+)
 from code_puppy.command_line.utils import safe_input
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.plugins.agent_skills.downloader import download_and_install_skill
@@ -197,9 +202,10 @@ class SkillsInstallMenu:
             self._render_navigation_hints(lines)
             return lines
 
-        total_pages = (len(self.categories) + PAGE_SIZE - 1) // PAGE_SIZE
-        start_idx = self.current_page * PAGE_SIZE
-        end_idx = min(start_idx + PAGE_SIZE, len(self.categories))
+        total_pages = get_total_pages(len(self.categories), PAGE_SIZE)
+        start_idx, end_idx = get_page_bounds(
+            self.current_page, len(self.categories), PAGE_SIZE
+        )
 
         for i in range(start_idx, end_idx):
             category = self.categories[i]
@@ -253,9 +259,10 @@ class SkillsInstallMenu:
             self._render_navigation_hints(lines)
             return lines
 
-        total_pages = (len(self.current_skills) + PAGE_SIZE - 1) // PAGE_SIZE
-        start_idx = self.current_page * PAGE_SIZE
-        end_idx = min(start_idx + PAGE_SIZE, len(self.current_skills))
+        total_pages = get_total_pages(len(self.current_skills), PAGE_SIZE)
+        start_idx, end_idx = get_page_bounds(
+            self.current_page, len(self.current_skills), PAGE_SIZE
+        )
 
         for i in range(start_idx, end_idx):
             entry = self.current_skills[i]
@@ -473,11 +480,21 @@ class SkillsInstallMenu:
             if self.view_mode == "categories":
                 if self.selected_category_idx > 0:
                     self.selected_category_idx -= 1
-                    self.current_page = self.selected_category_idx // PAGE_SIZE
+                    self.current_page = ensure_visible_page(
+                        self.selected_category_idx,
+                        self.current_page,
+                        len(self.categories),
+                        PAGE_SIZE,
+                    )
             else:
                 if self.selected_skill_idx > 0:
                     self.selected_skill_idx -= 1
-                    self.current_page = self.selected_skill_idx // PAGE_SIZE
+                    self.current_page = ensure_visible_page(
+                        self.selected_skill_idx,
+                        self.current_page,
+                        len(self.current_skills),
+                        PAGE_SIZE,
+                    )
             self.update_display()
 
         @kb.add("down")
@@ -487,11 +504,21 @@ class SkillsInstallMenu:
             if self.view_mode == "categories":
                 if self.selected_category_idx < len(self.categories) - 1:
                     self.selected_category_idx += 1
-                    self.current_page = self.selected_category_idx // PAGE_SIZE
+                    self.current_page = ensure_visible_page(
+                        self.selected_category_idx,
+                        self.current_page,
+                        len(self.categories),
+                        PAGE_SIZE,
+                    )
             else:
                 if self.selected_skill_idx < len(self.current_skills) - 1:
                     self.selected_skill_idx += 1
-                    self.current_page = self.selected_skill_idx // PAGE_SIZE
+                    self.current_page = ensure_visible_page(
+                        self.selected_skill_idx,
+                        self.current_page,
+                        len(self.current_skills),
+                        PAGE_SIZE,
+                    )
             self.update_display()
 
         @kb.add("left")
@@ -515,7 +542,7 @@ class SkillsInstallMenu:
             else:
                 total_items = len(self.current_skills)
 
-            total_pages = (total_items + PAGE_SIZE - 1) // PAGE_SIZE
+            total_pages = get_total_pages(total_items, PAGE_SIZE)
             if self.current_page < total_pages - 1:
                 self.current_page += 1
                 if self.view_mode == "categories":

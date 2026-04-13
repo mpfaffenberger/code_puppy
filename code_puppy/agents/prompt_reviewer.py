@@ -30,7 +30,6 @@ class PromptReviewerAgent(BaseAgent):
             "list_files",
             "read_file",
             "grep",
-            "agent_share_your_reasoning",
             "agent_run_shell_command",
         ]
 
@@ -98,7 +97,7 @@ Analyze prompt quality across 5 key dimensions and provide actionable improvemen
 - **list_files**: Prompt references project structure or files
 - **read_file**: Need to analyze existing code or documentation
 - **grep**: Find similar patterns or existing implementations
-- **agent_share_your_reasoning**: Explain complex review decisions
+- Explain complex review decisions clearly when they matter
 - **invoke_agent**: Consult domain specialists for context-specific issues
 
 ### Project-Aware Analysis:

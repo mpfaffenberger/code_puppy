@@ -638,28 +638,10 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
     return
 
 
-def patch_anthropic_client_messages(client: Any) -> None:
-    """Monkey-patch AsyncAnthropic.messages.create to inject cache_control.
-
-    This operates at the highest level: just before Anthropic SDK serializes
-    the request into HTTP. That means no httpx / Pydantic shenanigans can
-    undo it.
-    """
-
-    if AsyncAnthropic is None or not isinstance(client, AsyncAnthropic):  # type: ignore[arg-type]
-        return
-
-    try:
-        messages_obj = getattr(client, "messages", None)
-        if messages_obj is None:
-            return
-        original_create: Callable[..., Any] = messages_obj.create
-    except Exception:  # pragma: no cover - defensive
-        return
+def _make_cache_wrapper(original_create: Callable[..., Any]) -> Callable[..., Any]:
+    """Create a wrapped version of messages.create that injects cache_control."""
 
     async def wrapped_create(*args: Any, **kwargs: Any):
-        # Anthropic messages.create takes a mix of positional/kw args.
-        # The payload is usually in kwargs for the Python SDK.
         if kwargs:
             _inject_cache_control_in_payload(kwargs)
         elif args:
@@ -669,4 +651,33 @@ def patch_anthropic_client_messages(client: Any) -> None:
 
         return await original_create(*args, **kwargs)
 
-    messages_obj.create = wrapped_create  # type: ignore[assignment]
+    return wrapped_create
+
+
+def patch_anthropic_client_messages(client: Any) -> None:
+    """Monkey-patch AsyncAnthropic messages.create to inject cache_control.
+
+    Patches both client.messages.create AND client.beta.messages.create
+    since pydantic-ai uses the beta endpoint.
+    """
+
+    if AsyncAnthropic is None or not isinstance(client, AsyncAnthropic):  # type: ignore[arg-type]
+        return
+
+    # Patch client.messages.create
+    try:
+        messages_obj = getattr(client, "messages", None)
+        if messages_obj is not None:
+            messages_obj.create = _make_cache_wrapper(messages_obj.create)  # type: ignore[assignment]
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+    # Patch client.beta.messages.create (used by pydantic-ai)
+    try:
+        beta_obj = getattr(client, "beta", None)
+        if beta_obj is not None:
+            beta_messages_obj = getattr(beta_obj, "messages", None)
+            if beta_messages_obj is not None:
+                beta_messages_obj.create = _make_cache_wrapper(beta_messages_obj.create)  # type: ignore[assignment]
+    except Exception:  # pragma: no cover - defensive
+        pass

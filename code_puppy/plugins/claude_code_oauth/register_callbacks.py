@@ -17,6 +17,10 @@ from urllib.parse import parse_qs, urlparse
 from code_puppy.callbacks import register_callback
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.model_switching import set_model_and_reload_agent
+from code_puppy.provider_identity import (
+    make_anthropic_provider,
+    resolve_provider_identity,
+)
 
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
 from .config import CLAUDE_CODE_OAUTH_CONFIG, get_token_storage_path
@@ -288,7 +292,6 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
     """
     from anthropic import AsyncAnthropic
     from pydantic_ai.models.anthropic import AnthropicModel
-    from pydantic_ai.providers.anthropic import AnthropicProvider
 
     from code_puppy.claude_cache_client import (
         ClaudeCacheAsyncClient,
@@ -367,7 +370,10 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
     patch_anthropic_client_messages(anthropic_client)
     anthropic_client.api_key = None
     anthropic_client.auth_token = api_key
-    provider = AnthropicProvider(anthropic_client=anthropic_client)
+    provider = make_anthropic_provider(
+        resolve_provider_identity(model_name, model_config),
+        anthropic_client=anthropic_client,
+    )
     return AnthropicModel(model_name=model_config["name"], provider=provider)
 
 

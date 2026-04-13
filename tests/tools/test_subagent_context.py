@@ -55,9 +55,9 @@ class TestSubagentContextBasics:
         initial_depth = get_subagent_depth()
         initial_name = get_subagent_name()
 
-        with subagent_context("husky"):
+        with subagent_context("code-puppy"):
             assert get_subagent_depth() == initial_depth + 1
-            assert get_subagent_name() == "husky"
+            assert get_subagent_name() == "code-puppy"
 
         assert get_subagent_depth() == initial_depth
         assert get_subagent_name() == initial_name
@@ -92,9 +92,9 @@ class TestNestedSubagents:
                 assert get_subagent_depth() == 2
                 assert get_subagent_name() == "terrier"
 
-                with subagent_context("husky"):
+                with subagent_context("code-puppy"):
                     assert get_subagent_depth() == 3
-                    assert get_subagent_name() == "husky"
+                    assert get_subagent_name() == "code-puppy"
 
                 # Back to terrier
                 assert get_subagent_depth() == 2
