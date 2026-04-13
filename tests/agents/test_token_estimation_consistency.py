@@ -8,7 +8,9 @@ early compaction triggered by estimation mismatch.
 import math
 
 from code_puppy.agents.agent_code_puppy import CodePuppyAgent
-from code_puppy.agents.subagent_stream_handler import _estimate_tokens as streaming_estimate
+from code_puppy.agents.subagent_stream_handler import (
+    _estimate_tokens as streaming_estimate,
+)
 
 
 class TestTokenEstimationConsistency:
