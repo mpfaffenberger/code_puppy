@@ -54,6 +54,7 @@ from rich.text import Text
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
     on_agent_run_end,
+    on_agent_run_result,
     on_agent_run_start,
     on_message_history_processor_end,
     on_message_history_processor_start,
@@ -1880,6 +1881,56 @@ class BaseAgent(ABC):
         else:
             prompt_payload = prompt
 
+        async def _run_with_result_hooks(run_coro_factory):
+            """Run agent, then let plugin hooks inspect/retry the result.
+
+            After a successful ``pydantic_agent.run()``, fires the
+            ``agent_run_result`` hook.  If any callback returns
+            ``{"retry": True, "prompt": "..."}`` the agent re-runs with
+            that prompt (message history is carried forward so the model
+            sees context).  Retries are capped to prevent runaway loops.
+            """
+            _MAX_HOOK_RETRIES = 3
+
+            result_ = await run_coro_factory()
+
+            for _ in range(_MAX_HOOK_RETRIES):
+                hook_results = await on_agent_run_result(
+                    result_,
+                    agent_name=self.name,
+                    model_name=self.get_model_name(),
+                )
+                retry_req = next(
+                    (
+                        r
+                        for r in hook_results
+                        if isinstance(r, dict) and r.get("retry")
+                    ),
+                    None,
+                )
+                if not retry_req:
+                    break
+
+                # A plugin asked us to replay the turn.
+                retry_prompt = retry_req.get("prompt", "Please continue.")
+                retry_delay = retry_req.get("delay", 1.0)
+
+                if hasattr(result_, "all_messages"):
+                    self.set_message_history(list(result_.all_messages()))
+
+                await asyncio.sleep(retry_delay)
+
+                result_ = await (
+                    lambda _p=retry_prompt: pydantic_agent.run(
+                        _p,
+                        message_history=self.get_message_history(),
+                        usage_limits=usage_limits,
+                        event_stream_handler=event_stream_handler,
+                        **kwargs,
+                    )
+                )()
+            return result_
+
         async def run_agent_task():
             try:
                 self.set_message_history(
@@ -1916,12 +1967,14 @@ class BaseAgent(ABC):
                     try:
                         # Set the workflow ID for DBOS context so DBOS and Code Puppy ID match
                         with SetWorkflowID(group_id):
-                            result_ = await pydantic_agent.run(
-                                prompt_payload,
-                                message_history=self.get_message_history(),
-                                usage_limits=usage_limits,
-                                event_stream_handler=event_stream_handler,
-                                **kwargs,
+                            result_ = await _run_with_result_hooks(
+                                lambda: pydantic_agent.run(
+                                    prompt_payload,
+                                    message_history=self.get_message_history(),
+                                    usage_limits=usage_limits,
+                                    event_stream_handler=event_stream_handler,
+                                    **kwargs,
+                                )
                             )
                             return result_
                     finally:
@@ -1929,22 +1982,26 @@ class BaseAgent(ABC):
                         pydantic_agent._toolsets = original_toolsets
                 elif get_use_dbos():
                     with SetWorkflowID(group_id):
-                        result_ = await pydantic_agent.run(
+                        result_ = await _run_with_result_hooks(
+                            lambda: pydantic_agent.run(
+                                prompt_payload,
+                                message_history=self.get_message_history(),
+                                usage_limits=usage_limits,
+                                event_stream_handler=event_stream_handler,
+                                **kwargs,
+                            )
+                        )
+                        return result_
+                else:
+                    # Non-DBOS path (MCP servers are already included)
+                    result_ = await _run_with_result_hooks(
+                        lambda: pydantic_agent.run(
                             prompt_payload,
                             message_history=self.get_message_history(),
                             usage_limits=usage_limits,
                             event_stream_handler=event_stream_handler,
                             **kwargs,
                         )
-                        return result_
-                else:
-                    # Non-DBOS path (MCP servers are already included)
-                    result_ = await pydantic_agent.run(
-                        prompt_payload,
-                        message_history=self.get_message_history(),
-                        usage_limits=usage_limits,
-                        event_stream_handler=event_stream_handler,
-                        **kwargs,
                     )
                     return result_
             except* UsageLimitExceeded as ule:
