@@ -1,5 +1,6 @@
 """Full coverage tests for pydantic_patches.py."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -143,9 +144,70 @@ class TestPatchToolCallCallbacks:
         # Just verify it doesn't crash
 
 
+class TestPatchOpenAIStreamGuard:
+    def test_classifies_extra_data_as_retryable_stream_error(self):
+        import openai._streaming as openai_streaming
+        from pydantic_ai.exceptions import UnexpectedModelBehavior
+
+        from code_puppy.pydantic_patches import patch_openai_stream_guard
+
+        patch_openai_stream_guard()
+
+        sse = openai_streaming.ServerSentEvent(
+            event="response.output_item.added",
+            data='{"ok": 1}{"oops": 2}',
+        )
+
+        with pytest.raises(UnexpectedModelBehavior, match="Malformed streamed SSE event"):
+            sse.json()
+
+    def test_non_extra_data_json_error_passthrough(self):
+        import openai._streaming as openai_streaming
+
+        from code_puppy.pydantic_patches import patch_openai_stream_guard
+
+        patch_openai_stream_guard()
+
+        sse = openai_streaming.ServerSentEvent(
+            event="response.output_item.added",
+            data='{"missing": ',
+        )
+
+        with pytest.raises(json.JSONDecodeError):
+            sse.json()
+
+
 class TestApplyAllPatches:
     def test_apply_all_patches(self):
-        from code_puppy.pydantic_patches import apply_all_patches
+        from code_puppy import pydantic_patches
 
-        # Should not raise
-        apply_all_patches()
+        with (
+            patch.object(pydantic_patches, "patch_user_agent") as patch_user_agent,
+            patch.object(
+                pydantic_patches, "patch_message_history_cleaning"
+            ) as patch_message_history_cleaning,
+            patch.object(
+                pydantic_patches, "patch_process_message_history"
+            ) as patch_process_message_history,
+            patch.object(
+                pydantic_patches, "patch_openai_stream_guard"
+            ) as patch_openai_stream_guard,
+            patch.object(
+                pydantic_patches, "patch_tool_call_json_repair"
+            ) as patch_tool_call_json_repair,
+            patch.object(
+                pydantic_patches, "patch_tool_call_callbacks"
+            ) as patch_tool_call_callbacks,
+            patch.object(
+                pydantic_patches, "patch_args_as_dict_json_repair"
+            ) as patch_args_as_dict_json_repair,
+        ):
+            pydantic_patches.apply_all_patches()
+
+        patch_user_agent.assert_called_once_with()
+        patch_message_history_cleaning.assert_called_once_with()
+        patch_process_message_history.assert_called_once_with()
+        patch_openai_stream_guard.assert_called_once_with()
+        patch_tool_call_json_repair.assert_called_once_with()
+        patch_tool_call_callbacks.assert_called_once_with()
+        patch_args_as_dict_json_repair.assert_called_once_with()

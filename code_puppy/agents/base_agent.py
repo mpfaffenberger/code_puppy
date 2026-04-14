@@ -1957,6 +1957,8 @@ class BaseAgent(ABC):
                         "streamed response ended without content" in error_msg
                         or "stream" in error_msg
                         and "ended" in error_msg
+                        or "malformed streamed sse event" in error_msg
+                        or "extra json data in sse payload" in error_msg
                     )
                     if not is_streaming_error:
                         raise  # Re-raise non-retryable errors immediately

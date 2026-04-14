@@ -9,7 +9,13 @@ Usage:
 """
 
 import importlib.metadata
+import json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+_MALFORMED_STREAM_EVENT = "Malformed streamed SSE event"
 
 
 def _get_code_puppy_version() -> str:
@@ -118,6 +124,54 @@ def patch_process_message_history() -> None:
             return messages
 
         _agent_graph._process_message_history = _patched_process_message_history
+    except Exception:
+        pass
+
+
+def patch_openai_stream_guard() -> None:
+    """Patch OpenAI SSE parsing to classify malformed stream payloads.
+
+    Some upstream gateways occasionally emit malformed SSE event payloads,
+    especially during streamed tool-call deltas, which can surface as
+    ``JSONDecodeError: Extra data`` when the OpenAI SDK does ``json.loads`` on a
+    single event payload. We do not try to magically repair the stream here.
+    Instead, we classify the failure as retryable upstream so the agent can
+    re-run the request cleanly.
+    """
+    try:
+        import openai._streaming as openai_streaming
+        from pydantic_ai.exceptions import UnexpectedModelBehavior
+
+        original_json = openai_streaming.ServerSentEvent.json
+
+        if getattr(original_json, "_code_puppy_stream_guard", False):
+            return
+
+        def _patched_sse_json(self):
+            try:
+                return original_json(self)
+            except json.JSONDecodeError as exc:
+                if exc.msg != "Extra data":
+                    raise
+
+                data = getattr(self, "data", "") or ""
+                compact = " ".join(data.split())
+                preview = compact[:240]
+                suffix = "..." if len(compact) > 240 else ""
+                event_name = getattr(self, "event", None) or "unknown"
+                logger.warning(
+                    "Malformed streamed SSE event detected: event=%s len=%s preview=%r",
+                    event_name,
+                    len(data),
+                    f"{preview}{suffix}",
+                )
+                raise UnexpectedModelBehavior(
+                    f"{_MALFORMED_STREAM_EVENT}: extra JSON data in SSE payload "
+                    f"(event={event_name}, len={len(data)})"
+                ) from exc
+
+        _patched_sse_json._code_puppy_stream_guard = True
+        openai_streaming.ServerSentEvent.json = _patched_sse_json
     except Exception:
         pass
 
@@ -406,6 +460,7 @@ def apply_all_patches() -> None:
     patch_user_agent()
     patch_message_history_cleaning()
     patch_process_message_history()
+    patch_openai_stream_guard()
     patch_tool_call_json_repair()
     patch_tool_call_callbacks()
     patch_args_as_dict_json_repair()
