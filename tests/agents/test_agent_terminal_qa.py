@@ -134,7 +134,7 @@ class TestTerminalQAToolsTerminal:
 class TestTerminalQAToolsBrowserExcluded:
     """Test Terminal QA Agent does NOT have browser tools.
 
-    Browser tools use CamoufoxManager (a separate web browser) and are
+    Browser tools use BrowserManager (a separate web browser) and are
     designed for HTML DOM interaction - NOT for terminal/TUI apps!
     Terminal apps use keyboard input via terminal_send_keys.
     """
@@ -268,10 +268,10 @@ class TestTerminalQAToolsCore:
 
         return TerminalQAAgent()
 
-    def test_tools_include_reasoning(self, agent):
-        """Test agent has agent_share_your_reasoning tool."""
+    def test_tools_exclude_retired_reasoning_tool(self, agent):
+        """Test agent does not expose the retired reasoning tool."""
         tools = agent.get_available_tools()
-        assert "agent_share_your_reasoning" in tools
+        assert "agent_share_your_reasoning" not in tools
 
 
 # =============================================================================
@@ -416,7 +416,7 @@ class TestTerminalQAIntegration:
         """Test browser interaction tools are NOT present (they use wrong browser)."""
         tools = agent.get_available_tools()
 
-        # Browser tools use CamoufoxManager, not ChromiumTerminalManager
+        # Browser tools use BrowserManager, not ChromiumTerminalManager
         # They're for web pages, not terminal/TUI apps!
         browser_tools = [
             "browser_click",

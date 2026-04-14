@@ -138,7 +138,7 @@ For `PostToolUse`, the payload also includes `tool_result` and `tool_duration_ms
 "Bash|agent_run_shell_command"   regex OR — matches either tool name
 "Edit && .py"                     AND — tool is Edit AND file ends in .py
 "*"                               wildcard — matches everything
-"edit_file"                       exact internal tool name
+"replace_in_file"                 exact internal tool name
 ```
 
 **Code Puppy tool name mapping:**
@@ -146,7 +146,8 @@ For `PostToolUse`, the payload also includes `tool_result` and `tool_duration_ms
 | Claude Code Name | Code Puppy Internal Name |
 |-----------------|--------------------------|
 | `Bash` | `agent_run_shell_command` |
-| `Edit` / `Write` | `edit_file` |
+| `Edit` | `replace_in_file` |
+| `Write` | `create_file` |
 | `Delete` | `delete_file` |
 
 Use `Bash|agent_run_shell_command` to catch shell commands with either name.

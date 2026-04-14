@@ -31,8 +31,8 @@ CLAUDE_CODE_ALIASES: Dict[str, str] = {
     "Read": "read_file",
     "Grep": "grep",
     # File system — write
-    "Edit": "edit_file",
-    "Write": "edit_file",  # Write = full overwrite; same tool in puppy
+    "Edit": "replace_in_file",
+    "Write": "create_file",  # Write = full overwrite
     # File system — delete
     "Delete": "delete_file",
     # User interaction

@@ -62,7 +62,7 @@ def load_tasks() -> List[ScheduledTask]:
     if not os.path.exists(SCHEDULES_FILE):
         return []
     try:
-        with open(SCHEDULES_FILE, "r") as f:
+        with open(SCHEDULES_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
             return [ScheduledTask.from_dict(t) for t in data]
     except (json.JSONDecodeError, IOError):

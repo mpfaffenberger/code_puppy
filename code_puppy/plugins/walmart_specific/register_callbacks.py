@@ -13,7 +13,7 @@ from rich.text import Text
 from code_puppy.callbacks import register_callback
 from code_puppy.config import get_puppy_token
 from code_puppy.http_utils import find_available_port
-from code_puppy.messaging import emit_system_message
+from code_puppy.messaging import emit_system_message, emit_warning
 
 # CRITICAL: Import walmart_specific package to trigger monkey patches
 # This must happen BEFORE any other imports that might use HTTP libraries
@@ -22,13 +22,14 @@ import code_puppy.plugins.walmart_specific  # noqa: F401
 from code_puppy.plugins.walmart_specific.agent_prompt import get_prompt
 from code_puppy.plugins.walmart_specific.auth import (
     authenticate_puppy,
+    get_auth_callback_port,
+    is_puppy_token_valid,
     set_auth_callback_port,
 )
 from code_puppy.plugins.walmart_specific.auto_update import _handle_update
 from code_puppy.plugins.walmart_specific.model_config_fetcher import ModelConfigFetcher
 from code_puppy.plugins.walmart_specific.pingfed_auth import (
-    get_pingfed_auth_help,
-    get_puppy_auth_help,
+    get_marketplace_auth_help,
     handle_pingfed_auth_command,
     handle_puppy_auth_command,
 )
@@ -73,9 +74,6 @@ from code_puppy.plugins.walmart_specific.telemetry_utils import (
     build_telemetry_data,
     enqueue_telemetry_data,
 )
-from code_puppy.plugins.walmart_specific.camoufox_browser import (
-    get_camoufox_browser_types,
-)
 from code_puppy.tools.command_runner import ShellCommandOutput
 from code_puppy.mcp_.server_registry_catalog import (
     MCPServerTemplate,
@@ -83,6 +81,9 @@ from code_puppy.mcp_.server_registry_catalog import (
 )
 from code_puppy.plugins.walmart_specific.walmart_gemini_model import WalmartGeminiModel
 from code_puppy.plugins.walmart_specific.enterprise_tools import get_enterprise_tools
+from code_puppy.plugins.walmart_specific.codex_model_handler import (
+    create_codex_model,
+)
 
 
 def get_walmart_mcp_servers():
@@ -144,7 +145,6 @@ set_cert_bundle()
 
 register_callback("version_check", _handle_update)
 register_callback("register_mcp_catalog_servers", get_walmart_mcp_servers)
-register_callback("register_browser_types", get_camoufox_browser_types)
 # Disclaimer is now shown via /disclaimer command instead of on startup
 
 
@@ -186,14 +186,45 @@ async def auth_flow() -> None:
 
     register_callback("shutdown", shutdown_http_server)
 
-    await authenticate_puppy(available_port)
+    auth_success = await authenticate_puppy(available_port)
+
+    if not auth_success:
+        emit_warning(
+            "Authentication failed or timed out. Some features may not work correctly.\n"
+            "Run '/login' to retry authentication."
+        )
 
     token = get_puppy_token()
-    os.environ["puppy_token"] = token
+    if token:
+        os.environ["puppy_token"] = token
+    else:
+        emit_warning("No valid puppy token available.")
 
 
 register_callback("startup", ensure_safe_windows_workspace)
 register_callback("startup", auth_flow)
+
+
+async def check_token_before_agent_run(
+    agent_name: str,
+    model_name: str,
+    session_id: str | None = None,
+) -> None:
+    """Check token validity before each agent run, trigger re-auth if expired.
+    
+    This catches mid-session token expiration - if the token expires while
+    the user is working, we re-authenticate before sending the prompt.
+    """
+    if not is_puppy_token_valid():
+        emit_warning("Token expired mid-session, re-authenticating...")
+        port = get_auth_callback_port()
+        if port:
+            await authenticate_puppy(port)
+        else:
+            emit_warning("Cannot re-auth: auth callback port unknown. Restart Code Puppy.")
+
+
+register_callback("agent_run_start", check_token_before_agent_run)
 
 
 def load_model_config() -> Dict[str, Any]:
@@ -307,9 +338,8 @@ register_callback("shutdown", shutdown_telemetry)
 atexit.register(shutdown_telemetry)
 
 # Register custom command handlers
-register_callback("custom_command_help", get_pingfed_auth_help)
+register_callback("custom_command_help", get_marketplace_auth_help)
 register_callback("custom_command", handle_pingfed_auth_command)
-register_callback("custom_command_help", get_puppy_auth_help)
 register_callback("custom_command", handle_puppy_auth_command)
 register_callback("custom_command_help", get_confluence_auth_help)
 register_callback("custom_command", handle_confluence_auth_command)
@@ -380,6 +410,23 @@ def get_walmart_agents() -> list[Dict[str, Any]]:
 register_callback("register_model_providers", get_walmart_model_providers)
 register_callback("register_tools", get_enterprise_tools)
 register_callback("register_agents", get_walmart_agents)
+
+
+def get_walmart_model_types():
+    """Return Walmart-specific model type handlers.
+
+    Registers the 'codex' model type which uses the ChatGPTCodexAsyncClient
+    for proper reasoning item handling with the OpenAI Responses API.
+    """
+    return [
+        {
+            "type": "codex",
+            "handler": create_codex_model,
+        },
+    ]
+
+
+register_callback("register_model_type", get_walmart_model_types)
 
 
 # MOTD (Message of the Day) for Walmart internal users

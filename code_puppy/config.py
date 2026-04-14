@@ -54,6 +54,7 @@ _DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 GEMINI_MODELS_FILE = os.path.join(DATA_DIR, "gemini_models.json")
 CHATGPT_MODELS_FILE = os.path.join(DATA_DIR, "chatgpt_models.json")
 CLAUDE_MODELS_FILE = os.path.join(DATA_DIR, "claude_models.json")
+COPILOT_MODELS_FILE = os.path.join(DATA_DIR, "copilot_models.json")
 
 # Cache files (XDG_CACHE_HOME)
 AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
@@ -93,7 +94,6 @@ PACK_AGENT_NAMES = frozenset(
     [
         "pack-leader",
         "bloodhound",
-        "husky",
         "shepherd",
         "terrier",
         "watchdog",
@@ -165,7 +165,7 @@ def unlock_wiggum() -> None:
 def get_pack_agents_enabled() -> bool:
     """Return True if pack agents are enabled (default False).
 
-    When False (default), pack agents (pack-leader, bloodhound, husky, shepherd,
+    When False (default), pack agents (pack-leader, bloodhound, shepherd,
     terrier, watchdog, retriever) are hidden from `list_agents` tool and `/agents`
     command. They cannot be invoked by other agents or selected by users.
 
@@ -355,6 +355,7 @@ def get_config_keys():
         "message_limit",
         "allow_recursion",
         "openai_reasoning_effort",
+        "openai_reasoning_summary",
         "openai_verbosity",
         "auto_save_session",
         "max_saved_sessions",
@@ -432,8 +433,8 @@ def load_mcp_server_configs():
     """
     from rich.text import Text
 
-    from code_puppy.messaging.message_queue import emit_error
     from code_puppy.messaging import emit_system_message
+    from code_puppy.messaging.message_queue import emit_error
 
     try:
         if not pathlib.Path(MCP_SERVERS_FILE).exists():
@@ -753,6 +754,32 @@ def set_openai_reasoning_effort(value: str) -> None:
     set_config_value("openai_reasoning_effort", normalized)
 
 
+def get_openai_reasoning_summary() -> str:
+    """Return the configured OpenAI reasoning summary mode.
+
+    Supported values:
+    - auto: let the provider decide the best summary style
+    - concise: shorter reasoning summaries
+    - detailed: fuller reasoning summaries
+    """
+    allowed_values = {"auto", "concise", "detailed"}
+    configured = (get_value("openai_reasoning_summary") or "auto").strip().lower()
+    if configured not in allowed_values:
+        return "auto"
+    return configured
+
+
+def set_openai_reasoning_summary(value: str) -> None:
+    """Persist the OpenAI reasoning summary mode ensuring it remains valid."""
+    allowed_values = {"auto", "concise", "detailed"}
+    normalized = (value or "").strip().lower()
+    if normalized not in allowed_values:
+        raise ValueError(
+            f"Invalid reasoning summary '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
+        )
+    set_config_value("openai_reasoning_summary", normalized)
+
+
 def get_openai_verbosity() -> str:
     """Return the configured OpenAI verbosity (low, medium, high).
 
@@ -833,7 +860,7 @@ def get_model_setting(
     """Get a specific setting for a model.
 
     Args:
-        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
         setting: The setting name (e.g., 'temperature', 'top_p', 'seed')
         default: Default value if not set
 
@@ -857,7 +884,7 @@ def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> 
     """Set a specific setting for a model.
 
     Args:
-        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
         setting: The setting name (e.g., 'temperature', 'seed')
         value: The value to set, or None to clear
     """
@@ -1489,6 +1516,21 @@ def get_auto_save_session() -> bool:
     return True
 
 
+def get_auto_update() -> bool:
+    """
+    Checks puppy.cfg for 'auto_update' (case-insensitive in value only).
+    Defaults to True if not set.
+    Allowed values for OFF: 0, 'false', 'no', 'off' (all case-insensitive).
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("auto_update")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    return True
+
+
 def set_auto_save_session(enabled: bool):
     """Sets the auto_save_session configuration value.
 
@@ -1591,7 +1633,10 @@ DEFAULT_BANNER_COLORS = {
     "agent_response": "medium_purple4",  # Amethyst - main AI output
     "shell_command": "dark_orange3",  # Amber - system commands
     "read_file": "steel_blue",  # Steel - reading files
-    "edit_file": "dark_goldenrod",  # Gold - modifications
+    "edit_file": "dark_goldenrod",  # Gold - modifications (legacy)
+    "create_file": "dark_goldenrod",  # Gold - file creation
+    "replace_in_file": "dark_goldenrod",  # Gold - file modifications
+    "delete_snippet": "dark_goldenrod",  # Gold - snippet removal
     "grep": "grey37",  # Silver - search results
     "directory_listing": "dodger_blue2",  # Sky - navigation
     "agent_reasoning": "dark_violet",  # Violet - deep thought
@@ -1601,6 +1646,10 @@ DEFAULT_BANNER_COLORS = {
     "universal_constructor": "dark_cyan",  # Teal - constructing tools
     # Browser/Terminal tools - same color as edit_file (gold)
     "terminal_tool": "dark_goldenrod",  # Gold - browser terminal operations
+    # MCP tools - distinct from builtin tools
+    "mcp_tool_call": "dark_cyan",  # Teal - external MCP tool calls
+    # User-initiated shell pass-through (! prefix) - distinct from agent's shell_command
+    "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
 }
 
 

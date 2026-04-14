@@ -130,20 +130,13 @@ class TestRegisterToolsForAgent:
         mock_warn.assert_called()
 
     @patch("code_puppy.tools._load_plugin_tools")
-    @patch("code_puppy.tools.has_extended_thinking_active", return_value=True)
-    def test_skip_reasoning_tool(self, mock_ext, mock_load):
-        from code_puppy.tools import TOOL_REGISTRY, register_tools_for_agent
+    @patch("code_puppy.tools.has_extended_thinking_active", return_value=False)
+    def test_register_legacy_reasoning_tool(self, mock_ext, mock_load):
+        from code_puppy.tools import register_tools_for_agent
 
-        mock_fn = MagicMock()
-        original = TOOL_REGISTRY.get("agent_share_your_reasoning")
-        TOOL_REGISTRY["agent_share_your_reasoning"] = mock_fn
-        try:
-            agent = MagicMock()
-            register_tools_for_agent(agent, ["agent_share_your_reasoning"])
-            mock_fn.assert_not_called()
-        finally:
-            if original:
-                TOOL_REGISTRY["agent_share_your_reasoning"] = original
+        agent = MagicMock()
+        register_tools_for_agent(agent, ["agent_share_your_reasoning"])
+        agent.tool.assert_called()
 
     @patch("code_puppy.tools._load_plugin_tools")
     @patch("code_puppy.tools.has_extended_thinking_active", return_value=False)

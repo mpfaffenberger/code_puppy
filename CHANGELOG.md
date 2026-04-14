@@ -36,8 +36,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     - Edits (Diffs) are now much more beautiful
     - You can use `/diff` to select beautiful colors for additions and subtractions
   - New `/mcp install` - pick Custom JSON and it pulls up an interactive TUI for configuring MCP servers!
-  - GUI Cub is now available as an agent to explore Agentic RPA (LLM fueled Robotic Process Automation)
-    - Contributed by Dakota Brown who will be sending a larger email detailing its capabilities soon to this distribution list
   - Bigquery Agent - you can now use BQ as a first class citizen
     - Ahmed Noufal contributed this agent!
 
@@ -186,7 +184,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - [@cdakotabrown](https://github.com/cdakotabrown) - Unit test coverage!
   - [@cgycorey](https://github.com/cgycorey) - New permissions in non-YOLO mode, planning agent
   - [@diegonix](https://github.com/diegonix) - Numerous bug fixes and tweaks
-  - [@IgriegaL](https://github.com/IgriegaL) - Camoufox manager bug fix
+  - [@IgriegaL](https://github.com/IgriegaL) - Browser manager bug fix
 
 ### 🧪 Testing & Quality Assurance
 
@@ -232,12 +230,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### 🐛 Bug Fixes
 
 - **Browser Support**
-  - Fixed Camoufox loading issues (multiple iterations)
-  - Deferred Camoufox imports and added Playwright fallback
+  - Fixed browser plugin loading issues (multiple iterations)
+  - Deferred browser plugin imports and added Playwright fallback
   - Resolved browser initialization problems
   - Improved profile persistence
   - Avoided browserforge downloads at import-time
-  - Ensured Camoufox availability checks
+  - Ensured browser plugin availability checks
 
 - **Autosave & Session Management**
   - Restored autosave functionality by moving calls outside broad exception handlers
@@ -375,7 +373,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 - Improved attachment path handling with better token detection
-- Enhanced browser persistence for Camoufox profiles
+- Enhanced browser persistence for custom browser profiles
 - Updated iOS reviewer agent tests to be more flexible with prompt content validation
 - Made config tests more resilient by checking for any valid model instead of hardcoding expectations
 
@@ -390,7 +388,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Config test cache pollution resolved with autouse fixture
 - Windows-specific bug in agent manager
 - Import path issues in browser initialization
-- Browser profile storage and persistence issues for Camoufox
+- Browser profile storage and persistence issues for custom browser types
 
 ### Technical Improvements
 - Better test isolation with automatic cache clearing between tests
@@ -400,7 +398,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [0.0.205] - 2025-10-13
 
 ### Added
-- Persistent browser profile storage for Camoufox
+- Persistent browser profile storage for custom browser types
 
 ### Changed
 - Disabled URL parsing in prompt attachments

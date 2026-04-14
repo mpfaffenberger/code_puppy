@@ -13,7 +13,6 @@ envs:
       BUILD_STATUS: ""
       COMMIT_USER: ""
       ALLOW_ARTIFACTORY: true
-      GITHUB_TOKEN: ENC[xguOf6xpju9G2dd+lZ798zQvpyKE+0rF1vMbHL+IIVnIRpi1zkI0zEG+n8vGiiEU]
 
   build_success:
     variables:
@@ -38,8 +37,33 @@ triggers:
   - manual:
       name: manual_release
       call: manual_release()
+  - manual:
+      name: backfill_artifactory
+      call: backfill()
+      parameters:
+        - githubToken: { type: string }
 
 flows:
+  # ---------------------------------------------------------------------------
+  # One-time backfill: copy all GitHub releases → Artifactory generic repo
+  # Trigger manually from Looper UI. ALLOW_ARTIFACTORY injects TWINE_USERNAME,
+  # TWINE_PASSWORD, and REPOSOLNS_GENERIC_RELEASE_REPO automatically.
+  # Pass your GHE personal access token as the GITHUB_ACCESS_KEY parameter.
+  # ---------------------------------------------------------------------------
+  backfill:
+    - node(docker-daemon):
+        - dockerAgent(python-agent):
+            - shell: |
+                pip install --quiet \
+                  --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple \
+                  httpx
+            - shell: |
+                echo "=== Backfill: GitHub → Artifactory ==="
+                echo "GitHub token set: $([ -n "$GITHUB_ACCESS_KEY" ] && echo yes || echo NO)"
+                echo "Artifactory user: $TWINE_USERNAME"
+                echo "Artifactory repo: $REPOSOLNS_GENERIC_RELEASE_REPO"
+                GITHUB_ACCESS_KEY=${githubToken} python scripts/backfill_gh_to_artifactory.py
+
   default:
     - node(docker-daemon):
         - dockerAgent(python-agent):
@@ -76,25 +100,19 @@ flows:
   python_releaseSteps:
     - shell: uv --native-tls build
     - shell: |
-        # Install GitHub CLI via direct download (more reliable in Docker)
-        curl -fsSL https://github.com/cli/cli/releases/download/v2.40.1/gh_2.40.1_linux_amd64.tar.gz -o gh.tar.gz
-        tar -xzf gh.tar.gz
-        # Add gh to PATH for this session instead of using sudo
-        export PATH="$PWD/gh_2.40.1_linux_amd64/bin:$PATH"
-    - shell: |
-        # Configure gh for GitHub Enterprise and use local gh binary
-        export PATH="$PWD/gh_2.40.1_linux_amd64/bin:$PATH"
-        export GH_HOST=gecgithub01.walmart.com
-        # Authenticate with GitHub using the token
-        echo "${GITHUB_TOKEN}" | gh auth login --with-token
         VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
-        gh release create "v$VERSION" dist/*.whl \
-          --title "Release v$VERSION" \
-          --notes "Automated release of code-puppy v$VERSION" \
-          --repo genaica/code-puppy
-        # Clean up after release
-        rm -rf gh.tar.gz gh_2.40.1_linux_amd64
-    # - shell: uv --native-tls run twine upload --repository-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/pythonhosted-pypi-release-remote/simple/ dist/*
+        DEST="${REPOSOLNS_GENERIC_RELEASE_REPO}/code-puppy/$VERSION"
+        echo "Uploading to: $DEST"
+        echo "Auth user: $TWINE_USERNAME"
+        for f in dist/*; do
+          echo "--- Uploading $(basename $f) ---"
+          curl --fail --show-error \
+            --user "$TWINE_USERNAME:$TWINE_PASSWORD" \
+            --upload-file "$f" \
+            "$DEST/$(basename $f)" 2>&1
+          echo "Uploaded OK: $(basename $f)"
+        done
+        echo "All artifacts at: $DEST"
 
   commitVersion:
     - shell: git add pyproject.toml

@@ -449,75 +449,17 @@ def get_permission_handler_help() -> str:
 
 
 def get_file_permission_prompt_additions() -> str:
-    """Return file permission handling prompt additions for agents.
-
-    This function provides the file permission rejection handling
-    instructions that can be dynamically injected into agent prompts
-    via the prompt hook system.
-
-    Only returns instructions when yolo_mode is off (False).
-    """
-    # Only inject permission handling instructions when yolo mode is off
+    """Return file permission handling prompt additions for agents."""
     if get_yolo_mode():
-        return ""  # Return empty string when yolo mode is enabled
+        return ""
 
     return """
-## 💬 USER FEEDBACK SYSTEM
+## User Approval System
 
-**How User Approval Works:**
-
-When you attempt file operations or shell commands, the user sees a beautiful prompt with three options:
-1. **Press Enter or 'y'** → Approve (proceed with the operation as-is)
-2. **Type 'n'** → Reject silently (cancel without feedback)
-3. **Type any other text** → **Reject WITH feedback** (cancel and tell you what to do instead)
-
-**Understanding User Feedback:**
-
-When you receive a rejection response with `user_feedback` field populated:
-- The user is **rejecting your current approach**
-- They are **telling you what they want instead**
-- The feedback is in the `user_feedback` field or included in the error message
-
-Example tool response:
-```
-{
-  "success": false,
-  "user_rejection": true,
-  "user_feedback": "Add error handling and use async/await",
-  "message": "USER REJECTED: The user explicitly rejected these file changes. User feedback: Add error handling and use async/await"
-}
-```
-
-**WHEN YOU RECEIVE USER FEEDBACK, YOU MUST:**
-
-1. **🛑 STOP the current approach** - Do NOT retry the same operation
-2. **📝 READ the feedback carefully** - The user is telling you what they want
-3. **✅ IMPLEMENT their suggestion** - Modify your approach based on their feedback
-4. **🔄 TRY AGAIN with the changes** - Apply the feedback and attempt the operation again
-
-**Example Flow:**
-```
-You: *attempts to create function without error handling*
-User: "Add try/catch error handling" → REJECTS with feedback
-You: *modifies code to include try/catch*
-You: *attempts operation again with improved code*
-User: *approves*
-```
-
-**WHEN FEEDBACK IS EMPTY (silent rejection):**
-
-If `user_feedback` is None/empty, the user rejected without guidance:
-- **STOP immediately**
-- **ASK the user** what they want instead
-- **WAIT for explicit direction**
-
-**KEY POINTS:**
-- Feedback is **guidance**, not criticism - use it to improve!
-- The user wants the operation done **their way**
-- Implement the feedback and **try again**
-- Don't ask permission again - **just do it better**
-
-This system lets users guide you interactively! 🐶✨
+When file operations are rejected, the response includes a `user_feedback` field:
+- If `user_feedback` has text: implement their suggestion and retry the operation.
+- If `user_feedback` is empty: stop and ask the user what they want instead.
+- Never retry the exact same rejected operation without changes.
 """
 
 

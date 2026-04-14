@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
+from code_puppy.http_utils import get_cert_bundle_path
+
 # Gracefully import is_token_expired from walmart_specific
 # This allows the plugin to work even if walmart_specific isn't installed
 try:
@@ -58,7 +60,7 @@ def _format_response_error(response_text: str, status_code: int) -> str:
             or "login" in text.lower()
             or "auth" in text.lower()
         ):
-            return "Authentication required. Try running /puppy_auth first."
+            return "Authentication required. Try running /marketplace_auth first."
         elif "blocked" in text.lower() or "forbidden" in text.lower():
             return "Request blocked by corporate proxy. Check your network connection."
         elif "not found" in text.lower() or "404" in text:
@@ -70,7 +72,7 @@ def _format_response_error(response_text: str, status_code: int) -> str:
 
     # Detect auth redirects in response text
     if "signin" in text or "callbackUrl" in text:
-        return "Authentication required. Try running /puppy_auth first."
+        return "Authentication required. Try running /marketplace_auth first."
 
     # Return truncated raw response for other cases
     if len(text) > 100:
@@ -167,7 +169,7 @@ def get_marketplace_token_status() -> Tuple[bool, bool]:
 def _get_auth_headers() -> dict:
     """Get authentication headers for marketplace API.
 
-    Uses marketplace_token from config (set by /puppy_auth command).
+    Uses marketplace_token from config (set by /marketplace_auth command).
     This is different from puppy_token which is for the backend.
 
     Also includes the user's AD groups as a custom header so the server
@@ -217,7 +219,7 @@ async def upload_agent(agent_data: dict) -> dict:
     base_url = _get_marketplace_base_url()
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             response = await client.post(
                 f"{base_url}/publish",
@@ -275,7 +277,7 @@ async def search_agents(
 
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             response = await client.get(
                 f"{base_url}/search",
@@ -319,7 +321,7 @@ async def download_agent(name: str) -> dict:
     try:
         # Use a longer timeout (60s) for downloads as agents can be large
         async with httpx.AsyncClient(
-            timeout=60.0, verify=False, follow_redirects=True
+            timeout=60.0, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             response = await client.get(
                 f"{base_url}/download",
@@ -362,7 +364,7 @@ async def get_my_agents() -> dict:
     base_url = _get_marketplace_base_url()
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             response = await client.get(
                 f"{base_url}/my-agents",
@@ -405,7 +407,7 @@ async def check_update(name: str, local_hash: str, version: int = None) -> dict:
 
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             response = await client.get(
                 f"{base_url}/check-update",
@@ -448,7 +450,7 @@ async def get_agent_by_name(name: str) -> dict:
     base_url = _get_marketplace_base_url()
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             response = await client.get(
                 f"{base_url}/{name}",
@@ -497,7 +499,7 @@ async def delete_agent(name: str) -> dict:
     base_url = _get_marketplace_base_url()
     try:
         async with httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT, verify=False, follow_redirects=True
+            timeout=DEFAULT_TIMEOUT, verify=get_cert_bundle_path(), follow_redirects=True
         ) as client:
             response = await client.delete(
                 f"{base_url}/{name}",

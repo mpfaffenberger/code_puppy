@@ -10,6 +10,9 @@ PhaseType = Literal[
     "agent_exception",
     "version_check",
     "edit_file",
+    "create_file",
+    "replace_in_file",
+    "delete_snippet",
     "delete_file",
     "run_shell_command",
     "run_shell_command_output",
@@ -45,6 +48,9 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "agent_exception": [],
     "version_check": [],
     "edit_file": [],
+    "create_file": [],
+    "replace_in_file": [],
+    "delete_snippet": [],
     "delete_file": [],
     "run_shell_command": [],
     "run_shell_command_output": [],
@@ -235,6 +241,18 @@ def on_load_models_config() -> List[Any]:
 
 def on_edit_file(*args, **kwargs) -> Any:
     return _trigger_callbacks_sync("edit_file", *args, **kwargs)
+
+
+def on_create_file(*args, **kwargs) -> Any:
+    return _trigger_callbacks_sync("create_file", *args, **kwargs)
+
+
+def on_replace_in_file(*args, **kwargs) -> Any:
+    return _trigger_callbacks_sync("replace_in_file", *args, **kwargs)
+
+
+def on_delete_snippet(*args, **kwargs) -> Any:
+    return _trigger_callbacks_sync("delete_snippet", *args, **kwargs)
 
 
 def on_delete_file(*args, **kwargs) -> Any:
@@ -569,17 +587,17 @@ def on_register_browser_types() -> List[Any]:
 
     Plugins can register callbacks that return a dict mapping browser type names
     to initialization functions. This allows plugins to provide custom browser
-    implementations (like Camoufox for stealth browsing).
+    implementations (such as stealth-focused or hardened browsers).
 
     Each callback should return a dict with:
-    - key: str - the browser type name (e.g., "camoufox", "firefox-stealth")
+    - key: str - the browser type name (e.g., "firefox-stealth", "hardened")
     - value: callable - async initialization function that takes (manager, **kwargs)
                         and sets up the browser on the manager instance
 
     Example callback:
         def register_my_browser_types():
             return {
-                "camoufox": initialize_camoufox,
+                "firefox-stealth": initialize_firefox_stealth,
                 "my-stealth-browser": initialize_my_stealth,
             }
 

@@ -270,3 +270,58 @@ class TestBaseAgentComplexMethods:
             assert len(result) > 0
             # Should preserve message structure
             assert all(hasattr(msg, "parts") for msg in result)
+
+    def test_truncation_registers_dropped_messages_in_compacted_hashes(
+        self, agent, mock_run_context
+    ):
+        """Regression test: messages dropped by truncation must be registered in
+        compacted_message_hashes so message_history_accumulator won't re-add them
+        on subsequent calls within the same run (the ghost-task bug).
+
+        Before the fix, summarized_messages was always [] for the truncation path,
+        so no hashes were ever registered and old messages kept flooding back in.
+        """
+        # System prompt (always kept)
+        system_msg = ModelRequest(parts=[TextPart(content="You are code-puppy.")])
+
+        # Old completed Task A message - big enough to be dropped by truncation
+        # estimate_token_count = floor(len / 2.5), so 500 chars = 200 tokens
+        big_old_task_msg = ModelResponse(
+            parts=[TextPart(content="old task result " + "x" * 500)]
+        )
+
+        # Current Task B prompt - small, should survive truncation
+        current_task_msg = ModelRequest(parts=[TextPart(content="new task")])
+
+        messages = [system_msg, big_old_task_msg, current_task_msg]
+
+        with (
+            patch("code_puppy.agents.base_agent.update_spinner_context"),
+            patch(
+                "code_puppy.agents.base_agent.get_compaction_threshold",
+                return_value=0.0,
+            ),
+            patch(
+                "code_puppy.agents.base_agent.get_compaction_strategy",
+                return_value="truncation",
+            ),
+            patch(
+                "code_puppy.agents.base_agent.get_protected_token_count",
+                return_value=50,
+            ),
+        ):
+            agent.message_history_processor(mock_run_context, messages)
+
+        # After truncation, the big old-task message should be registered as
+        # compacted so accumulator knows not to re-add it later.
+        dropped_hash = agent.hash_message(big_old_task_msg)
+        assert dropped_hash in agent.get_compacted_message_hashes(), (
+            "Dropped message hash not in compacted_message_hashes - "
+            "truncation failed to register it, causing ghost-task re-injection."
+        )
+
+        # The current task message must still be in live history (not dropped)
+        live_hashes = {agent.hash_message(m) for m in agent.get_message_history()}
+        assert agent.hash_message(current_task_msg) in live_hashes, (
+            "Current task message was incorrectly dropped by truncation."
+        )

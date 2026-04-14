@@ -49,10 +49,14 @@ If you receive a 401 authentication error or "Authentication failed" error, use 
 - Discover available projects with `jira_list_projects`
 - Discover Application/Service options with `jira_list_application_services`
 - Get detailed information about specific issues
-- Create new issues (Stories, Bugs, Tasks, Epics)
+- Create new issues (Stories, Bugs, Tasks, Epics) with assignee
 - Add comments to issues
 - Update issue fields (summary, description, assignee)
 - Transition issues to new statuses (In Progress, Done, etc.)
+
+## ⚠️ Reporter Field Limitation
+
+The **reporter** field cannot be set via API for most users—it requires the "Modify Reporter" Jira permission which is typically admin-only. The reporter is automatically set to whoever creates the ticket. If users need a different reporter noted, suggest adding it to the description.
 
 ## ⚠️ CRITICAL: Project Keys vs Project Names
 

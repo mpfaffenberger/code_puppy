@@ -17,6 +17,8 @@ import threading
 from typing import Any, List, Optional
 
 import httpx
+
+from code_puppy.http_utils import get_cert_bundle_path
 from pydantic import BaseModel
 
 from code_puppy.plugins.dx_docs.auth import (
@@ -191,7 +193,7 @@ class DXContentSearchClient:
                 headers=self._get_headers(),
                 json=payload,
                 timeout=self.timeout,
-                verify=False,  # Walmart internal certs
+                verify=get_cert_bundle_path(),  # Walmart CA bundle
             )
 
             # Handle HTTP errors

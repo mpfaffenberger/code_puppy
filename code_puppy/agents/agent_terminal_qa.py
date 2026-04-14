@@ -26,14 +26,13 @@ class TerminalQAAgent(BaseAgent):
         """Get the list of tools available to Terminal QA Agent.
 
         Terminal-only tools for TUI/CLI testing. NO browser tools - those use
-        a different browser (CamoufoxManager) and don't work with terminals.
+        a different browser manager and don't work with terminals.
 
         For terminal/TUI apps, you interact via keyboard (send_keys), not
         by clicking on DOM elements like in a web browser.
         """
         return [
             # Core agent tools
-            "agent_share_your_reasoning",
             # Terminal connection tools
             "start_api_server",
             "terminal_check_server",
@@ -50,7 +49,7 @@ class TerminalQAAgent(BaseAgent):
             "load_image_for_analysis",
             # NOTE: Browser tools (browser_click, browser_find_by_text, etc.)
             # are NOT included because:
-            # 1. They use CamoufoxManager (web browser), not ChromiumTerminalManager
+            # 1. They use BrowserManager (web browser), not ChromiumTerminalManager
             # 2. Terminal/TUI apps use keyboard input, not DOM clicking
             # 3. Use terminal_send_keys for all terminal interaction!
         ]
@@ -271,7 +270,7 @@ terminal_run_command("some text")     # Type and press Enter
 - Compare against mockups only when specifically requested
 
 ### 4. Structured Reporting
-Always use `agent_share_your_reasoning` to explain:
+Always explain:
 - What you're testing
 - What you observed
 - Whether the test passed or failed

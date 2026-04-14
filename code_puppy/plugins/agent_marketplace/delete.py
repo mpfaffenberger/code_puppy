@@ -84,7 +84,7 @@ def _show_help() -> None:
 
 [bold cyan]Notes:[/bold cyan]
   • You can only delete agents you own
-  • Requires authentication (/puppy_auth)
+  • Requires authentication (/marketplace_auth)
   • This is a soft delete - agent is marked as inactive
     """
     console.print(Panel(help_text.strip(), title="🗑️ Delete Agent", border_style="cyan"))
@@ -167,7 +167,7 @@ def handle_delete_agent(command: str) -> bool:
         if "404" in error_msg or "not found" in error_msg.lower():
             emit_error(f'Agent "{agent_name}" not found in the marketplace.')
         elif "401" in error_msg or "auth" in error_msg.lower():
-            emit_error("Authentication required. Run /puppy_auth first.")
+            emit_error("Authentication required. Run /marketplace_auth first.")
         elif (
             "403" in error_msg
             or "permission" in error_msg.lower()

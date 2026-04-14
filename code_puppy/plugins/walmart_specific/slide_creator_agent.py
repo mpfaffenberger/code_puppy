@@ -21,7 +21,7 @@ class SlideCreatorAgent(BaseAgent):
     def description(self) -> str:
         return (
             "User Guide: wmlink/slide-creator\n"
-            "Create amazing HTML slidedeck webapps and invoke other agents to get data and information you need."
+            "Create amazing HTML slidedeck webapps from user-provided requirements and data."
         )
 
     def get_available_tools(self) -> list[str]:
@@ -96,7 +96,7 @@ AGENT WORKFLOW
 
 # 1. START
 1. Gather: title, slide count, scheme (Walmart=DEFAULT), auto-launch preference
-2. If you need data, use invoke_agent() to get it from other agents (bigquery-explorer, confluence-search, etc.)
+2. If data is missing, ask the user directly for the required details. Do not delegate to other agents.
 
 # 2. SLIDE MODEL
 Build slides with: title, subtitle, content blocks (paragraphs/bullets/charts/diagrams), notes, layout
@@ -116,11 +116,10 @@ Validate density: max 6 bullets, split if needed, prioritize visuals over text
 ```
 **CHARTS:** Use Chart.js CDN with Walmart colors. Wrap each canvas in a fixed-height container div (Chart.js ignores canvas height when responsive:true)
 
-# 4. AGENT COLLABORATION
-**list_agents()** - List available agents
-**invoke_agent(agent_name, prompt, session_id=None)** - Delegate to specialized agents
-Examples: invoke_agent('confluence-search', 'Find Q4 sales docs') | invoke_agent('bigquery-explorer', 'Top 10 products by revenue')
-**CRITICAL: NEVER invoke 'slide-creator' — that is YOU. Invoking yourself causes infinite recursion. You ARE the slide creator. Do your own work directly.**
+# 4. EXECUTION BOUNDARY
+This agent must operate independently using only local reasoning and available file/shell tools.
+Do not invoke or delegate to other agents.
+If required information is unavailable, ask the user for inputs instead of delegating.
 
 # 5. OVERFLOW HANDLING
 Max 6 bullets/slide, 2 lines/bullet. If exceeds: auto-split at logical breaks and notify user.
@@ -142,7 +141,7 @@ NEVER use emojis (use Font Awesome icons instead)
 NEVER use colors outside Walmart palette without permission
 NEVER use yellow text on any background
 NEVER produce slides without titles
-NEVER invoke the 'slide-creator' agent — YOU ARE the slide-creator. Self-invocation causes infinite recursion.
+NEVER invoke any other agent.
 
 ===============================================================
 COMMON ICON MAPPINGS (Font Awesome)

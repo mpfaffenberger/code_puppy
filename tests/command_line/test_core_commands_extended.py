@@ -644,20 +644,20 @@ class TestHandleModelCommand:
         """Test model command with a valid model name argument."""
         # Patch update_model_in_input where it's imported (core_commands module level)
         with patch(
-            "code_puppy.command_line.core_commands.update_model_in_input",
-            return_value="/m synthetic-GLM-4.7",
+            "code_puppy.command_line.model_picker_completion.update_model_in_input",
+            return_value="/m synthetic-GLM-5.1",
         ):
             # get_active_model is imported inside the function, so patch at source
             with patch(
                 "code_puppy.command_line.model_picker_completion.get_active_model",
-                return_value="synthetic-GLM-4.7",
+                return_value="synthetic-GLM-5.1",
             ):
                 # emit_success is imported inside the function, so patch at source
                 with patch("code_puppy.messaging.emit_success") as mock_success:
-                    result = handle_model_command("/model synthetic-GLM-4.7")
+                    result = handle_model_command("/model synthetic-GLM-5.1")
                     assert result is True
                     mock_success.assert_called_with(
-                        "Active model set and loaded: synthetic-GLM-4.7"
+                        "Active model set and loaded: synthetic-GLM-5.1"
                     )
 
     def test_model_command_with_invalid_argument(self):
@@ -690,14 +690,14 @@ class TestHandleModelCommand:
             # get_active_model is imported inside the function, so patch at source
             with patch(
                 "code_puppy.command_line.model_picker_completion.get_active_model",
-                return_value="synthetic-GLM-4.7",
+                return_value="synthetic-GLM-5.1",
             ):
                 # emit_success is imported inside the function, so patch at source
                 with patch("code_puppy.messaging.emit_success") as mock_success:
-                    result = handle_model_command("/m synthetic-GLM-4.7")
+                    result = handle_model_command("/m synthetic-GLM-5.1")
                     assert result is True
                     mock_success.assert_called_with(
-                        "Active model set and loaded: synthetic-GLM-4.7"
+                        "Active model set and loaded: synthetic-GLM-5.1"
                     )
 
     def test_model_command_thread_pool_timeout(self):
