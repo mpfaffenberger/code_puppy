@@ -625,8 +625,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             # The renderer is stopped in the finally block of main().
             break
 
-        # Check for clear command (supports both `clear` and `/clear`)
-        if task.strip().lower() in ("clear", "/clear"):
+        # Check for clear command (supports only `clear`)
+        if task.strip().lower() in ("clear"):
             from code_puppy.command_line.clipboard import get_clipboard_manager
             from code_puppy.messaging import (
                 emit_info,
