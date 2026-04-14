@@ -32,6 +32,7 @@ PhaseType = Literal[
     "get_model_system_prompt",
     "agent_run_start",
     "agent_run_end",
+    "agent_run_result",
     "register_mcp_catalog_servers",
     "register_browser_types",
     "get_motd",
@@ -70,6 +71,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "get_model_system_prompt": [],
     "agent_run_start": [],
     "agent_run_end": [],
+    "agent_run_result": [],
     "register_mcp_catalog_servers": [],
     "register_browser_types": [],
     "get_motd": [],
@@ -567,6 +569,48 @@ async def on_agent_run_end(
         error,
         response_text,
         metadata,
+    )
+
+
+async def on_agent_run_result(
+    result: Any,
+    agent_name: str,
+    model_name: str,
+) -> List[Any]:
+    """Trigger callbacks after an agent run returns a result.
+
+    Fires after ``pydantic_agent.run()`` completes successfully, **before**
+    the result is handed back to the caller.  Plugins can inspect the result
+    and request an automatic retry (e.g. when an upstream content-filter
+    produced a false-positive refusal).
+
+    Callback signature::
+
+        async def my_callback(result, agent_name: str, model_name: str)
+            -> dict | None
+
+    To request a retry, return a dict with::
+
+        {
+            "retry": True,
+            "prompt": "<message to send on retry>",
+            "delay": 1.0,          # optional, seconds before retry
+        }
+
+    Return ``None`` (or omit a return) to let the result pass through.
+    The first callback that returns a retry request wins; the agent
+    replays at most a small fixed number of times to prevent runaway loops.
+
+    Args:
+        result: The ``RunResult`` returned by ``pydantic_agent.run()``.
+        agent_name: Name of the agent that produced the result.
+        model_name: Name of the model that was used.
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return await _trigger_callbacks(
+        "agent_run_result", result, agent_name, model_name
     )
 
 

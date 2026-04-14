@@ -84,6 +84,9 @@ from code_puppy.plugins.walmart_specific.enterprise_tools import get_enterprise_
 from code_puppy.plugins.walmart_specific.codex_model_handler import (
     create_codex_model,
 )
+from code_puppy.plugins.walmart_specific.content_filter_retry import (
+    on_result_check_content_filter,
+)
 
 
 def get_walmart_mcp_servers():
@@ -427,6 +430,7 @@ def get_walmart_model_types():
 
 
 register_callback("register_model_type", get_walmart_model_types)
+register_callback("agent_run_result", on_result_check_content_filter)
 
 
 # MOTD (Message of the Day) for Walmart internal users

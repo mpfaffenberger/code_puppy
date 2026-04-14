@@ -2,22 +2,22 @@
 
 Covers:
   - ``is_content_filter_response`` pattern matching (positive & negative)
-  - ``_retry_on_content_filter`` auto-retry behaviour inside the agent run loop
+  - ``on_result_check_content_filter`` callback return values
+  - Integration with the ``agent_run_result`` hook contract
 """
 
-import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from code_puppy.content_filter_retry import (
+from code_puppy.plugins.walmart_specific.content_filter_retry import (
     CONTENT_FILTER_RETRY_DELAY,
     CONTENT_FILTER_RETRY_PROMPT,
-    MAX_CONTENT_FILTER_RETRIES,
     _MAX_REFUSAL_LENGTH,
     _REFUSAL_PATTERNS,
     is_content_filter_response,
+    on_result_check_content_filter,
 )
 
 
@@ -68,7 +68,6 @@ class TestIsContentFilterResponse:
 
     def test_length_boundary(self):
         """Responses longer than _MAX_REFUSAL_LENGTH are never matched."""
-        # Pad a known refusal to exactly the limit → should still match
         base = "I'm sorry, but I cannot assist with that."
         padded_at_limit = base + " " * (_MAX_REFUSAL_LENGTH - len(base))
         assert len(padded_at_limit.strip()) <= _MAX_REFUSAL_LENGTH
@@ -85,185 +84,110 @@ class TestIsContentFilterResponse:
 
 
 # ---------------------------------------------------------------------------
-# _retry_on_content_filter — retry logic tests
+# on_result_check_content_filter — callback tests
 # ---------------------------------------------------------------------------
 
 
-def _make_result(output: str, messages=None):
+def _make_result(output: str):
     """Build a lightweight stand-in for a pydantic-ai RunResult."""
-    return SimpleNamespace(
-        output=output,
-        all_messages=lambda: messages or [],
-    )
+    return SimpleNamespace(output=output, all_messages=lambda: [])
 
 
-class TestRetryOnContentFilter:
-    """Integration-style tests for the retry wrapper.
+class TestOnResultCheckContentFilter:
+    """Tests for the ``agent_run_result`` callback implementation."""
 
-    We replicate the nested-function structure from base_agent so we can
-    test in isolation without instantiating the full agent.
-    """
+    def test_returns_none_for_normal_response(self):
+        result = _make_result("Here's your code!")
+        rv = on_result_check_content_filter(result, "test-agent", "gpt-5.4")
+        assert rv is None
 
-    @staticmethod
-    def _build_retry_harness(
-        streaming_retry_side_effects,
-        set_history_mock=None,
-        get_history_mock=None,
-    ):
-        """Build a self-contained ``_retry_on_content_filter`` callable.
-
-        ``streaming_retry_side_effects`` is a list of RunResult-like objects
-        that ``_run_with_streaming_retry`` returns on successive calls.
-        """
-        call_count = 0
-
-        async def fake_streaming_retry(factory):
-            nonlocal call_count
-            result = streaming_retry_side_effects[call_count]
-            call_count += 1
-            return result
-
-        _set_history = set_history_mock or MagicMock()
-        _get_history = get_history_mock or MagicMock(return_value=[])
-
-        # Minimal stand-ins for closure variables the real function captures
-        class FakeSelf:
-            set_message_history = _set_history
-            get_message_history = _get_history
-
-        fake_self = FakeSelf()
-        usage_limits = None
-        stream_handler = None
-        kwargs: dict = {}
-        pydantic_agent = MagicMock()
-
-        from code_puppy.content_filter_retry import (
-            CONTENT_FILTER_RETRY_DELAY,
-            CONTENT_FILTER_RETRY_PROMPT,
-            MAX_CONTENT_FILTER_RETRIES,
-            is_content_filter_response,
-        )
-        from code_puppy.messaging import emit_warning
-
-        async def _retry_on_content_filter(result_):
-            for cf_attempt in range(MAX_CONTENT_FILTER_RETRIES):
-                output = getattr(result_, "output", None) or ""
-                if not is_content_filter_response(output):
-                    return result_
-                emit_warning(
-                    f"⚡ Azure content filter false-positive detected, "
-                    f"auto-retrying ({cf_attempt + 1}/{MAX_CONTENT_FILTER_RETRIES})…"
-                )
-                if hasattr(result_, "all_messages"):
-                    fake_self.set_message_history(list(result_.all_messages()))
-                await asyncio.sleep(CONTENT_FILTER_RETRY_DELAY)
-                result_ = await fake_streaming_retry(
-                    lambda: pydantic_agent.run(
-                        CONTENT_FILTER_RETRY_PROMPT,
-                        message_history=fake_self.get_message_history(),
-                        usage_limits=usage_limits,
-                        event_stream_handler=stream_handler,
-                        **kwargs,
-                    )
-                )
-            return result_
-
-        return _retry_on_content_filter, fake_self, lambda: call_count
-
-    @pytest.mark.asyncio
-    async def test_passthrough_when_no_filter(self):
-        """Normal responses are returned immediately, no retry."""
-        good = _make_result("Here's your code!")
-        retry_fn, _, get_calls = self._build_retry_harness([good])
-
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await retry_fn(good)
-
-        assert result.output == "Here's your code!"
-        assert get_calls() == 0  # no extra calls
-
-    @pytest.mark.asyncio
-    async def test_retries_on_content_filter_then_succeeds(self):
-        """Content filter response triggers retry; second attempt succeeds."""
-        filtered = _make_result(
+    def test_returns_retry_dict_for_filtered_response(self):
+        result = _make_result(
             "I'm sorry, but I cannot assist with that request."
         )
-        good = _make_result("Here's the real answer!")
-        retry_fn, fake_self, get_calls = self._build_retry_harness([good])
+        with patch(
+            "code_puppy.plugins.walmart_specific.content_filter_retry.emit_warning"
+        ):
+            rv = on_result_check_content_filter(
+                result, "test-agent", "gpt-5.4"
+            )
 
-        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-            with patch("code_puppy.messaging.emit_warning"):
-                result = await retry_fn(filtered)
+        assert isinstance(rv, dict)
+        assert rv["retry"] is True
+        assert rv["prompt"] == CONTENT_FILTER_RETRY_PROMPT
+        assert rv["delay"] == CONTENT_FILTER_RETRY_DELAY
 
-        assert result.output == "Here's the real answer!"
-        assert get_calls() == 1
-        fake_self.set_message_history.assert_called_once()
-        mock_sleep.assert_awaited_once_with(CONTENT_FILTER_RETRY_DELAY)
+    def test_returns_none_for_empty_output(self):
+        result = _make_result("")
+        rv = on_result_check_content_filter(result, "test-agent", "gpt-5.4")
+        assert rv is None
 
-    @pytest.mark.asyncio
-    async def test_exhausts_retries_returns_last(self):
-        """If every retry is also filtered, returns the last result."""
-        filtered1 = _make_result(
+    def test_returns_none_for_none_output(self):
+        result = SimpleNamespace(output=None)
+        rv = on_result_check_content_filter(result, "test-agent", "gpt-5.4")
+        assert rv is None
+
+    def test_returns_none_for_missing_output_attr(self):
+        result = SimpleNamespace(data="something")
+        rv = on_result_check_content_filter(result, "test-agent", "gpt-5.4")
+        assert rv is None
+
+    def test_emits_warning_on_detection(self):
+        result = _make_result(
             "I'm sorry, but I cannot assist with that request."
         )
-        filtered2 = _make_result(
-            "I'm sorry, but I can't help with that."
+        with patch(
+            "code_puppy.plugins.walmart_specific.content_filter_retry.emit_warning"
+        ) as mock_warn:
+            on_result_check_content_filter(result, "test-agent", "gpt-5.4")
+
+        mock_warn.assert_called_once()
+        assert "content filter" in mock_warn.call_args[0][0].lower()
+
+    def test_does_not_warn_for_normal_response(self):
+        result = _make_result("All good!")
+        with patch(
+            "code_puppy.plugins.walmart_specific.content_filter_retry.emit_warning"
+        ) as mock_warn:
+            on_result_check_content_filter(result, "test-agent", "gpt-5.4")
+
+        mock_warn.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Hook contract tests — verify the dict shape matches base_agent expectations
+# ---------------------------------------------------------------------------
+
+
+class TestHookContract:
+    """Ensure the callback return value matches what _run_with_result_hooks expects."""
+
+    def test_retry_dict_has_required_keys(self):
+        result = _make_result(
+            "I'm sorry, but I cannot assist with that request."
         )
-        # Both retries are also filtered
-        retry_fn, _, get_calls = self._build_retry_harness(
-            [filtered1, filtered2]
-        )
+        with patch(
+            "code_puppy.plugins.walmart_specific.content_filter_retry.emit_warning"
+        ):
+            rv = on_result_check_content_filter(
+                result, "test-agent", "gpt-5.4"
+            )
 
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            with patch("code_puppy.messaging.emit_warning"):
-                result = await retry_fn(filtered1)
+        # base_agent checks: isinstance(r, dict) and r.get("retry")
+        assert isinstance(rv, dict)
+        assert "retry" in rv
+        assert rv["retry"] is True
 
-        # Should have retried MAX_CONTENT_FILTER_RETRIES times
-        assert get_calls() == MAX_CONTENT_FILTER_RETRIES
-        # Returns the last (still-filtered) result rather than crashing
-        assert is_content_filter_response(result.output)
+        # base_agent reads: .get("prompt", "Please continue.")
+        assert isinstance(rv["prompt"], str)
+        assert len(rv["prompt"]) > 0
 
-    @pytest.mark.asyncio
-    async def test_history_updated_before_retry(self):
-        """Message history is saved before each retry attempt."""
-        msgs = [{"role": "assistant", "content": "sorry"}]
-        filtered = _make_result(
-            "I'm sorry, but I cannot assist with that request.",
-            messages=msgs,
-        )
-        good = _make_result("All good now!")
-        set_hist = MagicMock()
-        retry_fn, _, _ = self._build_retry_harness(
-            [good], set_history_mock=set_hist
-        )
+        # base_agent reads: .get("delay", 1.0)
+        assert isinstance(rv["delay"], (int, float))
+        assert rv["delay"] > 0
 
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            with patch("code_puppy.messaging.emit_warning"):
-                await retry_fn(filtered)
-
-        set_hist.assert_called_once_with(msgs)
-
-    @pytest.mark.asyncio
-    async def test_result_with_no_output_attr_passthrough(self):
-        """Objects without an ``output`` attribute pass through safely."""
-        weird = SimpleNamespace(data="something")
-        retry_fn, _, get_calls = self._build_retry_harness([])
-
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await retry_fn(weird)
-
-        assert result is weird
-        assert get_calls() == 0
-
-    @pytest.mark.asyncio
-    async def test_none_result_passthrough(self):
-        """A ``None`` result (e.g. cancelled task) passes through."""
-        retry_fn, _, get_calls = self._build_retry_harness([])
-
-        # None doesn't have .output so getattr returns ""
-        none_result = SimpleNamespace(output=None)
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await retry_fn(none_result)
-
-        assert result.output is None
-        assert get_calls() == 0
+    def test_none_return_does_not_trigger_retry(self):
+        """base_agent skips retry when callback returns None."""
+        result = _make_result("Perfectly normal response.")
+        rv = on_result_check_content_filter(result, "test-agent", "gpt-5.4")
+        assert rv is None
