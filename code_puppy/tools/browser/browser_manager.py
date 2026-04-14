@@ -16,7 +16,7 @@ from playwright.async_api import Browser, BrowserContext, Page
 from code_puppy import config
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 
-# Registry for custom browser types from plugins (e.g., Camoufox for stealth browsing)
+# Registry for custom browser types from plugins
 _CUSTOM_BROWSER_TYPES: Dict[str, Callable] = {}
 _BROWSER_TYPES_LOADED: bool = False
 
@@ -25,7 +25,7 @@ def _load_plugin_browser_types() -> None:
     """Load custom browser types from plugins.
 
     This is called lazily on first browser initialization to allow plugins
-    to register custom browser providers (like Camoufox for stealth browsing).
+    to register custom browser providers.
     """
     global _CUSTOM_BROWSER_TYPES, _BROWSER_TYPES_LOADED
 
@@ -143,8 +143,8 @@ class BrowserManager:
         Each session gets its own profile directory under:
         XDG_CACHE_HOME/code_puppy/browser_profiles/<session_id>/
 
-        Custom browser types (like Camoufox) may use their own profile
-        management via the plugin system.
+        Custom browser types may use their own profile management via
+        the plugin system.
         """
         cache_dir = Path(config.CACHE_DIR)
         profiles_base = cache_dir / "browser_profiles"
@@ -160,7 +160,6 @@ class BrowserManager:
         - 'firefox': Standard Playwright Firefox
         - 'webkit': Standard Playwright WebKit
         - Custom types registered via the register_browser_types plugin hook
-          (e.g., 'camoufox' for stealthy browsing)
         """
         if self._initialized:
             return
@@ -347,7 +346,7 @@ class BrowserManager:
                     if not silent:
                         emit_warning(f"Could not save storage state: {e}")
 
-            # Close the browser context (works for both standard Playwright and Camoufox)
+            # Close the browser context for both standard and custom browser types
             if self._context:
                 try:
                     await self._context.close()
@@ -409,8 +408,8 @@ def get_browser_manager(
         # Named session (for multi-agent use)
         manager = get_browser_manager("qa-agent-1")
 
-        # Custom browser type (e.g., stealth browser from plugin)
-        manager = get_browser_manager("stealth-session", browser_type="camoufox")
+        # Custom browser type from plugin
+        manager = get_browser_manager("custom-session", browser_type="my-browser")
     """
     session_id = session_id or "default"
 
@@ -485,6 +484,3 @@ def _sync_cleanup_browsers() -> None:
 atexit.register(_sync_cleanup_browsers)
 
 
-# Backwards compatibility aliases
-CamoufoxManager = BrowserManager
-get_camoufox_manager = get_browser_manager

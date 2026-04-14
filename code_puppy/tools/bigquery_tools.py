@@ -19,6 +19,7 @@ from rich.text import Text
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.plugins.walmart_specific.bigquery_client import (
     BigQueryAPIError,
+    BigQueryAccessDeniedError,
     BigQueryAuthError,
     BigQueryClient,
     BigQueryError,
@@ -47,6 +48,23 @@ def get_bigquery_client(project_id: str | None = None) -> BigQueryClient:
     return BigQueryClient(project_id=project_id)
 
 
+def _extract_table_from_error(error_str: str) -> str | None:
+    """Extract a fully-qualified table name from a BQ error message.
+
+    Handles both backtick-quoted (`project.dataset.table`) and plain
+    'project:dataset.table' formats found in GCP error strings.
+    """
+    import re
+
+    m = re.search(r"`([^`]+\.[^`]+\.[^`]+)`", error_str)
+    if m:
+        return m.group(1)
+    m = re.search(r"(\S+:\S+\.\S+)", error_str)
+    if m:
+        return m.group(1).rstrip(".;,")
+    return None
+
+
 def _handle_bigquery_error(e: Exception) -> dict:
     """Convert BigQuery exceptions to structured error responses.
 
@@ -56,6 +74,20 @@ def _handle_bigquery_error(e: Exception) -> dict:
     Returns:
         Dict with success=False and error details
     """
+    if isinstance(e, BigQueryAccessDeniedError):
+        table = _extract_table_from_error(str(e))
+        table_display = f"`{table}`" if table else "this table"
+        emit_warning(f"🔒 Access denied to {table_display}")
+        return {
+            "success": False,
+            "error_type": "access_denied",
+            "error": f"You don't have access to {table_display}.",
+            "suggestion": (
+                "Would you like help requesting access, "
+                "or should I find a table you DO have access to?"
+            ),
+            "table": table,
+        }
     if isinstance(e, BigQueryAuthError):
         error_msg = f"Authentication failed: {str(e)}"
         emit_error(error_msg)

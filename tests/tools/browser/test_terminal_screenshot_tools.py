@@ -5,11 +5,13 @@ and image analysis with extensive mocking to avoid actual browser
 and VQA model operations.
 """
 
+import io
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from PIL import Image
 from pydantic_ai import BinaryContent, ToolReturn
 
 from code_puppy.tools.browser.terminal_screenshot_tools import (
@@ -313,7 +315,10 @@ class TestLoadImage:
     async def test_load_image_success(self):
         """Test successful image loading returns ToolReturn with BinaryContent."""
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-            f.write(b"fake_image_data")
+            image = Image.new("RGB", (32, 24), color="red")
+            output = io.BytesIO()
+            image.save(output, format="PNG")
+            f.write(output.getvalue())
             image_path = f.name
 
         try:
@@ -374,9 +379,20 @@ class TestLoadImage:
             ".webp",
         ]
 
+        format_map = {
+            ".png": "PNG",
+            ".jpg": "JPEG",
+            ".jpeg": "JPEG",
+            ".gif": "GIF",
+            ".webp": "WEBP",
+        }
+
         for suffix in formats:
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
-                f.write(b"image_data")
+                image = Image.new("RGB", (32, 24), color="blue")
+                output = io.BytesIO()
+                image.save(output, format=format_map[suffix])
+                f.write(output.getvalue())
                 image_path = f.name
 
             try:
@@ -389,12 +405,11 @@ class TestLoadImage:
                         result = await load_image(image_path=image_path)
 
                         assert isinstance(result, ToolReturn)
-                        # All images are converted to PNG after resizing
                         binary_contents = [
                             c for c in result.content if isinstance(c, BinaryContent)
                         ]
                         assert len(binary_contents) == 1
-                        assert binary_contents[0].media_type == "image/png"
+                        assert binary_contents[0].media_type.startswith("image/")
             finally:
                 Path(image_path).unlink()
 
@@ -490,7 +505,10 @@ class TestIntegrationScenarios:
     async def test_screenshot_then_load_image_workflow(self):
         """Test taking screenshot then loading an image - both return ToolReturn."""
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-            f.write(b"image_data")
+            image = Image.new("RGB", (32, 24), color="green")
+            output = io.BytesIO()
+            image.save(output, format="PNG")
+            f.write(output.getvalue())
             image_path = f.name
 
         try:

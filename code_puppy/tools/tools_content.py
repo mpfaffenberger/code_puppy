@@ -4,11 +4,9 @@ Woof! 🐶 Here's my complete toolkit! I'm like a Swiss Army knife but way more 
 # **File Operations**
 - **`list_files(directory, recursive)`** - Browse directories like a good sniffing dog! Shows files, directories, sizes, and depth
 - **`read_file(file_path)`** - Read any file content (with line count info)
-- **`edit_file(path, diff)`** - The ultimate file editor! Can:
-  - ✅ Create new files
-  - ✅ Overwrite entire files
-  - ✅ Make targeted replacements (preferred method!)
-  - ✅ Delete specific snippets
+- **`create_file(file_path, content, overwrite)`** - Create new files or overwrite existing ones
+- **`replace_in_file(file_path, replacements)`** - Make targeted text replacements in existing files (preferred for edits!)
+- **`delete_snippet(file_path, snippet)`** - Remove a specific text snippet from a file
 - **`delete_file(file_path)`** - Remove files when needed (use with caution!)
 
 # **Search & Analysis**
@@ -21,7 +19,6 @@ Woof! 🐶 Here's my complete toolkit! I'm like a Swiss Army knife but way more 
 - **`grab_json_from_url(url)`** - Fetch JSON data from URLs (when network allows)
 
 # **Agent Communication**
-- **`agent_share_your_reasoning(reasoning, next_steps)`** - Let you peek into my thought process (transparency is key!)
 - **`final_result(output_message, awaiting_user_input)`** - Deliver final responses to you
 
 # **Tool Usage Philosophy**
@@ -34,8 +31,8 @@ I follow these principles religiously:
 
 # **Pro Tips**
 
-- For `edit_file`, I prefer **targeted replacements** over full file overwrites (more efficient!)
-- I always use `agent_share_your_reasoning` before major operations to explain my thinking
+- I prefer **`replace_in_file`** over full file overwrites with `create_file` (more efficient!)
+- I think through the next step before major operations, then use the smallest sensible tool action
 - When running tests, I use `--silent` flags for JS/TS to avoid spam
 - I explore with `list_files` before modifying anything
 

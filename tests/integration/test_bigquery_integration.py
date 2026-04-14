@@ -7,6 +7,7 @@ import pytest
 
 from code_puppy.plugins.walmart_specific.bigquery_client import (
     BigQueryClient,
+    BigQueryAccessDeniedError,
     BigQueryAuthError,
     BigQueryAPIError,
     BigQueryNotFoundError,
@@ -18,6 +19,7 @@ from code_puppy.tools.bigquery_tools import (
     bigquery_list_tables,
     bigquery_execute_query,
     bigquery_get_table_schema,
+    _extract_table_from_error,
 )
 from code_puppy.agents.agent_bigquery_explorer import BigQueryExplorerAgent
 
@@ -493,3 +495,136 @@ class TestBigQueryErrorHandling:
 
             assert result["success"] is False
             assert "failed" in result["error"].lower()
+
+
+class TestBigQueryAccessDenied:
+    """Tests for graceful 403 / access-denied error handling (issue #172)."""
+
+    # ------------------------------------------------------------------
+    # _extract_table_from_error helper
+    # ------------------------------------------------------------------
+
+    def test_extract_table_backtick_format(self):
+        """Extracts table from GCP backtick-quoted error strings."""
+        err = (
+            "403 Access Denied: Table `wmt-trans-bi.STORE.WM_DELIVERY_WINDOWS`: "
+            "User does not have permission to query table."
+        )
+        assert _extract_table_from_error(err) == "wmt-trans-bi.STORE.WM_DELIVERY_WINDOWS"
+
+    def test_extract_table_colon_format(self):
+        """Extracts table from GCP colon-separated error strings."""
+        err = "403 Access Denied: Table wmt-trans-bi:STORE.WM_DELIVERY_WINDOWS"
+        result = _extract_table_from_error(err)
+        assert result is not None
+        assert "wmt-trans-bi" in result
+
+    def test_extract_table_returns_none_when_not_found(self):
+        """Returns None when no table reference is in the error."""
+        assert _extract_table_from_error("generic network error") is None
+
+    # ------------------------------------------------------------------
+    # bigquery_client — exception detection
+    # ------------------------------------------------------------------
+
+    def test_client_raises_access_denied_on_403(self):
+        """execute_query raises BigQueryAccessDeniedError when GCP returns 403."""
+        with patch(
+            "code_puppy.plugins.walmart_specific.bigquery_client.bigquery"
+        ) as mock_bq:
+            mock_bq_client = Mock()
+            mock_bq_client.project = "test-project"
+            mock_bq.Client.return_value = mock_bq_client
+
+            mock_job = Mock()
+            mock_job.result.side_effect = Exception(
+                "403 Access Denied: Table `proj.ds.tbl`: "
+                "User does not have permission to query table."
+            )
+            mock_bq_client.query.return_value = mock_job
+
+            from code_puppy.plugins.walmart_specific.bigquery_client import (
+                BigQueryClient,
+            )
+
+            client = BigQueryClient()
+            with pytest.raises(BigQueryAccessDeniedError):
+                client.execute_query("SELECT 1")
+
+    def test_client_raises_access_denied_on_permission_denied(self):
+        """execute_query raises BigQueryAccessDeniedError on 'permission denied'."""
+        with patch(
+            "code_puppy.plugins.walmart_specific.bigquery_client.bigquery"
+        ) as mock_bq:
+            mock_bq_client = Mock()
+            mock_bq_client.project = "test-project"
+            mock_bq.Client.return_value = mock_bq_client
+
+            mock_job = Mock()
+            mock_job.result.side_effect = Exception(
+                "Permission denied on resource project wmt-trans-bi."
+            )
+            mock_bq_client.query.return_value = mock_job
+
+            from code_puppy.plugins.walmart_specific.bigquery_client import (
+                BigQueryClient,
+            )
+
+            client = BigQueryClient()
+            with pytest.raises(BigQueryAccessDeniedError):
+                client.execute_query("SELECT 1")
+
+    # ------------------------------------------------------------------
+    # bigquery_tools — graceful tool response
+    # ------------------------------------------------------------------
+
+    def test_tool_returns_graceful_access_denied_response(self):
+        """Tool surfaces access_denied error_type with suggestion, not a crash."""
+        with patch("code_puppy.tools.bigquery_tools.BigQueryClient") as MockClient:
+            mock_client = Mock()
+            mock_client.execute_query.side_effect = BigQueryAccessDeniedError(
+                "403 Access Denied: Table `wmt-trans-bi.STORE.WM_DELIVERY_WINDOWS`: "
+                "User does not have permission to query table."
+            )
+            MockClient.return_value = mock_client
+
+            result = bigquery_execute_query(
+                Mock(),
+                query="SELECT * FROM `wmt-trans-bi.STORE.WM_DELIVERY_WINDOWS`",
+            )
+
+        assert result["success"] is False
+        assert result["error_type"] == "access_denied"
+        assert "don't have access" in result["error"]
+        assert "suggestion" in result
+        assert result["table"] == "wmt-trans-bi.STORE.WM_DELIVERY_WINDOWS"
+
+    def test_tool_access_denied_without_table_name(self):
+        """Graceful response even when table name can't be parsed from error."""
+        with patch("code_puppy.tools.bigquery_tools.BigQueryClient") as MockClient:
+            mock_client = Mock()
+            mock_client.execute_query.side_effect = BigQueryAccessDeniedError(
+                "Access denied."
+            )
+            MockClient.return_value = mock_client
+
+            result = bigquery_execute_query(Mock(), query="SELECT 1")
+
+        assert result["success"] is False
+        assert result["error_type"] == "access_denied"
+        assert result["table"] is None
+        assert "this table" in result["error"]
+
+    def test_list_tables_access_denied_is_graceful(self):
+        """list_tables also returns access_denied, not a generic api_error."""
+        with patch("code_puppy.tools.bigquery_tools.BigQueryClient") as MockClient:
+            mock_client = Mock()
+            mock_client.list_tables.side_effect = BigQueryAccessDeniedError(
+                "403 Access Denied: Dataset wmt-trans-bi:STORE"
+            )
+            MockClient.return_value = mock_client
+
+            result = bigquery_list_tables(Mock(), dataset_id="STORE", project_id="wmt-trans-bi")
+
+        assert result["success"] is False
+        assert result["error_type"] == "access_denied"

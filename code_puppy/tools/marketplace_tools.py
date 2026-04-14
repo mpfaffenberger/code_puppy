@@ -729,8 +729,8 @@ def marketplace_authenticate() -> MarketplaceAuthOutput:
         )
 
     try:
-        # Trigger the /puppy_auth command handler
-        result = handle_puppy_auth_command("/puppy_auth", "puppy_auth")
+        # Trigger the /marketplace_auth command handler
+        result = handle_puppy_auth_command("/marketplace_auth", "marketplace_auth")
 
         if result:
             # Check if token was saved

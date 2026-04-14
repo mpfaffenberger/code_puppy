@@ -777,8 +777,19 @@ class TestTerminalScreenshotToolsRegister:
             patch("pathlib.Path.exists", return_value=True),
             patch("pathlib.Path.read_bytes", return_value=b"mockup"),
             patch(
-                "code_puppy.tools.browser.terminal_screenshot_tools._resize_image",
-                return_value=b"resized",
+                "code_puppy.tools.browser.terminal_screenshot_tools._validate_and_prepare_image",
+                return_value={
+                    "image_bytes": b"resized",
+                    "media_type": "image/png",
+                    "actual_media_type": "image/png",
+                    "guessed_media_type": "image/png",
+                    "mime_type_matches_extension": True,
+                    "original_width": 100,
+                    "original_height": 100,
+                    "output_width": 100,
+                    "output_height": 100,
+                    "was_resized": False,
+                },
             ),
         ):
             r = await fn(_mock_context(), mockup_path="/tmp/mockup.png")

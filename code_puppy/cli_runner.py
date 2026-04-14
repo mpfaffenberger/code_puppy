@@ -4,8 +4,6 @@ Contains the main application logic, interactive mode, and entry point.
 """
 
 # Apply pydantic-ai patches BEFORE any pydantic-ai imports
-from code_puppy.pydantic_patches import apply_all_patches
-
 import argparse
 import asyncio
 import os
@@ -27,6 +25,7 @@ from code_puppy.config import (
     DBOS_DATABASE_URL,
     ensure_config_exists,
     finalize_autosave_session,
+    get_auto_update,
     get_use_dbos,
     initialize_command_history_file,
     save_command_to_history,
@@ -38,6 +37,7 @@ from code_puppy.keymap import (
     validate_cancel_agent_key,
 )
 from code_puppy.messaging import emit_info
+from code_puppy.pydantic_patches import apply_all_patches
 from code_puppy.terminal_utils import (
     print_truecolor_warning,
     reset_unix_terminal,
@@ -286,6 +286,11 @@ async def main():
         )
         emit_system_message(version_msg, dim=True)
         emit_system_message(update_disabled_msg, dim=True)
+    elif not get_auto_update():
+        version_msg = f"Current version: {current_version}"
+        update_disabled_msg = "Auto-update disabled via config (auto_update = false)"
+        emit_system_message(version_msg, dim=True)
+        emit_system_message(update_disabled_msg, dim=True)
     else:
         if len(callbacks.get_callbacks("version_check")):
             await callbacks.on_version_check(current_version)
@@ -423,6 +428,17 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     # Print truecolor warning LAST so it's the most visible thing on startup
     # Big ugly red box should be impossible to miss! 🔴
     print_truecolor_warning(display_console)
+
+    # Shell pass-through for initial_command: !<cmd> bypasses the agent
+    if initial_command:
+        from code_puppy.command_line.shell_passthrough import (
+            execute_shell_passthrough,
+            is_shell_passthrough,
+        )
+
+        if is_shell_passthrough(initial_command):
+            execute_shell_passthrough(initial_command)
+            initial_command = None
 
     # Initialize the runtime agent manager
     if initial_command:
@@ -577,6 +593,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     pass  # Expected when cancelling
 
             break
+
+        # Shell pass-through: !<command> executes directly, bypassing the agent
+        from code_puppy.command_line.shell_passthrough import (
+            execute_shell_passthrough,
+            is_shell_passthrough,
+        )
+
+        if is_shell_passthrough(task):
+            execute_shell_passthrough(task)
+            continue
 
         # Check for exit commands (plain text or command form)
         if task.strip().lower() in ["exit", "quit"] or task.strip().lower() in [
@@ -1022,6 +1048,16 @@ async def run_prompt_with_attachments(
 
 async def execute_single_prompt(prompt: str, message_renderer) -> None:
     """Execute a single prompt and exit (for -p flag)."""
+    # Shell pass-through: !<cmd> bypasses the agent even in -p mode
+    from code_puppy.command_line.shell_passthrough import (
+        execute_shell_passthrough,
+        is_shell_passthrough,
+    )
+
+    if is_shell_passthrough(prompt):
+        execute_shell_passthrough(prompt)
+        return
+
     from code_puppy.messaging import emit_info
 
     emit_info(f"Executing prompt: {prompt}")
@@ -1029,15 +1065,15 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
     try:
         # Get agent through runtime manager and use helper for attachments
         agent = get_current_agent()
-        response = await run_prompt_with_attachments(
+        result, _agent_task = await run_prompt_with_attachments(
             agent,
             prompt,
             spinner_console=message_renderer.console,
         )
-        if response is None:
+        if result is None:
             return
 
-        agent_response = response.output
+        agent_response = result.output
 
         # Emit structured message for proper markdown rendering
         from code_puppy.messaging import get_message_bus

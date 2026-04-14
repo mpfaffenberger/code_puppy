@@ -125,10 +125,6 @@ from code_puppy.tools.confluence_tools import (
     register_confluence_authenticate,
 )
 
-# ServiceNow tools - imported from new modular package
-from code_puppy.tools.servicenow_tools import (
-    ALL_REGISTRATION_FUNCTIONS as SERVICENOW_TOOLS,
-)
 from code_puppy.tools.jira_tools import (
     register_jira_search,
     register_jira_list_projects,
@@ -154,7 +150,13 @@ from code_puppy.tools.powerbi import POWERBI_TOOLS
 from code_puppy.tools.display import (
     display_non_streamed_result as display_non_streamed_result,
 )
-from code_puppy.tools.file_modifications import register_delete_file, register_edit_file
+from code_puppy.tools.file_modifications import (
+    register_create_file,
+    register_delete_file,
+    register_delete_snippet,
+    register_edit_file,
+    register_replace_in_file,
+)
 from code_puppy.tools.file_operations import (
     register_grep,
     register_list_files,
@@ -179,9 +181,6 @@ from code_puppy.tools.skills_tools import (
 )
 from code_puppy.tools.universal_constructor import register_universal_constructor
 
-# Import GUI-Cub tools from separate registry to minimize diff noise
-from code_puppy.tools.registry.gui_cub import GUI_CUB_TOOLS
-
 # Map of tool names to their individual registration functions
 TOOL_REGISTRY = {
     # Agent Tools
@@ -192,7 +191,10 @@ TOOL_REGISTRY = {
     "read_file": register_read_file,
     "grep": register_grep,
     # File Modifications
-    "edit_file": register_edit_file,
+    "edit_file": register_edit_file,  # DEPRECATED: auto-expanded to create_file, replace_in_file, delete_snippet
+    "create_file": register_create_file,
+    "replace_in_file": register_replace_in_file,
+    "delete_snippet": register_delete_snippet,
     "delete_file": register_delete_file,
     # Command Runner
     "agent_run_shell_command": register_agent_run_shell_command,
@@ -250,7 +252,6 @@ TOOL_REGISTRY = {
     "confluence_read_page": register_confluence_read_page,
     "confluence_search_by_space": register_confluence_search_by_space,
     "confluence_authenticate": register_confluence_authenticate,
-    # ServiceNow Tools - merged from SERVICENOW_TOOLS dict below
     # Jira Tools
     "jira_search": register_jira_search,
     "jira_list_projects": register_jira_list_projects,
@@ -334,14 +335,20 @@ TOOL_REGISTRY = {
     "scheduler_view_log": register_scheduler_view_log,
 }
 
-# Merge in GUI-Cub tools from separate registry
-TOOL_REGISTRY.update(GUI_CUB_TOOLS)
+# Tools that expand into multiple tools for backward compatibility.
+# When an agent requests a tool listed here, all the expansion tools
+# are registered instead (the original tool is NOT registered).
+TOOL_EXPANSIONS: dict[str, list[str]] = {
+    "edit_file": ["create_file", "replace_in_file", "delete_snippet"],
+}
 
-# Merge in ServiceNow tools from modular package
-TOOL_REGISTRY.update(SERVICENOW_TOOLS)
-
+# Legacy tool names we silently ignore instead of warning about.
+# Keep this for truly removed tools only; backward-compatible tool aliases
+# that still work should stay in TOOL_REGISTRY.
+REMOVED_LEGACY_TOOLS: set[str] = set()
 # Merge in MS Graph tools
 TOOL_REGISTRY.update(MSGRAPH_TOOLS)
+
 
 # Merge in Power BI tools
 TOOL_REGISTRY.update(POWERBI_TOOLS)
@@ -351,6 +358,7 @@ TOOL_REGISTRY.update(PETE_TOOLS)
 
 # DX Documentation tools are now registered via the dx_docs plugin
 # (code_puppy/plugins/dx_docs/register_callbacks.py)
+
 
 
 def _load_plugin_tools() -> None:
@@ -448,8 +456,20 @@ def register_tools_for_agent(
 
     _load_plugin_tools()
 
-    # Pre-compute whether extended thinking is active to avoid repeated checks
-    skip_reasoning_tool = has_extended_thinking_active(model_name)
+    # Expand compound tools (e.g. "edit_file" → three individual tools)
+    expanded_tools: list[str] = []
+    seen: set[str] = set()
+    for tool_name in tool_names:
+        if tool_name in TOOL_EXPANSIONS:
+            for expanded in TOOL_EXPANSIONS[tool_name]:
+                if expanded not in seen:
+                    expanded_tools.append(expanded)
+                    seen.add(expanded)
+        else:
+            if tool_name not in seen:
+                expanded_tools.append(tool_name)
+                seen.add(tool_name)
+    tool_names = expanded_tools
 
     for tool_name in tool_names:
         # Handle UC tools (prefixed with "uc:")
@@ -459,6 +479,9 @@ def register_tools_for_agent(
                 continue
             uc_tool_name = tool_name[3:]  # Remove "uc:" prefix
             _register_uc_tool_wrapper(agent, uc_tool_name)
+            continue
+
+        if tool_name in REMOVED_LEGACY_TOOLS:
             continue
 
         if tool_name not in TOOL_REGISTRY:
@@ -472,11 +495,6 @@ def register_tools_for_agent(
             and not get_universal_constructor_enabled()
         ):
             continue  # Skip UC if disabled in config
-
-        # Skip reasoning tool when extended thinking is active — the model
-        # already exposes its chain-of-thought via thinking blocks.
-        if tool_name == "agent_share_your_reasoning" and skip_reasoning_tool:
-            continue
 
         # Register the individual tool
         registry_entry = TOOL_REGISTRY[tool_name]

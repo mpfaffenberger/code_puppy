@@ -70,48 +70,60 @@ def fetch_latest_version(package_name=None):
 def _handle_update(current_version):
     """Handle the auto-update process if a new version is available."""
     latest_version = fetch_latest_version("code-puppy")
-    version_msg = f"Current version: {current_version}"
-    emit_system_message(version_msg)
 
     # Guard: if the version API is unreachable we cannot determine whether
     # an update exists, so bail out silently rather than prompting for an
     # update to an unknown version.
     if latest_version is None:
+        # Still show current version so the user isn't left in the dark
+        emit_system_message(f"Current version: {current_version}")
         return
 
-    latest_msg = f"Latest version: {latest_version}"
-    emit_system_message(latest_msg)
-
     if versions_are_equal(current_version, latest_version):
+        # Emit version info here — no prompt follows, so no race condition
+        emit_system_message(f"Current version: {current_version}")
+        emit_system_message(f"Latest version: {latest_version}")
         return
 
     # Only update if remote version is actually NEWER (not just different)
     if not version_is_newer(latest_version, current_version):
         # Local version is newer or equal - dev environment, don't downgrade
+        emit_system_message(f"Current version: {current_version}")
+        emit_system_message(f"Latest version: {latest_version}")
         return
 
     update_available_msg = f"A new version of code puppy is available: {latest_version}"
-    emit_system_message(
-        Text.from_markup(f"[bold yellow]{update_available_msg}[/bold yellow]")
-    )
-    emit_system_message(
-        Text.from_markup("[bold green]Auto-updating now...[/bold green]")
-    )
 
     try:
         if sys.platform == "win32":
             # Windows update path.
-            emit_system_message(
-                Text.from_markup("[bold yellow]Running Windows update...[/bold yellow]")
+            # IMPORTANT: emit_system_message is async-queued while input() is synchronous.
+            # Print synchronously so users ALWAYS see clear instructions before the prompt.
+            print(
+                f"\nCurrent version: {current_version}"
+                f"\nLatest version: {latest_version}"
+                f"\n\nA new version of Code Puppy is available: {latest_version}"
+          "\nThis will stop *ALL* other running instances of Code Puppy on your computer."
+                "\nType y then press Enter to continue, or n to cancel.",
+                flush=True,
             )
-            proceed = input(
-                "This will stop *ALL* other running instances of Code Puppy on your computer. Proceed (y/n)? "
-            )
-            if proceed.lower()[0] != "y":
+            proceed = input("Proceed with update? (y/n): ").strip().lower()
+            if not proceed or proceed[0] != "y":
                 emit_system_message(
                     Text.from_markup("[yellow]Update cancelled by user.[/yellow]")
                 )
                 return
+
+            # Confirmed — now emit queued status messages.
+            emit_system_message(
+                Text.from_markup(f"[bold yellow]{update_available_msg}[/bold yellow]")
+            )
+            emit_system_message(
+                Text.from_markup("[bold green]Auto-updating now...[/bold green]")
+            )
+            emit_system_message(
+                Text.from_markup("[bold yellow]Running Windows update...[/bold yellow]")
+            )
 
             # Write the bootstrap bat to %TEMP% to avoid System32 permission issues.
             # FIX: use get_setup_windows_url() — no hardcoded domain.
@@ -138,7 +150,15 @@ def _handle_update(current_version):
             sys.exit(0)
 
         else:
-            # macOS and Linux update
+            # macOS and Linux update — no synchronous input() so safe to emit here
+            emit_system_message(f"Current version: {current_version}")
+            emit_system_message(f"Latest version: {latest_version}")
+            emit_system_message(
+                Text.from_markup(f"[bold yellow]{update_available_msg}[/bold yellow]")
+            )
+            emit_system_message(
+                Text.from_markup("[bold green]Auto-updating now...[/bold green]")
+            )
             setup_url = get_setup_url()
             emit_system_message(Text.from_markup(f"[dim]{setup_url}[/dim]"))
 

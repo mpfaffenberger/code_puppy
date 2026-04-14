@@ -7,11 +7,14 @@ from code_puppy.callbacks import (
     clear_callbacks,
     count_callbacks,
     get_callbacks,
+    on_create_file,
     on_custom_command,
+    on_delete_snippet,
     on_edit_file,
     on_load_model_config,
     on_post_tool_call,
     on_pre_tool_call,
+    on_replace_in_file,
     on_startup,
     on_stream_event,
     register_callback,
@@ -187,6 +190,45 @@ class TestCallbacksExtended:
 
         assert len(results) == 1
         assert results[0] == "edited test.txt"
+
+    def test_on_create_file_callback(self):
+        """Test on_create_file triggers callbacks registered for create_file."""
+
+        def test_callback(file_path, content):
+            return f"created {file_path}"
+
+        register_callback("create_file", test_callback)
+
+        results = on_create_file("new_file.py", "print('hello')")
+
+        assert len(results) == 1
+        assert results[0] == "created new_file.py"
+
+    def test_on_replace_in_file_callback(self):
+        """Test on_replace_in_file triggers callbacks registered for replace_in_file."""
+
+        def test_callback(file_path, replacements):
+            return f"replaced in {file_path}"
+
+        register_callback("replace_in_file", test_callback)
+
+        results = on_replace_in_file("target.py", [{"old": "a", "new": "b"}])
+
+        assert len(results) == 1
+        assert results[0] == "replaced in target.py"
+
+    def test_on_delete_snippet_callback(self):
+        """Test on_delete_snippet triggers callbacks registered for delete_snippet."""
+
+        def test_callback(file_path, snippet):
+            return f"deleted snippet from {file_path}"
+
+        register_callback("delete_snippet", test_callback)
+
+        results = on_delete_snippet("target.py", "# remove me")
+
+        assert len(results) == 1
+        assert results[0] == "deleted snippet from target.py"
 
     @pytest.mark.asyncio
     async def test_execute_callbacks_with_exception(self):

@@ -26,7 +26,7 @@ puppy_name = IntegrationPup
 owner_name = CodePuppyTester
 auto_save_session = true
 max_saved_sessions = 5
-model = claude-4-5-sonnet
+model = synthetic-GLM-5.1
 enable_dbos = true
 """
 

@@ -32,14 +32,6 @@ def display_disclaimer():
     emit_system_message(Text.from_markup(message))
 
     message = (
-        "[bold magenta]🐻 GUI-Cub Desktop Automation:[/bold magenta]\n"
-        "[magenta]When using the GUI-Cub agent (which controls your mouse/keyboard):[/magenta]\n"
-        "[magenta]• GUI-Cub must NOT be used with PHI/HIPAA-protected data or systems[/magenta]\n"
-        "[magenta]• For PHI/HIPAA compliance questions, contact: HIPAA.Compliance@walmart.com[/magenta]"
-    )
-    emit_system_message(Text.from_markup(message))
-
-    message = (
         "\n[bold red]⚠️  CRITICAL - Data Restrictions:[/bold red]\n"
         "[red]NEVER put HIPAA or PCI data into Code-Puppy prompts or files.[/red]\n"
     )

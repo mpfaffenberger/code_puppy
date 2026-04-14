@@ -134,7 +134,7 @@ class ConfluenceClient:
         self.client = httpx.Client(
             cookies=self.cookies,
             timeout=30.0,
-            verify=False,
+            # verify omitted - uses system CA bundle
             headers={"User-Agent": user_agent},
         )
 

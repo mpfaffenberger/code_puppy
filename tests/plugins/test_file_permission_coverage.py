@@ -638,4 +638,4 @@ class TestGetFilePermissionPromptAdditions:
             return_value=False,
         ):
             result = get_file_permission_prompt_additions()
-            assert "USER FEEDBACK" in result
+            assert "User Approval System" in result
