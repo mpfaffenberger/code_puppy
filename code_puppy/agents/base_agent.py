@@ -1977,6 +1977,50 @@ class BaseAgent(ABC):
             # If we get here, all retries exhausted
             raise last_error
 
+        async def _retry_on_content_filter(result_):
+            """Auto-retry when Azure's content filter produces a false positive.
+
+            Checks if the agent's output matches known content-filter refusal
+            patterns.  If so, saves the conversation (including the refusal)
+            into message history and re-runs with a "please continue" prompt
+            so the model sees the context and responds properly.
+
+            Returns the final result — either the original (if it was fine) or
+            the last retry result.
+            """
+            from code_puppy.content_filter_retry import (
+                CONTENT_FILTER_RETRY_DELAY,
+                CONTENT_FILTER_RETRY_PROMPT,
+                MAX_CONTENT_FILTER_RETRIES,
+                is_content_filter_response,
+            )
+
+            for cf_attempt in range(MAX_CONTENT_FILTER_RETRIES):
+                output = getattr(result_, "output", None) or ""
+                if not is_content_filter_response(output):
+                    return result_
+
+                emit_warning(
+                    f"⚡ Azure content filter false-positive detected, "
+                    f"auto-retrying ({cf_attempt + 1}/{MAX_CONTENT_FILTER_RETRIES})…"
+                )
+                # Persist the filtered exchange so the retry has full context
+                if hasattr(result_, "all_messages"):
+                    self.set_message_history(list(result_.all_messages()))
+
+                await asyncio.sleep(CONTENT_FILTER_RETRY_DELAY)
+
+                result_ = await _run_with_streaming_retry(
+                    lambda: pydantic_agent.run(
+                        CONTENT_FILTER_RETRY_PROMPT,
+                        message_history=self.get_message_history(),
+                        usage_limits=usage_limits,
+                        event_stream_handler=stream_handler,
+                        **kwargs,
+                    )
+                )
+            return result_
+
         async def run_agent_task():
             try:
                 self.set_message_history(
@@ -2022,6 +2066,7 @@ class BaseAgent(ABC):
                                     **kwargs,
                                 )
                             )
+                            result_ = await _retry_on_content_filter(result_)
                             return result_
                     finally:
                         # Always restore original toolsets
@@ -2037,6 +2082,7 @@ class BaseAgent(ABC):
                                 **kwargs,
                             )
                         )
+                        result_ = await _retry_on_content_filter(result_)
                         return result_
                 else:
                     # Non-DBOS path (MCP servers are already included)
@@ -2049,6 +2095,7 @@ class BaseAgent(ABC):
                             **kwargs,
                         )
                     )
+                    result_ = await _retry_on_content_filter(result_)
                     return result_
             except* UsageLimitExceeded as ule:
                 emit_info(f"Usage limit exceeded: {str(ule)}", group_id=group_id)
