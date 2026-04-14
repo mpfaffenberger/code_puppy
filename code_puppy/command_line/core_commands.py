@@ -83,12 +83,10 @@ def handle_cd_command(command: str) -> bool:
             try:
                 from code_puppy.agents.agent_manager import get_current_agent
 
-                current_agent = get_current_agent()
-                if current_agent:
-                    # reload_code_generation_agent() invalidates cached rules
-                    # and rebuilds prompt/context from the new cwd
-                    current_agent.reload_code_generation_agent()
-                    emit_info("Agent context updated for new directory")
+                # reload_code_generation_agent() invalidates cached rules
+                # and rebuilds prompt/context from the new cwd
+                get_current_agent().reload_code_generation_agent()
+                emit_info("Agent context updated for new directory")
             except Exception as e:
                 # Non-fatal: directory change succeeded even if reload failed
                 emit_error(f"Could not reload agent context: {e}")
