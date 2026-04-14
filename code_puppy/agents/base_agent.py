@@ -2021,7 +2021,9 @@ class BaseAgent(ABC):
                     lambda _p=retry_prompt: pydantic_agent.run(
                         _p,
                         message_history=self.get_message_history(),
-                        usage_limits=usage_limits,
+                        usage_limits=UsageLimits(
+                            request_limit=get_message_limit()
+                        ),
                         event_stream_handler=stream_handler,
                         **kwargs,
                     )
