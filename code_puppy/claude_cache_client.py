@@ -145,7 +145,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
 
 def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
-    """In-place cache_control injection on Anthropic messages.create payload
+    """In-place cache_control injection on Anthropic messages.create payload.
 
     Places up to three cache breakpoints (Anthropic allows 4) on the most
     valuable, stable prefixes:
@@ -153,6 +153,7 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
       2. Tool defs      – never changes between turns
       3. Last message   – caches the growing conversation prefix
     """
+
     # 1. System prompt
     system = payload.get("system")
     if isinstance(system, list) and system:
@@ -182,9 +183,6 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
                 if isinstance(last_block, dict) and "cache_control" not in last_block:
                     last_block["cache_control"] = {"type": "ephemeral"}
 
-    # No extra markers in production mode; keep payload clean.
-    # (Function kept for potential future use.)
-    return
 
 def _make_cache_wrapper(original_create: Callable[..., Any]) -> Callable[..., Any]:
     """Create a wrapped version of messages.create that injects cache_control."""

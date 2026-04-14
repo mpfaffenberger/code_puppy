@@ -235,7 +235,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.455"
+version = "0.0.456"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -472,11 +472,11 @@ wheels = [
 
 [[package]]
 name = "docstring-parser"
-version = "0.17.0"
+version = "0.18.0"
 source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
-sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/b2/9d/c3b43da9515bd270df0f80548d9944e389870713cc1fe2b8fb35fe2bcefd/docstring_parser-0.17.0.tar.gz", hash = "sha256:583de4a309722b3315439bb31d64ba3eebada841f2e2cee23b99df001434c912" }
+sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/e0/4d/f332313098c1de1b2d2ff91cf2674415cc7cddab2ca1b01ae29774bd5fdf/docstring_parser-0.18.0.tar.gz", hash = "sha256:292510982205c12b1248696f44959db3cdd1740237a968ea1e2e7a900eeb2015" }
 wheels = [
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/55/e2/2537ebcff11c1ee1ff17d8d0b6f4db75873e3b0fb32c2d4a2ee31ecb310a/docstring_parser-0.17.0-py3-none-any.whl", hash = "sha256:cf2569abd23dce8099b300f9b4fa8191e9582dda731fd533daf54c4551658708" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/a7/5f/ed01f9a3cdffbd5a008556fc7b2a08ddb1cc6ace7effa7340604b1d16699/docstring_parser-0.18.0-py3-none-any.whl", hash = "sha256:b3fcbed555c47d8479be0796ef7e19c2670d428d72e96da63f3a40122860374b" },
 ]
 
 [[package]]
@@ -958,11 +958,11 @@ wheels = [
 
 [[package]]
 name = "json-repair"
-version = "0.59.2"
+version = "0.59.3"
 source = { registry = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" }
-sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/ed/cb/a49f1661737a78098ce33668350590c981a4163055bc9a01e0cc688d896a/json_repair-0.59.2.tar.gz", hash = "sha256:1d8abb2fa94c4035a66ef9892ea3785dace8dcf09c583e6de781cfd31b278b3d" }
+sdist = { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/fd/bc/6a0af79421a5843dcd2062ed3959bc84cf7ae92d6a44bfbc91197a9fd14e/json_repair-0.59.3.tar.gz", hash = "sha256:b6f0158724c28b8f2c0fb9a3dbcd89e16462a3d752039283661f46877a791dbd" }
 wheels = [
-    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/e1/03/7afcecb4242d93b684708b47fb014abdc1922a01b38c0e30f1117ae74a83/json_repair-0.59.2-py3-none-any.whl", hash = "sha256:6ca6238519c24f671bcb05d1f38a0d6a452bb4ca5af82137595c5c2f1a0fb785" },
+    { url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/packages/packages/26/17/167e5b6fbbbe4f5bcfc7bb5e650f3dbb49ac73ea4c23730efca2fe56d501/json_repair-0.59.3-py3-none-any.whl", hash = "sha256:c374cde3c0b53bf0950d3045395c7b6953a161621f6048259a1f33c5c58ee86c" },
 ]
 
 [[package]]
