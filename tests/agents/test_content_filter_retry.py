@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from pydantic_ai.messages import ModelResponse, TextPart
 
 from code_puppy.plugins.walmart_specific.content_filter_retry import (
     CONTENT_FILTER_RETRY_DELAY,
@@ -88,9 +89,24 @@ class TestIsContentFilterResponse:
 # ---------------------------------------------------------------------------
 
 
-def _make_result(output: str):
+def _make_result(
+    output: str | None,
+    *,
+    all_messages=None,
+    new_messages=None,
+):
     """Build a lightweight stand-in for a pydantic-ai RunResult."""
-    return SimpleNamespace(output=output, all_messages=lambda: [])
+    return SimpleNamespace(
+        output=output,
+        all_messages=(lambda: all_messages or []),
+        new_messages=(lambda: new_messages or []),
+    )
+
+
+
+def _make_model_response(text: str | None = None, *, finish_reason=None):
+    parts = [TextPart(text)] if text is not None else []
+    return ModelResponse(parts=parts, finish_reason=finish_reason)
 
 
 class TestOnResultCheckContentFilter:
@@ -143,6 +159,40 @@ class TestOnResultCheckContentFilter:
 
         mock_warn.assert_called_once()
         assert "content filter" in mock_warn.call_args[0][0].lower()
+
+    def test_detects_refusal_in_model_response_messages(self):
+        result = _make_result(
+            None,
+            all_messages=[
+                _make_model_response(
+                    "I'm sorry, but I cannot assist with that request."
+                )
+            ],
+        )
+        with patch(
+            "code_puppy.plugins.walmart_specific.content_filter_retry.emit_warning"
+        ):
+            rv = on_result_check_content_filter(
+                result, "test-agent", "gpt-5.4"
+            )
+
+        assert isinstance(rv, dict)
+        assert rv["retry"] is True
+
+    def test_detects_content_filter_finish_reason_without_text(self):
+        result = _make_result(
+            None,
+            new_messages=[_make_model_response(None, finish_reason="content_filter")],
+        )
+        with patch(
+            "code_puppy.plugins.walmart_specific.content_filter_retry.emit_warning"
+        ):
+            rv = on_result_check_content_filter(
+                result, "test-agent", "gpt-5.4"
+            )
+
+        assert isinstance(rv, dict)
+        assert rv["retry"] is True
 
     def test_does_not_warn_for_normal_response(self):
         result = _make_result("All good!")

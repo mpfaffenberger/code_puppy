@@ -1,8 +1,8 @@
-"""Tests for _run_with_streaming_retry transient error handling.
+"""Tests for streaming retry transient error handling.
 
-Verifies that transient HTTP errors (RemoteProtocolError, ReadTimeout)
-are properly caught and retried with exponential backoff, while
-non-retryable errors propagate immediately.
+Verifies that transient streaming, transport, and OpenAI SDK rate-limit-ish
+errors are retried with exponential backoff, while non-retryable errors
+propagate immediately.
 
 Covers: https://github.com/mpfaffenberger/code_puppy/issues/199
 """
@@ -13,27 +13,27 @@ from unittest.mock import AsyncMock, patch
 import httpcore
 import httpx
 import pytest
+from openai import APIError
+
+from code_puppy.agents.base_agent import should_retry_streaming_exception
 
 
 # ---- Helpers to build the retry function in isolation ----
-# We extract the retry logic so tests don't need to instantiate the full agent.
+# We still exercise the real classifier so tests stay aligned with production.
 
 MAX_STREAMING_RETRIES = 3
 STREAMING_RETRY_DELAYS = [1, 2, 4]
-RETRYABLE_EXCEPTIONS = (
-    httpx.RemoteProtocolError,
-    httpx.ReadTimeout,
-    httpcore.RemoteProtocolError,
-)
 
 
 async def _run_with_streaming_retry(run_coro_factory):
-    """Mirror of the retry logic in base_agent.py for isolated testing."""
+    """Mirror of the retry loop in base_agent.py for isolated testing."""
     last_error = None
     for attempt in range(MAX_STREAMING_RETRIES):
         try:
             return await run_coro_factory()
-        except RETRYABLE_EXCEPTIONS as e:
+        except Exception as e:
+            if not should_retry_streaming_exception(e):
+                raise
             last_error = e
             if attempt < MAX_STREAMING_RETRIES - 1:
                 delay = STREAMING_RETRY_DELAYS[attempt]
@@ -181,3 +181,66 @@ class TestStreamingRetry:
 
         assert result == "success"
         assert factory.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_retries_on_openai_api_error_too_many_requests(self):
+        """Retries when the OpenAI SDK raises stream-time APIError for 429-ish events."""
+        request = httpx.Request("POST", "https://example.test/responses")
+        factory = AsyncMock(
+            side_effect=[
+                APIError(
+                    "Too Many Requests",
+                    request=request,
+                    body={"message": "Too Many Requests", "type": "api_error"},
+                ),
+                "recovered",
+            ]
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await _run_with_streaming_retry(factory)
+
+        assert result == "recovered"
+        assert factory.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retries_on_openai_api_error_server_processing_message(self):
+        """Retries Azure/OpenAI stream-time server errors that explicitly say retry."""
+        request = httpx.Request("POST", "https://example.test/responses")
+        error_message = (
+            "The server had an error processing your request. Sorry about that! "
+            "You can retry your request. (Please include the request ID cb059d60-af56-424f-a320-773824872552.)"
+        )
+        factory = AsyncMock(
+            side_effect=[
+                APIError(
+                    error_message,
+                    request=request,
+                    body={"message": error_message, "type": "api_error"},
+                ),
+                "recovered",
+            ]
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await _run_with_streaming_retry(factory)
+
+        assert result == "recovered"
+        assert factory.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_non_retryable_openai_api_error_propagates(self):
+        """OpenAI API errors that are not transient should not be retried."""
+        request = httpx.Request("POST", "https://example.test/responses")
+        factory = AsyncMock(
+            side_effect=APIError(
+                "Invalid tool schema",
+                request=request,
+                body={"message": "Invalid tool schema", "type": "invalid_request_error"},
+            )
+        )
+
+        with pytest.raises(APIError, match="Invalid tool schema"):
+            await _run_with_streaming_retry(factory)
+
+        assert factory.await_count == 1

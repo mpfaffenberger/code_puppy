@@ -21,6 +21,7 @@ This module provides:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 
 from code_puppy.messaging import emit_warning
 
@@ -84,6 +85,59 @@ def is_content_filter_response(text: str | None) -> bool:
     return any(p in lowered for p in _REFUSAL_PATTERNS)
 
 
+def _iter_result_text_candidates(result) -> Iterable[str]:
+    """Yield plausible text payloads from a pydantic-ai run result.
+
+    ``result.output`` is not reliably the raw model text — it may be structured
+    output, empty, or something else entirely.  The durable signal lives in the
+    underlying ``ModelResponse`` messages returned by ``new_messages()`` /
+    ``all_messages()``.
+    """
+    output = getattr(result, "output", None)
+    if isinstance(output, str) and output.strip():
+        yield output
+
+    for accessor_name in ("new_messages", "all_messages"):
+        accessor = getattr(result, accessor_name, None)
+        if not callable(accessor):
+            continue
+
+        try:
+            messages = accessor()
+        except Exception:
+            continue
+
+        for message in reversed(messages or []):
+            text = getattr(message, "text", None)
+            if isinstance(text, str) and text.strip():
+                yield text
+
+            for part in getattr(message, "parts", ()) or ():
+                content = getattr(part, "content", None)
+                if isinstance(content, str) and content.strip():
+                    yield content
+
+
+
+def _result_has_content_filter_finish_reason(result) -> bool:
+    """Return True when the provider explicitly flagged content filtering."""
+    for accessor_name in ("new_messages", "all_messages"):
+        accessor = getattr(result, accessor_name, None)
+        if not callable(accessor):
+            continue
+
+        try:
+            messages = accessor()
+        except Exception:
+            continue
+
+        for message in reversed(messages or []):
+            if getattr(message, "finish_reason", None) == "content_filter":
+                return True
+
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Hook callback  (registered on ``agent_run_result``)
 # ---------------------------------------------------------------------------
@@ -100,8 +154,11 @@ def on_result_check_content_filter(result, agent_name: str, model_name: str):
         ``{"retry": True, "prompt": ..., "delay": ...}`` when a refusal is
         detected, otherwise ``None``.
     """
-    output = getattr(result, "output", None) or ""
-    if not is_content_filter_response(output):
+    detected_output = next(
+        (text for text in _iter_result_text_candidates(result) if is_content_filter_response(text)),
+        None,
+    )
+    if not detected_output and not _result_has_content_filter_finish_reason(result):
         return None
 
     emit_warning(
@@ -111,7 +168,7 @@ def on_result_check_content_filter(result, agent_name: str, model_name: str):
         "Content-filter false positive on model=%s agent=%s output=%r",
         model_name,
         agent_name,
-        output[:120],
+        (detected_output or "<finish_reason=content_filter>")[:120],
     )
     return {
         "retry": True,

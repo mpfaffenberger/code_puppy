@@ -10,6 +10,9 @@ import threading
 import time
 import traceback
 import uuid
+
+import httpcore
+import httpx
 from abc import ABC, abstractmethod
 from typing import (
     Any,
@@ -51,6 +54,11 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 from rich.text import Text
+
+try:
+    from openai import APIError as OpenAIAPIError
+except ImportError:  # pragma: no cover - openai is an optional dependency in some test envs
+    OpenAIAPIError = None
 
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
@@ -96,6 +104,71 @@ from code_puppy.tools.command_runner import (
 _delayed_compaction_requested = False
 
 _reload_count = 0
+
+
+_RETRYABLE_STREAMING_ERROR_SNIPPETS = (
+    "streamed response ended without content",
+    "malformed streamed sse event",
+    "extra json data in sse payload",
+    "too many requests",
+    "rate limit",
+    "rate limited",
+    "overloaded",
+    "service unavailable",
+    "server had an error processing your request",
+    "retry your request",
+    "internal server error",
+)
+
+_RETRYABLE_STREAMING_EXCEPTIONS = (
+    httpx.RemoteProtocolError,
+    httpx.ReadTimeout,
+    httpcore.RemoteProtocolError,
+)
+
+
+def _is_retryable_streaming_error_message(error_msg: str) -> bool:
+    """Return True when an error message looks like a transient streaming failure."""
+    error_msg = error_msg.lower()
+    return any(snippet in error_msg for snippet in _RETRYABLE_STREAMING_ERROR_SNIPPETS) or (
+        "stream" in error_msg and "ended" in error_msg
+    )
+
+
+
+def _is_retryable_openai_api_error(exc: Exception) -> bool:
+    """Return True for transient OpenAI SDK APIError variants seen during streaming."""
+    if OpenAIAPIError is None or not isinstance(exc, OpenAIAPIError):
+        return False
+
+    if _is_retryable_streaming_error_message(str(exc)):
+        return True
+
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        body_message = str(body.get("message", ""))
+        body_type = str(body.get("type", "")).lower()
+        return (
+            _is_retryable_streaming_error_message(body_message)
+            or ("rate" in body_type and "limit" in body_type)
+            or body_type in {"server_error", "internal_server_error", "api_error"}
+            and _is_retryable_streaming_error_message(body_message)
+        )
+
+    return False
+
+
+
+def should_retry_streaming_exception(exc: Exception) -> bool:
+    """Return True when a streaming/model exception should be retried with backoff."""
+    if isinstance(exc, UnexpectedModelBehavior):
+        return _is_retryable_streaming_error_message(str(exc))
+
+    if isinstance(exc, _RETRYABLE_STREAMING_EXCEPTIONS):
+        return True
+
+    return _is_retryable_openai_api_error(exc)
+
 
 
 def _log_error_to_file(exc: Exception) -> Optional[str]:
@@ -1935,7 +2008,7 @@ class BaseAgent(ABC):
         STREAMING_RETRY_DELAYS = [1, 2, 4]  # Exponential backoff: 1s, 2s, 4s
 
         async def _run_with_streaming_retry(run_coro_factory):
-            """Wrap agent run with auto-retry for transient streaming errors.
+            """Wrap agent run with auto-retry for transient streaming/model errors.
 
             Args:
                 run_coro_factory: A callable that returns a new coroutine for the agent run.
@@ -1945,24 +2018,16 @@ class BaseAgent(ABC):
                 The result from a successful agent run.
 
             Raises:
-                UnexpectedModelBehavior: If all retries are exhausted or error is not retryable.
+                Exception: Re-raises the last retryable error after retries are exhausted,
+                    or immediately re-raises non-retryable errors.
             """
             last_error = None
             for attempt in range(MAX_STREAMING_RETRIES):
                 try:
                     return await run_coro_factory()
-                except UnexpectedModelBehavior as e:
-                    error_msg = str(e).lower()
-                    # Only retry on transient streaming errors, not validation errors
-                    is_streaming_error = (
-                        "streamed response ended without content" in error_msg
-                        or "stream" in error_msg
-                        and "ended" in error_msg
-                        or "malformed streamed sse event" in error_msg
-                        or "extra json data in sse payload" in error_msg
-                    )
-                    if not is_streaming_error:
-                        raise  # Re-raise non-retryable errors immediately
+                except Exception as e:
+                    if not should_retry_streaming_exception(e):
+                        raise
 
                     last_error = e
                     if attempt < MAX_STREAMING_RETRIES - 1:
