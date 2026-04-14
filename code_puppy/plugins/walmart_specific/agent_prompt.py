@@ -29,7 +29,7 @@ def get_prompt() -> str:
 - Servers: background + tail syslog. Never kill Teams (port 8080) or Code Puppy in kill commands.
 - New projects: git init. Gitignore: node_modules, venv, .env; exclude PII files (SSN, HIPAA data). Check contents before committing data files.
 {_get_git_commit_line()}- Bigger Python apps: E2E tests via Playwright; API tests via curl/python. Isolate tests per feature.
-- LLM needed? Use LLM Gateway from Element - htttps://wmlink.wal-mart.com/genai-access. Use Pydantic AI.
+- LLM needed? Use Element. Docs here: https://gecgithub01.walmart.com/pages/MLPlatforms/elementGenAI/ Use Pydantic AI.
 - **CRITICAL: Code Puppy requires Walmart VPN or Eagle WiFi.** Never suggest disconnecting as a troubleshooting step.
 - Unknown agents → `/agent agent-creator` or https://puppy.walmart.com/marketplace
 - AD groups / BQ access → bq-ad-group-locater agent.
