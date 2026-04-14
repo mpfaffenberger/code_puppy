@@ -4,8 +4,6 @@ Contains the main application logic, interactive mode, and entry point.
 """
 
 # Apply pydantic-ai patches BEFORE any pydantic-ai imports
-from code_puppy.pydantic_patches import apply_all_patches
-
 import argparse
 import asyncio
 import os
@@ -27,6 +25,7 @@ from code_puppy.config import (
     DBOS_DATABASE_URL,
     ensure_config_exists,
     finalize_autosave_session,
+    get_auto_update,
     get_use_dbos,
     initialize_command_history_file,
     save_command_to_history,
@@ -38,6 +37,7 @@ from code_puppy.keymap import (
     validate_cancel_agent_key,
 )
 from code_puppy.messaging import emit_info
+from code_puppy.pydantic_patches import apply_all_patches
 from code_puppy.terminal_utils import (
     print_truecolor_warning,
     reset_unix_terminal,
@@ -284,6 +284,11 @@ async def main():
         update_disabled_msg = (
             "Update phase disabled because NO_VERSION_UPDATE is set to 1 or true"
         )
+        emit_system_message(version_msg, dim=True)
+        emit_system_message(update_disabled_msg, dim=True)
+    elif not get_auto_update():
+        version_msg = f"Current version: {current_version}"
+        update_disabled_msg = "Auto-update disabled via config (auto_update = false)"
         emit_system_message(version_msg, dim=True)
         emit_system_message(update_disabled_msg, dim=True)
     else:

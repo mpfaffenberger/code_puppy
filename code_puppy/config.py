@@ -433,8 +433,8 @@ def load_mcp_server_configs():
     """
     from rich.text import Text
 
-    from code_puppy.messaging.message_queue import emit_error
     from code_puppy.messaging import emit_system_message
+    from code_puppy.messaging.message_queue import emit_error
 
     try:
         if not pathlib.Path(MCP_SERVERS_FILE).exists():
@@ -1509,6 +1509,21 @@ def get_auto_save_session() -> bool:
     """
     true_vals = {"1", "true", "yes", "on"}
     cfg_val = get_value("auto_save_session")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    return True
+
+
+def get_auto_update() -> bool:
+    """
+    Checks puppy.cfg for 'auto_update' (case-insensitive in value only).
+    Defaults to True if not set.
+    Allowed values for OFF: 0, 'false', 'no', 'off' (all case-insensitive).
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("auto_update")
     if cfg_val is not None:
         if str(cfg_val).strip().lower() in true_vals:
             return True
