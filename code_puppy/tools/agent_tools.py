@@ -162,16 +162,16 @@ def _save_session_history(
             "created_at": datetime.now().isoformat(),
             "message_count": len(message_history),
         }
-        with open(txt_path, "w") as f:
+        with open(txt_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2)
     elif txt_path.exists():
         # Update message count on subsequent saves
         try:
-            with open(txt_path, "r") as f:
+            with open(txt_path, "r", encoding="utf-8") as f:
                 metadata = json.load(f)
             metadata["message_count"] = len(message_history)
             metadata["last_updated"] = datetime.now().isoformat()
-            with open(txt_path, "w") as f:
+            with open(txt_path, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=2)
         except Exception:
             pass  # If we can't update metadata, no big deal
