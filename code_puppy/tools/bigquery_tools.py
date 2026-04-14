@@ -709,7 +709,8 @@ def bigquery_search_tables(
         job_config = bq.QueryJobConfig(
             query_parameters=[
                 bq.ScalarQueryParameter("pattern", "STRING", search_pattern)
-            ]
+            ],
+            labels={"application": "codepuppy"},
         )
 
         all_tables: list[dict] = []
