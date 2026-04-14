@@ -33,7 +33,6 @@ from code_puppy.plugins.walmart_specific.pingfed_auth import (
     handle_pingfed_auth_command,
     handle_puppy_auth_command,
 )
-from code_puppy.plugins.walmart_specific.walmart_models import get_walmart_models
 from code_puppy.plugins.walmart_specific.workspace_safety import (
     ensure_safe_windows_workspace,
 )
@@ -236,7 +235,6 @@ def load_model_config() -> Dict[str, Any]:
 
 
 register_callback("load_model_config", load_model_config)
-register_callback("load_models_config", get_walmart_models)
 register_callback("load_prompt", get_prompt)
 
 
