@@ -1,132 +1,119 @@
-"""Plugin: /pop <n>
-
-Deletes the *n* most-recent messages from the conversation history and then
-automatically prunes any broken tool-call fragments that would confuse the
-model (e.g. a ToolCallPart with no matching ToolReturnPart, or vice-versa).
-
-Usage
------
-    /pop          – pop the single most-recent message
-    /pop 1        – same as above
-    /pop 3        – pop the 3 most-recent messages
-"""
+"""Plugin that adds /pop for trimming recent conversation history."""
 
 from __future__ import annotations
 
-from typing import List, Any
+from typing import Any, List, Optional, Tuple
 
-from code_puppy.command_line.command_registry import register_command
+from code_puppy.callbacks import register_callback
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+def emit_error(message: Any) -> None:
+    from code_puppy.messaging import emit_error as _emit_error
+
+    _emit_error(message)
+
+
+def emit_info(message: Any) -> None:
+    from code_puppy.messaging import emit_info as _emit_info
+
+    _emit_info(message)
+
+
+def emit_success(message: Any) -> None:
+    from code_puppy.messaging import emit_success as _emit_success
+
+    _emit_success(message)
+
+
+def emit_warning(message: Any) -> None:
+    from code_puppy.messaging import emit_warning as _emit_warning
+
+    _emit_warning(message)
+
+
+def _custom_help() -> List[Tuple[str, str]]:
+    return [
+        (
+            "pop",
+            "Delete the N most-recent messages and prune broken tool-call fragments",
+        )
+    ]
+
 
 def _has_only_tool_returns(message: Any) -> bool:
-    """Return True if a ModelRequest contains *only* ToolReturnPart entries.
-
-    Such a message is the follow-up to a tool-call response. If the preceding
-    ModelResponse was popped, this orphaned request makes no sense and must be
-    pruned as well.
-    """
+    """Return True when a request message contains only tool-return parts."""
     try:
         from pydantic_ai.messages import ModelRequest, ToolReturnPart
 
         if not isinstance(message, ModelRequest):
             return False
-        parts = getattr(message, "parts", [])
-        return bool(parts) and all(isinstance(p, ToolReturnPart) for p in parts)
+
+        parts = getattr(message, "parts", []) or []
+        return bool(parts) and all(isinstance(part, ToolReturnPart) for part in parts)
     except Exception:
         return False
 
 
 def _has_unresolved_tool_calls(message: Any) -> bool:
-    """Return True if a ModelResponse ends with unresolved ToolCallParts.
-
-    When a pop lands in the middle of a tool round-trip (i.e. the
-    ModelRequest containing the ToolReturnParts was removed), the preceding
-    ModelResponse is now the tail and still carries ToolCallParts that will
-    never be resolved.  We remove it too.
-    """
+    """Return True when a response message still contains unresolved tool calls."""
     try:
         from pydantic_ai.messages import ModelResponse, ToolCallPart
 
         if not isinstance(message, ModelResponse):
             return False
-        parts = getattr(message, "parts", [])
-        return any(isinstance(p, ToolCallPart) for p in parts)
+
+        parts = getattr(message, "parts", []) or []
+        return any(isinstance(part, ToolCallPart) for part in parts)
     except Exception:
         return False
 
 
 def _prune_dangling_tool_fragments(history: List[Any]) -> tuple[List[Any], int]:
-    """Iteratively strip incomplete tool-call sequences from the tail.
-
-    Returns the cleaned history and the number of extra messages pruned.
-    """
+    """Strip incomplete tool-call sequences from the tail of history."""
     pruned = 0
+
     while history:
         tail = history[-1]
         if _has_only_tool_returns(tail):
-            # Orphaned tool-result block – the call that triggered it was popped.
             history.pop()
             pruned += 1
-        elif _has_unresolved_tool_calls(tail):
-            # Unresolved tool-call block – esult block was popped.
+            continue
+
+        if _has_unresolved_tool_calls(tail):
             history.pop()
             pruned += 1
-        else:
-            break
+            continue
+
+        break
+
     return history, pruned
 
 
-# ---------------------------------------------------------------------------
-# Command handler
-# ---------------------------------------------------------------------------
-
-@register_command(
-    name="pop",
-    description="Delete the N most-recent messages and auto-prune interrupted tool calls",
-    usage="/pop [N]",
-    category="session",
-    detailed_help="""\
-Remove the last N messages from the conversation history (default N=1).
-
-After the deletion the command automatically removes any broken tool-call
-fragments so the remaining history stays consistent:
-
-  • A trailing assistant message that contains unresolved tool calls (the
-    corresponding tool-result message was just popped) is removed.
-  • A trailing user/tool message that contains only ToolReturnParts (the
-    assistant message that requested the tool was just popped) is removed.
-
-Both cleanup steps repeat until the tail is clean.
-
-Examples:
-  /pop        → remove the last 1 message
-  /pop 2      → remove the last 2 messages
-  /pop 10     → remove the last 10 messages
-""",
-)
-def handle_pop_command(command: str) -> bool:
-    """Handle the /pop [n] command."""
-    from code_puppy.agents.agent_manager import get_current_agent
-    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
-
-    # ------------------------------------------------------------------ parse
+def _parse_pop_count(command: str) -> Optional[int]:
     tokens = command.split()
-    n: int = 1
-    if len(tokens) >= 2:
-        try:
-            n = int(tokens[1])
-        except ValueError:
-            emit_error(f"/pop: '{tokens[1]}' is not a valid integer – usage: /pop [N]")
-            return True
-        if n < 1:
-            emit_error("/pop: N must be a positive integer")
-            return True
+    if len(tokens) < 2:
+        return 1
 
-    # -------------------------------------------------------------- get agent
+    try:
+        count = int(tokens[1])
+    except ValueError:
+        emit_error(f"/pop: '{tokens[1]}' is not a valid integer – usage: /pop [N]")
+        return None
+
+    if count < 1:
+        emit_error("/pop: N must be a positive integer")
+        return None
+
+    return count
+
+
+def _handle_pop_command(command: str) -> bool:
+    from code_puppy.agents.agent_manager import get_current_agent
+
+    count = _parse_pop_count(command)
+    if count is None:
+        return True
+
     try:
         agent = get_current_agent()
     except Exception as exc:
@@ -134,59 +121,71 @@ def handle_pop_command(command: str) -> bool:
         return True
 
     history: List[Any] = list(agent.get_message_history())
-
     if not history:
         emit_warning("/pop: conversation history is empty – nothing to remove")
         return True
 
-    # The first message is the system prompt; never touch it.
-    # Poppable messages are indices 1 … len-1.
-    poppable = len(history) - 1  # how many we *can* remove
-    if poppable == 0:
+    poppable = len(history) - 1
+    if poppable <= 0:
         emit_warning("/pop: only the system prompt is in history – nothing to remove")
         return True
 
-    if n > poppable:
+    if count > poppable:
         emit_warning(
-            f"/pop: requested {n} but only {poppable} message(s) can be removed "
+            f"/pop: requested {count} but only {poppable} message(s) can be removed "
             f"(the system prompt is always preserved). Removing {poppable}."
         )
-        n = poppable
+        count = poppable
 
     before_count = len(history)
-
-    # ------------------------------------------------ remove the last n items
-    history = history[: len(history) - n]
-
-    # ----------------------------------------- auto-prune broken tool chains
+    history = history[: before_count - count]
     history, extra_pruned = _prune_dangling_tool_fragments(history)
-
     after_count = len(history)
     total_removed = before_count - after_count
 
-    # ---------------------------------------------------- apply new history
     try:
         agent.set_message_history(history)
     except Exception as exc:
         emit_error(f"/pop: failed to update message history – {exc}")
         return True
 
-    # ------------------------------------------------------- user feedback
-    parts = [f"✂️  Popped {n} message(s)"]
+    summary_parts = [f":scissors: Popped {count} message(s)"]
     if extra_pruned:
-        parts.append(
+        summary_parts.append(
             f"and pruned {extra_pruned} extra incomplete tool-call fragment(s)"
         )
-    summary = " ".join(parts) + "."
 
-    remaining = after_count - 1  # subtract system prompt from display count
+    remaining = max(after_count - 1, 0)
     emit_success(
-        f"{summary}\n"
-        f"📜 History: {before_count - 1} → {remaining} message(s) "
-        f"(excluding system prompt, removed {total_removed} total)"
+        " ".join(summary_parts)
+        + ".\n"
+        + f":scroll: History: {before_count - 1} → {remaining} message(s) "
+        + f"(excluding system prompt, removed {total_removed} total)"
     )
 
     if after_count <= 1:
-        emit_info("💡 History is now empty (system prompt only). Starting fresh!")
+        emit_info(":bulb: History is now empty (system prompt only). Starting fresh!")
 
     return True
+
+
+def _handle_custom_command(command: str, name: str) -> Optional[bool]:
+    if name != "pop":
+        return None
+
+    return _handle_pop_command(command)
+
+
+register_callback("custom_command_help", _custom_help)
+register_callback("custom_command", _handle_custom_command)
+
+
+__all__ = [
+    "_custom_help",
+    "_handle_custom_command",
+    "_handle_pop_command",
+    "_parse_pop_count",
+    "_prune_dangling_tool_fragments",
+    "_has_only_tool_returns",
+    "_has_unresolved_tool_calls",
+]

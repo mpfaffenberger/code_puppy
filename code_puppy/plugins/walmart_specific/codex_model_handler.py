@@ -56,10 +56,13 @@ def create_codex_model(
         OpenAIResponsesModel instance or None if creation fails
     """
     try:
-        url, headers, verify, api_key = get_custom_config(model_config)
+        url, headers, verify, api_key, timeout = get_custom_config(model_config)
 
         # Use the codex client which handles reasoning items
-        client = create_codex_async_client(headers=headers, verify=verify)
+        codex_timeout = timeout if timeout is not None else 300
+        client = create_codex_async_client(
+            headers=headers, verify=verify, timeout=codex_timeout
+        )
 
         provider_args: Dict[str, Any] = {
             "base_url": url,

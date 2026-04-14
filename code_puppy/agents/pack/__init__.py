@@ -5,7 +5,7 @@ Pack Leader's coordination for parallel multi-agent workflows:
 
 - **Bloodhound** 🐕‍🦺 - Issue tracking specialist (bd only)
 - **Terrier** 🐕 - Worktree management (git worktree from base branch)
-- **Husky** 🐺 - Task execution (coding work in worktrees)
+- **Code-Puppy** 🐶 - Task execution (coding work in worktrees, including clones)
 - **Shepherd** 🐕 - Code review critic (quality gatekeeper)
 - **Watchdog** 🐕‍🦺 - QA critic (tests, coverage, quality)
 - **Retriever** 🦮 - Local branch merging (git merge to base branch)
@@ -18,7 +18,6 @@ Pack Leader orchestrates them to execute complex parallel workflows.
 """
 
 from .bloodhound import BloodhoundAgent
-from .husky import HuskyAgent
 from .retriever import RetrieverAgent
 from .shepherd import ShepherdAgent
 from .terrier import TerrierAgent
@@ -28,7 +27,6 @@ __all__ = [
     "BloodhoundAgent",
     "TerrierAgent",
     "RetrieverAgent",
-    "HuskyAgent",
     "ShepherdAgent",
     "WatchdogAgent",
 ]

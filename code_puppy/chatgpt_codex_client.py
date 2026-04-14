@@ -352,12 +352,17 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
 def create_codex_async_client(
     headers: dict[str, str] | None = None,
     verify: str | bool = True,
+    timeout: float | httpx.Timeout | None = None,
     **kwargs: Any,
 ) -> ChatGPTCodexAsyncClient:
     """Create a ChatGPT Codex async client with proper configuration."""
+    if timeout is None:
+        timeout = httpx.Timeout(300.0, connect=30.0)
+    elif isinstance(timeout, (int, float)):
+        timeout = httpx.Timeout(float(timeout), connect=30.0)
     return ChatGPTCodexAsyncClient(
         headers=headers,
         verify=verify,
-        timeout=httpx.Timeout(300.0, connect=30.0),
+        timeout=timeout,
         **kwargs,
     )

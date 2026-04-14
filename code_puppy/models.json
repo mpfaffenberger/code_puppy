@@ -25,25 +25,43 @@
   },
   "zai-glm-5-coding": {
     "type": "zai_coding",
+    "provider": "zai",
     "name": "glm-5",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   },
   "zai-glm-5-api": {
     "type": "zai_api",
+    "provider": "zai",
     "name": "glm-5",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   },
   "zai-glm-5-turbo-coding": {
     "type": "zai_coding",
+    "provider": "zai",
     "name": "glm-5-turbo",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   },
   "zai-glm-5-turbo-api": {
     "type": "zai_api",
+    "provider": "zai",
     "name": "glm-5-turbo",
+    "context_length": 200000,
+    "supported_settings": ["temperature", "top_p"]
+  },
+  "zai-glm-5.1-coding": {
+    "type": "zai_coding",
+    "provider": "zai",
+    "name": "glm-5.1",
+    "context_length": 200000,
+    "supported_settings": ["temperature", "top_p"]
+  },
+  "zai-glm-5.1-api": {
+    "type": "zai_api",
+    "provider": "zai",
+    "name": "glm-5.1",
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   }

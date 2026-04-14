@@ -49,14 +49,8 @@ def test_cli_happy_path_interactive_flow(
         )
     cli_harness.wait_for_ready(result)
 
-    # /model command - needs more time for model loading and Walmart auth
-    result.sendline("/model claude-4-5-sonnet\r")
-    try:
-        result.child.expect(r"Active model set and loaded", timeout=20)
-    except pexpect.exceptions.TIMEOUT:
-        raise AssertionError(
-            f"Timeout waiting for /model response. Log: {result.read_log()[-500:]}"
-        )
+    result.sendline("/model synthetic-GLM-5.1\r")
+    result.child.expect(r"Active model set and loaded", timeout=30)
     cli_harness.wait_for_ready(result)
 
     # /set command

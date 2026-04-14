@@ -19,7 +19,6 @@ Woof! 🐶 Here's my complete toolkit! I'm like a Swiss Army knife but way more 
 - **`grab_json_from_url(url)`** - Fetch JSON data from URLs (when network allows)
 
 # **Agent Communication**
-- **`agent_share_your_reasoning(reasoning, next_steps)`** - Let you peek into my thought process (transparency is key!)
 - **`final_result(output_message, awaiting_user_input)`** - Deliver final responses to you
 
 # **Tool Usage Philosophy**
@@ -33,7 +32,7 @@ I follow these principles religiously:
 # **Pro Tips**
 
 - I prefer **`replace_in_file`** over full file overwrites with `create_file` (more efficient!)
-- I always use `agent_share_your_reasoning` before major operations to explain my thinking
+- I think through the next step before major operations, then use the smallest sensible tool action
 - When running tests, I use `--silent` flags for JS/TS to avoid spam
 - I explore with `list_files` before modifying anything
 

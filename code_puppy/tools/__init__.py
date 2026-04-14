@@ -342,8 +342,13 @@ TOOL_EXPANSIONS: dict[str, list[str]] = {
     "edit_file": ["create_file", "replace_in_file", "delete_snippet"],
 }
 
+# Legacy tool names we silently ignore instead of warning about.
+# Keep this for truly removed tools only; backward-compatible tool aliases
+# that still work should stay in TOOL_REGISTRY.
+REMOVED_LEGACY_TOOLS: set[str] = set()
 # Merge in MS Graph tools
 TOOL_REGISTRY.update(MSGRAPH_TOOLS)
+
 
 # Merge in Power BI tools
 TOOL_REGISTRY.update(POWERBI_TOOLS)
@@ -451,9 +456,6 @@ def register_tools_for_agent(
 
     _load_plugin_tools()
 
-    # Pre-compute whether extended thinking is active to avoid repeated checks
-    skip_reasoning_tool = has_extended_thinking_active(model_name)
-
     # Expand compound tools (e.g. "edit_file" → three individual tools)
     expanded_tools: list[str] = []
     seen: set[str] = set()
@@ -479,6 +481,9 @@ def register_tools_for_agent(
             _register_uc_tool_wrapper(agent, uc_tool_name)
             continue
 
+        if tool_name in REMOVED_LEGACY_TOOLS:
+            continue
+
         if tool_name not in TOOL_REGISTRY:
             # Skip unknown tools with a warning instead of failing
             emit_warning(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
@@ -490,11 +495,6 @@ def register_tools_for_agent(
             and not get_universal_constructor_enabled()
         ):
             continue  # Skip UC if disabled in config
-
-        # Skip reasoning tool when extended thinking is active — the model
-        # already exposes its chain-of-thought via thinking blocks.
-        if tool_name == "agent_share_your_reasoning" and skip_reasoning_tool:
-            continue
 
         # Register the individual tool
         registry_entry = TOOL_REGISTRY[tool_name]

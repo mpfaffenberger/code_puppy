@@ -54,6 +54,7 @@ _DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 GEMINI_MODELS_FILE = os.path.join(DATA_DIR, "gemini_models.json")
 CHATGPT_MODELS_FILE = os.path.join(DATA_DIR, "chatgpt_models.json")
 CLAUDE_MODELS_FILE = os.path.join(DATA_DIR, "claude_models.json")
+COPILOT_MODELS_FILE = os.path.join(DATA_DIR, "copilot_models.json")
 
 # Cache files (XDG_CACHE_HOME)
 AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
@@ -93,7 +94,6 @@ PACK_AGENT_NAMES = frozenset(
     [
         "pack-leader",
         "bloodhound",
-        "husky",
         "shepherd",
         "terrier",
         "watchdog",
@@ -165,7 +165,7 @@ def unlock_wiggum() -> None:
 def get_pack_agents_enabled() -> bool:
     """Return True if pack agents are enabled (default False).
 
-    When False (default), pack agents (pack-leader, bloodhound, husky, shepherd,
+    When False (default), pack agents (pack-leader, bloodhound, shepherd,
     terrier, watchdog, retriever) are hidden from `list_agents` tool and `/agents`
     command. They cannot be invoked by other agents or selected by users.
 
@@ -355,6 +355,7 @@ def get_config_keys():
         "message_limit",
         "allow_recursion",
         "openai_reasoning_effort",
+        "openai_reasoning_summary",
         "openai_verbosity",
         "auto_save_session",
         "max_saved_sessions",
@@ -753,6 +754,32 @@ def set_openai_reasoning_effort(value: str) -> None:
     set_config_value("openai_reasoning_effort", normalized)
 
 
+def get_openai_reasoning_summary() -> str:
+    """Return the configured OpenAI reasoning summary mode.
+
+    Supported values:
+    - auto: let the provider decide the best summary style
+    - concise: shorter reasoning summaries
+    - detailed: fuller reasoning summaries
+    """
+    allowed_values = {"auto", "concise", "detailed"}
+    configured = (get_value("openai_reasoning_summary") or "auto").strip().lower()
+    if configured not in allowed_values:
+        return "auto"
+    return configured
+
+
+def set_openai_reasoning_summary(value: str) -> None:
+    """Persist the OpenAI reasoning summary mode ensuring it remains valid."""
+    allowed_values = {"auto", "concise", "detailed"}
+    normalized = (value or "").strip().lower()
+    if normalized not in allowed_values:
+        raise ValueError(
+            f"Invalid reasoning summary '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
+        )
+    set_config_value("openai_reasoning_summary", normalized)
+
+
 def get_openai_verbosity() -> str:
     """Return the configured OpenAI verbosity (low, medium, high).
 
@@ -833,7 +860,7 @@ def get_model_setting(
     """Get a specific setting for a model.
 
     Args:
-        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
         setting: The setting name (e.g., 'temperature', 'top_p', 'seed')
         default: Default value if not set
 
@@ -857,7 +884,7 @@ def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> 
     """Set a specific setting for a model.
 
     Args:
-        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
         setting: The setting name (e.g., 'temperature', 'seed')
         value: The value to set, or None to clear
     """

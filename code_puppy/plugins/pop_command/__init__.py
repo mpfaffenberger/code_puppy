@@ -1,1 +1,1 @@
-# pop_command plugin – registers the /pop <n> slash command
+"""/pop command plugin."""

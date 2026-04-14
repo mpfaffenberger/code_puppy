@@ -93,17 +93,37 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
         modified = False
 
-        # Remove unsupported parameters that pydantic-ai might add
-        # but Walmart's Anthropic proxy doesn't support
-        unsupported_params = ["output_format"]
-        for param in unsupported_params:
-            if param in data:
-                del data[param]
+        # Anthropic supports up to 4 cache breakpoints.  We place them on
+        # the three most impactful, stable prefixes so that content which
+        # doesn't change between turns is independently cached:
+        #   1. System prompt  – static across the whole session
+        #   2. Tool definitions – static across the whole session
+        #   3. Last message    – caches the growing conversation prefix
+
+        # 1. System prompt
+        system = data.get("system")
+        if isinstance(system, list) and system:
+            last_sys = system[-1]
+            if isinstance(last_sys, dict) and "cache_control" not in last_sys:
+                last_sys["cache_control"] = {"type": "ephemeral"}
+                modified = True
+        elif isinstance(system, str) and system:
+            # Convert bare string to content-block list so we can attach
+            # cache_control (the Anthropic API accepts both formats).
+            data["system"] = [
+                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+            ]
+            modified = True
+
+        # 2. Tool definitions
+        tools = data.get("tools")
+        if isinstance(tools, list) and tools:
+            last_tool = tools[-1]
+            if isinstance(last_tool, dict) and "cache_control" not in last_tool:
+                last_tool["cache_control"] = {"type": "ephemeral"}
                 modified = True
 
-        # Minimal, deterministic strategy:
-        # Add cache_control only on the single most recent block:
-        # the last dict content block of the last message (if any).
+        # 3. Last message content block
         messages = data.get("messages")
         if isinstance(messages, list) and messages:
             last = messages[-1]
@@ -125,16 +145,33 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
 
 def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
-    """In-place cache_control injection and cleanup on Anthropic messages.create payload.
+    """In-place cache_control injection on Anthropic messages.create payload
 
-    Also removes unsupported parameters that pydantic-ai might add but
-    Walmart's Anthropic proxy doesn't support (e.g., output_format).
+    Places up to three cache breakpoints (Anthropic allows 4) on the most
+    valuable, stable prefixes:
+      1. System prompt  – never changes between turns
+      2. Tool defs      – never changes between turns
+      3. Last message   – caches the growing conversation prefix
     """
-    # Remove unsupported parameters that pydantic-ai might add
-    unsupported_params = ["output_format"]
-    for param in unsupported_params:
-        payload.pop(param, None)
+    # 1. System prompt
+    system = payload.get("system")
+    if isinstance(system, list) and system:
+        last_sys = system[-1]
+        if isinstance(last_sys, dict) and "cache_control" not in last_sys:
+            last_sys["cache_control"] = {"type": "ephemeral"}
+    elif isinstance(system, str) and system:
+        payload["system"] = [
+            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+        ]
 
+    # 2. Tool definitions
+    tools = payload.get("tools")
+    if isinstance(tools, list) and tools:
+        last_tool = tools[-1]
+        if isinstance(last_tool, dict) and "cache_control" not in last_tool:
+            last_tool["cache_control"] = {"type": "ephemeral"}
+
+    # 3. Last message content block
     messages = payload.get("messages")
     if isinstance(messages, list) and messages:
         last = messages[-1]
@@ -145,31 +182,14 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
                 if isinstance(last_block, dict) and "cache_control" not in last_block:
                     last_block["cache_control"] = {"type": "ephemeral"}
 
+    # No extra markers in production mode; keep payload clean.
+    # (Function kept for potential future use.)
     return
 
-
-def patch_anthropic_client_messages(client: Any) -> None:
-    """Monkey-patch AsyncAnthropic.messages.create to inject cache_control.
-
-    This operates at the highest level: just before Anthropic SDK serializes
-    the request into HTTP. That means no httpx / Pydantic shenanigans can
-    undo it.
-    """
-
-    if AsyncAnthropic is None or not isinstance(client, AsyncAnthropic):  # type: ignore[arg-type]
-        return
-
-    try:
-        messages_obj = getattr(client, "messages", None)
-        if messages_obj is None:
-            return
-        original_create: Callable[..., Any] = messages_obj.create
-    except Exception:  # pragma: no cover - defensive
-        return
+def _make_cache_wrapper(original_create: Callable[..., Any]) -> Callable[..., Any]:
+    """Create a wrapped version of messages.create that injects cache_control."""
 
     async def wrapped_create(*args: Any, **kwargs: Any):
-        # Anthropic messages.create takes a mix of positional/kw args.
-        # The payload is usually in kwargs for the Python SDK.
         if kwargs:
             _inject_cache_control_in_payload(kwargs)
         elif args:
@@ -179,4 +199,33 @@ def patch_anthropic_client_messages(client: Any) -> None:
 
         return await original_create(*args, **kwargs)
 
-    messages_obj.create = wrapped_create  # type: ignore[assignment]
+    return wrapped_create
+
+
+def patch_anthropic_client_messages(client: Any) -> None:
+    """Monkey-patch AsyncAnthropic messages.create to inject cache_control.
+
+    Patches both client.messages.create AND client.beta.messages.create
+    since pydantic-ai uses the beta endpoint.
+    """
+
+    if AsyncAnthropic is None or not isinstance(client, AsyncAnthropic):  # type: ignore[arg-type]
+        return
+
+    # Patch client.messages.create
+    try:
+        messages_obj = getattr(client, "messages", None)
+        if messages_obj is not None:
+            messages_obj.create = _make_cache_wrapper(messages_obj.create)  # type: ignore[assignment]
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+    # Patch client.beta.messages.create (used by pydantic-ai)
+    try:
+        beta_obj = getattr(client, "beta", None)
+        if beta_obj is not None:
+            beta_messages_obj = getattr(beta_obj, "messages", None)
+            if beta_messages_obj is not None:
+                beta_messages_obj.create = _make_cache_wrapper(beta_messages_obj.create)  # type: ignore[assignment]
+    except Exception:  # pragma: no cover - defensive
+        pass

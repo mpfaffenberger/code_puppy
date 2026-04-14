@@ -159,11 +159,11 @@ def test_pack_bloodhound():
         assert "extra prompt" in prompt
 
 
-def test_pack_husky():
-    from code_puppy.agents.pack.husky import HuskyAgent
+def test_code_puppy_prompt_allows_callback_additions():
+    from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
-    agent = HuskyAgent()
-    with patch("code_puppy.agents.pack.husky.callbacks") as mock_cb:
+    agent = CodePuppyAgent()
+    with patch("code_puppy.agents.agent_code_puppy.callbacks") as mock_cb:
         mock_cb.on_load_prompt.return_value = ["extra"]
         prompt = agent.get_system_prompt()
         assert "extra" in prompt

@@ -11,10 +11,6 @@
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/actions)
 [![Tests](https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge&logo=pytest)](https://github.com/mpfaffenberger/code_puppy/tests)
 
-[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5.2--Codex-orange?style=flat-square&logo=openai)](https://openai.com)
-[![Gemini](https://img.shields.io/badge/Google-Gemini-blue?style=flat-square&logo=google)](https://ai.google.dev/)
-[![Anthropic](https://img.shields.io/badge/Anthropic-Claude-orange?style=flat-square&logo=anthropic)](https://anthropic.com)
-
 [![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
 [![Pydantic AI](https://img.shields.io/badge/Pydantic-AI-success?style=for-the-badge)](https://github.com/pydantic/pydantic-ai)
 
@@ -282,6 +278,47 @@ export CEREBRAS_API_KEY3=csk-...
 Then just use /model and tab to select your round-robin model!
 
 The `rotate_every` parameter controls how many requests are made to each model before rotating to the next one. In this example, the round-robin model will use each Qwen model for 5 consecutive requests before moving to the next model in the sequence.
+
+## Custom Model Timeouts
+
+For custom model endpoints (`custom_openai`, `custom_anthropic`, `custom_gemini`, `cerebras`), you can configure custom timeout values to handle slow or unreliable endpoints. The default timeout for these custom endpoint models is 180 seconds.
+
+**Note:** Other model types have different default timeouts:
+- ChatGPT/Codex models: 300 seconds (5 minutes)
+- Regular Anthropic models: 180 seconds
+- Gemini models: 180 seconds
+
+### Configuration
+Add a `timeout` field to your model configuration in `~/.code_puppy/extra_models.json`:
+
+```json
+{
+  "slow_model": {
+    "type": "custom_openai",
+    "name": "gpt-4",
+    "custom_endpoint": {
+      "url": "https://slow-endpoint.example.com/v1",
+      "api_key": "$API_KEY",
+      "timeout": 600
+    }
+  },
+  "fast_model": {
+    "type": "cerebras", 
+    "name": "llama3.1-8b",
+    "custom_endpoint": {
+      "url": "https://api.cerebras.ai/v1",
+      "api_key": "$CEREBRAS_API_KEY"
+    },
+    "timeout": 300
+  }
+}
+```
+
+The `timeout` value can be specified either:
+- Inside the `custom_endpoint` object (recommended for endpoint-specific timeouts)
+- At the top level of the model config (affects all custom endpoint types)
+
+Timeout values must be positive numbers (integers or floats) representing seconds. If no timeout is specified, the default 180-second timeout is used for custom endpoint models.
 
 ---
 

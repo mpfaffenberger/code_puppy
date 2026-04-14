@@ -81,13 +81,19 @@ class TestSettingDefinitions:
         assert "minimal" in reason_def["choices"]
         assert "high" in reason_def["choices"]
 
+    def test_summary_setting_definition(self):
+        """Test reasoning summary setting has correct choices."""
+        summary_def = SETTING_DEFINITIONS["summary"]
+        assert summary_def["type"] == "choice"
+        assert summary_def["choices"] == ["auto", "concise", "detailed"]
+        assert summary_def["default"] == "auto"
+
     def test_verbosity_setting_definition(self):
         """Test verbosity setting has correct choices."""
         verb_def = SETTING_DEFINITIONS["verbosity"]
         assert verb_def["type"] == "choice"
-        assert "low" in verb_def["choices"]
-        assert "medium" in verb_def["choices"]
-        assert "high" in verb_def["choices"]
+        assert verb_def["choices"] == ["low", "medium", "high"]
+        assert "max" not in verb_def["choices"]
 
     def test_extended_thinking_setting_definition(self):
         """Test extended_thinking setting is choice type with enabled/adaptive/off."""

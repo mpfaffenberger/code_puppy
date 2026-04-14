@@ -31,8 +31,8 @@ def test_autosave_resume_roundtrip(
         satisfy_initial_prompts(first_run, skip_autosave=True)
         harness.wait_for_ready(first_run)
 
-        first_run.sendline("/model claude-4-5-sonnet\r")
-        first_run.child.expect(r"Active model set", timeout=30)
+        first_run.sendline("/model synthetic-GLM-5.1\r")
+        first_run.child.expect(r"Active model set", timeout=60)
         harness.wait_for_ready(first_run)
 
         prompt_text = "hi"
@@ -61,9 +61,9 @@ def test_autosave_resume_roundtrip(
             second_run.child.expect("Autosave loaded", timeout=90)
             harness.wait_for_ready(second_run)
 
-            second_run.sendline("/model claude-4-5-sonnet\r")
-            time.sleep(0.2)
-            second_run.child.expect(r"Active model set", timeout=30)
+            second_run.sendline("/model synthetic-GLM-5.1\r")
+            time.sleep(0.5)
+            second_run.child.expect(r"Active model set", timeout=60)
             harness.wait_for_ready(second_run)
 
             log_output = second_run.read_log().lower()

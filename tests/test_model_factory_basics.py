@@ -39,7 +39,7 @@ class TestModelFactoryBasics:
         model = ModelFactory.get_model("gpt-4", config)
 
         assert model is not None
-        assert hasattr(model, "provider")
+        assert hasattr(model, "_provider")
         assert model.model_name == "gpt-4"
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
@@ -118,7 +118,7 @@ class TestModelFactoryBasics:
         model = ModelFactory.get_model("custom-model", config)
 
         assert model is not None
-        assert hasattr(model, "provider")
+        assert hasattr(model, "_provider")
         assert model.model_name == "custom-gpt-4"
 
     def test_get_model_custom_openai_env_vars(self):
@@ -235,7 +235,7 @@ class TestModelFactoryBasics:
         model = ModelFactory.get_model("zai-coding", config)
 
         assert model is not None
-        assert hasattr(model, "provider")
+        assert hasattr(model, "_provider")
         assert model.model_name == "zai-coding-model"
 
     @patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"})
@@ -251,7 +251,7 @@ class TestModelFactoryBasics:
         model = ModelFactory.get_model("openrouter-model", config)
 
         assert model is not None
-        assert hasattr(model, "provider")
+        assert hasattr(model, "_provider")
         assert model.model_name == "anthropic/claude-3.5-sonnet"
 
     def test_get_model_openrouter_config_api_key(self):

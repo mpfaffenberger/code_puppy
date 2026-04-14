@@ -34,44 +34,23 @@ class CodePuppyAgent(BaseAgent):
             "delete_snippet",
             "delete_file",
             "agent_run_shell_command",
-            "agent_share_your_reasoning",
             "ask_user_question",
             "activate_skill",
             "list_or_search_skills",
             "load_image_for_analysis",
         ]
 
-    def _has_extended_thinking(self) -> bool:
-        """Check if the current model has extended thinking active."""
-        from code_puppy.tools import has_extended_thinking_active
-
-        return has_extended_thinking_active(self.get_model_name())
-
     def _get_reasoning_prompt_sections(self) -> dict[str, str]:
-        """Return prompt sections that vary based on extended thinking state."""
-        if self._has_extended_thinking():
-            return {
-                "pre_tool_rule": (
-                    "- Use your extended thinking to reason through problems "
-                    "before acting — plan your approach, then execute"
-                ),
-                "loop_rule": (
-                    "- You're encouraged to loop between reasoning, file "
-                    "tools, and run_shell_command to test output in order "
-                    "to write programs"
-                ),
-            }
+        """Return prompt sections describing the expected think-act loop."""
         return {
             "pre_tool_rule": (
-                "- Before every other tool use, you must use "
-                '"share_your_reasoning" to explain your thought process '
+                "- Before major tool use, think through your approach "
                 "and planned next steps"
             ),
             "loop_rule": (
-                "- You're encouraged to loop between "
-                "share_your_reasoning, file tools, and "
-                "run_shell_command to test output in order to write "
-                "programs"
+                "- You're encouraged to loop between reasoning, file "
+                "tools, and run_shell_command to test output in order "
+                "to write programs"
             ),
         }
 

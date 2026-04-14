@@ -268,10 +268,10 @@ class TestTerminalQAToolsCore:
 
         return TerminalQAAgent()
 
-    def test_tools_include_reasoning(self, agent):
-        """Test agent has agent_share_your_reasoning tool."""
+    def test_tools_exclude_retired_reasoning_tool(self, agent):
+        """Test agent does not expose the retired reasoning tool."""
         tools = agent.get_available_tools()
-        assert "agent_share_your_reasoning" in tools
+        assert "agent_share_your_reasoning" not in tools
 
 
 # =============================================================================
