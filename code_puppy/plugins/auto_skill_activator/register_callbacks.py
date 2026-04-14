@@ -281,15 +281,24 @@ def _auto_inject_skills(
         # Score skills using the steering LLM (with fuzzy fallback)
         scored = _score_skills_with_llm(user_prompt, skill_descriptions)
 
+        # Build a normalized lookup map for case-insensitive matching.
+        # The LLM may return reformatted skill names (e.g. "GitHub PR Workflow"
+        # instead of "github-pr-workflow"), so we normalize both sides.
+        skill_path_map_normalized = {
+            k.lower(): (k, v) for k, v in skill_path_map.items()
+        }
+
         # Filter by threshold
         matching: List[tuple] = []
         for item in scored:
-            name = item["name"]
+            name_from_llm = item["name"]
             score = item["score"]
-            if score >= AUTO_ACTIVATE_THRESHOLD and name in skill_path_map:
-                matching.append((score, name, skill_path_map[name]))
+            lookup_key = name_from_llm.lower()
+            if score >= AUTO_ACTIVATE_THRESHOLD and lookup_key in skill_path_map_normalized:
+                original_name, skill_path = skill_path_map_normalized[lookup_key]
+                matching.append((score, original_name, skill_path))
                 logger.info(
-                    f"[AutoSkillActivator] '{name}' scored {score:.1f} "
+                    f"[AutoSkillActivator] '{original_name}' scored {score:.1f} "
                     f"— queued for auto-activation"
                 )
 
