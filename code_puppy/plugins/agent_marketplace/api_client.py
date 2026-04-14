@@ -60,7 +60,7 @@ def _format_response_error(response_text: str, status_code: int) -> str:
             or "login" in text.lower()
             or "auth" in text.lower()
         ):
-            return "Authentication required. Try running /puppy_auth first."
+            return "Authentication required. Try running /marketplace_auth first."
         elif "blocked" in text.lower() or "forbidden" in text.lower():
             return "Request blocked by corporate proxy. Check your network connection."
         elif "not found" in text.lower() or "404" in text:
@@ -72,7 +72,7 @@ def _format_response_error(response_text: str, status_code: int) -> str:
 
     # Detect auth redirects in response text
     if "signin" in text or "callbackUrl" in text:
-        return "Authentication required. Try running /puppy_auth first."
+        return "Authentication required. Try running /marketplace_auth first."
 
     # Return truncated raw response for other cases
     if len(text) > 100:
@@ -169,7 +169,7 @@ def get_marketplace_token_status() -> Tuple[bool, bool]:
 def _get_auth_headers() -> dict:
     """Get authentication headers for marketplace API.
 
-    Uses marketplace_token from config (set by /puppy_auth command).
+    Uses marketplace_token from config (set by /marketplace_auth command).
     This is different from puppy_token which is for the backend.
 
     Also includes the user's AD groups as a custom header so the server

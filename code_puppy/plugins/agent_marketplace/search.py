@@ -429,7 +429,9 @@ def handle_search_agents(command: str) -> bool:
                 handle_puppy_auth_command,
             )
 
-            result = handle_puppy_auth_command("/puppy_auth", "puppy_auth")
+            result = handle_puppy_auth_command(
+                "/marketplace_auth", "marketplace_auth"
+            )
             if not result:
                 emit_error("Authentication failed. Please try again.")
                 return True

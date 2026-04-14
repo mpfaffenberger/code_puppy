@@ -732,7 +732,9 @@ def handle_download_agent(command: str) -> bool:
                 handle_puppy_auth_command,
             )
 
-            result = handle_puppy_auth_command("/puppy_auth", "puppy_auth")
+            result = handle_puppy_auth_command(
+                "/marketplace_auth", "marketplace_auth"
+            )
             if not result:
                 emit_error("Authentication failed. Please try again.")
                 return True
@@ -883,7 +885,7 @@ def handle_download_agent(command: str) -> bool:
             console.print(
                 "\n[dim]This agent may be restricted to specific AD groups.\n"
                 "If you believe you should have access, try:\n"
-                "  1. Re-authenticate with [cyan]/puppy_auth[/cyan]\n"
+                "  1. Re-authenticate with [cyan]/marketplace_auth[/cyan]\n"
                 "  2. Check your AD group membership in Sailpoint[/dim]"
             )
         elif "timeout" in error_msg.lower():
