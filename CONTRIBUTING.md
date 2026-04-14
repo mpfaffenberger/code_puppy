@@ -28,6 +28,8 @@ Thank you for your interest in contributing to Code Puppy! This project thrives 
 
 ## Getting Started
 
+> **💡 Windows users:** The following instructions assume macOS/Linux. For Windows-specific setup with PowerShell, see the [code-puppy-dev.ps1](#code-puppy-devps1-windows-powershell) section below.
+
 1. **Set up your environment:**
    - Code Puppy uses `Python` and the `uv` package manager.
    - Ensure you have Python 3.10 or higher.
