@@ -1568,8 +1568,6 @@ class BaseAgent(ABC):
             )
             return temp_agent
 
-    # It's okay to decorate it with DBOS.step even if not using DBOS; the decorator is a no-op in that case.
-    @DBOS.step()
     def message_history_accumulator(self, ctx: RunContext, messages: List[Any]):
         _message_history = self.get_message_history()
 
