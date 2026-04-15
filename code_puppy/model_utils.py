@@ -166,3 +166,12 @@ def get_default_extended_thinking(model_name: str) -> str:
     if "opus-4-6" in lower or "4-6-opus" in lower:
         return "adaptive"
     return "enabled"
+
+
+def should_use_anthropic_thinking_summary(model_name: str) -> bool:
+    """Return whether Anthropic adaptive thinking should request summary display.
+
+    Anthropic's newer Open 4.7 models need ``display: \"summary\"`` alongside
+    ``thinking={"type": "adaptive"}``.
+    """
+    return "open-4-7" in model_name.lower()

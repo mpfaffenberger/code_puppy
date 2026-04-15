@@ -262,6 +262,30 @@ class TestOpus46EffortSetting:
         thinking = settings.get("anthropic_thinking", {})
         assert "effort" not in thinking
 
+    def test_open_4_7_adaptive_thinking_adds_summary_display(self):
+        """Open 4.7 adaptive thinking should include display=summary."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={"extended_thinking": "adaptive"},
+        ):
+            settings = make_model_settings("claude-open-4-7", max_tokens=4096)
+        assert settings["anthropic_thinking"]["type"] == "adaptive"
+        assert settings["anthropic_thinking"]["display"] == "summary"
+
+    def test_non_open_4_7_adaptive_thinking_does_not_add_summary_display(self):
+        """Other Anthropic adaptive-thinking models should not get display=summary."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={"extended_thinking": "adaptive"},
+        ):
+            settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
+        assert settings["anthropic_thinking"]["type"] == "adaptive"
+        assert "display" not in settings["anthropic_thinking"]
+
 
 class TestZaiChatModel:
     """Test the ZaiChatModel class."""

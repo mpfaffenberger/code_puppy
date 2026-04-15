@@ -256,7 +256,10 @@ def make_model_settings(
         if model_settings_dict.get("temperature") is None:
             model_settings_dict["temperature"] = 1.0
 
-        from code_puppy.model_utils import get_default_extended_thinking
+        from code_puppy.model_utils import (
+            get_default_extended_thinking,
+            should_use_anthropic_thinking_summary,
+        )
 
         default_thinking = get_default_extended_thinking(model_name)
         extended_thinking = effective_settings.get(
@@ -273,6 +276,11 @@ def make_model_settings(
             model_settings_dict["anthropic_thinking"] = {
                 "type": extended_thinking,
             }
+            if (
+                extended_thinking == "adaptive"
+                and should_use_anthropic_thinking_summary(model_name)
+            ):
+                model_settings_dict["anthropic_thinking"]["display"] = "summary"
             # Only send budget_tokens for classic "enabled" mode
             if extended_thinking == "enabled" and budget_tokens:
                 model_settings_dict["anthropic_thinking"]["budget_tokens"] = (

@@ -7,6 +7,7 @@ from code_puppy.model_utils import (
     get_default_extended_thinking,
     is_claude_code_model,
     prepare_prompt_for_model,
+    should_use_anthropic_thinking_summary,
 )
 
 
@@ -174,3 +175,16 @@ class TestGetDefaultExtendedThinking:
     def test_substring_match_in_longer_name(self):
         assert get_default_extended_thinking("anthropic-opus-4-6-preview") == "adaptive"
         assert get_default_extended_thinking("claude-4-6-opus-20250701") == "adaptive"
+
+
+class TestShouldUseAnthropicThinkingSummary:
+    """Tests for should_use_anthropic_thinking_summary."""
+
+    def test_open_4_7_models_return_true(self):
+        assert should_use_anthropic_thinking_summary("claude-open-4-7") is True
+        assert should_use_anthropic_thinking_summary("Claude-Open-4-7-Latest") is True
+
+    def test_other_models_return_false(self):
+        assert should_use_anthropic_thinking_summary("claude-opus-4-6") is False
+        assert should_use_anthropic_thinking_summary("claude-sonnet-4") is False
+        assert should_use_anthropic_thinking_summary("gpt-5") is False
