@@ -145,6 +145,23 @@ def set_universal_constructor_enabled(enabled: bool) -> None:
     set_value("enable_universal_constructor", "true" if enabled else "false")
 
 
+def get_max_hook_retries() -> int:
+    """Return the maximum number of plugin hook retries after an agent run.
+
+    When a plugin hook returns ``{"retry": True, ...}`` the agent re-runs.
+    This caps how many times that can happen to prevent runaway loops.
+    Defaults to 3.
+    """
+    val = get_value("max_hook_retries")
+    if val is None:
+        return 3
+    try:
+        n = int(val)
+        return max(1, n)  # At least 1 to avoid nonsensical values
+    except (ValueError, TypeError):
+        return 3
+
+
 def get_enable_streaming() -> bool:
     """
     Get the enable_streaming configuration value.
@@ -304,6 +321,8 @@ def get_config_keys():
     default_keys.append("enable_pack_agents")
     # Add universal constructor control key
     default_keys.append("enable_universal_constructor")
+    # Add hook retry limit key
+    default_keys.append("max_hook_retries")
     # Add streaming control key
     default_keys.append("enable_streaming")
     # Add cancel agent key configuration

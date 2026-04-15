@@ -1890,22 +1890,18 @@ class BaseAgent(ABC):
             that prompt (message history is carried forward so the model
             sees context).  Retries are capped to prevent runaway loops.
             """
-            _MAX_HOOK_RETRIES = 3
+            from code_puppy.config import get_max_hook_retries
 
             result_ = await run_coro_factory()
 
-            for _ in range(_MAX_HOOK_RETRIES):
+            for _ in range(get_max_hook_retries()):
                 hook_results = await on_agent_run_result(
                     result_,
                     agent_name=self.name,
                     model_name=self.get_model_name(),
                 )
                 retry_req = next(
-                    (
-                        r
-                        for r in hook_results
-                        if isinstance(r, dict) and r.get("retry")
-                    ),
+                    (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
                     None,
                 )
                 if not retry_req:
