@@ -1881,7 +1881,7 @@ class BaseAgent(ABC):
         else:
             prompt_payload = prompt
 
-        async def _run_with_result_hooks(run_coro_factory):
+        async def _run_with_result_hooks(run_coro_factory, usage_limits):
             """Run agent, then let plugin hooks inspect/retry the result.
 
             After a successful ``pydantic_agent.run()``, fires the
@@ -1970,7 +1970,8 @@ class BaseAgent(ABC):
                                     usage_limits=usage_limits,
                                     event_stream_handler=event_stream_handler,
                                     **kwargs,
-                                )
+                                ),
+                                usage_limits,
                             )
                             return result_
                     finally:
@@ -1985,7 +1986,8 @@ class BaseAgent(ABC):
                                 usage_limits=usage_limits,
                                 event_stream_handler=event_stream_handler,
                                 **kwargs,
-                            )
+                            ),
+                            usage_limits,
                         )
                         return result_
                 else:
@@ -1997,7 +1999,8 @@ class BaseAgent(ABC):
                             usage_limits=usage_limits,
                             event_stream_handler=event_stream_handler,
                             **kwargs,
-                        )
+                        ),
+                        usage_limits,
                     )
                     return result_
             except* UsageLimitExceeded as ule:
