@@ -374,6 +374,8 @@ def get_config_keys():
     default_keys.append("enable_pack_agents")
     # Add universal constructor control key
     default_keys.append("enable_universal_constructor")
+    # Add hook retry limit key
+    default_keys.append("max_hook_retries")
     # Add streaming control key
     default_keys.append("enable_streaming")
     # Add cancel agent key configuration

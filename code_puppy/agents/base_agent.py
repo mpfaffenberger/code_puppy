@@ -27,6 +27,8 @@ from typing import (
     Union,
 )
 
+import httpcore
+import httpx
 import mcp
 import pydantic
 import pydantic_ai.models
@@ -57,7 +59,7 @@ from rich.text import Text
 
 try:
     from openai import APIError as OpenAIAPIError
-except ImportError:  # pragma: no cover - openai is an optional dependency in some test envs
+except ImportError:  # pragma: no cover - optional dependency in some test envs
     OpenAIAPIError = None
 
 from code_puppy.agents.event_stream_handler import event_stream_handler
@@ -99,6 +101,60 @@ from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
     is_awaiting_user_input,
 )
+
+_RETRYABLE_STREAMING_ERROR_SNIPPETS = (
+    "streamed response ended without content",
+    "malformed streamed sse event",
+    "extra json data in sse payload",
+    "too many requests",
+    "rate limit",
+    "rate limited",
+    "overloaded",
+    "service unavailable",
+    "server had an error processing your request",
+    "retry your request",
+    "internal server error",
+)
+_RETRYABLE_STREAMING_EXCEPTIONS = (
+    httpx.RemoteProtocolError,
+    httpx.ReadTimeout,
+    httpcore.RemoteProtocolError,
+)
+
+
+def _is_retryable_streaming_error_message(error_msg: str) -> bool:
+    error_msg = error_msg.lower()
+    return any(
+        snippet in error_msg for snippet in _RETRYABLE_STREAMING_ERROR_SNIPPETS
+    ) or ("stream" in error_msg and "ended" in error_msg)
+
+
+def _is_retryable_openai_api_error(exc: Exception) -> bool:
+    if OpenAIAPIError is None or not isinstance(exc, OpenAIAPIError):
+        return False
+    if _is_retryable_streaming_error_message(str(exc)):
+        return True
+
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        body_message = str(body.get("message", ""))
+        body_type = str(body.get("type", "")).lower()
+        return (
+            _is_retryable_streaming_error_message(body_message)
+            or ("rate" in body_type and "limit" in body_type)
+            or body_type in {"server_error", "internal_server_error", "api_error"}
+            and _is_retryable_streaming_error_message(body_message)
+        )
+    return False
+
+
+def should_retry_streaming_exception(exc: Exception) -> bool:
+    if isinstance(exc, UnexpectedModelBehavior):
+        return _is_retryable_streaming_error_message(str(exc))
+    if isinstance(exc, _RETRYABLE_STREAMING_EXCEPTIONS):
+        return True
+    return _is_retryable_openai_api_error(exc)
+
 
 # Global flag to track delayed compaction requests
 _delayed_compaction_requested = False
@@ -1627,8 +1683,6 @@ class BaseAgent(ABC):
             )
             return temp_agent
 
-    # It's okay to decorate it with DBOS.step even if not using DBOS; the decorator is a no-op in that case.
-    @DBOS.step()
     def message_history_accumulator(self, ctx: RunContext, messages: List[Any]):
         _message_history = self.get_message_history()
 
@@ -1992,12 +2046,6 @@ class BaseAgent(ABC):
         else:
             prompt_payload = prompt
 
-        # Determine if streaming is enabled:
-        # - Streaming must be enabled in config
-        # - Gemini models cannot stream via the normal SSE path
-        # Note: When DBOS is active, DBOSModel always calls the construction-time
-        # event_stream_handler internally, so we must NOT also pass the runtime
-        # handler or display the non-streamed response (see guard below).
         use_streaming = get_enable_streaming() and not is_gemini_model(
             self.get_model_name()
         )
@@ -2005,22 +2053,9 @@ class BaseAgent(ABC):
 
         # Constants for streaming error retry
         MAX_STREAMING_RETRIES = 3
-        STREAMING_RETRY_DELAYS = [1, 2, 4]  # Exponential backoff: 1s, 2s, 4s
+        STREAMING_RETRY_DELAYS = [1, 2, 4]
 
         async def _run_with_streaming_retry(run_coro_factory):
-            """Wrap agent run with auto-retry for transient streaming/model errors.
-
-            Args:
-                run_coro_factory: A callable that returns a new coroutine for the agent run.
-                    Must be a factory (not a coroutine) since coroutines can only be awaited once.
-
-            Returns:
-                The result from a successful agent run.
-
-            Raises:
-                Exception: Re-raises the last retryable error after retries are exhausted,
-                    or immediately re-raises non-retryable errors.
-            """
             last_error = None
             for attempt in range(MAX_STREAMING_RETRIES):
                 try:
@@ -2028,22 +2063,21 @@ class BaseAgent(ABC):
                 except Exception as e:
                     if not should_retry_streaming_exception(e):
                         raise
-
                     last_error = e
                     if attempt < MAX_STREAMING_RETRIES - 1:
                         delay = STREAMING_RETRY_DELAYS[attempt]
                         emit_warning(
-                            f"⚡ Streaming interrupted, auto-retrying in {delay}s... (attempt {attempt + 1}/{MAX_STREAMING_RETRIES})"
+                            f"⚡ Streaming interrupted, auto-retrying in {delay}s... "
+                            f"(attempt {attempt + 1}/{MAX_STREAMING_RETRIES})"
                         )
                         await asyncio.sleep(delay)
                     else:
                         emit_error(
                             f"❌ Streaming failed after {MAX_STREAMING_RETRIES} attempts"
                         )
-            # If we get here, all retries exhausted
             raise last_error
 
-        async def _run_with_result_hooks(run_coro_factory):
+        async def _run_with_result_hooks(run_coro_factory, usage_limits):
             """Run agent, then let plugin hooks inspect/retry the result.
 
             After a successful ``pydantic_agent.run()``, fires the
@@ -2052,22 +2086,18 @@ class BaseAgent(ABC):
             that prompt (message history is carried forward so the model
             sees context).  Retries are capped to prevent runaway loops.
             """
-            _MAX_HOOK_RETRIES = 3
+            from code_puppy.config import get_max_hook_retries
 
             result_ = await _run_with_streaming_retry(run_coro_factory)
 
-            for _ in range(_MAX_HOOK_RETRIES):
+            for _ in range(get_max_hook_retries()):
                 hook_results = await on_agent_run_result(
                     result_,
                     agent_name=self.name,
                     model_name=self.get_model_name(),
                 )
                 retry_req = next(
-                    (
-                        r
-                        for r in hook_results
-                        if isinstance(r, dict) and r.get("retry")
-                    ),
+                    (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
                     None,
                 )
                 if not retry_req:
@@ -2138,7 +2168,8 @@ class BaseAgent(ABC):
                                     usage_limits=usage_limits,
                                     event_stream_handler=stream_handler,
                                     **kwargs,
-                                )
+                                ),
+                                usage_limits,
                             )
                             return result_
                     finally:
@@ -2153,7 +2184,8 @@ class BaseAgent(ABC):
                                 usage_limits=usage_limits,
                                 event_stream_handler=stream_handler,
                                 **kwargs,
-                            )
+                            ),
+                            usage_limits,
                         )
                         return result_
                 else:
@@ -2165,7 +2197,8 @@ class BaseAgent(ABC):
                             usage_limits=usage_limits,
                             event_stream_handler=stream_handler,
                             **kwargs,
-                        )
+                        ),
+                        usage_limits,
                     )
                     return result_
             except* UsageLimitExceeded as ule:
