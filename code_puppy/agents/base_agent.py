@@ -24,6 +24,8 @@ from typing import (
     Union,
 )
 
+import httpcore
+import httpx
 import mcp
 import pydantic
 import pydantic_ai.models
@@ -34,6 +36,7 @@ from pydantic_ai import (
     DocumentUrl,
     ImageUrl,
     RunContext,
+    UnexpectedModelBehavior,
     UsageLimitExceeded,
     UsageLimits,
 )
@@ -50,6 +53,11 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 from rich.text import Text
+
+try:
+    from openai import APIError as OpenAIAPIError
+except ImportError:  # pragma: no cover - optional dependency in some test envs
+    OpenAIAPIError = None
 
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
@@ -89,6 +97,60 @@ from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
     is_awaiting_user_input,
 )
+
+_RETRYABLE_STREAMING_ERROR_SNIPPETS = (
+    "streamed response ended without content",
+    "malformed streamed sse event",
+    "extra json data in sse payload",
+    "too many requests",
+    "rate limit",
+    "rate limited",
+    "overloaded",
+    "service unavailable",
+    "server had an error processing your request",
+    "retry your request",
+    "internal server error",
+)
+_RETRYABLE_STREAMING_EXCEPTIONS = (
+    httpx.RemoteProtocolError,
+    httpx.ReadTimeout,
+    httpcore.RemoteProtocolError,
+)
+
+
+def _is_retryable_streaming_error_message(error_msg: str) -> bool:
+    error_msg = error_msg.lower()
+    return any(
+        snippet in error_msg for snippet in _RETRYABLE_STREAMING_ERROR_SNIPPETS
+    ) or ("stream" in error_msg and "ended" in error_msg)
+
+
+def _is_retryable_openai_api_error(exc: Exception) -> bool:
+    if OpenAIAPIError is None or not isinstance(exc, OpenAIAPIError):
+        return False
+    if _is_retryable_streaming_error_message(str(exc)):
+        return True
+
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        body_message = str(body.get("message", ""))
+        body_type = str(body.get("type", "")).lower()
+        return (
+            _is_retryable_streaming_error_message(body_message)
+            or ("rate" in body_type and "limit" in body_type)
+            or body_type in {"server_error", "internal_server_error", "api_error"}
+            and _is_retryable_streaming_error_message(body_message)
+        )
+    return False
+
+
+def should_retry_streaming_exception(exc: Exception) -> bool:
+    if isinstance(exc, UnexpectedModelBehavior):
+        return _is_retryable_streaming_error_message(str(exc))
+    if isinstance(exc, _RETRYABLE_STREAMING_EXCEPTIONS):
+        return True
+    return _is_retryable_openai_api_error(exc)
+
 
 # Global flag to track delayed compaction requests
 _delayed_compaction_requested = False
@@ -1879,6 +1941,31 @@ class BaseAgent(ABC):
         else:
             prompt_payload = prompt
 
+        MAX_STREAMING_RETRIES = 3
+        STREAMING_RETRY_DELAYS = [1, 2, 4]
+
+        async def _run_with_streaming_retry(run_coro_factory):
+            last_error = None
+            for attempt in range(MAX_STREAMING_RETRIES):
+                try:
+                    return await run_coro_factory()
+                except Exception as e:
+                    if not should_retry_streaming_exception(e):
+                        raise
+                    last_error = e
+                    if attempt < MAX_STREAMING_RETRIES - 1:
+                        delay = STREAMING_RETRY_DELAYS[attempt]
+                        emit_warning(
+                            f"⚡ Streaming interrupted, auto-retrying in {delay}s... "
+                            f"(attempt {attempt + 1}/{MAX_STREAMING_RETRIES})"
+                        )
+                        await asyncio.sleep(delay)
+                    else:
+                        emit_error(
+                            f"❌ Streaming failed after {MAX_STREAMING_RETRIES} attempts"
+                        )
+            raise last_error
+
         async def _run_with_result_hooks(run_coro_factory, usage_limits):
             """Run agent, then let plugin hooks inspect/retry the result.
 
@@ -1890,7 +1977,7 @@ class BaseAgent(ABC):
             """
             from code_puppy.config import get_max_hook_retries
 
-            result_ = await run_coro_factory()
+            result_ = await _run_with_streaming_retry(run_coro_factory)
 
             for _ in range(get_max_hook_retries()):
                 hook_results = await on_agent_run_result(
@@ -1914,7 +2001,7 @@ class BaseAgent(ABC):
 
                 await asyncio.sleep(retry_delay)
 
-                result_ = await (
+                result_ = await _run_with_streaming_retry(
                     lambda _p=retry_prompt: pydantic_agent.run(
                         _p,
                         message_history=self.get_message_history(),
@@ -1922,7 +2009,7 @@ class BaseAgent(ABC):
                         event_stream_handler=event_stream_handler,
                         **kwargs,
                     )
-                )()
+                )
             return result_
 
         async def run_agent_task():
