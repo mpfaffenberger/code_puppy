@@ -115,6 +115,12 @@ def _is_anthropic_model(model_name: str, model_config: dict[str, Any]) -> bool:
     return model_config.get("type") in _ANTHROPIC_MODEL_TYPES
 
 
+def _is_walmart_gemini_proxy_url(url: str) -> bool:
+    """Return True when a custom Gemini URL points at Walmart's proxy backend."""
+    lowered = url.lower()
+    return "puppy-backend" in lowered and "/gemini" in lowered
+
+
 def make_model_settings(
     model_name: str, max_tokens: int | None = None
 ) -> ModelSettings:
@@ -781,7 +787,23 @@ class ModelFactory:
                 verify=verify,
                 timeout=timeout if timeout is not None else 180,
             )
-            model = GeminiModel(
+
+            gemini_model_class = GeminiModel
+            if _is_walmart_gemini_proxy_url(url):
+                try:
+                    from code_puppy.plugins.walmart_specific.walmart_gemini_model import (
+                        WalmartGeminiModel,
+                    )
+
+                    gemini_model_class = WalmartGeminiModel
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to load WalmartGeminiModel for URL '%s': %s. Falling back to GeminiModel.",
+                        url,
+                        exc,
+                    )
+
+            model = gemini_model_class(
                 model_name=model_config["name"],
                 api_key=api_key,
                 base_url=url,

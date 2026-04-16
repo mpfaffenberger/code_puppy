@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from code_puppy.model_factory import ModelFactory
+from code_puppy.model_factory import ModelFactory, _is_walmart_gemini_proxy_url
 
 TEST_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../code_puppy/models.json")
 
@@ -177,6 +177,35 @@ def test_custom_gemini_timeout_config(monkeypatch):
         headers={"X-Api-Key": "ok"}, verify=False, timeout=600
     )
     assert model is not None
+
+
+def test_is_walmart_gemini_proxy_url():
+    assert _is_walmart_gemini_proxy_url("https://puppy-backend.stg.walmart.com/gemini")
+    assert _is_walmart_gemini_proxy_url("https://PUPPY-BACKEND.walmart.com/GEMINI")
+    assert not _is_walmart_gemini_proxy_url("https://generativelanguage.googleapis.com/v1beta")
+
+
+def test_custom_gemini_uses_walmart_model_for_puppy_backend(monkeypatch):
+    monkeypatch.setenv("CUSTOM_API_KEY", "ok")
+    config = {
+        "custom": {
+            "type": "custom_gemini",
+            "name": "gemini-3.1-pro",
+            "custom_endpoint": {
+                "url": "https://puppy-backend.stg.walmart.com/gemini",
+                "headers": {"X-Goog-Api-Key": "$CUSTOM_API_KEY"},
+                "ca_certs_path": False,
+                "api_key": "$CUSTOM_API_KEY",
+            },
+            "timeout": 600,
+        }
+    }
+
+    with patch("code_puppy.model_factory.create_async_client") as mock_client:
+        mock_client.return_value = httpx.AsyncClient(timeout=600)
+        model = ModelFactory.get_model("custom", config)
+
+    assert model.__class__.__name__ == "WalmartGeminiModel"
 
 
 def test_custom_anthropic_timeout_config(monkeypatch):
