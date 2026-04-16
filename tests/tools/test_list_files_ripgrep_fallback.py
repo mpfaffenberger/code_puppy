@@ -29,7 +29,10 @@ class TestListFilesRipgrepFallback:
 
             # Should not return a hard error
             assert result.content is not None
-            assert "not found" not in (result.content or "").lower() or "falling back" in (result.content or "").lower()
+            assert (
+                "not found" not in (result.content or "").lower()
+                or "falling back" in (result.content or "").lower()
+            )
             # Should still return file listing
             assert "test.py" in result.content
 
