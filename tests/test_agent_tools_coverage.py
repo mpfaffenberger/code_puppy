@@ -473,6 +473,10 @@ class TestRegisterInvokeAgentExecution:
                 return_value=mock_agent_config,
             ),
             patch(
+                "code_puppy.task_models.get_model_for",
+                return_value="nonexistent-model",
+            ),
+            patch(
                 "code_puppy.model_factory.ModelFactory.load_config",
                 return_value={},  # No models configured
             ),

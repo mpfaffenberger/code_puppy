@@ -381,12 +381,13 @@ def register_invoke_agent(agent):
         try:
             # Lazy import to break circular dependency with messaging module
             from code_puppy.model_factory import ModelFactory, make_model_settings
+            from code_puppy.task_models import get_model_for, Task
 
             # Load the specified agent config
             agent_config = load_agent(agent_name)
 
-            # Get the current model for creating a temporary agent
-            model_name = agent_config.get_model_name()
+            # Get model for subagent (uses subagent_model if configured, else agent's default)
+            model_name = get_model_for(Task.SUBAGENT, agent_name=agent_name)
             models_config = ModelFactory.load_config()
 
             # Only proceed if we have a valid model configuration

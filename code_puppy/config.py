@@ -48,6 +48,7 @@ EXTRA_MODELS_FILE = os.path.join(DATA_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(DATA_DIR, "agents")
 SKILLS_DIR = os.path.join(DATA_DIR, "skills")
 CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
+PROFILES_DIR = os.path.join(DATA_DIR, "profiles")
 _DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 
 # OAuth plugin model files (XDG_DATA_HOME)
