@@ -460,6 +460,9 @@ def filter_latest_claude_models(
     family_models: Dict[str, List[Tuple[str, int, int, int]]] = {}
 
     for model_name in models:
+        if model_name == "claude-opus-4-7":
+            family_models.setdefault("opus", []).append((model_name, 4, 7, 20250219))
+            continue
         if model_name == "claude-opus-4-6":
             family_models.setdefault("opus", []).append((model_name, 4, 6, 20260205))
             continue
@@ -561,7 +564,12 @@ def _build_model_entry(model_name: str, access_token: str, context_length: int) 
 
     # Opus 4-6 models support the effort setting
     lower = model_name.lower()
-    if "opus-4-6" in lower or "4-6-opus" in lower:
+    if (
+        "opus-4-6" in lower
+        or "4-6-opus" in lower
+        or "opus-4-7" in lower
+        or "4-7-opus" in lower
+    ):
         supported_settings.append("effort")
 
     return {

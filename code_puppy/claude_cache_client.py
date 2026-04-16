@@ -40,6 +40,35 @@ TOOL_PREFIX = "cp_"
 # User-Agent to send with Claude Code OAuth requests
 CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
+
+def _model_requires_thinking_summary(model_name):
+    # Anthropic's Opus 4.7 family rejects adaptive-thinking requests unless a
+    # 'display: summary' field is present alongside 'type: adaptive'. We check
+    # both naming conventions (opus-4-7 and 4-7-opus).
+    if not model_name:
+        return False
+    lower = model_name.lower()
+    return "opus-4-7" in lower or "4-7-opus" in lower
+
+
+def _enforce_thinking_display_summary(payload):
+    # Belt-and-suspenders wire-level enforcement of thinking.display='summary'
+    # for Opus 4.7 payloads. Mutates payload in place; returns True if a
+    # change was made. No-ops on non-matching models or payloads without a
+    # thinking dict.
+    if not isinstance(payload, dict):
+        return False
+    if not _model_requires_thinking_summary(payload.get("model")):
+        return False
+    thinking = payload.get("thinking")
+    if not isinstance(thinking, dict):
+        return False
+    if thinking.get("display") == "summarized":
+        return False
+    thinking["display"] = "summarized"
+    return True
+
+
 try:
     from anthropic import AsyncAnthropic
 except ImportError:  # pragma: no cover - optional dep
@@ -642,6 +671,12 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         last_block["cache_control"] = {"type": "ephemeral"}
                         modified = True
 
+        # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
+        # thinking dict. Enforce at the wire level so the request can't go
+        # out without it, regardless of upstream settings construction.
+        if _enforce_thinking_display_summary(data):
+            modified = True
+
         if not modified:
             return None
 
@@ -686,6 +721,11 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
                 last_block = content[-1]
                 if isinstance(last_block, dict) and "cache_control" not in last_block:
                     last_block["cache_control"] = {"type": "ephemeral"}
+
+    # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
+    # thinking dict. Enforce here as well so the AsyncAnthropic client
+    # patch path matches the raw httpx path.
+    _enforce_thinking_display_summary(payload)
 
 
 def _make_cache_wrapper(original_create: Callable[..., Any]) -> Callable[..., Any]:

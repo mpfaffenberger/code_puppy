@@ -280,7 +280,7 @@ def make_model_settings(
                 extended_thinking == "adaptive"
                 and should_use_anthropic_thinking_summary(model_name)
             ):
-                model_settings_dict["anthropic_thinking"]["display"] = "summary"
+                model_settings_dict["anthropic_thinking"]["display"] = "summarized"
             # Only send budget_tokens for classic "enabled" mode
             if extended_thinking == "enabled" and budget_tokens:
                 model_settings_dict["anthropic_thinking"]["budget_tokens"] = (

@@ -513,7 +513,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
 
                 _perform_authentication()
-                set_model_name("claude-code-claude-opus-4-6")
+                set_model_name("claude-code-claude-opus-4-7")
             elif result == "completed":
                 emit_info("🎉 Tutorial complete! Happy coding!")
             elif result == "skipped":

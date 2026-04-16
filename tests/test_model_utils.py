@@ -180,9 +180,10 @@ class TestGetDefaultExtendedThinking:
 class TestShouldUseAnthropicThinkingSummary:
     """Tests for should_use_anthropic_thinking_summary."""
 
-    def test_open_4_7_models_return_true(self):
-        assert should_use_anthropic_thinking_summary("claude-open-4-7") is True
-        assert should_use_anthropic_thinking_summary("Claude-Open-4-7-Latest") is True
+    def test_opus_4_7_models_return_true(self):
+        assert should_use_anthropic_thinking_summary("claude-opus-4-7") is True
+        assert should_use_anthropic_thinking_summary("Claude-Opus-4-7-Latest") is True
+        assert should_use_anthropic_thinking_summary("claude-4-7-opus-20250701") is True
 
     def test_other_models_return_false(self):
         assert should_use_anthropic_thinking_summary("claude-opus-4-6") is False
