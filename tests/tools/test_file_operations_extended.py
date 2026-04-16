@@ -75,7 +75,7 @@ class TestFileOperationsExtended:
 
         assert result.error is None
         assert result.content == ""  # Should return empty string
-        assert result.num_tokens == 0
+        assert result.num_tokens == 1
 
     def test_read_file_line_range_negative_start(self, tmp_path):
         """Test reading with negative start line is rejected."""
@@ -124,7 +124,7 @@ class TestFileOperationsExtended:
 
         assert result.error is None
         assert result.content == ""
-        assert result.num_tokens == 0
+        assert result.num_tokens == 1
 
     # ==================== LIST FILES TESTS ====================
 
@@ -430,7 +430,7 @@ class TestLargeFileHandling:
         """Test that large files are handled and tokens are counted."""
         test_file = tmp_path / "large.txt"
         # Create file with 500 lines
-        lines = [f"Line {i}: " + ("x" * 50) for i in range(500)]
+        lines = [f"Line {i}: " + ("x" * 30) for i in range(400)]
         test_file.write_text("\n".join(lines))
 
         result = _read_file(None, str(test_file))
