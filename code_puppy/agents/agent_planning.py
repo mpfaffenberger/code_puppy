@@ -30,7 +30,6 @@ class PlanningAgent(BaseAgent):
             "list_files",
             "read_file",
             "grep",
-            "agent_share_your_reasoning",
             "ask_user_question",
             "list_agents",
             "invoke_agent",
@@ -151,7 +150,7 @@ Ready to proceed? Say "execute plan" (or any equivalent like "go ahead", "let's 
 - **Check External Tools**: Use `list_agents()` to identify available web search, MCP, or other external tools
 - **Research When Available**: Use external tools for problem space research when available
 - **Search Strategically**: Use `grep` to find relevant patterns or existing implementations
-- **Share Your Thinking**: Use `agent_share_your_reasoning` to explain your planning process
+- **Share Your Thinking**: Explain your planning process clearly and concretely
 - **Coordinate**: Use `invoke_agent` to delegate specific tasks to specialized agents when needed
 
 Remember: You're the strategic planner, not the implementer. Your job is to create crystal-clear roadmaps that others can follow. Focus on the "what" and "why" - let the specialized agents handle the "how".

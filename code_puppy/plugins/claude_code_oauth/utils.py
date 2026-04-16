@@ -238,7 +238,19 @@ def refresh_access_token(force: bool = False) -> Optional[str]:
             timeout=30,
         )
         if response.status_code == 200:
-            new_tokens = response.json()
+            content_type = response.headers.get("content-type", "")
+            if not content_type.startswith("application/json"):
+                logger.error(
+                    "Token refresh returned non-JSON response (Content-Type: %s): %s",
+                    content_type,
+                    response.text[:500],
+                )
+                return None
+            try:
+                new_tokens = response.json()
+            except (ValueError, json.JSONDecodeError) as e:
+                logger.error("Failed to parse token refresh response as JSON: %s", e)
+                return None
             tokens["access_token"] = new_tokens.get("access_token")
             tokens["refresh_token"] = new_tokens.get("refresh_token", refresh_token)
             expires_in_value = new_tokens.get("expires_in")
@@ -401,7 +413,19 @@ def exchange_code_for_tokens(
         logger.info("Token exchange response: %s", response.status_code)
         logger.debug("Response body: %s", response.text)
         if response.status_code == 200:
-            token_data = response.json()
+            content_type = response.headers.get("content-type", "")
+            if not content_type.startswith("application/json"):
+                logger.error(
+                    "Token exchange returned non-JSON response (Content-Type: %s): %s",
+                    content_type,
+                    response.text[:500],
+                )
+                return None
+            try:
+                token_data = response.json()
+            except (ValueError, json.JSONDecodeError) as e:
+                logger.error("Failed to parse token exchange response as JSON: %s", e)
+                return None
             token_data["expires_at"] = _calculate_expires_at(
                 token_data.get("expires_in")
             )
@@ -436,8 +460,14 @@ def filter_latest_claude_models(
     family_models: Dict[str, List[Tuple[str, int, int, int]]] = {}
 
     for model_name in models:
+        if model_name == "claude-opus-4-7":
+            family_models.setdefault("opus", []).append((model_name, 4, 7, 20250219))
+            continue
         if model_name == "claude-opus-4-6":
             family_models.setdefault("opus", []).append((model_name, 4, 6, 20260205))
+            continue
+        if model_name == "claude-sonnet-4-6":
+            family_models.setdefault("sonnet", []).append((model_name, 4, 6, 20250610))
             continue
         # Match pattern: claude-{family}-{major}-{minor}-{date}
         # Examples: claude-haiku-3-5-20241022, claude-sonnet-4-5-20250929
@@ -492,7 +522,19 @@ def fetch_claude_code_models(access_token: str) -> Optional[List[str]]:
         }
         response = requests.get(api_url, headers=headers, timeout=30)
         if response.status_code == 200:
-            data = response.json()
+            content_type = response.headers.get("content-type", "")
+            if not content_type.startswith("application/json"):
+                logger.error(
+                    "Models fetch returned non-JSON response (Content-Type: %s): %s",
+                    content_type,
+                    response.text[:500],
+                )
+                return None
+            try:
+                data = response.json()
+            except (ValueError, json.JSONDecodeError) as e:
+                logger.error("Failed to parse models response as JSON: %s", e)
+                return None
             if isinstance(data.get("data"), list):
                 models: List[str] = []
                 for model in data["data"]:
@@ -522,7 +564,12 @@ def _build_model_entry(model_name: str, access_token: str, context_length: int) 
 
     # Opus 4-6 models support the effort setting
     lower = model_name.lower()
-    if "opus-4-6" in lower or "4-6-opus" in lower:
+    if (
+        "opus-4-6" in lower
+        or "4-6-opus" in lower
+        or "opus-4-7" in lower
+        or "4-7-opus" in lower
+    ):
         supported_settings.append("effort")
 
     return {

@@ -8,7 +8,10 @@ import os
 
 from code_puppy.command_line.agent_menu import interactive_agent_picker
 from code_puppy.command_line.command_registry import register_command
-from code_puppy.command_line.model_picker_completion import update_model_in_input
+from code_puppy.command_line.model_picker_completion import (
+    interactive_model_picker,
+    update_model_in_input,
+)
 from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import finalize_autosave_session
@@ -55,7 +58,7 @@ def handle_cd_command(command: str) -> bool:
     # Use shlex.split to handle quoted paths properly
     import shlex
 
-    from code_puppy.messaging import emit_error, emit_info, emit_success
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     try:
         tokens = shlex.split(command)
@@ -77,6 +80,20 @@ def handle_cd_command(command: str) -> bool:
         if os.path.isdir(target):
             os.chdir(target)
             emit_success(f"Changed directory to: {target}")
+            # Reload the agent so the system prompt and project-local
+            # AGENT.md rules reflect the new working directory.  Without
+            # this, the LLM keeps receiving stale path information for the
+            # remainder of the session (the PydanticAgent instructions are
+            # baked in at construction time and never refreshed otherwise).
+            try:
+                from code_puppy.agents.agent_manager import get_current_agent
+
+                get_current_agent().reload_code_generation_agent()
+            except Exception as e:
+                emit_warning(
+                    f"Directory changed, but agent reload failed: {e}. "
+                    "You may need to run /agent or /model to force a refresh."
+                )
         else:
             emit_error(f"Not a directory: {dirname}")
         return True
@@ -184,7 +201,7 @@ def handle_tutorial_command(command: str) -> bool:
         from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
 
         run_oauth_flow()
-        set_model_and_reload_agent("chatgpt-gpt-5.3-codex")
+        set_model_and_reload_agent("chatgpt-gpt-5.4")
     elif result == "claude":
         emit_info("🔐 Starting Claude Code OAuth flow...")
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (
@@ -192,7 +209,7 @@ def handle_tutorial_command(command: str) -> bool:
         )
 
         _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-6")
+        set_model_and_reload_agent("claude-code-claude-opus-4-7")
     elif result == "completed":
         emit_info("🎉 Tutorial complete! Happy coding!")
     elif result == "skipped":
@@ -397,95 +414,6 @@ def handle_agent_command(command: str) -> bool:
     else:
         emit_warning("Usage: /agent [agent-name]")
         return True
-
-
-async def interactive_model_picker() -> str | None:
-    """Show an interactive arrow-key selector to pick a model (async version).
-
-    Returns:
-        The selected model name, or None if cancelled
-    """
-    import asyncio
-    import sys
-
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.text import Text
-
-    from code_puppy.command_line.model_picker_completion import (
-        get_active_model,
-        load_model_names,
-    )
-    from code_puppy.tools.command_runner import set_awaiting_user_input
-    from code_puppy.tools.common import arrow_select_async
-
-    # Load available models
-    model_names = load_model_names()
-    current_model = get_active_model()
-
-    # Build choices with current model indicator
-    choices = []
-    for model_name in model_names:
-        if model_name == current_model:
-            choices.append(f"✓ {model_name} (current)")
-        else:
-            choices.append(f"  {model_name}")
-
-    # Create panel content
-    panel_content = Text()
-    panel_content.append("🤖 Select a model to use\n", style="bold cyan")
-    panel_content.append("Current model: ", style="dim")
-    panel_content.append(current_model, style="bold green")
-
-    # Display panel
-    panel = Panel(
-        panel_content,
-        title="[bold white]Model Selection[/bold white]",
-        border_style="cyan",
-        padding=(1, 2),
-    )
-
-    # Pause spinners BEFORE showing panel
-    set_awaiting_user_input(True)
-    await asyncio.sleep(0.3)  # Let spinners fully stop
-
-    local_console = Console()
-    emit_info("")
-    local_console.print(panel)
-    emit_info("")
-
-    # Flush output before prompt_toolkit takes control
-    sys.stdout.flush()
-    sys.stderr.flush()
-    await asyncio.sleep(0.1)
-
-    selected_model = None
-
-    try:
-        # Final flush
-        sys.stdout.flush()
-
-        # Show arrow-key selector (async version)
-        choice = await arrow_select_async(
-            "💭 Which model would you like to use?",
-            choices,
-        )
-
-        # Extract model name from choice (remove prefix and suffix)
-        if choice:
-            # Remove the "✓ " or "  " prefix and " (current)" suffix if present
-            selected_model = choice.strip().lstrip("✓").strip()
-            if selected_model.endswith(" (current)"):
-                selected_model = selected_model[:-10].strip()
-
-    except (KeyboardInterrupt, EOFError):
-        emit_error("Cancelled by user")
-        selected_model = None
-
-    finally:
-        set_awaiting_user_input(False)
-
-    return selected_model
 
 
 @register_command(

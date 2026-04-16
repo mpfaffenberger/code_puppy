@@ -176,12 +176,17 @@ def patch_tool_call_json_repair() -> None:
 
 
 def patch_tool_call_callbacks() -> None:
-    """Patch pydantic-ai's _call_tool to fire pre/post tool callbacks.
+    """Patch pydantic-ai tool handling to support callbacks and Claude Code tool names.
 
-    This wraps ToolManager._call_tool so that every tool invocation
-    automatically triggers the ``pre_tool_call`` and ``post_tool_call``
-    callback hooks defined in ``code_puppy.callbacks``, without needing
-    to decorate each tool function individually.
+    Claude Code OAuth prefixes tool names with ``cp_`` on the wire.  pydantic-ai
+    classifies tool calls *before* ``_call_tool`` runs, so unprefixing only in
+    ``_call_tool`` is too late: prefixed tools get marked as ``unknown`` and can
+    burn through result retries, eventually raising ``UnexpectedModelBehavior``.
+
+    This patch normalizes Claude Code tool names early (during lookup/dispatch)
+    and wraps ``_call_tool`` so every tool invocation also triggers the
+    ``pre_tool_call`` and ``post_tool_call`` callbacks defined in
+    ``code_puppy.callbacks``.
     """
     import time
 
@@ -189,10 +194,57 @@ def patch_tool_call_callbacks() -> None:
         from pydantic_ai._tool_manager import ToolManager
 
         _original_call_tool = ToolManager._call_tool
+        _original_get_tool_def = ToolManager.get_tool_def
+        _original_handle_call = ToolManager.handle_call
 
         # Tool name prefix used by Claude Code OAuth - tools are prefixed on
-        # outgoing requests, so we need to unprefix them when they come back
+        # outgoing requests, so we need to unprefix them when they come back.
         TOOL_PREFIX = "cp_"
+
+        def _normalize_tool_name(name: Any) -> Any:
+            """Strip the ``cp_`` prefix if present."""
+            if isinstance(name, str) and name.startswith(TOOL_PREFIX):
+                return name[len(TOOL_PREFIX) :]
+            return name
+
+        def _normalize_call_tool_name(call: Any) -> tuple[Any, Any]:
+            """Normalize the tool_name on a call object in-place."""
+            tool_name = getattr(call, "tool_name", None)
+            normalized_name = _normalize_tool_name(tool_name)
+            if normalized_name != tool_name:
+                try:
+                    call.tool_name = normalized_name
+                except (AttributeError, TypeError):
+                    pass
+            return normalized_name, call
+
+        # -- Early normalization patches -----------------------------------------
+        # These run *before* pydantic-ai classifies the tool as function/output/
+        # unknown, so prefixed names resolve correctly.
+
+        def _patched_get_tool_def(self, name: str):
+            return _original_get_tool_def(self, _normalize_tool_name(name))
+
+        async def _patched_handle_call(
+            self,
+            call,
+            allow_partial: bool = False,
+            wrap_validation_errors: bool = True,
+            *,
+            approved: bool = False,
+            metadata: Any = None,
+        ):
+            _normalize_call_tool_name(call)
+            return await _original_handle_call(
+                self,
+                call,
+                allow_partial=allow_partial,
+                wrap_validation_errors=wrap_validation_errors,
+                approved=approved,
+                metadata=metadata,
+            )
+
+        # -- _call_tool wrapper with callbacks -----------------------------------
 
         async def _patched_call_tool(
             self,
@@ -203,22 +255,7 @@ def patch_tool_call_callbacks() -> None:
             approved: bool,
             metadata: Any = None,
         ):
-            tool_name = call.tool_name
-
-            # Unprefix tool names from Claude Code OAuth responses
-            # The cp_ prefix is added for OAuth compatibility but needs to be
-            # stripped so pydantic-ai can find the actual tool
-            if tool_name and tool_name.startswith(TOOL_PREFIX):
-                unprefixed_name = tool_name[len(TOOL_PREFIX) :]
-                # Try to update the call object's tool_name
-                try:
-                    call.tool_name = unprefixed_name
-                    tool_name = unprefixed_name
-                except (AttributeError, TypeError):
-                    # If the object is immutable, we can't modify it directly
-                    # The tool lookup might still fail, but at least callbacks
-                    # will use the unprefixed name
-                    tool_name = unprefixed_name
+            tool_name, call = _normalize_call_tool_name(call)
 
             # Normalise args to a dict for the callback contract
             tool_args: dict = {}
@@ -297,6 +334,8 @@ def patch_tool_call_callbacks() -> None:
                 except Exception:
                     pass  # never block tool execution
 
+        ToolManager.get_tool_def = _patched_get_tool_def
+        ToolManager.handle_call = _patched_handle_call
         ToolManager._call_tool = _patched_call_tool
 
     except ImportError:

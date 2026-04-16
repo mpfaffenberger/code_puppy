@@ -80,16 +80,16 @@ class TestCrossProviderMatching:
     def test_grep_internal_matches_provider(self):
         assert matches("grep", "Grep", {}) is True
 
-    # Edit ↔ edit_file
-    def test_edit_matches_edit_file(self):
-        assert matches("Edit", "edit_file", {}) is True
+    # Edit ↔ replace_in_file
+    def test_edit_matches_replace_in_file(self):
+        assert matches("Edit", "replace_in_file", {}) is True
 
-    def test_edit_file_matches_edit(self):
-        assert matches("edit_file", "Edit", {}) is True
+    def test_replace_in_file_matches_edit(self):
+        assert matches("replace_in_file", "Edit", {}) is True
 
-    # Write ↔ edit_file  (Write is also mapped to edit_file)
-    def test_write_matches_edit_file(self):
-        assert matches("Write", "edit_file", {}) is True
+    # Write ↔ create_file
+    def test_write_matches_create_file(self):
+        assert matches("Write", "create_file", {}) is True
 
     # AskUserQuestion ↔ ask_user_question
     def test_ask_user_question_alias(self):
@@ -119,8 +119,8 @@ class TestCrossProviderMatching:
         assert matches("BASH", "agent_run_shell_command", {}) is True
 
     # Non-aliases should NOT cross-match
-    def test_bash_does_not_match_edit(self):
-        assert matches("Bash", "edit_file", {}) is False
+    def test_bash_does_not_match_replace_in_file(self):
+        assert matches("Bash", "replace_in_file", {}) is False
 
     def test_glob_does_not_match_read_file(self):
         assert matches("Glob", "read_file", {}) is False
@@ -206,8 +206,8 @@ class TestAliasMatchingInEngine:
         assert result.executed_hooks == 1
 
     @pytest.mark.asyncio
-    async def test_edit_hook_fires_on_write_call(self):
-        """Edit and Write are both aliased to edit_file — hook on Edit fires for Write."""
+    async def test_edit_hook_fires_on_replace_in_file_call(self):
+        """Edit is aliased to replace_in_file — hook on Edit fires for replace_in_file."""
         config = {
             "PreToolUse": [
                 {
@@ -225,7 +225,7 @@ class TestAliasMatchingInEngine:
         engine = HookEngine(config)
         event_data = EventData(
             event_type="PreToolUse",
-            tool_name="Write",
+            tool_name="replace_in_file",
             tool_args={"file_path": "test.py"},
         )
         result = await engine.process_event("PreToolUse", event_data)

@@ -59,22 +59,66 @@ def test_cd_show_lists_directories():
 
 
 def test_cd_valid_change():
+    """Successful /cd must chdir, emit success, and reload the agent."""
     mocks = setup_messaging_mocks()
     mock_emit_success = mocks["emit_success"].start()
 
     try:
+        mock_agent = MagicMock()
         with (
             patch("os.path.expanduser", side_effect=lambda x: x),
             patch("os.path.isabs", return_value=True),
             patch("os.path.isdir", return_value=True),
             patch("os.chdir") as mock_chdir,
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=mock_agent,
+            ),
         ):
             result = handle_command("/cd /some/dir")
             assert result is True
             mock_chdir.assert_called_once_with("/some/dir")
             mock_emit_success.assert_called_with("Changed directory to: /some/dir")
+            # Agent must be reloaded so the system prompt and AGENT.md rules
+            # reflect the new working directory.
+            mock_agent.reload_code_generation_agent.assert_called_once()
     finally:
         mocks["emit_success"].stop()
+
+
+def test_cd_valid_change_reload_failure_is_nonfatal():
+    """A reload failure after /cd must not abort the directory change."""
+    mocks = setup_messaging_mocks()
+    mock_emit_success = mocks["emit_success"].start()
+    mock_emit_warning = mocks["emit_warning"].start()
+
+    try:
+        mock_agent = MagicMock()
+        mock_agent.reload_code_generation_agent.side_effect = Exception("boom")
+        with (
+            patch("os.path.expanduser", side_effect=lambda x: x),
+            patch("os.path.isabs", return_value=True),
+            patch("os.path.isdir", return_value=True),
+            patch("os.chdir") as mock_chdir,
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=mock_agent,
+            ),
+        ):
+            # Should not raise even though reload raises.
+            result = handle_command("/cd /some/dir")
+            assert result is True
+            mock_chdir.assert_called_once_with("/some/dir")
+            mock_emit_success.assert_called_once_with("Changed directory to: /some/dir")
+            mock_agent.reload_code_generation_agent.assert_called_once()
+            # Reload failure should emit a warning, not silently pass
+            mock_emit_warning.assert_called_once()
+            warning_msg = str(mock_emit_warning.call_args)
+            assert "agent reload failed" in warning_msg
+            assert "boom" in warning_msg
+    finally:
+        mocks["emit_success"].stop()
+        mocks["emit_warning"].stop()
 
 
 def test_cd_invalid_directory():
@@ -1111,7 +1155,7 @@ def test_m_command_case_sensitive_baseline():
     """Test that /m works with exact case (baseline)."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1138,7 +1182,7 @@ def test_m_command_case_insensitive_command():
     """Test that /M works (case-insensitive command)."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1165,7 +1209,7 @@ def test_m_command_case_insensitive_model_name():
     """Test that /m works with uppercase model name."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1192,7 +1236,7 @@ def test_model_command_case_insensitive_both():
     """Test that /MODEL works with uppercase model name."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1210,16 +1254,16 @@ def test_model_command_case_insensitive_both():
             update_model_in_input,
         )
 
-        result = update_model_in_input("/MODEL CLAUDE-4-5-SONNET")
+        result = update_model_in_input("/MODEL ZAI-GLM-5.1-API")
         assert result == ""  # Command and model stripped
-        mock_set_model.assert_called_once_with("claude-4-5-sonnet")
+        mock_set_model.assert_called_once_with("zai-glm-5.1-api")
 
 
 def test_model_command_mixed_case():
     """Test that /Model works with mixed case model name."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1246,7 +1290,7 @@ def test_model_command_with_hyphenated_case_insensitive():
     """Test case-insensitive matching with complex hyphenated model names."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1273,7 +1317,7 @@ def test_model_command_with_preserved_text():
     """Test that remaining text is preserved after model stripping."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1300,7 +1344,7 @@ def test_nonexistent_model_returns_none():
     """Test that nonexistent model returns None regardless of case."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1327,7 +1371,7 @@ def test_edge_case_empty_after_command():
     """Test edge case of just command with space."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1366,7 +1410,7 @@ def test_agent_command_alias_a_registered():
 def test_pin_model_command_case_insensitive_agent():
     """Test that /pin_model works with uppercase agent name."""
     test_agents = {"python_expert": "Python Expert", "code_reviewer": "Code Reviewer"}
-    test_models = ["gpt-5", "claude-4-5-sonnet"]
+    test_models = ["gpt-5", "zai-glm-5.1-api"]
 
     with (
         patch(
@@ -1468,7 +1512,7 @@ def test_pin_model_completion_case_insensitive_agent():
     from code_puppy.command_line.pin_command_completion import PinModelCompleter
 
     test_agents = ["python_expert", "Code_Reviewer", "JavaScript_Expert"]
-    test_models = ["gpt-5", "claude-4-5-sonnet"]
+    test_models = ["gpt-5", "zai-glm-5.1-api"]
 
     with (
         patch(
@@ -1496,7 +1540,7 @@ def test_pin_model_completion_case_insensitive_model():
     from code_puppy.command_line.pin_command_completion import PinModelCompleter
 
     test_agents = ["python_expert", "code_reviewer"]
-    test_models = ["gpt-5", "claude-4-5-sonnet"]
+    test_models = ["gpt-5", "zai-glm-5.1-api"]
 
     with (
         patch(

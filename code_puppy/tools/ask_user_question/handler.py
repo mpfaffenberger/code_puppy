@@ -59,7 +59,7 @@ def is_interactive() -> bool:
 
 
 def ask_user_question(
-    questions: list[dict[str, Any]],
+    questions: list[Question | dict[str, Any]],
     timeout: int = DEFAULT_TIMEOUT_SECONDS,
 ) -> AskUserQuestionOutput:
     """
@@ -188,12 +188,14 @@ def _run_interactive_picker(
     return asyncio.run(interactive_question_picker(questions, timeout_seconds=timeout))
 
 
-def _validate_input(questions: list[dict[str, Any]]) -> AskUserQuestionInput:
+def _validate_input(
+    questions: list[Question | dict[str, Any]],
+) -> AskUserQuestionInput:
     """
     Validate and convert input dictionaries to Pydantic models.
 
     Args:
-        questions: Raw question dictionaries from tool invocation
+        questions: Raw question dictionaries or validated Question models
 
     Returns:
         Validated AskUserQuestionInput model

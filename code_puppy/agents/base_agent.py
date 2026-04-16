@@ -24,6 +24,8 @@ from typing import (
     Union,
 )
 
+import httpcore
+import httpx
 import mcp
 import pydantic
 import pydantic_ai.models
@@ -34,6 +36,7 @@ from pydantic_ai import (
     DocumentUrl,
     ImageUrl,
     RunContext,
+    UnexpectedModelBehavior,
     UsageLimitExceeded,
     UsageLimits,
 )
@@ -51,9 +54,15 @@ from pydantic_ai.messages import (
 )
 from rich.text import Text
 
+try:
+    from openai import APIError as OpenAIAPIError
+except ImportError:  # pragma: no cover - optional dependency in some test envs
+    OpenAIAPIError = None
+
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
     on_agent_run_end,
+    on_agent_run_result,
     on_agent_run_start,
     on_message_history_processor_end,
     on_message_history_processor_start,
@@ -83,11 +92,65 @@ from code_puppy.messaging.spinner import (
     update_spinner_context,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
-from code_puppy.summarization_agent import run_summarization_sync, SummarizationError
+from code_puppy.summarization_agent import SummarizationError, run_summarization_sync
 from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import (
     is_awaiting_user_input,
 )
+
+_RETRYABLE_STREAMING_ERROR_SNIPPETS = (
+    "streamed response ended without content",
+    "malformed streamed sse event",
+    "extra json data in sse payload",
+    "too many requests",
+    "rate limit",
+    "rate limited",
+    "overloaded",
+    "service unavailable",
+    "server had an error processing your request",
+    "retry your request",
+    "internal server error",
+)
+_RETRYABLE_STREAMING_EXCEPTIONS = (
+    httpx.RemoteProtocolError,
+    httpx.ReadTimeout,
+    httpcore.RemoteProtocolError,
+)
+
+
+def _is_retryable_streaming_error_message(error_msg: str) -> bool:
+    error_msg = error_msg.lower()
+    return any(
+        snippet in error_msg for snippet in _RETRYABLE_STREAMING_ERROR_SNIPPETS
+    ) or ("stream" in error_msg and "ended" in error_msg)
+
+
+def _is_retryable_openai_api_error(exc: Exception) -> bool:
+    if OpenAIAPIError is None or not isinstance(exc, OpenAIAPIError):
+        return False
+    if _is_retryable_streaming_error_message(str(exc)):
+        return True
+
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        body_message = str(body.get("message", ""))
+        body_type = str(body.get("type", "")).lower()
+        return (
+            _is_retryable_streaming_error_message(body_message)
+            or ("rate" in body_type and "limit" in body_type)
+            or body_type in {"server_error", "internal_server_error", "api_error"}
+            and _is_retryable_streaming_error_message(body_message)
+        )
+    return False
+
+
+def should_retry_streaming_exception(exc: Exception) -> bool:
+    if isinstance(exc, UnexpectedModelBehavior):
+        return _is_retryable_streaming_error_message(str(exc))
+    if isinstance(exc, _RETRYABLE_STREAMING_EXCEPTIONS):
+        return True
+    return _is_retryable_openai_api_error(exc)
+
 
 # Global flag to track delayed compaction requests
 _delayed_compaction_requested = False
@@ -1073,10 +1136,17 @@ class BaseAgent(ABC):
             if compaction_strategy == "truncation":
                 # Use truncation instead of summarization
                 protected_tokens = get_protected_token_count()
-                result_messages = self.truncation(
-                    self.filter_huge_messages(messages), protected_tokens
-                )
-                summarized_messages = []  # No summarization in truncation mode
+                filtered_messages = self.filter_huge_messages(messages)
+                result_messages = self.truncation(filtered_messages, protected_tokens)
+                # Track dropped messages by hash so message_history_accumulator
+                # won't re-inject them from pydantic-ai's full message list on
+                # subsequent calls within the same run (fixes ghost-task bug).
+                result_hashes = {self.hash_message(m) for m in result_messages}
+                summarized_messages = [
+                    m
+                    for m in filtered_messages
+                    if self.hash_message(m) not in result_hashes
+                ]
             else:
                 # Default to summarization (safe to proceed - no pending tool calls)
                 result_messages, summarized_messages = self.summarize_messages(
@@ -1308,6 +1378,12 @@ class BaseAgent(ABC):
             register_tools_for_agent,
         )
 
+        # Invalidate the project-local rules cache so a fresh read from the
+        # current working directory is performed on the next load_puppy_rules()
+        # call.  This is critical for /cd: the user may have switched to a
+        # different project that has its own AGENT.md (or none at all).
+        self._puppy_rules = None
+
         if message_group is None:
             message_group = str(uuid.uuid4())
 
@@ -1333,7 +1409,7 @@ class BaseAgent(ABC):
         from code_puppy.model_utils import prepare_prompt_for_model
 
         # When extended thinking is active, nudge the model to think between
-        # tool calls (the share_your_reasoning tool is stripped in this case).
+        # tool calls so it uses native reasoning before choosing next actions.
         if has_extended_thinking_active(resolved_model_name):
             instructions += EXTENDED_THINKING_PROMPT_NOTE
 
@@ -1468,7 +1544,6 @@ class BaseAgent(ABC):
             self.pydantic_agent = p_agent
             self._code_generation_agent = p_agent
             self._mcp_servers = filtered_mcp_servers
-            self._mcp_servers = mcp_servers
         return self._code_generation_agent
 
     def _create_agent_with_output_type(self, output_type: Type[Any]) -> PydanticAgent:
@@ -1511,7 +1586,7 @@ class BaseAgent(ABC):
         instructions = prepared.instructions
 
         # When extended thinking is active, nudge the model to think between
-        # tool calls (the share_your_reasoning tool is stripped in this case).
+        # tool calls so it uses native reasoning before choosing next actions.
         if has_extended_thinking_active(resolved_model_name):
             instructions += EXTENDED_THINKING_PROMPT_NOTE
 
@@ -1555,8 +1630,6 @@ class BaseAgent(ABC):
             )
             return temp_agent
 
-    # It's okay to decorate it with DBOS.step even if not using DBOS; the decorator is a no-op in that case.
-    @DBOS.step()
     def message_history_accumulator(self, ctx: RunContext, messages: List[Any]):
         _message_history = self.get_message_history()
 
@@ -1868,6 +1941,77 @@ class BaseAgent(ABC):
         else:
             prompt_payload = prompt
 
+        MAX_STREAMING_RETRIES = 3
+        STREAMING_RETRY_DELAYS = [1, 2, 4]
+
+        async def _run_with_streaming_retry(run_coro_factory):
+            last_error = None
+            for attempt in range(MAX_STREAMING_RETRIES):
+                try:
+                    return await run_coro_factory()
+                except Exception as e:
+                    if not should_retry_streaming_exception(e):
+                        raise
+                    last_error = e
+                    if attempt < MAX_STREAMING_RETRIES - 1:
+                        delay = STREAMING_RETRY_DELAYS[attempt]
+                        emit_warning(
+                            f"⚡ Streaming interrupted, auto-retrying in {delay}s... "
+                            f"(attempt {attempt + 1}/{MAX_STREAMING_RETRIES})"
+                        )
+                        await asyncio.sleep(delay)
+                    else:
+                        emit_error(
+                            f"❌ Streaming failed after {MAX_STREAMING_RETRIES} attempts"
+                        )
+            raise last_error
+
+        async def _run_with_result_hooks(run_coro_factory, usage_limits):
+            """Run agent, then let plugin hooks inspect/retry the result.
+
+            After a successful ``pydantic_agent.run()``, fires the
+            ``agent_run_result`` hook.  If any callback returns
+            ``{"retry": True, "prompt": "..."}`` the agent re-runs with
+            that prompt (message history is carried forward so the model
+            sees context).  Retries are capped to prevent runaway loops.
+            """
+            from code_puppy.config import get_max_hook_retries
+
+            result_ = await _run_with_streaming_retry(run_coro_factory)
+
+            for _ in range(get_max_hook_retries()):
+                hook_results = await on_agent_run_result(
+                    result_,
+                    agent_name=self.name,
+                    model_name=self.get_model_name(),
+                )
+                retry_req = next(
+                    (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
+                    None,
+                )
+                if not retry_req:
+                    break
+
+                # A plugin asked us to replay the turn.
+                retry_prompt = retry_req.get("prompt", "Please continue.")
+                retry_delay = retry_req.get("delay", 1.0)
+
+                if hasattr(result_, "all_messages"):
+                    self.set_message_history(list(result_.all_messages()))
+
+                await asyncio.sleep(retry_delay)
+
+                result_ = await _run_with_streaming_retry(
+                    lambda _p=retry_prompt: pydantic_agent.run(
+                        _p,
+                        message_history=self.get_message_history(),
+                        usage_limits=usage_limits,
+                        event_stream_handler=event_stream_handler,
+                        **kwargs,
+                    )
+                )
+            return result_
+
         async def run_agent_task():
             try:
                 self.set_message_history(
@@ -1900,17 +2044,19 @@ class BaseAgent(ABC):
                     # Temporarily add MCP servers to the DBOS agent using internal _toolsets
                     original_toolsets = pydantic_agent._toolsets
                     pydantic_agent._toolsets = original_toolsets + self._mcp_servers
-                    pydantic_agent._toolsets = original_toolsets + self._mcp_servers
 
                     try:
                         # Set the workflow ID for DBOS context so DBOS and Code Puppy ID match
                         with SetWorkflowID(group_id):
-                            result_ = await pydantic_agent.run(
-                                prompt_payload,
-                                message_history=self.get_message_history(),
-                                usage_limits=usage_limits,
-                                event_stream_handler=event_stream_handler,
-                                **kwargs,
+                            result_ = await _run_with_result_hooks(
+                                lambda: pydantic_agent.run(
+                                    prompt_payload,
+                                    message_history=self.get_message_history(),
+                                    usage_limits=usage_limits,
+                                    event_stream_handler=event_stream_handler,
+                                    **kwargs,
+                                ),
+                                usage_limits,
                             )
                             return result_
                     finally:
@@ -1918,22 +2064,28 @@ class BaseAgent(ABC):
                         pydantic_agent._toolsets = original_toolsets
                 elif get_use_dbos():
                     with SetWorkflowID(group_id):
-                        result_ = await pydantic_agent.run(
+                        result_ = await _run_with_result_hooks(
+                            lambda: pydantic_agent.run(
+                                prompt_payload,
+                                message_history=self.get_message_history(),
+                                usage_limits=usage_limits,
+                                event_stream_handler=event_stream_handler,
+                                **kwargs,
+                            ),
+                            usage_limits,
+                        )
+                        return result_
+                else:
+                    # Non-DBOS path (MCP servers are already included)
+                    result_ = await _run_with_result_hooks(
+                        lambda: pydantic_agent.run(
                             prompt_payload,
                             message_history=self.get_message_history(),
                             usage_limits=usage_limits,
                             event_stream_handler=event_stream_handler,
                             **kwargs,
-                        )
-                        return result_
-                else:
-                    # Non-DBOS path (MCP servers are already included)
-                    result_ = await pydantic_agent.run(
-                        prompt_payload,
-                        message_history=self.get_message_history(),
-                        usage_limits=usage_limits,
-                        event_stream_handler=event_stream_handler,
-                        **kwargs,
+                        ),
+                        usage_limits,
                     )
                     return result_
             except* UsageLimitExceeded as ule:

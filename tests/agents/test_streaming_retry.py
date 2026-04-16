@@ -1,10 +1,8 @@
-"""Tests for _run_with_streaming_retry transient error handling.
+"""Tests for transient streaming retry behavior.
 
-Verifies that transient HTTP errors (RemoteProtocolError, ReadTimeout)
-are properly caught and retried with exponential backoff, while
-non-retryable errors propagate immediately.
-
-Covers: https://github.com/mpfaffenberger/code_puppy/issues/199
+These stay intentionally focused on the retry classifier and retry loop so
+we don't need to spin up the entire BaseAgent circus just to verify whether
+network gremlins get another chance.
 """
 
 import asyncio
@@ -13,27 +11,27 @@ from unittest.mock import AsyncMock, patch
 import httpcore
 import httpx
 import pytest
+from pydantic_ai import UnexpectedModelBehavior
 
+from code_puppy.agents.base_agent import should_retry_streaming_exception
 
-# ---- Helpers to build the retry function in isolation ----
-# We extract the retry logic so tests don't need to instantiate the full agent.
+try:
+    from openai import APIError
+except ImportError:  # pragma: no cover - optional dependency in some test envs
+    APIError = None
 
 MAX_STREAMING_RETRIES = 3
 STREAMING_RETRY_DELAYS = [1, 2, 4]
-RETRYABLE_EXCEPTIONS = (
-    httpx.RemoteProtocolError,
-    httpx.ReadTimeout,
-    httpcore.RemoteProtocolError,
-)
 
 
 async def _run_with_streaming_retry(run_coro_factory):
-    """Mirror of the retry logic in base_agent.py for isolated testing."""
     last_error = None
     for attempt in range(MAX_STREAMING_RETRIES):
         try:
             return await run_coro_factory()
-        except RETRYABLE_EXCEPTIONS as e:
+        except Exception as e:
+            if not should_retry_streaming_exception(e):
+                raise
             last_error = e
             if attempt < MAX_STREAMING_RETRIES - 1:
                 delay = STREAMING_RETRY_DELAYS[attempt]
@@ -41,15 +39,16 @@ async def _run_with_streaming_retry(run_coro_factory):
     raise last_error
 
 
-# ---- Tests ----
+def _make_openai_api_error(message: str, *, body=None):
+    if APIError is None:
+        pytest.skip("openai is not installed in this test environment")
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    return APIError(message, request=request, body=body)
 
 
 class TestStreamingRetry:
-    """Tests for transient HTTP error retry logic."""
-
     @pytest.mark.asyncio
     async def test_success_on_first_attempt(self):
-        """No retries needed when the call succeeds immediately."""
         factory = AsyncMock(return_value="ok")
 
         result = await _run_with_streaming_retry(factory)
@@ -59,12 +58,9 @@ class TestStreamingRetry:
 
     @pytest.mark.asyncio
     async def test_retries_on_httpx_remote_protocol_error(self):
-        """Retries when httpx.RemoteProtocolError is raised."""
         factory = AsyncMock(
             side_effect=[
-                httpx.RemoteProtocolError(
-                    "peer closed connection without sending complete message body"
-                ),
+                httpx.RemoteProtocolError("peer closed connection"),
                 "recovered",
             ]
         )
@@ -77,7 +73,6 @@ class TestStreamingRetry:
 
     @pytest.mark.asyncio
     async def test_retries_on_httpx_read_timeout(self):
-        """Retries when httpx.ReadTimeout is raised."""
         factory = AsyncMock(
             side_effect=[
                 httpx.ReadTimeout("read timed out"),
@@ -93,11 +88,29 @@ class TestStreamingRetry:
 
     @pytest.mark.asyncio
     async def test_retries_on_httpcore_remote_protocol_error(self):
-        """Retries when httpcore.RemoteProtocolError is raised."""
         factory = AsyncMock(
             side_effect=[
-                httpcore.RemoteProtocolError(
-                    "peer closed connection without sending complete message body"
+                httpcore.RemoteProtocolError("peer closed connection"),
+                "recovered",
+            ]
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await _run_with_streaming_retry(factory)
+
+        assert result == "recovered"
+        assert factory.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retries_on_transient_openai_api_error(self):
+        factory = AsyncMock(
+            side_effect=[
+                _make_openai_api_error(
+                    "The server had an error processing your request.",
+                    body={
+                        "message": "The server had an error processing your request.",
+                        "type": "server_error",
+                    },
                 ),
                 "recovered",
             ]
@@ -110,30 +123,44 @@ class TestStreamingRetry:
         assert factory.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_exhausts_retries_then_raises(self):
-        """Raises the last error after all retries are exhausted."""
-        error = httpx.RemoteProtocolError("persistent failure")
-        factory = AsyncMock(side_effect=error)
+    async def test_retries_on_unexpected_model_behavior_with_streaming_message(self):
+        factory = AsyncMock(
+            side_effect=[
+                UnexpectedModelBehavior("streamed response ended without content"),
+                "recovered",
+            ]
+        )
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            with pytest.raises(httpx.RemoteProtocolError, match="persistent failure"):
-                await _run_with_streaming_retry(factory)
+            result = await _run_with_streaming_retry(factory)
 
-        assert factory.await_count == MAX_STREAMING_RETRIES
+        assert result == "recovered"
+        assert factory.await_count == 2
 
     @pytest.mark.asyncio
     async def test_non_retryable_error_propagates_immediately(self):
-        """Non-retryable exceptions are NOT caught — they propagate immediately."""
         factory = AsyncMock(side_effect=ValueError("not a network error"))
 
         with pytest.raises(ValueError, match="not a network error"):
             await _run_with_streaming_retry(factory)
 
-        assert factory.await_count == 1  # No retry attempted
+        assert factory.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_non_transient_openai_api_error_does_not_retry(self):
+        error = _make_openai_api_error(
+            "Nope.",
+            body={"message": "Nope.", "type": "invalid_request_error"},
+        )
+        factory = AsyncMock(side_effect=error)
+
+        with pytest.raises(type(error), match="Nope"):
+            await _run_with_streaming_retry(factory)
+
+        assert factory.await_count == 1
 
     @pytest.mark.asyncio
     async def test_exponential_backoff_delays(self):
-        """Verifies exponential backoff delay values between retries."""
         error = httpx.RemoteProtocolError("keep failing")
         factory = AsyncMock(side_effect=error)
         sleep_calls = []
@@ -145,39 +172,33 @@ class TestStreamingRetry:
             with pytest.raises(httpx.RemoteProtocolError):
                 await _run_with_streaming_retry(factory)
 
-        # Only 2 sleeps happen (between attempt 1→2 and 2→3; no sleep after last failure)
         assert sleep_calls == [1, 2]
 
     @pytest.mark.asyncio
-    async def test_recovery_on_last_attempt(self):
-        """Succeeds on the final retry attempt."""
-        factory = AsyncMock(
-            side_effect=[
-                httpx.RemoteProtocolError("fail 1"),
-                httpx.ReadTimeout("fail 2"),
-                "finally worked",
-            ]
-        )
+    async def test_raises_last_retryable_exception_after_exhaustion(self):
+        error = httpx.RemoteProtocolError("persistent failure")
+        factory = AsyncMock(side_effect=error)
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await _run_with_streaming_retry(factory)
+            with pytest.raises(httpx.RemoteProtocolError, match="persistent failure"):
+                await _run_with_streaming_retry(factory)
 
-        assert result == "finally worked"
-        assert factory.await_count == 3
+        assert factory.await_count == MAX_STREAMING_RETRIES
 
-    @pytest.mark.asyncio
-    async def test_mixed_retryable_errors(self):
-        """Handles different retryable error types across attempts."""
-        factory = AsyncMock(
-            side_effect=[
-                httpx.RemoteProtocolError("peer closed"),
-                httpcore.RemoteProtocolError("peer closed again"),
-                "success",
-            ]
+    def test_classifier_accepts_retryable_streaming_errors(self):
+        assert should_retry_streaming_exception(
+            httpx.RemoteProtocolError("peer closed connection")
+        )
+        assert should_retry_streaming_exception(httpx.ReadTimeout("timed out"))
+        assert should_retry_streaming_exception(
+            httpcore.RemoteProtocolError("peer closed connection")
+        )
+        assert should_retry_streaming_exception(
+            UnexpectedModelBehavior("streamed response ended without content")
         )
 
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await _run_with_streaming_retry(factory)
-
-        assert result == "success"
-        assert factory.await_count == 3
+    def test_classifier_rejects_non_retryable_errors(self):
+        assert not should_retry_streaming_exception(ValueError("nope"))
+        assert not should_retry_streaming_exception(
+            UnexpectedModelBehavior("tool schema validation exploded")
+        )

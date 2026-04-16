@@ -289,17 +289,21 @@ class TestGetConfigKeys:
                 "auto_save_session",
                 "banner_color_agent_reasoning",
                 "banner_color_agent_response",
+                "banner_color_create_file",
+                "banner_color_delete_snippet",
                 "banner_color_directory_listing",
                 "banner_color_edit_file",
                 "banner_color_grep",
                 "banner_color_invoke_agent",
                 "banner_color_list_agents",
+                "banner_color_mcp_tool_call",
                 "banner_color_read_file",
+                "banner_color_replace_in_file",
                 "banner_color_shell_command",
+                "banner_color_shell_passthrough",
                 "banner_color_subagent_response",
                 "banner_color_terminal_tool",
                 "banner_color_thinking",
-                "banner_color_mcp_tool_call",
                 "banner_color_universal_constructor",
                 "cancel_agent_key",
                 "compaction_strategy",
@@ -316,10 +320,12 @@ class TestGetConfigKeys:
                 "http2",
                 "key1",
                 "key2",
+                "max_hook_retries",
                 "max_saved_sessions",
                 "message_limit",
                 "model",
                 "openai_reasoning_effort",
+                "openai_reasoning_summary",
                 "openai_verbosity",
                 "protected_token_count",
                 "resume_message_count",
@@ -344,17 +350,21 @@ class TestGetConfigKeys:
                 "auto_save_session",
                 "banner_color_agent_reasoning",
                 "banner_color_agent_response",
+                "banner_color_create_file",
+                "banner_color_delete_snippet",
                 "banner_color_directory_listing",
                 "banner_color_edit_file",
                 "banner_color_grep",
                 "banner_color_invoke_agent",
                 "banner_color_list_agents",
+                "banner_color_mcp_tool_call",
                 "banner_color_read_file",
+                "banner_color_replace_in_file",
                 "banner_color_shell_command",
+                "banner_color_shell_passthrough",
                 "banner_color_subagent_response",
                 "banner_color_terminal_tool",
                 "banner_color_thinking",
-                "banner_color_mcp_tool_call",
                 "banner_color_universal_constructor",
                 "cancel_agent_key",
                 "compaction_strategy",
@@ -369,10 +379,12 @@ class TestGetConfigKeys:
                 "frontend_emitter_max_recent_events",
                 "frontend_emitter_queue_size",
                 "http2",
+                "max_hook_retries",
                 "max_saved_sessions",
                 "message_limit",
                 "model",
                 "openai_reasoning_effort",
+                "openai_reasoning_summary",
                 "openai_verbosity",
                 "protected_token_count",
                 "resume_message_count",
@@ -681,11 +693,11 @@ class TestDefaultModelSelection:
     ):
         # When no model is stored in config, get_model_name should return the default model
         mock_get_value.return_value = None
-        mock_default_model.return_value = "synthetic-GLM-4.7"
+        mock_default_model.return_value = "synthetic-GLM-5.1"
 
         result = cp_config.get_global_model_name()
 
-        assert result == "synthetic-GLM-4.7"
+        assert result == "synthetic-GLM-5.1"
         mock_get_value.assert_called_once_with("model")
         mock_validate_model_exists.assert_not_called()
         mock_default_model.assert_called_once()
@@ -699,11 +711,11 @@ class TestDefaultModelSelection:
         # When stored model doesn't exist in models.json, should return default model
         mock_get_value.return_value = "invalid-model"
         mock_validate_model_exists.return_value = False
-        mock_default_model.return_value = "synthetic-GLM-4.7"
+        mock_default_model.return_value = "synthetic-GLM-5.1"
 
         result = cp_config.get_global_model_name()
 
-        assert result == "synthetic-GLM-4.7"
+        assert result == "synthetic-GLM-5.1"
         mock_get_value.assert_called_once_with("model")
         mock_validate_model_exists.assert_called_once_with("invalid-model")
         mock_default_model.assert_called_once()

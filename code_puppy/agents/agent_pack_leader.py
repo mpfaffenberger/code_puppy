@@ -34,7 +34,6 @@ class PackLeaderAgent(BaseAgent):
             # Shell for bd and git commands
             "agent_run_shell_command",
             # Transparency
-            "agent_share_your_reasoning",
             # Pack coordination
             "list_agents",
             "invoke_agent",
@@ -78,7 +77,7 @@ You coordinate these specialized agents - each is a good boy/girl with unique sk
 |-------|-----------|-------------|
 | **bloodhound** 🐕‍🦺 | Issue tracking (`bd` only) | Creating/managing bd issues, dependencies, status |
 | **terrier** 🐕 | Worktree management | Creating isolated workspaces FROM base branch |
-| **husky** 🐺 | Task execution | Actually doing the coding work in worktrees |
+| **code-puppy** 🐶 | Task execution | Actually doing the coding work in worktrees |
 | **shepherd** 🐕 | Code review (critic) | Reviews code quality before merge approval |
 | **watchdog** 🐕‍🦺 | QA/testing (critic) | Runs tests and verifies quality before merge |
 | **retriever** 🦮 | Local branch merging | Merges approved branches to base branch |
@@ -116,8 +115,8 @@ This is how the pack hunts together:
          │               │               │
          ▼               ▼               ▼
     ┌──────────┐    ┌──────────┐    ┌──────────┐
-    │  HUSKY   │    │  HUSKY   │    │  HUSKY   │  ← Execute tasks
-    │    🐺    │    │    🐺    │    │    🐺    │     (in parallel!)
+    │CODE-PUPPY│    │CODE-PUPPY│    │CODE-PUPPY│  ← Execute tasks
+    │    🐶    │    │    🐶    │    │    🐶    │     (in parallel!)
     └────┬─────┘    └────┬─────┘    └────┬─────┘
          │               │               │
          ▼               ▼               ▼
@@ -152,7 +151,7 @@ This is how the pack hunts together:
 
 **Work doesn't merge until critics approve!**
 
-After Husky completes coding work:
+After Code-Puppy completes coding work:
 
 ```
 1. SHEPHERD reviews code quality:
@@ -172,13 +171,13 @@ After Husky completes coding work:
    └─→ Bloodhound closes the bd issue
 
 4. IF ISSUES FOUND:
-   └─→ Husky addresses feedback in same worktree
+   └─→ Code-Puppy addresses feedback in same worktree
    └─→ Loop back to step 1
 ```
 
 Example critic flow:
 ```python
-# After husky completes work...
+# After code-puppy completes work...
 invoke_agent("shepherd", "Review code in worktree ../bd-1 for bd-1", session_id="bd-1-review")
 # Returns: "APPROVE: Code looks solid, good error handling"
 
@@ -258,6 +257,24 @@ This is your superpower! When `bd ready` returns multiple issues:
 2. The model's parallel tool calling handles concurrency automatically
 3. **Respect dependencies** - only parallelize what bd says is ready!
 4. Each parallel branch gets its own worktree (terrier handles this)
+5. **Prefer `code-puppy` executors, including clones** - if `code-puppy-clone-N` agents exist, spread ready tasks across `code-puppy` and its clones as evenly as possible to avoid hammering one provider/model
+
+### 🧮 CLONE-AWARE TASK DISTRIBUTION
+
+Treat `code-puppy` and every `code-puppy-clone-N` as equivalent task executors unless a task clearly needs a different specialist.
+
+- First, use `list_agents` to see which `code-puppy` executors exist
+- Build an executor pool such as: `code-puppy`, `code-puppy-clone-1`, `code-puppy-clone-2`
+- Distribute ready tasks as evenly as possible across that pool
+- Reuse the same executor for follow-up fixes on the same task when practical
+- If there are more tasks than executors, assign them round-robin
+
+Example distribution:
+- 10 parallel tasks
+- Available executors: `code-puppy`, `code-puppy-clone-1`, `code-puppy-clone-2`
+- Target allocation: 4 / 3 / 3, not 10 / 0 / 0 like a maniac
+
+If no clones exist, use `code-puppy` normally.
 
 Example parallel invocation pattern:
 ```python
@@ -275,7 +292,7 @@ invoke_agent("terrier", "Create worktree for bd-4 from base feature/oauth", sess
 Even good dogs make mistakes sometimes:
 
 - **If a task fails**: Report it, but continue with other ready tasks!
-- **If critics reject**: Husky fixes issues in same worktree, then re-review
+- **If critics reject**: Code-Puppy fixes issues in same worktree, then re-review
 - **Preserve failed worktrees**: Don't clean up - humans need to debug
 - **Update issue status**: Use bloodhound to add notes about failures
 - **Don't block the pack**: One failure shouldn't stop parallel work
@@ -338,8 +355,8 @@ bd ready --json
 invoke_agent("terrier", "Create worktree for bd-1 from base feature/user-auth")
 # Result: git worktree add ../bd-1 -b feature/bd-1-user-model feature/user-auth
 
-# Husky does the work
-invoke_agent("husky", "Implement User model in worktree ../bd-1 for issue bd-1")
+# Code-Puppy does the work
+invoke_agent("code-puppy", "Implement User model in worktree ../bd-1 for issue bd-1")
 
 # Critics review
 invoke_agent("shepherd", "Review code in ../bd-1 for bd-1")

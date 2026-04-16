@@ -50,51 +50,11 @@ def build_available_skills_xml(skills: List["SkillMetadata"]) -> str:
 
 
 def build_skills_guidance() -> str:
-    """Return guidance text for how to use skills.
-
-    This tells the model about the activate_skill and list_or_search_skills tools,
-    and where skills are located.
-
-    Returns:
-        Guidance text explaining how to work with skills.
-    """
+    """Return guidance text for how to use skills."""
     return """
-# Using Agent Skills
+# Agent Skills
 
-Agent Skills are pre-packaged capabilities that provide specialized instructions for specific tasks. Skills are discovered from configured directories and can be activated on demand.
-
-## Skill Locations
-
-Skills are discovered from these directories:
-- **~/.code_puppy/skills/** - User skills (primary location)
-- **./skills/** - Project-specific skills (relative to current directory)
-
-Each skill is a folder containing a `SKILL.md` file with YAML frontmatter.
-
-## Available Skills Tools
-
-1. **list_or_search_skills(query?)** - List or search available skills
-   - `list_or_search_skills()` - List all skills
-   - `list_or_search_skills(query="pdf")` - Search for skills matching "pdf"
-
-2. **activate_skill(skill_name)** - Load full skill instructions
-   - Call this when a user's task matches a skill's description
-   - Returns the complete SKILL.md content with detailed instructions
-
-## How to Use Skills
-
-1. When you see `<available_skills>` in your context, skills are available
-2. Match user tasks to skill descriptions
-3. Call `activate_skill(skill_name)` to load full instructions
-4. Follow the skill's instructions to complete the task
-
-## Installing New Skills
-
-To install a skill, place its folder in `~/.code_puppy/skills/`:
-```
-~/.code_puppy/skills/
-└── my-skill/
-    ├── SKILL.md      # Required: Instructions with YAML frontmatter
-    └── resources/    # Optional: Templates, scripts, etc.
-```
+When `<available_skills>` appears in context, match user tasks to skill descriptions.
+Call `activate_skill(skill_name)` to load full instructions before starting the task.
+Use `list_or_search_skills(query)` to search for relevant skills.
 """

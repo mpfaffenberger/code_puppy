@@ -40,6 +40,35 @@ TOOL_PREFIX = "cp_"
 # User-Agent to send with Claude Code OAuth requests
 CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
+
+def _model_requires_thinking_summary(model_name):
+    # Anthropic's Opus 4.7 family rejects adaptive-thinking requests unless a
+    # 'display: summary' field is present alongside 'type: adaptive'. We check
+    # both naming conventions (opus-4-7 and 4-7-opus).
+    if not model_name:
+        return False
+    lower = model_name.lower()
+    return "opus-4-7" in lower or "4-7-opus" in lower
+
+
+def _enforce_thinking_display_summary(payload):
+    # Belt-and-suspenders wire-level enforcement of thinking.display='summary'
+    # for Opus 4.7 payloads. Mutates payload in place; returns True if a
+    # change was made. No-ops on non-matching models or payloads without a
+    # thinking dict.
+    if not isinstance(payload, dict):
+        return False
+    if not _model_requires_thinking_summary(payload.get("model")):
+        return False
+    thinking = payload.get("thinking")
+    if not isinstance(thinking, dict):
+        return False
+    if thinking.get("display") == "summarized":
+        return False
+    thinking["display"] = "summarized"
+    return True
+
+
 try:
     from anthropic import AsyncAnthropic
 except ImportError:  # pragma: no cover - optional dep
@@ -371,7 +400,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 is_auth_error = response.status_code in (401, 403)
 
                 if response.status_code == 400:
-                    is_auth_error = self._is_cloudflare_html_error(response)
+                    is_auth_error = await self._is_cloudflare_html_error(response)
                     if is_auth_error:
                         logger.info(
                             "Detected Cloudflare 400 error (likely auth-related), attempting token refresh"
@@ -531,7 +560,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             headers["Authorization"] = bearer_value
 
     @staticmethod
-    def _is_cloudflare_html_error(response: httpx.Response) -> bool:
+    async def _is_cloudflare_html_error(response: httpx.Response) -> bool:
         """Check if this is a Cloudflare HTML error response.
 
         Cloudflare often returns HTML error pages with status 400 when
@@ -544,11 +573,19 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
         # Check if body contains Cloudflare markers
         try:
-            # Read response body if not already consumed
+            # For async httpx, we need to read the body first
+            if not hasattr(response, "_content") or not response._content:
+                try:
+                    await response.aread()
+                except Exception as read_exc:
+                    logger.debug("Failed to read response body: %s", read_exc)
+                    return False
+
+            # Now we can safely access the content
             if hasattr(response, "_content") and response._content:
                 body = response._content.decode("utf-8", errors="ignore")
             else:
-                # Try to read the text (this might be already consumed)
+                # Fallback to text property (should work after aread)
                 try:
                     body = response.text
                 except Exception:
@@ -589,9 +626,37 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
         modified = False
 
-        # Minimal, deterministic strategy:
-        # Add cache_control only on the single most recent block:
-        # the last dict content block of the last message (if any).
+        # Anthropic supports up to 4 cache breakpoints.  We place them on
+        # the three most impactful, stable prefixes so that content which
+        # doesn't change between turns is independently cached:
+        #   1. System prompt  – static across the whole session
+        #   2. Tool definitions – static across the whole session
+        #   3. Last message    – caches the growing conversation prefix
+
+        # 1. System prompt
+        system = data.get("system")
+        if isinstance(system, list) and system:
+            last_sys = system[-1]
+            if isinstance(last_sys, dict) and "cache_control" not in last_sys:
+                last_sys["cache_control"] = {"type": "ephemeral"}
+                modified = True
+        elif isinstance(system, str) and system:
+            # Convert bare string to content-block list so we can attach
+            # cache_control (the Anthropic API accepts both formats).
+            data["system"] = [
+                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+            ]
+            modified = True
+
+        # 2. Tool definitions
+        tools = data.get("tools")
+        if isinstance(tools, list) and tools:
+            last_tool = tools[-1]
+            if isinstance(last_tool, dict) and "cache_control" not in last_tool:
+                last_tool["cache_control"] = {"type": "ephemeral"}
+                modified = True
+
+        # 3. Last message content block
         messages = data.get("messages")
         if isinstance(messages, list) and messages:
             last = messages[-1]
@@ -606,6 +671,12 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         last_block["cache_control"] = {"type": "ephemeral"}
                         modified = True
 
+        # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
+        # thinking dict. Enforce at the wire level so the request can't go
+        # out without it, regardless of upstream settings construction.
+        if _enforce_thinking_display_summary(data):
+            modified = True
+
         if not modified:
             return None
 
@@ -613,8 +684,34 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
 
 def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
-    """In-place cache_control injection on Anthropic messages.create payload."""
+    """In-place cache_control injection on Anthropic messages.create payload.
 
+    Places up to three cache breakpoints (Anthropic allows 4) on the most
+    valuable, stable prefixes:
+      1. System prompt  – never changes between turns
+      2. Tool defs      – never changes between turns
+      3. Last message   – caches the growing conversation prefix
+    """
+
+    # 1. System prompt
+    system = payload.get("system")
+    if isinstance(system, list) and system:
+        last_sys = system[-1]
+        if isinstance(last_sys, dict) and "cache_control" not in last_sys:
+            last_sys["cache_control"] = {"type": "ephemeral"}
+    elif isinstance(system, str) and system:
+        payload["system"] = [
+            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+        ]
+
+    # 2. Tool definitions
+    tools = payload.get("tools")
+    if isinstance(tools, list) and tools:
+        last_tool = tools[-1]
+        if isinstance(last_tool, dict) and "cache_control" not in last_tool:
+            last_tool["cache_control"] = {"type": "ephemeral"}
+
+    # 3. Last message content block
     messages = payload.get("messages")
     if isinstance(messages, list) and messages:
         last = messages[-1]
@@ -625,33 +722,16 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
                 if isinstance(last_block, dict) and "cache_control" not in last_block:
                     last_block["cache_control"] = {"type": "ephemeral"}
 
-    # No extra markers in production mode; keep payload clean.
-    # (Function kept for potential future use.)
-    return
+    # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
+    # thinking dict. Enforce here as well so the AsyncAnthropic client
+    # patch path matches the raw httpx path.
+    _enforce_thinking_display_summary(payload)
 
 
-def patch_anthropic_client_messages(client: Any) -> None:
-    """Monkey-patch AsyncAnthropic.messages.create to inject cache_control.
-
-    This operates at the highest level: just before Anthropic SDK serializes
-    the request into HTTP. That means no httpx / Pydantic shenanigans can
-    undo it.
-    """
-
-    if AsyncAnthropic is None or not isinstance(client, AsyncAnthropic):  # type: ignore[arg-type]
-        return
-
-    try:
-        messages_obj = getattr(client, "messages", None)
-        if messages_obj is None:
-            return
-        original_create: Callable[..., Any] = messages_obj.create
-    except Exception:  # pragma: no cover - defensive
-        return
+def _make_cache_wrapper(original_create: Callable[..., Any]) -> Callable[..., Any]:
+    """Create a wrapped version of messages.create that injects cache_control."""
 
     async def wrapped_create(*args: Any, **kwargs: Any):
-        # Anthropic messages.create takes a mix of positional/kw args.
-        # The payload is usually in kwargs for the Python SDK.
         if kwargs:
             _inject_cache_control_in_payload(kwargs)
         elif args:
@@ -661,4 +741,33 @@ def patch_anthropic_client_messages(client: Any) -> None:
 
         return await original_create(*args, **kwargs)
 
-    messages_obj.create = wrapped_create  # type: ignore[assignment]
+    return wrapped_create
+
+
+def patch_anthropic_client_messages(client: Any) -> None:
+    """Monkey-patch AsyncAnthropic messages.create to inject cache_control.
+
+    Patches both client.messages.create AND client.beta.messages.create
+    since pydantic-ai uses the beta endpoint.
+    """
+
+    if AsyncAnthropic is None or not isinstance(client, AsyncAnthropic):  # type: ignore[arg-type]
+        return
+
+    # Patch client.messages.create
+    try:
+        messages_obj = getattr(client, "messages", None)
+        if messages_obj is not None:
+            messages_obj.create = _make_cache_wrapper(messages_obj.create)  # type: ignore[assignment]
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+    # Patch client.beta.messages.create (used by pydantic-ai)
+    try:
+        beta_obj = getattr(client, "beta", None)
+        if beta_obj is not None:
+            beta_messages_obj = getattr(beta_obj, "messages", None)
+            if beta_messages_obj is not None:
+                beta_messages_obj.create = _make_cache_wrapper(beta_messages_obj.create)  # type: ignore[assignment]
+    except Exception:  # pragma: no cover - defensive
+        pass

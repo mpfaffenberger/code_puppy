@@ -25,7 +25,7 @@ CLAUDE_CODE_OAUTH_CONFIG: Dict[str, Any] = {
     "prefix": "claude-code-",
     "default_context_length": 200000,
     "long_context_length": 1000000,
-    "long_context_models": ["claude-opus-4-6"],
+    "long_context_models": ["claude-opus-4-6", "claude-opus-4-7"],
     "api_key_env_var": "CLAUDE_CODE_ACCESS_TOKEN",
     "anthropic_version": "2023-06-01",
 }

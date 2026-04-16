@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from code_puppy.command_line.add_model_menu import (
     AddModelMenu,
+    derive_provider_identity,
     interactive_model_picker,
 )
 from code_puppy.models_dev_parser import ModelInfo, ProviderInfo
@@ -427,6 +428,7 @@ class TestBuildModelConfig:
         p = _make_provider(pid="openai")
         config = menu._build_model_config(m, p)
         assert config["type"] == "openai"
+        assert config["provider"] == "openai"
         assert config["name"] == "gpt-4"
         assert "custom_endpoint" not in config
 
@@ -436,6 +438,7 @@ class TestBuildModelConfig:
         p = _make_provider(pid="anthropic", name="Anthropic", env=["ANTHROPIC_API_KEY"])
         config = menu._build_model_config(m, p)
         assert config["type"] == "anthropic"
+        assert config["provider"] == "anthropic"
         assert "extended_thinking" in config["supported_settings"]
 
     def test_google_provider(self):
@@ -444,6 +447,7 @@ class TestBuildModelConfig:
         p = _make_provider(pid="google", name="Google")
         config = menu._build_model_config(m, p)
         assert config["type"] == "gemini"
+        assert config["provider"] == "google"
 
     def test_custom_openai_provider_with_api_url(self):
         menu = _make_menu_with_providers()
@@ -456,6 +460,7 @@ class TestBuildModelConfig:
         )
         config = menu._build_model_config(m, p)
         assert config["type"] == "custom_openai"
+        assert config["provider"] == "groq"
         assert "custom_endpoint" in config
         assert config["custom_endpoint"]["url"] == "https://api.groq.com/openai/v1"
 
@@ -501,6 +506,7 @@ class TestBuildModelConfig:
         )
         config = menu._build_model_config(m, p)
         assert config["type"] == "custom_anthropic"
+        assert config["provider"] == "minimax"
         assert config["custom_endpoint"]["url"] == "https://api.minimax.io/anthropic"
 
     def test_kimi_for_coding_provider(self):
@@ -526,6 +532,16 @@ class TestBuildModelConfig:
 
 
 # --------------- Navigation methods ---------------
+
+
+class TestProviderIdentityHelpers:
+    def test_derive_provider_identity_hyphenated_provider(self):
+        provider = _make_provider(pid="azure-openai", name="Azure OpenAI")
+        assert derive_provider_identity(provider) == "azure_openai"
+
+    def test_derive_provider_identity_empty_provider_id(self):
+        provider = _make_provider(pid="", name="Mystery Provider")
+        assert derive_provider_identity(provider) == "unknown"
 
 
 class TestNavigationMethods:

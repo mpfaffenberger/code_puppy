@@ -193,7 +193,7 @@ def _substitute_variables(
     result = command
     for var, value in substitutions.items():
         result = result.replace(f"${{{var}}}", str(value))
-        result = re.sub(rf"\${re.escape(var)}(?=\W|$)", str(value), result)
+        result = re.sub(rf"\${re.escape(var)}(?=\W|$)", lambda m: str(value), result)
     return result
 
 

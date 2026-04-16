@@ -85,7 +85,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
     if name == "chatgpt-auth":
         run_oauth_flow()
-        set_model_and_reload_agent("chatgpt-gpt-5.3-codex")
+        set_model_and_reload_agent("chatgpt-gpt-5.4")
         return True
 
     if name == "chatgpt-status":
@@ -161,9 +161,7 @@ def _create_chatgpt_oauth_model(
     )
 
     # ChatGPT Codex API only supports Responses format
-    model = OpenAIResponsesModel(model_name=model_config["name"], provider=provider)
-    model.provider = provider
-    return model
+    return OpenAIResponsesModel(model_name=model_config["name"], provider=provider)
 
 
 def _register_model_types() -> List[Dict[str, Any]]:

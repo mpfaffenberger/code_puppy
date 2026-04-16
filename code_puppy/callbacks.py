@@ -10,6 +10,9 @@ PhaseType = Literal[
     "agent_exception",
     "version_check",
     "edit_file",
+    "create_file",
+    "replace_in_file",
+    "delete_snippet",
     "delete_file",
     "run_shell_command",
     "load_model_config",
@@ -28,12 +31,14 @@ PhaseType = Literal[
     "get_model_system_prompt",
     "agent_run_start",
     "agent_run_end",
+    "agent_run_result",
     "register_mcp_catalog_servers",
     "register_browser_types",
     "get_motd",
     "register_model_providers",
     "message_history_processor_start",
     "message_history_processor_end",
+    "on_message",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -44,6 +49,9 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "agent_exception": [],
     "version_check": [],
     "edit_file": [],
+    "create_file": [],
+    "replace_in_file": [],
+    "delete_snippet": [],
     "delete_file": [],
     "run_shell_command": [],
     "load_model_config": [],
@@ -62,12 +70,14 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "get_model_system_prompt": [],
     "agent_run_start": [],
     "agent_run_end": [],
+    "agent_run_result": [],
     "register_mcp_catalog_servers": [],
     "register_browser_types": [],
     "get_motd": [],
     "register_model_providers": [],
     "message_history_processor_start": [],
     "message_history_processor_end": [],
+    "on_message": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -233,6 +243,18 @@ def on_load_models_config() -> List[Any]:
 
 def on_edit_file(*args, **kwargs) -> Any:
     return _trigger_callbacks_sync("edit_file", *args, **kwargs)
+
+
+def on_create_file(*args, **kwargs) -> Any:
+    return _trigger_callbacks_sync("create_file", *args, **kwargs)
+
+
+def on_replace_in_file(*args, **kwargs) -> Any:
+    return _trigger_callbacks_sync("replace_in_file", *args, **kwargs)
+
+
+def on_delete_snippet(*args, **kwargs) -> Any:
+    return _trigger_callbacks_sync("delete_snippet", *args, **kwargs)
 
 
 def on_delete_file(*args, **kwargs) -> Any:
@@ -546,6 +568,48 @@ async def on_agent_run_end(
     )
 
 
+async def on_agent_run_result(
+    result: Any,
+    agent_name: str,
+    model_name: str,
+) -> List[Any]:
+    """Trigger callbacks after an agent run returns a result.
+
+    Fires after ``pydantic_agent.run()`` completes successfully, **before**
+    the result is handed back to the caller.  Plugins can inspect the result
+    and request an automatic retry (e.g. when an upstream content-filter
+    produced a false-positive refusal).
+
+    Callback signature::
+
+        async def my_callback(result, agent_name: str, model_name: str)
+            -> dict | None
+
+    To request a retry, return a dict with::
+
+        {
+            "retry": True,
+            "prompt": "<message to send on retry>",
+            "delay": 1.0,          # optional, seconds before retry
+        }
+
+    Return ``None`` (or omit a return) to let the result pass through.
+    The first callback that returns a retry request wins; the agent
+    replays at most a small fixed number of times to prevent runaway loops.
+
+    Args:
+        result: The ``RunResult`` returned by ``pydantic_agent.run()``.
+        agent_name: Name of the agent that produced the result.
+        model_name: Name of the model that was used.
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return await _trigger_callbacks(
+        "agent_run_result", result, agent_name, model_name
+    )
+
+
 def on_register_mcp_catalog_servers() -> List[Any]:
     """Trigger callbacks to register additional MCP catalog servers.
 
@@ -672,3 +736,23 @@ def on_message_history_processor_end(
         messages_added,
         messages_filtered,
     )
+
+
+async def on_message(message_id: str, message: Any) -> List[Any]:
+    """Trigger callbacks when a message is emitted.
+
+    This is the global observation hook for the messaging system.
+    For per-message interception with pattern matching, use
+    messaging.interceptors.register_interceptor() instead.
+
+    This hook is for observation (logging, analytics, WebSocket forwarding),
+    while interceptors are for control (silencing, replacing, redirecting).
+
+    Args:
+        message_id: The well-known message identifier (e.g., "tool:edit_file:complete")
+        message: The full Pydantic BaseMessage model (or UIMessage for legacy)
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return await _trigger_callbacks("on_message", message_id, message)

@@ -273,7 +273,7 @@ class TestAddBetaParam:
 
 
 class TestInjectCacheControl:
-    def test_basic(self):
+    def test_basic_messages_only(self):
         body = json.dumps(
             {
                 "messages": [
@@ -337,6 +337,186 @@ class TestInjectCacheControl:
         body = json.dumps({"messages": ["not a dict"]}).encode()
         assert ClaudeCacheAsyncClient._inject_cache_control(body) is None
 
+    def test_system_prompt_list_gets_cached(self):
+        body = json.dumps(
+            {
+                "system": [{"type": "text", "text": "You are helpful."}],
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+                ],
+            }
+        ).encode()
+        result = ClaudeCacheAsyncClient._inject_cache_control(body)
+        assert result is not None
+        data = json.loads(result)
+        assert data["system"][-1]["cache_control"] == {"type": "ephemeral"}
+        assert data["messages"][0]["content"][0]["cache_control"] == {
+            "type": "ephemeral"
+        }
+
+    def test_system_prompt_string_converted_to_list(self):
+        body = json.dumps(
+            {
+                "system": "You are helpful.",
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+                ],
+            }
+        ).encode()
+        result = ClaudeCacheAsyncClient._inject_cache_control(body)
+        assert result is not None
+        data = json.loads(result)
+        assert isinstance(data["system"], list)
+        assert data["system"][0]["type"] == "text"
+        assert data["system"][0]["text"] == "You are helpful."
+        assert data["system"][0]["cache_control"] == {"type": "ephemeral"}
+
+    def test_system_prompt_empty_string_ignored(self):
+        body = json.dumps(
+            {
+                "system": "",
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+                ],
+            }
+        ).encode()
+        result = ClaudeCacheAsyncClient._inject_cache_control(body)
+        assert result is not None
+        data = json.loads(result)
+        assert data["system"] == ""
+
+    def test_system_prompt_already_cached(self):
+        body = json.dumps(
+            {
+                "system": [
+                    {
+                        "type": "text",
+                        "text": "x",
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "cache_control": {"type": "ephemeral"}}
+                        ],
+                    }
+                ],
+            }
+        ).encode()
+        assert ClaudeCacheAsyncClient._inject_cache_control(body) is None
+
+    def test_system_prompt_empty_list_ignored(self):
+        body = json.dumps(
+            {
+                "system": [],
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+                ],
+            }
+        ).encode()
+        result = ClaudeCacheAsyncClient._inject_cache_control(body)
+        data = json.loads(result)
+        assert data["system"] == []
+
+    def test_system_prompt_last_block_not_dict(self):
+        body = json.dumps(
+            {
+                "system": ["just a string"],
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+                ],
+            }
+        ).encode()
+        result = ClaudeCacheAsyncClient._inject_cache_control(body)
+        data = json.loads(result)
+        assert data["system"] == ["just a string"]
+        assert data["messages"][0]["content"][0]["cache_control"] == {
+            "type": "ephemeral"
+        }
+
+    def test_tools_get_cached(self):
+        body = json.dumps(
+            {
+                "tools": [
+                    {"name": "read_file", "description": "Read a file"},
+                    {"name": "write_file", "description": "Write a file"},
+                ],
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+                ],
+            }
+        ).encode()
+        result = ClaudeCacheAsyncClient._inject_cache_control(body)
+        assert result is not None
+        data = json.loads(result)
+        assert "cache_control" not in data["tools"][0]
+        assert data["tools"][1]["cache_control"] == {"type": "ephemeral"}
+
+    def test_tools_already_cached(self):
+        body = json.dumps(
+            {
+                "tools": [{"name": "a", "cache_control": {"type": "ephemeral"}}],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "cache_control": {"type": "ephemeral"}}
+                        ],
+                    }
+                ],
+            }
+        ).encode()
+        assert ClaudeCacheAsyncClient._inject_cache_control(body) is None
+
+    def test_tools_empty_list_ignored(self):
+        body = json.dumps(
+            {
+                "tools": [],
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+                ],
+            }
+        ).encode()
+        result = ClaudeCacheAsyncClient._inject_cache_control(body)
+        data = json.loads(result)
+        assert data["tools"] == []
+
+    def test_tools_last_not_dict(self):
+        body = json.dumps(
+            {
+                "tools": ["not a dict"],
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+                ],
+            }
+        ).encode()
+        result = ClaudeCacheAsyncClient._inject_cache_control(body)
+        data = json.loads(result)
+        assert data["tools"] == ["not a dict"]
+
+    def test_full_payload_all_three_breakpoints(self):
+        """System + tools + messages all get independent cache breakpoints."""
+        body = json.dumps(
+            {
+                "system": [{"type": "text", "text": "Be helpful"}],
+                "tools": [{"name": "tool_a"}, {"name": "tool_b"}],
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hi"}]}
+                ],
+            }
+        ).encode()
+        result = ClaudeCacheAsyncClient._inject_cache_control(body)
+        assert result is not None
+        data = json.loads(result)
+        assert data["system"][0]["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in data["tools"][0]
+        assert data["tools"][1]["cache_control"] == {"type": "ephemeral"}
+        assert data["messages"][0]["content"][0]["cache_control"] == {
+            "type": "ephemeral"
+        }
+
 
 # --- _inject_cache_control_in_payload ---
 
@@ -386,6 +566,91 @@ class TestInjectCacheControlInPayload:
     def test_last_message_not_dict(self):
         payload = {"messages": ["not a dict"]}
         _inject_cache_control_in_payload(payload)
+
+    def test_system_prompt_list(self):
+        payload = {
+            "system": [{"type": "text", "text": "Be helpful."}],
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+        }
+        _inject_cache_control_in_payload(payload)
+        assert payload["system"][-1]["cache_control"] == {"type": "ephemeral"}
+
+    def test_system_prompt_string_converted(self):
+        payload = {
+            "system": "Be helpful.",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+        }
+        _inject_cache_control_in_payload(payload)
+        assert isinstance(payload["system"], list)
+        assert payload["system"][0]["text"] == "Be helpful."
+        assert payload["system"][0]["cache_control"] == {"type": "ephemeral"}
+
+    def test_system_prompt_empty_string_ignored(self):
+        payload = {
+            "system": "",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+        }
+        _inject_cache_control_in_payload(payload)
+        assert payload["system"] == ""
+
+    def test_system_prompt_already_cached(self):
+        payload = {
+            "system": [
+                {"type": "text", "text": "x", "cache_control": {"type": "ephemeral"}}
+            ],
+        }
+        _inject_cache_control_in_payload(payload)
+        assert payload["system"][0]["cache_control"] == {"type": "ephemeral"}
+
+    def test_system_prompt_empty_list_ignored(self):
+        payload = {"system": []}
+        _inject_cache_control_in_payload(payload)
+        assert payload["system"] == []
+
+    def test_system_prompt_last_block_not_dict(self):
+        payload = {"system": ["just a string"]}
+        _inject_cache_control_in_payload(payload)
+        assert payload["system"] == ["just a string"]
+
+    def test_tools_get_cached(self):
+        payload = {
+            "tools": [{"name": "a"}, {"name": "b"}],
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+        }
+        _inject_cache_control_in_payload(payload)
+        assert "cache_control" not in payload["tools"][0]
+        assert payload["tools"][1]["cache_control"] == {"type": "ephemeral"}
+
+    def test_tools_already_cached(self):
+        payload = {
+            "tools": [{"name": "a", "cache_control": {"type": "ephemeral"}}],
+        }
+        _inject_cache_control_in_payload(payload)
+        assert payload["tools"][0]["cache_control"] == {"type": "ephemeral"}
+
+    def test_tools_empty_list_ignored(self):
+        payload = {"tools": []}
+        _inject_cache_control_in_payload(payload)
+        assert payload["tools"] == []
+
+    def test_tools_last_not_dict(self):
+        payload = {"tools": ["not a dict"]}
+        _inject_cache_control_in_payload(payload)
+        assert payload["tools"] == ["not a dict"]
+
+    def test_full_payload_all_three_breakpoints(self):
+        payload = {
+            "system": [{"type": "text", "text": "sys"}],
+            "tools": [{"name": "t1"}, {"name": "t2"}],
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+        }
+        _inject_cache_control_in_payload(payload)
+        assert payload["system"][0]["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in payload["tools"][0]
+        assert payload["tools"][1]["cache_control"] == {"type": "ephemeral"}
+        assert payload["messages"][0]["content"][0]["cache_control"] == {
+            "type": "ephemeral"
+        }
 
 
 # --- patch_anthropic_client_messages ---
@@ -533,28 +798,33 @@ class TestUpdateAuthHeaders:
 
 
 class TestCloudflareDetection:
-    def test_true(self):
+    @pytest.mark.asyncio
+    async def test_true(self):
         resp = Mock(spec=httpx.Response)
         resp.headers = {"content-type": "text/html"}
         resp._content = b"<html>cloudflare 400 bad request</html>"
         c = ClaudeCacheAsyncClient()
-        assert c._is_cloudflare_html_error(resp) is True
+        assert await c._is_cloudflare_html_error(resp) is True
 
-    def test_json_content_type(self):
+    @pytest.mark.asyncio
+    async def test_json_content_type(self):
         resp = Mock(spec=httpx.Response)
         resp.headers = {"content-type": "application/json"}
         c = ClaudeCacheAsyncClient()
-        assert c._is_cloudflare_html_error(resp) is False
+        assert await c._is_cloudflare_html_error(resp) is False
 
-    def test_no_content_fallback_to_text(self):
+    @pytest.mark.asyncio
+    async def test_no_content_fallback_to_text(self):
         resp = Mock(spec=httpx.Response)
         resp.headers = {"content-type": "text/html"}
         resp._content = None
         resp.text = "cloudflare 400 bad request"
+        resp.aread = AsyncMock(return_value=resp.text.encode("utf-8"))
         c = ClaudeCacheAsyncClient()
-        assert c._is_cloudflare_html_error(resp) is True
+        assert await c._is_cloudflare_html_error(resp) is True
 
-    def test_outer_exception_path(self):
+    @pytest.mark.asyncio
+    async def test_outer_exception_path(self):
         """Test the outer except Exception in _is_cloudflare_html_error."""
         resp = Mock(spec=httpx.Response)
         resp.headers = {"content-type": "text/html"}
@@ -563,17 +833,19 @@ class TestCloudflareDetection:
         resp._content.__bool__ = lambda s: True
         resp._content.decode = MagicMock(side_effect=Exception("decode boom"))
         c = ClaudeCacheAsyncClient()
-        assert c._is_cloudflare_html_error(resp) is False
+        assert await c._is_cloudflare_html_error(resp) is False
 
-    def test_no_content_text_raises(self):
+    @pytest.mark.asyncio
+    async def test_no_content_text_raises(self):
         resp = Mock(spec=httpx.Response)
         resp.headers = {"content-type": "text/html"}
         resp._content = None
+        resp.aread = AsyncMock(return_value=b"")
         type(resp).text = property(
             lambda s: (_ for _ in ()).throw(Exception("consumed"))
         )
         c = ClaudeCacheAsyncClient()
-        assert c._is_cloudflare_html_error(resp) is False
+        assert await c._is_cloudflare_html_error(resp) is False
 
 
 # --- Refresh token ---

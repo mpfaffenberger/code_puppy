@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import math
 from collections.abc import AsyncIterable
 from typing import Any, Optional
 
@@ -258,8 +259,8 @@ async def event_stream_handler(
                     # args_delta contains the streaming JSON arguments
                     args_delta = getattr(delta, "args_delta", "") or ""
                     if args_delta:
-                        # Rough estimate: 4 chars ≈ 1 token (same heuristic as subagent_stream_handler)
-                        estimated_tokens = max(1, len(args_delta) // 4)
+                        # Same 2.5 chars/token heuristic as BaseAgent and file_operations
+                        estimated_tokens = max(1, math.floor(len(args_delta) / 2.5))
                         token_count[event.index] += estimated_tokens
                     else:
                         # Even empty deltas count as activity

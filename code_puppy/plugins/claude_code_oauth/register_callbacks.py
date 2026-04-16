@@ -17,6 +17,10 @@ from urllib.parse import parse_qs, urlparse
 from code_puppy.callbacks import register_callback
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.model_switching import set_model_and_reload_agent
+from code_puppy.provider_identity import (
+    make_anthropic_provider,
+    resolve_provider_identity,
+)
 
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
 from .config import CLAUDE_CODE_OAUTH_CONFIG, get_token_storage_path
@@ -237,7 +241,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 "Existing Claude Code tokens found. Continuing will overwrite them."
             )
         _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-6")
+        set_model_and_reload_agent("claude-code-claude-opus-4-7")
         return True
 
     if name == "claude-code-status":
@@ -288,7 +292,6 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
     """
     from anthropic import AsyncAnthropic
     from pydantic_ai.models.anthropic import AnthropicModel
-    from pydantic_ai.providers.anthropic import AnthropicProvider
 
     from code_puppy.claude_cache_client import (
         ClaudeCacheAsyncClient,
@@ -298,7 +301,7 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
     from code_puppy.http_utils import get_cert_bundle_path
     from code_puppy.model_factory import get_custom_config
 
-    url, headers, verify, api_key = get_custom_config(model_config)
+    url, headers, verify, api_key, timeout = get_custom_config(model_config)
 
     # Refresh token if this is from the plugin
     if model_config.get("oauth_source") == "claude-code-plugin":
@@ -367,7 +370,10 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
     patch_anthropic_client_messages(anthropic_client)
     anthropic_client.api_key = None
     anthropic_client.auth_token = api_key
-    provider = AnthropicProvider(anthropic_client=anthropic_client)
+    provider = make_anthropic_provider(
+        resolve_provider_identity(model_name, model_config),
+        anthropic_client=anthropic_client,
+    )
     return AnthropicModel(model_name=model_config["name"], provider=provider)
 
 

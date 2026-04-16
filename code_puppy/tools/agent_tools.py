@@ -239,11 +239,7 @@ def register_list_agents(agent):
 
     @agent.tool
     def list_agents(context: RunContext) -> ListAgentsOutput:
-        """List all available sub-agents that can be invoked.
-
-        Returns:
-            ListAgentsOutput: A list of available agents with their names and display names.
-        """
+        """List all available sub-agents that can be invoked."""
         # Generate a group ID for this tool execution
         group_id = generate_group_id("list_agents")
 
@@ -252,12 +248,6 @@ def register_list_agents(agent):
         from code_puppy.config import get_banner_color
 
         list_agents_color = get_banner_color("list_agents")
-        emit_info(
-            Text.from_markup(
-                f"\n[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}]"
-            ),
-            message_group=group_id,
-        )
 
         try:
             from code_puppy.agents import get_agent_descriptions, get_available_agents
@@ -276,15 +266,15 @@ def register_list_agents(agent):
                 for name, display_name in agents_dict.items()
             ]
 
-            # Accumulate output into a single string and emit once
-            # Use Text.from_markup() to pass a Rich object that won't be escaped
-            lines = []
-            for agent_item in agents:
-                lines.append(
-                    f"- [bold]{agent_item.name}[/bold]: {agent_item.display_name}\n"
-                    f"  [dim]{agent_item.description}[/dim]"
-                )
-            emit_info(Text.from_markup("\n".join(lines)), message_group=group_id)
+            # Quiet output - banner and count on same line
+            agent_count = len(agents)
+            emit_info(
+                Text.from_markup(
+                    f"[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}] "
+                    f"[dim]Found {agent_count} agent(s).[/dim]"
+                ),
+                message_group=group_id,
+            )
 
             return ListAgentsOutput(agents=agents)
 
@@ -309,71 +299,8 @@ def register_invoke_agent(agent):
     ) -> AgentInvokeOutput:
         """Invoke a specific sub-agent with a given prompt.
 
-        Args:
-            agent_name: The name of the agent to invoke
-            prompt: The prompt to send to the agent
-            session_id: Optional session ID for maintaining conversation memory across invocations.
-
-                       **Session ID Format:**
-                       - Must be kebab-case (lowercase letters, numbers, hyphens only)
-                       - Should be human-readable: e.g., "implement-oauth", "review-auth"
-                       - For NEW sessions, a SHA1 hash suffix is automatically appended for uniqueness
-                       - To CONTINUE a session, use the full session_id (with hash) from the previous invocation
-                       - If None (default), auto-generates like "agent-name-session-1"
-
-                       **When to use session_id:**
-                       - **NEW SESSION**: Provide a base name like "review-auth" - we'll append a unique hash
-                       - **CONTINUE SESSION**: Use the full session_id from output (e.g., "review-auth-a3f2b1")
-                       - **ONE-OFF TASKS**: Leave as None (auto-generate)
-
-                       **Most common pattern:** Leave session_id as None (auto-generate) unless you
-                       specifically need conversational memory.
-
         Returns:
-            AgentInvokeOutput: Contains:
-                - response (str | None): The agent's response to the prompt
-                - agent_name (str): Name of the invoked agent
-                - session_id (str | None): The full session ID (with hash suffix) - USE THIS to continue the conversation!
-                - error (str | None): Error message if invocation failed
-
-        Examples:
-            # COMMON CASE: One-off invocation, no memory needed (auto-generate session)
-            result = invoke_agent(
-                "qa-expert",
-                "Review this function: def add(a, b): return a + b"
-            )
-            # result.session_id will be something like "qa-expert-session-a3f2b1"
-
-            # MULTI-TURN: Start a NEW conversation with a base session ID
-            # A hash suffix is auto-appended: "review-add-function" -> "review-add-function-a3f2b1"
-            result1 = invoke_agent(
-                "qa-expert",
-                "Review this function: def add(a, b): return a + b",
-                session_id="review-add-function"
-            )
-            # result1.session_id contains the full ID like "review-add-function-a3f2b1"
-
-            # Continue the SAME conversation using session_id from the previous result
-            result2 = invoke_agent(
-                "qa-expert",
-                "Can you suggest edge cases for that function?",
-                session_id=result1.session_id  # Use the session_id from previous output!
-            )
-
-            # Multiple INDEPENDENT reviews (each gets unique hash suffix)
-            auth_review = invoke_agent(
-                "code-reviewer",
-                "Review my authentication code",
-                session_id="auth-review"  # -> "auth-review-<hash1>"
-            )
-            # auth_review.session_id contains the full ID to continue this review
-
-            payment_review = invoke_agent(
-                "code-reviewer",
-                "Review my payment processing code",
-                session_id="payment-review"  # -> "payment-review-<hash2>"
-            )
-            # payment_review.session_id contains a different full ID
+            AgentInvokeOutput: Contains response, agent_name, session_id, and error fields.
         """
         from code_puppy.agents.agent_manager import load_agent
 

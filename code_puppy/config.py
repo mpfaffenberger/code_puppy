@@ -55,6 +55,7 @@ GEMINI_MODELS_FILE = os.path.join(DATA_DIR, "gemini_models.json")
 CHATGPT_MODELS_FILE = os.path.join(DATA_DIR, "chatgpt_models.json")
 CLAUDE_MODELS_FILE = os.path.join(DATA_DIR, "claude_models.json")
 ANTIGRAVITY_MODELS_FILE = os.path.join(DATA_DIR, "antigravity_models.json")
+COPILOT_MODELS_FILE = os.path.join(DATA_DIR, "copilot_models.json")
 
 # Cache files (XDG_CACHE_HOME)
 AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
@@ -94,7 +95,6 @@ PACK_AGENT_NAMES = frozenset(
     [
         "pack-leader",
         "bloodhound",
-        "husky",
         "shepherd",
         "terrier",
         "watchdog",
@@ -109,7 +109,7 @@ UC_AGENT_NAMES = frozenset(["helios"])
 def get_pack_agents_enabled() -> bool:
     """Return True if pack agents are enabled (default False).
 
-    When False (default), pack agents (pack-leader, bloodhound, husky, shepherd,
+    When False (default), pack agents (pack-leader, bloodhound, shepherd,
     terrier, watchdog, retriever) are hidden from `list_agents` tool and `/agents`
     command. They cannot be invoked by other agents or selected by users.
 
@@ -143,6 +143,23 @@ def set_universal_constructor_enabled(enabled: bool) -> None:
         enabled: True to enable, False to disable
     """
     set_value("enable_universal_constructor", "true" if enabled else "false")
+
+
+def get_max_hook_retries() -> int:
+    """Return the maximum number of plugin hook retries after an agent run.
+
+    When a plugin hook returns ``{"retry": True, ...}`` the agent re-runs.
+    This caps how many times that can happen to prevent runaway loops.
+    Defaults to 3.
+    """
+    val = get_value("max_hook_retries")
+    if val is None:
+        return 3
+    try:
+        n = int(val)
+        return max(1, n)  # At least 1 to avoid nonsensical values
+    except (ValueError, TypeError):
+        return 3
 
 
 def get_enable_streaming() -> bool:
@@ -286,6 +303,7 @@ def get_config_keys():
         "message_limit",
         "allow_recursion",
         "openai_reasoning_effort",
+        "openai_reasoning_summary",
         "openai_verbosity",
         "auto_save_session",
         "max_saved_sessions",
@@ -303,6 +321,8 @@ def get_config_keys():
     default_keys.append("enable_pack_agents")
     # Add universal constructor control key
     default_keys.append("enable_universal_constructor")
+    # Add hook retry limit key
+    default_keys.append("max_hook_retries")
     # Add streaming control key
     default_keys.append("enable_streaming")
     # Add cancel agent key configuration
@@ -512,7 +532,12 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
                 base = ["temperature", "extended_thinking", "budget_tokens"]
                 # Opus 4-6 models also support the effort setting
                 lower = model_name.lower()
-                if "opus-4-6" in lower or "4-6-opus" in lower:
+                if (
+                    "opus-4-6" in lower
+                    or "4-6-opus" in lower
+                    or "opus-4-7" in lower
+                    or "4-7-opus" in lower
+                ):
                     base.append("effort")
                 return setting in base
             return setting in ["temperature", "seed"]
@@ -611,6 +636,32 @@ def set_openai_reasoning_effort(value: str) -> None:
     set_config_value("openai_reasoning_effort", normalized)
 
 
+def get_openai_reasoning_summary() -> str:
+    """Return the configured OpenAI reasoning summary mode.
+
+    Supported values:
+    - auto: let the provider decide the best summary style
+    - concise: shorter reasoning summaries
+    - detailed: fuller reasoning summaries
+    """
+    allowed_values = {"auto", "concise", "detailed"}
+    configured = (get_value("openai_reasoning_summary") or "auto").strip().lower()
+    if configured not in allowed_values:
+        return "auto"
+    return configured
+
+
+def set_openai_reasoning_summary(value: str) -> None:
+    """Persist the OpenAI reasoning summary mode ensuring it remains valid."""
+    allowed_values = {"auto", "concise", "detailed"}
+    normalized = (value or "").strip().lower()
+    if normalized not in allowed_values:
+        raise ValueError(
+            f"Invalid reasoning summary '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
+        )
+    set_config_value("openai_reasoning_summary", normalized)
+
+
 def get_openai_verbosity() -> str:
     """Return the configured OpenAI verbosity (low, medium, high).
 
@@ -691,7 +742,7 @@ def get_model_setting(
     """Get a specific setting for a model.
 
     Args:
-        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
         setting: The setting name (e.g., 'temperature', 'top_p', 'seed')
         default: Default value if not set
 
@@ -715,7 +766,7 @@ def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> 
     """Set a specific setting for a model.
 
     Args:
-        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
         setting: The setting name (e.g., 'temperature', 'seed')
         value: The value to set, or None to clear
     """
@@ -1427,7 +1478,10 @@ DEFAULT_BANNER_COLORS = {
     "agent_response": "medium_purple4",  # Amethyst - main AI output
     "shell_command": "dark_orange3",  # Amber - system commands
     "read_file": "steel_blue",  # Steel - reading files
-    "edit_file": "dark_goldenrod",  # Gold - modifications
+    "edit_file": "dark_goldenrod",  # Gold - modifications (legacy)
+    "create_file": "dark_goldenrod",  # Gold - file creation
+    "replace_in_file": "dark_goldenrod",  # Gold - file modifications
+    "delete_snippet": "dark_goldenrod",  # Gold - snippet removal
     "grep": "grey37",  # Silver - search results
     "directory_listing": "dodger_blue2",  # Sky - navigation
     "agent_reasoning": "dark_violet",  # Violet - deep thought
@@ -1437,6 +1491,10 @@ DEFAULT_BANNER_COLORS = {
     "universal_constructor": "dark_cyan",  # Teal - constructing tools
     # Browser/Terminal tools - same color as edit_file (gold)
     "terminal_tool": "dark_goldenrod",  # Gold - browser terminal operations
+    # MCP tools - distinct from builtin tools
+    "mcp_tool_call": "dark_cyan",  # Teal - external MCP tool calls
+    # User-initiated shell pass-through (! prefix) - distinct from agent's shell_command
+    "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
 }
 
 
