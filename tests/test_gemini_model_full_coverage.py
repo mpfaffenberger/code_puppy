@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from pydantic_ai import PartStartEvent
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -862,6 +863,46 @@ class TestRequestStream:
         async with model.request_stream(msgs, None, default_params) as streamed:
             async for _ in streamed:
                 pass
+
+    @pytest.mark.anyio
+    async def test_stream_infers_gateway_stripped_thinking(self, model, default_params):
+        chunks = [
+            'data: {"candidates": [{"content": {"parts": [{"text": "thinking text"}, {"text": "final text", "thoughtSignature": "sig123"}]}}]}',
+        ]
+
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+
+        async def aiter_lines():
+            for line in chunks:
+                yield line
+
+        mock_response.aiter_lines = aiter_lines
+
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_client.stream = MagicMock(return_value=mock_stream_ctx)
+        model._http_client = mock_client
+
+        msgs = [ModelRequest(parts=[UserPromptPart(content="hi")])]
+        async with model.request_stream(
+            msgs,
+            {"thinking_level": "low"},
+            default_params,
+        ) as streamed:
+            events = [event async for event in streamed]
+
+        thinking_starts = [
+            event
+            for event in events
+            if isinstance(event, PartStartEvent)
+            and isinstance(event.part, ThinkingPart)
+        ]
+        assert thinking_starts
+        assert thinking_starts[0].part.content == "thinking text"
+        assert thinking_starts[0].part.signature == "sig123"
 
     @pytest.mark.anyio
     async def test_stream_no_candidates(self, model, default_params):

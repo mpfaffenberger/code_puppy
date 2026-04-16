@@ -753,6 +753,9 @@ class GeminiModel(Model):
             _model_name_str=self._model_name,
             _provider_name_str=self.system,
             _provider_url_str=self._base_url,
+            _expect_thinking=bool(
+                gen_config.get("thinkingConfig", {}).get("includeThoughts")
+            ),
         )
 
 
@@ -764,6 +767,7 @@ class GeminiStreamingResponse(StreamedResponse):
     _model_name_str: str
     _provider_name_str: str = "google"
     _provider_url_str: str | None = None
+    _expect_thinking: bool = False
     _timestamp_val: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
@@ -773,8 +777,77 @@ class GeminiStreamingResponse(StreamedResponse):
         self.finish_reason, so pydantic_ai can properly handle
         safety-filtered or token-limited responses instead of
         entering its empty-response retry loop.
+
+        When Gemini thinking is enabled, some gateways strip ``thought: true``
+        from streaming chunks and only keep the ``thoughtSignature`` on the
+        following text/function-call part. We buffer ambiguous text until we can
+        classify it so the CLI keeps showing THINKING instead of silently
+        folding it into the final answer.
         """
         yielded_any = False
+        pending_ambiguous_text_parts: list[str] = []
+
+        def _mark_yielded(events: list[ModelResponseStreamEvent]) -> list[ModelResponseStreamEvent]:
+            nonlocal yielded_any
+            if events:
+                yielded_any = True
+            return events
+
+        def _emit_text_events(text: str) -> list[ModelResponseStreamEvent]:
+            if len(text) == 0:
+                return []
+            return _mark_yielded(
+                list(
+                    self._parts_manager.handle_text_delta(
+                        vendor_part_id=None,
+                        content=text,
+                    )
+                )
+            )
+
+        def _emit_thinking_events(
+            text: str,
+            signature: str | None = None,
+        ) -> list[ModelResponseStreamEvent]:
+            if text is None:
+                text = ""
+            if len(text) == 0 and signature is None:
+                return []
+            return _mark_yielded(
+                list(
+                    self._parts_manager.handle_thinking_delta(
+                        vendor_part_id=None,
+                        content=text,
+                        signature=signature,
+                        provider_name=self._model_name_str,
+                    )
+                )
+            )
+
+        def _flush_pending_ambiguous_text(
+            *,
+            as_thinking: bool,
+            signature: str | None = None,
+        ) -> list[ModelResponseStreamEvent]:
+            pending_events: list[ModelResponseStreamEvent] = []
+            if not pending_ambiguous_text_parts:
+                return pending_events
+
+            for idx, text in enumerate(pending_ambiguous_text_parts):
+                if as_thinking:
+                    pending_events.extend(
+                        _emit_thinking_events(
+                            text,
+                            signature=signature
+                            if idx == len(pending_ambiguous_text_parts) - 1
+                            else None,
+                        )
+                    )
+                else:
+                    pending_events.extend(_emit_text_events(text))
+
+            pending_ambiguous_text_parts.clear()
+            return pending_events
 
         async for chunk in self._chunks:
             # Extract usage
@@ -804,37 +877,71 @@ class GeminiStreamingResponse(StreamedResponse):
             content = candidate.get("content", {})
             parts = content.get("parts", [])
 
-            for part in parts:
-                # Handle thinking part
-                if part.get("thought"):
-                    text = part.get("text")
-                    signature = part.get("thoughtSignature")
+            first_real_signature: str | None = None
+            first_sig_idx = len(parts)
+            for i, part in enumerate(parts):
+                sig = part.get("thoughtSignature")
+                if sig:
+                    first_real_signature = sig
+                    first_sig_idx = i
+                    break
 
-                    if text is not None or signature is not None:
-                        event = self._parts_manager.handle_thinking_delta(
-                            vendor_part_id=None,
-                            content=text or "",
-                            signature=signature,
-                            provider_name=self._model_name_str,
-                        )
-                        if event:
-                            yielded_any = True
-                            yield event
+            has_thought_signature = first_real_signature is not None
 
-                # Handle regular text
-                elif part.get("text") is not None and not part.get("thought"):
+            for idx, part in enumerate(parts):
+                is_inferred_thinking = part.get("thought") or (
+                    has_thought_signature
+                    and idx < first_sig_idx
+                    and "text" in part
+                    and not part.get("thoughtSignature")
+                    and "functionCall" not in part
+                )
+
+                if is_inferred_thinking:
+                    for event in _flush_pending_ambiguous_text(as_thinking=True):
+                        yield event
+                    for event in _emit_thinking_events(
+                        part.get("text") or "",
+                        signature=part.get("thoughtSignature") or first_real_signature,
+                    ):
+                        yield event
+                    continue
+
+                if part.get("text") is not None:
                     text = part["text"]
                     if len(text) == 0:
                         continue
-                    for event in self._parts_manager.handle_text_delta(
-                        vendor_part_id=None,
-                        content=text,
-                    ):
-                        yielded_any = True
-                        yield event
 
-                # Handle function call
-                elif part.get("functionCall"):
+                    if (
+                        self._expect_thinking
+                        and not part.get("thoughtSignature")
+                        and not has_thought_signature
+                    ):
+                        pending_ambiguous_text_parts.append(text)
+                        continue
+
+                    if part.get("thoughtSignature") and pending_ambiguous_text_parts:
+                        for event in _flush_pending_ambiguous_text(
+                            as_thinking=True,
+                            signature=part.get("thoughtSignature"),
+                        ):
+                            yield event
+                    elif pending_ambiguous_text_parts:
+                        for event in _flush_pending_ambiguous_text(as_thinking=False):
+                            yield event
+
+                    for event in _emit_text_events(text):
+                        yield event
+                    continue
+
+                if part.get("functionCall"):
+                    if pending_ambiguous_text_parts:
+                        for event in _flush_pending_ambiguous_text(
+                            as_thinking=bool(part.get("thoughtSignature")),
+                            signature=part.get("thoughtSignature"),
+                        ):
+                            yield event
+
                     fc = part["functionCall"]
                     event = self._parts_manager.handle_tool_call_delta(
                         vendor_part_id=uuid.uuid4(),
@@ -845,6 +952,10 @@ class GeminiStreamingResponse(StreamedResponse):
                     if event is not None:
                         yielded_any = True
                         yield event
+
+        if pending_ambiguous_text_parts:
+            for event in _flush_pending_ambiguous_text(as_thinking=False):
+                yield event
 
         # Guard: if the entire stream yielded nothing (safety-filtered,
         # empty response, etc.), emit a single empty text delta so
