@@ -123,6 +123,41 @@ class TestMaxSavedSessions:
         mock_set_config_value.assert_called_once_with("max_saved_sessions", "0")
 
 
+class TestMaxHookRetries:
+    @patch("code_puppy.config.get_value")
+    def test_get_max_hook_retries_valid_int(self, mock_get_value):
+        mock_get_value.return_value = "7"
+        assert cp_config.get_max_hook_retries() == 7
+        mock_get_value.assert_called_once_with("max_hook_retries")
+
+    @patch("code_puppy.config.get_value")
+    def test_get_max_hook_retries_default(self, mock_get_value):
+        mock_get_value.return_value = None
+        assert cp_config.get_max_hook_retries() == 3
+        mock_get_value.assert_called_once_with("max_hook_retries")
+
+    @patch("code_puppy.config.get_value")
+    def test_get_max_hook_retries_negative_clamped_to_zero(self, mock_get_value):
+        mock_get_value.return_value = "-5"
+        assert cp_config.get_max_hook_retries() == 0
+        mock_get_value.assert_called_once_with("max_hook_retries")
+
+    @patch("code_puppy.config.get_value")
+    def test_get_max_hook_retries_above_max_clamped(self, mock_get_value):
+        mock_get_value.return_value = "250"
+        assert cp_config.get_max_hook_retries() == 100
+        mock_get_value.assert_called_once_with("max_hook_retries")
+
+    @patch("code_puppy.config.get_value")
+    def test_get_max_hook_retries_invalid_value_defaults(self, mock_get_value):
+        invalid_values = ["invalid", "not_a_number", ""]
+        for val in invalid_values:
+            mock_get_value.reset_mock()
+            mock_get_value.return_value = val
+            assert cp_config.get_max_hook_retries() == 3
+            mock_get_value.assert_called_once_with("max_hook_retries")
+
+
 class TestAutoSaveSessionFunctionality:
     @patch("code_puppy.config.get_auto_save_session")
     def test_auto_save_session_if_enabled_disabled(self, mock_get_auto_save):

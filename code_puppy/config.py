@@ -367,6 +367,7 @@ def get_config_keys():
         "frontend_emitter_max_recent_events",
         "frontend_emitter_queue_size",
         "enable_streaming",
+        "max_hook_retries"
     ]
     # Add DBOS control key
     default_keys.append("enable_dbos")
@@ -1555,6 +1556,22 @@ def get_max_saved_sessions() -> int:
         except (ValueError, TypeError):
             pass
     return 20
+
+
+def get_max_hook_retries() -> int:
+    """Get the maximum number of hook retries.
+
+    Defaults to 3 if not set or invalid.
+    Values are clamped to the inclusive range 0-100.
+    """
+    cfg_val = get_value("max_hook_retries")
+    if cfg_val is not None:
+        try:
+            val = int(cfg_val)
+            return max(0, min(100, val))
+        except (ValueError, TypeError):
+            pass
+    return 3
 
 
 def set_max_saved_sessions(max_sessions: int):
