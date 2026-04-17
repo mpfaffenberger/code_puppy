@@ -347,6 +347,43 @@ class TestJsonAgentExtended:
         # We don't know what the default is, but it should not be None
         assert model_name is not None
 
+    def test_get_model_name_empty_string_falls_back(self, tmp_path):
+        """An empty-string model in JSON should defer to the global default."""
+        config = {
+            "name": "test_agent",
+            "description": "A test agent",
+            "system_prompt": "You are a test agent",
+            "tools": ["list_files"],
+            "model": "",
+        }
+
+        agent_file = tmp_path / "empty_model.json"
+        agent_file.write_text(json.dumps(config))
+
+        agent = JSONAgent(str(agent_file))
+        model_name = agent.get_model_name()
+        # Empty string should be treated like missing -> global fallback
+        assert model_name is not None
+        assert model_name != ""
+
+    def test_get_model_name_whitespace_only_falls_back(self, tmp_path):
+        """Whitespace-only model strings are also treated as unset."""
+        config = {
+            "name": "test_agent",
+            "description": "A test agent",
+            "system_prompt": "You are a test agent",
+            "tools": ["list_files"],
+            "model": "   ",
+        }
+
+        agent_file = tmp_path / "whitespace_model.json"
+        agent_file.write_text(json.dumps(config))
+
+        agent = JSONAgent(str(agent_file))
+        model_name = agent.get_model_name()
+        assert model_name is not None
+        assert model_name.strip() != ""
+
 
 class TestDiscoverJsonAgents:
     """Tests for discover_json_agents function."""

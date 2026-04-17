@@ -138,11 +138,15 @@ class JSONAgent(BaseAgent):
     def get_model_name(self) -> Optional[str]:
         """Get pinned model name from JSON config, if specified.
 
+        Treats both missing and empty-string ``model`` values as "unset",
+        falling back to the agent-level pin / global default via
+        :class:`BaseAgent`.
+
         Returns:
             Model name to use for this agent, or None to use global default.
         """
         result = self._config.get("model")
-        if result is None:
+        if result is None or (isinstance(result, str) and not result.strip()):
             result = super().get_model_name()
         return result
 
