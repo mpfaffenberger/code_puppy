@@ -11,7 +11,7 @@ import uvicorn
 from rich.text import Text
 
 from code_puppy.callbacks import register_callback
-from code_puppy.config import get_puppy_token
+from code_puppy.config import get_puppy_token, get_use_dbos, set_enable_dbos
 from code_puppy.http_utils import find_available_port
 from code_puppy.messaging import emit_system_message, emit_warning
 
@@ -206,6 +206,19 @@ async def auth_flow() -> None:
         emit_warning("No valid puppy token available.")
 
 
+def force_disable_dbos() -> None:
+    """Walmart override: keep DBOS off at startup.
+
+    DBOS adds a SQLite-backed durable execution layer that we don't want
+    enabled by default for Walmart users. This runs before cli_runner's
+    DBOS init check, so flipping the cfg here is enough to skip launch.
+    Idempotent — only writes when currently enabled.
+    """
+    if get_use_dbos():
+        set_enable_dbos(False)
+
+
+register_callback("startup", force_disable_dbos)
 register_callback("startup", ensure_safe_windows_workspace)
 register_callback("startup", auth_flow)
 
