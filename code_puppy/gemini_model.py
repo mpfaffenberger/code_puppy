@@ -678,6 +678,53 @@ class GeminiModel(Model):
         )
 
 
+_MISSING = object()
+
+
+def _extract_partial_value(p_arg: dict) -> Any:
+    for key in [
+        "stringValue",
+        "numberValue",
+        "boolValue",
+        "nullValue",
+        "structValue",
+        "listValue",
+    ]:
+        if key in p_arg:
+            val = p_arg[key]
+            if key == "nullValue":
+                return None
+            return val
+    return _MISSING
+
+
+def _apply_json_path(target: dict, path: str, value: Any):
+    parts = path.split(".")
+    curr = target
+    for i, part in enumerate(parts):
+        if "[" in part and part.endswith("]"):
+            key, idx_str = part.split("[")
+            idx = int(idx_str[:-1])
+            if key not in curr:
+                curr[key] = []
+            while len(curr[key]) <= idx:
+                curr[key].append(None)
+
+            if i == len(parts) - 1:
+                curr[key][idx] = value
+            else:
+                if curr[key][idx] is None:
+                    curr[key][idx] = {}
+                curr = curr[key][idx]
+        else:
+            if i == len(parts) - 1:
+                curr[part] = value
+            else:
+                if part not in curr or curr[part] is None:
+                    curr[part] = {}
+                curr = curr[part]
+
+
 @dataclass
 class GeminiStreamingResponse(StreamedResponse):
     """Streaming response handler for Gemini API."""
@@ -752,15 +799,10 @@ class GeminiStreamingResponse(StreamedResponse):
                         for p_arg in fc["partialArgs"]:
                             json_path = p_arg.get("jsonPath")
                             if json_path and json_path.startswith("$."):
-                                key = json_path[2:]
-                                value = None
-                                for val_key in ["stringValue", "numberValue", "boolValue"]:
-                                    if val_key in p_arg:
-                                        value = p_arg[val_key]
-                                        break
-                                if value is not None:
-                                    self._current_args[key] = value
-                                    delta_args[key] = value
+                                value = _extract_partial_value(p_arg)
+                                if value is not _MISSING:
+                                    _apply_json_path(self._current_args, json_path[2:], value)
+                                    _apply_json_path(delta_args, json_path[2:], value)
                                     
                     elif "args" in fc:
                         delta_args = fc["args"]
