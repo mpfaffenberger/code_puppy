@@ -224,7 +224,8 @@ class TestStreamingRetry:
         )
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await _run_with_streaming_retry(factory)
+            with pytest.raises(httpx.RemoteProtocolError, match="persistent failure"):
+                await _run_with_streaming_retry(factory)
 
         assert result == "recovered"
         assert factory.await_count == 2
@@ -247,9 +248,19 @@ class TestStreamingRetry:
                 "recovered",
             ]
         )
+        assert should_retry_streaming_exception(httpx.ReadTimeout("timed out"))
+        assert should_retry_streaming_exception(
+            httpcore.RemoteProtocolError("peer closed connection")
+        )
+        assert should_retry_streaming_exception(
+            UnexpectedModelBehavior("streamed response ended without content")
+        )
 
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            result = await _run_with_streaming_retry(factory)
+    def test_classifier_rejects_non_retryable_errors(self):
+        assert not should_retry_streaming_exception(ValueError("nope"))
+        assert not should_retry_streaming_exception(
+            UnexpectedModelBehavior("tool schema validation exploded")
+        )
 
         assert result == "recovered"
         assert factory.await_count == 2
