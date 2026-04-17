@@ -86,6 +86,9 @@ from code_puppy.plugins.walmart_specific.codex_model_handler import (
 from code_puppy.plugins.walmart_specific.content_filter_retry import (
     on_result_check_content_filter,
 )
+from code_puppy.plugins.walmart_specific.agent_run_cleanup import (
+    prune_interrupted_tool_calls_on_agent_run_start,
+)
 
 
 def get_walmart_mcp_servers():
@@ -227,6 +230,7 @@ async def check_token_before_agent_run(
 
 
 register_callback("agent_run_start", check_token_before_agent_run)
+register_callback("agent_run_start", prune_interrupted_tool_calls_on_agent_run_start)
 
 
 def load_model_config() -> Dict[str, Any]:
