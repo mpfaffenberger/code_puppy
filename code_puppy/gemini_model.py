@@ -633,6 +633,12 @@ class GeminiModel(Model):
         # Add tools
         if model_request_parameters.function_tools:
             body["tools"] = self._build_tools(model_request_parameters.function_tools)
+            body["toolConfig"] = {
+                "functionCallingConfig": {
+                    "mode": "AUTO",
+                    "streamFunctionCallArguments": True,
+                }
+            }
 
         # Make streaming request
         client = await self._get_client()
@@ -681,6 +687,10 @@ class GeminiStreamingResponse(StreamedResponse):
     _provider_name_str: str = "google"
     _provider_url_str: str | None = None
     _timestamp_val: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    _current_tool_call_id: str | None = None
+    _current_tool_name: str | None = None
+    _current_vendor_part_id: uuid.UUID | None = None
+    _current_args: dict[str, Any] = field(default_factory=dict)
 
     async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
         """Process streaming chunks and yield events."""
@@ -728,14 +738,44 @@ class GeminiStreamingResponse(StreamedResponse):
                 # Handle function call
                 elif part.get("functionCall"):
                     fc = part["functionCall"]
-                    event = self._parts_manager.handle_tool_call_delta(
-                        vendor_part_id=uuid.uuid4(),
-                        tool_name=fc.get("name"),
-                        args=fc.get("args"),
-                        tool_call_id=fc.get("id") or generate_tool_call_id(),
-                    )
-                    if event is not None:
-                        yield event
+                    
+                    # Check if it's a new function call
+                    if fc.get("name"):
+                        self._current_tool_name = fc["name"]
+                        self._current_tool_call_id = fc.get("id") or generate_tool_call_id()
+                        self._current_vendor_part_id = uuid.uuid4()
+                        self._current_args = {}
+                        
+                    delta_args = {}
+                    # Handle partial arguments if present
+                    if "partialArgs" in fc:
+                        for p_arg in fc["partialArgs"]:
+                            json_path = p_arg.get("jsonPath")
+                            if json_path and json_path.startswith("$."):
+                                key = json_path[2:]
+                                value = None
+                                for val_key in ["stringValue", "numberValue", "boolValue"]:
+                                    if val_key in p_arg:
+                                        value = p_arg[val_key]
+                                        break
+                                if value is not None:
+                                    self._current_args[key] = value
+                                    delta_args[key] = value
+                                    
+                    elif "args" in fc:
+                        delta_args = fc["args"]
+                        self._current_args.update(fc["args"])
+
+                    # Yield delta event if we have a current part ID
+                    if self._current_vendor_part_id:
+                        event = self._parts_manager.handle_tool_call_delta(
+                            vendor_part_id=self._current_vendor_part_id,
+                            tool_name=self._current_tool_name,
+                            args=delta_args,
+                            tool_call_id=self._current_tool_call_id,
+                        )
+                        if event is not None:
+                            yield event
 
     @property
     def model_name(self) -> str:
