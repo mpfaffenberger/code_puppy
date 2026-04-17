@@ -134,6 +134,61 @@ class TestHandleCdCommand:
                 args, kwargs = mock_error.call_args
                 assert "Access denied" in args[0]
 
+    def test_cd_reloads_agent_context(self):
+        """Test that /cd reloads agent to pick up new directory context (AGENTS.md, etc)."""
+        mock_agent = MagicMock()
+
+        with patch("code_puppy.messaging.emit_success"):
+            with patch("code_puppy.messaging.emit_info") as mock_emit_info:
+                with patch("os.path.expanduser", side_effect=lambda x: x):
+                    with patch("os.path.isabs", return_value=True):
+                        with patch("os.path.isdir", return_value=True):
+                            with patch("os.chdir"):
+                                with patch(
+                                    "code_puppy.agents.agent_manager.get_current_agent",
+                                    return_value=mock_agent,
+                                ):
+                                    result = handle_cd_command("/cd /new/dir")
+
+                                    # Verify directory changed
+                                    assert result is True
+
+                                    # Verify agent was reloaded (public behavior)
+                                    mock_agent.reload_code_generation_agent.assert_called_once()
+
+                                    # Verify context refresh message was emitted
+                                    mock_emit_info.assert_called_once_with(
+                                        "Agent context updated for new directory"
+                                    )
+
+    def test_cd_handles_agent_reload_failure_gracefully(self):
+        """Test that /cd continues even if agent reload fails."""
+        mock_agent = MagicMock()
+        mock_agent.reload_code_generation_agent.side_effect = Exception("Reload failed")
+
+        with patch("code_puppy.messaging.emit_success"):
+            with patch("code_puppy.messaging.emit_error") as mock_error:
+                with patch("os.path.expanduser", side_effect=lambda x: x):
+                    with patch("os.path.isabs", return_value=True):
+                        with patch("os.path.isdir", return_value=True):
+                            with patch("os.chdir"):
+                                with patch(
+                                    "code_puppy.agents.agent_manager.get_current_agent",
+                                    return_value=mock_agent,
+                                ):
+                                    result = handle_cd_command("/cd /new/dir")
+
+                                    # Directory change should still succeed
+                                    assert result is True
+
+                                    # Error should be emitted about reload failure
+                                    mock_error.assert_called_once()
+                                    error_msg = mock_error.call_args[0][0]
+                                    assert error_msg.startswith(
+                                        "Could not reload agent context:"
+                                    )
+                                    assert "Reload failed" in error_msg
+
     def test_cd_with_nonexistent_parent(self):
         """Test cd command with path containing nonexistent parent directories."""
         with patch("code_puppy.messaging.emit_error") as mock_error:
