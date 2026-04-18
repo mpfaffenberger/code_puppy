@@ -278,7 +278,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.4.2" },
     { name = "ripgrep", specifier = "==14.1.0" },
     { name = "tenacity", specifier = ">=8.2.0" },
-    { name = "termflow-md", specifier = ">=0.1.8" },
+    { name = "termflow-md", specifier = ">=0.1.10" },
     { name = "typer", specifier = ">=0.12.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
     { name = "websockets", specifier = ">=12.0" },
@@ -1803,15 +1803,15 @@ wheels = [
 
 [[package]]
 name = "termflow-md"
-version = "0.1.9"
+version = "0.1.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pygments" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/43/62/647a9ddeb5e0a6fd6ec8eb14c1332f15d2adff4a04820db9ac5119b867c0/termflow_md-0.1.9.tar.gz", hash = "sha256:ab492e9730ff5b9ff544fdaaf215bca960be0af6b302487dbe4e432714391f97", size = 115037, upload-time = "2026-01-06T01:32:02.903Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/e3/211506b867fa4d7b9d14d12e688234c94fc7701ede7342054b5f74d51c67/termflow_md-0.1.10.tar.gz", hash = "sha256:5f13ea5bad660cdfed70794d493be64ae47e53327c8159b8a8246fbb57cb5438", size = 114673, upload-time = "2026-04-18T16:47:18.649Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/05/88/cb810f770c2a8308b2a79ca74d596ceaa3f6759c3247be8c3ba4f652e9e0/termflow_md-0.1.9-py3-none-any.whl", hash = "sha256:273d21414a61b180116a578b351c2432908eb9016988de0992734e92c51dc63f", size = 57366, upload-time = "2026-01-06T01:32:01.547Z" },
+    { url = "https://files.pythonhosted.org/packages/23/72/663bf904aa885411e9a383af33b0322245323d1f62553e073b8961390b8b/termflow_md-0.1.10-py3-none-any.whl", hash = "sha256:6df05d6d7b66a78984636e2b1433313debf6f9a0b8f0bb17b9d974436f42b0f9", size = 58383, upload-time = "2026-04-18T16:47:17.315Z" },
 ]
 
 [[package]]
