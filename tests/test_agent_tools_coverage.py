@@ -560,6 +560,241 @@ class TestRegisterInvokeAgentExecution:
             assert "original-parent" in set_context_calls
 
 
+class TestInvokeAgentPartialSessionSaveOnCrash:
+    """Issue: invoke_agent should save partial progress when the run blows up.
+
+    The BaseAgent wrapper's ``_message_history`` is mutated in place by the
+    ``make_history_processor(agent_config)`` callback that pydantic-ai invokes
+    before every model request. So on a mid-run crash, ``agent_config`` still
+    holds the last fully-committed turn and we want that written to the
+    session file rather than thrown away.
+    """
+
+    def _get_registered_invoke_agent(self):
+        mock_agent = MagicMock()
+        registered_func = None
+
+        def capture_tool(func):
+            nonlocal registered_func
+            registered_func = func
+            return func
+
+        mock_agent.tool = capture_tool
+        register_invoke_agent(mock_agent)
+        return registered_func
+
+    def _make_agent_config(self, partial_history):
+        cfg = MagicMock()
+        cfg.get_model_name.return_value = "test-model"
+        cfg.get_system_prompt.return_value = "Test"
+        cfg.load_puppy_rules.return_value = None
+        cfg.get_message_history.return_value = partial_history
+        return cfg
+
+    @pytest.mark.asyncio
+    async def test_partial_history_saved_when_run_crashes(self):
+        invoke_agent = self._get_registered_invoke_agent()
+        partial = ["msg_from_loaded_session", "new_turn_1", "new_turn_2"]
+        mock_agent_config = self._make_agent_config(partial)
+
+        with (
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context",
+                return_value="parent",
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=mock_agent_config,
+            ),
+            # Force a crash *after* load_agent has run so agent_config is bound.
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._load_session_history",
+                return_value=["msg_from_loaded_session"],
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
+            patch("code_puppy.tools.agent_tools._save_session_history") as mock_save,
+        ):
+            mock_bus.return_value.emit = MagicMock()
+
+            result = await invoke_agent(
+                MagicMock(),
+                agent_name="test-agent",
+                prompt="do the thing",
+                session_id=None,
+            )
+
+        assert result.error is not None
+        # The seed + partial history should have triggered one save.
+        assert mock_save.call_count == 1
+        save_kwargs = mock_save.call_args.kwargs
+        assert save_kwargs["message_history"] == partial
+        assert save_kwargs["agent_name"] == "test-agent"
+        # Brand new session → initial_prompt recorded.
+        assert save_kwargs["initial_prompt"] == "do the thing"
+
+    @pytest.mark.asyncio
+    async def test_no_save_when_no_progress_beyond_loaded_history(self):
+        """If the crash happens before any new turns land, skip the save."""
+        invoke_agent = self._get_registered_invoke_agent()
+        # Same length as loaded → no new progress to persist.
+        loaded = ["m1", "m2"]
+        mock_agent_config = self._make_agent_config(list(loaded))
+
+        with (
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context",
+                return_value="parent",
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=mock_agent_config,
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._load_session_history",
+                return_value=loaded,
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
+            patch("code_puppy.tools.agent_tools._save_session_history") as mock_save,
+        ):
+            mock_bus.return_value.emit = MagicMock()
+
+            result = await invoke_agent(
+                MagicMock(),
+                agent_name="test-agent",
+                prompt="x",
+                session_id="existing-session-abc123",
+            )
+
+        assert result.error is not None
+        mock_save.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_save_failure_does_not_mask_original_error(self):
+        invoke_agent = self._get_registered_invoke_agent()
+        partial = ["a", "b", "c", "d"]
+        mock_agent_config = self._make_agent_config(partial)
+
+        with (
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context",
+                return_value="parent",
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=mock_agent_config,
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                side_effect=RuntimeError("original boom"),
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._load_session_history",
+                return_value=["a"],
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._save_session_history",
+                side_effect=OSError("disk full"),
+            ),
+        ):
+            mock_bus.return_value.emit = MagicMock()
+
+            # Must not raise despite the save blowing up.
+            result = await invoke_agent(
+                MagicMock(),
+                agent_name="test-agent",
+                prompt="x",
+                session_id=None,
+            )
+
+        assert result.error is not None
+        assert "original boom" in result.error
+
+    @pytest.mark.asyncio
+    async def test_load_agent_itself_crashes_no_save_attempted(self):
+        """agent_config is None if load_agent raises — don't blow up trying to read it."""
+        invoke_agent = self._get_registered_invoke_agent()
+
+        with (
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context",
+                return_value="parent",
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                side_effect=RuntimeError("agent gone"),
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._load_session_history",
+                return_value=[],
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
+            patch("code_puppy.tools.agent_tools._save_session_history") as mock_save,
+        ):
+            mock_bus.return_value.emit = MagicMock()
+
+            result = await invoke_agent(
+                MagicMock(),
+                agent_name="test-agent",
+                prompt="x",
+                session_id=None,
+            )
+
+        assert result.error is not None
+        mock_save.assert_not_called()
+
+
 class TestActiveSubagentTasks:
     """Test the _active_subagent_tasks tracking."""
 

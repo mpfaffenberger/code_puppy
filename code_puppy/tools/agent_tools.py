@@ -378,12 +378,23 @@ def register_invoke_agent(agent):
 
         browser_session_token = set_browser_session(f"browser-{session_id}")
 
+        # Bound up-front so the ``except`` block can always reach for it even
+        # if load_agent() itself fails before assignment.
+        agent_config = None
+
         try:
             # Lazy import to break circular dependency with messaging module
             from code_puppy.model_factory import ModelFactory, make_model_settings
 
             # Load the specified agent config
             agent_config = load_agent(agent_name)
+
+            # Seed the wrapper's message history with the loaded session so that
+            # ``make_history_processor(agent_config)`` — wired into the temp
+            # agent's ``history_processors`` — mutates ``agent_config._message_history``
+            # in place as the run progresses. That means on a mid-run crash we
+            # can read partial progress straight off the wrapper below.
+            agent_config.set_message_history(list(message_history))
 
             # Get the current model for creating a temporary agent
             model_name = agent_config.get_model_name()
@@ -584,6 +595,30 @@ def register_invoke_agent(agent):
             # Full traceback for debugging
             error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
             emit_error(error_msg, message_group=group_id)
+
+            # Save whatever progress the agent made before crashing. The history
+            # processor keeps ``agent_config._message_history`` in sync with each
+            # completed turn, so this captures every committed turn up to the
+            # failure point. Best-effort: a save failure must not mask the
+            # original error, so we swallow anything the save itself raises.
+            try:
+                partial_history = (
+                    agent_config.get_message_history() if agent_config else []
+                )
+                if partial_history and len(partial_history) > len(message_history):
+                    _save_session_history(
+                        session_id=session_id,
+                        message_history=partial_history,
+                        agent_name=agent_name,
+                        initial_prompt=prompt if is_new_session else None,
+                    )
+                    emit_info(
+                        f"💾 Saved partial session '{session_id}' "
+                        f"({len(partial_history)} message(s)) before error",
+                        message_group=group_id,
+                    )
+            except Exception:
+                pass
 
             return AgentInvokeOutput(
                 response=None,
