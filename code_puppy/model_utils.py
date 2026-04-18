@@ -153,14 +153,14 @@ def get_antigravity_instructions() -> str:
 def get_default_extended_thinking(model_name: str) -> str:
     """Return the default extended_thinking mode for an Anthropic model.
 
-    Opus 4-6 models default to ``"adaptive"`` thinking; all other
-    Anthropic models default to ``"enabled"``.
+    Opus 4-6 and Opus 4-7 models default to ``"adaptive"`` thinking; all
+    other Anthropic models default to ``"enabled"``.
 
     Args:
-        model_name: The model name string (e.g. ``"claude-opus-4-6"``).
+        model_name: The model name string (e.g. ``"claude-opus-4-7"``).
 
     Returns:
-        ``"adaptive"`` for Opus 4-6 variants, ``"enabled"`` otherwise.
+        ``"adaptive"`` for Opus 4-6/4-7 variants, ``"enabled"`` otherwise.
     """
     lower = model_name.lower()
     if (

@@ -440,6 +440,8 @@ def register_invoke_agent(agent):
             if get_use_dbos():
                 from pydantic_ai.durable_exec.dbos import DBOSAgent
 
+                from code_puppy.agents._compaction import make_history_processor
+
                 # For DBOS, create agent without MCP servers (to avoid serialization issues)
                 # and add them at runtime
                 temp_agent = Agent(
@@ -448,7 +450,7 @@ def register_invoke_agent(agent):
                     output_type=str,
                     retries=3,
                     toolsets=[],  # MCP servers added separately for DBOS
-                    history_processors=[agent_config.message_history_accumulator],
+                    history_processors=[make_history_processor(agent_config)],
                     model_settings=model_settings,
                 )
 
@@ -468,6 +470,8 @@ def register_invoke_agent(agent):
                 # Store MCP servers to add at runtime
                 subagent_mcp_servers = mcp_servers
             else:
+                from code_puppy.agents._compaction import make_history_processor
+
                 # Non-DBOS path - include MCP servers directly in the agent
                 temp_agent = Agent(
                     model=model,
@@ -475,7 +479,7 @@ def register_invoke_agent(agent):
                     output_type=str,
                     retries=3,
                     toolsets=mcp_servers,
-                    history_processors=[agent_config.message_history_accumulator],
+                    history_processors=[make_history_processor(agent_config)],
                     model_settings=model_settings,
                 )
 

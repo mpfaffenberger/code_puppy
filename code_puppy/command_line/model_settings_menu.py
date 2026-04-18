@@ -201,6 +201,32 @@ def _get_setting_choices(
     return base_choices
 
 
+def _get_setting_default(setting_key: str, model_name: Optional[str] = None):
+    """Resolve the effective default for a setting, per-model when applicable.
+
+    Most settings have a static default declared in SETTING_DEFINITIONS, but
+    some (like ``extended_thinking``) have model-specific runtime defaults —
+    e.g. Opus 4.6/4.7 default to ``"adaptive"`` while other Claude models
+    default to ``"enabled"``. We defer to ``get_default_extended_thinking``
+    as the single source of truth so the UI and runtime never disagree.
+
+    Args:
+        setting_key: The setting name (e.g. ``"extended_thinking"``).
+        model_name: Optional model name for per-model defaults.
+
+    Returns:
+        The default value (may be ``None``).
+    """
+    if setting_key == "extended_thinking" and model_name:
+        # Import here to avoid a circular import at module load.
+        from code_puppy.model_utils import get_default_extended_thinking
+
+        return get_default_extended_thinking(model_name)
+
+    setting_def = SETTING_DEFINITIONS.get(setting_key, {})
+    return setting_def.get("default")
+
+
 class ModelSettingsMenu:
     """Interactive TUI for model settings configuration.
 
@@ -297,7 +323,7 @@ class ModelSettingsMenu:
             return str(value) if value is not None else "(unknown)"
 
         if value is None:
-            default = setting_def.get("default")
+            default = _get_setting_default(setting, self.selected_model)
             if default is not None:
                 return f"(default: {default})"
             return "(model default)"
@@ -625,12 +651,11 @@ class ModelSettingsMenu:
         elif setting_def.get("type") == "choice":
             # For choice settings, start with the default (using filtered choices)
             choices = _get_setting_choices(setting_key, self.selected_model)
-            self.edit_value = setting_def.get(
-                "default", choices[0] if choices else None
-            )
+            resolved = _get_setting_default(setting_key, self.selected_model)
+            self.edit_value = resolved or (choices[0] if choices else None)
         elif setting_def.get("type") == "boolean":
-            # For boolean settings, start with the default
-            self.edit_value = setting_def.get("default", False)
+            resolved = _get_setting_default(setting_key, self.selected_model)
+            self.edit_value = bool(resolved) if resolved is not None else False
         else:
             # Default to a sensible starting point for numeric
             if setting_key == "temperature":
@@ -715,12 +740,10 @@ class ModelSettingsMenu:
             return
 
         setting_key = self.supported_settings[self.setting_index]
-        setting_def = SETTING_DEFINITIONS.get(setting_key, {})
 
         if self.editing_mode:
             # Reset edit value to default
-            default = setting_def.get("default")
-            self.edit_value = default
+            self.edit_value = _get_setting_default(setting_key, self.selected_model)
         else:
             # Handle global OpenAI settings - reset to their defaults
             if setting_key == "reasoning_effort":

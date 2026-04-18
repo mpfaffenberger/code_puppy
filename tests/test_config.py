@@ -329,6 +329,7 @@ class TestGetConfigKeys:
                 "openai_verbosity",
                 "protected_token_count",
                 "resume_message_count",
+                "summarization_model",
                 "temperature",
                 "yolo_mode",
             ]
@@ -388,6 +389,7 @@ class TestGetConfigKeys:
                 "openai_verbosity",
                 "protected_token_count",
                 "resume_message_count",
+                "summarization_model",
                 "temperature",
                 "yolo_mode",
             ]

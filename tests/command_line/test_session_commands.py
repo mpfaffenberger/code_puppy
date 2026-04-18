@@ -82,7 +82,6 @@ class TestHandleCompactCommand:
         agent = MagicMock()
         agent.get_message_history.return_value = ["m1", "m2", "m3"]
         agent.estimate_tokens_for_message.return_value = 100
-        agent.truncation.return_value = ["m3"]
         with (
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
@@ -93,6 +92,7 @@ class TestHandleCompactCommand:
                 return_value="truncation",
             ),
             patch("code_puppy.config.get_protected_token_count", return_value=50),
+            patch("code_puppy.agents._compaction.truncate", return_value=["m3"]),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as ms,
         ):

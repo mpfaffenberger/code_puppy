@@ -742,7 +742,6 @@ class TestCompactCommand:
             {"role": "user", "content": "Hello"},
         ]
         mock_agent.estimate_tokens_for_message.return_value = 5
-        mock_agent.truncation.return_value = [{"role": "system", "content": "System"}]
 
         with (
             patch(
@@ -753,12 +752,16 @@ class TestCompactCommand:
                 "code_puppy.config.get_compaction_strategy", return_value="truncation"
             ),
             patch("code_puppy.config.get_protected_token_count", return_value=1000),
+            patch(
+                "code_puppy.agents._compaction.truncate",
+                return_value=[{"role": "system", "content": "System"}],
+            ) as mock_truncate,
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success"),
         ):
             result = handle_command("/compact")
             assert result is True
-            mock_agent.truncation.assert_called_once()
+            mock_truncate.assert_called_once()
 
 
 class TestReasoningCommand:

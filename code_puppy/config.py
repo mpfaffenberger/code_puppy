@@ -300,6 +300,7 @@ def get_config_keys():
         "compaction_strategy",
         "protected_token_count",
         "compaction_threshold",
+        "summarization_model",
         "message_limit",
         "allow_recursion",
         "openai_reasoning_effort",
@@ -604,6 +605,33 @@ def set_model_name(model: str):
 
     # Clear model cache when switching models to ensure fresh validation
     clear_model_cache()
+
+
+def get_summarization_model_name() -> str:
+    """Return the model used for compaction/summarization.
+
+    Reads the ``summarization_model`` config key. If unset (or empty),
+    falls back to :func:`get_global_model_name`, preserving legacy behavior
+    for users who haven't explicitly configured a separate summarizer.
+
+    Rationale: summarization is a different workload than main-agent chat —
+    it's one-shot, large-context, and best served by a cheap-and-fast or
+    long-context specialist model. Decoupling it from the global model lets
+    users pick the right tool without changing their main agent.
+    """
+    value = get_value("summarization_model")
+    if value:
+        return value
+    return get_global_model_name()
+
+
+def set_summarization_model_name(model: str) -> None:
+    """Persist the summarization model in the config file.
+
+    Pass an empty string to clear the setting and fall back to the global
+    model on subsequent calls to :func:`get_summarization_model_name`.
+    """
+    set_config_value("summarization_model", model or "")
 
 
 def get_puppy_token():

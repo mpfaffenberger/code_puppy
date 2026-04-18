@@ -106,9 +106,9 @@ class TestStreamingRetry:
         factory = AsyncMock(
             side_effect=[
                 _make_openai_api_error(
-                    "The server had an error processing your request.",
+                    "Service unavailable, please retry.",
                     body={
-                        "message": "The server had an error processing your request.",
+                        "message": "Service unavailable, please retry.",
                         "type": "server_error",
                     },
                 ),

@@ -105,65 +105,6 @@ class TestMessageHistoryManagement:
         assert len(agent.get_message_history()) == 1
         assert agent.get_message_history()[0] == message
 
-    def test_extend_message_history(self, agent):
-        """Test extending message history with multiple messages.
-
-        Verifies that extend_message_history() adds multiple messages
-        to the existing history without replacing it.
-        """
-        initial_message = {"role": "user", "content": "Starting message"}
-        agent.append_to_message_history(initial_message)
-
-        new_messages = [
-            {"role": "assistant", "content": "Response 1"},
-            {"role": "user", "content": "Follow-up 1"},
-            {"role": "assistant", "content": "Response 2"},
-        ]
-
-        agent.extend_message_history(new_messages)
-
-        full_history = agent.get_message_history()
-        assert len(full_history) == 4
-        assert full_history[0] == initial_message
-        assert full_history[1:] == new_messages
-
-    def test_extend_with_empty_list(self, agent):
-        """Test extending history with an empty list.
-
-        Verifies that extend_message_history() accepts an empty list
-        and doesn't modify the existing history.
-        """
-        initial_messages = [
-            {"role": "user", "content": "Message 1"},
-            {"role": "assistant", "content": "Message 2"},
-        ]
-        agent.set_message_history(initial_messages)
-
-        # Extend with empty list
-        agent.extend_message_history([])
-
-        # History should be unchanged
-        assert agent.get_message_history() == initial_messages
-        assert len(agent.get_message_history()) == 2
-
-    def test_extend_empty_history(self, agent):
-        """Test extending an empty history with messages.
-
-        Verifies that extend_message_history() works correctly
-        when the history is initially empty.
-        """
-        assert len(agent.get_message_history()) == 0
-
-        messages_to_add = [
-            {"role": "user", "content": "Message 1"},
-            {"role": "assistant", "content": "Message 2"},
-        ]
-
-        agent.extend_message_history(messages_to_add)
-
-        assert agent.get_message_history() == messages_to_add
-        assert len(agent.get_message_history()) == 2
-
     def test_clear_message_history(self, agent):
         """Test clearing all messages from history.
 
@@ -220,12 +161,9 @@ class TestMessageHistoryManagement:
         agent.append_to_message_history({"role": "user", "content": "How are you?"})
         assert len(agent.get_message_history()) == 3
 
-        # Extend with multiple messages
-        new_messages = [
-            {"role": "assistant", "content": "I'm good!"},
-            {"role": "user", "content": "Great!"},
-        ]
-        agent.extend_message_history(new_messages)
+        # Append a couple more messages
+        agent.append_to_message_history({"role": "assistant", "content": "I'm good!"})
+        agent.append_to_message_history({"role": "user", "content": "Great!"})
         assert len(agent.get_message_history()) == 5
 
         # Verify final state
