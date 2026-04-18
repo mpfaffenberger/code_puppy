@@ -1,18 +1,44 @@
-"""Tests for the model_utils module."""
+"""Tests for the model_utils module.
 
+Claude-code-specific behavior lives in the ``claude_code_oauth`` plugin now,
+so we import those bits from the plugin and also import its
+``register_callbacks`` module to ensure the ``prepare_model_prompt`` callback
+is registered for tests that exercise the dispatcher.
+"""
+
+import pytest
+
+# Importing register_callbacks triggers plugin registration at module scope.
+import code_puppy.plugins.claude_code_oauth.register_callbacks  # noqa: F401
+from code_puppy.callbacks import get_callbacks, register_callback
 from code_puppy.model_utils import (
-    CLAUDE_CODE_INSTRUCTIONS,
     PreparedPrompt,
-    get_claude_code_instructions,
     get_default_extended_thinking,
-    is_claude_code_model,
     prepare_prompt_for_model,
     should_use_anthropic_thinking_summary,
 )
+from code_puppy.plugins.claude_code_oauth.prompt_handler import (
+    CLAUDE_CODE_INSTRUCTIONS,
+    get_claude_code_instructions,
+    is_claude_code_model,
+    prepare_claude_code_prompt,
+)
+
+
+@pytest.fixture(autouse=True)
+def _ensure_claude_code_callback_registered():
+    """Other test modules call ``clear_callbacks()`` which wipes plugin regs.
+
+    Re-register the claude-code ``prepare_model_prompt`` handler before each
+    test so the dispatcher has something to dispatch to.
+    """
+    if prepare_claude_code_prompt not in get_callbacks("prepare_model_prompt"):
+        register_callback("prepare_model_prompt", prepare_claude_code_prompt)
+    yield
 
 
 class TestIsClaudeCodeModel:
-    """Tests for is_claude_code_model function."""
+    """Tests for is_claude_code_model function (lives in the plugin now)."""
 
     def test_claude_code_prefix_returns_true(self):
         """Models starting with 'claude-code' should return True."""
@@ -39,7 +65,12 @@ class TestIsClaudeCodeModel:
 
 
 class TestPreparePromptForModel:
-    """Tests for prepare_prompt_for_model function."""
+    """Tests for prepare_prompt_for_model function.
+
+    Claude-code behavior is delivered by the claude_code_oauth plugin via
+    the ``prepare_model_prompt`` hook; these tests verify the end-to-end
+    dispatch still produces the expected shape.
+    """
 
     def test_claude_code_swaps_instructions(self):
         """Claude-code models should get the fixed instruction string."""
@@ -113,7 +144,7 @@ class TestPreparePromptForModel:
 
 
 class TestGetClaudeCodeInstructions:
-    """Tests for get_claude_code_instructions function."""
+    """Tests for get_claude_code_instructions function (in the plugin now)."""
 
     def test_returns_correct_string(self):
         """Should return the CLAUDE_CODE_INSTRUCTIONS constant."""

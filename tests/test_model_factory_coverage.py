@@ -775,8 +775,13 @@ class TestClaudeCodeModel:
                                     with patch(
                                         "pydantic_ai.models.anthropic.AnthropicModel"
                                     ):
+                                        # NOTE: plugin reads via get_all_model_settings
+                                        # (not get_effective_model_settings) because fast
+                                        # mode / interleaved_thinking aren't in the core
+                                        # supported_settings allowlist. See
+                                        # fast_mode.FAST_SETTING_KEY for rationale.
                                         with patch(
-                                            "code_puppy.config.get_effective_model_settings",
+                                            "code_puppy.config.get_all_model_settings",
                                             return_value={
                                                 "interleaved_thinking": False
                                             },

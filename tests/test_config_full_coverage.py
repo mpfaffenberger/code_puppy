@@ -799,16 +799,19 @@ class TestDiffColors:
         assert cp_config.get_diff_addition_color() == "#0b1f0b"
 
     def test_set_addition_color(self):
+        # Rich color names are normalized to '#RRGGBB' hex on write so
+        # downstream renderers don't have to re-parse them.
         cp_config.set_diff_addition_color("green")
-        assert cp_config.get_diff_addition_color() == "green"
+        assert cp_config.get_diff_addition_color() == "#008000"
 
     def test_default_deletion_color(self):
         cp_config.reset_value("highlight_deletion_color")
         assert cp_config.get_diff_deletion_color() == "#390e1a"
 
     def test_set_deletion_color(self):
+        # Rich color names are normalized to '#RRGGBB' hex on write.
         cp_config.set_diff_deletion_color("red")
-        assert cp_config.get_diff_deletion_color() == "red"
+        assert cp_config.get_diff_deletion_color() == "#800000"
 
     def test_set_diff_highlight_style_noop(self):
         # Should not raise

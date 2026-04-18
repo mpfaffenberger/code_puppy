@@ -29,6 +29,7 @@ PhaseType = Literal[
     "register_agents",
     "register_model_type",
     "get_model_system_prompt",
+    "prepare_model_prompt",
     "agent_run_start",
     "agent_run_end",
     "agent_run_result",
@@ -67,6 +68,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_agents": [],
     "register_model_type": [],
     "get_model_system_prompt": [],
+    "prepare_model_prompt": [],
     "agent_run_start": [],
     "agent_run_end": [],
     "agent_run_result": [],
@@ -492,6 +494,52 @@ def on_get_model_system_prompt(
     """
     return _trigger_callbacks_sync(
         "get_model_system_prompt", model_name, default_system_prompt, user_prompt
+    )
+
+
+def on_prepare_model_prompt(
+    model_name: str,
+    system_prompt: str,
+    user_prompt: str,
+    prepend_system_to_user: bool = True,
+) -> List[Optional[Dict[str, Any]]]:
+    """Allow plugins to fully prepare the prompt (instructions + user prompt) for a model.
+
+    This is the hook fired from ``model_utils.prepare_prompt_for_model`` to let
+    plugins take over prompt preparation for specific model families (e.g.
+    claude-code OAuth models which need a hard-coded instruction string and
+    have the system prompt prepended to the user message).
+
+    Unlike ``get_model_system_prompt`` (which is used by augmenting plugins like
+    agent_skills), this hook is for plugins that want to *fully handle* the
+    prompt prep for a given model. The first callback returning ``handled=True``
+    wins; the rest are ignored.
+
+    Args:
+        model_name: The name of the model being used.
+        system_prompt: The default system prompt from the agent.
+        user_prompt: The user's prompt/message.
+        prepend_system_to_user: Whether the caller wants system prompt prepended
+            to the user prompt (only meaningful for plugins that manipulate the
+            user prompt, like claude-code).
+
+    Each callback should return a dict with:
+        - ``"handled"``: bool — True if this callback fully prepared the prompt.
+        - ``"instructions"``: str — the system prompt/instructions to use.
+        - ``"user_prompt"``: str — the (possibly modified) user prompt.
+        - ``"is_claude_code"``: bool — (optional) flag preserved on PreparedPrompt.
+
+    Or return ``None`` to indicate "I don't handle this model".
+
+    Returns:
+        List of results (dicts or ``None``) from registered callbacks.
+    """
+    return _trigger_callbacks_sync(
+        "prepare_model_prompt",
+        model_name,
+        system_prompt,
+        user_prompt,
+        prepend_system_to_user,
     )
 
 

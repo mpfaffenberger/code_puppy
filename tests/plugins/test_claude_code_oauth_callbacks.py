@@ -352,11 +352,12 @@ class TestCustomHelpCommands:
         from code_puppy.plugins.claude_code_oauth.register_callbacks import _custom_help
 
         commands = _custom_help()
-        assert len(commands) == 3
+        assert len(commands) == 4
         names = [n for n, _ in commands]
         assert "claude-code-auth" in names
         assert "claude-code-status" in names
         assert "claude-code-logout" in names
+        assert "claude-code-fast" in names
 
 
 class TestHandleCustomCommand:

@@ -8,7 +8,10 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 import code_puppy.plugins.customizable_commands.register_callbacks as callbacks_module
+from code_puppy.callbacks import get_callbacks, register_callback
 from code_puppy.plugins.customizable_commands.register_callbacks import (
     MarkdownCommandResult,
     _command_descriptions,
@@ -17,6 +20,21 @@ from code_puppy.plugins.customizable_commands.register_callbacks import (
     _handle_custom_command,
     _load_markdown_commands,
 )
+
+
+@pytest.fixture(autouse=True)
+def _ensure_customizable_commands_callbacks_registered():
+    """Other test modules call ``clear_callbacks()`` which wipes plugin regs.
+
+    Re-register the customizable_commands handlers before each test so
+    registration-introspection tests (and any behavior that relies on them)
+    still work regardless of run order.
+    """
+    if _custom_help not in get_callbacks("custom_command_help"):
+        register_callback("custom_command_help", _custom_help)
+    if _handle_custom_command not in get_callbacks("custom_command"):
+        register_callback("custom_command", _handle_custom_command)
+    yield
 
 
 def _reset_commands_cache():

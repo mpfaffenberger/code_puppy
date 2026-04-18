@@ -1,16 +1,16 @@
 """Model-related utilities shared across agents and tools.
 
-This module centralizes logic for handling model-specific behaviors,
-particularly for claude-code models which require special prompt handling.
+This module is intentionally model-agnostic. Anything model-family-specific
+(e.g. claude-code OAuth prompt handling) lives in its own plugin and hooks
+into the ``prepare_model_prompt`` or ``get_model_system_prompt`` callbacks.
 
-Plugins can register custom system prompt handlers via the 'get_model_system_prompt'
-callback to extend support for additional model types.
+Plugins can register:
+
+- ``prepare_model_prompt``: fully take over prompt prep for a model family.
+- ``get_model_system_prompt``: augment/override the system prompt for a model.
 """
 
 from dataclasses import dataclass
-
-# The instruction override used for claude-code models
-CLAUDE_CODE_INSTRUCTIONS = "You are Claude Code, Anthropic's official CLI for Claude."
 
 
 @dataclass
@@ -20,17 +20,13 @@ class PreparedPrompt:
     Attributes:
         instructions: The system instructions to use for the agent
         user_prompt: The user prompt (possibly modified)
-        is_claude_code: Whether this is a claude-code model
+        is_claude_code: Whether this is a claude-code model (set by the
+            claude_code_oauth plugin via the ``prepare_model_prompt`` hook).
     """
 
     instructions: str
     user_prompt: str
     is_claude_code: bool
-
-
-def is_claude_code_model(model_name: str) -> bool:
-    """Check if a model is a claude-code model."""
-    return model_name.startswith("claude-code")
 
 
 def prepare_prompt_for_model(
@@ -41,55 +37,59 @@ def prepare_prompt_for_model(
 ) -> PreparedPrompt:
     """Prepare instructions and prompt for a specific model.
 
-    This function handles model-specific system prompt requirements. Plugins can
-    register custom handlers via the 'get_model_system_prompt' callback to extend
-    support for additional model types.
+    Core fires two hooks to let plugins customize prompt prep:
+
+    1. ``prepare_model_prompt`` — first winner with ``handled=True`` takes
+       over entirely (used by the claude_code_oauth plugin).
+    2. ``get_model_system_prompt`` — legacy per-model system-prompt hook;
+       still fired for compatibility with plugins (e.g. agent_skills) that
+       rely on it.
+
+    If no plugin handles the model, we return the original system/user prompt
+    unchanged.
 
     Args:
-        model_name: The name of the model being used
-        system_prompt: The default system prompt from the agent
-        user_prompt: The user's prompt/message
-        prepend_system_to_user: Whether to prepend system prompt to user prompt
-            for models that require it (default: True)
+        model_name: The name of the model being used.
+        system_prompt: The default system prompt from the agent.
+        user_prompt: The user's prompt/message.
+        prepend_system_to_user: Whether to prepend the system prompt to the
+            user prompt (only meaningful for plugins that opt into it).
 
     Returns:
-        PreparedPrompt with instructions and user_prompt ready for the model.
+        PreparedPrompt ready for the model.
     """
-    # Check for plugin-registered system prompt handlers first
     from code_puppy import callbacks
 
-    results = callbacks.on_get_model_system_prompt(
-        model_name, system_prompt, user_prompt
-    )
-    for result in results:
+    # 1) Give the dedicated prepare_model_prompt hook first crack. First
+    #    plugin to claim ``handled=True`` wins.
+    for result in callbacks.on_prepare_model_prompt(
+        model_name, system_prompt, user_prompt, prepend_system_to_user
+    ):
         if result and isinstance(result, dict) and result.get("handled"):
             return PreparedPrompt(
                 instructions=result.get("instructions", system_prompt),
                 user_prompt=result.get("user_prompt", user_prompt),
-                is_claude_code=result.get("is_claude_code", False),
+                is_claude_code=bool(result.get("is_claude_code", False)),
             )
 
-    # Handle Claude Code models
-    if is_claude_code_model(model_name):
-        modified_prompt = user_prompt
-        if prepend_system_to_user and system_prompt:
-            modified_prompt = f"{system_prompt}\n\n{user_prompt}"
-        return PreparedPrompt(
-            instructions=CLAUDE_CODE_INSTRUCTIONS,
-            user_prompt=modified_prompt,
-            is_claude_code=True,
-        )
+    # 2) Fall back to the legacy per-model system-prompt hook for plugins
+    #    that still register there.
+    for result in callbacks.on_get_model_system_prompt(
+        model_name, system_prompt, user_prompt
+    ):
+        if result and isinstance(result, dict) and result.get("handled"):
+            return PreparedPrompt(
+                instructions=result.get("instructions", system_prompt),
+                user_prompt=result.get("user_prompt", user_prompt),
+                is_claude_code=bool(result.get("is_claude_code", False)),
+            )
 
+    # 3) No plugin handled it — return the caller's prompts unchanged.
     return PreparedPrompt(
         instructions=system_prompt,
         user_prompt=user_prompt,
         is_claude_code=False,
     )
-
-
-def get_claude_code_instructions() -> str:
-    """Get the standard claude-code instructions string."""
-    return CLAUDE_CODE_INSTRUCTIONS
 
 
 def get_default_extended_thinking(model_name: str) -> str:

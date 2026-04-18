@@ -30,6 +30,7 @@ from .fast_mode import (
     is_fast_mode_enabled,
     patch_anthropic_client_fast_mode,
 )
+from .prompt_handler import prepare_claude_code_prompt
 from .utils import (
     OAuthContext,
     add_models_to_extra_config,
@@ -509,5 +510,6 @@ async def _on_agent_run_end(
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
 register_callback("register_model_type", _register_model_types)
+register_callback("prepare_model_prompt", prepare_claude_code_prompt)
 register_callback("agent_run_start", _on_agent_run_start)
 register_callback("agent_run_end", _on_agent_run_end)
