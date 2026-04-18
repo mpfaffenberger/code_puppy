@@ -218,7 +218,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.464"
+version = "0.0.465"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -278,7 +278,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.4.2" },
     { name = "ripgrep", specifier = "==14.1.0" },
     { name = "tenacity", specifier = ">=8.2.0" },
-    { name = "termflow-md", specifier = ">=0.1.10" },
+    { name = "termflow-md", specifier = ">=0.1.11" },
     { name = "typer", specifier = ">=0.12.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
     { name = "websockets", specifier = ">=12.0" },
@@ -1803,15 +1803,15 @@ wheels = [
 
 [[package]]
 name = "termflow-md"
-version = "0.1.10"
+version = "0.1.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pygments" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/22/e3/211506b867fa4d7b9d14d12e688234c94fc7701ede7342054b5f74d51c67/termflow_md-0.1.10.tar.gz", hash = "sha256:5f13ea5bad660cdfed70794d493be64ae47e53327c8159b8a8246fbb57cb5438", size = 114673, upload-time = "2026-04-18T16:47:18.649Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/21/9d/85297bbe0277905c45428422335454ce4131a72d98b7c613d0b3ec0fb7b7/termflow_md-0.1.11.tar.gz", hash = "sha256:8e18f937ca136801160dddd4b837499e028c6573aebb4da7aa74ec1fa57cc87f", size = 115509, upload-time = "2026-04-18T17:05:25.217Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/23/72/663bf904aa885411e9a383af33b0322245323d1f62553e073b8961390b8b/termflow_md-0.1.10-py3-none-any.whl", hash = "sha256:6df05d6d7b66a78984636e2b1433313debf6f9a0b8f0bb17b9d974436f42b0f9", size = 58383, upload-time = "2026-04-18T16:47:17.315Z" },
+    { url = "https://files.pythonhosted.org/packages/15/49/0fa8324879351c59ceb169f443c578fd6f8272ee3e71268f0b9140589614/termflow_md-0.1.11-py3-none-any.whl", hash = "sha256:4fd6f375b4a06aa06987dfc80d2910fed2b27e9576c50d49c7f3903c67195b2a", size = 58710, upload-time = "2026-04-18T17:05:23.738Z" },
 ]
 
 [[package]]
