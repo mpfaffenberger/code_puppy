@@ -129,16 +129,28 @@ def reset_windows_terminal_full() -> None:
 def reset_unix_terminal() -> None:
     """Reset Unix/Linux/macOS terminal to sane state.
 
-    Uses the `reset` command to restore terminal sanity.
-    Silently fails if the command isn't available.
+    Disables CSI u / kitty keyboard protocol (fixes ^[[27;5;99~ from Ctrl+C)
+    and bracketed paste mode, then falls back to stty sane (or reset).
     """
     if platform.system() == "Windows":
         return
 
+    # Disable enhanced keyboard protocols left enabled by prompt_toolkit
     try:
-        subprocess.run(["reset"], check=True, capture_output=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass  # Silently fail if reset command isn't available
+        sys.stdout.write("\x1b[<u\x1b[>4;0m\x1b[?2004l\x1b[0m")
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+    # stty sane is less disruptive than reset (preserves screen)
+    try:
+        subprocess.run(["stty", "sane"], capture_output=True, timeout=2)
+    except Exception:
+        # Fall back to reset if stty isn't available
+        try:
+            subprocess.run(["reset"], capture_output=True, timeout=2)
+        except Exception:
+            pass
 
 
 def reset_terminal() -> None:
