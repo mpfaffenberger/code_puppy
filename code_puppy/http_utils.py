@@ -101,7 +101,7 @@ class RetryingAsyncClient(httpx.AsyncClient):
     """AsyncClient with built-in rate limit handling (429) and retries.
 
     This replaces the Tenacity transport with a more direct subclass implementation,
-    which plays nicer with proxies and custom transports (like Antigravity).
+    which plays nicer with proxies and custom transports.
 
     Special handling for Cerebras: Their Retry-After headers are absurdly aggressive
     (often 60s), so we ignore them and use a 3s base backoff instead.

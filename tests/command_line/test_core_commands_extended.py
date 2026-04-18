@@ -17,7 +17,6 @@ from code_puppy.command_line.core_commands import (
     handle_help_command,
     handle_mcp_command,
     handle_model_command,
-    handle_motd_command,
     handle_tools_command,
     interactive_model_picker,
 )
@@ -191,27 +190,6 @@ class TestHandleToolsCommand:
                 result = handle_tools_command("/tools")
                 assert result is True
                 mock_emit.assert_called_once()
-
-
-class TestHandleMotdCommand:
-    """Extended tests for motd command functionality."""
-
-    def test_motd_command_force_refresh(self):
-        """Test motd command with force parameter."""
-        with patch("code_puppy.command_line.core_commands.print_motd") as mock_print:
-            result = handle_motd_command("/motd")
-            assert result is True
-            mock_print.assert_called_once_with(force=True)
-
-    def test_motd_command_with_print_error(self):
-        """Test motd command handles printing errors gracefully."""
-        with patch(
-            "code_puppy.command_line.core_commands.print_motd",
-            side_effect=Exception("Print failed"),
-        ):
-            # Should not raise an exception
-            result = handle_motd_command("/motd")
-            assert result is True
 
 
 class TestHandleExitCommand:

@@ -95,22 +95,6 @@ class TestHandleToolsCommand:
             assert handle_tools_command("/tools") is True
 
 
-class TestHandleMotdCommand:
-    def test_motd(self):
-        from code_puppy.command_line.core_commands import handle_motd_command
-
-        with patch("code_puppy.command_line.core_commands.print_motd"):
-            assert handle_motd_command("/motd") is True
-
-    def test_motd_error(self):
-        from code_puppy.command_line.core_commands import handle_motd_command
-
-        with patch(
-            "code_puppy.command_line.core_commands.print_motd", side_effect=Exception
-        ):
-            assert handle_motd_command("/motd") is True
-
-
 class TestHandlePasteCommand:
     def test_no_image(self):
         from code_puppy.command_line.core_commands import handle_paste_command

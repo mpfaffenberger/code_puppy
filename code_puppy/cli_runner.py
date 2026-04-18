@@ -46,7 +46,6 @@ from code_puppy.terminal_utils import (
     reset_windows_terminal_ansi,
     reset_windows_terminal_full,
 )
-from code_puppy.tools.common import console
 from code_puppy.version_checker import default_version_mismatch_behavior
 
 plugins.load_plugin_callbacks()
@@ -378,15 +377,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message(
         "!<command> to run shell commands directly (e.g., !git status)",
     )
-    try:
-        from code_puppy.command_line.motd import print_motd
-
-        print_motd(console, force=False)
-    except Exception as e:
-        from code_puppy.messaging import emit_warning
-
-        emit_warning(f"MOTD error: {e}")
-
     # Print truecolor warning LAST so it's the most visible thing on startup
     # Big ugly red box should be impossible to miss! 🔴
     print_truecolor_warning(display_console)

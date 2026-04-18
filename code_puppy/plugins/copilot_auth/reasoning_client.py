@@ -15,8 +15,7 @@ This module monkey-patches the httpx client to transparently:
 1. Capture ``reasoning_opaque`` (keyed by ``reasoning_text``) from responses
 2. Inject the matching ``reasoning_opaque`` into outgoing request messages
 
-The approach mirrors ``ChatGPTCodexAsyncClient`` and ``AntigravityClient``
-patterns already in the codebase.
+The approach mirrors the ``ChatGPTCodexAsyncClient`` pattern already in the codebase.
 """
 
 from __future__ import annotations

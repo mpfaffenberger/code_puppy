@@ -1,30 +1,15 @@
-"""Coverage tests for OAuth & auth modules (code_puppy-0yx).
+"""Coverage tests for OAuth & auth modules.
 
 Covers:
-- antigravity_oauth/token.py (TokenRefreshError, refresh_access_token)
-- antigravity_oauth/config.py (path helpers)
 - claude_code_oauth/config.py (get_claude_models_path)
-- antigravity_oauth/test_plugin.py (in-source tests)
 - chatgpt_oauth/test_plugin.py (in-source tests)
 - claude_code_oauth/test_plugin.py (in-source tests)
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
-
-from code_puppy.plugins.antigravity_oauth.config import (
-    get_accounts_storage_path,
-    get_antigravity_models_path,
-    get_token_storage_path,
-)
-from code_puppy.plugins.antigravity_oauth.token import (
-    OAuthTokens,
-    TokenRefreshError,
-    refresh_access_token,
-)
 from code_puppy.plugins.claude_code_oauth.config import (
     get_claude_models_path,
     get_config_dir,
@@ -32,133 +17,6 @@ from code_puppy.plugins.claude_code_oauth.config import (
 from code_puppy.plugins.claude_code_oauth.config import (
     get_token_storage_path as get_claude_token_storage_path,
 )
-
-
-class TestTokenRefreshError:
-    """Cover TokenRefreshError.__init__ (lines 48-50)."""
-
-    def test_basic(self):
-        err = TokenRefreshError("boom")
-        assert str(err) == "boom"
-        assert err.code is None
-        assert err.status is None
-
-    def test_with_code_and_status(self):
-        err = TokenRefreshError("revoked", code="invalid_grant", status=400)
-        assert err.code == "invalid_grant"
-        assert err.status == 400
-
-
-class TestRefreshAccessToken:
-    """Cover refresh_access_token (lines 99-167)."""
-
-    def test_empty_refresh_token_returns_none(self):
-        assert refresh_access_token("") is None
-
-    @patch("code_puppy.plugins.antigravity_oauth.token.requests.post")
-    def test_success(self, mock_post):
-        resp = MagicMock()
-        resp.ok = True
-        resp.json.return_value = {
-            "access_token": "new_access",
-            "expires_in": 3600,
-            "refresh_token": "new_refresh",
-        }
-        mock_post.return_value = resp
-
-        result = refresh_access_token("old_refresh|proj|managed")
-        assert isinstance(result, OAuthTokens)
-        assert result.access_token == "new_access"
-        assert "new_refresh" in result.refresh_token
-        assert "proj" in result.refresh_token
-        assert "managed" in result.refresh_token
-
-    @patch("code_puppy.plugins.antigravity_oauth.token.requests.post")
-    def test_success_no_new_refresh(self, mock_post):
-        """When response has no refresh_token, reuse the old one."""
-        resp = MagicMock()
-        resp.ok = True
-        resp.json.return_value = {"access_token": "a", "expires_in": 100}
-        mock_post.return_value = resp
-
-        result = refresh_access_token("keep_me")
-        assert result is not None
-        assert "keep_me" in result.refresh_token
-
-    @patch("code_puppy.plugins.antigravity_oauth.token.requests.post")
-    def test_invalid_grant_raises(self, mock_post):
-        resp = MagicMock()
-        resp.ok = False
-        resp.status_code = 400
-        resp.json.return_value = {
-            "error": "invalid_grant",
-            "error_description": "Token revoked",
-        }
-        mock_post.return_value = resp
-
-        with pytest.raises(TokenRefreshError) as exc_info:
-            refresh_access_token("bad_token")
-        assert exc_info.value.code == "invalid_grant"
-        assert exc_info.value.status == 400
-
-    @patch("code_puppy.plugins.antigravity_oauth.token.requests.post")
-    def test_non_grant_error_returns_none(self, mock_post):
-        resp = MagicMock()
-        resp.ok = False
-        resp.status_code = 500
-        resp.text = "server error"
-        resp.json.return_value = {"error": "server_error", "error_description": "oops"}
-        mock_post.return_value = resp
-
-        assert refresh_access_token("tok") is None
-
-    @patch("code_puppy.plugins.antigravity_oauth.token.requests.post")
-    def test_error_json_parse_failure(self, mock_post):
-        """Cover the except branch when error response isn't valid JSON."""
-        resp = MagicMock()
-        resp.ok = False
-        resp.status_code = 502
-        resp.text = "bad gateway"
-        resp.json.side_effect = ValueError("no json")
-        mock_post.return_value = resp
-
-        assert refresh_access_token("tok") is None
-
-    @patch("code_puppy.plugins.antigravity_oauth.token.requests.post")
-    def test_network_exception_returns_none(self, mock_post):
-        mock_post.side_effect = ConnectionError("offline")
-        assert refresh_access_token("tok") is None
-
-
-# ---------------------------------------------------------------------------
-# 2. antigravity_oauth/config.py — path helpers (lines 26-42)
-# ---------------------------------------------------------------------------
-
-
-class TestAntigravityConfigPaths:
-    @patch("code_puppy.plugins.antigravity_oauth.config.config")
-    def test_get_token_storage_path(self, mock_cfg, tmp_path):
-        mock_cfg.DATA_DIR = str(tmp_path)
-        p = get_token_storage_path()
-        assert p.name == "antigravity_oauth.json"
-        assert p.parent == tmp_path
-
-    @patch("code_puppy.plugins.antigravity_oauth.config.config")
-    def test_get_accounts_storage_path(self, mock_cfg, tmp_path):
-        mock_cfg.DATA_DIR = str(tmp_path)
-        p = get_accounts_storage_path()
-        assert p.name == "antigravity_accounts.json"
-
-    @patch("code_puppy.plugins.antigravity_oauth.config.config")
-    def test_get_antigravity_models_path(self, mock_cfg, tmp_path):
-        mock_cfg.DATA_DIR = str(tmp_path)
-        p = get_antigravity_models_path()
-        assert p.name == "antigravity_models.json"
-
-
-# ---------------------------------------------------------------------------
-# 3. claude_code_oauth/config.py — get_claude_models_path (lines 43-45)
-# ---------------------------------------------------------------------------
 
 
 class TestClaudeCodeConfigPaths:
@@ -181,80 +39,6 @@ class TestClaudeCodeConfigPaths:
         p = get_claude_token_storage_path()
         assert p.name == "claude_code_oauth.json"
         assert p.parent == tmp_path
-
-
-# ---------------------------------------------------------------------------
-# 4-6. In-source test_plugin.py modules — import to get coverage
-# ---------------------------------------------------------------------------
-
-
-class TestAntigravityTestPlugin:
-    """Exercise antigravity_oauth/test_plugin.py by importing its test classes."""
-
-    def test_pkce(self):
-        from code_puppy.plugins.antigravity_oauth.test_plugin import TestPKCE
-
-        t = TestPKCE()
-        t.test_code_verifier_length()
-        t.test_code_challenge_is_sha256()
-        t.test_different_verifiers_produce_different_challenges()
-        t.test_prepare_oauth_context()
-
-    def test_state_encoding(self):
-        from code_puppy.plugins.antigravity_oauth.test_plugin import TestStateEncoding
-
-        t = TestStateEncoding()
-        t.test_encode_decode_roundtrip()
-        t.test_encode_without_project_id()
-        t.test_decode_invalid_state_raises()
-
-    def test_refresh_parts(self):
-        from code_puppy.plugins.antigravity_oauth.test_plugin import TestRefreshParts
-
-        t = TestRefreshParts()
-        t.test_parse_simple_token()
-        t.test_parse_with_project_id()
-        t.test_parse_with_managed_project()
-        t.test_parse_empty_string()
-        t.test_format_roundtrip()
-
-    def test_token_expiry(self):
-        from code_puppy.plugins.antigravity_oauth.test_plugin import TestTokenExpiry
-
-        t = TestTokenExpiry()
-        t.test_none_expires_is_expired()
-        t.test_past_time_is_expired()
-        t.test_future_time_not_expired()
-        t.test_expiry_buffer()
-
-    def test_storage_migration(self):
-        from code_puppy.plugins.antigravity_oauth.test_plugin import (
-            TestStorageMigration,
-        )
-
-        t = TestStorageMigration()
-        t.test_migrate_v1_to_v2()
-        t.test_migrate_v2_to_v3()
-
-    def test_account_manager(self):
-        from code_puppy.plugins.antigravity_oauth.test_plugin import TestAccountManager
-
-        t = TestAccountManager()
-        t.test_empty_manager()
-        t.test_add_account()
-        t.test_get_current_for_family()
-        t.test_rate_limit_switches_account()
-        t.test_min_wait_time_calculation()
-        t.test_gemini_dual_quota()
-
-    def test_constants(self):
-        from code_puppy.plugins.antigravity_oauth.test_plugin import TestConstants
-
-        t = TestConstants()
-        t.test_models_have_required_fields()
-        t.test_thinking_models_have_budget()
-        t.test_scopes_are_valid()
-        t.test_config_has_required_fields()
 
 
 class TestChatgptTestPlugin:

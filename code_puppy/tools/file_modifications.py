@@ -798,8 +798,7 @@ def register_create_file(agent):
 
 # Inline JSON schema for Replacement objects — avoids $defs/$ref that many
 # LLM providers misinterpret, causing frequent validation errors and
-# fallback to full-file rewrites.  See _sanitize_schema_for_gemini and
-# _inline_refs in the antigravity plugin for prior art.
+# fallback to full-file rewrites.
 _REPLACEMENT_ITEM_SCHEMA = {
     "type": "object",
     "properties": {

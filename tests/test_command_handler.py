@@ -902,18 +902,6 @@ class TestAutosaveLoadCommand:
         assert result == "__AUTOSAVE_LOAD__"
 
 
-class TestMotdCommand:
-    """Tests for /motd command."""
-
-    def test_motd_command_calls_print_motd(self):
-        """Test that /motd calls print_motd with force=True."""
-        # Patch where it's imported in core_commands
-        with patch("code_puppy.command_line.core_commands.print_motd") as mock_motd:
-            result = handle_command("/motd")
-            assert result is True
-            mock_motd.assert_called_once_with(force=True)
-
-
 class TestGetCommandsHelp:
     """Tests for get_commands_help() function."""
 
@@ -1057,11 +1045,6 @@ class TestCommandRegistry:
     def test_tools_command_registered(self):
         """Test that tools command is registered."""
         cmd = get_command("tools")
-        assert cmd is not None
-
-    def test_motd_command_registered(self):
-        """Test that motd command is registered."""
-        cmd = get_command("motd")
         assert cmd is not None
 
     def test_exit_command_registered(self):

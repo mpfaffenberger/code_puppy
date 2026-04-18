@@ -30,9 +30,6 @@ model = synthetic-GLM-5.1
 enable_dbos = true
 """
 
-MOTD_TEMPLATE: Final[str] = """2025-08-24
-"""
-
 
 def _random_name(length: int = 8) -> str:
     """Return a short random string for safe temp directory names."""
@@ -278,7 +275,6 @@ class CliHarness:
         if write_config:
             # Write config to both XDG config dir and ~/.code_puppy for compatibility
             (config_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
-            (config_dir / "motd.txt").write_text(MOTD_TEMPLATE, encoding="utf-8")
             (code_puppy_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
 
         log_path = temp_home / f"cli_output_{uuid.uuid4().hex}.log"

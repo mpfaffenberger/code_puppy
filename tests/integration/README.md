@@ -1,7 +1,7 @@
 # CLI Integration Harness
 
 ## Overview
-This folder contains the reusable pyexpect harness that powers Code Puppy's end-to-end CLI integration tests. The harness lives in `tests/integration/cli_expect/harness.py` and exposes pytest fixtures via `tests/conftest.py`. Each test run boots the real `code-puppy` executable inside a temporary HOME, writes a throwaway configuration (including `puppy.cfg` and `motd.txt`), and captures the entire session into a per-run `cli_output.log` file for debugging.
+This folder contains the reusable pyexpect harness that powers Code Puppy's end-to-end CLI integration tests. The harness lives in `tests/integration/cli_expect/harness.py` and exposes pytest fixtures via `tests/conftest.py`. Each test run boots the real `code-puppy` executable inside a temporary HOME, writes a throwaway configuration (including `puppy.cfg`), and captures the entire session into a per-run `cli_output.log` file for debugging.
 
 ## Prerequisites
 - The CLI must be installed locally via `uv sync` or equivalent so `uv run pytest …` launches the editable project binary.

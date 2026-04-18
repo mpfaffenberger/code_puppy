@@ -88,7 +88,6 @@ def _interactive_patches():
             return_value="session-1"
         ),
         "code_puppy.cli_runner.COMMAND_HISTORY_FILE": "/tmp/test_history",
-        "code_puppy.command_line.motd.print_motd": MagicMock(),
         "code_puppy.command_line.onboarding_wizard.should_show_onboarding": MagicMock(
             return_value=False
         ),
@@ -1313,19 +1312,6 @@ class TestInteractiveMode:
         patches = _interactive_patches()
         patches["code_puppy.command_line.onboarding_wizard.should_show_onboarding"] = (
             MagicMock(side_effect=RuntimeError("fail"))
-        )
-
-        await _run_interactive(
-            _mock_renderer(),
-            patches,
-            AsyncMock(return_value="/exit"),
-        )
-
-    @pytest.mark.anyio
-    async def test_motd_exception(self):
-        patches = _interactive_patches()
-        patches["code_puppy.command_line.motd.print_motd"] = MagicMock(
-            side_effect=RuntimeError("motd fail")
         )
 
         await _run_interactive(
