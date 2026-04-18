@@ -1839,6 +1839,16 @@ class BaseAgent(ABC):
                 data = stdin.read(1)
                 if not data:
                     break
+                # Drain multi-byte escape sequences (mouse events, arrow
+                # keys, etc.) so partial sequences don't leak into the
+                # stdin buffer for the next reader (e.g., prompt_toolkit).
+                if data == "\x1b":
+                    from code_puppy.terminal_utils import (
+                        drain_stdin_escape_sequence,
+                    )
+
+                    drain_stdin_escape_sequence(stream=stdin)
+                    continue
                 if data == "\x18":  # Ctrl+X
                     try:
                         on_escape()
@@ -1854,6 +1864,16 @@ class BaseAgent(ABC):
                     except Exception:
                         emit_warning("Cancel agent handler raised unexpectedly.")
         finally:
+            # Drain any remaining escape sequence bytes before restoring
+            # terminal attrs, so fragments don't leak to prompt_toolkit.
+            try:
+                from code_puppy.terminal_utils import (
+                    drain_stdin_escape_sequence,
+                )
+
+                drain_stdin_escape_sequence(stream=stdin)
+            except Exception:
+                pass
             termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
 
     async def run_with_mcp(
