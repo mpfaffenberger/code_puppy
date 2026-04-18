@@ -448,31 +448,6 @@ register_callback("register_model_type", get_walmart_model_types)
 register_callback("agent_run_result", on_result_check_content_filter)
 
 
-# MOTD (Message of the Day) for Walmart internal users
-def get_walmart_motd() -> tuple[str, str]:
-    """Return Walmart-specific MOTD content.
-
-    Returns:
-        Tuple of (message, version) for the Walmart MOTD.
-    """
-    version = "2026-02-07"
-    message = """🐕‍🦺
-🐾```
-# 🐶 What's New 🐕
-
-- Fixed bugs in Opus 4.6 thinking/signature handling
-  across provider swaps (Claude ↔ Gemini)
-- Fixed typos and clarified rules in system prompt
-- Gemini streaming now correctly persists thought
-  signatures between turns
-```
-"""
-    return (message, version)
-
-
-register_callback("get_motd", get_walmart_motd)
-
-
 # NOTE: Signature stripping callback was removed.
 #
 # Cross-provider signature handling is now done at the model layer:
