@@ -202,3 +202,53 @@ class TestStreamingRetry:
         assert not should_retry_streaming_exception(
             UnexpectedModelBehavior("tool schema validation exploded")
         )
+
+
+# Each of these snippets is either an explicit provider "please retry" hint or
+# an SSE framing artifact that reliably succeeds on retry. They were added as
+# part of issue #294. Keep this list aligned with ``_RETRYABLE_SNIPPETS``.
+_NEW_RETRYABLE_SNIPPETS = [
+    "malformed streamed SSE event",
+    "extra JSON data in SSE payload",
+    "Too Many Requests",
+    "rate limited",
+    "server had an error processing your request",
+    "please retry your request",
+    "internal server error",
+    # Generic "stream ... ended" fallback — covers wording we don't yet know.
+    "stream connection ended unexpectedly",
+    "stream ended early",
+]
+
+
+class TestExpandedRetryClassifier:
+    """Coverage for the expanded retry snippet list (issue #294)."""
+
+    @pytest.mark.parametrize("snippet", _NEW_RETRYABLE_SNIPPETS)
+    def test_unexpected_model_behavior_snippet_is_retryable(self, snippet):
+        assert should_retry_streaming_exception(UnexpectedModelBehavior(snippet))
+
+    @pytest.mark.parametrize("snippet", _NEW_RETRYABLE_SNIPPETS)
+    def test_openai_api_error_body_snippet_is_retryable(self, snippet):
+        err = _make_openai_api_error(
+            snippet,
+            body={"message": snippet, "type": "server_error"},
+        )
+        assert should_retry_streaming_exception(err)
+
+    def test_classifier_still_rejects_unrelated_errors(self):
+        assert not should_retry_streaming_exception(
+            UnexpectedModelBehavior("your prompt is malformed")
+        )
+        assert not should_retry_streaming_exception(
+            UnexpectedModelBehavior("stream opened but no body")
+        )  # matches 'stream' but not 'ended'
+
+    def test_generic_stream_ended_fallback(self):
+        # Different phrasings, all transient.
+        for phrasing in (
+            "the stream ended prematurely",
+            "stream connection ended mid-chunk",
+            "upstream stream ended unexpectedly",
+        ):
+            assert should_retry_streaming_exception(UnexpectedModelBehavior(phrasing))
