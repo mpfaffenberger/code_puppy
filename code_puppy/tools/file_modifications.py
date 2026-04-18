@@ -18,7 +18,7 @@ import warnings
 from typing import Annotated, Any, Dict, List, Union
 
 import json_repair
-from pydantic import BaseModel, WithJsonSchema
+from pydantic import BaseModel, BeforeValidator, WithJsonSchema
 from pydantic_ai import RunContext
 
 from code_puppy.callbacks import on_delete_file, on_edit_file
@@ -813,6 +813,34 @@ _REPLACEMENT_ITEM_SCHEMA = {
 InlineReplacement = Annotated[Dict[str, str], WithJsonSchema(_REPLACEMENT_ITEM_SCHEMA)]
 
 
+def _coerce_replacements_arg(v: Any) -> Any:
+    """Coerce a stringified JSON array back into an actual list.
+
+    Some tool-call serializers (looking at you, certain LLM clients) stringify
+    list arguments into JSON before shipping them. Pydantic would otherwise
+    reject those with ``Input should be a valid array``. We intercept strings
+    here, best-effort parse them via ``json_repair``, and hand a real list to
+    the normal validator. Non-strings pass through untouched so regular list
+    inputs keep their fast path.
+    """
+    if isinstance(v, str):
+        try:
+            return json.loads(json_repair.repair_json(v))
+        except Exception:
+            # Fall through; let Pydantic raise its normal, informative error.
+            return v
+    return v
+
+
+# List type that tolerates JSON-string-encoded arrays coming from the wire.
+# BeforeValidator runs prior to type validation, so the advertised JSON schema
+# (array of InlineReplacement) is unchanged — only inbound coercion is widened.
+RepairableReplacementsList = Annotated[
+    List[InlineReplacement],
+    BeforeValidator(_coerce_replacements_arg),
+]
+
+
 def register_replace_in_file(agent):
     """Register the replace_in_file tool for targeted text replacements."""
 
@@ -820,7 +848,7 @@ def register_replace_in_file(agent):
     def replace_in_file(
         context: RunContext,
         file_path: str = "",
-        replacements: List[InlineReplacement] = [],
+        replacements: RepairableReplacementsList = [],
     ) -> Dict[str, Any]:
         """Apply targeted text replacements to an existing file.
 

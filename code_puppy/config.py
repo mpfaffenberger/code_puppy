@@ -1449,44 +1449,89 @@ def set_diff_highlight_style(style: str):
     pass
 
 
+# Defaults for diff highlight colors — single source of truth.
+_DEFAULT_DIFF_ADDITION_HEX = "#0b1f0b"  # darker green
+_DEFAULT_DIFF_DELETION_HEX = "#390e1a"  # wine
+
+
+def _coerce_to_hex(value: Optional[str], fallback: str) -> str:
+    """Normalize any color string to '#RRGGBB'.
+
+    Accepts:
+      - '#RRGGBB' hex strings (any case) — returned lowercased.
+      - Rich color names like 'green', 'orange1', 'bright_red'.
+      - 'rgb(r,g,b)' forms that Rich understands.
+
+    Anything Rich can't parse (including None/empty) falls back to ``fallback``.
+    This keeps downstream consumers like ``brighten_hex`` happy — they only
+    ever see a well-formed #RRGGBB string.
+    """
+    if not value:
+        return fallback
+    candidate = value.strip()
+    # Fast-path: already a valid #RRGGBB.
+    if (
+        len(candidate) == 7
+        and candidate.startswith("#")
+        and all(c in "0123456789abcdefABCDEF" for c in candidate[1:])
+    ):
+        return candidate.lower()
+    # Otherwise try Rich's parser (handles named colors, rgb(), etc.).
+    try:
+        from rich.color import Color  # local import keeps module import cheap
+
+        triplet = Color.parse(candidate).get_truecolor()
+        return f"#{triplet.red:02x}{triplet.green:02x}{triplet.blue:02x}"
+    except Exception:
+        return fallback
+
+
 def get_diff_addition_color() -> str:
+    """Get the base color for diff additions, always as a valid '#RRGGBB' hex.
+
+    Falls back to the default darker green if the configured value is missing
+    or unparseable.
     """
-    Get the base color for diff additions.
-    Default: darker green
-    """
-    val = get_value("highlight_addition_color")
-    if val:
-        return val
-    return "#0b1f0b"  # Default to darker green
+    return _coerce_to_hex(
+        get_value("highlight_addition_color"), _DEFAULT_DIFF_ADDITION_HEX
+    )
 
 
 def set_diff_addition_color(color: str):
     """Set the color for diff additions.
 
-    Args:
-        color: Rich color markup (e.g., 'green', 'on_green', 'bright_green')
+    Accepts '#RRGGBB' hex, Rich color names ('green', 'bright_green', ...), or
+    'rgb(r,g,b)'. The value is normalized to '#RRGGBB' before being written so
+    downstream renderers never see a raw name.
     """
-    set_config_value("highlight_addition_color", color)
+    set_config_value(
+        "highlight_addition_color",
+        _coerce_to_hex(color, _DEFAULT_DIFF_ADDITION_HEX),
+    )
 
 
 def get_diff_deletion_color() -> str:
+    """Get the base color for diff deletions, always as a valid '#RRGGBB' hex.
+
+    Falls back to the default wine if the configured value is missing or
+    unparseable.
     """
-    Get the base color for diff deletions.
-    Default: wine
-    """
-    val = get_value("highlight_deletion_color")
-    if val:
-        return val
-    return "#390e1a"  # Default to wine
+    return _coerce_to_hex(
+        get_value("highlight_deletion_color"), _DEFAULT_DIFF_DELETION_HEX
+    )
 
 
 def set_diff_deletion_color(color: str):
     """Set the color for diff deletions.
 
-    Args:
-        color: Rich color markup (e.g., 'orange1', 'on_bright_yellow', 'red')
+    Accepts '#RRGGBB' hex, Rich color names ('red', 'orange1', ...), or
+    'rgb(r,g,b)'. The value is normalized to '#RRGGBB' before being written so
+    downstream renderers never see a raw name.
     """
-    set_config_value("highlight_deletion_color", color)
+    set_config_value(
+        "highlight_deletion_color",
+        _coerce_to_hex(color, _DEFAULT_DIFF_DELETION_HEX),
+    )
 
 
 # =============================================================================

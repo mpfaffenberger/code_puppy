@@ -560,6 +560,7 @@ def _build_model_entry(model_name: str, access_token: str, context_length: int) 
         "extended_thinking",
         "budget_tokens",
         "interleaved_thinking",
+        "fast",
     ]
 
     # Opus 4-6 models support the effort setting
