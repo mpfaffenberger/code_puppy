@@ -78,7 +78,6 @@ from code_puppy.mcp_.server_registry_catalog import (
     MCPServerTemplate,
     MCPServerRequirements,
 )
-from code_puppy.plugins.walmart_specific.walmart_gemini_model import WalmartGeminiModel
 from code_puppy.plugins.walmart_specific.enterprise_tools import get_enterprise_tools
 from code_puppy.plugins.walmart_specific.codex_model_handler import (
     create_codex_model,
@@ -378,11 +377,6 @@ register_callback("custom_command_help", get_databricks_auth_help)
 register_callback("custom_command", handle_databricks_auth_command)
 
 
-def get_walmart_model_providers():
-    """Return Walmart-specific model provider classes for the plugin system."""
-    return {"walmart_gemini": WalmartGeminiModel}
-
-
 def get_walmart_agents() -> list[Dict[str, Any]]:
     """Return Walmart-specific agent definitions for plugin registration.
 
@@ -425,7 +419,6 @@ def get_walmart_agents() -> list[Dict[str, Any]]:
     ]
 
 
-register_callback("register_model_providers", get_walmart_model_providers)
 register_callback("register_tools", get_enterprise_tools)
 register_callback("register_agents", get_walmart_agents)
 

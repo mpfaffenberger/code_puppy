@@ -699,7 +699,7 @@ def on_register_model_providers() -> List[Any]:
     """Trigger callbacks to register custom model provider classes.
 
     Plugins can register callbacks that return a dict mapping provider names
-    to model classes. Example: {"walmart_gemini": WalmartGeminiModel}
+    to model classes. Example: {"my_provider": MyCustomModel}
 
     Returns:
         List of dicts from all registered callbacks.
