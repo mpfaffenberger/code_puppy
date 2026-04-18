@@ -47,14 +47,24 @@ except ImportError:  # pragma: no cover - 3.10 only
 
 from code_puppy.agents import _history, _key_listeners
 from code_puppy.agents._builder import build_pydantic_agent
+from code_puppy.agents._diagnostics import emit_exception_diagnostics
+from code_puppy.agents._non_streaming_render import (
+    StreamingTextDetector,
+    render_result_without_streaming,
+    should_render_fallback,
+)
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
     on_agent_run_end,
     on_agent_run_result,
     on_agent_run_start,
 )
-from code_puppy.config import get_max_hook_retries, get_message_limit, get_use_dbos
-from code_puppy.error_logging import log_error
+from code_puppy.config import (
+    get_enable_streaming,
+    get_max_hook_retries,
+    get_message_limit,
+    get_use_dbos,
+)
 from code_puppy.keymap import cancel_agent_uses_signal
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.agent_tools import _active_subagent_tasks
@@ -62,13 +72,21 @@ from code_puppy.tools.command_runner import is_awaiting_user_input
 
 # ---- Streaming retry helpers ------------------------------------------------
 
-# Trimmed from the original 10-entry list. These four cover the realistic
-# transient cases; anything else is either redundant or too fingerprint-y.
+# Every entry here is either an explicit provider "please retry" signal or an
+# SSE framing / transport artifact that reliably succeeds on the next attempt.
+# Keep this list substring-based and lower-case.
 _RETRYABLE_SNIPPETS = (
+    "streamed response ended without content",
+    "malformed streamed sse event",
+    "extra json data in sse payload",
+    "too many requests",
     "rate limit",
+    "rate limited",
     "overloaded",
     "service unavailable",
-    "streamed response ended without content",
+    "server had an error processing your request",
+    "retry your request",
+    "internal server error",
 )
 
 _RETRYABLE_EXCEPTIONS: tuple = (
@@ -78,28 +96,40 @@ _RETRYABLE_EXCEPTIONS: tuple = (
 )
 
 
+def _matches_retryable_snippet(msg: str) -> bool:
+    """Return True if ``msg`` matches any known transient pattern.
+
+    Also accepts the generic ``stream ... ended`` wording variants so we don't
+    have to chase every phrasing tweak providers sneak in over time.
+    """
+    msg = msg.lower()
+    if any(s in msg for s in _RETRYABLE_SNIPPETS):
+        return True
+    return "stream" in msg and "ended" in msg
+
+
 def should_retry_streaming(exc: Exception) -> bool:
     """Decide whether ``exc`` is a transient streaming hiccup worth retrying."""
     if isinstance(exc, _RETRYABLE_EXCEPTIONS):
         return True
 
-    msg = str(exc).lower()
+    msg = str(exc)
     if isinstance(exc, UnexpectedModelBehavior):
-        return any(s in msg for s in _RETRYABLE_SNIPPETS)
+        return _matches_retryable_snippet(msg)
 
     if OpenAIAPIError is not None and isinstance(exc, OpenAIAPIError):
-        if any(s in msg for s in _RETRYABLE_SNIPPETS):
+        if _matches_retryable_snippet(msg):
             return True
         body = getattr(exc, "body", None)
         if isinstance(body, dict):
-            body_msg = str(body.get("message", "")).lower()
+            body_msg = str(body.get("message", ""))
             body_type = str(body.get("type", "")).lower()
-            if any(s in body_msg for s in _RETRYABLE_SNIPPETS):
+            if _matches_retryable_snippet(body_msg):
                 return True
             if "rate" in body_type and "limit" in body_type:
                 return True
             if body_type in {"server_error", "internal_server_error", "api_error"}:
-                return any(s in body_msg for s in _RETRYABLE_SNIPPETS)
+                return _matches_retryable_snippet(body_msg)
     return False
 
 
@@ -254,13 +284,25 @@ async def run_with_mcp(
         """Run the agent once, then honour any plugin ``retry`` requests."""
         usage_limits = UsageLimits(request_limit=get_message_limit())
 
+        # Streaming config gate (issue #295). When streaming is disabled we
+        # never install the stream handler at all and always render from the
+        # final result. When it's enabled we wrap the handler in a detector
+        # and fall back to a one-shot render only if no text actually streamed.
+        use_streaming = get_enable_streaming()
+        detector: Optional[StreamingTextDetector] = (
+            StreamingTextDetector(event_stream_handler) if use_streaming else None
+        )
+        stream_handler = detector if detector is not None else None
+        # DBOS renders its own output at construction time, so skip there.
+        skip_fallback_render = get_use_dbos()
+
         @streaming_retry()
         async def _call() -> Any:
             return await pydantic_agent.run(
                 prompt_to_use,
                 message_history=agent._message_history,
                 usage_limits=usage_limits,
-                event_stream_handler=event_stream_handler,
+                event_stream_handler=stream_handler,
                 **kwargs,
             )
 
@@ -291,11 +333,17 @@ async def run_with_mcp(
                     retry_prompt,
                     message_history=agent._message_history,
                     usage_limits=usage_limits,
-                    event_stream_handler=event_stream_handler,
+                    event_stream_handler=stream_handler,
                     **kwargs,
                 )
 
             result = await _retry_call()
+
+        # Fallback render when streaming didn't surface any text to the user.
+        if result is not None and should_render_fallback(
+            detector, skip=skip_fallback_render
+        ):
+            render_result_without_streaming(result)
 
         return result
 
@@ -349,13 +397,7 @@ async def run_with_mcp(
                 ),
             )
             for exc in unexpected:
-                emit_info(f"Unexpected error: {exc}", group_id=group_id)
-                emit_info(f"{exc.args}", group_id=group_id)
-                log_error(
-                    exc,
-                    context=f"Agent run (group_id={group_id})",
-                    include_traceback=True,
-                )
+                emit_exception_diagnostics(exc, group_id=group_id)
         finally:
             agent._message_history = _history.prune_interrupted_tool_calls(
                 agent._message_history
