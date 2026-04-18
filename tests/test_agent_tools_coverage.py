@@ -508,7 +508,6 @@ class TestRegisterInvokeAgentExecution:
         mock_agent_config = MagicMock()
         mock_agent_config.get_model_name.return_value = "test-model"
         mock_agent_config.get_system_prompt.return_value = "Test"
-        mock_agent_config.load_puppy_rules.return_value = None
 
         set_context_calls = []
 
@@ -587,7 +586,6 @@ class TestInvokeAgentPartialSessionSaveOnCrash:
         cfg = MagicMock()
         cfg.get_model_name.return_value = "test-model"
         cfg.get_system_prompt.return_value = "Test"
-        cfg.load_puppy_rules.return_value = None
         cfg.get_message_history.return_value = partial_history
         return cfg
 
