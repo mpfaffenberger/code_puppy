@@ -409,8 +409,12 @@ def register_invoke_agent(agent):
             # Create a temporary agent instance to avoid interfering with current agent state
             instructions = agent_config.get_full_system_prompt()
 
-            # Add AGENTS.md content to subagents
-            puppy_rules = agent_config.load_puppy_rules()
+            # Add AGENTS.md content to subagents.
+            # ``load_puppy_rules`` lives on the builder module since the
+            # base_agent split in 79dfc3c8; it's not a method on the agent.
+            from code_puppy.agents._builder import load_puppy_rules
+
+            puppy_rules = load_puppy_rules()
             if puppy_rules:
                 instructions += f"\n\n{puppy_rules}"
 

@@ -68,42 +68,22 @@ class TestAgentTools:
             assert "User Approval System" in file_permission_text
             assert "user_feedback" in file_permission_text
 
-    def test_invoke_agent_includes_puppy_rules(self):
-        """Test that invoke_agent includes AGENTS.md content for subagents (excluding ShellSafetyAgent)."""
-        from unittest.mock import MagicMock
+    def test_invoke_agent_imports_load_puppy_rules_from_builder(self):
+        """Regression: ``load_puppy_rules`` is a free function in ``_builder``,
+        not a method on the agent config. The previous version of this test
+        asserted against a mock method that no longer exists, letting the
+        real crash (``AttributeError: 'JSONAgent' object has no attribute
+        'load_puppy_rules'``) ship to prod. Pin the actual contract now.
+        """
+        from code_puppy.agents import _builder
+        from code_puppy.agents.base_agent import BaseAgent
 
-        # Mock agent configurations to test the logic
-        mock_agent_config = MagicMock()
-        mock_agent_config.name = "test-agent"
-        mock_agent_config.get_system_prompt.return_value = "Test system prompt"
+        # The method must *not* exist on BaseAgent (or subclasses) — otherwise
+        # we're back to the stale-caller footgun.
+        assert not hasattr(BaseAgent, "load_puppy_rules")
 
-        # Mock AGENTS.md content
-        mock_puppy_rules = "# AGENTS.MD CONTENT\nSome puppy rules here..."
-        mock_agent_config.load_puppy_rules.return_value = mock_puppy_rules
-
-        # Test the core logic that was added to invoke_agent
-        # Test that regular agents get AGENTS.md content
-        instructions = mock_agent_config.get_system_prompt()
-        if mock_agent_config.name != "shell_safety_checker":
-            puppy_rules = mock_agent_config.load_puppy_rules()
-            if puppy_rules:
-                instructions += f"\n{puppy_rules}"
-
-        # Verify AGENTS.md was added to regular agent
-        assert mock_puppy_rules in instructions
-        assert "Test system prompt" in instructions
-
-        # Test that ShellSafetyAgent does NOT get AGENTS.md content
-        mock_agent_config.name = "shell_safety_checker"
-        instructions_safety = mock_agent_config.get_system_prompt()
-        if mock_agent_config.name != "shell_safety_checker":
-            puppy_rules = mock_agent_config.load_puppy_rules()
-            if puppy_rules:
-                instructions_safety += f"\n{puppy_rules}"
-
-        # Should not have added puppy_rules for shell safety agent
-        assert mock_puppy_rules not in instructions_safety
-        assert "Test system prompt" in instructions_safety
+        # The free function is the canonical entry point.
+        assert callable(_builder.load_puppy_rules)
 
 
 class TestGenerateSessionHashSuffix:
