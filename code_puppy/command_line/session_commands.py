@@ -96,7 +96,9 @@ def handle_compact_command(command: str) -> bool:
 
         current_agent = get_current_agent()
         if compaction_strategy == "truncation":
-            compacted = current_agent.truncation(history, protected_tokens)
+            from code_puppy.agents._compaction import truncate
+
+            compacted = truncate(history, protected_tokens)
             summarized_messages = []  # No summarization in truncation mode
         else:
             # Default to summarization

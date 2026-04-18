@@ -30,12 +30,12 @@ PhaseType = Literal[
     "register_agents",
     "register_model_type",
     "get_model_system_prompt",
+    "prepare_model_prompt",
     "agent_run_start",
     "agent_run_end",
     "agent_run_result",
     "register_mcp_catalog_servers",
     "register_browser_types",
-    "get_motd",
     "register_model_providers",
     "message_history_processor_start",
     "message_history_processor_end",
@@ -69,12 +69,12 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_agents": [],
     "register_model_type": [],
     "get_model_system_prompt": [],
+    "prepare_model_prompt": [],
     "agent_run_start": [],
     "agent_run_end": [],
     "agent_run_result": [],
     "register_mcp_catalog_servers": [],
     "register_browser_types": [],
-    "get_motd": [],
     "register_model_providers": [],
     "message_history_processor_start": [],
     "message_history_processor_end": [],
@@ -440,7 +440,7 @@ def on_register_model_types() -> List[Dict[str, Any]]:
 
     This hook allows plugins to register custom model types that can be used
     in model configurations. Each callback should return a list of dicts with:
-    - "type": str - the model type name (e.g., "antigravity", "claude_code")
+    - "type": str - the model type name (e.g., "claude_code")
     - "handler": callable - function(model_name, model_config, config) -> model instance
 
     The handler function receives:
@@ -457,7 +457,7 @@ def on_register_model_types() -> List[Dict[str, Any]]:
                 "handler": create_my_custom_model,
             }]
 
-    Example return: [{"type": "antigravity", "handler": create_antigravity_model}]
+    Example return: [{"type": "my_custom_type", "handler": create_my_custom_model}]
     """
     return _trigger_callbacks_sync("register_model_type")
 
@@ -468,7 +468,7 @@ def on_get_model_system_prompt(
     """Allow plugins to provide custom system prompts for specific model types.
 
     This hook allows plugins to override the system prompt handling for custom
-    model types (like claude_code or antigravity models). Each callback receives
+    model types (like claude_code models). Each callback receives
     the model name and should return a dict if it handles that model type, or None.
 
     Args:
@@ -498,6 +498,52 @@ def on_get_model_system_prompt(
     """
     return _trigger_callbacks_sync(
         "get_model_system_prompt", model_name, default_system_prompt, user_prompt
+    )
+
+
+def on_prepare_model_prompt(
+    model_name: str,
+    system_prompt: str,
+    user_prompt: str,
+    prepend_system_to_user: bool = True,
+) -> List[Optional[Dict[str, Any]]]:
+    """Allow plugins to fully prepare the prompt (instructions + user prompt) for a model.
+
+    This is the hook fired from ``model_utils.prepare_prompt_for_model`` to let
+    plugins take over prompt preparation for specific model families (e.g.
+    claude-code OAuth models which need a hard-coded instruction string and
+    have the system prompt prepended to the user message).
+
+    Unlike ``get_model_system_prompt`` (which is used by augmenting plugins like
+    agent_skills), this hook is for plugins that want to *fully handle* the
+    prompt prep for a given model. The first callback returning ``handled=True``
+    wins; the rest are ignored.
+
+    Args:
+        model_name: The name of the model being used.
+        system_prompt: The default system prompt from the agent.
+        user_prompt: The user's prompt/message.
+        prepend_system_to_user: Whether the caller wants system prompt prepended
+            to the user prompt (only meaningful for plugins that manipulate the
+            user prompt, like claude-code).
+
+    Each callback should return a dict with:
+        - ``"handled"``: bool — True if this callback fully prepared the prompt.
+        - ``"instructions"``: str — the system prompt/instructions to use.
+        - ``"user_prompt"``: str — the (possibly modified) user prompt.
+        - ``"is_claude_code"``: bool — (optional) flag preserved on PreparedPrompt.
+
+    Or return ``None`` to indicate "I don't handle this model".
+
+    Returns:
+        List of results (dicts or ``None``) from registered callbacks.
+    """
+    return _trigger_callbacks_sync(
+        "prepare_model_prompt",
+        model_name,
+        system_prompt,
+        user_prompt,
+        prepend_system_to_user,
     )
 
 
@@ -609,9 +655,7 @@ async def on_agent_run_result(
     Returns:
         List of results from registered callbacks.
     """
-    return await _trigger_callbacks(
-        "agent_run_result", result, agent_name, model_name
-    )
+    return await _trigger_callbacks("agent_run_result", result, agent_name, model_name)
 
 
 def on_register_mcp_catalog_servers() -> List[Any]:
@@ -649,18 +693,6 @@ def on_register_browser_types() -> List[Any]:
         List of dicts from all registered callbacks.
     """
     return _trigger_callbacks_sync("register_browser_types")
-
-
-def on_get_motd() -> List[Any]:
-    """Trigger callbacks to get custom MOTD content.
-
-    Plugins can register callbacks that return a tuple of (message, version).
-    The last non-None result will be used as the MOTD.
-
-    Returns:
-        List of (message, version) tuples from registered callbacks.
-    """
-    return _trigger_callbacks_sync("get_motd")
 
 
 def on_register_model_providers() -> List[Any]:

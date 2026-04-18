@@ -8,7 +8,6 @@ Covers missed lines in:
 - model_switching.py
 - markdown_patches.py
 - error_logging.py
-- motd.py
 """
 
 import os
@@ -530,51 +529,3 @@ class TestErrorLoggingRotation:
                 side_effect=OSError("disk error"),
             ):
                 _rotate_log_if_needed()  # Should not raise
-
-
-# ── motd ────────────────────────────────────────────────────────────────
-
-
-class TestMotdGetContent:
-    """Cover lines 41-44."""
-
-    def test_get_motd_content_from_plugin(self):
-        from code_puppy.command_line.motd import get_motd_content
-
-        with patch(
-            "code_puppy.callbacks.on_get_motd",
-            return_value=[("plugin msg", "v1")],
-        ):
-            msg, ver = get_motd_content()
-        assert msg == "plugin msg"
-        assert ver == "v1"
-
-    def test_get_motd_content_fallback(self):
-        from code_puppy.command_line.motd import (
-            MOTD_MESSAGE,
-            MOTD_VERSION,
-            get_motd_content,
-        )
-
-        with patch(
-            "code_puppy.callbacks.on_get_motd",
-            return_value=[None],
-        ):
-            msg, ver = get_motd_content()
-        assert msg == MOTD_MESSAGE
-        assert ver == MOTD_VERSION
-
-    def test_get_motd_content_exception_fallback(self):
-        from code_puppy.command_line.motd import (
-            MOTD_MESSAGE,
-            MOTD_VERSION,
-            get_motd_content,
-        )
-
-        with patch(
-            "code_puppy.callbacks.on_get_motd",
-            side_effect=Exception("boom"),
-        ):
-            msg, ver = get_motd_content()
-        assert msg == MOTD_MESSAGE
-        assert ver == MOTD_VERSION

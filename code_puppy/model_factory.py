@@ -311,7 +311,8 @@ def make_model_settings(
                 model_settings_dict["extra_body"] = extra_body
 
         model_settings = AnthropicModelSettings(**model_settings_dict)
-        
+
+    # Handle thinking models
     # Check if model supports thinking settings and apply defaults
     if model_supports_setting(model_name, "thinking_level"):
         # Apply defaults if not explicitly set by user
@@ -745,35 +746,6 @@ class ModelFactory:
             )
 
         elif model_type == "custom_gemini":
-            if model_config.get("antigravity"):
-                # Find and call the antigravity handler from the plugin
-                registered_handlers = callbacks.on_register_model_types()
-                for handler_info in registered_handlers:
-                    handlers = (
-                        handler_info
-                        if isinstance(handler_info, list)
-                        else [handler_info]
-                        if handler_info
-                        else []
-                    )
-                    for handler_entry in handlers:
-                        if (
-                            isinstance(handler_entry, dict)
-                            and handler_entry.get("type") == "antigravity"
-                        ):
-                            handler = handler_entry.get("handler")
-                            if callable(handler):
-                                try:
-                                    return handler(model_name, model_config, config)
-                                except Exception as e:
-                                    logger.error(f"Antigravity handler failed: {e}")
-                                    return None
-                # If no antigravity handler found, warn and fall through
-                emit_warning(
-                    f"Model '{model_config.get('name')}' has antigravity=True but antigravity plugin not loaded."
-                )
-                return None
-
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
             if not api_key:
                 emit_warning(

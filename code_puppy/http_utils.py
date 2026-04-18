@@ -6,7 +6,7 @@ This module provides functions for creating properly configured HTTP clients.
 
 import os
 import socket
-from typing import TYPE_CHECKING, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 import httpx
 
@@ -41,7 +41,109 @@ except ImportError:
         pass  # No-op if messaging system is not available
 
 
-def get_cert_bundle_path() -> str:
+
+class RetryingAsyncClient(httpx.AsyncClient):
+    """AsyncClient with built-in rate limit handling (429) and retries.
+
+    This replaces the Tenacity transport with a more direct subclass implementation,
+    which plays nicer with proxies and custom transports.
+
+    Special handling for Cerebras: Their Retry-After headers are absurdly aggressive
+    (often 60s), so we ignore them and use a 3s base backoff instead.
+    """
+
+    def __init__(
+        self,
+        retry_status_codes: tuple = (429, 502, 503, 504),
+        max_retries: int = 5,
+        model_name: str = "",
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.retry_status_codes = retry_status_codes
+        self.max_retries = max_retries
+        self.model_name = model_name.lower() if model_name else ""
+        # Cerebras sends crazy aggressive Retry-After headers (60s), ignore them
+        self._ignore_retry_headers = "cerebras" in self.model_name
+
+    async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
+        """Send request with automatic retries for rate limits and server errors."""
+        last_response = None
+        last_exception = None
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = await super().send(request, **kwargs)
+                last_response = response
+
+                # Check for retryable status
+                if response.status_code not in self.retry_status_codes:
+                    return response
+
+                # Close response if we're going to retry
+                await response.aclose()
+
+                # Determine wait time - Cerebras gets special treatment
+                if self._ignore_retry_headers:
+                    # Cerebras: 3s base with exponential backoff (3s, 6s, 12s...)
+                    wait_time = 3.0 * (2**attempt)
+                else:
+                    # Default exponential backoff: 1s, 2s, 4s...
+                    wait_time = 1.0 * (2**attempt)
+
+                    # Check Retry-After header (only for non-Cerebras)
+                    retry_after = response.headers.get("Retry-After")
+                    if retry_after:
+                        try:
+                            wait_time = float(retry_after)
+                        except ValueError:
+                            # Try parsing http-date
+                            from email.utils import parsedate_to_datetime
+
+                            try:
+                                date = parsedate_to_datetime(retry_after)
+                                wait_time = date.timestamp() - time.time()
+                            except Exception:
+                                pass
+
+                # Cap wait time
+                wait_time = max(0.5, min(wait_time, 60.0))
+
+                if attempt < self.max_retries:
+                    provider_note = (
+                        " (ignoring header)" if self._ignore_retry_headers else ""
+                    )
+                    emit_info(
+                        f"HTTP retry: {response.status_code} received{provider_note}. "
+                        f"Waiting {wait_time:.1f}s (attempt {attempt + 1}/{self.max_retries})"
+                    )
+                    await asyncio.sleep(wait_time)
+
+            except (httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout) as e:
+                last_exception = e
+                wait_time = 1.0 * (2**attempt)
+                if attempt < self.max_retries:
+                    emit_warning(
+                        f"HTTP connection error: {e}. Retrying in {wait_time}s..."
+                    )
+                    await asyncio.sleep(wait_time)
+                else:
+                    raise
+            except Exception:
+                raise
+
+        # Return last response (even if it's an error status)
+        if last_response:
+            return last_response
+
+        # Should catch this in loop, but just in case
+        if last_exception:
+            raise last_exception
+
+        return last_response
+
+
+def get_cert_bundle_path() -> str | None:
     # First check if SSL_CERT_FILE environment variable is set
     ssl_cert_file = os.environ.get("_SSL_CERT_FILE")
     if ssl_cert_file and os.path.exists(ssl_cert_file):

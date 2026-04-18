@@ -12,7 +12,6 @@ from code_puppy.command_line.model_picker_completion import (
     interactive_model_picker,
     update_model_in_input,
 )
-from code_puppy.command_line.motd import print_motd
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import finalize_autosave_session, is_wiggum_unlocked
 from code_puppy.messaging import emit_error, emit_info
@@ -56,7 +55,7 @@ def handle_cd_command(command: str) -> bool:
     # Use shlex.split to handle quoted paths properly
     import shlex
 
-    from code_puppy.messaging import emit_success
+    from code_puppy.messaging import emit_success, emit_warning
 
     try:
         tokens = shlex.split(command)
@@ -110,22 +109,6 @@ def handle_tools_command(command: str) -> bool:
 
     markdown_content = Markdown(tools_content)
     emit_info(markdown_content)
-    return True
-
-
-@register_command(
-    name="motd",
-    description="Show the latest message of the day (MOTD)",
-    usage="/motd",
-    category="core",
-)
-def handle_motd_command(command: str) -> bool:
-    """Show message of the day."""
-    try:
-        print_motd(force=True)
-    except Exception:
-        # Handle printing errors gracefully
-        pass
     return True
 
 
