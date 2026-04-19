@@ -40,7 +40,7 @@
       "url": "https://api.synthetic.new/openai/v1/",
       "api_key": "$SYN_API_KEY"
     },
-    "context_length": 256000,
+    "context_length": 262144,
     "supported_settings": ["temperature", "seed", "top_p"]
   },
   "synthetic-Kimi-K2.5-Thinking": {
@@ -75,6 +75,28 @@
     },
     "context_length": 131072,
     "supported_settings": ["temperature", "seed", "top_p"]
+  },
+  "wafer.ai-glm-5.1": {
+    "type": "custom_openai",
+    "provider": "wafer",
+    "name": "GLM-5.1",
+    "custom_endpoint": {
+      "url": "https://pass.wafer.ai/v1",
+      "api_key": "$WAFER_API_KEY"
+    },
+    "context_length": 200000,
+    "supported_settings": ["temperature", "seed", "top_p", "max_tokens"]
+  },
+  "wafer.ai-Qwen3.5-397B-A17B": {
+    "type": "custom_openai",
+    "provider": "wafer",
+    "name": "Qwen3.5-397B-A17B",
+    "custom_endpoint": {
+      "url": "https://pass.wafer.ai/v1",
+      "api_key": "$WAFER_API_KEY"
+    },
+    "context_length": 262144,
+    "supported_settings": ["temperature", "seed", "top_p", "max_tokens"]
   },
   "firepass-kimi-k2p5-turbo": {
     "type": "custom_openai",
