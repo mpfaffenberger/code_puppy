@@ -122,7 +122,7 @@ class BaseAgent(ABC):
 
     # ---- Token / context helpers ------------------------------------------
     def estimate_tokens_for_message(self, message: Any) -> int:
-        return estimate_tokens_for_message(message)
+        return estimate_tokens_for_message(message, self.get_model_name())
 
     def hash_message(self, message: Any) -> int:
         return hash_message(message)
@@ -157,7 +157,7 @@ class BaseAgent(ABC):
             if self.pydantic_agent
             else None
         )
-        return estimate_context_overhead(resolved, tools)
+        return estimate_context_overhead(resolved, tools, self.get_model_name())
 
     # ---- Orchestration (thin delegations) ---------------------------------
     def summarize_messages(
@@ -167,7 +167,10 @@ class BaseAgent(ABC):
     ) -> tuple[list, list]:
         """Delegate to ``_compaction.summarize`` with config-derived protection."""
         return summarize(
-            messages, get_protected_token_count(), with_protection=with_protection
+            messages,
+            get_protected_token_count(),
+            with_protection=with_protection,
+            model_name=self.get_model_name(),
         )
 
     def reload_code_generation_agent(self, message_group: Optional[str] = None) -> Any:

@@ -14,7 +14,7 @@ let the next ``history_processor`` invocation handle it.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Callable, List, Set, Tuple
+from typing import Any, Callable, List, Optional, Set, Tuple
 
 from pydantic_ai.messages import (
     ModelMessage,
@@ -96,6 +96,7 @@ def _find_safe_split_index(messages: List[ModelMessage], initial_split_idx: int)
 def split_for_protected_summarization(
     messages: List[ModelMessage],
     protected_tokens: int,
+    model_name: Optional[str] = None,
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
     """Split messages into (to_summarize, protected) groups.
 
@@ -109,13 +110,13 @@ def split_for_protected_summarization(
         return [], messages
 
     system_message = messages[0]
-    system_tokens = estimate_tokens_for_message(system_message)
+    system_tokens = estimate_tokens_for_message(system_message, model_name)
 
     protected_messages: List[ModelMessage] = []
     running_tokens = system_tokens
 
     for i in range(len(messages) - 1, 0, -1):
-        msg_tokens = estimate_tokens_for_message(messages[i])
+        msg_tokens = estimate_tokens_for_message(messages[i], model_name)
         if running_tokens + msg_tokens > protected_tokens:
             break
         protected_messages.append(messages[i])
@@ -137,7 +138,11 @@ def split_for_protected_summarization(
     return messages_to_summarize, protected_messages
 
 
-def truncate(messages: List[ModelMessage], protected_tokens: int) -> List[ModelMessage]:
+def truncate(
+    messages: List[ModelMessage],
+    protected_tokens: int,
+    model_name: Optional[str] = None,
+) -> List[ModelMessage]:
     """Drop middle messages, keeping system prompt, optional thinking, and recent tail."""
     import queue
 
@@ -161,7 +166,7 @@ def truncate(messages: List[ModelMessage], protected_tokens: int) -> List[ModelM
     num_tokens = 0
     stack: "queue.LifoQueue[ModelMessage]" = queue.LifoQueue()
     for msg in reversed(messages_to_scan):
-        num_tokens += estimate_tokens_for_message(msg)
+        num_tokens += estimate_tokens_for_message(msg, model_name)
         if num_tokens > protected_tokens:
             break
         stack.put(msg)
@@ -172,22 +177,25 @@ def truncate(messages: List[ModelMessage], protected_tokens: int) -> List[ModelM
     return prune_interrupted_tool_calls(result)
 
 
-def summarize(
+def _run_summarization_core(
     messages: List[ModelMessage],
     protected_tokens: int,
-    with_protection: bool = True,
+    with_protection: bool,
+    model_name: Optional[str],
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
-    """Summarize older messages, preserving the protected recent tail.
+    """Inner summarization that propagates exceptions to the caller.
 
-    Returns ``(compacted_messages, summarized_source_messages)``. On failure
-    we log a warning and return ``(messages, [])`` so the run continues.
+    Returns ``(compacted_messages, summarized_source_messages)`` or raises
+    on summarization-agent failure. Use :func:`summarize` if you want the
+    swallow-and-return-original behavior, or call this directly when you want
+    to handle failure yourself (e.g. fall back to truncation).
     """
     if not messages:
         return [], []
 
     if with_protection:
         messages_to_summarize, protected_messages = split_for_protected_summarization(
-            messages, protected_tokens
+            messages, protected_tokens, model_name
         )
     else:
         messages_to_summarize = messages[1:]
@@ -198,33 +206,74 @@ def summarize(
     if not messages_to_summarize:
         return prune_interrupted_tool_calls(messages), []
 
-    try:
-        pruned = prune_interrupted_tool_calls(messages_to_summarize)
-        if not pruned:
-            return prune_interrupted_tool_calls(messages), []
+    pruned = prune_interrupted_tool_calls(messages_to_summarize)
+    if not pruned:
+        return prune_interrupted_tool_calls(messages), []
 
-        new_messages = run_summarization_sync(
-            _SUMMARIZATION_INSTRUCTIONS, message_history=pruned
+    new_messages = run_summarization_sync(
+        _SUMMARIZATION_INSTRUCTIONS, message_history=pruned
+    )
+
+    if not isinstance(new_messages, list):
+        emit_warning(
+            "Summarization agent returned non-list output; wrapping into message request"
         )
+        new_messages = [ModelRequest([TextPart(str(new_messages))])]
 
-        if not isinstance(new_messages, list):
-            emit_warning(
-                "Summarization agent returned non-list output; wrapping into message request"
-            )
-            new_messages = [ModelRequest([TextPart(str(new_messages))])]
+    compacted: List[ModelMessage] = [system_message] + list(new_messages)
+    compacted.extend(msg for msg in protected_messages if msg is not system_message)
+    return prune_interrupted_tool_calls(compacted), messages_to_summarize
 
-        compacted: List[ModelMessage] = [system_message] + list(new_messages)
-        compacted.extend(msg for msg in protected_messages if msg is not system_message)
-        return prune_interrupted_tool_calls(compacted), messages_to_summarize
-    except (SummarizationError, Exception) as e:
-        error_type = type(e).__name__
-        emit_error(f"Compaction failed: [{error_type}] {e}")
-        if isinstance(e, SummarizationError) and e.original_error:
-            emit_warning(
-                f"💡 Tip: Underlying error was {type(e.original_error).__name__}. "
-                "Consider using '/set compaction_strategy=truncation' as a fallback."
-            )
+
+def _log_summarization_failure(error: Exception, fallback_note: str = "") -> None:
+    """Single source of truth for summarization-failure user messaging."""
+    error_type = type(error).__name__
+    emit_error(f"Compaction failed: [{error_type}] {error}")
+    if isinstance(error, SummarizationError) and error.original_error:
+        underlying = type(error.original_error).__name__
+        suffix = f" {fallback_note}" if fallback_note else ""
+        emit_warning(f"💡 Underlying error was {underlying}.{suffix}")
+    elif fallback_note:
+        emit_warning(fallback_note)
+
+
+def summarize(
+    messages: List[ModelMessage],
+    protected_tokens: int,
+    with_protection: bool = True,
+    model_name: Optional[str] = None,
+) -> Tuple[List[ModelMessage], List[ModelMessage]]:
+    """Summarize older messages, preserving the protected recent tail.
+
+    Returns ``(compacted_messages, summarized_source_messages)``. On failure
+    we log a warning and return ``(messages, [])`` so the run continues.
+    """
+    try:
+        return _run_summarization_core(
+            messages, protected_tokens, with_protection, model_name
+        )
+    except Exception as e:
+        _log_summarization_failure(
+            e,
+            "Consider using '/set compaction_strategy=truncation' as a fallback.",
+        )
         return messages, []
+
+
+def _truncate_with_dropped(
+    filtered: List[ModelMessage],
+    protected_tokens: int,
+    model_name: Optional[str],
+) -> Tuple[List[ModelMessage], List[ModelMessage]]:
+    """Truncate ``filtered`` and compute which messages got dropped.
+
+    Shared by the truncation strategy and the summarization-failure fallback
+    so both paths agree on what counts as 'dropped' for hash bookkeeping.
+    """
+    result_messages = truncate(filtered, protected_tokens, model_name)
+    result_hashes = {hash_message(m) for m in result_messages}
+    dropped = [m for m in filtered if hash_message(m) not in result_hashes]
+    return result_messages, dropped
 
 
 def compact(
@@ -236,8 +285,8 @@ def compact(
     """Unified compaction entrypoint. Replaces ``message_history_processor``.
 
     Args:
-        agent: The owning agent (only used to satisfy the no-delayed-compaction
-            invariant — kept for future hook points).
+        agent: The owning agent. Used to resolve the active model name so
+            token estimates can apply per-model calibration multipliers.
         messages: Current message history (already accumulated by the caller).
         model_max: Effective model context window in tokens.
         context_overhead: Estimated overhead for system prompt + tool schemas.
@@ -245,9 +294,16 @@ def compact(
     Returns:
         ``(new_messages, dropped_messages_for_hash_tracking)``.
     """
-    del agent  # reserved for future hooks; no state needed right now
+    # Resolve model name once so all downstream estimators apply the same
+    # per-model calibration multiplier.
+    model_name: Optional[str] = None
+    if agent is not None:
+        try:
+            model_name = agent.get_model_name()
+        except Exception:
+            model_name = None
 
-    message_tokens = sum(estimate_tokens_for_message(m) for m in messages)
+    message_tokens = sum(estimate_tokens_for_message(m, model_name) for m in messages)
     total_tokens = message_tokens + context_overhead
     proportion_used = total_tokens / model_max if model_max else 0.0
 
@@ -263,7 +319,7 @@ def compact(
     strategy = get_compaction_strategy()
 
     protected_tokens = get_protected_token_count()
-    filtered = filter_huge_messages(messages)
+    filtered = filter_huge_messages(messages, model_name)
 
     # filter_huge_messages() already runs prune_interrupted_tool_calls(),
     # so by this point any orphaned tool_call / tool_return pairs (from
@@ -284,15 +340,29 @@ def compact(
         return messages, []
 
     if strategy == "truncation":
-        result_messages = truncate(filtered, protected_tokens)
-        result_hashes = {hash_message(m) for m in result_messages}
-        summarized_messages = [
-            m for m in filtered if hash_message(m) not in result_hashes
-        ]
+        result_messages, summarized_messages = _truncate_with_dropped(
+            filtered, protected_tokens, model_name
+        )
     else:
-        result_messages, summarized_messages = summarize(filtered, protected_tokens)
+        try:
+            result_messages, summarized_messages = _run_summarization_core(
+                filtered, protected_tokens, True, model_name
+            )
+        except Exception as e:
+            # Summarization blew up (model error, network, schema rejection,
+            # etc.). Don't just give up and let history balloon — fall back
+            # to truncation for *this* compaction cycle. The user's strategy
+            # preference is preserved for the next cycle.
+            _log_summarization_failure(
+                e, "↪️  Falling back to truncation for this compaction cycle."
+            )
+            result_messages, summarized_messages = _truncate_with_dropped(
+                filtered, protected_tokens, model_name
+            )
 
-    final_token_count = sum(estimate_tokens_for_message(m) for m in result_messages)
+    final_token_count = sum(
+        estimate_tokens_for_message(m, model_name) for m in result_messages
+    )
     final_summary = SpinnerBase.format_context_info(
         final_token_count,
         model_max,
