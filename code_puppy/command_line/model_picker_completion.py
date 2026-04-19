@@ -16,6 +16,10 @@ from code_puppy.command_line.pagination import (
     get_total_pages,
 )
 from code_puppy.config import get_global_model_name
+from code_puppy.item_visibility import (
+    load_hidden_models,
+    prune_stale_entries,
+)
 from code_puppy.list_filtering import query_matches_text
 from code_puppy.model_switching import set_model_and_reload_agent
 
@@ -211,34 +215,46 @@ class ModelSelectionMenu:
         self.page_size = MODEL_PICKER_PAGE_SIZE
         self.result: Optional[str] = None
 
-        if self.current_model in self.visible_model_names:
-            self.selected_index = self.visible_model_names.index(self.current_model)
+        # Load visibility state and prune stale entries
+        self._hidden_models: set[str] = load_hidden_models()
+        prune_stale_entries(self.model_names)
+        self._hidden_models = load_hidden_models()  # reload after pruning
+        self.show_all: bool = False  # session-level; resets every picker open
+
+        # Set initial selection to current model (in display list)
+        if self.current_model in self.display_model_names:
+            self.selected_index = self.display_model_names.index(self.current_model)
             self.page = get_page_for_index(self.selected_index, self.page_size)
 
     @property
     def total_pages(self) -> int:
-        return get_total_pages(len(self.visible_model_names), self.page_size)
+        return get_total_pages(len(self.display_model_names), self.page_size)
 
     @property
     def page_start(self) -> int:
         start, _ = get_page_bounds(
-            self.page, len(self.visible_model_names), self.page_size
+            self.page, len(self.display_model_names), self.page_size
         )
         return start
 
     @property
     def page_end(self) -> int:
         _, end = get_page_bounds(
-            self.page, len(self.visible_model_names), self.page_size
+            self.page, len(self.display_model_names), self.page_size
         )
         return end
 
     @property
     def models_on_page(self) -> list[str]:
-        return self.visible_model_names[self.page_start : self.page_end]
+        return self.display_model_names[self.page_start : self.page_end]
 
     @property
     def visible_model_names(self) -> list[str]:
+        """Models matching the current filter text (includes hidden models).
+
+        This represents the raw filter-matched list — visibility is applied
+        on top by display_model_names.
+        """
         if not self.filter_text:
             return self.model_names
         return [
@@ -247,23 +263,39 @@ class ModelSelectionMenu:
             if query_matches_text(self.filter_text, model_name)
         ]
 
+    @property
+    def display_model_names(self) -> list[str]:
+        """Models shown in the list, respecting visibility settings.
+
+        Decision matrix:
+        - show_all=True  → All models (hidden ones dimmed in render)
+        - show_all=False, filter_text typed → Filter matches (hidden dimmed)
+        - show_all=False, filter_text empty → Non-hidden models only
+        """
+        base = self.visible_model_names
+        if self.show_all:
+            return base
+        if self.filter_text:
+            return base
+        return [m for m in base if m not in self._hidden_models]
+
     def _get_selected_model_name(self) -> Optional[str]:
-        if 0 <= self.selected_index < len(self.visible_model_names):
-            return self.visible_model_names[self.selected_index]
+        if 0 <= self.selected_index < len(self.display_model_names):
+            return self.display_model_names[self.selected_index]
         return None
 
     def _ensure_selection_visible(self) -> None:
         self.page = ensure_visible_page(
             self.selected_index,
             self.page,
-            len(self.visible_model_names),
+            len(self.display_model_names),
             self.page_size,
         )
 
     def _set_filter_text(self, value: str) -> None:
         selected_model = self._get_selected_model_name()
         self.filter_text = value
-        visible_models = self.visible_model_names
+        visible_models = self.display_model_names
         if not visible_models:
             self.selected_index = 0
             self.page = 0
@@ -298,7 +330,7 @@ class ModelSelectionMenu:
             self._ensure_selection_visible()
 
     def _move_down(self) -> None:
-        if self.selected_index < len(self.visible_model_names) - 1:
+        if self.selected_index < len(self.display_model_names) - 1:
             self.selected_index += 1
             self._ensure_selection_visible()
 
@@ -322,13 +354,26 @@ class ModelSelectionMenu:
             )
         lines.append(("", "\n"))
 
-        if not self.visible_model_names:
-            empty_message = (
-                "No models match the current filter."
-                if self.filter_text
-                else "No models available."
-            )
-            lines.append(("fg:ansiyellow", f"\n  {empty_message}\n"))
+        if not self.display_model_names:
+            visible_count = len(self.visible_model_names)
+            if visible_count > 0:
+                # Some models match the filter but all are hidden
+                lines.append(("fg:ansiyellow", "\n  All filtered models are hidden.\n"))
+                lines.append(("fg:ansibrightblack", "  Press "))
+                lines.append(("", "Tab"))
+                lines.append(("fg:ansibrightblack", "  to show all models.\n"))
+            elif self.filter_text:
+                # No models match the filter at all
+                lines.append(
+                    ("fg:ansiyellow", "\n  No models match the current filter.\n")
+                )
+            elif self._hidden_models:
+                lines.append(("fg:ansiyellow", "\n  All models are hidden.\n"))
+                lines.append(("fg:ansibrightblack", "  Press "))
+                lines.append(("", "Tab"))
+                lines.append(("fg:ansibrightblack", "  to show all models.\n"))
+            else:
+                lines.append(("fg:ansiyellow", "\n  No models available.\n"))
             lines.append(("fg:ansibrightblack", "  Type  "))
             lines.append(("", "Adjust filter\n"))
             lines.append(("fg:ansibrightblack", "  Backspace  "))
@@ -337,21 +382,35 @@ class ModelSelectionMenu:
                 lines.append(("fg:ansibrightblack", "  Ctrl+U  "))
                 lines.append(("", "Clear filter\n"))
             lines.append(("fg:ansiyellow", "  Esc  "))
-            lines.append(("", "Exit\n"))
+            lines.append(("", "Cancel\n"))
             return lines
 
         lines.append(("fg:ansibrightblack", f"\n  Current: {self.current_model}\n\n"))
-
         for offset, model_name in enumerate(self.models_on_page):
             absolute_index = self.page_start + offset
             is_selected = absolute_index == self.selected_index
             is_current = model_name == self.current_model
+            is_hidden = model_name in self._hidden_models
 
             prefix = " › " if is_selected else "   "
-            style = "fg:ansiwhite bold" if is_selected else "fg:ansibrightblack"
-            lines.append((style, f"{prefix}{model_name}"))
+            if is_hidden:
+                style = (
+                    "fg:ansibrightblack dim"
+                    if is_selected
+                    else "fg:ansibrightblack dim"
+                )
+                arrow_style = (
+                    "fg:ansiwhite bold" if is_selected else "fg:ansibrightblack"
+                )
+            else:
+                style = "fg:ansiwhite bold" if is_selected else "fg:ansibrightblack"
+                arrow_style = style
+            lines.append((arrow_style, prefix))
+            lines.append((style, model_name))
             if is_current:
                 lines.append(("fg:ansigreen", " (active)"))
+            if is_hidden:
+                lines.append(("fg:ansibrightblack dim", " [hidden]"))
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
@@ -366,6 +425,10 @@ class ModelSelectionMenu:
         lines.append(("", "Delete filter char\n"))
         lines.append(("fg:ansibrightblack", "  Ctrl+U  "))
         lines.append(("", "Clear filter\n"))
+        lines.append(("fg:ansibrightblack", "  Space  "))
+        lines.append(("", "Toggle visibility\n"))
+        lines.append(("fg:ansibrightblack", "  Tab  "))
+        lines.append(("", "Show/hide all\n"))
         lines.append(("fg:ansigreen", "  Enter  "))
         lines.append(("", "Select model\n"))
         lines.append(("fg:ansiyellow", "  Esc  "))
@@ -442,6 +505,34 @@ class ModelSelectionMenu:
         def _(event):
             self.result = None
             event.app.exit()
+
+        @kb.add("space")
+        def _(event):
+            """Toggle visibility of the currently highlighted model."""
+            from code_puppy.item_visibility import (
+                load_hidden_models,
+                toggle_model_hidden,
+            )
+
+            model = self._get_selected_model_name()
+            if model is None:
+                return
+            # Silently ignore if trying to hide the currently active model
+            if model == self.current_model:
+                return
+            toggle_model_hidden(model)
+            self._hidden_models = load_hidden_models()
+            self._set_filter_text(self.filter_text)
+            refresh()
+            event.app.invalidate()
+
+        @kb.add("tab")
+        def _(event):
+            """Toggle show-all mode (session-level, not persisted)."""
+            self.show_all = not self.show_all
+            self._set_filter_text(self.filter_text)
+            refresh()
+            event.app.invalidate()
 
         app = Application(
             layout=Layout(Window(content=control, wrap_lines=True)),
