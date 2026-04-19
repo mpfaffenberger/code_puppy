@@ -91,11 +91,11 @@ class TestQuestion:
         assert q.multi_select is False
 
     def test_header_too_long(self, valid_options: list[QuestionOption]) -> None:
-        """Header over 12 chars should fail."""
+        """Header over 60 chars should fail."""
         with pytest.raises(ValidationError):
             Question(
                 question="Which option?",
-                header="TooLongHeader!",  # 14 chars
+                header="A" * 61,  # exceeds MAX_HEADER_LENGTH=60
                 options=valid_options,
             )
 

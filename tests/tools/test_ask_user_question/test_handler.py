@@ -89,19 +89,19 @@ class TestAskUserQuestionValidation:
         assert result.answers == []
 
     def test_header_too_long(self) -> None:
-        """Header over 12 chars should return validation error."""
+        """Header over 60 chars should return validation error."""
         result = ask_user_question(
             [
                 {
                     "question": "Which database?",
-                    "header": "TooLongHeader!",  # 14 chars
+                    "header": "A" * 61,  # exceeds MAX_HEADER_LENGTH=60
                     "options": [{"label": "A"}, {"label": "B"}],
                 }
             ]
         )
         assert result.error is not None
         # The error message includes the constraint info
-        assert "12" in result.error or "header" in result.error.lower()
+        assert "60" in result.error or "header" in result.error.lower()
 
     def test_too_few_options(self) -> None:
         """Less than 2 options should return validation error."""

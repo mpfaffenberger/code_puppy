@@ -6,7 +6,7 @@ from typing import Final
 MAX_QUESTIONS_PER_CALL: Final[int] = 10  # Reasonable limit for a single TUI interaction
 MIN_OPTIONS_PER_QUESTION: Final[int] = 2
 MAX_OPTIONS_PER_QUESTION: Final[int] = 6
-MAX_HEADER_LENGTH: Final[int] = 12
+MAX_HEADER_LENGTH: Final[int] = 60
 MAX_LABEL_LENGTH: Final[int] = 50
 MAX_DESCRIPTION_LENGTH: Final[int] = 200
 MAX_QUESTION_LENGTH: Final[int] = 500

@@ -71,7 +71,7 @@ def ask_user_question(
     Args:
         questions: List of question objects, each containing:
             - question (str): The full question text
-            - header (str): Short label (max 12 chars)
+            - header (str): Short label (max 60 chars)
             - multi_select (bool, optional): Allow multiple selections
             - options (list): 2-6 options, each with label and optional description
         timeout: Inactivity timeout in seconds (default: 300)

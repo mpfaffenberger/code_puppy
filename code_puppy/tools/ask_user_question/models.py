@@ -134,7 +134,7 @@ class Question(BaseModel):
         Field(
             min_length=1,
             max_length=MAX_HEADER_LENGTH,
-            description="Short label for compact display (max 12 chars)",
+            description="Short label for compact display (max 60 chars)",
         ),
     ]
     multi_select: Annotated[
