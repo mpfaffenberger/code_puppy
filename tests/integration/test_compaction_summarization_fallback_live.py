@@ -44,14 +44,22 @@ from tests.integration.test_compaction_live import (
 # -- Gate on SYN_API_KEY ------------------------------------------------------
 
 
+# CI injects fake placeholder values for unset secrets (see .github/workflows/*.yml).
+# Treat those as "not set" so we skip instead of trying to auth against the real API
+# and getting a 401 that we then swallow in run_with_mcp's broad except*.
+_FAKE_CI_KEYS = {"fake-key-for-ci-testing", ""}
+
+
 def _syn_key_available() -> bool:
-    """True if SYN_API_KEY is set via env OR in puppy.cfg."""
-    if os.environ.get("SYN_API_KEY"):
+    """True if SYN_API_KEY is set to a real-looking value (env OR puppy.cfg)."""
+    env_key = os.environ.get("SYN_API_KEY", "").strip()
+    if env_key and env_key not in _FAKE_CI_KEYS:
         return True
     try:
         from code_puppy.model_factory import get_api_key
 
-        return bool(get_api_key("SYN_API_KEY"))
+        cfg_key = (get_api_key("SYN_API_KEY") or "").strip()
+        return bool(cfg_key) and cfg_key not in _FAKE_CI_KEYS
     except Exception:
         return False
 
