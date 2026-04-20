@@ -26,6 +26,7 @@ from code_puppy.agents._history import (
     filter_huge_messages,
     has_pending_tool_calls,
     hash_message,
+    model_token_multiplier,
     prune_interrupted_tool_calls,
     stringify_part,
 )
@@ -145,6 +146,52 @@ class TestEstimateTokensForMessage:
         msg.parts = []
         assert estimate_tokens_for_message(msg) == 1
 
+    def test_opus_47_multiplier_applied(self):
+        msg = ModelRequest([TextPart("hello world " * 50)])
+        baseline = estimate_tokens_for_message(msg)
+        boosted = estimate_tokens_for_message(
+            msg, model_name="claude-opus-4-7-20251231"
+        )
+        # 1.35x scaling, floored — should be substantially larger.
+        assert boosted > baseline
+        assert boosted == max(1, int(baseline * 1.35))
+
+    def test_unknown_model_no_multiplier(self):
+        msg = ModelRequest([TextPart("hello world " * 50)])
+        assert estimate_tokens_for_message(
+            msg, model_name="gpt-4o"
+        ) == estimate_tokens_for_message(msg)
+
+    def test_none_model_no_multiplier(self):
+        msg = ModelRequest([TextPart("hello world " * 50)])
+        assert estimate_tokens_for_message(
+            msg, model_name=None
+        ) == estimate_tokens_for_message(msg)
+
+
+# ---- model_token_multiplier ------------------------------------------------
+
+
+class TestModelTokenMultiplier:
+    @pytest.mark.parametrize(
+        "model_name",
+        [
+            "claude-opus-4-7",
+            "CLAUDE-OPUS-4-7-20251231",
+            "opus-4-7-thinking",
+            "anthropic/4-7-opus-preview",
+        ],
+    )
+    def test_opus_47_variants(self, model_name):
+        assert model_token_multiplier(model_name) == 1.35
+
+    @pytest.mark.parametrize(
+        "model_name",
+        ["", None, "gpt-4o", "claude-opus-4", "sonnet-4-7", "opus-4"],
+    )
+    def test_default_multiplier(self, model_name):
+        assert model_token_multiplier(model_name) == 1.0
+
 
 # ---- estimate_context_overhead ---------------------------------------------
 
@@ -168,6 +215,12 @@ class TestEstimateContextOverhead:
 
     def test_none_tools_ok(self):
         assert estimate_context_overhead("prompt", None) > 0
+
+    def test_opus_47_scales_overhead(self):
+        prompt = "system instructions " * 50
+        baseline = estimate_context_overhead(prompt, None)
+        boosted = estimate_context_overhead(prompt, None, model_name="opus-4-7")
+        assert boosted == max(1, int(baseline * 1.35))
 
 
 # ---- prune_interrupted_tool_calls ------------------------------------------

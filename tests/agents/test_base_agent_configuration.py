@@ -1,4 +1,3 @@
-
 import pytest
 
 from code_puppy.agents.agent_code_puppy import CodePuppyAgent

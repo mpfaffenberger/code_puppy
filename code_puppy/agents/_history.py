@@ -76,19 +76,58 @@ def estimate_tokens(text: str) -> int:
     return max(1, math.floor(len(text) / 2.5))
 
 
-def estimate_tokens_for_message(message: ModelMessage) -> int:
-    """Estimate the number of tokens in a single model message."""
+# Models whose tokenizer the char/2.5 heuristic systematically *under*counts.
+# Bump these by a calibration factor so context-usage math stops lying to us.
+# Substring match is case-insensitive; both naming orders are accepted because
+# vendor naming is a coin flip.
+_TOKEN_MULTIPLIER_RULES: tuple[tuple[tuple[str, ...], float], ...] = (
+    (("opus-4-7", "4-7-opus"), 1.35),
+)
+
+
+def model_token_multiplier(model_name: Optional[str]) -> float:
+    """Per-model fudge factor for our char-based token estimator.
+
+    Returns 1.0 when ``model_name`` is falsy or doesn't match any rule.
+    """
+    if not model_name:
+        return 1.0
+    lowered = model_name.lower()
+    for needles, factor in _TOKEN_MULTIPLIER_RULES:
+        if any(needle in lowered for needle in needles):
+            return factor
+    return 1.0
+
+
+def _apply_multiplier(raw_tokens: int, model_name: Optional[str]) -> int:
+    multiplier = model_token_multiplier(model_name)
+    if multiplier == 1.0:
+        return raw_tokens
+    return max(1, math.floor(raw_tokens * multiplier))
+
+
+def estimate_tokens_for_message(
+    message: ModelMessage,
+    model_name: Optional[str] = None,
+) -> int:
+    """Estimate the number of tokens in a single model message.
+
+    When ``model_name`` is provided, the raw count is scaled by
+    :func:`model_token_multiplier` to compensate for tokenizers that don't
+    play nicely with our char/2.5 heuristic.
+    """
     total = 0
     for part in getattr(message, "parts", []) or []:
         part_str = stringify_part(part)
         if part_str:
             total += estimate_tokens(part_str)
-    return max(1, total)
+    return _apply_multiplier(max(1, total), model_name)
 
 
 def estimate_context_overhead(
     system_prompt: str,
     pydantic_tools: Optional[Dict[str, Any]],
+    model_name: Optional[str] = None,
 ) -> int:
     """Estimate fixed token overhead for the system prompt + tool definitions.
 
@@ -108,7 +147,7 @@ def estimate_context_overhead(
         total += estimate_tokens(system_prompt)
 
     if not pydantic_tools:
-        return total
+        return _apply_multiplier(total, model_name)
 
     for tool_name, tool_func in pydantic_tools.items():
         total += estimate_tokens(tool_name)
@@ -126,7 +165,7 @@ def estimate_context_overhead(
             if annotations:
                 total += estimate_tokens(str(annotations))
 
-    return total
+    return _apply_multiplier(total, model_name)
 
 
 # Pydantic-AI has FOUR part kinds that carry a tool_call_id:
@@ -223,7 +262,12 @@ def has_pending_tool_calls(messages: List[ModelMessage]) -> bool:
     return bool(tool_call_ids - tool_return_ids)
 
 
-def filter_huge_messages(messages: List[ModelMessage]) -> List[ModelMessage]:
+def filter_huge_messages(
+    messages: List[ModelMessage],
+    model_name: Optional[str] = None,
+) -> List[ModelMessage]:
     """Drop individual messages above a 50k-token budget, then prune orphans."""
-    filtered = [m for m in messages if estimate_tokens_for_message(m) < 50000]
+    filtered = [
+        m for m in messages if estimate_tokens_for_message(m, model_name) < 50000
+    ]
     return prune_interrupted_tool_calls(filtered)

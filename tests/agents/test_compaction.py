@@ -326,7 +326,7 @@ class TestCompact:
             get_compaction_threshold=lambda: 0.001,
             get_compaction_strategy=lambda: "summarization",
             get_protected_token_count=lambda: 500,
-            filter_huge_messages=lambda m: m,  # bypass the prune
+            filter_huge_messages=lambda m, *_args, **_kwargs: m,  # bypass the prune
         ):
             new_msgs, dropped = compact(
                 agent=None, messages=msgs, model_max=100, context_overhead=0
@@ -355,6 +355,50 @@ class TestCompact:
         # The injected summary should appear in the result
         assert summary_msg in new_msgs
         assert len(dropped) > 0
+
+    def test_summarization_failure_falls_back_to_truncation(self):
+        """If the summarization agent blows up, compact() must fall back to
+        truncation rather than returning history unchanged (which would let
+        the context window keep growing)."""
+        msgs = _build_long_history(n_turns=20)
+
+        def _boom(instructions, message_history):
+            raise RuntimeError("summarizer model exploded")
+
+        with patch.multiple(
+            _compaction,
+            get_compaction_threshold=lambda: 0.01,
+            get_compaction_strategy=lambda: "summarization",
+            get_protected_token_count=lambda: 500,
+            run_summarization_sync=_boom,
+        ):
+            new_msgs, dropped = compact(
+                agent=None, messages=msgs, model_max=10_000, context_overhead=0
+            )
+
+        # Truncation actually compacted things — history shrank, drops recorded.
+        assert len(new_msgs) < len(msgs), (
+            "Fallback truncation should have shrunk the history"
+        )
+        assert new_msgs[0] is msgs[0], "system msg preserved on fallback"
+        assert len(dropped) > 0, "dropped messages must be recorded for hash tracking"
+
+    def test_summarization_failure_preserves_strategy_setting(self):
+        """The fallback should be one-shot — the user's configured strategy is
+        not silently mutated. (Sanity check: we never call set_compaction_strategy.)"""
+        msgs = _build_long_history(n_turns=20)
+        with patch.multiple(
+            _compaction,
+            get_compaction_threshold=lambda: 0.01,
+            get_compaction_strategy=lambda: "summarization",
+            get_protected_token_count=lambda: 500,
+            run_summarization_sync=lambda *a, **kw: (_ for _ in ()).throw(
+                RuntimeError("nope")
+            ),
+        ):
+            # Just make sure it doesn't raise — config-mutation is a non-event
+            # because we never import any setter in _compaction.py.
+            compact(agent=None, messages=msgs, model_max=10_000, context_overhead=0)
 
 
 # ---------- make_history_processor() -----------------------------------------

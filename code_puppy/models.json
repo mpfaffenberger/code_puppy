@@ -17,11 +17,82 @@
     "context_length": 200000,
     "supported_settings": ["temperature", "top_p"]
   },
-  "zai-glm-4.7-api": {
-    "type": "zai_api",
-    "name": "glm-4.7",
+  "synthetic-qwen3.5-397b": {
+    "type": "custom_openai",
+    "provider": "synthetic",
+    "name": "hf:Qwen/Qwen3.5-397B-A17B",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 262144,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  },
+  "synthetic-Kimi-K2.5-Thinking": {
+    "type": "custom_openai",
+    "provider": "synthetic",
+    "name": "hf:moonshotai/Kimi-K2.5",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 256000,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  },
+  "synthetic-Kimi-K2.5-Thinking-NVFP4": {
+    "type": "custom_openai",
+    "provider": "synthetic",
+    "name": "hf:nvidia/Kimi-K2.5-NVFP4",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 256000,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  },
+  "synthetic-NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4": {
+    "type": "custom_openai",
+    "provider": "synthetic",
+    "name": "hf:nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
+    "custom_endpoint": {
+      "url": "https://api.synthetic.new/openai/v1/",
+      "api_key": "$SYN_API_KEY"
+    },
+    "context_length": 131072,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  },
+  "wafer.ai-glm-5.1": {
+    "type": "custom_openai",
+    "provider": "wafer",
+    "name": "GLM-5.1",
+    "custom_endpoint": {
+      "url": "https://pass.wafer.ai/v1",
+      "api_key": "$WAFER_API_KEY"
+    },
     "context_length": 200000,
-    "supported_settings": ["temperature", "extended_thinking", "budget_tokens", "interleaved_thinking"]
+    "supported_settings": ["temperature", "seed", "top_p", "max_tokens"]
+  },
+  "wafer.ai-Qwen3.5-397B-A17B": {
+    "type": "custom_openai",
+    "provider": "wafer",
+    "name": "Qwen3.5-397B-A17B",
+    "custom_endpoint": {
+      "url": "https://pass.wafer.ai/v1",
+      "api_key": "$WAFER_API_KEY"
+    },
+    "context_length": 262144,
+    "supported_settings": ["temperature", "seed", "top_p", "max_tokens"]
+  },
+  "firepass-kimi-k2p5-turbo": {
+    "type": "custom_openai",
+    "provider": "firepass",
+    "name": "accounts/fireworks/routers/kimi-k2p5-turbo",
+    "custom_endpoint": {
+      "url": "https://api.fireworks.ai/inference/v1",
+      "api_key": "$FIREWORKS_API_KEY"
+    },
+    "context_length": 262144,
+    "supported_settings": ["temperature", "seed", "top_p"]
   },
   "zai-glm-5-coding": {
     "type": "zai_coding",
