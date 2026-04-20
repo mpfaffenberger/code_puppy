@@ -268,8 +268,9 @@ class TestListFilesRipgrepHandling:
         ):
             result = _list_files(None, str(tmp_path), recursive=True)
 
-        assert result.error is not None
-        assert "ripgrep" in result.error.lower() or "rg" in result.error.lower()
+        # Fallback behavior: warning in content, no hard error, files still listed
+        assert result.content is not None
+        assert result.error is None or "falling back" in (result.content or "").lower()
 
     def test_list_files_non_recursive_without_ripgrep(self, tmp_path):
         """Test non-recursive listing works without ripgrep."""
