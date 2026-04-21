@@ -34,6 +34,11 @@ from pydantic_ai import (
     UsageLimits,
 )
 
+try:  # pragma: no cover - pydantic-ai version dependent
+    from pydantic_ai.exceptions import ModelHTTPError
+except ImportError:
+    ModelHTTPError = None  # type: ignore[misc,assignment]
+
 try:  # pragma: no cover - optional dependency
     from openai import APIError as OpenAIAPIError
 except ImportError:
@@ -130,6 +135,18 @@ def should_retry_streaming(exc: Exception) -> bool:
                 return True
             if body_type in {"server_error", "internal_server_error", "api_error"}:
                 return _matches_retryable_snippet(body_msg)
+
+    # Retry on pydantic-ai ModelHTTPError rate limits (e.g. 429 from providers)
+    if ModelHTTPError is not None and isinstance(exc, ModelHTTPError):
+        status_code = getattr(exc, "status_code", None)
+        if status_code == 429:
+            return True
+        # Retry on 5xx server errors as well
+        if isinstance(status_code, int) and status_code >= 500:
+            return True
+        if _matches_retryable_snippet(msg):
+            return True
+
     return False
 
 
