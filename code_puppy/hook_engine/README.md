@@ -71,9 +71,21 @@ Also available as environment variables: `CLAUDE_TOOL_INPUT`, `CLAUDE_TOOL_NAME`
 
 ## Exit Codes
 
-- `0` - Allow (stdout shown in transcript)
+- `0` - Allow (stdout injected into model context for ``SessionStart``,
+  ``UserPromptSubmit``, and ``PreToolUse`` events; observation-only for others)
 - `1` - Block (stderr shown as block reason)
 - `2` - Error feedback to Claude without blocking
+
+### Where stdout goes
+
+| Event            | Destination of ``stdout`` on exit 0                |
+|------------------|----------------------------------------------------|
+| ``SessionStart`` | Appended to the agent's system prompt (once)       |
+| ``UserPromptSubmit`` | Prepended to the user prompt before the model sees it |
+| ``PreToolUse``   | Prepended to the tool's observation result         |
+| ``PostToolUse``  | Observation only — not injected                    |
+| ``Stop`` / ``SubagentStop`` | Observation only                        |
+| ``SessionEnd`` / ``PreCompact`` / ``Notification`` | Observation only  |
 
 See `docs/HOOKS.md` for the full user-facing guide.
 
