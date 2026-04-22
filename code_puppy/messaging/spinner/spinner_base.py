@@ -4,25 +4,39 @@ Base spinner implementation to be extended for different UI modes.
 
 from abc import ABC, abstractmethod
 from threading import Lock
+from typing import List
 
-from code_puppy.config import get_puppy_name
+from code_puppy.config import DEFAULT_PUPPY_EMOJI, get_puppy_emoji, get_puppy_name
+
+
+def _build_spinner_frames(emoji: str) -> List[str]:
+    """Build the bouncing-puppy frame list for a given emoji.
+
+    Single source of truth so the static FRAMES backward-compat attribute and
+    the live per-frame render in current_frame can't drift apart.
+    """
+    return [
+        f"({emoji}    ) ",
+        f"( {emoji}   ) ",
+        f"(  {emoji}  ) ",
+        f"(   {emoji} ) ",
+        f"(    {emoji}) ",
+        f"(   {emoji} ) ",
+        f"(  {emoji}  ) ",
+        f"( {emoji}   ) ",
+        f"({emoji}    ) ",
+    ]
 
 
 class SpinnerBase(ABC):
     """Abstract base class for spinner implementations."""
 
-    # Shared spinner frames across implementations
-    FRAMES = [
-        "(🐶    ) ",
-        "( 🐶   ) ",
-        "(  🐶  ) ",
-        "(   🐶 ) ",
-        "(    🐶) ",
-        "(   🐶 ) ",
-        "(  🐶  ) ",
-        "( 🐶   ) ",
-        "(🐶    ) ",
-    ]
+    # Frozen-at-import default-emoji frames. Kept as a class attribute for
+    # backward compatibility (tests and any external code that references
+    # SpinnerBase.FRAMES). The actual animation pulls live frames via
+    # current_frame so the user's configured puppy_emoji takes effect
+    # without a restart.
+    FRAMES = _build_spinner_frames(DEFAULT_PUPPY_EMOJI)
     puppy_name = get_puppy_name().title()
 
     # Default message when processing
@@ -61,8 +75,8 @@ class SpinnerBase(ABC):
 
     @property
     def current_frame(self):
-        """Get the current frame."""
-        return self.FRAMES[self._frame_index]
+        """Get the current frame, rendered with the user's live puppy_emoji."""
+        return _build_spinner_frames(get_puppy_emoji())[self._frame_index]
 
     @property
     def is_spinning(self):
