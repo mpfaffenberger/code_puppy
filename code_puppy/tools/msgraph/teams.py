@@ -488,6 +488,7 @@ def msgraph_send_channel_message(
 
     try:
         # --- approval gate ---
+        # Pass channel_id as recipient for whitelist lookup (channel:Team/Channel)
         require_user_approval(
             "Teams Channel Message",
             {
@@ -495,6 +496,8 @@ def msgraph_send_channel_message(
                 "Channel ID": channel_id,
                 "Content": content,
             },
+            recipients=[channel_id],
+            context="teams",
         )
 
         client = get_msgraph_client()
@@ -740,9 +743,12 @@ def msgraph_send_chat_message(
 
     try:
         # --- approval gate ---
+        # Pass chat_id as recipient to enable 48:notes self-skip and whitelist lookup
         require_user_approval(
             "Teams Chat Message",
             {"Chat ID": chat_id, "Content": content},
+            recipients=[chat_id],
+            context="teams",
         )
 
         client = get_msgraph_client()
@@ -915,6 +921,8 @@ def msgraph_send_direct_message(
         require_user_approval(
             "Teams Direct Message",
             {"Recipient": user_email, "Content": content},
+            recipients=[user_email],  # Enable self-send skip and whitelist lookup
+            context="teams",
         )
 
         client = get_msgraph_client()

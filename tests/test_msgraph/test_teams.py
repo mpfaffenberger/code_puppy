@@ -26,6 +26,15 @@ def mock_context():
     return Mock()
 
 
+@pytest.fixture(autouse=True)
+def auto_approve_msgraph_actions():
+    """Auto-approve all msgraph approval requests in tests."""
+    with patch(
+        "code_puppy.tools.msgraph.teams.require_user_approval"
+    ):
+        yield
+
+
 @pytest.fixture
 def mock_teams_data():
     """Create mock teams list data from MS Graph API."""
