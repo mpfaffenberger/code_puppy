@@ -176,6 +176,8 @@ def slide_done(trigger_oauth: str | None) -> str:
         content += f"[bold cyan]→ {trigger_oauth.title()} OAuth next![/bold cyan]\n\n"
 
     content += "[dim]Re-run anytime: [/dim][cyan]/tutorial[/cyan]\n"
-    content += f"\n[bold yellow]Press Enter to start coding! {get_puppy_emoji()}[/bold yellow]"
+    content += (
+        f"\n[bold yellow]Press Enter to start coding! {get_puppy_emoji()}[/bold yellow]"
+    )
     content += get_nav_footer()
     return content
