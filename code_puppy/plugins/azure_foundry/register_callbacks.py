@@ -422,7 +422,10 @@ def _create_azure_foundry_openai_model(
         emit_error(f"Failed to create Azure Foundry OpenAI model '{model_name}': {e}")
         return None
 
-    from code_puppy.provider_identity import make_openai_provider, resolve_provider_identity
+    from code_puppy.provider_identity import (
+        make_openai_provider,
+        resolve_provider_identity,
+    )
 
     resource_config = model_config.get("foundry_resource", f"${ENV_FOUNDRY_RESOURCE}")
     resource_name = resolve_env_var(resource_config)
@@ -461,7 +464,9 @@ def _create_azure_foundry_openai_model(
         model = OpenAIChatModel(model_name=deployment_name, provider=provider)
         logger.info(
             "Created Azure Foundry OpenAI model: %s -> %s @ %s",
-            model_name, deployment_name, resource_name,
+            model_name,
+            deployment_name,
+            resource_name,
         )
         return model
 

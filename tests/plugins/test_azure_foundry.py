@@ -1155,9 +1155,21 @@ class TestAddDiscoveredModels:
         models_path.write_text("{}")
 
         deployments = [
-            AzureDeployment("gpt-5-4", "gpt-5.4", "OpenAI", "1", "Succeeded", "GlobalStandard", 10),
-            AzureDeployment("claude-opus", "claude-opus-4-6", "Anthropic", "1", "Succeeded", "GlobalStandard", 1),
-            AzureDeployment("o4-mini", "o4-mini", "OpenAI", "1", "Succeeded", "GlobalStandard", 10),
+            AzureDeployment(
+                "gpt-5-4", "gpt-5.4", "OpenAI", "1", "Succeeded", "GlobalStandard", 10
+            ),
+            AzureDeployment(
+                "claude-opus",
+                "claude-opus-4-6",
+                "Anthropic",
+                "1",
+                "Succeeded",
+                "GlobalStandard",
+                1,
+            ),
+            AzureDeployment(
+                "o4-mini", "o4-mini", "OpenAI", "1", "Succeeded", "GlobalStandard", 10
+            ),
         ]
 
         with patch(
@@ -1226,9 +1238,7 @@ class TestCreateAzureFoundryOpenAIModel:
             _create_azure_foundry_openai_model,
         )
 
-        with patch(
-            "code_puppy.plugins.azure_foundry.register_callbacks.emit_warning"
-        ):
+        with patch("code_puppy.plugins.azure_foundry.register_callbacks.emit_warning"):
             result = _create_azure_foundry_openai_model(
                 "foundry-gpt", {"foundry_resource": "my-resource"}, {}
             )
@@ -1295,5 +1305,11 @@ class TestCreateAzureFoundryOpenAIModel:
                             assert result is mock_model
                             mock_client_cls.assert_called_once()
                             call_kwargs = mock_client_cls.call_args.kwargs
-                            assert call_kwargs["azure_endpoint"] == "https://my-resource.openai.azure.com"
-                            assert call_kwargs["azure_ad_token_provider"] == mock_provider.get_token
+                            assert (
+                                call_kwargs["azure_endpoint"]
+                                == "https://my-resource.openai.azure.com"
+                            )
+                            assert (
+                                call_kwargs["azure_ad_token_provider"]
+                                == mock_provider.get_token
+                            )
