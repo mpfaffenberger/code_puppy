@@ -241,19 +241,67 @@ def add_foundry_models_to_config(
     return []
 
 
-def remove_foundry_models_from_config() -> list[str]:
-    """Remove all Azure Foundry model configurations from extra_models.json.
+FOUNDRY_TYPES = {"azure_foundry", "azure_foundry_openai"}
 
-    Returns:
-        List of model keys that were removed.
+
+def add_discovered_models_to_config(
+    resource_name: str,
+    deployments: list,
+) -> list[str]:
+    """Add auto-discovered deployments to extra_models.json.
+
+    Classifies each deployment by model format (Anthropic vs OpenAI)
+    and creates the appropriate model config.
     """
+    from .discovery import AzureDeployment
+
+    models = load_extra_models()
+    added: list[str] = []
+
+    for d in deployments:
+        if not isinstance(d, AzureDeployment):
+            continue
+
+        key = f"foundry-{d.name}"
+
+        if d.model_format == "Anthropic":
+            tier = "haiku"
+            for t in ("opus", "sonnet"):
+                if t in d.model_name.lower():
+                    tier = t
+                    break
+            models[key] = build_foundry_model_config(
+                deployment_name=d.name,
+                model_tier=tier,
+                foundry_resource=resource_name,
+            )
+            added.append(key)
+
+        elif d.model_format == "OpenAI":
+            models[key] = {
+                "type": "azure_foundry_openai",
+                "provider": "azure_foundry_openai",
+                "name": d.name,
+                "foundry_resource": resource_name,
+                "context_length": 128000,
+                "supported_settings": ["temperature"],
+            }
+            added.append(key)
+
+    if added and save_extra_models(models):
+        return added
+    return []
+
+
+def remove_foundry_models_from_config() -> list[str]:
+    """Remove all Azure Foundry model configurations from extra_models.json."""
     models = load_extra_models()
     removed_models: list[str] = []
 
     keys_to_remove = [
         key
         for key, config in models.items()
-        if isinstance(config, dict) and config.get("type") == "azure_foundry"
+        if isinstance(config, dict) and config.get("type") in FOUNDRY_TYPES
     ]
 
     for key in keys_to_remove:
@@ -269,14 +317,10 @@ def remove_foundry_models_from_config() -> list[str]:
 
 
 def get_foundry_models_from_config() -> dict[str, Any]:
-    """Get all Azure Foundry model configurations from extra_models.json.
-
-    Returns:
-        Dictionary of model key -> config for all Foundry models.
-    """
+    """Get all Azure Foundry model configurations from extra_models.json."""
     models = load_extra_models()
     return {
         key: config
         for key, config in models.items()
-        if isinstance(config, dict) and config.get("type") == "azure_foundry"
+        if isinstance(config, dict) and config.get("type") in FOUNDRY_TYPES
     }

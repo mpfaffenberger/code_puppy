@@ -47,6 +47,7 @@ _TYPE_PROVIDER_OVERRIDES = {
     "gemini": "google",
     "gemini_oauth": "google",
     "azure_openai": "azure_openai",
+    "azure_foundry_openai": "azure_foundry_openai",
 }
 
 _KEY_PREFIX_OVERRIDES = (
