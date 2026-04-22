@@ -537,6 +537,7 @@ class TestGetFoundryModelsFromConfig:
 
         mixed_config = {
             "foundry-model": {"type": "azure_foundry", "name": "test"},
+            "foundry-openai": {"type": "azure_foundry_openai", "name": "gpt-5"},
             "openai-model": {"type": "openai", "name": "gpt-4"},
             "anthropic-model": {"type": "anthropic", "name": "claude"},
         }
@@ -549,8 +550,9 @@ class TestGetFoundryModelsFromConfig:
             return_value=models_path,
         ):
             foundry_models = get_foundry_models_from_config()
-            assert len(foundry_models) == 1
+            assert len(foundry_models) == 2
             assert "foundry-model" in foundry_models
+            assert "foundry-openai" in foundry_models
 
 
 # ============================================================================
@@ -688,15 +690,17 @@ class TestRegisterModelTypes:
     """Test model type registration."""
 
     def test_register_model_types(self):
-        """Test that azure_foundry model type is registered."""
+        """Test that both model types are registered."""
         from code_puppy.plugins.azure_foundry.register_callbacks import (
             _register_model_types,
         )
 
         registrations = _register_model_types()
-        assert len(registrations) == 1
-        assert registrations[0]["type"] == "azure_foundry"
-        assert callable(registrations[0]["handler"])
+        assert len(registrations) == 2
+        types = {r["type"] for r in registrations}
+        assert "azure_foundry" in types
+        assert "azure_foundry_openai" in types
+        assert all(callable(r["handler"]) for r in registrations)
 
 
 class TestCreateAzureFoundryModel:
@@ -869,3 +873,427 @@ class TestPluginCallbackRegistration:
         assert "foundry-status" in command_names
         assert "foundry-setup" in command_names
         assert "foundry-remove" in command_names
+
+
+# ============================================================================
+# DISCOVERY MODULE TESTS
+# ============================================================================
+
+
+class TestDiscovery:
+    """Test Azure AI Services deployment discovery."""
+
+    def test_azure_account_dataclass(self):
+        """Test AzureAccount dataclass creation."""
+        from code_puppy.plugins.azure_foundry.discovery import AzureAccount
+
+        account = AzureAccount(
+            resource_id="/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.CognitiveServices/accounts/my-ai",
+            name="my-ai",
+            location="eastus2",
+            resource_group="rg1",
+            subscription_id="sub1",
+        )
+        assert account.name == "my-ai"
+        assert account.location == "eastus2"
+
+    def test_azure_deployment_dataclass(self):
+        """Test AzureDeployment dataclass creation."""
+        from code_puppy.plugins.azure_foundry.discovery import AzureDeployment
+
+        dep = AzureDeployment(
+            name="gpt-5-4",
+            model_name="gpt-5.4",
+            model_format="OpenAI",
+            model_version="2026-03-05",
+            provisioning_state="Succeeded",
+            sku_name="GlobalStandard",
+            capacity=10,
+        )
+        assert dep.model_format == "OpenAI"
+        assert dep.provisioning_state == "Succeeded"
+
+    def test_get_management_token_failure(self):
+        """Test management token returns None on failure."""
+        from code_puppy.plugins.azure_foundry.discovery import _get_management_token
+
+        with patch(
+            "azure.identity.AzureCliCredential",
+            side_effect=Exception("not logged in"),
+        ):
+            assert _get_management_token() is None
+
+    def test_management_get_success(self):
+        """Test successful management API GET."""
+        from code_puppy.plugins.azure_foundry.discovery import _management_get
+
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"value": []}
+
+        with patch("httpx.get", return_value=mock_resp):
+            result = _management_get("token123", "https://management.azure.com/test")
+            assert result == {"value": []}
+
+    def test_management_get_failure(self):
+        """Test management API GET returns None on error."""
+        from code_puppy.plugins.azure_foundry.discovery import _management_get
+
+        mock_resp = Mock()
+        mock_resp.status_code = 403
+
+        with patch("httpx.get", return_value=mock_resp):
+            result = _management_get("token123", "https://management.azure.com/test")
+            assert result is None
+
+    def test_find_account_success(self):
+        """Test finding an account across subscriptions."""
+        from code_puppy.plugins.azure_foundry.discovery import find_account
+
+        mock_token = Mock()
+        mock_token.token = "mgmt-token"
+
+        def mock_get(url, **kwargs):
+            resp = Mock()
+            resp.status_code = 200
+            if "subscriptions?" in url:
+                resp.json.return_value = {
+                    "value": [{"subscriptionId": "sub-123", "state": "Enabled"}]
+                }
+            elif "resources?" in url:
+                resp.json.return_value = {
+                    "value": [
+                        {
+                            "id": "/subscriptions/sub-123/resourceGroups/my-rg/providers/Microsoft.CognitiveServices/accounts/my-ai",
+                            "location": "eastus2",
+                        }
+                    ]
+                }
+            return resp
+
+        with patch("azure.identity.AzureCliCredential") as mock_cred_cls:
+            mock_cred_cls.return_value.get_token.return_value = mock_token
+            with patch("httpx.get", side_effect=mock_get):
+                account = find_account("my-ai")
+
+                assert account is not None
+                assert account.name == "my-ai"
+                assert account.subscription_id == "sub-123"
+                assert account.resource_group == "my-rg"
+                assert account.location == "eastus2"
+
+    def test_find_account_not_found(self):
+        """Test find_account returns None when not found."""
+        from code_puppy.plugins.azure_foundry.discovery import find_account
+
+        mock_token = Mock()
+        mock_token.token = "mgmt-token"
+
+        def mock_get(url, **kwargs):
+            resp = Mock()
+            resp.status_code = 200
+            if "subscriptions?" in url:
+                resp.json.return_value = {
+                    "value": [{"subscriptionId": "sub-123", "state": "Enabled"}]
+                }
+            else:
+                resp.json.return_value = {"value": []}
+            return resp
+
+        with patch("azure.identity.AzureCliCredential") as mock_cred_cls:
+            mock_cred_cls.return_value.get_token.return_value = mock_token
+            with patch("httpx.get", side_effect=mock_get):
+                assert find_account("nonexistent") is None
+
+    def test_list_deployments_success(self):
+        """Test listing deployments on an account."""
+        from code_puppy.plugins.azure_foundry.discovery import (
+            AzureAccount,
+            list_deployments,
+        )
+
+        account = AzureAccount(
+            resource_id="/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.CognitiveServices/accounts/my-ai",
+            name="my-ai",
+            location="eastus2",
+            resource_group="rg1",
+            subscription_id="sub1",
+        )
+
+        mock_token = Mock()
+        mock_token.token = "mgmt-token"
+
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "value": [
+                {
+                    "name": "gpt-5-4",
+                    "properties": {
+                        "model": {
+                            "name": "gpt-5.4",
+                            "format": "OpenAI",
+                            "version": "2026-03-05",
+                        },
+                        "provisioningState": "Succeeded",
+                    },
+                    "sku": {"name": "GlobalStandard", "capacity": 10},
+                },
+                {
+                    "name": "claude-opus",
+                    "properties": {
+                        "model": {
+                            "name": "claude-opus-4-6",
+                            "format": "Anthropic",
+                            "version": "1",
+                        },
+                        "provisioningState": "Failed",
+                    },
+                    "sku": {"name": "GlobalStandard", "capacity": 1},
+                },
+            ]
+        }
+
+        with patch("azure.identity.AzureCliCredential") as mock_cred_cls:
+            mock_cred_cls.return_value.get_token.return_value = mock_token
+            with patch("httpx.get", return_value=mock_resp):
+                deps = list_deployments(account)
+
+                assert len(deps) == 2
+                assert deps[0].name == "gpt-5-4"
+                assert deps[0].model_format == "OpenAI"
+                assert deps[0].provisioning_state == "Succeeded"
+                assert deps[1].name == "claude-opus"
+                assert deps[1].model_format == "Anthropic"
+                assert deps[1].provisioning_state == "Failed"
+
+
+# ============================================================================
+# DISCOVERED MODELS CONFIG TESTS
+# ============================================================================
+
+
+class TestAddDiscoveredModels:
+    """Test adding auto-discovered models to config."""
+
+    def test_add_discovered_openai_model(self, tmp_path):
+        """Test adding a discovered OpenAI deployment."""
+        from code_puppy.plugins.azure_foundry.discovery import AzureDeployment
+        from code_puppy.plugins.azure_foundry.utils import (
+            add_discovered_models_to_config,
+            load_extra_models,
+        )
+
+        models_path = tmp_path / "models.json"
+        models_path.write_text("{}")
+
+        deployments = [
+            AzureDeployment(
+                name="gpt-5-4",
+                model_name="gpt-5.4",
+                model_format="OpenAI",
+                model_version="2026-03-05",
+                provisioning_state="Succeeded",
+                sku_name="GlobalStandard",
+                capacity=10,
+            ),
+        ]
+
+        with patch(
+            "code_puppy.plugins.azure_foundry.utils.get_extra_models_path",
+            return_value=models_path,
+        ):
+            added = add_discovered_models_to_config("my-resource", deployments)
+            assert "foundry-gpt-5-4" in added
+
+            models = load_extra_models()
+            assert models["foundry-gpt-5-4"]["type"] == "azure_foundry_openai"
+            assert models["foundry-gpt-5-4"]["name"] == "gpt-5-4"
+            assert models["foundry-gpt-5-4"]["foundry_resource"] == "my-resource"
+
+    def test_add_discovered_anthropic_model(self, tmp_path):
+        """Test adding a discovered Anthropic deployment."""
+        from code_puppy.plugins.azure_foundry.discovery import AzureDeployment
+        from code_puppy.plugins.azure_foundry.utils import (
+            add_discovered_models_to_config,
+            load_extra_models,
+        )
+
+        models_path = tmp_path / "models.json"
+        models_path.write_text("{}")
+
+        deployments = [
+            AzureDeployment(
+                name="claude-opus-4-6",
+                model_name="claude-opus-4-6",
+                model_format="Anthropic",
+                model_version="1",
+                provisioning_state="Succeeded",
+                sku_name="GlobalStandard",
+                capacity=1,
+            ),
+        ]
+
+        with patch(
+            "code_puppy.plugins.azure_foundry.utils.get_extra_models_path",
+            return_value=models_path,
+        ):
+            added = add_discovered_models_to_config("my-resource", deployments)
+            assert "foundry-claude-opus-4-6" in added
+
+            models = load_extra_models()
+            assert models["foundry-claude-opus-4-6"]["type"] == "azure_foundry"
+
+    def test_add_discovered_mixed_models(self, tmp_path):
+        """Test adding both Anthropic and OpenAI deployments."""
+        from code_puppy.plugins.azure_foundry.discovery import AzureDeployment
+        from code_puppy.plugins.azure_foundry.utils import (
+            add_discovered_models_to_config,
+        )
+
+        models_path = tmp_path / "models.json"
+        models_path.write_text("{}")
+
+        deployments = [
+            AzureDeployment("gpt-5-4", "gpt-5.4", "OpenAI", "1", "Succeeded", "GlobalStandard", 10),
+            AzureDeployment("claude-opus", "claude-opus-4-6", "Anthropic", "1", "Succeeded", "GlobalStandard", 1),
+            AzureDeployment("o4-mini", "o4-mini", "OpenAI", "1", "Succeeded", "GlobalStandard", 10),
+        ]
+
+        with patch(
+            "code_puppy.plugins.azure_foundry.utils.get_extra_models_path",
+            return_value=models_path,
+        ):
+            added = add_discovered_models_to_config("my-resource", deployments)
+            assert len(added) == 3
+
+    def test_remove_both_types(self, tmp_path):
+        """Test remove cleans up both azure_foundry and azure_foundry_openai."""
+        from code_puppy.plugins.azure_foundry.utils import (
+            remove_foundry_models_from_config,
+        )
+
+        mixed = {
+            "foundry-claude": {"type": "azure_foundry", "name": "claude"},
+            "foundry-gpt": {"type": "azure_foundry_openai", "name": "gpt"},
+            "other-model": {"type": "openai", "name": "direct"},
+        }
+        models_path = tmp_path / "models.json"
+        with open(models_path, "w") as f:
+            json.dump(mixed, f)
+
+        with patch(
+            "code_puppy.plugins.azure_foundry.utils.get_extra_models_path",
+            return_value=models_path,
+        ):
+            removed = remove_foundry_models_from_config()
+            assert "foundry-claude" in removed
+            assert "foundry-gpt" in removed
+            assert len(removed) == 2
+
+            with open(models_path) as f:
+                remaining = json.load(f)
+            assert "other-model" in remaining
+
+
+# ============================================================================
+# OPENAI MODEL HANDLER TESTS
+# ============================================================================
+
+
+class TestCreateAzureFoundryOpenAIModel:
+    """Test Azure Foundry OpenAI model creation."""
+
+    def test_create_model_no_resource(self):
+        """Test model creation fails without resource."""
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _create_azure_foundry_openai_model,
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("ANTHROPIC_FOUNDRY_RESOURCE", None)
+            with patch(
+                "code_puppy.plugins.azure_foundry.register_callbacks.emit_warning"
+            ):
+                result = _create_azure_foundry_openai_model(
+                    "foundry-gpt", {"name": "gpt-5-4"}, {}
+                )
+                assert result is None
+
+    def test_create_model_no_deployment_name(self):
+        """Test model creation fails without deployment name."""
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _create_azure_foundry_openai_model,
+        )
+
+        with patch(
+            "code_puppy.plugins.azure_foundry.register_callbacks.emit_warning"
+        ):
+            result = _create_azure_foundry_openai_model(
+                "foundry-gpt", {"foundry_resource": "my-resource"}, {}
+            )
+            assert result is None
+
+    def test_create_model_auth_failed(self):
+        """Test model creation fails when not authenticated."""
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _create_azure_foundry_openai_model,
+        )
+
+        mock_provider = Mock()
+        mock_provider.check_auth_status.return_value = (False, "Not auth", None)
+
+        with patch(
+            "code_puppy.plugins.azure_foundry.register_callbacks.get_token_provider",
+            return_value=mock_provider,
+        ):
+            with patch(
+                "code_puppy.plugins.azure_foundry.register_callbacks.emit_warning"
+            ):
+                result = _create_azure_foundry_openai_model(
+                    "foundry-gpt",
+                    {"name": "gpt-5-4", "foundry_resource": "my-resource"},
+                    {},
+                )
+                assert result is None
+
+    def test_create_model_success(self):
+        """Test successful OpenAI model creation."""
+        from code_puppy.plugins.azure_foundry.register_callbacks import (
+            _create_azure_foundry_openai_model,
+        )
+
+        mock_provider = Mock()
+        mock_provider.check_auth_status.return_value = (True, "Valid", "user@test.com")
+        mock_provider.get_token = Mock(return_value="token123")
+
+        mock_model = Mock()
+
+        with patch(
+            "code_puppy.plugins.azure_foundry.register_callbacks.get_token_provider",
+            return_value=mock_provider,
+        ):
+            with patch("openai.AsyncAzureOpenAI") as mock_client_cls:
+                with patch(
+                    "code_puppy.provider_identity.resolve_provider_identity",
+                    return_value="azure_foundry_openai",
+                ):
+                    with patch(
+                        "code_puppy.provider_identity.make_openai_provider",
+                        return_value=Mock(),
+                    ):
+                        with patch(
+                            "pydantic_ai.models.openai.OpenAIChatModel",
+                            return_value=mock_model,
+                        ):
+                            result = _create_azure_foundry_openai_model(
+                                "foundry-gpt",
+                                {"name": "gpt-5-4", "foundry_resource": "my-resource"},
+                                {},
+                            )
+
+                            assert result is mock_model
+                            mock_client_cls.assert_called_once()
+                            call_kwargs = mock_client_cls.call_args.kwargs
+                            assert call_kwargs["azure_endpoint"] == "https://my-resource.openai.azure.com"
+                            assert call_kwargs["azure_ad_token_provider"] == mock_provider.get_token
