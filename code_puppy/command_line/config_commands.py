@@ -41,6 +41,7 @@ def handle_show_command(command: str) -> bool:
         get_openai_verbosity,
         get_owner_name,
         get_protected_token_count,
+        get_puppy_emoji,
         get_puppy_name,
         get_resume_message_count,
         get_temperature,
@@ -53,6 +54,7 @@ def handle_show_command(command: str) -> bool:
     from code_puppy.messaging import emit_info
 
     puppy_name = get_puppy_name()
+    puppy_emoji = get_puppy_emoji()
     owner_name = get_owner_name()
     model = get_active_model()
     yolo_mode = get_yolo_mode()
@@ -67,9 +69,10 @@ def handle_show_command(command: str) -> bool:
     current_agent = get_current_agent()
     default_agent = get_default_agent()
 
-    status_msg = f"""[bold magenta]🐶 Puppy Status[/bold magenta]
+    status_msg = f"""[bold magenta]{puppy_emoji} Puppy Status[/bold magenta]
 
 [bold]puppy_name:[/bold]            [cyan]{puppy_name}[/cyan]
+[bold]puppy_emoji:[/bold]           [cyan]{puppy_emoji}[/cyan]
 [bold]owner_name:[/bold]            [cyan]{owner_name}[/cyan]
 [bold]current_agent:[/bold]         [magenta]{current_agent.display_name}[/magenta]
 [bold]default_agent:[/bold]        [cyan]{default_agent}[/cyan]

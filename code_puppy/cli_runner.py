@@ -29,6 +29,7 @@ from code_puppy.config import (
     DBOS_DATABASE_URL,
     ensure_config_exists,
     finalize_autosave_session,
+    get_puppy_emoji,
     get_use_dbos,
     initialize_command_history_file,
     save_command_to_history,
@@ -141,7 +142,7 @@ async def main():
             # Print directly to console to avoid the 'dim' style from emit_system_message
             display_console.print("\n".join(lines))
         except ImportError:
-            emit_system_message("🐶 Code Puppy is Loading...")
+            emit_system_message(f"{get_puppy_emoji()} Code Puppy is Loading...")
 
         # Truecolor warning moved to interactive_mode() so it prints LAST
         # after all the help stuff - max visibility for the ugly red box!
@@ -434,7 +435,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
                 get_message_bus().emit(response_msg)
 
-                emit_success("🐶 Continuing in Interactive Mode")
+                emit_success(f"{get_puppy_emoji()} Continuing in Interactive Mode")
                 emit_system_message(
                     "Your command and response are preserved in the conversation history."
                 )

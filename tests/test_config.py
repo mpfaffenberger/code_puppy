@@ -267,6 +267,66 @@ class TestSimpleGetters:
         mock_get_value.assert_called_once_with("owner_name")
 
 
+class TestPuppyEmoji:
+    @patch("code_puppy.config.get_value")
+    def test_get_puppy_emoji_default_when_unset(self, mock_get_value):
+        mock_get_value.return_value = None
+        assert cp_config.get_puppy_emoji() == cp_config.DEFAULT_PUPPY_EMOJI
+        mock_get_value.assert_called_once_with("puppy_emoji")
+
+    @patch("code_puppy.config.get_value")
+    def test_get_puppy_emoji_returns_configured_value(self, mock_get_value):
+        mock_get_value.return_value = "🦊"
+        assert cp_config.get_puppy_emoji() == "🦊"
+
+    @patch("code_puppy.config.get_value")
+    def test_get_puppy_emoji_strips_whitespace(self, mock_get_value):
+        mock_get_value.return_value = "  🐱  "
+        assert cp_config.get_puppy_emoji() == "🐱"
+
+    @patch("code_puppy.config.get_value")
+    def test_get_puppy_emoji_blank_falls_back_to_default(self, mock_get_value):
+        mock_get_value.return_value = "   "
+        assert cp_config.get_puppy_emoji() == cp_config.DEFAULT_PUPPY_EMOJI
+
+    @patch("code_puppy.config.set_config_value")
+    def test_set_puppy_emoji_persists_trimmed_value(self, mock_set):
+        result = cp_config.set_puppy_emoji("  🐺  ")
+        assert result == "🐺"
+        mock_set.assert_called_once_with("puppy_emoji", "🐺")
+
+    @patch("code_puppy.config.set_config_value")
+    def test_set_puppy_emoji_rejects_empty(self, mock_set):
+        with pytest.raises(ValueError):
+            cp_config.set_puppy_emoji("")
+        with pytest.raises(ValueError):
+            cp_config.set_puppy_emoji("   ")
+        mock_set.assert_not_called()
+
+    @patch("code_puppy.config.set_config_value")
+    def test_set_puppy_emoji_rejects_none(self, mock_set):
+        with pytest.raises(ValueError):
+            cp_config.set_puppy_emoji(None)  # type: ignore[arg-type]
+        mock_set.assert_not_called()
+
+    @patch("code_puppy.config.set_config_value")
+    def test_set_puppy_emoji_rejects_too_long(self, mock_set):
+        # 17 'a' chars exceeds the 16-char cap
+        with pytest.raises(ValueError):
+            cp_config.set_puppy_emoji("a" * 17)
+        mock_set.assert_not_called()
+
+    @patch("code_puppy.config.set_config_value")
+    def test_set_puppy_emoji_accepts_zwj_sequence(self, mock_set):
+        # 🐕‍🦺 is 4 codepoints / 4 chars in Python; well within the cap.
+        result = cp_config.set_puppy_emoji("🐕‍🦺")
+        assert result == "🐕‍🦺"
+        mock_set.assert_called_once_with("puppy_emoji", "🐕‍🦺")
+
+    def test_puppy_emoji_listed_in_config_keys(self):
+        assert "puppy_emoji" in cp_config.get_config_keys()
+
+
 class TestGetConfigKeys:
     @patch("configparser.ConfigParser")
     def test_get_config_keys_with_existing_keys(
@@ -328,6 +388,7 @@ class TestGetConfigKeys:
                 "openai_reasoning_summary",
                 "openai_verbosity",
                 "protected_token_count",
+                "puppy_emoji",
                 "resume_message_count",
                 "summarization_model",
                 "temperature",
@@ -388,6 +449,7 @@ class TestGetConfigKeys:
                 "openai_reasoning_summary",
                 "openai_verbosity",
                 "protected_token_count",
+                "puppy_emoji",
                 "resume_message_count",
                 "summarization_model",
                 "temperature",

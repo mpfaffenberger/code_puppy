@@ -8,13 +8,22 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = logging.getLogger(__name__)
 
 # Default request timeout (seconds) - fail fast!
 REQUEST_TIMEOUT = 30.0
+
+
+def _puppy() -> str:
+    """Resolve puppy emoji lazily so config changes are picked up per-request."""
+    # Imported here to avoid pulling config at module import time, which keeps
+    # tests / partial imports happy.
+    from code_puppy.config import get_puppy_emoji
+
+    return get_puppy_emoji()
 
 
 class TimeoutMiddleware(BaseHTTPMiddleware):
@@ -53,10 +62,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Handles graceful cleanup of resources when the server shuts down.
     """
     # Startup: nothing special needed yet, but this is where you'd do it
-    logger.info("🐶 Code Puppy API starting up...")
+    logger.info(f"{_puppy()} Code Puppy API starting up...")
     yield
     # Shutdown: clean up all the things!
-    logger.info("🐶 Code Puppy API shutting down, cleaning up...")
+    logger.info(f"{_puppy()} Code Puppy API shutting down, cleaning up...")
 
     # 1. Close all PTY sessions
     try:
@@ -122,17 +131,18 @@ def create_app() -> FastAPI:
     @app.get("/")
     async def root():
         """Landing page with links to terminal and docs."""
+        emoji = _puppy()
         return HTMLResponse(
-            content="""
+            content=f"""
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Code Puppy 🐶</title>
+    <title>Code Puppy {emoji}</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-900 text-white min-h-screen flex items-center justify-center">
     <div class="text-center">
-        <h1 class="text-6xl mb-4">🐶</h1>
+        <h1 class="text-6xl mb-4">{emoji}</h1>
         <h2 class="text-3xl font-bold mb-8">Code Puppy</h2>
         <div class="space-x-4">
             <a href="/terminal" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg text-lg font-semibold">
@@ -153,10 +163,17 @@ def create_app() -> FastAPI:
 
     @app.get("/terminal")
     async def terminal_page():
-        """Serve the interactive terminal page."""
+        """Serve the interactive terminal page.
+
+        Substitutes the puppy emoji into the static template at request time so
+        the user's chosen emoji shows in the title, header and welcome line.
+        Cheaper than pulling in Jinja2 just for one token.
+        """
         html_file = templates_dir / "terminal.html"
         if html_file.exists():
-            return FileResponse(html_file, media_type="text/html")
+            html = html_file.read_text(encoding="utf-8")
+            html = html.replace("\U0001f436", _puppy())
+            return HTMLResponse(content=html)
         return HTMLResponse(
             content="<h1>Terminal template not found</h1>",
             status_code=404,
