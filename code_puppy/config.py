@@ -248,6 +248,42 @@ def get_puppy_name():
     return get_value("puppy_name") or "Puppy"
 
 
+# Default emoji used everywhere unless the user overrides it via puppy.cfg.
+# Keep this short — terminal cell-width and prompt rendering depend on it.
+DEFAULT_PUPPY_EMOJI = "\U0001f436"  # 🐶
+# Hard cap to keep prompts/banners from getting wrecked by a paragraph of
+# emoji. ZWJ sequences (e.g. 🐕\u200d🦺) easily reach ~7 codepoints, so 16
+# leaves comfortable room without enabling abuse.
+_PUPPY_EMOJI_MAX_LEN = 16
+
+
+def get_puppy_emoji() -> str:
+    """Return the user's chosen puppy emoji, or the default if unset/blank."""
+    val = get_value("puppy_emoji")
+    if val is None:
+        return DEFAULT_PUPPY_EMOJI
+    val = val.strip()
+    return val or DEFAULT_PUPPY_EMOJI
+
+
+def set_puppy_emoji(emoji: str) -> str:
+    """Validate and persist the puppy emoji. Returns the stored value.
+
+    Raises ValueError on empty input or values longer than the cap.
+    """
+    if emoji is None:
+        raise ValueError("puppy_emoji cannot be None")
+    cleaned = emoji.strip()
+    if not cleaned:
+        raise ValueError("puppy_emoji cannot be empty")
+    if len(cleaned) > _PUPPY_EMOJI_MAX_LEN:
+        raise ValueError(
+            f"puppy_emoji too long ({len(cleaned)} chars; max {_PUPPY_EMOJI_MAX_LEN})."
+        )
+    set_config_value("puppy_emoji", cleaned)
+    return cleaned
+
+
 def get_owner_name():
     return get_value("owner_name") or "Master"
 
@@ -332,6 +368,8 @@ def get_config_keys():
         default_keys.append(f"banner_color_{banner_name}")
     # Add resume message count configuration
     default_keys.append("resume_message_count")
+    # Add puppy emoji customization key
+    default_keys.append("puppy_emoji")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)

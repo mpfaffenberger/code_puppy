@@ -45,6 +45,7 @@ from code_puppy.command_line.utils import list_directory
 from code_puppy.config import (
     COMMAND_HISTORY_FILE,
     get_config_keys,
+    get_puppy_emoji,
     get_puppy_name,
     get_value,
 )
@@ -546,7 +547,7 @@ def get_prompt_with_active_model(base: str = ">>> "):
         cwd_display = cwd
     return FormattedText(
         [
-            ("bold", "🐶 "),
+            ("bold", f"{get_puppy_emoji()} "),
             ("class:puppy", f"{puppy}"),
             ("", " "),
             ("class:agent", f"[{agent_display}] "),
