@@ -105,7 +105,7 @@ def get_api_key(env_var_name: str) -> str | None:
 
 # Model types that use the Anthropic Messages API under the hood.
 # These all need Anthropic-specific settings (thinking, effort, etc.).
-_ANTHROPIC_MODEL_TYPES = frozenset({"anthropic", "azure_foundry", "claude_code"})
+_ANTHROPIC_MODEL_TYPES = frozenset({"anthropic", "aws_bedrock", "azure_foundry", "claude_code"})
 
 
 def _is_anthropic_model(model_name: str, model_config: dict[str, Any]) -> bool:
@@ -261,7 +261,8 @@ def make_model_settings(
             should_use_anthropic_thinking_summary,
         )
 
-        default_thinking = get_default_extended_thinking(model_name)
+        actual_model_id = model_config.get("name", model_name)
+        default_thinking = get_default_extended_thinking(model_name, actual_model_id)
         extended_thinking = effective_settings.get(
             "extended_thinking", default_thinking
         )
@@ -278,7 +279,7 @@ def make_model_settings(
             }
             if (
                 extended_thinking == "adaptive"
-                and should_use_anthropic_thinking_summary(model_name)
+                and should_use_anthropic_thinking_summary(model_name, actual_model_id)
             ):
                 model_settings_dict["anthropic_thinking"]["display"] = "summarized"
             # Only send budget_tokens for classic "enabled" mode
@@ -297,7 +298,9 @@ def make_model_settings(
             model_supports_setting(model_name, "effort")
             and extended_thinking == "adaptive"
         ):
-            effort = effective_settings.get("effort", "high")
+            effort = effective_settings.get(
+                "effort", model_config.get("default_effort", "high")
+            )
             if "anthropic_thinking" in model_settings_dict:
                 extra_body = model_settings_dict.get("extra_body") or {}
                 extra_body["output_config"] = {"effort": effort}

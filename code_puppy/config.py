@@ -530,14 +530,9 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
             # For Anthropic/Claude models, include extended thinking settings
             if model_name.startswith("claude-") or model_name.startswith("anthropic-"):
                 base = ["temperature", "extended_thinking", "budget_tokens"]
-                # Opus 4-6 models also support the effort setting
-                lower = model_name.lower()
-                if (
-                    "opus-4-6" in lower
-                    or "4-6-opus" in lower
-                    or "opus-4-7" in lower
-                    or "4-7-opus" in lower
-                ):
+                from code_puppy.model_utils import supports_adaptive_thinking
+
+                if supports_adaptive_thinking(model_name):
                     base.append("effort")
                 return setting in base
             return setting in ["temperature", "seed"]

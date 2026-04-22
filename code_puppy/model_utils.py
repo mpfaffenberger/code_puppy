@@ -92,34 +92,65 @@ def prepare_prompt_for_model(
     )
 
 
-def get_default_extended_thinking(model_name: str) -> str:
-    """Return the default extended_thinking mode for an Anthropic model.
+def supports_adaptive_thinking(
+    model_name: str, actual_model_id: str | None = None
+) -> bool:
+    """Return whether a model should default to adaptive thinking.
 
-    Opus 4-6 and Opus 4-7 models default to ``"adaptive"`` thinking; all
-    other Anthropic models default to ``"enabled"``.
+    Opus 4-6, Opus 4-7, and Sonnet 4-6 models support adaptive thinking.
+    Checks both the alias/key and the real model ID to handle Bedrock-style
+    names like ``us.anthropic.claude-opus-4-7``.
 
     Args:
-        model_name: The model name string (e.g. ``"claude-opus-4-7"``).
+        model_name: The model alias/key (e.g. ``"bedrock-opus-4-7"``).
+        actual_model_id: The real model ID from config (e.g.
+            ``"us.anthropic.claude-opus-4-7"``).
+    """
+    candidates = [model_name.lower()]
+    if actual_model_id:
+        candidates.append(actual_model_id.lower())
+
+    _ADAPTIVE_TAGS = (
+        "opus-4-6",
+        "4-6-opus",
+        "opus-4-7",
+        "4-7-opus",
+        "sonnet-4-6",
+        "4-6-sonnet",
+    )
+    return any(tag in c for c in candidates for tag in _ADAPTIVE_TAGS)
+
+
+def get_default_extended_thinking(
+    model_name: str, actual_model_id: str | None = None
+) -> str:
+    """Return the default extended_thinking mode for an Anthropic model.
+
+    Opus 4-6, Opus 4-7, and Sonnet 4-6 models default to ``"adaptive"``
+    thinking; all other Anthropic models default to ``"enabled"``.
+
+    Args:
+        model_name: The model alias/key (e.g. ``"bedrock-opus-4-7"``).
+        actual_model_id: The real model ID from config (e.g.
+            ``"us.anthropic.claude-opus-4-7"``).
 
     Returns:
-        ``"adaptive"`` for Opus 4-6/4-7 variants, ``"enabled"`` otherwise.
+        ``"adaptive"`` for supported variants, ``"enabled"`` otherwise.
     """
-    lower = model_name.lower()
-    if (
-        "opus-4-6" in lower
-        or "4-6-opus" in lower
-        or "opus-4-7" in lower
-        or "4-7-opus" in lower
-    ):
+    if supports_adaptive_thinking(model_name, actual_model_id):
         return "adaptive"
     return "enabled"
 
 
-def should_use_anthropic_thinking_summary(model_name: str) -> bool:
+def should_use_anthropic_thinking_summary(
+    model_name: str, actual_model_id: str | None = None
+) -> bool:
     """Return whether Anthropic adaptive thinking should request summary display.
 
     Anthropic's newer Opus 4.7 models require ``display: \"summarized\"`` alongside
     ``thinking={"type": "adaptive"}``.
     """
-    lower = model_name.lower()
-    return "opus-4-7" in lower or "4-7-opus" in lower
+    candidates = [model_name.lower()]
+    if actual_model_id:
+        candidates.append(actual_model_id.lower())
+    return any("opus-4-7" in c or "4-7-opus" in c for c in candidates)
