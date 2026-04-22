@@ -402,7 +402,11 @@ class TestConsoleSpinnerGeneratePanel:
         spinner._frame_index = 0
 
         with patch(
-            "code_puppy.tools.command_runner.is_awaiting_user_input", return_value=False
+            "code_puppy.tools.command_runner.is_awaiting_user_input",
+            return_value=False,
+        ), patch(
+            "code_puppy.messaging.spinner.spinner_base.get_puppy_emoji",
+            return_value="🐶",
         ):
             result = spinner._generate_spinner_panel()
 
