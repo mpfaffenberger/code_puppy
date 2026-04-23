@@ -26,6 +26,46 @@ DEFAULT_CONTEXT_LENGTHS: dict[str, int] = {
     "haiku": 200000,  # 200K tokens for Haiku models
 }
 
+# Context lengths for OpenAI models (Azure doesn't expose this in the catalog API).
+# Prefixes are matched longest-first against the model name.
+OPENAI_CONTEXT_LENGTHS: dict[str, int] = {
+    "gpt-5.4": 1000000,
+    "gpt-5.4-mini": 1000000,
+    "gpt-5.3-codex": 1000000,
+    "gpt-5.3": 1000000,
+    "gpt-5.2-codex": 1000000,
+    "gpt-5.2": 1000000,
+    "gpt-5.1-codex-max": 1000000,
+    "gpt-5.1-codex-mini": 1000000,
+    "gpt-5.1-codex": 1000000,
+    "gpt-5.1": 1000000,
+    "gpt-5-codex": 1000000,
+    "gpt-5": 1000000,
+    "gpt-4.1": 1000000,
+    "gpt-4.1-mini": 1000000,
+    "gpt-4.1-nano": 1000000,
+    "o4-mini": 200000,
+    "o3": 200000,
+    "o3-mini": 200000,
+    "o1": 200000,
+    "o1-mini": 128000,
+    "codex-mini": 200000,
+}
+DEFAULT_OPENAI_CONTEXT_LENGTH = 128000
+
+
+def get_openai_context_length(model_name: str) -> int:
+    """Look up the context length for an OpenAI model by name.
+
+    Matches the longest prefix first so 'gpt-5.4-mini' matches before 'gpt-5.4'.
+    Falls back to DEFAULT_OPENAI_CONTEXT_LENGTH if no match.
+    """
+    for prefix in sorted(OPENAI_CONTEXT_LENGTHS, key=len, reverse=True):
+        if model_name.startswith(prefix):
+            return OPENAI_CONTEXT_LENGTHS[prefix]
+    return DEFAULT_OPENAI_CONTEXT_LENGTH
+
+
 # Default deployment name patterns (can be overridden by user)
 DEFAULT_DEPLOYMENT_NAMES: dict[str, str] = {
     "opus": "claude-opus-4-6",

@@ -23,8 +23,10 @@ from .config import (
     ENV_FOUNDRY_RESOURCE,
     get_foundry_resource,
 )
+from .discovery import find_account, list_deployments
 from .token import get_token_provider
 from .utils import (
+    add_discovered_models_to_config,
     add_foundry_models_to_config,
     get_foundry_models_from_config,
     remove_foundry_models_from_config,
@@ -146,26 +148,36 @@ def _handle_foundry_setup() -> None:
 
         _print()
 
-        # Get deployment names
-        _print("Step 3: Model Deployments")
-        _print("   Enter deployment names (press Enter to use default)")
-        _print()
+        # Step 3: Try auto-discovery, fall back to manual
+        _print("Step 3: Discovering deployments...")
+        account = find_account(resource_name)
 
-        opus_default = DEFAULT_DEPLOYMENT_NAMES["opus"]
-        sonnet_default = DEFAULT_DEPLOYMENT_NAMES["sonnet"]
-        haiku_default = DEFAULT_DEPLOYMENT_NAMES["haiku"]
+        if account:
+            _print(f"   Found: {account.name} ({account.location})")
+            _print(f"   RG: {account.resource_group}")
+            _print()
 
-        sys.stdout.flush()
-        opus_input = safe_input(f"   Opus [{opus_default}]: ").strip()
-        opus_deployment = opus_input if opus_input else opus_default
+            deployments = list_deployments(account)
+            succeeded = [d for d in deployments if d.provisioning_state == "Succeeded"]
 
-        sys.stdout.flush()
-        sonnet_input = safe_input(f"   Sonnet [{sonnet_default}]: ").strip()
-        sonnet_deployment = sonnet_input if sonnet_input else sonnet_default
+            if succeeded:
+                _print(f"   {len(succeeded)} active deployment(s):")
+                for d in succeeded:
+                    _print(f"   - {d.name} ({d.model_format}: {d.model_name})")
+                _print()
 
-        sys.stdout.flush()
-        haiku_input = safe_input(f"   Haiku [{haiku_default}]: ").strip()
-        haiku_deployment = haiku_input if haiku_input else haiku_default
+                sys.stdout.flush()
+                confirm = safe_input("   Configure these? [Y/n]: ").strip().lower()
+                if confirm not in ("", "y", "yes"):
+                    _print("   Skipped.")
+                    return
+            else:
+                _print("   No active deployments found.")
+                return
+        else:
+            _print("   Discovery failed — falling back to manual entry.")
+            _print()
+            succeeded = None
 
     except (KeyboardInterrupt, EOFError):
         _print()
@@ -176,27 +188,29 @@ def _handle_foundry_setup() -> None:
 
     _print()
 
-    # Save configuration
+    # Step 4: Save configuration
     _print("Step 4: Saving configuration...")
 
-    # Set environment variable hint
     if not get_foundry_resource():
         _print(
             f"   Tip: Set {ENV_FOUNDRY_RESOURCE}={resource_name} in your environment"
         )
 
-    # Add models to config — always pass the resolved deployment names so that
-    # pressing Enter (which keeps the default) is persisted, not treated as None.
-    added_models = add_foundry_models_to_config(
-        resource_name=resource_name,
-        opus_deployment=opus_deployment,
-        sonnet_deployment=sonnet_deployment,
-        haiku_deployment=haiku_deployment,
-    )
+    if succeeded is not None:
+        # Auto-discovered — configure all succeeded deployments
+        added_models = add_discovered_models_to_config(resource_name, succeeded)
+    else:
+        # Manual fallback — use hardcoded Anthropic defaults
+        added_models = add_foundry_models_to_config(
+            resource_name=resource_name,
+            opus_deployment=DEFAULT_DEPLOYMENT_NAMES["opus"],
+            sonnet_deployment=DEFAULT_DEPLOYMENT_NAMES["sonnet"],
+            haiku_deployment=DEFAULT_DEPLOYMENT_NAMES["haiku"],
+        )
 
     _print()
     if added_models:
-        _print(f"OK: Configuration saved! Added {len(added_models)} model(s):")
+        _print(f"OK: Configured {len(added_models)} model(s):")
         for model_key in added_models:
             _print(f"   - {model_key}")
         _print()
@@ -393,9 +407,84 @@ def _create_azure_foundry_model(
         return None
 
 
+def _create_azure_foundry_openai_model(
+    model_name: str, model_config: dict, config: dict
+) -> Any:
+    """Create an Azure Foundry OpenAI model instance.
+
+    Handles models with type='azure_foundry_openai' — OpenAI models on
+    Azure AI Services using Azure AD token auth (no API keys).
+    """
+    try:
+        from openai import AsyncAzureOpenAI
+        from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+    except ImportError as e:
+        emit_error(f"Failed to create Azure Foundry OpenAI model '{model_name}': {e}")
+        return None
+
+    from code_puppy.provider_identity import (
+        make_openai_provider,
+        resolve_provider_identity,
+    )
+
+    resource_config = model_config.get("foundry_resource", f"${ENV_FOUNDRY_RESOURCE}")
+    resource_name = resolve_env_var(resource_config)
+
+    if not resource_name:
+        emit_warning(
+            f"Azure Foundry resource not configured for model '{model_name}'. "
+            f"Set {ENV_FOUNDRY_RESOURCE} or run /foundry-setup."
+        )
+        return None
+
+    deployment_name = model_config.get("name")
+    if not deployment_name:
+        emit_warning(f"Deployment name not specified for model '{model_name}'.")
+        return None
+
+    token_provider = get_token_provider()
+    is_auth, status_msg, _ = token_provider.check_auth_status()
+    if not is_auth:
+        emit_warning(f"Azure AD auth failed for model '{model_name}': {status_msg}")
+        return None
+
+    try:
+        api_version = model_config.get("api_version", "2025-04-01-preview")
+        azure_endpoint = f"https://{resource_name}.openai.azure.com"
+
+        azure_client = AsyncAzureOpenAI(
+            azure_endpoint=azure_endpoint,
+            api_version=api_version,
+            azure_ad_token_provider=token_provider.get_token,
+        )
+
+        provider_identity = resolve_provider_identity(model_name, model_config)
+        provider = make_openai_provider(provider_identity, openai_client=azure_client)
+
+        if deployment_name.startswith("gpt-5"):
+            model = OpenAIResponsesModel(model_name=deployment_name, provider=provider)
+        else:
+            model = OpenAIChatModel(model_name=deployment_name, provider=provider)
+        logger.info(
+            "Created Azure Foundry OpenAI model: %s -> %s @ %s",
+            model_name,
+            deployment_name,
+            resource_name,
+        )
+        return model
+
+    except Exception as e:
+        emit_error(f"Failed to create Azure Foundry OpenAI model '{model_name}': {e}")
+        logger.exception("Error creating Azure Foundry OpenAI model: %s", e)
+        return None
+
+
 def _register_model_types() -> list[dict[str, Any]]:
-    """Register the azure_foundry model type handler."""
-    return [{"type": "azure_foundry", "handler": _create_azure_foundry_model}]
+    """Register azure_foundry and azure_foundry_openai model type handlers."""
+    return [
+        {"type": "azure_foundry", "handler": _create_azure_foundry_model},
+        {"type": "azure_foundry_openai", "handler": _create_azure_foundry_openai_model},
+    ]
 
 
 # ============================================================================
