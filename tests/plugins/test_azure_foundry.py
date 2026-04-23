@@ -1110,6 +1110,45 @@ class TestAddDiscoveredModels:
             assert models["foundry-gpt-5-4"]["type"] == "azure_foundry_openai"
             assert models["foundry-gpt-5-4"]["name"] == "gpt-5-4"
             assert models["foundry-gpt-5-4"]["foundry_resource"] == "my-resource"
+            assert models["foundry-gpt-5-4"]["supported_settings"] == [
+                "temperature",
+                "reasoning_effort",
+                "summary",
+                "verbosity",
+            ]
+
+    def test_add_discovered_later_non_gpt_openai_model(self, tmp_path):
+        """Test non-GPT-5 OpenAI deployments keep baseline settings only."""
+        from code_puppy.plugins.azure_foundry.discovery import AzureDeployment
+        from code_puppy.plugins.azure_foundry.utils import (
+            add_discovered_models_to_config,
+            load_extra_models,
+        )
+
+        models_path = tmp_path / "models.json"
+        models_path.write_text("{}")
+
+        deployments = [
+            AzureDeployment(
+                name="o4-mini",
+                model_name="o4-mini",
+                model_format="OpenAI",
+                model_version="2026-03-05",
+                provisioning_state="Succeeded",
+                sku_name="GlobalStandard",
+                capacity=10,
+            ),
+        ]
+
+        with patch(
+            "code_puppy.plugins.azure_foundry.utils.get_extra_models_path",
+            return_value=models_path,
+        ):
+            added = add_discovered_models_to_config("my-resource", deployments)
+            assert "foundry-o4-mini" in added
+
+            models = load_extra_models()
+            assert models["foundry-o4-mini"]["supported_settings"] == ["temperature"]
 
     def test_add_discovered_anthropic_model(self, tmp_path):
         """Test adding a discovered Anthropic deployment."""
@@ -1293,23 +1332,31 @@ class TestCreateAzureFoundryOpenAIModel:
                         return_value=Mock(),
                     ):
                         with patch(
-                            "pydantic_ai.models.openai.OpenAIChatModel",
+                            "pydantic_ai.models.openai.OpenAIResponsesModel",
                             return_value=mock_model,
-                        ):
-                            result = _create_azure_foundry_openai_model(
-                                "foundry-gpt",
-                                {"name": "gpt-5-4", "foundry_resource": "my-resource"},
-                                {},
-                            )
+                        ) as mock_responses_model:
+                            with patch(
+                                "pydantic_ai.models.openai.OpenAIChatModel"
+                            ) as mock_chat_model:
+                                result = _create_azure_foundry_openai_model(
+                                    "foundry-gpt",
+                                    {
+                                        "name": "gpt-5-4",
+                                        "foundry_resource": "my-resource",
+                                    },
+                                    {},
+                                )
 
-                            assert result is mock_model
-                            mock_client_cls.assert_called_once()
-                            call_kwargs = mock_client_cls.call_args.kwargs
-                            assert (
-                                call_kwargs["azure_endpoint"]
-                                == "https://my-resource.openai.azure.com"
-                            )
-                            assert (
-                                call_kwargs["azure_ad_token_provider"]
-                                == mock_provider.get_token
-                            )
+                                assert result is mock_model
+                                mock_responses_model.assert_called_once()
+                                mock_chat_model.assert_not_called()
+                                mock_client_cls.assert_called_once()
+                                call_kwargs = mock_client_cls.call_args.kwargs
+                                assert (
+                                    call_kwargs["azure_endpoint"]
+                                    == "https://my-resource.openai.azure.com"
+                                )
+                                assert (
+                                    call_kwargs["azure_ad_token_provider"]
+                                    == mock_provider.get_token
+                                )

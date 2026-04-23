@@ -228,6 +228,7 @@ def make_model_settings(
 
         uses_responses_api = (
             model_type == "chatgpt_oauth"
+            or model_type == "azure_foundry_openai"
             or (model_type == "openai" and "codex" in model_name)
             or (model_type == "custom_openai" and "codex" in model_name)
         )

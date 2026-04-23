@@ -672,7 +672,7 @@ def get_openai_reasoning_summary() -> str:
     - detailed: fuller reasoning summaries
     """
     allowed_values = {"auto", "concise", "detailed"}
-    configured = (get_value("openai_reasoning_summary") or "auto").strip().lower()
+    configured = (get_value("openai_reasoning_summary") or "detailed").strip().lower()
     if configured not in allowed_values:
         return "auto"
     return configured

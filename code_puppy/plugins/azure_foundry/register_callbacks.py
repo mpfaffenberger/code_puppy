@@ -417,7 +417,7 @@ def _create_azure_foundry_openai_model(
     """
     try:
         from openai import AsyncAzureOpenAI
-        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
     except ImportError as e:
         emit_error(f"Failed to create Azure Foundry OpenAI model '{model_name}': {e}")
         return None
@@ -461,7 +461,10 @@ def _create_azure_foundry_openai_model(
         provider_identity = resolve_provider_identity(model_name, model_config)
         provider = make_openai_provider(provider_identity, openai_client=azure_client)
 
-        model = OpenAIChatModel(model_name=deployment_name, provider=provider)
+        if deployment_name.startswith("gpt-5"):
+            model = OpenAIResponsesModel(model_name=deployment_name, provider=provider)
+        else:
+            model = OpenAIChatModel(model_name=deployment_name, provider=provider)
         logger.info(
             "Created Azure Foundry OpenAI model: %s -> %s @ %s",
             model_name,

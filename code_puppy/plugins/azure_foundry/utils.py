@@ -245,6 +245,25 @@ def add_foundry_models_to_config(
 FOUNDRY_TYPES = {"azure_foundry", "azure_foundry_openai"}
 
 
+_GPT5_SUPPORTED_SETTINGS = [
+    "reasoning_effort",
+    "summary",
+    "verbosity",
+]
+
+
+def get_foundry_openai_supported_settings(model_name: str) -> list[str]:
+    """Return supported settings for an Azure Foundry OpenAI model.
+
+    Later GPT-5-family models support Code Puppy's reasoning/summary/verbosity
+    controls in addition to the baseline temperature setting.
+    """
+    supported_settings = ["temperature"]
+    if model_name.startswith("gpt-5"):
+        supported_settings.extend(_GPT5_SUPPORTED_SETTINGS)
+    return supported_settings
+
+
 def add_discovered_models_to_config(
     resource_name: str,
     deployments: list,
@@ -285,7 +304,9 @@ def add_discovered_models_to_config(
                 "name": d.name,
                 "foundry_resource": resource_name,
                 "context_length": get_openai_context_length(d.model_name),
-                "supported_settings": ["temperature"],
+                "supported_settings": get_foundry_openai_supported_settings(
+                    d.model_name
+                ),
             }
             added.append(key)
 
