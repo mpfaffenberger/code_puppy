@@ -55,6 +55,9 @@ classifiers = [
     "Topic :: Software Development :: Code Generators",
 ]
 
+[project.optional-dependencies]
+bedrock = ["boto3>=1.35.0"]
+
 [project.urls]
 repository = "https://github.com/mpfaffenberger/code_puppy"
 HomePage = "https://github.com/mpfaffenberger/code_puppy"
