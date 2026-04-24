@@ -72,6 +72,8 @@ After continuity compaction, the live message history is closer to this:
 - Older tool returns replaced with masked observation capsules.
 - Optional structured summary of the oldest masked region if masking alone is
   not enough.
+- Older compacted history trimmed toward the displayed target if masking and
+  summary still leave the context above target.
 - Recent raw tail:
   - latest dashboard-related user messages
   - latest assistant/tool messages
