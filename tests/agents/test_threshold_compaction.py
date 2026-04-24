@@ -100,6 +100,13 @@ def _tool_pair_ids(messages: list[ModelMessage]) -> tuple[set[str], set[str]]:
     return calls, returns
 
 
+def _archive_text(agent: _FakeAgent) -> str:
+    chunks: list[str] = []
+    for archive_file in sorted(observations_dir(agent).glob("obs_*.json")):
+        chunks.append(archive_file.read_text(encoding="utf-8"))
+    return "\n".join(chunks)
+
+
 def _bulky_history() -> list[ModelMessage]:
     return [
         _sys_msg(),
@@ -333,6 +340,122 @@ def test_emergency_trim_keeps_current_error_and_pair(monkeypatch, tmp_path: Path
     assert "RuntimeError: current failure" in rendered
     calls, returns = _tool_pair_ids(new_messages)
     assert calls == returns == {"call-current"}
+
+
+def test_precision_probes_survive_ten_compaction_cycles(
+    monkeypatch, tmp_path: Path
+):
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
+    _patch_threshold_strategy(monkeypatch)
+    monkeypatch.setattr(
+        engine,
+        "load_threshold_settings",
+        lambda context_window: ThresholdSettings(
+            context_window=context_window,
+            soft_trigger=1,
+            emergency_trigger=context_window,
+            target_after_compaction=20_000,
+            recent_raw_floor=500,
+            predicted_growth_floor=0,
+            growth_history_window=10,
+            archive_retention_days=30,
+            archive_retention_count=100,
+            mask_min_tokens=100,
+        ),
+    )
+    agent = _FakeAgent()
+    history: list[ModelMessage] = [
+        _sys_msg(),
+        _user_msg(
+            "Project goal precision probe GOAL-KEY-ROOT. "
+            "Must preserve constraint key CONSTRAINT-KEY-ROOT."
+        ),
+    ]
+    direct_prompt_keys = {"GOAL-KEY-ROOT", "CONSTRAINT-KEY-ROOT"}
+    direct_observation_keys: set[str] = set()
+    archive_only_keys: set[str] = set()
+    first_loss_cycle: int | None = None
+    loss_details: list[str] = []
+
+    for cycle in range(1, 11):
+        request_key = f"REQUEST-KEY-{cycle:02d}"
+        signal_key = f"SIGNAL-KEY-{cycle:02d}"
+        archive_key = f"ARCHIVE-ONLY-KEY-{cycle:02d}"
+        direct_prompt_keys.add(request_key)
+        direct_observation_keys.add(signal_key)
+        archive_only_keys.add(archive_key)
+
+        call_id = f"precision-call-{cycle:02d}"
+        history.extend(
+            [
+                _user_msg(
+                    f"Cycle {cycle}: must preserve {request_key}; "
+                    "do not lose GOAL-KEY-ROOT."
+                ),
+                _tool_call(
+                    "run_shell_command",
+                    {"command": f"pytest tests/precision_{cycle}.py"},
+                    call_id,
+                ),
+                _tool_return(
+                    "run_shell_command",
+                    (
+                        f"AssertionError {signal_key} in tests/precision_{cycle}.py\n"
+                        + "diagnostic noise\n" * 240
+                        + f"{archive_key}\n"
+                    ),
+                    call_id,
+                ),
+                _assistant_text(
+                    f"Validation failed for {signal_key}. "
+                    f"Next action: inspect precision_{cycle}.py."
+                ),
+            ]
+        )
+
+        history, _ = _compaction.compact(
+            agent,
+            history,
+            model_max=50_000,
+            context_overhead=0,
+            force=True,
+        )
+        prompt_text = _message_text(history)
+        archive_text = _archive_text(agent)
+
+        missing_prompt = sorted(
+            key
+            for key in direct_prompt_keys | direct_observation_keys
+            if key not in prompt_text
+        )
+        recoverable_text = prompt_text + "\n" + archive_text
+        missing_recoverable = sorted(
+            key for key in archive_only_keys if key not in recoverable_text
+        )
+        calls, returns = _tool_pair_ids(history)
+        if missing_prompt or missing_recoverable or calls != returns:
+            first_loss_cycle = cycle
+            loss_details = [
+                f"missing prompt keys: {missing_prompt}",
+                f"missing recoverable archive keys: {missing_recoverable}",
+                f"tool calls without matching returns: {sorted(calls - returns)}",
+                f"tool returns without matching calls: {sorted(returns - calls)}",
+            ]
+            break
+
+    assert first_loss_cycle is None, (
+        f"Precision probe lost recoverability at cycle {first_loss_cycle}: "
+        + "; ".join(loss_details)
+    )
+    final_prompt = _message_text(history)
+    assert final_prompt.count(DURABLE_MEMORY_MARKER) == 1
+    assert final_prompt.count(MASKED_OBSERVATION_MARKER) >= 9
+    assert all(key in final_prompt for key in direct_prompt_keys)
+    assert all(key in final_prompt for key in direct_observation_keys)
+    final_recoverable_text = final_prompt + "\n" + _archive_text(agent)
+    assert all(key in final_recoverable_text for key in archive_only_keys)
 
 
 def test_archive_retention_cleanup(monkeypatch, tmp_path: Path):
