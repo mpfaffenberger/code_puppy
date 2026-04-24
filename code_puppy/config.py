@@ -308,6 +308,10 @@ def get_config_keys():
         "continuity_compaction_archive_retention_days",
         "continuity_compaction_archive_retention_count",
         "continuity_compaction_semantic_task_detection",
+        "continuity_compaction_semantic_timeout_seconds",
+        "continuity_compaction_archive_retrieval_enabled",
+        "continuity_compaction_archive_retrieval_count",
+        "continuity_compaction_task_retention_count",
         "summarization_model",
         "message_limit",
         "allow_recursion",
@@ -1378,6 +1382,44 @@ def get_continuity_compaction_semantic_task_detection() -> bool:
     return _get_bool_config(
         "continuity_compaction_semantic_task_detection",
         True,
+    )
+
+
+def get_continuity_compaction_semantic_timeout_seconds() -> int:
+    """Maximum wait for one continuity semantic-memory call."""
+    return _get_bounded_int_config(
+        "continuity_compaction_semantic_timeout_seconds",
+        8,
+        minimum=1,
+        maximum=120,
+    )
+
+
+def get_continuity_compaction_archive_retrieval_enabled() -> bool:
+    """Whether continuity compaction injects short relevant archive signals."""
+    return _get_bool_config(
+        "continuity_compaction_archive_retrieval_enabled",
+        True,
+    )
+
+
+def get_continuity_compaction_archive_retrieval_count() -> int:
+    """Number of archive signal snippets retrieved during continuity compaction."""
+    return _get_bounded_int_config(
+        "continuity_compaction_archive_retrieval_count",
+        3,
+        minimum=0,
+        maximum=20,
+    )
+
+
+def get_continuity_compaction_task_retention_count() -> int:
+    """Maximum number of task lifecycle entries kept in durable memory."""
+    return _get_bounded_int_config(
+        "continuity_compaction_task_retention_count",
+        100,
+        minimum=1,
+        maximum=1000,
     )
 
 

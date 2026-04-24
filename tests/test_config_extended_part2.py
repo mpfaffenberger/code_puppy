@@ -9,13 +9,17 @@ from code_puppy.config import (
     get_compaction_threshold,
     get_continuity_compaction_archive_retention_count,
     get_continuity_compaction_archive_retention_days,
+    get_continuity_compaction_archive_retrieval_count,
+    get_continuity_compaction_archive_retrieval_enabled,
     get_continuity_compaction_emergency_trigger_ratio,
     get_continuity_compaction_growth_history_window,
     get_continuity_compaction_predicted_growth_floor_ratio,
     get_continuity_compaction_recent_raw_floor_ratio,
     get_continuity_compaction_semantic_task_detection,
+    get_continuity_compaction_semantic_timeout_seconds,
     get_continuity_compaction_soft_trigger_ratio,
     get_continuity_compaction_target_ratio,
+    get_continuity_compaction_task_retention_count,
     get_use_dbos,
     load_mcp_server_configs,
     set_agent_pinned_model,
@@ -129,6 +133,10 @@ class TestConfigExtendedPart2:
             "continuity_compaction_archive_retention_days": 30,
             "continuity_compaction_archive_retention_count": 500,
             "continuity_compaction_semantic_task_detection": True,
+            "continuity_compaction_semantic_timeout_seconds": 8,
+            "continuity_compaction_archive_retrieval_enabled": True,
+            "continuity_compaction_archive_retrieval_count": 3,
+            "continuity_compaction_task_retention_count": 100,
         }
 
         def fake_get(key):
@@ -145,6 +153,10 @@ class TestConfigExtendedPart2:
             assert get_continuity_compaction_archive_retention_days() == 30
             assert get_continuity_compaction_archive_retention_count() == 500
             assert get_continuity_compaction_semantic_task_detection() is True
+            assert get_continuity_compaction_semantic_timeout_seconds() == 8
+            assert get_continuity_compaction_archive_retrieval_enabled() is True
+            assert get_continuity_compaction_archive_retrieval_count() == 3
+            assert get_continuity_compaction_task_retention_count() == 100
 
     def test_continuity_compaction_config_clamps(self, mock_config_file):
         values = {
@@ -157,6 +169,10 @@ class TestConfigExtendedPart2:
             "continuity_compaction_archive_retention_days": "0",
             "continuity_compaction_archive_retention_count": "0",
             "continuity_compaction_semantic_task_detection": "false",
+            "continuity_compaction_semantic_timeout_seconds": "0",
+            "continuity_compaction_archive_retrieval_enabled": "false",
+            "continuity_compaction_archive_retrieval_count": "999",
+            "continuity_compaction_task_retention_count": "0",
         }
 
         with patch("code_puppy.config.get_value", side_effect=values.get):
@@ -169,6 +185,10 @@ class TestConfigExtendedPart2:
             assert get_continuity_compaction_archive_retention_days() == 1
             assert get_continuity_compaction_archive_retention_count() == 1
             assert get_continuity_compaction_semantic_task_detection() is False
+            assert get_continuity_compaction_semantic_timeout_seconds() == 1
+            assert get_continuity_compaction_archive_retrieval_enabled() is False
+            assert get_continuity_compaction_archive_retrieval_count() == 20
+            assert get_continuity_compaction_task_retention_count() == 1
 
     def test_get_use_dbos(self, mock_config_file):
         """Test getting DBOS usage flag"""

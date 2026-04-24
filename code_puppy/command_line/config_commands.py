@@ -36,8 +36,12 @@ def handle_show_command(command: str) -> bool:
         get_compaction_strategy,
         get_compaction_threshold,
         get_continuity_compaction_emergency_trigger_ratio,
+        get_continuity_compaction_archive_retrieval_count,
+        get_continuity_compaction_archive_retrieval_enabled,
         get_continuity_compaction_semantic_task_detection,
+        get_continuity_compaction_semantic_timeout_seconds,
         get_continuity_compaction_soft_trigger_ratio,
+        get_continuity_compaction_task_retention_count,
         get_continuity_compaction_target_ratio,
         get_default_agent,
         get_effective_temperature,
@@ -68,6 +72,16 @@ def handle_show_command(command: str) -> bool:
     continuity_target = get_continuity_compaction_target_ratio()
     continuity_emergency = get_continuity_compaction_emergency_trigger_ratio()
     continuity_semantic_tasks = get_continuity_compaction_semantic_task_detection()
+    continuity_semantic_timeout = (
+        get_continuity_compaction_semantic_timeout_seconds()
+    )
+    continuity_archive_retrieval = (
+        get_continuity_compaction_archive_retrieval_enabled()
+    )
+    continuity_archive_retrieval_count = (
+        get_continuity_compaction_archive_retrieval_count()
+    )
+    continuity_task_retention = get_continuity_compaction_task_retention_count()
     global_temperature = get_temperature()
     effective_temperature = get_effective_temperature(model)
 
@@ -88,7 +102,7 @@ def handle_show_command(command: str) -> bool:
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
 [bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (continuity, summarization, or truncation)
-[bold]continuity_compaction:[/bold] [cyan]soft {continuity_soft:.1%}, target {continuity_target:.1%}, emergency {continuity_emergency:.1%}, semantic_tasks {"on" if continuity_semantic_tasks else "off"}[/cyan]
+[bold]continuity_compaction:[/bold] [cyan]soft {continuity_soft:.1%}, target {continuity_target:.1%}, emergency {continuity_emergency:.1%}, semantic_memory {"on" if continuity_semantic_tasks else "off"} ({continuity_semantic_timeout}s), archive_retrieval {"on" if continuity_archive_retrieval else "off"} x{continuity_archive_retrieval_count}, tasks {continuity_task_retention}[/cyan]
 [bold]resume_message_count:[/bold] [cyan]{get_resume_message_count()}[/cyan] messages shown on /resume
 [bold]reasoning_effort:[/bold]      [cyan]{get_openai_reasoning_effort()}[/cyan]
 [bold]verbosity:[/bold]             [cyan]{get_openai_verbosity()}[/cyan]
