@@ -304,6 +304,7 @@ def get_config_keys():
         "continuity_compaction_target_ratio",
         "continuity_compaction_recent_raw_floor_ratio",
         "continuity_compaction_predicted_growth_floor_ratio",
+        "continuity_compaction_predictive_trigger_min_ratio",
         "continuity_compaction_growth_history_window",
         "continuity_compaction_archive_retention_days",
         "continuity_compaction_archive_retention_count",
@@ -1344,6 +1345,16 @@ def get_continuity_compaction_predicted_growth_floor_ratio() -> float:
         0.06,
         minimum=0.0,
         maximum=0.5,
+    )
+
+
+def get_continuity_compaction_predictive_trigger_min_ratio() -> float:
+    """Minimum current context ratio before predictive continuity compaction may fire."""
+    return _get_bounded_float_config(
+        "continuity_compaction_predictive_trigger_min_ratio",
+        0.725,
+        minimum=0.5,
+        maximum=0.95,
     )
 
 

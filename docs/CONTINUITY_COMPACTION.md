@@ -11,6 +11,21 @@ entire conversation as a raw transcript. It keeps a recent raw tail, injects a
 durable memory snapshot, masks old bulky tool observations, and only falls back
 to summarizing or trimming when masking is not enough.
 
+## Trigger Behavior
+
+Continuity uses a soft trigger plus predicted next-turn growth, but prediction
+does not fire from very low context usage. By default:
+
+- `continuity_compaction_soft_trigger_ratio`: `82.5%`
+- `continuity_compaction_predictive_trigger_min_ratio`: `72.5%`
+- `continuity_compaction_target_ratio`: `57.5%`
+- `continuity_compaction_emergency_trigger_ratio`: `90%`
+
+That means an automatic predictive compaction can happen below the soft trigger
+only when the current context is already at least `72.5%` full and the predicted
+next turn would cross the soft trigger. Manual `/compact` still forces
+compaction regardless of the predictive trigger floor.
+
 ## Practical Before/After Example
 
 Imagine a session starts with "add OAuth login," inspects many files, runs
