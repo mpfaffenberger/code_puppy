@@ -47,7 +47,7 @@ from code_puppy.agents.continuity_compaction.task_detection import (
     resolve_semantic_memory_state,
 )
 from code_puppy.config import get_continuity_compaction_semantic_task_detection
-from code_puppy.messaging import emit_info, emit_success
+from code_puppy.messaging import emit_info, emit_success, emit_warning
 
 _TOOL_CALL_KINDS = {"tool-call", "builtin-tool-call"}
 _TOOL_RETURN_KINDS = {"tool-return", "builtin-tool-return"}
@@ -157,6 +157,7 @@ def compact_continuity(
         masked_count=masked_count,
         summarized_count=summarized_count,
         emergency_trimmed_count=emergency_trimmed_count,
+        semantic_status=durable_state.semantic_status,
     )
     return messages, dropped
 
@@ -196,6 +197,7 @@ def _emit_compaction_complete(
     masked_count: int,
     summarized_count: int,
     emergency_trimmed_count: int,
+    semantic_status: str,
 ) -> None:
     actions = (
         [f"archived and masked {masked_count} observation(s)"]
@@ -206,6 +208,12 @@ def _emit_compaction_complete(
         actions.append(f"summarized {summarized_count} old masked message(s)")
     if emergency_trimmed_count:
         actions.append(f"emergency-trimmed {emergency_trimmed_count} message(s)")
+    if semantic_status == "semantic":
+        actions.append("semantic memory updated")
+    elif semantic_status == "fallback":
+        actions.append("semantic memory fallback used")
+    elif semantic_status == "disabled":
+        actions.append("semantic memory disabled")
     if not summarized_count and not emergency_trimmed_count:
         actions.append("kept the recent raw tail intact")
 
@@ -650,7 +658,7 @@ def _build_durable_state(
         settings=settings,
     )
 
-    semantic_state = _semantic_memory_state(
+    semantic_state, semantic_error = _semantic_memory_state(
         user_entries=user_entries,
         previous=previous,
         latest_user_request=latest_user_request,
@@ -670,7 +678,7 @@ def _build_durable_state(
         state = fallback_state
         if get_continuity_compaction_semantic_task_detection():
             state.semantic_status = "fallback"
-            state.semantic_error = (
+            state.semantic_error = semantic_error or (
                 "semantic memory unavailable; deterministic extraction used"
             )
         else:
@@ -750,9 +758,18 @@ def _semantic_memory_state(
     archive_index: list[dict[str, Any]],
     messages: list[ModelMessage],
     settings: ContinuityCompactionSettings,
-) -> SemanticMemoryState | None:
+) -> tuple[SemanticMemoryState | None, str]:
+    if not get_continuity_compaction_semantic_task_detection():
+        return None, "semantic memory disabled"
+
+    emit_info(
+        "Continuity memory update: calling semantic memory model "
+        f"(timeout {settings.semantic_timeout_seconds}s).",
+        message_group=_MESSAGE_GROUP,
+    )
+    errors: list[str] = []
     try:
-        return resolve_semantic_memory_state(
+        semantic_state = resolve_semantic_memory_state(
             user_entries=user_entries,
             previous_state=previous,
             latest_user_request=latest_user_request,
@@ -761,9 +778,28 @@ def _semantic_memory_state(
             transcript_snippets=_transcript_snippets(messages),
             allowed_files=_allowed_files(fallback_state, archive_index),
             timeout_seconds=settings.semantic_timeout_seconds,
+            error_sink=errors,
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        errors.append(f"{type(exc).__name__}: {str(exc).strip() or 'failed'}")
+        semantic_state = None
+
+    if semantic_state is None:
+        reason = errors[-1] if errors else "semantic model returned no usable memory"
+        emit_warning(
+            "Continuity memory update: semantic memory unavailable "
+            f"({reason}); using deterministic fallback.",
+            message_group=_MESSAGE_GROUP,
+        )
+        return None, reason
+
+    emit_success(
+        "Continuity memory update: semantic memory refreshed "
+        f"({len(semantic_state.tasks)} task(s), "
+        f"{len(semantic_state.archive_queries)} archive hint(s)).",
+        message_group=_MESSAGE_GROUP,
+    )
+    return semantic_state, ""
 
 
 def _state_from_semantic(
