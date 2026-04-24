@@ -785,14 +785,16 @@ class GeminiStreamingResponse(StreamedResponse):
                 # Handle function call
                 elif part.get("functionCall"):
                     fc = part["functionCall"]
-                    
+
                     # Check if it's a new function call
                     if fc.get("name"):
                         self._current_tool_name = fc["name"]
-                        self._current_tool_call_id = fc.get("id") or generate_tool_call_id()
+                        self._current_tool_call_id = (
+                            fc.get("id") or generate_tool_call_id()
+                        )
                         self._current_vendor_part_id = uuid.uuid4()
                         self._current_args = {}
-                        
+
                     delta_args = {}
                     # Handle partial arguments if present
                     if "partialArgs" in fc:
@@ -801,9 +803,11 @@ class GeminiStreamingResponse(StreamedResponse):
                             if json_path and json_path.startswith("$."):
                                 value = _extract_partial_value(p_arg)
                                 if value is not _MISSING:
-                                    _apply_json_path(self._current_args, json_path[2:], value)
+                                    _apply_json_path(
+                                        self._current_args, json_path[2:], value
+                                    )
                                     _apply_json_path(delta_args, json_path[2:], value)
-                                    
+
                     elif "args" in fc:
                         delta_args = fc["args"]
                         self._current_args.update(fc["args"])

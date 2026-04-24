@@ -105,7 +105,9 @@ def get_api_key(env_var_name: str) -> str | None:
 
 # Model types that use the Anthropic Messages API under the hood.
 # These all need Anthropic-specific settings (thinking, effort, etc.).
-_ANTHROPIC_MODEL_TYPES = frozenset({"anthropic", "aws_bedrock", "azure_foundry", "claude_code"})
+_ANTHROPIC_MODEL_TYPES = frozenset(
+    {"anthropic", "aws_bedrock", "azure_foundry", "claude_code"}
+)
 
 
 def _is_anthropic_model(model_name: str, model_config: dict[str, Any]) -> bool:
