@@ -28,18 +28,25 @@ from code_puppy.agents.continuity_compaction.storage import (
     DURABLE_MEMORY_MARKER,
     MASKED_OBSERVATION_MARKER,
     STRUCTURED_SUMMARY_MARKER,
+    ArchiveSignal,
     DurableState,
+    TaskMemory,
     archive_observation,
+    archive_signal_from_record,
+    build_archive_index,
     cleanup_observation_archives,
     read_durable_state,
     render_durable_state,
     render_masked_observation,
+    search_archive_index,
     write_durable_state,
 )
 from code_puppy.agents.continuity_compaction.task_detection import (
-    SemanticTaskState,
-    resolve_semantic_task_state,
+    SemanticMemoryState,
+    resolve_semantic_task_state as _legacy_resolve_semantic_task_state,
+    resolve_semantic_memory_state,
 )
+from code_puppy.config import get_continuity_compaction_semantic_task_detection
 from code_puppy.messaging import emit_info, emit_success
 
 _TOOL_CALL_KINDS = {"tool-call", "builtin-tool-call"}
@@ -47,6 +54,7 @@ _TOOL_RETURN_KINDS = {"tool-return", "builtin-tool-return"}
 _MESSAGE_GROUP = "token_context_status"
 _TASK_LEDGER_LIMIT = 16
 _TASK_TEXT_LIMIT = 320
+resolve_semantic_task_state = _legacy_resolve_semantic_task_state
 _PATH_RE = re.compile(
     r"(?:\.{0,2}/|/)?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*"
     r"\.(?:py|pyi|js|jsx|ts|tsx|json|toml|yaml|yml|md|txt|go|rs|java|c|cc|cpp|h|hpp|css|html)"
@@ -106,15 +114,15 @@ def compact_continuity(
         force=force,
     )
 
-    durable_state = _build_durable_state(agent, messages)
-    write_durable_state(agent, durable_state)
-    messages = _inject_durable_memory(messages, durable_state)
     cleanup_observation_archives(agent, settings)
-
     keep_indices = _build_keep_indices(messages, settings, model_name)
     messages, masked_count = _archive_and_mask(
         messages, keep_indices, agent, settings, model_name
     )
+    archive_index = build_archive_index(agent)
+    durable_state = _build_durable_state(agent, messages, settings, archive_index)
+    write_durable_state(agent, durable_state)
+    messages = _inject_durable_memory(messages, durable_state)
     compacted_tokens = _history_tokens(messages, model_name) + context_overhead
 
     summarized_count = 0
@@ -381,6 +389,7 @@ def _archive_and_mask(
                 content=content,
                 token_count=token_count,
                 key_signal=_extract_key_signal(content),
+                key_signals=_extract_key_signals(content),
                 affected_files=_extract_paths(content),
                 status=_status_from_text(content),
             )
@@ -619,31 +628,99 @@ def _is_masked_message(message: ModelMessage) -> bool:
     return MASKED_OBSERVATION_MARKER in _messages_to_text([message])
 
 
-def _build_durable_state(agent: Any, messages: list[ModelMessage]) -> DurableState:
+def _build_durable_state(
+    agent: Any,
+    messages: list[ModelMessage],
+    settings: ContinuityCompactionSettings,
+    archive_index: list[dict[str, Any]],
+) -> DurableState:
     recent_text = _messages_to_text(messages[-20:])
     previous = read_durable_state(agent)
     user_entries = _user_text_entries(messages)
     latest_user_request = _latest_user_text(messages)[:500]
     current_task = _select_current_task(user_entries, previous, latest_user_request)
     task_ledger = _build_task_ledger(user_entries, previous, current_task)
-    semantic_state = _semantic_task_state(
+    fallback_state = _deterministic_durable_state(
+        previous=previous,
+        current_task=current_task,
+        latest_user_request=latest_user_request,
+        task_ledger=task_ledger,
+        recent_text=recent_text,
+        messages=messages,
+        settings=settings,
+    )
+
+    semantic_state = _semantic_memory_state(
         user_entries=user_entries,
         previous=previous,
         latest_user_request=latest_user_request,
-        fallback_current_task=current_task,
-        fallback_task_ledger=task_ledger,
+        fallback_state=fallback_state,
+        archive_index=archive_index,
+        messages=messages,
+        settings=settings,
     )
     if semantic_state is not None:
-        current_task = _compact_task_text(semantic_state.current_task)
-        task_ledger = _trim_task_ledger(
-            _dedupe_task_entries([*semantic_state.task_ledger, current_task]),
-            _TASK_LEDGER_LIMIT,
+        state = _state_from_semantic(
+            previous=previous,
+            fallback_state=fallback_state,
+            semantic_state=semantic_state,
+            settings=settings,
         )
+    else:
+        state = fallback_state
+        if get_continuity_compaction_semantic_task_detection():
+            state.semantic_status = "fallback"
+            state.semantic_error = (
+                "semantic memory unavailable; deterministic extraction used"
+            )
+        else:
+            state.semantic_status = "disabled"
+
+    state.retrieved_archive_signals = _retrieve_archive_signals(
+        agent=agent,
+        state=state,
+        archive_index=archive_index,
+        settings=settings,
+        semantic_state=semantic_state,
+    )
+    return state
+
+
+def _deterministic_durable_state(
+    *,
+    previous: DurableState | None,
+    current_task: str,
+    latest_user_request: str,
+    task_ledger: list[str],
+    recent_text: str,
+    messages: list[ModelMessage],
+    settings: ContinuityCompactionSettings,
+) -> DurableState:
+    current_constraints = _extract_matching_lines(
+        recent_text, ("must", "do not", "don't", "preserve", "without")
+    )
+    global_constraints = _dedupe_nonempty(
+        [
+            *((previous.global_constraints if previous is not None else [])),
+            *_extract_matching_lines(
+                recent_text, ("global", "for all tasks", "session-wide")
+            ),
+        ],
+        limit=16,
+    )
+    active_files = _extract_paths(recent_text)[:20]
+    tasks = _fallback_tasks(
+        previous=previous,
+        task_ledger=task_ledger,
+        current_task=current_task,
+        current_constraints=current_constraints,
+        active_files=active_files,
+        settings=settings,
+    )
+    current_task_id = _current_task_id(tasks, current_task)
     return DurableState(
         goal=current_task or latest_user_request,
-        constraints=_extract_matching_lines(
-            recent_text, ("must", "do not", "don't", "preserve", "without")
-        ),
+        constraints=current_constraints,
         accepted_decisions=_extract_matching_lines(
             recent_text, ("decided", "decision", "use ", "using ")
         ),
@@ -651,35 +728,316 @@ def _build_durable_state(agent: Any, messages: list[ModelMessage]) -> DurableSta
             recent_text, ("not the", "isn't", "wasn't", "failed attempt", "dead end")
         ),
         validation_status=_extract_validation_status(messages),
-        active_files=_extract_paths(recent_text)[:20],
+        active_files=active_files,
         next_action=_latest_assistant_text(messages)[:500],
         current_task=current_task,
         latest_user_request=latest_user_request,
-        task_ledger=task_ledger,
+        task_ledger=_trim_task_ledger(task_ledger, _TASK_LEDGER_LIMIT),
+        tasks=tasks,
+        current_task_id=current_task_id,
+        original_root_task_id=_original_root_task_id(previous, tasks),
+        global_constraints=global_constraints,
+        semantic_status="deterministic",
     )
 
 
-def _semantic_task_state(
+def _semantic_memory_state(
     *,
     user_entries: list[tuple[int, str]],
     previous: DurableState | None,
     latest_user_request: str,
-    fallback_current_task: str,
-    fallback_task_ledger: list[str],
-) -> SemanticTaskState | None:
+    fallback_state: DurableState,
+    archive_index: list[dict[str, Any]],
+    messages: list[ModelMessage],
+    settings: ContinuityCompactionSettings,
+) -> SemanticMemoryState | None:
     try:
-        return resolve_semantic_task_state(
+        return resolve_semantic_memory_state(
             user_entries=user_entries,
-            previous_current_task=(previous.current_task or previous.goal)
-            if previous is not None
-            else "",
-            previous_task_ledger=previous.task_ledger if previous is not None else [],
+            previous_state=previous,
             latest_user_request=latest_user_request,
-            fallback_current_task=fallback_current_task,
-            fallback_task_ledger=fallback_task_ledger,
+            fallback_state=fallback_state,
+            archive_index=archive_index,
+            transcript_snippets=_transcript_snippets(messages),
+            allowed_files=_allowed_files(fallback_state, archive_index),
+            timeout_seconds=settings.semantic_timeout_seconds,
         )
     except Exception:
         return None
+
+
+def _state_from_semantic(
+    *,
+    previous: DurableState | None,
+    fallback_state: DurableState,
+    semantic_state: SemanticMemoryState,
+    settings: ContinuityCompactionSettings,
+) -> DurableState:
+    tasks = _merge_task_memories(
+        previous.tasks if previous is not None else fallback_state.tasks,
+        semantic_state.tasks,
+        semantic_state.current_task,
+        semantic_state.current_task_id,
+        settings.task_retention_count,
+    )
+    current_task_id = semantic_state.current_task_id or _current_task_id(
+        tasks, semantic_state.current_task
+    )
+    current_task = _task_title_by_id(tasks, current_task_id) or semantic_state.current_task
+    task_ledger = _trim_task_ledger(
+        _dedupe_task_entries(
+            [
+                *(previous.task_ledger if previous is not None else []),
+                *semantic_state.task_ledger,
+                current_task,
+            ]
+        ),
+        _TASK_LEDGER_LIMIT,
+    )
+    active_files = _dedupe_nonempty(
+        [*fallback_state.active_files, *semantic_state.active_files],
+        limit=20,
+    )
+    return DurableState(
+        goal=current_task or fallback_state.goal,
+        constraints=_current_task_constraints(tasks, current_task_id)
+        or fallback_state.constraints,
+        accepted_decisions=_dedupe_nonempty(
+            [
+                *fallback_state.accepted_decisions,
+                *semantic_state.accepted_decisions,
+            ],
+            limit=24,
+        ),
+        invalidated_hypotheses=_dedupe_nonempty(
+            [
+                *fallback_state.invalidated_hypotheses,
+                *semantic_state.invalidated_hypotheses,
+            ],
+            limit=16,
+        ),
+        validation_status=semantic_state.validation_status
+        or fallback_state.validation_status,
+        active_files=active_files,
+        next_action=semantic_state.next_action or fallback_state.next_action,
+        current_task=current_task,
+        latest_user_request=fallback_state.latest_user_request,
+        task_ledger=task_ledger,
+        tasks=tasks,
+        current_task_id=current_task_id,
+        original_root_task_id=_original_root_task_id(previous, tasks),
+        global_constraints=_dedupe_nonempty(
+            [*fallback_state.global_constraints, *semantic_state.global_constraints],
+            limit=24,
+        ),
+        semantic_status="semantic",
+    )
+
+
+def _fallback_tasks(
+    *,
+    previous: DurableState | None,
+    task_ledger: list[str],
+    current_task: str,
+    current_constraints: list[str],
+    active_files: list[str],
+    settings: ContinuityCompactionSettings,
+) -> list[TaskMemory]:
+    tasks = [
+        dataclasses.replace(task)
+        for task in (previous.tasks if previous is not None else [])
+        if task.title
+    ]
+    if not tasks:
+        for idx, title in enumerate(task_ledger, start=1):
+            tasks.append(
+                TaskMemory(
+                    task_id=_task_id_from_text(title, idx),
+                    title=title,
+                    status="unknown",
+                )
+            )
+    current_key = _task_key(current_task)
+    current_task_memory = next(
+        (task for task in tasks if _task_key(task.title) == current_key),
+        None,
+    )
+    if current_task and current_task_memory is None:
+        current_task_memory = TaskMemory(
+            task_id=_task_id_from_text(current_task, len(tasks) + 1),
+            title=current_task,
+        )
+        tasks.append(current_task_memory)
+
+    if current_task_memory is not None:
+        for task in tasks:
+            if task.task_id == current_task_memory.task_id:
+                task.status = "active"
+                task.constraints = _dedupe_nonempty(
+                    [*task.constraints, *current_constraints], limit=12
+                )
+                task.active_files = _dedupe_nonempty(
+                    [*task.active_files, *active_files], limit=20
+                )
+            elif task.status == "active":
+                task.status = "superseded"
+
+    return _retain_tasks(tasks, settings.task_retention_count)
+
+
+def _merge_task_memories(
+    base_tasks: list[TaskMemory],
+    semantic_tasks: list[TaskMemory],
+    current_task: str,
+    current_task_id: str,
+    retention_count: int,
+) -> list[TaskMemory]:
+    merged: list[TaskMemory] = [dataclasses.replace(task) for task in base_tasks]
+    by_id = {task.task_id: idx for idx, task in enumerate(merged)}
+    by_title = {_task_key(task.title): idx for idx, task in enumerate(merged)}
+    for task in semantic_tasks:
+        semantic_copy = dataclasses.replace(task)
+        if semantic_copy.task_id in by_id:
+            merged[by_id[semantic_copy.task_id]] = semantic_copy
+            continue
+        title_key = _task_key(semantic_copy.title)
+        if title_key in by_title:
+            merged[by_title[title_key]] = semantic_copy
+            continue
+        merged.append(semantic_copy)
+        by_id[semantic_copy.task_id] = len(merged) - 1
+        by_title[title_key] = len(merged) - 1
+
+    resolved_current_id = current_task_id or _current_task_id(merged, current_task)
+    if resolved_current_id:
+        for task in merged:
+            if task.task_id == resolved_current_id:
+                task.status = "active"
+            elif task.status == "active":
+                task.status = "superseded"
+    return _retain_tasks(merged, retention_count)
+
+
+def _retain_tasks(tasks: list[TaskMemory], retention_count: int) -> list[TaskMemory]:
+    retention_count = max(1, retention_count)
+    if len(tasks) <= retention_count:
+        return tasks
+    root = tasks[0]
+    active = next((task for task in tasks if task.status == "active"), None)
+    blocked = [task for task in tasks if task.status == "blocked"]
+    selected: list[TaskMemory] = []
+
+    def add(task: TaskMemory | None) -> None:
+        if task is None:
+            return
+        if any(existing.task_id == task.task_id for existing in selected):
+            return
+        selected.append(task)
+
+    add(root)
+    add(active)
+    for task in blocked:
+        add(task)
+    for task in reversed(tasks):
+        add(task)
+        if len(selected) >= retention_count:
+            break
+    selected = selected[:retention_count]
+    selected.sort(key=lambda task: tasks.index(task) if task in tasks else len(tasks))
+    return selected
+
+
+def _retrieve_archive_signals(
+    *,
+    agent: Any,
+    state: DurableState,
+    archive_index: list[dict[str, Any]],
+    settings: ContinuityCompactionSettings,
+    semantic_state: SemanticMemoryState | None,
+) -> list[ArchiveSignal]:
+    if not settings.archive_retrieval_enabled or settings.archive_retrieval_count <= 0:
+        return []
+    queries = _dedupe_nonempty(
+        [
+            state.current_task,
+            state.latest_user_request,
+            *state.active_files,
+            *((semantic_state.archive_queries if semantic_state is not None else [])),
+        ],
+        limit=16,
+    )
+    if not queries:
+        return []
+
+    index_ids = {str(item.get("observation_id") or "") for item in archive_index}
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for query in queries:
+        for record in search_archive_index(
+            agent, query, limit=settings.archive_retrieval_count
+        ):
+            obs_id = str(record.get("observation_id") or "")
+            if not obs_id or obs_id in seen or obs_id not in index_ids:
+                continue
+            selected.append(record)
+            seen.add(obs_id)
+            if len(selected) >= settings.archive_retrieval_count:
+                return [archive_signal_from_record(item) for item in selected]
+    return [archive_signal_from_record(item) for item in selected]
+
+
+def _transcript_snippets(messages: list[ModelMessage]) -> list[str]:
+    snippets: list[str] = []
+    for message in messages[-30:]:
+        text = _messages_to_text([message]).strip()
+        if text:
+            snippets.append(text[:1000])
+    return snippets
+
+
+def _allowed_files(
+    fallback_state: DurableState, archive_index: list[dict[str, Any]]
+) -> list[str]:
+    files = [*fallback_state.active_files]
+    for task in fallback_state.tasks:
+        files.extend(task.active_files)
+    for item in archive_index:
+        files.extend(str(path) for path in item.get("affected_files") or [])
+    return _dedupe_nonempty(files, limit=100)
+
+
+def _current_task_id(tasks: list[TaskMemory], current_task: str) -> str:
+    current_key = _task_key(current_task)
+    for task in reversed(tasks):
+        if _task_key(task.title) == current_key:
+            return task.task_id
+    active = next((task for task in tasks if task.status == "active"), None)
+    return active.task_id if active is not None else ""
+
+
+def _task_title_by_id(tasks: list[TaskMemory], task_id: str) -> str:
+    for task in tasks:
+        if task.task_id == task_id:
+            return task.title
+    return ""
+
+
+def _current_task_constraints(tasks: list[TaskMemory], task_id: str) -> list[str]:
+    for task in tasks:
+        if task.task_id == task_id:
+            return task.constraints
+    return []
+
+
+def _original_root_task_id(previous: DurableState | None, tasks: list[TaskMemory]) -> str:
+    if previous is not None and previous.original_root_task_id:
+        return previous.original_root_task_id
+    return tasks[0].task_id if tasks else ""
+
+
+def _task_id_from_text(text: str, idx: int) -> str:
+    raw = re.sub(r"[^A-Za-z0-9_.-]+", "-", _compact_task_text(text).casefold())
+    return (raw.strip("-")[:72] or f"task-{idx}") + f"-{idx}"
 
 
 def _user_text_entries(messages: list[ModelMessage]) -> list[tuple[int, str]]:
@@ -723,12 +1081,15 @@ def _build_task_ledger(
     previous: DurableState | None,
     current_task: str,
 ) -> list[str]:
-    ledger = list(previous.task_ledger) if previous is not None else []
+    if previous is not None and previous.tasks:
+        ledger = [task.title for task in previous.tasks]
+    else:
+        ledger = list(previous.task_ledger) if previous is not None else []
     for candidate in _task_root_candidates(user_entries):
         ledger.append(_compact_task_text(candidate))
     if current_task:
         ledger.append(_compact_task_text(current_task))
-    return _trim_task_ledger(_dedupe_task_entries(ledger), _TASK_LEDGER_LIMIT)
+    return _dedupe_task_entries(ledger)
 
 
 def _task_root_candidates(user_entries: list[tuple[int, str]]) -> list[str]:
@@ -880,6 +1241,21 @@ def _extract_key_signal(text: str) -> str:
         if line:
             return line[:300]
     return "no textual signal"
+
+
+def _extract_key_signals(text: str) -> list[str]:
+    signals: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line and (_SIGNAL_RE.search(line) or _PATH_RE.search(line)):
+            signals.append(line[:300])
+        if len(signals) >= 8:
+            break
+    if not signals:
+        first = _extract_key_signal(text)
+        if first:
+            signals.append(first)
+    return _dedupe_nonempty(signals, limit=8)
 
 
 def _status_from_text(text: str) -> str:

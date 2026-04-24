@@ -7,12 +7,16 @@ from dataclasses import dataclass
 from code_puppy.config import (
     get_continuity_compaction_archive_retention_count,
     get_continuity_compaction_archive_retention_days,
+    get_continuity_compaction_archive_retrieval_count,
+    get_continuity_compaction_archive_retrieval_enabled,
     get_continuity_compaction_emergency_trigger_ratio,
     get_continuity_compaction_growth_history_window,
     get_continuity_compaction_predicted_growth_floor_ratio,
     get_continuity_compaction_recent_raw_floor_ratio,
     get_continuity_compaction_soft_trigger_ratio,
     get_continuity_compaction_target_ratio,
+    get_continuity_compaction_semantic_timeout_seconds,
+    get_continuity_compaction_task_retention_count,
 )
 
 
@@ -28,6 +32,10 @@ class ContinuityCompactionSettings:
     archive_retention_days: int
     archive_retention_count: int
     mask_min_tokens: int
+    semantic_timeout_seconds: int = 8
+    archive_retrieval_enabled: bool = True
+    archive_retrieval_count: int = 3
+    task_retention_count: int = 100
 
 
 def _ratio_tokens(context_window: int, ratio: float) -> int:
@@ -60,5 +68,9 @@ def load_continuity_compaction_settings(
         growth_history_window=get_continuity_compaction_growth_history_window(),
         archive_retention_days=get_continuity_compaction_archive_retention_days(),
         archive_retention_count=get_continuity_compaction_archive_retention_count(),
+        semantic_timeout_seconds=get_continuity_compaction_semantic_timeout_seconds(),
+        archive_retrieval_enabled=get_continuity_compaction_archive_retrieval_enabled(),
+        archive_retrieval_count=get_continuity_compaction_archive_retrieval_count(),
+        task_retention_count=get_continuity_compaction_task_retention_count(),
         mask_min_tokens=max(250, min(1000, int(context_window * 0.005))),
     )
