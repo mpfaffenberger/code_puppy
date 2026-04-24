@@ -13,6 +13,7 @@ from code_puppy.config import (
     get_continuity_compaction_growth_history_window,
     get_continuity_compaction_predicted_growth_floor_ratio,
     get_continuity_compaction_recent_raw_floor_ratio,
+    get_continuity_compaction_semantic_task_detection,
     get_continuity_compaction_soft_trigger_ratio,
     get_continuity_compaction_target_ratio,
     get_use_dbos,
@@ -127,6 +128,7 @@ class TestConfigExtendedPart2:
             "continuity_compaction_growth_history_window": 10,
             "continuity_compaction_archive_retention_days": 30,
             "continuity_compaction_archive_retention_count": 500,
+            "continuity_compaction_semantic_task_detection": True,
         }
 
         def fake_get(key):
@@ -142,6 +144,7 @@ class TestConfigExtendedPart2:
             assert get_continuity_compaction_growth_history_window() == 10
             assert get_continuity_compaction_archive_retention_days() == 30
             assert get_continuity_compaction_archive_retention_count() == 500
+            assert get_continuity_compaction_semantic_task_detection() is True
 
     def test_continuity_compaction_config_clamps(self, mock_config_file):
         values = {
@@ -153,6 +156,7 @@ class TestConfigExtendedPart2:
             "continuity_compaction_growth_history_window": "0",
             "continuity_compaction_archive_retention_days": "0",
             "continuity_compaction_archive_retention_count": "0",
+            "continuity_compaction_semantic_task_detection": "false",
         }
 
         with patch("code_puppy.config.get_value", side_effect=values.get):
@@ -164,6 +168,7 @@ class TestConfigExtendedPart2:
             assert get_continuity_compaction_growth_history_window() == 1
             assert get_continuity_compaction_archive_retention_days() == 1
             assert get_continuity_compaction_archive_retention_count() == 1
+            assert get_continuity_compaction_semantic_task_detection() is False
 
     def test_get_use_dbos(self, mock_config_file):
         """Test getting DBOS usage flag"""

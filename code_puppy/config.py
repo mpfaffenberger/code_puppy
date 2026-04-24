@@ -307,6 +307,7 @@ def get_config_keys():
         "continuity_compaction_growth_history_window",
         "continuity_compaction_archive_retention_days",
         "continuity_compaction_archive_retention_count",
+        "continuity_compaction_semantic_task_detection",
         "summarization_model",
         "message_limit",
         "allow_recursion",
@@ -1280,6 +1281,18 @@ def _get_bounded_int_config(
     return max(minimum, min(maximum, parsed))
 
 
+def _get_bool_config(key: str, default: bool) -> bool:
+    val = get_value(key)
+    if val is None:
+        return default
+    normalized = str(val).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 def get_continuity_compaction_soft_trigger_ratio() -> float:
     """Context-window ratio that starts predictive continuity compaction."""
     return _get_bounded_float_config(
@@ -1357,6 +1370,14 @@ def get_continuity_compaction_archive_retention_count() -> int:
         500,
         minimum=1,
         maximum=100000,
+    )
+
+
+def get_continuity_compaction_semantic_task_detection() -> bool:
+    """Whether continuity compaction may use the summarization model for task state."""
+    return _get_bool_config(
+        "continuity_compaction_semantic_task_detection",
+        True,
     )
 
 
