@@ -26,6 +26,7 @@ from code_puppy.agents.continuity_compaction.storage import (
     MASKED_OBSERVATION_MARKER,
     STRUCTURED_SUMMARY_MARKER,
     cleanup_observation_archives,
+    durable_state_path,
     observations_dir,
 )
 
@@ -264,6 +265,123 @@ def test_durable_memory_snapshot_is_injected_once(monkeypatch, tmp_path: Path):
     )
 
     assert _message_text(second).count(DURABLE_MEMORY_MARKER) == 1
+
+
+def test_durable_memory_tracks_current_task_and_task_ledger(
+    monkeypatch, tmp_path: Path
+):
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
+    _patch_continuity_strategy(monkeypatch)
+    agent = _FakeAgent()
+    history = [
+        _user_msg("Task one: build import flow ROOT-TASK-ONE."),
+        _assistant_text("Import flow is complete."),
+        _user_msg("Switching tasks: build billing exporter ROOT-TASK-TWO."),
+        _assistant_text("Billing exporter work started."),
+        _user_msg("Run validation for billing exporter ROOT-LATEST-REQUEST."),
+    ]
+
+    new_messages, _ = _compaction.compact(
+        agent, history, model_max=10_000, context_overhead=0, force=True
+    )
+
+    rendered = _message_text(new_messages)
+    assert (
+        "Current Task: Switching tasks: build billing exporter ROOT-TASK-TWO."
+        in rendered
+    )
+    assert (
+        "Latest User Request: Run validation for billing exporter ROOT-LATEST-REQUEST."
+    ) in rendered
+    assert "Task Ledger:" in rendered
+    assert "ROOT-TASK-ONE" in rendered
+    assert "ROOT-TASK-TWO" in rendered
+
+    with durable_state_path(agent).open(encoding="utf-8") as f:
+        durable_state = json.load(f)
+    assert "ROOT-TASK-TWO" in durable_state["current_task"]
+    assert "ROOT-LATEST-REQUEST" in durable_state["latest_user_request"]
+    assert any("ROOT-TASK-ONE" in item for item in durable_state["task_ledger"])
+    assert any("ROOT-TASK-TWO" in item for item in durable_state["task_ledger"])
+
+
+def test_emergency_trim_keeps_task_roots_without_pinning_stale_first_raw(
+    monkeypatch, tmp_path: Path
+):
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
+    _patch_continuity_strategy(monkeypatch)
+    monkeypatch.setattr(
+        engine,
+        "load_continuity_compaction_settings",
+        lambda context_window: ContinuityCompactionSettings(
+            context_window=context_window,
+            soft_trigger=1,
+            emergency_trigger=500,
+            target_after_compaction=300,
+            recent_raw_floor=100,
+            predicted_growth_floor=0,
+            growth_history_window=10,
+            archive_retention_days=30,
+            archive_retention_count=500,
+            mask_min_tokens=250,
+        ),
+    )
+    first_task = (
+        "Initial task ROOT-TASK-ONE. "
+        + "obsolete implementation detail " * 900
+        + "RAW-FIRST-ONLY"
+    )
+    history = [
+        _user_msg(first_task),
+        _assistant_text("Initial task completed."),
+        _user_msg("Switching tasks: build billing exporter ROOT-TASK-TWO."),
+        _assistant_text("Billing exporter current error: failing validation."),
+        _user_msg("Continue billing exporter ROOT-LATEST-REQUEST."),
+    ]
+
+    new_messages, _ = _compaction.compact(
+        _FakeAgent(), history, model_max=10_000, context_overhead=0, force=True
+    )
+
+    rendered = _message_text(new_messages)
+    assert "ROOT-TASK-ONE" in rendered
+    assert "ROOT-TASK-TWO" in rendered
+    assert "ROOT-LATEST-REQUEST" in rendered
+    assert "RAW-FIRST-ONLY" not in rendered
+
+
+def test_task_ledger_preserves_original_root_after_many_task_switches(
+    monkeypatch, tmp_path: Path
+):
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
+    _patch_continuity_strategy(monkeypatch)
+    agent = _FakeAgent()
+    history = [_user_msg("Initial task ROOT-ORIGINAL-TASK.")]
+    for idx in range(1, 22):
+        history.extend(
+            [
+                _assistant_text(f"Completed previous task {idx}."),
+                _user_msg(f"New task: build feature ROOT-TASK-{idx:02d}."),
+            ]
+        )
+
+    _compaction.compact(
+        agent, history, model_max=10_000, context_overhead=0, force=True
+    )
+
+    with durable_state_path(agent).open(encoding="utf-8") as f:
+        durable_state = json.load(f)
+    ledger = durable_state["task_ledger"]
+    assert len(ledger) == 16
+    assert "ROOT-ORIGINAL-TASK" in ledger[0]
+    assert "ROOT-TASK-21" in ledger[-1]
+    assert "ROOT-TASK-21" in durable_state["current_task"]
 
 
 def test_structured_fallback_summarizes_masked_band(monkeypatch, tmp_path: Path):
