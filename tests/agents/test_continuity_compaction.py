@@ -140,6 +140,17 @@ def test_noop_below_predictive_threshold(monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
     _patch_continuity_strategy(monkeypatch)
+    emitted = []
+    monkeypatch.setattr(
+        engine,
+        "emit_info",
+        lambda content, **metadata: emitted.append(("info", str(content), metadata)),
+    )
+    monkeypatch.setattr(
+        engine,
+        "emit_success",
+        lambda content, **metadata: emitted.append(("success", str(content), metadata)),
+    )
     agent = _FakeAgent()
     messages = [_sys_msg(), _user_msg("small request")]
 
@@ -150,6 +161,7 @@ def test_noop_below_predictive_threshold(monkeypatch, tmp_path: Path):
     assert new_messages is messages
     assert dropped == []
     assert DURABLE_MEMORY_MARKER not in _message_text(new_messages)
+    assert emitted == []
 
 
 def test_predictive_trigger_can_fire_below_legacy_threshold(
@@ -171,6 +183,41 @@ def test_predictive_trigger_can_fire_below_legacy_threshold(
     assert DURABLE_MEMORY_MARKER in rendered
     assert MASKED_OBSERVATION_MARKER in rendered
     assert "latest request must remain raw" in rendered
+
+
+def test_continuity_compaction_emits_visible_status(monkeypatch, tmp_path: Path):
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
+    _patch_continuity_strategy(monkeypatch)
+    emitted = []
+    monkeypatch.setattr(
+        engine,
+        "emit_info",
+        lambda content, **metadata: emitted.append(("info", str(content), metadata)),
+    )
+    monkeypatch.setattr(
+        engine,
+        "emit_success",
+        lambda content, **metadata: emitted.append(("success", str(content), metadata)),
+    )
+
+    _compaction.compact(
+        _FakeAgent(), _bulky_history(), model_max=10_000, context_overhead=0, force=True
+    )
+
+    assert len(emitted) == 2
+    assert emitted[0][0] == "info"
+    assert "Continuity compaction forced at" in emitted[0][1]
+    assert "predicted next turn +" in emitted[0][1]
+    assert "target" in emitted[0][1]
+    assert emitted[0][2]["message_group"] == "token_context_status"
+    assert emitted[1][0] == "success"
+    assert "Continuity compaction complete:" in emitted[1][1]
+    assert "context" in emitted[1][1]
+    assert "messages" in emitted[1][1]
+    assert "archived and masked 1 observation(s)" in emitted[1][1]
+    assert emitted[1][2]["message_group"] == "token_context_status"
 
 
 def test_old_tool_returns_are_archived_and_masked(monkeypatch, tmp_path: Path):

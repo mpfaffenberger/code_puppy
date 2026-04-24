@@ -35,9 +35,11 @@ from code_puppy.agents.continuity_compaction.storage import (
     render_masked_observation,
     write_durable_state,
 )
+from code_puppy.messaging import emit_info, emit_success
 
 _TOOL_CALL_KINDS = {"tool-call", "builtin-tool-call"}
 _TOOL_RETURN_KINDS = {"tool-return", "builtin-tool-return"}
+_MESSAGE_GROUP = "token_context_status"
 _PATH_RE = re.compile(
     r"(?:\.{0,2}/|/)?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*"
     r"\.(?:py|pyi|js|jsx|ts|tsx|json|toml|yaml|yml|md|txt|go|rs|java|c|cc|cpp|h|hpp|css|html)"
@@ -74,24 +76,38 @@ def compact_continuity(
         _set_previous_total(agent, current_tokens)
         return input_messages, []
 
+    _emit_compaction_start(
+        current_tokens=current_tokens,
+        predicted_growth=predicted_growth,
+        settings=settings,
+        model_max=model_max,
+        force=force,
+    )
+
     durable_state = _build_durable_state(messages)
     write_durable_state(agent, durable_state)
     messages = _inject_durable_memory(messages, durable_state)
     cleanup_observation_archives(agent, settings)
 
     keep_indices = _build_keep_indices(messages, settings, model_name)
-    messages = _archive_and_mask(messages, keep_indices, agent, settings, model_name)
+    messages, masked_count = _archive_and_mask(
+        messages, keep_indices, agent, settings, model_name
+    )
     compacted_tokens = _history_tokens(messages, model_name) + context_overhead
 
+    summarized_count = 0
     if compacted_tokens > settings.target_after_compaction:
         keep_indices = _build_keep_indices(messages, settings, model_name)
-        messages = _summarize_oldest_masked_band(
+        messages, summarized_count = _summarize_oldest_masked_band(
             messages, keep_indices, settings, model_name, context_overhead
         )
         compacted_tokens = _history_tokens(messages, model_name) + context_overhead
 
+    emergency_trimmed_count = 0
     if compacted_tokens > settings.emergency_trigger:
+        before_emergency_len = len(messages)
         messages = _emergency_trim(messages, settings, model_name)
+        emergency_trimmed_count = max(0, before_emergency_len - len(messages))
         compacted_tokens = _history_tokens(messages, model_name) + context_overhead
 
     messages = prune_interrupted_tool_calls(messages)
@@ -102,11 +118,86 @@ def compact_continuity(
         for message in original_messages
         if hash_message(message) not in result_hashes
     ]
+    _emit_compaction_complete(
+        before_tokens=current_tokens,
+        after_tokens=compacted_tokens,
+        model_max=model_max,
+        before_messages=len(original_messages),
+        after_messages=len(messages),
+        masked_count=masked_count,
+        summarized_count=summarized_count,
+        emergency_trimmed_count=emergency_trimmed_count,
+    )
     return messages, dropped
 
 
 def _history_tokens(messages: Iterable[ModelMessage], model_name: str | None) -> int:
     return sum(estimate_tokens_for_message(message, model_name) for message in messages)
+
+
+def _emit_compaction_start(
+    *,
+    current_tokens: int,
+    predicted_growth: int,
+    settings: ContinuityCompactionSettings,
+    model_max: int,
+    force: bool,
+) -> None:
+    trigger = "forced" if force else "triggered"
+    current = _format_context_use(current_tokens, model_max)
+    predicted = _format_context_delta(predicted_growth, model_max)
+    target = _format_context_use(settings.target_after_compaction, model_max)
+    emit_info(
+        "Continuity compaction "
+        f"{trigger} at {current} context "
+        f"(predicted next turn +{predicted}); target {target}. "
+        "Preserving recent context and archiving older bulky observations.",
+        message_group=_MESSAGE_GROUP,
+    )
+
+
+def _emit_compaction_complete(
+    *,
+    before_tokens: int,
+    after_tokens: int,
+    model_max: int,
+    before_messages: int,
+    after_messages: int,
+    masked_count: int,
+    summarized_count: int,
+    emergency_trimmed_count: int,
+) -> None:
+    actions = (
+        [f"archived and masked {masked_count} observation(s)"]
+        if masked_count
+        else ["no bulky observations required masking"]
+    )
+    if summarized_count:
+        actions.append(f"summarized {summarized_count} old masked message(s)")
+    if emergency_trimmed_count:
+        actions.append(f"emergency-trimmed {emergency_trimmed_count} message(s)")
+    if not summarized_count and not emergency_trimmed_count:
+        actions.append("kept the recent raw tail intact")
+
+    emit_success(
+        "Continuity compaction complete: "
+        f"{_format_context_use(before_tokens, model_max)} -> "
+        f"{_format_context_use(after_tokens, model_max)} context, "
+        f"{before_messages} -> {after_messages} messages; " + "; ".join(actions) + ".",
+        message_group=_MESSAGE_GROUP,
+    )
+
+
+def _format_context_use(tokens: int, model_max: int) -> str:
+    if model_max <= 0:
+        return f"{tokens:,} tokens"
+    return f"{tokens / model_max:.1%}"
+
+
+def _format_context_delta(tokens: int, model_max: int) -> str:
+    if model_max <= 0:
+        return f"{tokens:,} tokens"
+    return f"{tokens / model_max:.1%}"
 
 
 def _get_stats(agent: Any) -> dict[str, Any]:
@@ -243,8 +334,9 @@ def _archive_and_mask(
     agent: Any,
     settings: ContinuityCompactionSettings,
     model_name: str | None,
-) -> list[ModelMessage]:
+) -> tuple[list[ModelMessage], int]:
     result: list[ModelMessage] = []
+    masked_count = 0
     for idx, message in enumerate(messages):
         if idx in keep_indices:
             result.append(message)
@@ -273,11 +365,12 @@ def _archive_and_mask(
             new_parts.append(
                 dataclasses.replace(part, content=render_masked_observation(record))
             )
+            masked_count += 1
             changed = True
         result.append(
             dataclasses.replace(message, parts=new_parts) if changed else message
         )
-    return result
+    return result, masked_count
 
 
 def _summarize_oldest_masked_band(
@@ -286,7 +379,7 @@ def _summarize_oldest_masked_band(
     settings: ContinuityCompactionSettings,
     model_name: str | None,
     context_overhead: int,
-) -> list[ModelMessage]:
+) -> tuple[list[ModelMessage], int]:
     current = _history_tokens(messages, model_name) + context_overhead
     needed = max(1, current - settings.target_after_compaction)
     selected: list[int] = []
@@ -302,10 +395,12 @@ def _summarize_oldest_masked_band(
         if selected_tokens >= needed:
             break
     if not selected:
-        return messages
+        return messages, 0
 
     drop_indices = _expand_tool_pair_indices(messages, set(selected))
     drop_indices.discard(0)
+    if not drop_indices:
+        return messages, 0
     summary_input = _messages_to_text(messages[idx] for idx in sorted(drop_indices))
     summary_text = _build_structured_masked_summary(summary_input)
 
@@ -326,7 +421,7 @@ def _summarize_oldest_masked_band(
                 inserted = True
             continue
         rebuilt.append(message)
-    return rebuilt
+    return rebuilt, len(drop_indices)
 
 
 def _build_structured_masked_summary(summary_input: str) -> str:
