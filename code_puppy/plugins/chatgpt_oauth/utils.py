@@ -344,6 +344,7 @@ def exchange_code_for_tokens(
 # These are the known models that work with ChatGPT OAuth tokens
 # Based on codex-rs CLI and shell-scripts/codex-call.sh
 DEFAULT_CODEX_MODELS = [
+    "gpt-5.5",
     "gpt-5.4",
     "gpt-5.3-instant",
     "gpt-5.3-codex-spark",
@@ -356,6 +357,7 @@ DEFAULT_CODEX_MODELS = [
 # doesn't return them (e.g. newly launched, not yet in the API catalogue).
 # These are merged into whatever the endpoint returns.
 REQUIRED_CODEX_MODELS = [
+    "gpt-5.5",
     "gpt-5.4",
     "gpt-5.3-instant",
     "gpt-5.3-codex",
@@ -478,12 +480,12 @@ def add_models_to_extra_config(models: List[str]) -> bool:
             # reasoning effort, reasoning summaries, and text verbosity.
             supported_settings = ["reasoning_effort", "summary", "verbosity"]
 
-            # xhigh reasoning is supported by codex models and GPT-5.4 variants.
+            # xhigh reasoning is supported by codex models and GPT-5.4+ variants.
             # Older non-codex GPT-5.x models like gpt-5.2 stay capped at "high".
             normalized_model_name = model_name.lower()
             supports_xhigh_reasoning = (
                 "codex" in normalized_model_name
-                or normalized_model_name.startswith("gpt-5.4")
+                or normalized_model_name.startswith(("gpt-5.4", "gpt-5.5"))
             )
 
             chatgpt_models[prefixed] = {
