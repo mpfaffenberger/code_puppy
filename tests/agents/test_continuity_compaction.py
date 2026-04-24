@@ -221,15 +221,14 @@ def test_durable_memory_snapshot_is_injected_once(monkeypatch, tmp_path: Path):
 
 def test_structured_fallback_summarizes_masked_band(monkeypatch, tmp_path: Path):
     import code_puppy.config as cp_config
+    import code_puppy.summarization_agent as summarization_agent
 
     monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
     _patch_continuity_strategy(monkeypatch)
     monkeypatch.setattr(
-        engine,
+        summarization_agent,
         "run_summarization_sync",
-        lambda _prompt, message_history: [
-            _user_msg("Goal:\nFix auth login.\nArchive References:\n- obs_test")
-        ],
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("no model")),
     )
     monkeypatch.setattr(
         engine,
@@ -256,6 +255,7 @@ def test_structured_fallback_summarizes_masked_band(monkeypatch, tmp_path: Path)
     rendered = _message_text(new_messages)
     assert STRUCTURED_SUMMARY_MARKER in rendered
     assert "Archive References" in rendered
+    assert "Summarized 1 already-masked observation" in rendered
 
 
 def test_emergency_trim_keeps_latest_user_request(monkeypatch, tmp_path: Path):
@@ -263,11 +263,6 @@ def test_emergency_trim_keeps_latest_user_request(monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
     _patch_continuity_strategy(monkeypatch)
-    monkeypatch.setattr(
-        engine,
-        "run_summarization_sync",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("no model")),
-    )
     monkeypatch.setattr(
         engine,
         "load_continuity_compaction_settings",
@@ -300,11 +295,6 @@ def test_emergency_trim_keeps_current_error_and_pair(monkeypatch, tmp_path: Path
 
     monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
     _patch_continuity_strategy(monkeypatch)
-    monkeypatch.setattr(
-        engine,
-        "run_summarization_sync",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("no model")),
-    )
     monkeypatch.setattr(
         engine,
         "load_continuity_compaction_settings",
