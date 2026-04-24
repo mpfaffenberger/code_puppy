@@ -36,6 +36,10 @@ from code_puppy.agents.continuity_compaction.storage import (
     render_masked_observation,
     write_durable_state,
 )
+from code_puppy.agents.continuity_compaction.task_detection import (
+    SemanticTaskState,
+    resolve_semantic_task_state,
+)
 from code_puppy.messaging import emit_info, emit_success
 
 _TOOL_CALL_KINDS = {"tool-call", "builtin-tool-call"}
@@ -622,6 +626,19 @@ def _build_durable_state(agent: Any, messages: list[ModelMessage]) -> DurableSta
     latest_user_request = _latest_user_text(messages)[:500]
     current_task = _select_current_task(user_entries, previous, latest_user_request)
     task_ledger = _build_task_ledger(user_entries, previous, current_task)
+    semantic_state = _semantic_task_state(
+        user_entries=user_entries,
+        previous=previous,
+        latest_user_request=latest_user_request,
+        fallback_current_task=current_task,
+        fallback_task_ledger=task_ledger,
+    )
+    if semantic_state is not None:
+        current_task = _compact_task_text(semantic_state.current_task)
+        task_ledger = _trim_task_ledger(
+            _dedupe_task_entries([*semantic_state.task_ledger, current_task]),
+            _TASK_LEDGER_LIMIT,
+        )
     return DurableState(
         goal=current_task or latest_user_request,
         constraints=_extract_matching_lines(
@@ -640,6 +657,29 @@ def _build_durable_state(agent: Any, messages: list[ModelMessage]) -> DurableSta
         latest_user_request=latest_user_request,
         task_ledger=task_ledger,
     )
+
+
+def _semantic_task_state(
+    *,
+    user_entries: list[tuple[int, str]],
+    previous: DurableState | None,
+    latest_user_request: str,
+    fallback_current_task: str,
+    fallback_task_ledger: list[str],
+) -> SemanticTaskState | None:
+    try:
+        return resolve_semantic_task_state(
+            user_entries=user_entries,
+            previous_current_task=(previous.current_task or previous.goal)
+            if previous is not None
+            else "",
+            previous_task_ledger=previous.task_ledger if previous is not None else [],
+            latest_user_request=latest_user_request,
+            fallback_current_task=fallback_current_task,
+            fallback_task_ledger=fallback_task_ledger,
+        )
+    except Exception:
+        return None
 
 
 def _user_text_entries(messages: list[ModelMessage]) -> list[tuple[int, str]]:

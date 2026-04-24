@@ -17,6 +17,7 @@ from pydantic_ai.messages import (
 
 from code_puppy.agents import _compaction
 from code_puppy.agents.continuity_compaction import engine
+from code_puppy.agents.continuity_compaction import task_detection
 from code_puppy.agents.continuity_compaction.settings import (
     ContinuityCompactionSettings,
     load_continuity_compaction_settings,
@@ -29,6 +30,7 @@ from code_puppy.agents.continuity_compaction.storage import (
     durable_state_path,
     observations_dir,
 )
+from code_puppy.agents.continuity_compaction.task_detection import SemanticTaskState
 
 
 class _FakeAgent:
@@ -125,6 +127,7 @@ def _bulky_history() -> list[ModelMessage]:
 
 def _patch_continuity_strategy(monkeypatch):
     monkeypatch.setattr(_compaction, "get_compaction_strategy", lambda: "continuity")
+    monkeypatch.setattr(engine, "resolve_semantic_task_state", lambda **_kwargs: None)
 
 
 def test_continuity_settings_scale_from_percentages():
@@ -305,6 +308,144 @@ def test_durable_memory_tracks_current_task_and_task_ledger(
     assert "ROOT-LATEST-REQUEST" in durable_state["latest_user_request"]
     assert any("ROOT-TASK-ONE" in item for item in durable_state["task_ledger"])
     assert any("ROOT-TASK-TWO" in item for item in durable_state["task_ledger"])
+
+
+def test_semantic_task_detection_can_override_regex_task_boundary(
+    monkeypatch, tmp_path: Path
+):
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
+    _patch_continuity_strategy(monkeypatch)
+
+    captured = {}
+
+    def fake_semantic_task_state(**kwargs):
+        captured.update(kwargs)
+        return SemanticTaskState(
+            current_task="Build dashboard analytics ROOT-SEMANTIC-TASK.",
+            task_ledger=[
+                "Initial task ROOT-TASK-ONE.",
+                "Build dashboard analytics ROOT-SEMANTIC-TASK.",
+            ],
+        )
+
+    monkeypatch.setattr(
+        engine,
+        "resolve_semantic_task_state",
+        fake_semantic_task_state,
+    )
+    agent = _FakeAgent()
+    history = [
+        _user_msg("Initial task ROOT-TASK-ONE."),
+        _assistant_text("Initial task complete."),
+        _user_msg(
+            "Okay about the dashboard now, wire up analytics ROOT-SUBTLE-SWITCH."
+        ),
+        _assistant_text("Dashboard analytics started."),
+        _user_msg("Continue the chart validation ROOT-LATEST-REQUEST."),
+    ]
+
+    new_messages, _ = _compaction.compact(
+        agent, history, model_max=10_000, context_overhead=0, force=True
+    )
+
+    rendered = _message_text(new_messages)
+    assert "Current Task: Build dashboard analytics ROOT-SEMANTIC-TASK." in rendered
+    assert (
+        "Latest User Request: Continue the chart validation ROOT-LATEST-REQUEST."
+        in rendered
+    )
+    assert "ROOT-TASK-ONE" in rendered
+    assert "ROOT-SEMANTIC-TASK" in rendered
+    assert "ROOT-LATEST-REQUEST" in captured["latest_user_request"]
+    assert "ROOT-TASK-ONE" in captured["fallback_current_task"]
+
+
+def test_semantic_task_detection_failure_falls_back_to_deterministic(
+    monkeypatch, tmp_path: Path
+):
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
+    _patch_continuity_strategy(monkeypatch)
+    monkeypatch.setattr(
+        engine,
+        "resolve_semantic_task_state",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("llm unavailable")),
+    )
+    history = [
+        _user_msg("Task one ROOT-TASK-ONE."),
+        _assistant_text("Task one done."),
+        _user_msg("Switching tasks: build billing exporter ROOT-TASK-TWO."),
+        _user_msg("Continue billing exporter ROOT-LATEST-REQUEST."),
+    ]
+
+    new_messages, _ = _compaction.compact(
+        _FakeAgent(), history, model_max=10_000, context_overhead=0, force=True
+    )
+
+    rendered = _message_text(new_messages)
+    assert (
+        "Current Task: Switching tasks: build billing exporter ROOT-TASK-TWO."
+        in rendered
+    )
+    assert "ROOT-LATEST-REQUEST" in rendered
+
+
+def test_semantic_task_detector_parses_json_text_response(monkeypatch):
+    monkeypatch.setattr(
+        task_detection,
+        "get_continuity_compaction_semantic_task_detection",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        task_detection,
+        "run_summarization_sync",
+        lambda *_args, **_kwargs: [
+            _assistant_text(
+                '```json\n{"current_task":"Semantic task ROOT-LLM",'
+                '"task_ledger":["Original ROOT-ONE","Semantic task ROOT-LLM"]}\n```'
+            )
+        ],
+    )
+
+    state = task_detection.resolve_semantic_task_state(
+        user_entries=[(1, "Original ROOT-ONE"), (2, "Subtle switch ROOT-SUBTLE")],
+        previous_current_task="Original ROOT-ONE",
+        previous_task_ledger=["Original ROOT-ONE"],
+        latest_user_request="Continue ROOT-LATEST",
+        fallback_current_task="Original ROOT-ONE",
+        fallback_task_ledger=["Original ROOT-ONE"],
+    )
+
+    assert state is not None
+    assert state.current_task == "Semantic task ROOT-LLM"
+    assert state.task_ledger == ["Original ROOT-ONE", "Semantic task ROOT-LLM"]
+
+
+def test_semantic_task_detector_returns_none_on_failure(monkeypatch):
+    monkeypatch.setattr(
+        task_detection,
+        "get_continuity_compaction_semantic_task_detection",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        task_detection,
+        "run_summarization_sync",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("offline")),
+    )
+
+    state = task_detection.resolve_semantic_task_state(
+        user_entries=[(1, "Original ROOT-ONE")],
+        previous_current_task="",
+        previous_task_ledger=[],
+        latest_user_request="Original ROOT-ONE",
+        fallback_current_task="Original ROOT-ONE",
+        fallback_task_ledger=["Original ROOT-ONE"],
+    )
+
+    assert state is None
 
 
 def test_emergency_trim_keeps_task_roots_without_pinning_stale_first_raw(
