@@ -32,7 +32,7 @@ class ContinuityCompactionSettings:
     archive_retention_days: int
     archive_retention_count: int
     mask_min_tokens: int
-    semantic_timeout_seconds: int = 20
+    semantic_timeout_seconds: int = 60
     archive_retrieval_enabled: bool = True
     archive_retrieval_count: int = 3
     task_retention_count: int = 100

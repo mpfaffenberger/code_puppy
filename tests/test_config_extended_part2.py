@@ -133,7 +133,7 @@ class TestConfigExtendedPart2:
             "continuity_compaction_archive_retention_days": 30,
             "continuity_compaction_archive_retention_count": 500,
             "continuity_compaction_semantic_task_detection": True,
-            "continuity_compaction_semantic_timeout_seconds": 20,
+            "continuity_compaction_semantic_timeout_seconds": 60,
             "continuity_compaction_archive_retrieval_enabled": True,
             "continuity_compaction_archive_retrieval_count": 3,
             "continuity_compaction_task_retention_count": 100,
@@ -153,7 +153,7 @@ class TestConfigExtendedPart2:
             assert get_continuity_compaction_archive_retention_days() == 30
             assert get_continuity_compaction_archive_retention_count() == 500
             assert get_continuity_compaction_semantic_task_detection() is True
-            assert get_continuity_compaction_semantic_timeout_seconds() == 20
+            assert get_continuity_compaction_semantic_timeout_seconds() == 60
             assert get_continuity_compaction_archive_retrieval_enabled() is True
             assert get_continuity_compaction_archive_retrieval_count() == 3
             assert get_continuity_compaction_task_retention_count() == 100
