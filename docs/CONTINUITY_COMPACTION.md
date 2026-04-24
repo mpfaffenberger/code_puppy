@@ -26,10 +26,9 @@ only when the current context is already at least `72.5%` full and the predicted
 next turn would cross the soft trigger. Manual `/compact` still forces
 compaction regardless of the predictive trigger floor.
 
-The target ratio is an anchor rather than a hard landing point. Continuity picks
-an effective target near that anchor based on predicted growth, usually between
-about `30%` and `45%` with the default settings, so high-growth sessions compact
-deeper while calmer sessions can keep a little more recent raw context.
+The target ratio is the post-compaction ceiling Continuity tries to hit. With
+the default settings, compaction targets `35%` full context, then fills back
+toward that target with older compacted messages when they still fit safely.
 
 ## Practical Before/After Example
 

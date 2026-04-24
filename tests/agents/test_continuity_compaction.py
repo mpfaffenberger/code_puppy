@@ -149,14 +149,6 @@ def test_continuity_settings_scale_from_percentages():
     assert settings.predictive_trigger_floor == 145_000
 
 
-def test_effective_target_adapts_around_configured_ratio():
-    settings = load_continuity_compaction_settings(100_000)
-
-    assert engine._effective_target_after_compaction(settings, 6_000) == 45_000
-    assert engine._effective_target_after_compaction(settings, 12_000) == 34_500
-    assert engine._effective_target_after_compaction(settings, 18_000) == 30_000
-
-
 def test_noop_below_predictive_threshold(monkeypatch, tmp_path: Path):
     import code_puppy.config as cp_config
 
@@ -1110,6 +1102,36 @@ def test_target_trim_runs_below_emergency_when_target_still_exceeded(
     assert "ROOT-LATEST-TARGET" in rendered
     assert "RAW-OLD-ONLY" not in rendered
     assert any("trimmed" in message and "to target" in message for message in emitted)
+
+
+def test_target_trim_skips_oversized_messages_and_keeps_smaller_context():
+    settings = ContinuityCompactionSettings(
+        context_window=10_000,
+        soft_trigger=1,
+        emergency_trigger=100_000,
+        target_after_compaction=1_000,
+        recent_raw_floor=100,
+        predicted_growth_floor=0,
+        growth_history_window=10,
+        archive_retention_days=30,
+        archive_retention_count=500,
+        mask_min_tokens=250,
+    )
+    messages = [
+        _sys_msg(),
+        _assistant_text("SMALL-OLD-A " + "a" * 900),
+        _assistant_text("HUGE-OLD " + "b" * 8_000),
+        _assistant_text("SMALL-OLD-B " + "c" * 900),
+        _user_msg("LATEST-TARGET-FILL " + "d" * 500),
+    ]
+
+    trimmed = engine._trim_to_target(messages, settings, "fake-model")
+    rendered = _message_text(trimmed)
+
+    assert "LATEST-TARGET-FILL" in rendered
+    assert "SMALL-OLD-A" in rendered
+    assert "SMALL-OLD-B" in rendered
+    assert "HUGE-OLD" not in rendered
 
 
 def test_emergency_trim_keeps_latest_user_request(monkeypatch, tmp_path: Path):

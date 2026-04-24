@@ -54,9 +54,6 @@ _TOOL_RETURN_KINDS = {"tool-return", "builtin-tool-return"}
 _MESSAGE_GROUP = "token_context_status"
 _TASK_LEDGER_LIMIT = 16
 _TASK_TEXT_LIMIT = 320
-_TARGET_RUNWAY_TURNS = 4
-_TARGET_BAND_BELOW_RATIO = 0.05
-_TARGET_BAND_ABOVE_RATIO = 0.10
 resolve_semantic_task_state = _legacy_resolve_semantic_task_state
 _PATH_RE = re.compile(
     r"(?:\.{0,2}/|/)?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*"
@@ -114,12 +111,6 @@ def compact_continuity(
         _set_previous_total(agent, current_tokens)
         return input_messages, []
 
-    settings = dataclasses.replace(
-        settings,
-        target_after_compaction=_effective_target_after_compaction(
-            settings, predicted_growth
-        ),
-    )
     _emit_compaction_start(
         current_tokens=current_tokens,
         predicted_growth=predicted_growth,
@@ -201,33 +192,6 @@ def _should_compact(
     if current_tokens < settings.predictive_trigger_floor:
         return False
     return current_tokens + predicted_growth >= settings.soft_trigger
-
-
-def _effective_target_after_compaction(
-    settings: ContinuityCompactionSettings, predicted_growth: int
-) -> int:
-    """Choose a dynamic target near the configured ratio with growth-based runway."""
-    context_window = max(1, settings.context_window)
-    configured_target = max(1, settings.target_after_compaction)
-    lower_band = configured_target - int(
-        round(context_window * _TARGET_BAND_BELOW_RATIO)
-    )
-    upper_band = configured_target + int(
-        round(context_window * _TARGET_BAND_ABOVE_RATIO)
-    )
-    lower_bound = max(
-        1,
-        lower_band,
-        settings.recent_raw_floor + settings.predicted_growth_floor,
-    )
-    upper_bound = max(
-        lower_bound,
-        min(settings.soft_trigger - settings.predicted_growth_floor, upper_band),
-    )
-    runway_target = settings.soft_trigger - (
-        max(predicted_growth, settings.predicted_growth_floor) * _TARGET_RUNWAY_TURNS
-    )
-    return max(lower_bound, min(upper_bound, runway_target))
 
 
 def _emit_compaction_start(
@@ -680,10 +644,16 @@ def _trim_to_target(
     for idx in range(len(messages) - 1, 0, -1):
         if idx in keep:
             continue
-        msg_tokens = estimate_tokens_for_message(messages[idx], model_name)
+        candidate = _expand_tool_pair_indices(messages, {idx}) - keep
+        if not candidate:
+            continue
+        msg_tokens = sum(
+            estimate_tokens_for_message(messages[candidate_idx], model_name)
+            for candidate_idx in candidate
+        )
         if running + msg_tokens > settings.target_after_compaction and len(keep) > 1:
-            break
-        keep.add(idx)
+            continue
+        keep.update(candidate)
         running += msg_tokens
 
     keep = _expand_tool_pair_indices(messages, keep)
