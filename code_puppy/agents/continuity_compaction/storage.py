@@ -7,7 +7,7 @@ import json
 import os
 import re
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,9 @@ class DurableState:
     validation_status: dict[str, str]
     active_files: list[str]
     next_action: str
+    current_task: str = ""
+    latest_user_request: str = ""
+    task_ledger: list[str] = field(default_factory=list)
 
 
 def _safe_segment(value: str) -> str:
@@ -85,15 +88,59 @@ def write_durable_state(agent: Any, state: DurableState) -> Path:
     return path
 
 
+def read_durable_state(agent: Any) -> DurableState | None:
+    path = durable_state_path(agent)
+    try:
+        with path.open(encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    goal = str(payload.get("goal") or "")
+    current_task = str(payload.get("current_task") or goal)
+    latest_user_request = str(payload.get("latest_user_request") or goal)
+    return DurableState(
+        goal=goal,
+        constraints=_as_string_list(payload.get("constraints")),
+        accepted_decisions=_as_string_list(payload.get("accepted_decisions")),
+        invalidated_hypotheses=_as_string_list(payload.get("invalidated_hypotheses")),
+        validation_status=_as_string_dict(payload.get("validation_status")),
+        active_files=_as_string_list(payload.get("active_files")),
+        next_action=str(payload.get("next_action") or ""),
+        current_task=current_task,
+        latest_user_request=latest_user_request,
+        task_ledger=_as_string_list(payload.get("task_ledger")),
+    )
+
+
+def _as_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
+def _as_string_dict(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): str(item) for key, item in value.items()}
+
+
 def render_durable_state(state: DurableState) -> str:
     def _section(name: str, items: list[str]) -> list[str]:
         if not items:
             return [f"{name}: none"]
         return [f"{name}:"] + [f"- {item}" for item in items]
 
+    current_task = state.current_task or state.goal or "unknown"
+    latest_request = state.latest_user_request or state.goal or "unknown"
     lines = [
         DURABLE_MEMORY_MARKER,
-        f"Goal: {state.goal or 'unknown'}",
+        f"Goal: {current_task}",
+        f"Current Task: {current_task}",
+        f"Latest User Request: {latest_request}",
+        *_section("Task Ledger", state.task_ledger),
         *_section("Hard Constraints", state.constraints),
         *_section("Accepted Decisions", state.accepted_decisions),
         *_section("Invalidated Hypotheses", state.invalidated_hypotheses),

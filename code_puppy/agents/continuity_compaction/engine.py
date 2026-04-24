@@ -31,6 +31,7 @@ from code_puppy.agents.continuity_compaction.storage import (
     DurableState,
     archive_observation,
     cleanup_observation_archives,
+    read_durable_state,
     render_durable_state,
     render_masked_observation,
     write_durable_state,
@@ -40,12 +41,29 @@ from code_puppy.messaging import emit_info, emit_success
 _TOOL_CALL_KINDS = {"tool-call", "builtin-tool-call"}
 _TOOL_RETURN_KINDS = {"tool-return", "builtin-tool-return"}
 _MESSAGE_GROUP = "token_context_status"
+_TASK_LEDGER_LIMIT = 16
+_TASK_TEXT_LIMIT = 320
 _PATH_RE = re.compile(
     r"(?:\.{0,2}/|/)?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*"
     r"\.(?:py|pyi|js|jsx|ts|tsx|json|toml|yaml|yml|md|txt|go|rs|java|c|cc|cpp|h|hpp|css|html)"
 )
 _SIGNAL_RE = re.compile(
     r"(error|failed|failure|exception|traceback|assertion|exit code|exit_code)",
+    re.IGNORECASE,
+)
+_TASK_START_RE = re.compile(
+    r"\b("
+    r"new task|switch(?:ing)? tasks?|different task|separate task|"
+    r"now (?:let'?s|we need|i want|i need)|"
+    r"let'?s (?:build|create|implement|add|fix|investigate|rework|rename|"
+    r"configure|set up|do|make)|"
+    r"please (?:build|create|implement|add|fix|investigate|rework|rename|"
+    r"configure|set up|make)|"
+    r"can you (?:please )?(?:build|create|implement|add|fix|investigate|"
+    r"rework|rename|configure|set up|make)|"
+    r"i (?:want|would like|need) (?:you to|to)|"
+    r"we need to"
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -84,7 +102,7 @@ def compact_continuity(
         force=force,
     )
 
-    durable_state = _build_durable_state(messages)
+    durable_state = _build_durable_state(agent, messages)
     write_durable_state(agent, durable_state)
     messages = _inject_durable_memory(messages, durable_state)
     cleanup_observation_archives(agent, settings)
@@ -541,7 +559,7 @@ def _emergency_trim(
 ) -> list[ModelMessage]:
     if len(messages) <= 1:
         return messages
-    keep = {0}
+    keep = {0} if _is_system_anchor_message(messages[0]) else set()
     pinned_indices = (
         _durable_memory_index(messages),
         _latest_user_index(messages),
@@ -597,10 +615,15 @@ def _is_masked_message(message: ModelMessage) -> bool:
     return MASKED_OBSERVATION_MARKER in _messages_to_text([message])
 
 
-def _build_durable_state(messages: list[ModelMessage]) -> DurableState:
+def _build_durable_state(agent: Any, messages: list[ModelMessage]) -> DurableState:
     recent_text = _messages_to_text(messages[-20:])
+    previous = read_durable_state(agent)
+    user_entries = _user_text_entries(messages)
+    latest_user_request = _latest_user_text(messages)[:500]
+    current_task = _select_current_task(user_entries, previous, latest_user_request)
+    task_ledger = _build_task_ledger(user_entries, previous, current_task)
     return DurableState(
-        goal=_latest_user_text(messages)[:500],
+        goal=current_task or latest_user_request,
         constraints=_extract_matching_lines(
             recent_text, ("must", "do not", "don't", "preserve", "without")
         ),
@@ -613,14 +636,116 @@ def _build_durable_state(messages: list[ModelMessage]) -> DurableState:
         validation_status=_extract_validation_status(messages),
         active_files=_extract_paths(recent_text)[:20],
         next_action=_latest_assistant_text(messages)[:500],
+        current_task=current_task,
+        latest_user_request=latest_user_request,
+        task_ledger=task_ledger,
     )
+
+
+def _user_text_entries(messages: list[ModelMessage]) -> list[tuple[int, str]]:
+    entries: list[tuple[int, str]] = []
+    for idx, message in enumerate(messages):
+        if _is_durable_memory(message):
+            continue
+        text = _user_prompt_text(message).strip()
+        if not text:
+            continue
+        entries.append((idx, text))
+    return entries
+
+
+def _select_current_task(
+    user_entries: list[tuple[int, str]],
+    previous: DurableState | None,
+    latest_user_request: str,
+) -> str:
+    previous_task = ""
+    if previous is not None:
+        previous_task = previous.current_task or previous.goal
+
+    candidates = _task_root_candidates(user_entries)
+    if candidates:
+        latest_candidate = _compact_task_text(candidates[-1])
+        if (
+            previous_task
+            and _task_key(latest_candidate) == _task_key(previous_task)
+            and not _is_task_start(latest_user_request)
+        ):
+            return _compact_task_text(previous_task)
+        return latest_candidate
+    if previous_task:
+        return _compact_task_text(previous_task)
+    return _compact_task_text(latest_user_request)
+
+
+def _build_task_ledger(
+    user_entries: list[tuple[int, str]],
+    previous: DurableState | None,
+    current_task: str,
+) -> list[str]:
+    ledger = list(previous.task_ledger) if previous is not None else []
+    for candidate in _task_root_candidates(user_entries):
+        ledger.append(_compact_task_text(candidate))
+    if current_task:
+        ledger.append(_compact_task_text(current_task))
+    return _trim_task_ledger(_dedupe_task_entries(ledger), _TASK_LEDGER_LIMIT)
+
+
+def _task_root_candidates(user_entries: list[tuple[int, str]]) -> list[str]:
+    candidates: list[str] = []
+    for offset, (_idx, text) in enumerate(user_entries):
+        if offset == 0 or _is_task_start(text):
+            candidates.append(text)
+    return candidates
+
+
+def _is_task_start(text: str) -> bool:
+    return bool(_TASK_START_RE.search(text or ""))
+
+
+def _compact_task_text(text: str) -> str:
+    compacted = " ".join(str(text or "").split())
+    return compacted[:_TASK_TEXT_LIMIT]
+
+
+def _dedupe_task_entries(entries: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for entry in entries:
+        value = _compact_task_text(entry)
+        key = _task_key(value)
+        if not value or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(value)
+    return deduped
+
+
+def _task_key(value: str) -> str:
+    return " ".join(str(value or "").casefold().split())
+
+
+def _trim_task_ledger(entries: list[str], limit: int) -> list[str]:
+    if len(entries) <= limit:
+        return entries
+    if limit <= 1:
+        return entries[-limit:]
+    return [entries[0], *entries[-(limit - 1) :]]
 
 
 def _latest_user_text(messages: list[ModelMessage]) -> str:
     idx = _latest_user_index(messages)
     if idx is None:
         return ""
-    return _messages_to_text([messages[idx]])
+    return _user_prompt_text(messages[idx])
+
+
+def _user_prompt_text(message: ModelMessage) -> str:
+    chunks: list[str] = []
+    for part in getattr(message, "parts", []) or []:
+        if getattr(part, "part_kind", None) == "user-prompt":
+            chunks.append(_content_text(getattr(part, "content", "")))
+    return "\n".join(chunk for chunk in chunks if chunk)
 
 
 def _latest_assistant_text(messages: list[ModelMessage]) -> str:
@@ -651,6 +776,13 @@ def _latest_signal_index(messages: list[ModelMessage]) -> int | None:
         if _SIGNAL_RE.search(_messages_to_text([messages[idx]])):
             return idx
     return None
+
+
+def _is_system_anchor_message(message: ModelMessage) -> bool:
+    return any(
+        getattr(part, "part_kind", None) == "system-prompt"
+        for part in getattr(message, "parts", []) or []
+    )
 
 
 def _extract_matching_lines(text: str, needles: tuple[str, ...]) -> list[str]:
