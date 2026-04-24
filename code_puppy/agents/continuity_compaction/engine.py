@@ -35,8 +35,6 @@ from code_puppy.agents.continuity_compaction.storage import (
     render_masked_observation,
     write_durable_state,
 )
-from code_puppy.messaging import emit_warning
-from code_puppy.summarization_agent import run_summarization_sync
 
 _TOOL_CALL_KINDS = {"tool-call", "builtin-tool-call"}
 _TOOL_RETURN_KINDS = {"tool-return", "builtin-tool-return"}
@@ -48,20 +46,6 @@ _SIGNAL_RE = re.compile(
     r"(error|failed|failure|exception|traceback|assertion|exit code|exit_code)",
     re.IGNORECASE,
 )
-
-_STRUCTURED_FALLBACK_INSTRUCTIONS = """Summarize only these already-masked historical observations.
-Use this exact schema and do not speculate:
-
-Goal
-Hard Constraints
-Verified Facts
-Invalidated Hypotheses
-Important Decisions
-Validation Status
-Active Files
-Next Action
-Archive References
-"""
 
 
 def compact_continuity(
@@ -323,19 +307,7 @@ def _summarize_oldest_masked_band(
     drop_indices = _expand_tool_pair_indices(messages, set(selected))
     drop_indices.discard(0)
     summary_input = _messages_to_text(messages[idx] for idx in sorted(drop_indices))
-    try:
-        summary_messages = run_summarization_sync(
-            _STRUCTURED_FALLBACK_INSTRUCTIONS,
-            message_history=[
-                ModelRequest(parts=[UserPromptPart(content=summary_input)])
-            ],
-        )
-        summary_text = _messages_to_text(summary_messages)
-    except Exception as exc:
-        emit_warning(
-            f"Continuity compaction fallback summarization failed; using emergency trim. {exc}"
-        )
-        return _emergency_trim(messages, settings, model_name)
+    summary_text = _build_structured_masked_summary(summary_input)
 
     summary = ModelRequest(
         parts=[
@@ -355,6 +327,116 @@ def _summarize_oldest_masked_band(
             continue
         rebuilt.append(message)
     return rebuilt
+
+
+def _build_structured_masked_summary(summary_input: str) -> str:
+    """Build a deterministic summary for already-masked observation capsules."""
+    lines = [line.strip() for line in summary_input.splitlines() if line.strip()]
+    values = _masked_summary_values(lines)
+
+    observations = max(1, summary_input.count(MASKED_OBSERVATION_MARKER))
+    validation_status = []
+    for status in values["result"] or values["status"]:
+        validation_status.append(status)
+    for signal in values["key_signal"]:
+        validation_status.append(signal)
+
+    active_files: list[str] = []
+    for files_line in values["files"]:
+        active_files.extend(item.strip() for item in files_line.split(","))
+    active_files.extend(_extract_paths(summary_input))
+
+    important_decisions = [
+        line
+        for line in lines
+        if line.lower().startswith("decision:")
+        or " next action:" in line.lower()
+        or "not the root cause" in line.lower()
+    ]
+
+    verified_facts = [
+        f"Summarized {observations} already-masked observation(s).",
+        *[f"Tool: {tool}" for tool in values["tool"]],
+        *[f"Observation id: {obs_id}" for obs_id in values["id"]],
+    ]
+
+    sections = [
+        ("Goal", []),
+        ("Hard Constraints", []),
+        ("Verified Facts", verified_facts),
+        ("Invalidated Hypotheses", _extract_invalidated_hypotheses(lines)),
+        ("Important Decisions", important_decisions),
+        ("Validation Status", validation_status),
+        ("Active Files", active_files),
+        ("Next Action", _extract_next_actions(lines)),
+        ("Archive References", values["full_log_ref"]),
+    ]
+    rendered: list[str] = []
+    for title, items in sections:
+        rendered.append(title)
+        deduped = _dedupe_nonempty(items, limit=12)
+        if deduped:
+            rendered.extend(f"- {item}" for item in deduped)
+        else:
+            rendered.append("- Not present in selected masked observations.")
+    return "\n".join(rendered)
+
+
+def _masked_summary_values(lines: list[str]) -> dict[str, list[str]]:
+    keys = {
+        "id",
+        "tool",
+        "result",
+        "status",
+        "key_signal",
+        "files",
+        "full_log_ref",
+    }
+    values: dict[str, list[str]] = {key: [] for key in keys}
+    for line in lines:
+        key, separator, value = line.partition(":")
+        normalized = key.strip().lower()
+        if separator and normalized in values:
+            values[normalized].append(value.strip())
+    return values
+
+
+def _extract_invalidated_hypotheses(lines: list[str]) -> list[str]:
+    hypotheses: list[str] = []
+    marker = " is not the root cause"
+    for line in lines:
+        lowered = line.lower()
+        if marker in lowered:
+            prefix = line[: lowered.index(marker)].strip()
+            if prefix.lower().startswith("decision:"):
+                prefix = prefix[len("decision:") :].strip()
+            if prefix:
+                hypotheses.append(prefix)
+    return hypotheses
+
+
+def _extract_next_actions(lines: list[str]) -> list[str]:
+    actions: list[str] = []
+    marker = "next action:"
+    for line in lines:
+        lowered = line.lower()
+        if marker in lowered:
+            actions.append(line[lowered.index(marker) + len(marker) :].strip())
+    return actions
+
+
+def _dedupe_nonempty(items: Iterable[str], limit: int) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for item in items:
+        value = str(item).strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value[:300])
+        if len(deduped) >= limit:
+            break
+    return deduped
 
 
 def _emergency_trim(
