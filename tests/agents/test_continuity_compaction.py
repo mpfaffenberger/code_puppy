@@ -146,6 +146,7 @@ def test_continuity_settings_scale_from_percentages():
     assert settings.target_after_compaction == 115_000
     assert settings.recent_raw_floor == 40_000
     assert settings.predicted_growth_floor == 12_000
+    assert settings.predictive_trigger_floor == 145_000
 
 
 def test_noop_below_predictive_threshold(monkeypatch, tmp_path: Path):
@@ -175,6 +176,47 @@ def test_noop_below_predictive_threshold(monkeypatch, tmp_path: Path):
     assert dropped == []
     assert DURABLE_MEMORY_MARKER not in _message_text(new_messages)
     assert emitted == []
+
+
+def test_predictive_trigger_floor_prevents_eager_midwindow_compaction():
+    settings = ContinuityCompactionSettings(
+        context_window=100_000,
+        soft_trigger=82_500,
+        emergency_trigger=90_000,
+        target_after_compaction=57_500,
+        recent_raw_floor=20_000,
+        predicted_growth_floor=6_000,
+        growth_history_window=10,
+        archive_retention_days=30,
+        archive_retention_count=500,
+        mask_min_tokens=500,
+        predictive_trigger_floor=72_500,
+    )
+
+    assert not engine._should_compact(
+        force=False,
+        current_tokens=65_000,
+        predicted_growth=20_000,
+        settings=settings,
+    )
+    assert engine._should_compact(
+        force=False,
+        current_tokens=73_000,
+        predicted_growth=10_000,
+        settings=settings,
+    )
+    assert engine._should_compact(
+        force=False,
+        current_tokens=83_000,
+        predicted_growth=0,
+        settings=settings,
+    )
+    assert engine._should_compact(
+        force=True,
+        current_tokens=10_000,
+        predicted_growth=0,
+        settings=settings,
+    )
 
 
 def test_predictive_trigger_can_fire_below_legacy_threshold(

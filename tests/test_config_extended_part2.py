@@ -14,6 +14,7 @@ from code_puppy.config import (
     get_continuity_compaction_emergency_trigger_ratio,
     get_continuity_compaction_growth_history_window,
     get_continuity_compaction_predicted_growth_floor_ratio,
+    get_continuity_compaction_predictive_trigger_min_ratio,
     get_continuity_compaction_recent_raw_floor_ratio,
     get_continuity_compaction_semantic_task_detection,
     get_continuity_compaction_semantic_timeout_seconds,
@@ -129,6 +130,7 @@ class TestConfigExtendedPart2:
             "continuity_compaction_target_ratio": 0.575,
             "continuity_compaction_recent_raw_floor_ratio": 0.2,
             "continuity_compaction_predicted_growth_floor_ratio": 0.06,
+            "continuity_compaction_predictive_trigger_min_ratio": 0.725,
             "continuity_compaction_growth_history_window": 10,
             "continuity_compaction_archive_retention_days": 30,
             "continuity_compaction_archive_retention_count": 500,
@@ -149,6 +151,7 @@ class TestConfigExtendedPart2:
             assert get_continuity_compaction_target_ratio() == 0.575
             assert get_continuity_compaction_recent_raw_floor_ratio() == 0.2
             assert get_continuity_compaction_predicted_growth_floor_ratio() == 0.06
+            assert get_continuity_compaction_predictive_trigger_min_ratio() == 0.725
             assert get_continuity_compaction_growth_history_window() == 10
             assert get_continuity_compaction_archive_retention_days() == 30
             assert get_continuity_compaction_archive_retention_count() == 500
@@ -165,6 +168,7 @@ class TestConfigExtendedPart2:
             "continuity_compaction_target_ratio": "0.95",
             "continuity_compaction_recent_raw_floor_ratio": "0.01",
             "continuity_compaction_predicted_growth_floor_ratio": "0.9",
+            "continuity_compaction_predictive_trigger_min_ratio": "0.1",
             "continuity_compaction_growth_history_window": "0",
             "continuity_compaction_archive_retention_days": "0",
             "continuity_compaction_archive_retention_count": "0",
@@ -181,6 +185,7 @@ class TestConfigExtendedPart2:
             assert get_continuity_compaction_target_ratio() == 0.9
             assert get_continuity_compaction_recent_raw_floor_ratio() == 0.05
             assert get_continuity_compaction_predicted_growth_floor_ratio() == 0.5
+            assert get_continuity_compaction_predictive_trigger_min_ratio() == 0.5
             assert get_continuity_compaction_growth_history_window() == 1
             assert get_continuity_compaction_archive_retention_days() == 1
             assert get_continuity_compaction_archive_retention_count() == 1

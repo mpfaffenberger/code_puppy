@@ -172,6 +172,7 @@ def handle_continuity_command(command: str) -> bool:
         get_continuity_compaction_archive_retention_days,
         get_continuity_compaction_archive_retrieval_count,
         get_continuity_compaction_archive_retrieval_enabled,
+        get_continuity_compaction_predictive_trigger_min_ratio,
         get_continuity_compaction_semantic_task_detection,
         get_continuity_compaction_semantic_timeout_seconds,
     )
@@ -232,6 +233,7 @@ def handle_continuity_command(command: str) -> bool:
             "[bold magenta]Continuity Diagnostics[/bold magenta]",
             f"semantic_enabled: {get_continuity_compaction_semantic_task_detection()}",
             f"semantic_timeout_seconds: {get_continuity_compaction_semantic_timeout_seconds()}",
+            f"predictive_trigger_min_ratio: {get_continuity_compaction_predictive_trigger_min_ratio():.3f}",
             f"archive_retrieval_enabled: {get_continuity_compaction_archive_retrieval_enabled()}",
             f"archive_retrieval_count: {get_continuity_compaction_archive_retrieval_count()}",
             f"archive_retention_days: {get_continuity_compaction_archive_retention_days()}",

@@ -12,6 +12,7 @@ from code_puppy.config import (
     get_continuity_compaction_emergency_trigger_ratio,
     get_continuity_compaction_growth_history_window,
     get_continuity_compaction_predicted_growth_floor_ratio,
+    get_continuity_compaction_predictive_trigger_min_ratio,
     get_continuity_compaction_recent_raw_floor_ratio,
     get_continuity_compaction_soft_trigger_ratio,
     get_continuity_compaction_target_ratio,
@@ -36,6 +37,7 @@ class ContinuityCompactionSettings:
     archive_retrieval_enabled: bool = True
     archive_retrieval_count: int = 3
     task_retention_count: int = 100
+    predictive_trigger_floor: int = 0
 
 
 def _ratio_tokens(context_window: int, ratio: float) -> int:
@@ -72,5 +74,9 @@ def load_continuity_compaction_settings(
         archive_retrieval_enabled=get_continuity_compaction_archive_retrieval_enabled(),
         archive_retrieval_count=get_continuity_compaction_archive_retrieval_count(),
         task_retention_count=get_continuity_compaction_task_retention_count(),
+        predictive_trigger_floor=_ratio_tokens(
+            context_window,
+            get_continuity_compaction_predictive_trigger_min_ratio(),
+        ),
         mask_min_tokens=max(250, min(1000, int(context_window * 0.005))),
     )

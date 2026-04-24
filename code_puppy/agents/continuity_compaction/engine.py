@@ -102,7 +102,12 @@ def compact_continuity(
         agent, messages, current_tokens, settings, model_name
     )
 
-    if not force and current_tokens + predicted_growth < settings.soft_trigger:
+    if not _should_compact(
+        force=force,
+        current_tokens=current_tokens,
+        predicted_growth=predicted_growth,
+        settings=settings,
+    ):
         _set_previous_total(agent, current_tokens)
         return input_messages, []
 
@@ -164,6 +169,22 @@ def compact_continuity(
 
 def _history_tokens(messages: Iterable[ModelMessage], model_name: str | None) -> int:
     return sum(estimate_tokens_for_message(message, model_name) for message in messages)
+
+
+def _should_compact(
+    *,
+    force: bool,
+    current_tokens: int,
+    predicted_growth: int,
+    settings: ContinuityCompactionSettings,
+) -> bool:
+    if force:
+        return True
+    if current_tokens >= settings.soft_trigger:
+        return True
+    if current_tokens < settings.predictive_trigger_floor:
+        return False
+    return current_tokens + predicted_growth >= settings.soft_trigger
 
 
 def _emit_compaction_start(
