@@ -317,6 +317,9 @@ def compact(
 
     strategy = get_compaction_strategy()
     if strategy == "continuity":
+        # This cannot currently live as a regular Code Puppy plugin without a
+        # new core extension point: compaction owns history-processor mutation
+        # and must preserve pydantic-ai tool-call/tool-return ordering.
         from code_puppy.agents.continuity_compaction import compact_continuity
 
         result_messages, summarized_messages = compact_continuity(
