@@ -127,7 +127,7 @@ class TestConfigExtendedPart2:
         defaults = {
             "continuity_compaction_soft_trigger_ratio": 0.825,
             "continuity_compaction_emergency_trigger_ratio": 0.9,
-            "continuity_compaction_target_ratio": 0.575,
+            "continuity_compaction_target_ratio": 0.35,
             "continuity_compaction_recent_raw_floor_ratio": 0.2,
             "continuity_compaction_predicted_growth_floor_ratio": 0.06,
             "continuity_compaction_predictive_trigger_min_ratio": 0.725,
@@ -148,7 +148,7 @@ class TestConfigExtendedPart2:
         with patch("code_puppy.config.get_value", side_effect=fake_get):
             assert get_continuity_compaction_soft_trigger_ratio() == 0.825
             assert get_continuity_compaction_emergency_trigger_ratio() == 0.9
-            assert get_continuity_compaction_target_ratio() == 0.575
+            assert get_continuity_compaction_target_ratio() == 0.35
             assert get_continuity_compaction_recent_raw_floor_ratio() == 0.2
             assert get_continuity_compaction_predicted_growth_floor_ratio() == 0.06
             assert get_continuity_compaction_predictive_trigger_min_ratio() == 0.725

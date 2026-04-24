@@ -143,10 +143,18 @@ def test_continuity_settings_scale_from_percentages():
     settings = load_continuity_compaction_settings(200_000)
     assert settings.soft_trigger == 165_000
     assert settings.emergency_trigger == 180_000
-    assert settings.target_after_compaction == 115_000
+    assert settings.target_after_compaction == 70_000
     assert settings.recent_raw_floor == 40_000
     assert settings.predicted_growth_floor == 12_000
     assert settings.predictive_trigger_floor == 145_000
+
+
+def test_effective_target_adapts_around_configured_ratio():
+    settings = load_continuity_compaction_settings(100_000)
+
+    assert engine._effective_target_after_compaction(settings, 6_000) == 45_000
+    assert engine._effective_target_after_compaction(settings, 12_000) == 34_500
+    assert engine._effective_target_after_compaction(settings, 18_000) == 30_000
 
 
 def test_noop_below_predictive_threshold(monkeypatch, tmp_path: Path):
