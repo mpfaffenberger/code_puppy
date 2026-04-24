@@ -307,10 +307,14 @@ def _compact_legacy_strategy(
     protected_tokens: int,
 ) -> list[ModelMessage]:
     compacted = history
+    effective_protected_tokens = max(
+        1_000,
+        min(protected_tokens, int(model_window * 0.75)),
+    )
     for _ in range(cycles):
         _compaction.get_compaction_strategy = lambda strategy=strategy: strategy
         _compaction.get_protected_token_count = (
-            lambda protected_tokens=protected_tokens: protected_tokens
+            lambda protected_tokens=effective_protected_tokens: protected_tokens
         )
         compacted, _ = _compaction.compact(
             agent,
