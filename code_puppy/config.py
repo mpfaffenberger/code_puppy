@@ -1389,7 +1389,7 @@ def get_continuity_compaction_semantic_timeout_seconds() -> int:
     """Maximum wait for one continuity semantic-memory call."""
     return _get_bounded_int_config(
         "continuity_compaction_semantic_timeout_seconds",
-        8,
+        20,
         minimum=1,
         maximum=120,
     )
