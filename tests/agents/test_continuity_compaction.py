@@ -1064,6 +1064,54 @@ def test_structured_fallback_summarizes_masked_band(monkeypatch, tmp_path: Path)
     assert "Summarized 1 already-masked observation" in rendered
 
 
+def test_target_trim_runs_below_emergency_when_target_still_exceeded(
+    monkeypatch, tmp_path: Path
+):
+    import code_puppy.config as cp_config
+
+    monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
+    _patch_continuity_strategy(monkeypatch)
+    monkeypatch.setattr(
+        engine,
+        "load_continuity_compaction_settings",
+        lambda context_window: ContinuityCompactionSettings(
+            context_window=context_window,
+            soft_trigger=1,
+            emergency_trigger=100_000,
+            target_after_compaction=3_000,
+            recent_raw_floor=100,
+            predicted_growth_floor=0,
+            growth_history_window=10,
+            archive_retention_days=30,
+            archive_retention_count=500,
+            mask_min_tokens=250,
+        ),
+    )
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        engine,
+        "emit_success",
+        lambda content, **_metadata: emitted.append(str(content)),
+    )
+    history = [
+        _sys_msg(),
+        _user_msg("Old root task. " + "a" * 5000),
+        _assistant_text("Old implementation details RAW-OLD-ONLY " + "b" * 5000),
+        _user_msg("Middle request. " + "c" * 5000),
+        _assistant_text("More old implementation details " + "d" * 5000),
+        _user_msg("Latest request must stay raw ROOT-LATEST-TARGET " + "e" * 3000),
+    ]
+
+    new_messages, _ = _compaction.compact(
+        _FakeAgent(), history, model_max=10_000, context_overhead=0, force=True
+    )
+
+    rendered = _message_text(new_messages)
+    assert "ROOT-LATEST-TARGET" in rendered
+    assert "RAW-OLD-ONLY" not in rendered
+    assert any("trimmed" in message and "to target" in message for message in emitted)
+
+
 def test_emergency_trim_keeps_latest_user_request(monkeypatch, tmp_path: Path):
     import code_puppy.config as cp_config
 

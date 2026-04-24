@@ -147,11 +147,17 @@ def compact_continuity(
         )
         compacted_tokens = _history_tokens(messages, model_name) + context_overhead
 
+    target_trimmed_count = 0
     emergency_trimmed_count = 0
-    if compacted_tokens > settings.emergency_trigger:
-        before_emergency_len = len(messages)
-        messages = _emergency_trim(messages, settings, model_name)
-        emergency_trimmed_count = max(0, before_emergency_len - len(messages))
+    if compacted_tokens > settings.target_after_compaction:
+        before_trim_len = len(messages)
+        emergency_trim = compacted_tokens > settings.emergency_trigger
+        messages = _trim_to_target(messages, settings, model_name)
+        trimmed_count = max(0, before_trim_len - len(messages))
+        if emergency_trim:
+            emergency_trimmed_count = trimmed_count
+        else:
+            target_trimmed_count = trimmed_count
         compacted_tokens = _history_tokens(messages, model_name) + context_overhead
 
     messages = prune_interrupted_tool_calls(messages)
@@ -170,6 +176,7 @@ def compact_continuity(
         after_messages=len(messages),
         masked_count=masked_count,
         summarized_count=summarized_count,
+        target_trimmed_count=target_trimmed_count,
         emergency_trimmed_count=emergency_trimmed_count,
         semantic_status=durable_state.semantic_status,
     )
@@ -253,6 +260,7 @@ def _emit_compaction_complete(
     after_messages: int,
     masked_count: int,
     summarized_count: int,
+    target_trimmed_count: int,
     emergency_trimmed_count: int,
     semantic_status: str,
 ) -> None:
@@ -263,6 +271,8 @@ def _emit_compaction_complete(
     )
     if summarized_count:
         actions.append(f"summarized {summarized_count} old masked message(s)")
+    if target_trimmed_count:
+        actions.append(f"trimmed {target_trimmed_count} older message(s) to target")
     if emergency_trimmed_count:
         actions.append(f"emergency-trimmed {emergency_trimmed_count} message(s)")
     if semantic_status == "semantic":
@@ -271,7 +281,11 @@ def _emit_compaction_complete(
         actions.append("semantic memory fallback used")
     elif semantic_status == "disabled":
         actions.append("semantic memory disabled")
-    if not summarized_count and not emergency_trimmed_count:
+    if (
+        not summarized_count
+        and not target_trimmed_count
+        and not emergency_trimmed_count
+    ):
         actions.append("kept the recent raw tail intact")
 
     emit_success(
@@ -643,7 +657,7 @@ def _dedupe_nonempty(items: Iterable[str], limit: int) -> list[str]:
     return deduped
 
 
-def _emergency_trim(
+def _trim_to_target(
     messages: list[ModelMessage],
     settings: ContinuityCompactionSettings,
     model_name: str | None,
