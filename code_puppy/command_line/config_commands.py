@@ -44,6 +44,9 @@ def handle_show_command(command: str) -> bool:
         get_puppy_name,
         get_resume_message_count,
         get_temperature,
+        get_threshold_compaction_emergency_trigger_ratio,
+        get_threshold_compaction_soft_trigger_ratio,
+        get_threshold_compaction_target_ratio,
         get_use_dbos,
         get_yolo_mode,
     )
@@ -60,6 +63,9 @@ def handle_show_command(command: str) -> bool:
     protected_tokens = get_protected_token_count()
     compaction_threshold = get_compaction_threshold()
     compaction_strategy = get_compaction_strategy()
+    threshold_soft = get_threshold_compaction_soft_trigger_ratio()
+    threshold_target = get_threshold_compaction_target_ratio()
+    threshold_emergency = get_threshold_compaction_emergency_trigger_ratio()
     global_temperature = get_temperature()
     effective_temperature = get_effective_temperature(model)
 
@@ -79,7 +85,8 @@ def handle_show_command(command: str) -> bool:
 [bold]auto_save_session:[/bold]     {"[green]enabled[/green]" if auto_save else "[yellow]disabled[/yellow]"}
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
-[bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
+[bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (threshold, summarization, or truncation)
+[bold]threshold_compaction:[/bold] [cyan]soft {threshold_soft:.1%}, target {threshold_target:.1%}, emergency {threshold_emergency:.1%}[/cyan]
 [bold]resume_message_count:[/bold] [cyan]{get_resume_message_count()}[/cyan] messages shown on /resume
 [bold]reasoning_effort:[/bold]      [cyan]{get_openai_reasoning_effort()}[/cyan]
 [bold]verbosity:[/bold]             [cyan]{get_openai_verbosity()}[/cyan]
@@ -212,7 +219,7 @@ def handle_set_command(command: str) -> bool:
         )
         emit_warning(
             Text.from_markup(
-                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]{session_help}{keymap_help}"
+                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'threshold', 'summarization', or 'truncation'[/dim]{session_help}{keymap_help}"
             )
         )
         return True

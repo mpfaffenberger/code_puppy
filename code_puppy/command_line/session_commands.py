@@ -100,6 +100,16 @@ def handle_compact_command(command: str) -> bool:
 
             compacted = truncate(history, protected_tokens)
             summarized_messages = []  # No summarization in truncation mode
+        elif compaction_strategy == "threshold":
+            from code_puppy.agents._compaction import compact
+
+            compacted, summarized_messages = compact(
+                current_agent,
+                history,
+                current_agent._get_model_context_length(),
+                current_agent._estimate_context_overhead(),
+                force=True,
+            )
         else:
             # Default to summarization
             compacted, summarized_messages = current_agent.summarize_messages(
@@ -111,6 +121,10 @@ def handle_compact_command(command: str) -> bool:
             return True
 
         agent.set_message_history(compacted)
+        compacted_hashes = getattr(agent, "_compacted_message_hashes", None)
+        if compacted_hashes is not None:
+            for message in summarized_messages:
+                compacted_hashes.add(agent.hash_message(message))
 
         current_agent = get_current_agent()
         after_tokens = sum(
@@ -123,9 +137,9 @@ def handle_compact_command(command: str) -> bool:
         )
 
         strategy_info = (
-            f"using {compaction_strategy} strategy"
-            if compaction_strategy == "truncation"
-            else "via summarization"
+            "via summarization"
+            if compaction_strategy == "summarization"
+            else f"using {compaction_strategy} strategy"
         )
         emit_success(
             f"✨ Done! History: {len(history)} → {len(compacted)} messages {strategy_info}\n"
