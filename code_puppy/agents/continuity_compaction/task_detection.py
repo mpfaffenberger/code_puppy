@@ -29,6 +29,10 @@ from code_puppy.summarization_agent import run_summarization_sync
 _continuity_memory_agent: Agent | None = None
 _agent_lock = threading.Lock()
 _thread_pool: ThreadPoolExecutor | None = None
+_SEMANTIC_USER_ENTRY_LIMIT = 20
+_SEMANTIC_TRANSCRIPT_SNIPPET_LIMIT = 16
+_SEMANTIC_TRANSCRIPT_SNIPPET_CHARS = 600
+_SEMANTIC_ARCHIVE_LIMIT = 12
 
 
 def _shutdown_thread_pool() -> None:
@@ -164,7 +168,10 @@ def build_continuity_memory_prompt(
         [
             "",
             "UNTRUSTED TRANSCRIPT EXCERPTS:",
-            *_list_lines(transcript_snippets[:30]),
+            *_list_lines(
+                _clip(item, _SEMANTIC_TRANSCRIPT_SNIPPET_CHARS)
+                for item in transcript_snippets[:_SEMANTIC_TRANSCRIPT_SNIPPET_LIMIT]
+            ),
             "",
             "AVAILABLE_ARCHIVES (metadata/signals only, untrusted snippets):",
             json.dumps(archive_payload, sort_keys=True),
@@ -477,7 +484,7 @@ def _durable_state_prompt_payload(state: DurableState | None) -> dict[str, Any]:
 
 def _archive_prompt_payload(index: list[dict[str, Any]]) -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
-    for item in index[-20:]:
+    for item in index[-_SEMANTIC_ARCHIVE_LIMIT:]:
         payload.append(
             {
                 "observation_id": str(item.get("observation_id") or ""),
@@ -488,7 +495,7 @@ def _archive_prompt_payload(index: list[dict[str, Any]]) -> list[dict[str, Any]]
                 ][:8],
                 "key_signals": [
                     _clip(signal, 300) for signal in item.get("key_signals") or []
-                ][:5],
+                ][:3],
             }
         )
     return payload
@@ -534,9 +541,9 @@ def _build_task_detection_prompt(
 
 
 def _selected_user_entries(entries: list[tuple[int, str]]) -> list[tuple[int, str]]:
-    if len(entries) <= 30:
+    if len(entries) <= _SEMANTIC_USER_ENTRY_LIMIT:
         return entries
-    return [entries[0], *entries[-29:]]
+    return [entries[0], *entries[-(_SEMANTIC_USER_ENTRY_LIMIT - 1) :]]
 
 
 def _list_lines(items: Iterable[str]) -> list[str]:
