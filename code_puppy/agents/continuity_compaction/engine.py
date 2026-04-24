@@ -1,4 +1,4 @@
-"""Masking-first threshold-driven compaction engine."""
+"""Masking-first continuity compaction engine."""
 
 from __future__ import annotations
 
@@ -20,11 +20,11 @@ from code_puppy.agents._history import (
     hash_message,
     prune_interrupted_tool_calls,
 )
-from code_puppy.agents.threshold_compaction.settings import (
-    ThresholdSettings,
-    load_threshold_settings,
+from code_puppy.agents.continuity_compaction.settings import (
+    ContinuityCompactionSettings,
+    load_continuity_compaction_settings,
 )
-from code_puppy.agents.threshold_compaction.storage import (
+from code_puppy.agents.continuity_compaction.storage import (
     DURABLE_MEMORY_MARKER,
     MASKED_OBSERVATION_MARKER,
     STRUCTURED_SUMMARY_MARKER,
@@ -64,7 +64,7 @@ Archive References
 """
 
 
-def compact_threshold(
+def compact_continuity(
     *,
     agent: Any,
     messages: list[ModelMessage],
@@ -73,11 +73,11 @@ def compact_threshold(
     model_name: str | None,
     force: bool = False,
 ) -> tuple[list[ModelMessage], list[ModelMessage]]:
-    """Run threshold-driven compaction or return the input unchanged."""
+    """Run continuity compaction or return the input unchanged."""
     if not messages:
         return messages, []
 
-    settings = load_threshold_settings(model_max)
+    settings = load_continuity_compaction_settings(model_max)
     input_messages = messages
     original_messages = list(messages)
     messages = prune_interrupted_tool_calls(messages)
@@ -128,13 +128,13 @@ def _history_tokens(messages: Iterable[ModelMessage], model_name: str | None) ->
 def _get_stats(agent: Any) -> dict[str, Any]:
     if agent is None:
         return {}
-    stats = getattr(agent, "_threshold_compaction_stats", None)
+    stats = getattr(agent, "_continuity_compaction_stats", None)
     if not isinstance(stats, dict):
         stats = {
             "previous_total_tokens": None,
             "turn_growth_history": [],
         }
-        setattr(agent, "_threshold_compaction_stats", stats)
+        setattr(agent, "_continuity_compaction_stats", stats)
     return stats
 
 
@@ -148,7 +148,7 @@ def _predict_next_turn_growth(
     agent: Any,
     messages: list[ModelMessage],
     current_tokens: int,
-    settings: ThresholdSettings,
+    settings: ContinuityCompactionSettings,
     model_name: str | None,
 ) -> int:
     stats = _get_stats(agent)
@@ -168,7 +168,7 @@ def _predict_next_turn_growth(
 
 
 def _append_bounded(
-    history: list[int], value: int, settings: ThresholdSettings
+    history: list[int], value: int, settings: ContinuityCompactionSettings
 ) -> None:
     history.append(value)
     del history[: max(0, len(history) - settings.growth_history_window)]
@@ -185,7 +185,7 @@ def _p95(values: list[int]) -> int:
 def _average_recent_part_tokens(
     messages: list[ModelMessage],
     part_kinds: set[str],
-    settings: ThresholdSettings,
+    settings: ContinuityCompactionSettings,
     model_name: str | None,
 ) -> int:
     counts: list[int] = []
@@ -208,7 +208,7 @@ def _single_part(part: Any) -> ModelMessage:
 
 def _build_keep_indices(
     messages: list[ModelMessage],
-    settings: ThresholdSettings,
+    settings: ContinuityCompactionSettings,
     model_name: str | None,
 ) -> set[int]:
     keep = {0} if messages else set()
@@ -257,7 +257,7 @@ def _archive_and_mask(
     messages: list[ModelMessage],
     keep_indices: set[int],
     agent: Any,
-    settings: ThresholdSettings,
+    settings: ContinuityCompactionSettings,
     model_name: str | None,
 ) -> list[ModelMessage]:
     result: list[ModelMessage] = []
@@ -299,7 +299,7 @@ def _archive_and_mask(
 def _summarize_oldest_masked_band(
     messages: list[ModelMessage],
     keep_indices: set[int],
-    settings: ThresholdSettings,
+    settings: ContinuityCompactionSettings,
     model_name: str | None,
     context_overhead: int,
 ) -> list[ModelMessage]:
@@ -333,7 +333,7 @@ def _summarize_oldest_masked_band(
         summary_text = _messages_to_text(summary_messages)
     except Exception as exc:
         emit_warning(
-            f"Threshold fallback summarization failed; using emergency trim. {exc}"
+            f"Continuity compaction fallback summarization failed; using emergency trim. {exc}"
         )
         return _emergency_trim(messages, settings, model_name)
 
@@ -359,7 +359,7 @@ def _summarize_oldest_masked_band(
 
 def _emergency_trim(
     messages: list[ModelMessage],
-    settings: ThresholdSettings,
+    settings: ContinuityCompactionSettings,
     model_name: str | None,
 ) -> list[ModelMessage]:
     if len(messages) <= 1:
@@ -393,11 +393,13 @@ def _emergency_trim(
 def _inject_durable_memory(
     messages: list[ModelMessage], state: DurableState
 ) -> list[ModelMessage]:
-    memory = ModelRequest(parts=[UserPromptPart(content=render_durable_state(state))])
+    continuity = ModelRequest(
+        parts=[UserPromptPart(content=render_durable_state(state))]
+    )
     cleaned = [message for message in messages if not _is_durable_memory(message)]
     if not cleaned:
-        return [memory]
-    return [cleaned[0], memory, *cleaned[1:]]
+        return [continuity]
+    return [cleaned[0], continuity, *cleaned[1:]]
 
 
 def _is_durable_memory(message: ModelMessage) -> bool:
