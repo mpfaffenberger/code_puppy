@@ -363,12 +363,27 @@ def _build_keep_indices(
     latest_user_idx = _latest_user_index(messages)
     if latest_user_idx is not None:
         keep.add(latest_user_idx)
+    keep.update(_recent_tail_indices(messages, settings.recent_raw_floor, model_name))
+    return _expand_tool_pair_indices(messages, keep)
 
+
+def _recent_tail_indices(
+    messages: list[ModelMessage],
+    token_floor: int,
+    model_name: str | None,
+    *,
+    raw_only: bool = False,
+) -> set[int]:
+    if not messages or token_floor <= 0:
+        return set()
     running = 0
+    keep: set[int] = set()
     for idx in range(len(messages) - 1, -1, -1):
+        if raw_only and _is_synthetic_compaction_message(messages[idx]):
+            continue
         keep.add(idx)
         running += estimate_tokens_for_message(messages[idx], model_name)
-        if running >= settings.recent_raw_floor:
+        if running >= token_floor:
             break
     return _expand_tool_pair_indices(messages, keep)
 
@@ -636,6 +651,14 @@ def _trim_to_target(
         len(messages) - 1,
     )
     keep.update(idx for idx in pinned_indices if idx is not None)
+    keep.update(
+        _recent_tail_indices(
+            messages,
+            settings.recent_raw_floor,
+            model_name,
+            raw_only=True,
+        )
+    )
     keep = _expand_tool_pair_indices(messages, keep)
 
     running = sum(
@@ -688,6 +711,18 @@ def _durable_memory_index(messages: list[ModelMessage]) -> int | None:
 
 def _is_masked_message(message: ModelMessage) -> bool:
     return MASKED_OBSERVATION_MARKER in _messages_to_text([message])
+
+
+def _is_structured_summary(message: ModelMessage) -> bool:
+    return _messages_to_text([message]).startswith(STRUCTURED_SUMMARY_MARKER)
+
+
+def _is_synthetic_compaction_message(message: ModelMessage) -> bool:
+    return (
+        _is_durable_memory(message)
+        or _is_masked_message(message)
+        or _is_structured_summary(message)
+    )
 
 
 def _build_durable_state(

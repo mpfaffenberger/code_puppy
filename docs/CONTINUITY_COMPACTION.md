@@ -29,6 +29,9 @@ compaction regardless of the predictive trigger floor.
 The target ratio is the post-compaction ceiling Continuity tries to hit. With
 the default settings, compaction targets `35%` full context, then fills back
 toward that target with older compacted messages when they still fit safely.
+Target trimming also pins the newest raw tail first, using
+`continuity_compaction_recent_raw_floor_ratio` (`20%` by default), so the final
+trim phase does not undercut the recent raw conversation just to hit target.
 
 ## Practical Before/After Example
 

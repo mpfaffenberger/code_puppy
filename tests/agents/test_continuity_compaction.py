@@ -1134,6 +1134,38 @@ def test_target_trim_skips_oversized_messages_and_keeps_smaller_context():
     assert "HUGE-OLD" not in rendered
 
 
+def test_target_trim_preserves_recent_raw_floor_even_when_above_target():
+    settings = ContinuityCompactionSettings(
+        context_window=10_000,
+        soft_trigger=1,
+        emergency_trigger=100_000,
+        target_after_compaction=1_000,
+        recent_raw_floor=2_000,
+        predicted_growth_floor=0,
+        growth_history_window=10,
+        archive_retention_days=30,
+        archive_retention_count=500,
+        mask_min_tokens=250,
+    )
+    messages = [
+        _sys_msg(),
+        _assistant_text("OLD-RAW-SHOULD-DROP " + "a" * 2_000),
+        _user_msg(f"{DURABLE_MEMORY_MARKER}\nSynthetic memory should not count raw."),
+        _assistant_text(
+            f"{STRUCTURED_SUMMARY_MARKER}\nSynthetic summary should not count raw."
+        ),
+        _assistant_text("RECENT-RAW-FLOOR " + "b" * 5_000),
+        _user_msg("LATEST-RAW-FLOOR " + "c" * 500),
+    ]
+
+    trimmed = engine._trim_to_target(messages, settings, "fake-model")
+    rendered = _message_text(trimmed)
+
+    assert "LATEST-RAW-FLOOR" in rendered
+    assert "RECENT-RAW-FLOOR" in rendered
+    assert "OLD-RAW-SHOULD-DROP" not in rendered
+
+
 def test_emergency_trim_keeps_latest_user_request(monkeypatch, tmp_path: Path):
     import code_puppy.config as cp_config
 
