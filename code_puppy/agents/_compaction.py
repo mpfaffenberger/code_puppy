@@ -281,6 +281,7 @@ def compact(
     messages: List[ModelMessage],
     model_max: int,
     context_overhead: int,
+    force: bool = False,
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
     """Unified compaction entrypoint. Replaces ``message_history_processor``.
 
@@ -290,6 +291,8 @@ def compact(
         messages: Current message history (already accumulated by the caller).
         model_max: Effective model context window in tokens.
         context_overhead: Estimated overhead for system prompt + tool schemas.
+        force: If true, run the configured compaction strategy even below its
+            normal trigger. Used by the manual ``/compact`` command.
 
     Returns:
         ``(new_messages, dropped_messages_for_hash_tracking)``.
@@ -312,11 +315,32 @@ def compact(
     )
     update_spinner_context(context_summary)
 
-    threshold = get_compaction_threshold()
-    if proportion_used <= threshold:
-        return messages, []
-
     strategy = get_compaction_strategy()
+    if strategy == "threshold":
+        from code_puppy.agents.threshold_compaction import compact_threshold
+
+        result_messages, summarized_messages = compact_threshold(
+            agent=agent,
+            messages=messages,
+            model_max=model_max,
+            context_overhead=context_overhead,
+            model_name=model_name,
+            force=force,
+        )
+        final_token_count = sum(
+            estimate_tokens_for_message(m, model_name) for m in result_messages
+        )
+        final_summary = SpinnerBase.format_context_info(
+            final_token_count,
+            model_max,
+            final_token_count / model_max if model_max else 0.0,
+        )
+        update_spinner_context(final_summary)
+        return result_messages, summarized_messages
+
+    threshold = get_compaction_threshold()
+    if not force and proportion_used <= threshold:
+        return messages, []
 
     protected_tokens = get_protected_token_count()
     filtered = filter_huge_messages(messages, model_name)

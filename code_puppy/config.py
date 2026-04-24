@@ -299,6 +299,14 @@ def get_config_keys():
         "compaction_strategy",
         "protected_token_count",
         "compaction_threshold",
+        "threshold_compaction_soft_trigger_ratio",
+        "threshold_compaction_emergency_trigger_ratio",
+        "threshold_compaction_target_ratio",
+        "threshold_compaction_recent_raw_floor_ratio",
+        "threshold_compaction_predicted_growth_floor_ratio",
+        "threshold_compaction_growth_history_window",
+        "threshold_compaction_archive_retention_days",
+        "threshold_compaction_archive_retention_count",
         "summarization_model",
         "message_limit",
         "allow_recursion",
@@ -1231,15 +1239,125 @@ def get_compaction_threshold():
 def get_compaction_strategy() -> str:
     """
     Returns the user-configured compaction strategy.
-    Options are 'summarization' or 'truncation'.
-    Defaults to 'summarization' if not set or misconfigured.
+    Options are 'summarization', 'truncation', or 'threshold'.
+    Defaults to 'truncation' if not set or misconfigured.
     Configurable by 'compaction_strategy' key.
     """
     val = get_value("compaction_strategy")
-    if val and val.lower() in ["summarization", "truncation"]:
+    if val and val.lower() in ["summarization", "truncation", "threshold"]:
         return val.lower()
-    # Default to summarization
+    # Default to truncation for backward compatibility with current behavior.
     return "truncation"
+
+
+def _get_bounded_float_config(
+    key: str,
+    default: float,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    val = get_value(key)
+    try:
+        parsed = float(val) if val else default
+    except (ValueError, TypeError):
+        return default
+    return max(minimum, min(maximum, parsed))
+
+
+def _get_bounded_int_config(
+    key: str,
+    default: int,
+    *,
+    minimum: int,
+    maximum: int,
+) -> int:
+    val = get_value(key)
+    try:
+        parsed = int(val) if val else default
+    except (ValueError, TypeError):
+        return default
+    return max(minimum, min(maximum, parsed))
+
+
+def get_threshold_compaction_soft_trigger_ratio() -> float:
+    """Context-window ratio that starts predictive threshold compaction."""
+    return _get_bounded_float_config(
+        "threshold_compaction_soft_trigger_ratio",
+        0.825,
+        minimum=0.5,
+        maximum=0.95,
+    )
+
+
+def get_threshold_compaction_emergency_trigger_ratio() -> float:
+    """Context-window ratio that activates threshold emergency compaction."""
+    return _get_bounded_float_config(
+        "threshold_compaction_emergency_trigger_ratio",
+        0.9,
+        minimum=0.6,
+        maximum=0.98,
+    )
+
+
+def get_threshold_compaction_target_ratio() -> float:
+    """Context-window ratio threshold compaction tries to reach."""
+    return _get_bounded_float_config(
+        "threshold_compaction_target_ratio",
+        0.575,
+        minimum=0.2,
+        maximum=0.9,
+    )
+
+
+def get_threshold_compaction_recent_raw_floor_ratio() -> float:
+    """Context-window ratio kept raw at the recent end of history."""
+    return _get_bounded_float_config(
+        "threshold_compaction_recent_raw_floor_ratio",
+        0.2,
+        minimum=0.05,
+        maximum=0.75,
+    )
+
+
+def get_threshold_compaction_predicted_growth_floor_ratio() -> float:
+    """Minimum predicted next-turn growth as a context-window ratio."""
+    return _get_bounded_float_config(
+        "threshold_compaction_predicted_growth_floor_ratio",
+        0.06,
+        minimum=0.0,
+        maximum=0.5,
+    )
+
+
+def get_threshold_compaction_growth_history_window() -> int:
+    """Number of recent growth observations used by threshold prediction."""
+    return _get_bounded_int_config(
+        "threshold_compaction_growth_history_window",
+        10,
+        minimum=1,
+        maximum=100,
+    )
+
+
+def get_threshold_compaction_archive_retention_days() -> int:
+    """Number of days to retain threshold-compaction observation archives."""
+    return _get_bounded_int_config(
+        "threshold_compaction_archive_retention_days",
+        30,
+        minimum=1,
+        maximum=3650,
+    )
+
+
+def get_threshold_compaction_archive_retention_count() -> int:
+    """Maximum threshold-compaction observation archives retained per session."""
+    return _get_bounded_int_config(
+        "threshold_compaction_archive_retention_count",
+        500,
+        minimum=1,
+        maximum=100000,
+    )
 
 
 def get_http2() -> bool:

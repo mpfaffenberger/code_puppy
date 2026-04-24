@@ -69,6 +69,32 @@ def test_set_compaction_strategy_summarization():
             code_puppy.config.CONFIG_FILE = original_config_file
 
 
+def test_set_compaction_strategy_threshold():
+    """Test that we can set the compaction strategy to threshold"""
+    import code_puppy.config
+
+    original_config_dir = code_puppy.config.CONFIG_DIR
+    original_config_file = code_puppy.config.CONFIG_FILE
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            code_puppy.config.CONFIG_DIR = temp_dir
+            code_puppy.config.CONFIG_FILE = os.path.join(temp_dir, "puppy.cfg")
+
+            config = configparser.ConfigParser()
+            config[DEFAULT_SECTION] = {}
+            config[DEFAULT_SECTION]["compaction_strategy"] = "threshold"
+
+            with open(code_puppy.config.CONFIG_FILE, "w") as f:
+                config.write(f)
+
+            strategy = get_compaction_strategy()
+            assert strategy == "threshold"
+        finally:
+            code_puppy.config.CONFIG_DIR = original_config_dir
+            code_puppy.config.CONFIG_FILE = original_config_file
+
+
 def test_set_compaction_strategy_invalid():
     """Test that an invalid compaction strategy defaults to truncation"""
     import code_puppy.config

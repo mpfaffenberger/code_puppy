@@ -331,6 +331,14 @@ class TestGetConfigKeys:
                 "resume_message_count",
                 "summarization_model",
                 "temperature",
+                "threshold_compaction_archive_retention_count",
+                "threshold_compaction_archive_retention_days",
+                "threshold_compaction_emergency_trigger_ratio",
+                "threshold_compaction_growth_history_window",
+                "threshold_compaction_predicted_growth_floor_ratio",
+                "threshold_compaction_recent_raw_floor_ratio",
+                "threshold_compaction_soft_trigger_ratio",
+                "threshold_compaction_target_ratio",
                 "yolo_mode",
             ]
         )
@@ -391,6 +399,14 @@ class TestGetConfigKeys:
                 "resume_message_count",
                 "summarization_model",
                 "temperature",
+                "threshold_compaction_archive_retention_count",
+                "threshold_compaction_archive_retention_days",
+                "threshold_compaction_emergency_trigger_ratio",
+                "threshold_compaction_growth_history_window",
+                "threshold_compaction_predicted_growth_floor_ratio",
+                "threshold_compaction_recent_raw_floor_ratio",
+                "threshold_compaction_soft_trigger_ratio",
+                "threshold_compaction_target_ratio",
                 "yolo_mode",
             ]
         )
