@@ -392,7 +392,9 @@ def _coerce_semantic_memory_state(
 
     if tasks and current_task_id not in {task.task_id for task in tasks}:
         active_task = next((task for task in tasks if task.status == "active"), None)
-        current_task_id = active_task.task_id if active_task is not None else tasks[-1].task_id
+        current_task_id = (
+            active_task.task_id if active_task is not None else tasks[-1].task_id
+        )
 
     current_task_memory = next(
         (task for task in tasks if task.task_id == current_task_id),
@@ -423,9 +425,7 @@ def _coerce_semantic_memory_state(
         tasks=tasks,
         global_constraints=_string_list(payload.get("global_constraints"), 24),
         accepted_decisions=_string_list(payload.get("accepted_decisions"), 24),
-        invalidated_hypotheses=_string_list(
-            payload.get("invalidated_hypotheses"), 16
-        ),
+        invalidated_hypotheses=_string_list(payload.get("invalidated_hypotheses"), 16),
         validation_status=_string_dict(payload.get("validation_status")),
         active_files=_filter_allowed_files(
             _string_list(payload.get("active_files"), 24),

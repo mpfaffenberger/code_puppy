@@ -74,12 +74,8 @@ def handle_show_command(command: str) -> bool:
     continuity_target = get_continuity_compaction_target_ratio()
     continuity_emergency = get_continuity_compaction_emergency_trigger_ratio()
     continuity_semantic_tasks = get_continuity_compaction_semantic_task_detection()
-    continuity_semantic_timeout = (
-        get_continuity_compaction_semantic_timeout_seconds()
-    )
-    continuity_archive_retrieval = (
-        get_continuity_compaction_archive_retrieval_enabled()
-    )
+    continuity_semantic_timeout = get_continuity_compaction_semantic_timeout_seconds()
+    continuity_archive_retrieval = get_continuity_compaction_archive_retrieval_enabled()
     continuity_archive_retrieval_count = (
         get_continuity_compaction_archive_retrieval_count()
     )

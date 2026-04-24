@@ -839,7 +839,9 @@ def test_long_session_tasks_retained_but_prompt_snapshot_is_bounded(
     )
     state = read_durable_state(agent)
     rendered = render_durable_state(state)
-    prompt_task_lines = [line for line in rendered.splitlines() if line.startswith("- [")]
+    prompt_task_lines = [
+        line for line in rendered.splitlines() if line.startswith("- [")
+    ]
 
     assert state is not None
     assert len(state.tasks) == 27

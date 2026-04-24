@@ -373,7 +373,7 @@ def render_durable_state(state: DurableState) -> str:
     active_files = _dedupe_strings(
         [
             *state.active_files,
-            *((current_task_memory.active_files if current_task_memory else [])),
+            *(current_task_memory.active_files if current_task_memory else []),
         ],
         limit=20,
     )

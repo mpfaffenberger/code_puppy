@@ -202,8 +202,12 @@ def _effective_target_after_compaction(
     """Choose a dynamic target near the configured ratio with growth-based runway."""
     context_window = max(1, settings.context_window)
     configured_target = max(1, settings.target_after_compaction)
-    lower_band = configured_target - int(round(context_window * _TARGET_BAND_BELOW_RATIO))
-    upper_band = configured_target + int(round(context_window * _TARGET_BAND_ABOVE_RATIO))
+    lower_band = configured_target - int(
+        round(context_window * _TARGET_BAND_BELOW_RATIO)
+    )
+    upper_band = configured_target + int(
+        round(context_window * _TARGET_BAND_ABOVE_RATIO)
+    )
     lower_bound = max(
         1,
         lower_band,
@@ -775,7 +779,7 @@ def _deterministic_durable_state(
     )
     global_constraints = _dedupe_nonempty(
         [
-            *((previous.global_constraints if previous is not None else [])),
+            *(previous.global_constraints if previous is not None else []),
             *_extract_matching_lines(
                 recent_text, ("global", "for all tasks", "session-wide")
             ),
@@ -885,7 +889,9 @@ def _state_from_semantic(
     current_task_id = semantic_state.current_task_id or _current_task_id(
         tasks, semantic_state.current_task
     )
-    current_task = _task_title_by_id(tasks, current_task_id) or semantic_state.current_task
+    current_task = (
+        _task_title_by_id(tasks, current_task_id) or semantic_state.current_task
+    )
     task_ledger = _trim_task_ledger(
         _dedupe_task_entries(
             [
@@ -1064,7 +1070,7 @@ def _retrieve_archive_signals(
             state.current_task,
             state.latest_user_request,
             *state.active_files,
-            *((semantic_state.archive_queries if semantic_state is not None else [])),
+            *(semantic_state.archive_queries if semantic_state is not None else []),
         ],
         limit=16,
     )
@@ -1131,7 +1137,9 @@ def _current_task_constraints(tasks: list[TaskMemory], task_id: str) -> list[str
     return []
 
 
-def _original_root_task_id(previous: DurableState | None, tasks: list[TaskMemory]) -> str:
+def _original_root_task_id(
+    previous: DurableState | None, tasks: list[TaskMemory]
+) -> str:
     if previous is not None and previous.original_root_task_id:
         return previous.original_root_task_id
     return tasks[0].task_id if tasks else ""
