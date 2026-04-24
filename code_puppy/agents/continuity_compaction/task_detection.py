@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import asyncio
 import atexit
-import threading
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from typing import Any, Iterable
 
-from pydantic_ai import Agent
+from pydantic_ai.messages import ModelRequest, UserPromptPart
+from pydantic_ai.models import ModelRequestParameters
 
 from code_puppy.agents.continuity_compaction.storage import (
     DurableState,
@@ -26,9 +26,8 @@ from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.model_utils import prepare_prompt_for_model
 from code_puppy.summarization_agent import run_summarization_sync
 
-_continuity_memory_agent: Agent | None = None
-_agent_lock = threading.Lock()
 _thread_pool: ThreadPoolExecutor | None = None
+_SEMANTIC_MEMORY_MAX_OUTPUT_TOKENS = 4096
 _SEMANTIC_USER_ENTRY_LIMIT = 20
 _SEMANTIC_TRANSCRIPT_SNIPPET_LIMIT = 16
 _SEMANTIC_TRANSCRIPT_SNIPPET_CHARS = 600
@@ -181,23 +180,43 @@ def build_continuity_memory_prompt(
 
 
 def run_continuity_memory_sync(prompt: str, *, timeout_seconds: int) -> str:
-    """Run the dedicated continuity-memory agent with a bounded wait."""
-    agent = get_continuity_memory_agent(force_reload=True)
+    """Run a raw text model request for continuity memory with a bounded wait.
+
+    This intentionally avoids ``Agent.run`` result validation. The continuity
+    memory layer wants raw text first, then applies its own JSON parsing,
+    schema coercion, archive-id filtering, and file allow-list validation.
+    """
     model_name = get_summarization_model_name()
     prepared = prepare_prompt_for_model(model_name, _memory_instructions(), prompt)
-    prompt = prepared.user_prompt
+    models_config = ModelFactory.load_config()
+    model = ModelFactory.get_model(model_name, models_config)
+    model_settings = make_model_settings(
+        model_name,
+        max_tokens=_SEMANTIC_MEMORY_MAX_OUTPUT_TOKENS,
+    )
+    request = ModelRequest(
+        parts=[UserPromptPart(content=prepared.user_prompt)],
+        instructions=prepared.instructions,
+    )
+    request_parameters = ModelRequestParameters(
+        output_mode="text",
+        allow_text_output=True,
+    )
     timeout = max(1, timeout_seconds)
 
     def _run_in_thread():
         loop = asyncio.new_event_loop()
         try:
-            result = loop.run_until_complete(
+            response = loop.run_until_complete(
                 asyncio.wait_for(
-                    agent.run(prompt, message_history=[]),
+                    model.request([request], model_settings, request_parameters),
                     timeout=timeout,
                 )
             )
-            return _last_text(result.new_messages())
+            text = _last_text([response]).strip()
+            if not text:
+                raise ValueError("semantic memory model returned empty text")
+            return text
         finally:
             try:
                 pending = asyncio.all_tasks(loop)
@@ -216,30 +235,6 @@ def run_continuity_memory_sync(prompt: str, *, timeout_seconds: int) -> str:
         return str(pool.submit(_run_in_thread).result(timeout=timeout + 1))
     except (TimeoutError, FutureTimeoutError) as exc:
         raise TimeoutError("continuity semantic memory timed out") from exc
-
-
-def get_continuity_memory_agent(force_reload: bool = False) -> Agent:
-    global _continuity_memory_agent
-    with _agent_lock:
-        if force_reload or _continuity_memory_agent is None:
-            _continuity_memory_agent = _reload_continuity_memory_agent()
-        return _continuity_memory_agent
-
-
-def _reload_continuity_memory_agent() -> Agent:
-    models_config = ModelFactory.load_config()
-    model_name = get_summarization_model_name()
-    model = ModelFactory.get_model(model_name, models_config)
-    prepared = prepare_prompt_for_model(
-        model_name, _memory_instructions(), "", prepend_system_to_user=False
-    )
-    return Agent(
-        model=model,
-        instructions=prepared.instructions,
-        output_type=str,
-        retries=1,
-        model_settings=make_model_settings(model_name),
-    )
 
 
 def _ensure_thread_pool() -> ThreadPoolExecutor:

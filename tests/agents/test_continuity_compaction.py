@@ -655,6 +655,68 @@ def test_semantic_memory_returns_none_on_malformed_json_and_timeout(monkeypatch)
     assert errors[-1] == "timeout"
 
 
+def test_continuity_memory_sync_uses_raw_text_model_request(monkeypatch):
+    captured = {}
+
+    class FakePreparedPrompt:
+        instructions = "memory instructions"
+        user_prompt = "prepared memory prompt"
+
+    class FakeModel:
+        async def request(self, messages, model_settings, request_parameters):
+            captured["messages"] = messages
+            captured["model_settings"] = model_settings
+            captured["request_parameters"] = request_parameters
+            return ModelResponse(
+                parts=[TextPart(content='{"current_task":"Task ROOT"}')]
+            )
+
+    monkeypatch.setattr(
+        task_detection,
+        "get_summarization_model_name",
+        lambda: "fake-memory-model",
+    )
+    monkeypatch.setattr(
+        task_detection.ModelFactory,
+        "load_config",
+        lambda: {"fake-memory-model": {}},
+    )
+    monkeypatch.setattr(
+        task_detection.ModelFactory,
+        "get_model",
+        lambda _model_name, _models_config: FakeModel(),
+    )
+    monkeypatch.setattr(
+        task_detection,
+        "make_model_settings",
+        lambda model_name, max_tokens=None: {
+            "model_name": model_name,
+            "max_tokens": max_tokens,
+        },
+    )
+    monkeypatch.setattr(
+        task_detection,
+        "prepare_prompt_for_model",
+        lambda _model_name, _instructions, _prompt: FakePreparedPrompt(),
+    )
+
+    result = task_detection.run_continuity_memory_sync(
+        "memory prompt",
+        timeout_seconds=5,
+    )
+
+    assert result == '{"current_task":"Task ROOT"}'
+    assert captured["model_settings"] == {
+        "model_name": "fake-memory-model",
+        "max_tokens": 4096,
+    }
+    assert captured["request_parameters"].output_mode == "text"
+    assert captured["request_parameters"].allow_text_output is True
+    assert captured["request_parameters"].output_tools == []
+    assert captured["messages"][0].instructions == "memory instructions"
+    assert captured["messages"][0].parts[0].content == "prepared memory prompt"
+
+
 def test_long_session_tasks_retained_but_prompt_snapshot_is_bounded(
     monkeypatch, tmp_path: Path
 ):
