@@ -214,23 +214,35 @@ def test_continuity_compaction_emits_visible_status(monkeypatch, tmp_path: Path)
         "emit_success",
         lambda content, **metadata: emitted.append(("success", str(content), metadata)),
     )
+    monkeypatch.setattr(
+        engine,
+        "emit_warning",
+        lambda content, **metadata: emitted.append(("warning", str(content), metadata)),
+    )
 
     _compaction.compact(
         _FakeAgent(), _bulky_history(), model_max=10_000, context_overhead=0, force=True
     )
 
-    assert len(emitted) == 2
+    assert len(emitted) == 4
     assert emitted[0][0] == "info"
     assert "Continuity compaction forced at" in emitted[0][1]
     assert "predicted next turn +" in emitted[0][1]
     assert "target" in emitted[0][1]
     assert emitted[0][2]["message_group"] == "token_context_status"
-    assert emitted[1][0] == "success"
-    assert "Continuity compaction complete:" in emitted[1][1]
-    assert "context" in emitted[1][1]
-    assert "messages" in emitted[1][1]
-    assert "archived and masked 1 observation(s)" in emitted[1][1]
+    assert emitted[1][0] == "info"
+    assert "Continuity memory update: calling semantic memory model" in emitted[1][1]
     assert emitted[1][2]["message_group"] == "token_context_status"
+    assert emitted[2][0] == "warning"
+    assert "using deterministic fallback" in emitted[2][1]
+    assert emitted[2][2]["message_group"] == "token_context_status"
+    assert emitted[3][0] == "success"
+    assert "Continuity compaction complete:" in emitted[3][1]
+    assert "context" in emitted[3][1]
+    assert "messages" in emitted[3][1]
+    assert "archived and masked 1 observation(s)" in emitted[3][1]
+    assert "semantic memory fallback used" in emitted[3][1]
+    assert emitted[3][2]["message_group"] == "token_context_status"
 
 
 def test_old_tool_returns_are_archived_and_masked(monkeypatch, tmp_path: Path):
@@ -420,6 +432,7 @@ def test_semantic_task_detection_failure_falls_back_to_deterministic(
         in rendered
     )
     assert "ROOT-LATEST-REQUEST" in rendered
+    assert "Semantic Fallback Reason: RuntimeError: llm unavailable" in rendered
 
 
 def test_semantic_task_detector_parses_json_text_response(monkeypatch):
@@ -605,6 +618,7 @@ def test_semantic_memory_returns_none_on_malformed_json_and_timeout(monkeypatch)
         "run_continuity_memory_sync",
         lambda *_args, **_kwargs: "not json",
     )
+    errors: list[str] = []
 
     state = task_detection.resolve_semantic_memory_state(
         user_entries=[(1, "Task ROOT")],
@@ -615,14 +629,17 @@ def test_semantic_memory_returns_none_on_malformed_json_and_timeout(monkeypatch)
         transcript_snippets=[],
         allowed_files=[],
         timeout_seconds=1,
+        error_sink=errors,
     )
     assert state is None
+    assert "semantic task detector did not return a JSON object" in errors[-1]
 
     monkeypatch.setattr(
         task_detection,
         "run_continuity_memory_sync",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("timeout")),
     )
+    errors = []
     state = task_detection.resolve_semantic_memory_state(
         user_entries=[(1, "Task ROOT")],
         previous_state=None,
@@ -632,8 +649,10 @@ def test_semantic_memory_returns_none_on_malformed_json_and_timeout(monkeypatch)
         transcript_snippets=[],
         allowed_files=[],
         timeout_seconds=1,
+        error_sink=errors,
     )
     assert state is None
+    assert errors[-1] == "timeout"
 
 
 def test_long_session_tasks_retained_but_prompt_snapshot_is_bounded(
