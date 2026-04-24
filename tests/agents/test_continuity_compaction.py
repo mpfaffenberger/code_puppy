@@ -599,12 +599,60 @@ def test_semantic_memory_parses_fenced_json_and_sanitizes_fields(monkeypatch):
 
     assert state is not None
     assert "UNTRUSTED" in captured["prompt"]
+    assert "RESPONSE CONTRACT" in captured["prompt"]
     assert captured["timeout"] == 5
     assert state.current_task == "Semantic task ROOT-A"
     assert state.tasks[0].active_files == ["src/app.py"]
     assert state.tasks[0].archive_refs == ["obs_valid"]
     assert state.tasks[1].status == "unknown"
     assert state.active_files == ["src/app.py"]
+
+
+def test_semantic_memory_repairs_non_json_response(monkeypatch):
+    monkeypatch.setattr(
+        task_detection,
+        "get_continuity_compaction_semantic_task_detection",
+        lambda: True,
+    )
+    prompts = []
+
+    def fake_run(prompt: str, *, timeout_seconds: int) -> str:
+        prompts.append((prompt, timeout_seconds))
+        if len(prompts) == 1:
+            return "I found the current task, but this is prose instead of JSON."
+        return json.dumps(
+            {
+                "current_task_id": "task-repaired",
+                "current_task": "Repaired semantic task ROOT-REPAIRED",
+                "tasks": [
+                    {
+                        "task_id": "task-repaired",
+                        "title": "Repaired semantic task ROOT-REPAIRED",
+                        "status": "active",
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr(task_detection, "run_continuity_memory_sync", fake_run)
+
+    state = task_detection.resolve_semantic_memory_state(
+        user_entries=[(1, "Task ROOT")],
+        previous_state=None,
+        latest_user_request="Task ROOT",
+        fallback_state=_fallback_state(),
+        archive_index=[],
+        transcript_snippets=[],
+        allowed_files=[],
+        timeout_seconds=20,
+    )
+
+    assert state is not None
+    assert state.current_task == "Repaired semantic task ROOT-REPAIRED"
+    assert len(prompts) == 2
+    assert prompts[1][1] == 10
+    assert "BAD RESPONSE TO REPAIR" in prompts[1][0]
+    assert "ORIGINAL CONTINUITY MEMORY INPUT" in prompts[1][0]
 
 
 def test_semantic_memory_returns_none_on_malformed_json_and_timeout(monkeypatch):
@@ -632,7 +680,9 @@ def test_semantic_memory_returns_none_on_malformed_json_and_timeout(monkeypatch)
         error_sink=errors,
     )
     assert state is None
-    assert "semantic task detector did not return a JSON object" in errors[-1]
+    assert "semantic memory model did not return a JSON object" in errors[-1]
+    assert "repair failed" in errors[-1]
+    assert "first response preview: not json" in errors[-1]
 
     monkeypatch.setattr(
         task_detection,
