@@ -1322,7 +1322,7 @@ def get_continuity_compaction_target_ratio() -> float:
     """Context-window ratio continuity compaction tries to reach."""
     return _get_bounded_float_config(
         "continuity_compaction_target_ratio",
-        0.575,
+        0.35,
         minimum=0.2,
         maximum=0.9,
     )

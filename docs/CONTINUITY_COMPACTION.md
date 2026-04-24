@@ -18,13 +18,18 @@ does not fire from very low context usage. By default:
 
 - `continuity_compaction_soft_trigger_ratio`: `82.5%`
 - `continuity_compaction_predictive_trigger_min_ratio`: `72.5%`
-- `continuity_compaction_target_ratio`: `57.5%`
+- `continuity_compaction_target_ratio`: `35%`
 - `continuity_compaction_emergency_trigger_ratio`: `90%`
 
 That means an automatic predictive compaction can happen below the soft trigger
 only when the current context is already at least `72.5%` full and the predicted
 next turn would cross the soft trigger. Manual `/compact` still forces
 compaction regardless of the predictive trigger floor.
+
+The target ratio is an anchor rather than a hard landing point. Continuity picks
+an effective target near that anchor based on predicted growth, usually between
+about `30%` and `45%` with the default settings, so high-growth sessions compact
+deeper while calmer sessions can keep a little more recent raw context.
 
 ## Practical Before/After Example
 
