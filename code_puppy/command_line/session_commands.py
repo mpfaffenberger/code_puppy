@@ -100,7 +100,7 @@ def handle_compact_command(command: str) -> bool:
 
             compacted = truncate(history, protected_tokens)
             summarized_messages = []  # No summarization in truncation mode
-        elif compaction_strategy == "threshold":
+        elif compaction_strategy == "continuity":
             from code_puppy.agents._compaction import compact
 
             compacted, summarized_messages = compact(

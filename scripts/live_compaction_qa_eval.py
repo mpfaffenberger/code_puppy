@@ -29,7 +29,7 @@ from pydantic_ai.messages import (
 import code_puppy.config as cp_config
 from code_puppy.agents import _compaction
 from code_puppy.agents._history import estimate_tokens_for_message
-from code_puppy.agents.threshold_compaction.storage import (
+from code_puppy.agents.continuity_compaction.storage import (
     MASKED_OBSERVATION_MARKER,
     observations_dir,
 )
@@ -66,7 +66,7 @@ class FakeAgent:
 
     def __init__(self, session_id: str):
         self.session_id = session_id
-        self._threshold_compaction_stats = {
+        self._continuity_compaction_stats = {
             "previous_total_tokens": None,
             "turn_growth_history": [],
         }
@@ -279,7 +279,7 @@ def _build_history(scenario: Scenario, tool_log_lines: int) -> list[ModelMessage
     return history
 
 
-def _compact_threshold(
+def _compact_continuity(
     history: list[ModelMessage],
     agent: FakeAgent,
     cycles: int,
@@ -287,7 +287,7 @@ def _compact_threshold(
 ) -> list[ModelMessage]:
     compacted = history
     for _ in range(cycles):
-        _compaction.get_compaction_strategy = lambda: "threshold"
+        _compaction.get_compaction_strategy = lambda: "continuity"
         compacted, _ = _compaction.compact(
             agent,
             compacted,
@@ -372,8 +372,8 @@ def _build_cases(
         str,
         Callable[[list[ModelMessage], FakeAgent, int, int, int], list[ModelMessage]],
     ] = {
-        "threshold": lambda history, agent, cycles, model_window, _protected: (
-            _compact_threshold(history, agent, cycles, model_window)
+        "continuity": lambda history, agent, cycles, model_window, _protected: (
+            _compact_continuity(history, agent, cycles, model_window)
         ),
         "truncation": _compact_truncation,
         "summarization": _compact_summarization,
@@ -587,9 +587,9 @@ def main() -> int:
     parser.add_argument("--model", default="gpt-5.4")
     parser.add_argument(
         "--strategies",
-        default="threshold,truncation",
+        default="continuity,truncation",
         help=(
-            "Comma-separated strategies: threshold,truncation,summarization. "
+            "Comma-separated strategies: continuity,truncation,summarization. "
             "Legacy strategies are routed through _compaction.compact()."
         ),
     )
@@ -636,7 +636,7 @@ def main() -> int:
         )
     with tempfile.TemporaryDirectory(prefix="code-puppy-live-qa-") as data_dir:
         cp_config.DATA_DIR = data_dir
-        _compaction.get_compaction_strategy = lambda: "threshold"
+        _compaction.get_compaction_strategy = lambda: "continuity"
         if not args.dry_run and not os.environ.get("OPENAI_API_KEY"):
             raise SystemExit(
                 "OPENAI_API_KEY is not set. Re-run with OPENAI_API_KEY or "

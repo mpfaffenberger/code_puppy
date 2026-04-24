@@ -1,7 +1,7 @@
-# Threshold Compaction Live Evaluation
+# Continuity Compaction Live Evaluation
 
 This note records the live model comparison run used to sanity-check the new
-opt-in `compaction_strategy=threshold` implementation against Code Puppy's
+opt-in `compaction_strategy=continuity` implementation against Code Puppy's
 legacy compaction strategies.
 
 The reusable benchmark harness is `scripts/live_compaction_qa_eval.py`. The
@@ -14,7 +14,7 @@ transcripts and model answer files.
 - Ran 10 matched transcript variants with varied context pressure.
 - Each variant was compacted through 10 compaction cycles.
 - Compared:
-  - `threshold`: new threshold compaction path through `_compaction.compact()`.
+  - `continuity`: new continuity compaction path through `_compaction.compact()`.
   - `truncation`: legacy truncation path through `_compaction.compact()`.
   - `summarization`: legacy summarization path through `_compaction.compact()`.
   - `live_summarization_surrogate`: a successful-summary baseline where
@@ -35,7 +35,7 @@ to call directly, so GPT-5.4 subagents were used as isolated live evaluators.
 
 | Strategy | Normalized recall | Exact recall | Average prompt tokens |
 | --- | ---: | ---: | ---: |
-| `threshold` | 117/120, 97.5% | 117/120, 97.5% | 49.6k |
+| `continuity` | 117/120, 97.5% | 117/120, 97.5% | 49.6k |
 | `live_summarization_surrogate` | 99/120, 82.5% | 78/120, 65.0% | 38.3k |
 | `truncation` | 78/120, 65.0% | 76/120, 63.3% | 37.1k |
 | `summarization` | 75/120, 62.5% | 73/120, 60.8% | 37.1k |
@@ -48,7 +48,7 @@ model.
 
 ## Per-Test Normalized Scores
 
-| Test | Threshold | Truncation | Local summarization | Live summary surrogate |
+| Test | Continuity | Truncation | Local summarization | Live summary surrogate |
 | --- | ---: | ---: | ---: | ---: |
 | 1 | 12/12 | 9/12 | 7/12 | 10/12 |
 | 2 | 12/12 | 6/12 | 6/12 | 11/12 |
@@ -63,7 +63,7 @@ model.
 
 ## Field-Level Normalized Recall
 
-| Field | Threshold | Truncation | Local summarization | Live summary surrogate |
+| Field | Continuity | Truncation | Local summarization | Live summary surrogate |
 | --- | ---: | ---: | ---: | ---: |
 | Goal | 10/10 | 10/10 | 9/10 | 10/10 |
 | Current error key | 7/10 | 4/10 | 4/10 | 4/10 |
@@ -74,7 +74,7 @@ model.
 
 ## Interpretation
 
-The threshold strategy substantially outperformed the legacy methods for
+The continuity strategy substantially outperformed the legacy methods for
 resumability. It preserved all goals, constraints, active files, invalidated
 hypotheses, and next actions across the 10-cycle run. The only misses were
 3/10 current-error-key extractions, all in MCP restart variants where the

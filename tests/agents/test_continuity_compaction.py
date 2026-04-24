@@ -16,12 +16,12 @@ from pydantic_ai.messages import (
 )
 
 from code_puppy.agents import _compaction
-from code_puppy.agents.threshold_compaction import engine
-from code_puppy.agents.threshold_compaction.settings import (
-    ThresholdSettings,
-    load_threshold_settings,
+from code_puppy.agents.continuity_compaction import engine
+from code_puppy.agents.continuity_compaction.settings import (
+    ContinuityCompactionSettings,
+    load_continuity_compaction_settings,
 )
-from code_puppy.agents.threshold_compaction.storage import (
+from code_puppy.agents.continuity_compaction.storage import (
     DURABLE_MEMORY_MARKER,
     MASKED_OBSERVATION_MARKER,
     STRUCTURED_SUMMARY_MARKER,
@@ -31,12 +31,12 @@ from code_puppy.agents.threshold_compaction.storage import (
 
 
 class _FakeAgent:
-    name = "threshold-agent"
-    id = "threshold-agent-id"
-    session_id = "threshold-session"
+    name = "continuity-agent"
+    id = "continuity-agent-id"
+    session_id = "continuity-session"
 
     def __init__(self):
-        self._threshold_compaction_stats = {
+        self._continuity_compaction_stats = {
             "previous_total_tokens": None,
             "turn_growth_history": [],
         }
@@ -122,12 +122,12 @@ def _bulky_history() -> list[ModelMessage]:
     ]
 
 
-def _patch_threshold_strategy(monkeypatch):
-    monkeypatch.setattr(_compaction, "get_compaction_strategy", lambda: "threshold")
+def _patch_continuity_strategy(monkeypatch):
+    monkeypatch.setattr(_compaction, "get_compaction_strategy", lambda: "continuity")
 
 
-def test_threshold_settings_scale_from_percentages():
-    settings = load_threshold_settings(200_000)
+def test_continuity_settings_scale_from_percentages():
+    settings = load_continuity_compaction_settings(200_000)
     assert settings.soft_trigger == 165_000
     assert settings.emergency_trigger == 180_000
     assert settings.target_after_compaction == 115_000
@@ -139,7 +139,7 @@ def test_noop_below_predictive_threshold(monkeypatch, tmp_path: Path):
     import code_puppy.config as cp_config
 
     monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
-    _patch_threshold_strategy(monkeypatch)
+    _patch_continuity_strategy(monkeypatch)
     agent = _FakeAgent()
     messages = [_sys_msg(), _user_msg("small request")]
 
@@ -158,7 +158,7 @@ def test_predictive_trigger_can_fire_below_legacy_threshold(
     import code_puppy.config as cp_config
 
     monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
-    _patch_threshold_strategy(monkeypatch)
+    _patch_continuity_strategy(monkeypatch)
     agent = _FakeAgent()
     messages = _bulky_history()
 
@@ -177,7 +177,7 @@ def test_old_tool_returns_are_archived_and_masked(monkeypatch, tmp_path: Path):
     import code_puppy.config as cp_config
 
     monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
-    _patch_threshold_strategy(monkeypatch)
+    _patch_continuity_strategy(monkeypatch)
     agent = _FakeAgent()
     messages = _bulky_history()
 
@@ -206,7 +206,7 @@ def test_durable_memory_snapshot_is_injected_once(monkeypatch, tmp_path: Path):
     import code_puppy.config as cp_config
 
     monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
-    _patch_threshold_strategy(monkeypatch)
+    _patch_continuity_strategy(monkeypatch)
     agent = _FakeAgent()
     messages = _bulky_history()
     first, _ = _compaction.compact(
@@ -223,7 +223,7 @@ def test_structured_fallback_summarizes_masked_band(monkeypatch, tmp_path: Path)
     import code_puppy.config as cp_config
 
     monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
-    _patch_threshold_strategy(monkeypatch)
+    _patch_continuity_strategy(monkeypatch)
     monkeypatch.setattr(
         engine,
         "run_summarization_sync",
@@ -233,8 +233,8 @@ def test_structured_fallback_summarizes_masked_band(monkeypatch, tmp_path: Path)
     )
     monkeypatch.setattr(
         engine,
-        "load_threshold_settings",
-        lambda context_window: ThresholdSettings(
+        "load_continuity_compaction_settings",
+        lambda context_window: ContinuityCompactionSettings(
             context_window=context_window,
             soft_trigger=1,
             emergency_trigger=context_window,
@@ -262,7 +262,7 @@ def test_emergency_trim_keeps_latest_user_request(monkeypatch, tmp_path: Path):
     import code_puppy.config as cp_config
 
     monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
-    _patch_threshold_strategy(monkeypatch)
+    _patch_continuity_strategy(monkeypatch)
     monkeypatch.setattr(
         engine,
         "run_summarization_sync",
@@ -270,8 +270,8 @@ def test_emergency_trim_keeps_latest_user_request(monkeypatch, tmp_path: Path):
     )
     monkeypatch.setattr(
         engine,
-        "load_threshold_settings",
-        lambda context_window: ThresholdSettings(
+        "load_continuity_compaction_settings",
+        lambda context_window: ContinuityCompactionSettings(
             context_window=context_window,
             soft_trigger=1,
             emergency_trigger=500,
@@ -299,7 +299,7 @@ def test_emergency_trim_keeps_current_error_and_pair(monkeypatch, tmp_path: Path
     import code_puppy.config as cp_config
 
     monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
-    _patch_threshold_strategy(monkeypatch)
+    _patch_continuity_strategy(monkeypatch)
     monkeypatch.setattr(
         engine,
         "run_summarization_sync",
@@ -307,8 +307,8 @@ def test_emergency_trim_keeps_current_error_and_pair(monkeypatch, tmp_path: Path
     )
     monkeypatch.setattr(
         engine,
-        "load_threshold_settings",
-        lambda context_window: ThresholdSettings(
+        "load_continuity_compaction_settings",
+        lambda context_window: ContinuityCompactionSettings(
             context_window=context_window,
             soft_trigger=1,
             emergency_trigger=500,
@@ -342,17 +342,15 @@ def test_emergency_trim_keeps_current_error_and_pair(monkeypatch, tmp_path: Path
     assert calls == returns == {"call-current"}
 
 
-def test_precision_probes_survive_ten_compaction_cycles(
-    monkeypatch, tmp_path: Path
-):
+def test_precision_probes_survive_ten_compaction_cycles(monkeypatch, tmp_path: Path):
     import code_puppy.config as cp_config
 
     monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
-    _patch_threshold_strategy(monkeypatch)
+    _patch_continuity_strategy(monkeypatch)
     monkeypatch.setattr(
         engine,
-        "load_threshold_settings",
-        lambda context_window: ThresholdSettings(
+        "load_continuity_compaction_settings",
+        lambda context_window: ContinuityCompactionSettings(
             context_window=context_window,
             soft_trigger=1,
             emergency_trigger=context_window,
@@ -476,7 +474,7 @@ def test_archive_retention_cleanup(monkeypatch, tmp_path: Path):
 
     cleanup_observation_archives(
         agent,
-        ThresholdSettings(
+        ContinuityCompactionSettings(
             context_window=10_000,
             soft_trigger=1,
             emergency_trigger=9_000,

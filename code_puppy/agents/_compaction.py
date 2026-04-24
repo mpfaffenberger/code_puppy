@@ -316,10 +316,10 @@ def compact(
     update_spinner_context(context_summary)
 
     strategy = get_compaction_strategy()
-    if strategy == "threshold":
-        from code_puppy.agents.threshold_compaction import compact_threshold
+    if strategy == "continuity":
+        from code_puppy.agents.continuity_compaction import compact_continuity
 
-        result_messages, summarized_messages = compact_threshold(
+        result_messages, summarized_messages = compact_continuity(
             agent=agent,
             messages=messages,
             model_max=model_max,

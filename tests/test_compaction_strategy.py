@@ -69,8 +69,8 @@ def test_set_compaction_strategy_summarization():
             code_puppy.config.CONFIG_FILE = original_config_file
 
 
-def test_set_compaction_strategy_threshold():
-    """Test that we can set the compaction strategy to threshold"""
+def test_set_compaction_strategy_continuity():
+    """Test that we can set the compaction strategy to continuity"""
     import code_puppy.config
 
     original_config_dir = code_puppy.config.CONFIG_DIR
@@ -83,13 +83,13 @@ def test_set_compaction_strategy_threshold():
 
             config = configparser.ConfigParser()
             config[DEFAULT_SECTION] = {}
-            config[DEFAULT_SECTION]["compaction_strategy"] = "threshold"
+            config[DEFAULT_SECTION]["compaction_strategy"] = "continuity"
 
             with open(code_puppy.config.CONFIG_FILE, "w") as f:
                 config.write(f)
 
             strategy = get_compaction_strategy()
-            assert strategy == "threshold"
+            assert strategy == "continuity"
         finally:
             code_puppy.config.CONFIG_DIR = original_config_dir
             code_puppy.config.CONFIG_FILE = original_config_file

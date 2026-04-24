@@ -1,4 +1,4 @@
-"""Local durable memory and observation archive helpers."""
+"""Local durable continuity and observation archive helpers."""
 
 from __future__ import annotations
 
@@ -11,7 +11,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from code_puppy.agents.threshold_compaction.settings import ThresholdSettings
+from code_puppy.agents.continuity_compaction.settings import (
+    ContinuityCompactionSettings,
+)
 
 DURABLE_MEMORY_MARKER = "[Code Puppy Durable Compaction Memory]"
 MASKED_OBSERVATION_MARKER = "[Masked Observation]"
@@ -164,7 +166,9 @@ def render_masked_observation(record: dict[str, Any]) -> str:
     )
 
 
-def cleanup_observation_archives(agent: Any, settings: ThresholdSettings) -> None:
+def cleanup_observation_archives(
+    agent: Any, settings: ContinuityCompactionSettings
+) -> None:
     path = observations_dir(agent)
     now = time.time()
     max_age = settings.archive_retention_days * 24 * 60 * 60

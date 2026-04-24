@@ -7,14 +7,14 @@ from code_puppy.config import (
     get_agent_pinned_model,
     get_compaction_strategy,
     get_compaction_threshold,
-    get_threshold_compaction_archive_retention_count,
-    get_threshold_compaction_archive_retention_days,
-    get_threshold_compaction_emergency_trigger_ratio,
-    get_threshold_compaction_growth_history_window,
-    get_threshold_compaction_predicted_growth_floor_ratio,
-    get_threshold_compaction_recent_raw_floor_ratio,
-    get_threshold_compaction_soft_trigger_ratio,
-    get_threshold_compaction_target_ratio,
+    get_continuity_compaction_archive_retention_count,
+    get_continuity_compaction_archive_retention_days,
+    get_continuity_compaction_emergency_trigger_ratio,
+    get_continuity_compaction_growth_history_window,
+    get_continuity_compaction_predicted_growth_floor_ratio,
+    get_continuity_compaction_recent_raw_floor_ratio,
+    get_continuity_compaction_soft_trigger_ratio,
+    get_continuity_compaction_target_ratio,
     get_use_dbos,
     load_mcp_server_configs,
     set_agent_pinned_model,
@@ -72,7 +72,7 @@ class TestConfigExtendedPart2:
             mock_get.assert_called_once_with("compaction_strategy")
 
         # Test valid strategies
-        for strategy in ["summarization", "truncation", "threshold"]:
+        for strategy in ["summarization", "truncation", "continuity"]:
             with patch("code_puppy.config.get_value") as mock_get:
                 mock_get.return_value = strategy.upper()  # Test case normalization
                 result = get_compaction_strategy()
@@ -117,16 +117,16 @@ class TestConfigExtendedPart2:
             result = get_compaction_threshold()
             assert result == 0.85  # Default fallback
 
-    def test_threshold_compaction_config_defaults(self, mock_config_file):
+    def test_continuity_compaction_config_defaults(self, mock_config_file):
         defaults = {
-            "threshold_compaction_soft_trigger_ratio": 0.825,
-            "threshold_compaction_emergency_trigger_ratio": 0.9,
-            "threshold_compaction_target_ratio": 0.575,
-            "threshold_compaction_recent_raw_floor_ratio": 0.2,
-            "threshold_compaction_predicted_growth_floor_ratio": 0.06,
-            "threshold_compaction_growth_history_window": 10,
-            "threshold_compaction_archive_retention_days": 30,
-            "threshold_compaction_archive_retention_count": 500,
+            "continuity_compaction_soft_trigger_ratio": 0.825,
+            "continuity_compaction_emergency_trigger_ratio": 0.9,
+            "continuity_compaction_target_ratio": 0.575,
+            "continuity_compaction_recent_raw_floor_ratio": 0.2,
+            "continuity_compaction_predicted_growth_floor_ratio": 0.06,
+            "continuity_compaction_growth_history_window": 10,
+            "continuity_compaction_archive_retention_days": 30,
+            "continuity_compaction_archive_retention_count": 500,
         }
 
         def fake_get(key):
@@ -134,36 +134,36 @@ class TestConfigExtendedPart2:
             return None
 
         with patch("code_puppy.config.get_value", side_effect=fake_get):
-            assert get_threshold_compaction_soft_trigger_ratio() == 0.825
-            assert get_threshold_compaction_emergency_trigger_ratio() == 0.9
-            assert get_threshold_compaction_target_ratio() == 0.575
-            assert get_threshold_compaction_recent_raw_floor_ratio() == 0.2
-            assert get_threshold_compaction_predicted_growth_floor_ratio() == 0.06
-            assert get_threshold_compaction_growth_history_window() == 10
-            assert get_threshold_compaction_archive_retention_days() == 30
-            assert get_threshold_compaction_archive_retention_count() == 500
+            assert get_continuity_compaction_soft_trigger_ratio() == 0.825
+            assert get_continuity_compaction_emergency_trigger_ratio() == 0.9
+            assert get_continuity_compaction_target_ratio() == 0.575
+            assert get_continuity_compaction_recent_raw_floor_ratio() == 0.2
+            assert get_continuity_compaction_predicted_growth_floor_ratio() == 0.06
+            assert get_continuity_compaction_growth_history_window() == 10
+            assert get_continuity_compaction_archive_retention_days() == 30
+            assert get_continuity_compaction_archive_retention_count() == 500
 
-    def test_threshold_compaction_config_clamps(self, mock_config_file):
+    def test_continuity_compaction_config_clamps(self, mock_config_file):
         values = {
-            "threshold_compaction_soft_trigger_ratio": "0.1",
-            "threshold_compaction_emergency_trigger_ratio": "2.0",
-            "threshold_compaction_target_ratio": "0.95",
-            "threshold_compaction_recent_raw_floor_ratio": "0.01",
-            "threshold_compaction_predicted_growth_floor_ratio": "0.9",
-            "threshold_compaction_growth_history_window": "0",
-            "threshold_compaction_archive_retention_days": "0",
-            "threshold_compaction_archive_retention_count": "0",
+            "continuity_compaction_soft_trigger_ratio": "0.1",
+            "continuity_compaction_emergency_trigger_ratio": "2.0",
+            "continuity_compaction_target_ratio": "0.95",
+            "continuity_compaction_recent_raw_floor_ratio": "0.01",
+            "continuity_compaction_predicted_growth_floor_ratio": "0.9",
+            "continuity_compaction_growth_history_window": "0",
+            "continuity_compaction_archive_retention_days": "0",
+            "continuity_compaction_archive_retention_count": "0",
         }
 
         with patch("code_puppy.config.get_value", side_effect=values.get):
-            assert get_threshold_compaction_soft_trigger_ratio() == 0.5
-            assert get_threshold_compaction_emergency_trigger_ratio() == 0.98
-            assert get_threshold_compaction_target_ratio() == 0.9
-            assert get_threshold_compaction_recent_raw_floor_ratio() == 0.05
-            assert get_threshold_compaction_predicted_growth_floor_ratio() == 0.5
-            assert get_threshold_compaction_growth_history_window() == 1
-            assert get_threshold_compaction_archive_retention_days() == 1
-            assert get_threshold_compaction_archive_retention_count() == 1
+            assert get_continuity_compaction_soft_trigger_ratio() == 0.5
+            assert get_continuity_compaction_emergency_trigger_ratio() == 0.98
+            assert get_continuity_compaction_target_ratio() == 0.9
+            assert get_continuity_compaction_recent_raw_floor_ratio() == 0.05
+            assert get_continuity_compaction_predicted_growth_floor_ratio() == 0.5
+            assert get_continuity_compaction_growth_history_window() == 1
+            assert get_continuity_compaction_archive_retention_days() == 1
+            assert get_continuity_compaction_archive_retention_count() == 1
 
     def test_get_use_dbos(self, mock_config_file):
         """Test getting DBOS usage flag"""
