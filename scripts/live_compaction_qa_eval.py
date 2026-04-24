@@ -287,6 +287,31 @@ def _compact_threshold(
 ) -> list[ModelMessage]:
     compacted = history
     for _ in range(cycles):
+        _compaction.get_compaction_strategy = lambda: "threshold"
+        compacted, _ = _compaction.compact(
+            agent,
+            compacted,
+            model_max=model_window,
+            context_overhead=0,
+            force=True,
+        )
+    return compacted
+
+
+def _compact_legacy_strategy(
+    strategy: str,
+    history: list[ModelMessage],
+    agent: FakeAgent,
+    cycles: int,
+    model_window: int,
+    protected_tokens: int,
+) -> list[ModelMessage]:
+    compacted = history
+    for _ in range(cycles):
+        _compaction.get_compaction_strategy = lambda strategy=strategy: strategy
+        _compaction.get_protected_token_count = (
+            lambda protected_tokens=protected_tokens: protected_tokens
+        )
         compacted, _ = _compaction.compact(
             agent,
             compacted,
@@ -299,18 +324,36 @@ def _compact_threshold(
 
 def _compact_truncation(
     history: list[ModelMessage],
-    _agent: FakeAgent,
+    agent: FakeAgent,
     cycles: int,
-    _model_window: int,
+    model_window: int,
+    protected_tokens: int,
 ) -> list[ModelMessage]:
-    compacted = history
-    for _ in range(cycles):
-        compacted = _compaction.truncate(
-            compacted,
-            protected_tokens=45_000,
-            model_name="fake-model",
-        )
-    return compacted
+    return _compact_legacy_strategy(
+        "truncation",
+        history,
+        agent,
+        cycles,
+        model_window,
+        protected_tokens,
+    )
+
+
+def _compact_summarization(
+    history: list[ModelMessage],
+    agent: FakeAgent,
+    cycles: int,
+    model_window: int,
+    protected_tokens: int,
+) -> list[ModelMessage]:
+    return _compact_legacy_strategy(
+        "summarization",
+        history,
+        agent,
+        cycles,
+        model_window,
+        protected_tokens,
+    )
 
 
 def _build_cases(
@@ -319,12 +362,17 @@ def _build_cases(
     cycles: int,
     model_window: int,
     tool_log_lines: int,
+    protected_tokens: int,
 ) -> list[EvalCase]:
     compactors: dict[
-        str, Callable[[list[ModelMessage], FakeAgent, int, int], list[ModelMessage]]
+        str,
+        Callable[[list[ModelMessage], FakeAgent, int, int, int], list[ModelMessage]],
     ] = {
-        "threshold": _compact_threshold,
+        "threshold": lambda history, agent, cycles, model_window, _protected: (
+            _compact_threshold(history, agent, cycles, model_window)
+        ),
         "truncation": _compact_truncation,
+        "summarization": _compact_summarization,
     }
     unknown = sorted(set(strategies) - set(compactors))
     if unknown:
@@ -335,7 +383,13 @@ def _build_cases(
         for scenario in _scenarios():
             agent = FakeAgent(session_id=f"live-qa-{strategy}-{scenario.name}")
             history = _build_history(scenario, tool_log_lines)
-            compacted = compactors[strategy](history, agent, cycles, model_window)
+            compacted = compactors[strategy](
+                history,
+                agent,
+                cycles,
+                model_window,
+                protected_tokens,
+            )
             prompt_text = _message_text(compacted)
             archive_text = _archive_text(agent)
             cases.append(
@@ -530,10 +584,22 @@ def main() -> int:
     parser.add_argument(
         "--strategies",
         default="threshold,truncation",
-        help="Comma-separated strategies: threshold,truncation",
+        help=(
+            "Comma-separated strategies: threshold,truncation,summarization. "
+            "Legacy strategies are routed through _compaction.compact()."
+        ),
     )
     parser.add_argument("--cycles", type=int, default=10)
     parser.add_argument("--model-window", type=int, default=200_000)
+    parser.add_argument(
+        "--legacy-protected-tokens",
+        type=int,
+        default=50_000,
+        help=(
+            "Recent-token budget used by legacy truncation/summarization. "
+            "Defaults to Code Puppy's legacy default."
+        ),
+    )
     parser.add_argument("--tool-log-lines", type=int, default=750)
     parser.add_argument("--max-output-tokens", type=int, default=1200)
     parser.add_argument(
@@ -559,21 +625,26 @@ def main() -> int:
     args = parser.parse_args()
 
     strategies = [item.strip() for item in args.strategies.split(",") if item.strip()]
+    if "summarization" in strategies and args.dry_run:
+        print(
+            "warning: summarization strategy still calls the configured "
+            "summarization model while building compacted prompts."
+        )
     with tempfile.TemporaryDirectory(prefix="code-puppy-live-qa-") as data_dir:
         cp_config.DATA_DIR = data_dir
         _compaction.get_compaction_strategy = lambda: "threshold"
-        cases = _build_cases(
-            strategies=strategies,
-            cycles=args.cycles,
-            model_window=args.model_window,
-            tool_log_lines=args.tool_log_lines,
-        )
-
         if not args.dry_run and not os.environ.get("OPENAI_API_KEY"):
             raise SystemExit(
                 "OPENAI_API_KEY is not set. Re-run with OPENAI_API_KEY or "
                 "use --dry-run to generate prompts only."
             )
+        cases = _build_cases(
+            strategies=strategies,
+            cycles=args.cycles,
+            model_window=args.model_window,
+            tool_log_lines=args.tool_log_lines,
+            protected_tokens=args.legacy_protected_tokens,
+        )
 
         args.output.parent.mkdir(parents=True, exist_ok=True)
         totals: dict[str, list[int]] = {}
