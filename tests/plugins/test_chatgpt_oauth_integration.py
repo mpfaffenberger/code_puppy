@@ -86,11 +86,13 @@ class TestModelManagement:
         models_file = tmp_path / "models.json"
         mock_path.return_value = models_file
 
-        result = add_models_to_extra_config([
-            "gpt-5.5",
-            "gpt-5.2",
-            "gpt-5.2-codex",
-        ])
+        result = add_models_to_extra_config(
+            [
+                "gpt-5.5",
+                "gpt-5.2",
+                "gpt-5.2-codex",
+            ]
+        )
 
         assert result is True
         models = json.loads(models_file.read_text())
