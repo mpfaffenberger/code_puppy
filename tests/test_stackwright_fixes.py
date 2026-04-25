@@ -27,9 +27,8 @@ class TestAutoEnableOnStartup:
         )
         server = ManagedMCPServer(config)
 
-        # Before fix: _enabled was always False
-        # After fix: _initialize_servers() calls server.enable() when config.enabled=True
-        # We test enable() directly since _initialize_servers() is tested via MCPManager
+        # enable() sets the _enabled flag so get_servers_for_agent() returns
+        # this server to pydantic-ai.  It does NOT start a subprocess.
         server.enable()
         assert server.is_enabled() is True
 
@@ -74,7 +73,8 @@ class TestAutoEnableOnStartup:
         server = manager.get_server_by_name("my-server")
         assert server is not None
 
-        # Find the managed server and confirm it's enabled
+        # Find the managed server — it must be enabled (flag) so that
+        # get_servers_for_agent() returns it to pydantic-ai.
         managed = next(
             (s for s in manager._managed_servers.values()
              if s.config.name == "my-server"),
@@ -82,6 +82,19 @@ class TestAutoEnableOnStartup:
         )
         assert managed is not None
         assert managed.is_enabled() is True
+
+        # Status tracker must be STOPPED — no subprocess has been spawned.
+        # The tracker advances to RUNNING only via start_server() which also
+        # calls record_start_time() and actually starts the process.
+        # Falsely setting RUNNING here caused "State: ✓ Run, Uptime: -" in
+        # /mcp status because record_start_time() was never called.
+        # get_status() returns a ServerState enum; key is the server's UUID.
+        from code_puppy.mcp_.managed_server import ServerState
+        tracker_state = manager.status_tracker.get_status(managed.config.id)
+        assert tracker_state == ServerState.STOPPED, (
+            f"Expected tracker STOPPED, got {tracker_state} — "
+            "start_server() is responsible for advancing to RUNNING"
+        )
 
 
 # ── Fix 2: Local .code-puppy.json loading ──────────────────────────────────

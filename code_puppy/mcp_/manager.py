@@ -230,10 +230,9 @@ class MCPManager:
                         managed_server.enable()
 
                     self._managed_servers[server_id] = managed_server
-                    self.status_tracker.set_status(
-                        server_id,
-                        ServerState.RUNNING if server_config.enabled else ServerState.STOPPED,
-                    )
+                    # STOPPED: same reasoning as _initialize_servers() — no subprocess
+                    # has started; tracker advances to RUNNING via start_server() only.
+                    self.status_tracker.set_status(server_id, ServerState.STOPPED)
 
                     synced_count += 1
                     logger.debug(f"Loaded local server (ephemeral): {name}")
@@ -260,17 +259,23 @@ class MCPManager:
                 managed_server = ManagedMCPServer(config)
 
                 # Apply enabled state from config — servers with enabled=True (the default)
-                # start active so they're available immediately on launch without /mcp start.
+                # are flagged active so get_servers_for_agent() returns them immediately
+                # on launch without requiring /mcp start.
                 # Servers with "enabled": false in mcp_servers.json remain disabled.
                 # See: https://github.com/Per-Aspera-LLC/stackwright-pro (cherry-pick PR pending)
                 if config.enabled:
                     managed_server.enable()
 
                 self._managed_servers[config.id] = managed_server
-                self.status_tracker.set_status(
-                    config.id,
-                    ServerState.RUNNING if config.enabled else ServerState.STOPPED,
-                )
+
+                # Always STOPPED in the tracker: no subprocess has been spawned yet.
+                # get_servers_for_agent() gates on is_enabled() (set above), NOT on
+                # tracker state — so the server is available to pydantic-ai immediately.
+                # The tracker advances to RUNNING only via start_server(), which also
+                # spawns the subprocess and calls record_start_time().
+                # Setting RUNNING here would show "State: ✓ Run, Uptime: -" in
+                # /mcp status because record_start_time() was never called.
+                self.status_tracker.set_status(config.id, ServerState.STOPPED)
 
                 initialized_count += 1
                 logger.debug(
