@@ -61,11 +61,16 @@ class TestAutoEnableOnStartup:
             }
         }))
 
+        # Patch _persist and _load to prevent writing test servers to the real
+        # mcp_registry.json and loading stale entries from it.
         with patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_json)), \
-             patch("code_puppy.mcp_.manager.MCPManager.sync_from_local_config"):
+             patch("code_puppy.mcp_.manager.MCPManager.sync_from_local_config"), \
+             patch("code_puppy.mcp_.registry.ServerRegistry._persist"), \
+             patch("code_puppy.mcp_.registry.ServerRegistry._load"):
             from code_puppy.mcp_.manager import MCPManager
             manager = MCPManager()
 
+        # my-server was synced through the registry (global config path)
         server = manager.get_server_by_name("my-server")
         assert server is not None
 
@@ -172,7 +177,7 @@ class TestLocalCodePuppyJson:
         assert "${PROJECT_ROOT}" not in result["srv"]["args"][0]
 
     def test_manager_syncs_local_config(self, tmp_path):
-        """MCPManager should register servers from local .code-puppy.json."""
+        """MCPManager should load servers from local .code-puppy.json into managed servers."""
         local_config = {
             "mcpServers": [{
                 "name": "local-server",
@@ -186,14 +191,17 @@ class TestLocalCodePuppyJson:
         empty_global = tmp_path / "mcp_servers.json"
         empty_global.write_text(json.dumps({"mcp_servers": {}}))
 
+        # Patch _persist and _load to prevent writing test servers to the real
+        # mcp_registry.json and loading stale entries from it.
         with patch("code_puppy.config.MCP_SERVERS_FILE", str(empty_global)), \
-             patch("os.getcwd", return_value=str(tmp_path)):
+             patch("os.getcwd", return_value=str(tmp_path)), \
+             patch("code_puppy.mcp_.registry.ServerRegistry._persist"), \
+             patch("code_puppy.mcp_.registry.ServerRegistry._load"):
             from code_puppy.mcp_.manager import MCPManager
             manager = MCPManager()
 
-        server = manager.get_server_by_name("local-server")
-        assert server is not None
-
+        # Local servers bypass the registry (ephemeral — not written to
+        # mcp_registry.json).  Check _managed_servers directly.
         managed = next(
             (s for s in manager._managed_servers.values()
              if s.config.name == "local-server"),

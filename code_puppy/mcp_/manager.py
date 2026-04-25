@@ -92,18 +92,34 @@ class MCPManager:
     def sync_from_config(self) -> None:
         """Sync servers from mcp_servers.json into the registry.
 
-        This public method ensures that servers defined in the user's
-        configuration file are automatically registered with the manager.
-        It can be called during initialization or manually to reload
-        server configurations.
-
-        This is the single source of truth for syncing mcp_servers.json
-        into the registry, avoiding duplication with base_agent.py.
+        This method is the single authoritative sync from the user's
+        mcp_servers.json.  It adds/updates servers that appear in the file
+        AND removes registry entries that are no longer present, so that
+        mcp_registry.json never accumulates stale or dead entries.
         """
         try:
             from code_puppy.config import load_mcp_server_configs
 
             configs = load_mcp_server_configs()
+
+            # ── Prune: remove registry entries no longer in mcp_servers.json ──
+            # This prevents stale catalog entries from resurrecting on every
+            # MCPManager() init via registry._load().  Only remove entries
+            # that were originally synced from the file (i.e. have no explicit
+            # "id" field in their stored config — they were name-keyed).
+            desired_names = set(configs.keys()) if configs else set()
+            for existing_cfg in list(self.registry.list_all()):
+                if existing_cfg.name not in desired_names:
+                    try:
+                        self.registry.unregister(existing_cfg.id)
+                        logger.debug(
+                            f"Pruned server no longer in mcp_servers.json: {existing_cfg.name}"
+                        )
+                    except Exception as prune_err:
+                        logger.warning(
+                            f"Failed to prune stale server '{existing_cfg.name}': {prune_err}"
+                        )
+
             if not configs:
                 logger.debug("No servers found in mcp_servers.json")
                 return
@@ -117,7 +133,7 @@ class MCPManager:
                     server_config = ServerConfig(
                         id=conf.get("id", ""),  # Empty ID will be auto-generated
                         name=name,
-                        type=conf.get("type", "sse"),
+                        type=conf.get("type", "stdio"),
                         enabled=conf.get("enabled", True),
                         config=conf,
                     )
@@ -157,8 +173,20 @@ class MCPManager:
         Called after sync_from_config() so local config wins on name collision.
         Supports both mcpServers array format and mcp_servers object format.
 
+        IMPORTANT — ephemeral by design:
+        Local servers are session-scoped.  They are added DIRECTLY to
+        _managed_servers and status_tracker, completely bypassing the
+        registry.  This means they are never written to mcp_registry.json
+        and do not persist across sessions.  Each new session reloads them
+        fresh from .code-puppy.json.
+
+        Calling registry.register() here would permanently pollute
+        mcp_registry.json with project-local servers and test fixtures.
+
         See: https://github.com/Per-Aspera-LLC/stackwright-pro (cherry-pick PR pending)
         """
+        import uuid
+
         try:
             from code_puppy.config import load_local_mcp_config
 
@@ -168,38 +196,55 @@ class MCPManager:
                 return
 
             synced_count = 0
-            updated_count = 0
 
             for name, conf in configs.items():
                 try:
+                    # Generate a session-only ID — never stored on disk
+                    server_id = str(uuid.uuid4())
                     server_config = ServerConfig(
-                        id=conf.get("id", ""),
+                        id=server_id,
                         name=name,
-                        type=conf.get("type", "stdio"),  # local configs default to stdio
-                        enabled=conf.get("enabled", True),  # local servers default enabled
+                        type=conf.get("type", "stdio"),
+                        enabled=conf.get("enabled", True),
                         config=conf,
                     )
 
-                    existing = self.registry.get_by_name(name)
-                    if not existing:
-                        self.registry.register(server_config)
-                        synced_count += 1
-                        logger.debug(f"Synced new server from local config: {name}")
-                    else:
-                        if existing.config != server_config.config:
-                            server_config.id = existing.id
-                            self.registry.update(existing.id, server_config)
-                            updated_count += 1
-                            logger.debug(f"Updated server from local config: {name}")
+                    # Local config wins on name collision — evict any managed
+                    # server with the same name that was loaded from global config
+                    collision_id = next(
+                        (
+                            sid
+                            for sid, ms in self._managed_servers.items()
+                            if ms.config.name == name
+                        ),
+                        None,
+                    )
+                    if collision_id is not None:
+                        del self._managed_servers[collision_id]
+                        logger.debug(f"Local config overrides global server: {name}")
+
+                    # Add directly — bypasses registry._persist(), so nothing
+                    # is written to mcp_registry.json
+                    managed_server = ManagedMCPServer(server_config)
+                    if server_config.enabled:
+                        managed_server.enable()
+
+                    self._managed_servers[server_id] = managed_server
+                    self.status_tracker.set_status(
+                        server_id,
+                        ServerState.RUNNING if server_config.enabled else ServerState.STOPPED,
+                    )
+
+                    synced_count += 1
+                    logger.debug(f"Loaded local server (ephemeral): {name}")
 
                 except Exception as e:
-                    logger.warning(f"Failed to sync local server '{name}': {e}")
+                    logger.warning(f"Failed to load local server '{name}': {e}")
                     continue
 
-            if synced_count > 0 or updated_count > 0:
+            if synced_count > 0:
                 logger.info(
-                    f"Synced {synced_count} new and updated {updated_count} servers "
-                    f"from local .code-puppy.json"
+                    f"Loaded {synced_count} ephemeral server(s) from local .code-puppy.json"
                 )
 
         except Exception as e:
