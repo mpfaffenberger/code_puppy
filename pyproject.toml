@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stackwright-puppy"
-version = "0.0.472.post1"
+version = "0.0.472.post2"
 description = "Stackwright-patched fork of code-puppy (MIT). Upstream: https://github.com/mpfaffenberger/code_puppy — cherry-pick PRs pending upstream review."
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 dependencies = [
     "pydantic-ai-slim[openai,anthropic,mcp]==1.56.0",
     "typer>=0.12.0",
@@ -50,6 +50,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Code Generators",
