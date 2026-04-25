@@ -659,12 +659,14 @@ class TestMCPManagerExtended:
                 assert "server1" in manager._managed_servers
                 assert "server2" in manager._managed_servers
 
-                # All servers should start as STOPPED
+                # Servers with enabled=True (default) should start as RUNNING.
+                # Stackwright fix: auto-enable on startup — servers no longer
+                # require an explicit /mcp start command.
                 manager.status_tracker.set_status.assert_any_call(
-                    "server1", ServerState.STOPPED
+                    "server1", ServerState.RUNNING
                 )
                 manager.status_tracker.set_status.assert_any_call(
-                    "server2", ServerState.STOPPED
+                    "server2", ServerState.RUNNING
                 )
 
     def test_initialization_handles_server_creation_failures(self):

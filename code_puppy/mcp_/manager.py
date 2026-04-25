@@ -81,6 +81,9 @@ class MCPManager:
         # Sync servers from mcp_servers.json into registry
         self.sync_from_config()
 
+        # Sync servers from project-local .code-puppy.json (wins on collision)
+        self.sync_from_local_config()
+
         # Load existing servers from registry
         self._initialize_servers()
 
@@ -148,6 +151,60 @@ class MCPManager:
             logger.error(f"Failed to sync from mcp_servers.json: {e}")
             # Don't fail initialization if sync fails
 
+    def sync_from_local_config(self) -> None:
+        """Sync MCP servers from a project-local .code-puppy.json file.
+
+        Called after sync_from_config() so local config wins on name collision.
+        Supports both mcpServers array format and mcp_servers object format.
+
+        See: https://github.com/Per-Aspera-LLC/stackwright-pro (cherry-pick PR pending)
+        """
+        try:
+            from code_puppy.config import load_local_mcp_config
+
+            configs = load_local_mcp_config()
+            if not configs:
+                logger.debug("No local .code-puppy.json found or no servers defined")
+                return
+
+            synced_count = 0
+            updated_count = 0
+
+            for name, conf in configs.items():
+                try:
+                    server_config = ServerConfig(
+                        id=conf.get("id", ""),
+                        name=name,
+                        type=conf.get("type", "stdio"),  # local configs default to stdio
+                        enabled=conf.get("enabled", True),  # local servers default enabled
+                        config=conf,
+                    )
+
+                    existing = self.registry.get_by_name(name)
+                    if not existing:
+                        self.registry.register(server_config)
+                        synced_count += 1
+                        logger.debug(f"Synced new server from local config: {name}")
+                    else:
+                        if existing.config != server_config.config:
+                            server_config.id = existing.id
+                            self.registry.update(existing.id, server_config)
+                            updated_count += 1
+                            logger.debug(f"Updated server from local config: {name}")
+
+                except Exception as e:
+                    logger.warning(f"Failed to sync local server '{name}': {e}")
+                    continue
+
+            if synced_count > 0 or updated_count > 0:
+                logger.info(
+                    f"Synced {synced_count} new and updated {updated_count} servers "
+                    f"from local .code-puppy.json"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to sync from local .code-puppy.json: {e}")
+
     def _initialize_servers(self) -> None:
         """Initialize managed servers from registry configurations."""
         configs = self.registry.list_all()
@@ -156,11 +213,19 @@ class MCPManager:
         for config in configs:
             try:
                 managed_server = ManagedMCPServer(config)
-                self._managed_servers[config.id] = managed_server
 
-                # Update status tracker - always start as STOPPED
-                # Servers must be explicitly started with /mcp start
-                self.status_tracker.set_status(config.id, ServerState.STOPPED)
+                # Apply enabled state from config — servers with enabled=True (the default)
+                # start active so they're available immediately on launch without /mcp start.
+                # Servers with "enabled": false in mcp_servers.json remain disabled.
+                # See: https://github.com/Per-Aspera-LLC/stackwright-pro (cherry-pick PR pending)
+                if config.enabled:
+                    managed_server.enable()
+
+                self._managed_servers[config.id] = managed_server
+                self.status_tracker.set_status(
+                    config.id,
+                    ServerState.RUNNING if config.enabled else ServerState.STOPPED,
+                )
 
                 initialized_count += 1
                 logger.debug(

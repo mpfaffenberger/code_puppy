@@ -389,6 +389,90 @@ def load_mcp_server_configs():
         return {}
 
 
+def load_local_mcp_config() -> dict:
+    """
+    Load MCP server config from a project-local .code-puppy.json file.
+
+    Walks up from CWD to the user's home directory looking for .code-puppy.json.
+    Supports two formats:
+
+      Array format (project-local):
+        { "mcpServers": [{ "name": "...", "command": "...", "args": [...],
+                          "autoStart": true, "workingDirectory": "..." }] }
+
+      Object format (same as mcp_servers.json):
+        { "mcp_servers": { "name": { "command": "...", "args": [...] } } }
+
+    Returns a dict mapping server name -> config dict (normalised to object format).
+    workingDirectory and ${PROJECT_ROOT} are expanded to the directory containing
+    the .code-puppy.json file.
+
+    See: https://github.com/Per-Aspera-LLC/stackwright-pro (cherry-pick PR pending)
+    """
+    home = os.path.expanduser("~")
+    search_dir = os.path.abspath(os.getcwd())
+
+    config_file = None
+    project_root = None
+
+    # Walk up directory tree stopping at home
+    current = search_dir
+    while True:
+        candidate = os.path.join(current, ".code-puppy.json")
+        if os.path.isfile(candidate):
+            config_file = candidate
+            project_root = current
+            break
+        parent = os.path.dirname(current)
+        if parent == current or current == home:
+            break
+        current = parent
+
+    if config_file is None:
+        return {}
+
+    try:
+        with open(config_file, "r", encoding="utf-8") as f:
+            data = json.loads(f.read())
+    except Exception:
+        return {}
+
+    def expand(value):
+        """Recursively expand ${PROJECT_ROOT} and env vars in strings."""
+        if isinstance(value, str):
+            value = value.replace("${PROJECT_ROOT}", project_root)
+            return os.path.expandvars(value)
+        if isinstance(value, list):
+            return [expand(v) for v in value]
+        if isinstance(value, dict):
+            return {k: expand(v) for k, v in value.items()}
+        return value
+
+    result = {}
+
+    # Array format: mcpServers
+    if "mcpServers" in data:
+        for entry in data["mcpServers"]:
+            name = entry.get("name")
+            if not name:
+                continue
+            server_conf = {k: v for k, v in entry.items() if k != "name"}
+            # Map autoStart -> enabled
+            if "autoStart" in server_conf:
+                server_conf["enabled"] = server_conf.pop("autoStart")
+            # Map workingDirectory -> cwd
+            if "workingDirectory" in server_conf:
+                server_conf["cwd"] = server_conf.pop("workingDirectory")
+            result[name] = expand(server_conf)
+
+    # Object format: mcp_servers
+    if "mcp_servers" in data:
+        for name, server_conf in data["mcp_servers"].items():
+            result[name] = expand(server_conf)
+
+    return result
+
+
 def _default_model_from_models_json():
     """Load the default model name from models.json.
 

@@ -1,3 +1,5 @@
+> **stackwright-puppy** is a Stackwright-patched fork of [code-puppy](https://github.com/mpfaffenberger/code_puppy) (MIT License, © Michael Pfaffenberger). Changes: MCP server auto-enable on startup; local `.code-puppy.json` project config loading. Cherry-pick PRs are pending upstream. See `CHANGES_FROM_UPSTREAM.md` for full diff notes.
+
 <div align="center">
 
 ![Code Puppy Logo](code_puppy.png)
