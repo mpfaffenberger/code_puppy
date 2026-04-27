@@ -22,6 +22,7 @@ from .config import (
     DEFAULT_DEPLOYMENT_NAMES,
     ENV_FOUNDRY_RESOURCE,
     get_foundry_resource,
+    set_foundry_resource,
 )
 from .discovery import find_account, list_deployments
 from .token import get_token_provider
@@ -78,7 +79,10 @@ def _handle_foundry_status() -> None:
     if resource:
         emit_info(f"Foundry Resource: {resource}")
     else:
-        emit_warning(f"Foundry Resource: Not set (set {ENV_FOUNDRY_RESOURCE})")
+        emit_warning(
+            f"Foundry Resource: Not set "
+            f"(run /foundry-setup or set {ENV_FOUNDRY_RESOURCE})"
+        )
 
     emit_info("")
     if foundry_models:
@@ -191,9 +195,16 @@ def _handle_foundry_setup() -> None:
     # Step 4: Save configuration
     _print("Step 4: Saving configuration...")
 
-    if not get_foundry_resource():
+    # Persist the resource name so the next run pre-populates it.
+    # (Env var still wins at lookup time if the user sets one explicitly.)
+    try:
+        set_foundry_resource(resource_name)
+        _print(f"   Saved resource '{resource_name}' to puppy.cfg")
+    except Exception as e:
+        logger.warning("Failed to persist foundry resource to puppy.cfg: %s", e)
         _print(
-            f"   Tip: Set {ENV_FOUNDRY_RESOURCE}={resource_name} in your environment"
+            f"   Warning: could not save to puppy.cfg "
+            f"(set {ENV_FOUNDRY_RESOURCE}={resource_name} to persist)"
         )
 
     if succeeded is not None:
