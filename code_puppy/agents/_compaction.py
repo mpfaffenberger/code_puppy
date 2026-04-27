@@ -373,6 +373,24 @@ def compact(
     return result_messages, summarized_messages
 
 
+def _is_stripable_thinking_part(part: Any) -> bool:
+    """True if a ThinkingPart carries no content AND no provider state.
+
+    A ThinkingPart with ``signature``, ``id``, or ``provider_details`` is
+    holding encrypted reasoning state (e.g. OpenAI Responses API ``rs_...``
+    items) that must be sent back to pair with subsequent ``msg_...`` items.
+    Dropping those orphans the paired message and the API rejects the
+    request with "provided without its required 'reasoning' item".
+    """
+    if not isinstance(part, ThinkingPart):
+        return False
+    if part.content:
+        return False
+    if part.signature or part.id or part.provider_details:
+        return False
+    return True
+
+
 def _strip_empty_thinking_parts(
     messages: List[ModelMessage],
 ) -> Tuple[List[ModelMessage], int]:
@@ -381,21 +399,13 @@ def _strip_empty_thinking_parts(
     filtered_count = 0
     for msg in messages:
         parts = list(msg.parts)
-        if (
-            len(parts) == 1
-            and isinstance(parts[0], ThinkingPart)
-            and not parts[0].content
-        ):
+        if len(parts) == 1 and _is_stripable_thinking_part(parts[0]):
             filtered_count += 1
             continue
-        if any(isinstance(p, ThinkingPart) and not p.content for p in parts):
+        if any(_is_stripable_thinking_part(p) for p in parts):
             msg = dataclasses.replace(
                 msg,
-                parts=[
-                    p
-                    for p in parts
-                    if not (isinstance(p, ThinkingPart) and not p.content)
-                ],
+                parts=[p for p in parts if not _is_stripable_thinking_part(p)],
             )
             if not msg.parts:
                 filtered_count += 1
