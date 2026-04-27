@@ -171,9 +171,25 @@ Please review this code for security issues." > .claude/commands/review.md
 - Ollama endpoint available
 
 ## Agent Rules
-We support AGENT.md files for defining coding standards and styles that your code should comply with. These rules can cover various aspects such as formatting, naming conventions, and even design guidelines.
+
+Code Puppy supports `AGENTS.md` files for defining coding standards, project conventions, and behavioral guidelines that the AI should follow. These rules can cover formatting, naming conventions, architectural patterns, and project-specific instructions.
 
 For examples and more information about agent rules, visit [https://agent.md](https://agent.md)
+
+### AGENTS.md Search Order
+
+Code Puppy loads rules from multiple locations, combining them in order:
+
+| Priority | Location | Purpose |
+|----------|----------|----------|
+| 1 | `~/.code_puppy/AGENTS.md` | Global rules (applied to all projects) |
+| 2 | `.code_puppy/AGENTS.md` | Project rules (preferred location) |
+| 3 | `./AGENTS.md` | Project rules (alternate location) |
+
+**Key behaviors:**
+- Global and project rules are **combined** (global first, then project)
+- `.code_puppy/` directory takes **precedence** over project root
+- All filename variants are supported: `AGENTS.md`, `AGENT.md`, `agents.md`, `agent.md`
 
 ## Using MCP Servers for External Tools
 
