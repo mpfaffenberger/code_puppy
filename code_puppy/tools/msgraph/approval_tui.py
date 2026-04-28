@@ -92,6 +92,7 @@ class ApprovalState:
 
     action: str
     details: dict[str, str]
+    context: str = ""  # "mail" or "teams" for whitelist instructions; empty = none
     cursor: int = 0  # 0 = Approve, 1 = Reject
     content_scroll: int = 0  # scroll offset for the details panel
     result: str | None = None  # "approved", "rejected", or None
@@ -149,6 +150,43 @@ class ApprovalState:
 # =============================================================================
 
 
+def _get_whitelist_instructions(context: str) -> list[str]:
+    """Get context-specific whitelist instructions.
+
+    Args:
+        context: "mail" or "teams"
+
+    Returns:
+        List of instruction lines to display.
+    """
+    if context == "mail":
+        return [
+            "",
+            "💡 Tip: Skip this prompt for trusted recipients",
+            "",
+            "To whitelist email recipients, run:",
+            '  /set msgraph_mail_whitelist = ["boss@walmart.com", "team@walmart.com"]',
+            "",
+            "Whitelisted recipients will auto-approve without prompting.",
+        ]
+    elif context == "teams":
+        return [
+            "",
+            "💡 Tip: Skip this prompt for trusted recipients",
+            "",
+            "To whitelist Teams recipients, run:",
+            '  /set msgraph_teams_whitelist = ["boss@walmart.com"]',
+            "",
+            "Supported formats:",
+            "  • Email address for DMs: \"user@walmart.com\"",
+            "  • Named group chat: \"chat:Daily Standup\"",
+            "  • Channel: \"channel:Platform Team/General\"",
+            "",
+            "Whitelisted recipients will auto-approve without prompting.",
+        ]
+    return []
+
+
 def _build_content_lines(state: ApprovalState, terminal_width: int) -> list[str]:
     """Build the full content as a list of rendered lines.
 
@@ -195,6 +233,22 @@ def _build_content_lines(state: ApprovalState, terminal_width: int) -> list[str]
                 console.print(f"{PAD}  [{COLOR_VALUE}]{line}[/{COLOR_VALUE}]")
 
     console.print(f"{PAD}[{COLOR_BORDER}]{border}[/{COLOR_BORDER}]")
+
+    # Add whitelist instructions
+    whitelist_lines = _get_whitelist_instructions(state.context)
+    for line in whitelist_lines:
+        if line.startswith("  "):
+            # Indented content (commands, bullet points)
+            console.print(f"{PAD}[{COLOR_DIM}]{line}[/{COLOR_DIM}]")
+        elif line.startswith("💡"):
+            # Tip header - use a distinct color
+            console.print(f"{PAD}[bold yellow]{line}[/bold yellow]")
+        elif line:
+            # Regular instruction text
+            console.print(f"{PAD}[{COLOR_DIM}]{line}[/{COLOR_DIM}]")
+        else:
+            # Empty line for spacing
+            console.print()
 
     return buffer.getvalue().splitlines()
 
@@ -426,7 +480,7 @@ def is_interactive() -> bool:
     return not any(os.environ.get(var) for var in CI_ENV_VARS)
 
 
-def request_approval(action: str, details: dict[str, str]) -> bool:
+def request_approval(action: str, details: dict[str, str], context: str = "") -> bool:
     """Request user approval for a sensitive action via TUI.
 
     Shows a full-screen approval dialog with the action details.
@@ -436,6 +490,8 @@ def request_approval(action: str, details: dict[str, str]) -> bool:
     Args:
         action: Short description of the action (e.g., "Send Email")
         details: Key/value pairs to display — full content, no truncation needed.
+        context: "mail" or "teams" - determines which whitelist instructions to show.
+            If empty, no whitelist instructions are displayed.
 
     Returns:
         True if user approved, False if rejected or non-interactive.
@@ -468,13 +524,13 @@ def request_approval(action: str, details: dict[str, str]) -> bool:
         pass
 
     try:
-        state = ApprovalState(action=action, details=details)
+        state = ApprovalState(action=action, details=details, context=context)
 
         # Handle async context detection
         try:
             asyncio.get_running_loop()
             # Already in async context — fall back to simple prompt
-            return _fallback_prompt(action, details)
+            return _fallback_prompt(action, details, context=context)
         except RuntimeError:
             pass
 
@@ -484,7 +540,7 @@ def request_approval(action: str, details: dict[str, str]) -> bool:
             set_awaiting_user_input(False)
 
 
-def _fallback_prompt(action: str, details: dict[str, str]) -> bool:
+def _fallback_prompt(action: str, details: dict[str, str], context: str = "") -> bool:
     """Fallback to simple y/N prompt when TUI can't be used."""
     from code_puppy.messaging.message_queue import emit_prompt
 
@@ -492,6 +548,17 @@ def _fallback_prompt(action: str, details: dict[str, str]) -> bool:
     for key, value in details.items():
         display_value = (value[:200] + "\u2026") if len(value) > 200 else value
         lines.append(f"   {key}: {display_value}")
+    lines.append("")
+
+    # Add whitelist tip
+    if context == "mail":
+        lines.append(
+            '💡 Tip: /set msgraph_mail_whitelist = ["email@walmart.com"] to skip this prompt'
+        )
+    elif context == "teams":
+        lines.append(
+            '💡 Tip: /set msgraph_teams_whitelist = ["email@walmart.com"] to skip this prompt'
+        )
     lines.append("")
 
     summary = "\n".join(lines)

@@ -391,6 +391,9 @@ def get_config_keys():
     default_keys.append("data_analytics_knowledge_path")
     # Add git auto-commit prompt control key
     default_keys.append("enable_git_auto_commit_prompt")
+    # Add msgraph whitelists for skip-confirmation feature
+    default_keys.append("msgraph_mail_whitelist")
+    default_keys.append("msgraph_teams_whitelist")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -410,6 +413,178 @@ def set_config_value(key: str, value: str):
     config[DEFAULT_SECTION][key] = value
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         config.write(f)
+
+
+# =============================================================================
+# MSGRAPH MAIL WHITELIST
+# =============================================================================
+
+
+def get_msgraph_mail_whitelist() -> list[str]:
+    """Get the list of whitelisted recipients for email approval skip.
+
+    Whitelisted recipients will skip the confirmation prompt when sending
+    emails (in addition to self-send which always skips).
+
+    The whitelist is stored as a JSON array string in puppy.cfg.
+
+    Returns:
+        List of email addresses (lowercased for comparison).
+
+    Example:
+        /set msgraph_mail_whitelist = ["boss@walmart.com", "team@walmart.com"]
+    """
+    import json
+
+    raw = get_value("msgraph_mail_whitelist")
+    if not raw:
+        return []
+
+    try:
+        # Parse JSON array
+        whitelist = json.loads(raw)
+        if isinstance(whitelist, list):
+            return [str(item).lower().strip() for item in whitelist if item]
+        return []
+    except (json.JSONDecodeError, TypeError):
+        # If it's not valid JSON, try comma-separated fallback
+        return [item.lower().strip() for item in raw.split(",") if item.strip()]
+
+
+def set_msgraph_mail_whitelist(recipients: list[str]) -> None:
+    """Set the whitelist of recipients for email approval skip.
+
+    Args:
+        recipients: List of email addresses to whitelist.
+    """
+    import json
+
+    # Store as JSON array
+    value = json.dumps(recipients)
+    set_config_value("msgraph_mail_whitelist", value)
+
+
+def add_to_msgraph_mail_whitelist(recipient: str) -> list[str]:
+    """Add a recipient to the email approval whitelist.
+
+    Args:
+        recipient: Email address to add.
+
+    Returns:
+        Updated whitelist.
+    """
+    whitelist = get_msgraph_mail_whitelist()
+    normalized = recipient.lower().strip()
+    if normalized and normalized not in whitelist:
+        whitelist.append(normalized)
+        set_msgraph_mail_whitelist(whitelist)
+    return whitelist
+
+
+def remove_from_msgraph_mail_whitelist(recipient: str) -> list[str]:
+    """Remove a recipient from the email approval whitelist.
+
+    Args:
+        recipient: Email address to remove.
+
+    Returns:
+        Updated whitelist.
+    """
+    whitelist = get_msgraph_mail_whitelist()
+    normalized = recipient.lower().strip()
+    if normalized in whitelist:
+        whitelist.remove(normalized)
+        set_msgraph_mail_whitelist(whitelist)
+    return whitelist
+
+
+# =============================================================================
+# MSGRAPH TEAMS WHITELIST
+# =============================================================================
+
+
+def get_msgraph_teams_whitelist() -> list[str]:
+    """Get the list of whitelisted recipients/chats for Teams approval skip.
+
+    Whitelisted entries will skip the confirmation prompt when sending
+    Teams messages (in addition to self-send which always skips).
+
+    Supports multiple formats:
+    - Email addresses for DMs: "boss@walmart.com"
+    - Chat topics: "chat:Engineering Standup"
+    - Channels: "channel:Platform Team/General"
+    - Raw chat IDs: "19:abc123@thread.tacv2"
+
+    The whitelist is stored as a JSON array string in puppy.cfg.
+
+    Returns:
+        List of whitelist entries (lowercased for comparison).
+
+    Example:
+        /set msgraph_teams_whitelist = ["boss@walmart.com", "chat:Daily Standup"]
+    """
+    import json
+
+    raw = get_value("msgraph_teams_whitelist")
+    if not raw:
+        return []
+
+    try:
+        # Parse JSON array
+        whitelist = json.loads(raw)
+        if isinstance(whitelist, list):
+            return [str(item).lower().strip() for item in whitelist if item]
+        return []
+    except (json.JSONDecodeError, TypeError):
+        # If it's not valid JSON, try comma-separated fallback
+        return [item.lower().strip() for item in raw.split(",") if item.strip()]
+
+
+def set_msgraph_teams_whitelist(entries: list[str]) -> None:
+    """Set the whitelist for Teams approval skip.
+
+    Args:
+        entries: List of emails, chat topics, channel names, or chat IDs.
+    """
+    import json
+
+    # Store as JSON array
+    value = json.dumps(entries)
+    set_config_value("msgraph_teams_whitelist", value)
+
+
+def add_to_msgraph_teams_whitelist(entry: str) -> list[str]:
+    """Add an entry to the Teams approval whitelist.
+
+    Args:
+        entry: Email, chat topic (chat:Name), channel (channel:Team/Channel), or chat ID.
+
+    Returns:
+        Updated whitelist.
+    """
+    whitelist = get_msgraph_teams_whitelist()
+    normalized = entry.lower().strip()
+    if normalized and normalized not in whitelist:
+        whitelist.append(normalized)
+        set_msgraph_teams_whitelist(whitelist)
+    return whitelist
+
+
+def remove_from_msgraph_teams_whitelist(entry: str) -> list[str]:
+    """Remove an entry from the Teams approval whitelist.
+
+    Args:
+        entry: Email, chat topic, channel name, or chat ID to remove.
+
+    Returns:
+        Updated whitelist.
+    """
+    whitelist = get_msgraph_teams_whitelist()
+    normalized = entry.lower().strip()
+    if normalized in whitelist:
+        whitelist.remove(normalized)
+        set_msgraph_teams_whitelist(whitelist)
+    return whitelist
 
 
 # Alias for API compatibility

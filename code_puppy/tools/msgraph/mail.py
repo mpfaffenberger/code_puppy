@@ -393,7 +393,14 @@ def msgraph_send_mail(
         if cc:
             approval_details["CC"] = ", ".join(cc)
         approval_details["Body"] = body
-        require_user_approval("Send Email", approval_details)
+        # Combine all recipients for skip-check (self-send detection)
+        all_recipients = list(to) + (cc or []) + (bcc or [])
+        require_user_approval(
+            "Send Email",
+            approval_details,
+            recipients=all_recipients,
+            context="mail",
+        )
 
         client = get_msgraph_client()
 
@@ -490,13 +497,44 @@ def msgraph_reply_to_message(
     )
 
     try:
+        client = get_msgraph_client()
+
+        # Fetch original message to get reply recipients for whitelist check
+        original = client.get(
+            f"/me/messages/{message_id}",
+            params={"$select": "from,toRecipients,ccRecipients"},
+        )
+
+        # Build recipient list for approval skip check
+        reply_recipients: list[str] = []
+
+        # For regular reply, recipient is original sender
+        sender_email = (
+            original.get("from", {})
+            .get("emailAddress", {})
+            .get("address", "")
+        )
+        if sender_email:
+            reply_recipients.append(sender_email)
+
+        # For reply-all, also include all To and CC recipients
+        if reply_all:
+            for recipient in original.get("toRecipients", []):
+                addr = recipient.get("emailAddress", {}).get("address", "")
+                if addr:
+                    reply_recipients.append(addr)
+            for recipient in original.get("ccRecipients", []):
+                addr = recipient.get("emailAddress", {}).get("address", "")
+                if addr:
+                    reply_recipients.append(addr)
+
         # --- approval gate ---
         require_user_approval(
             reply_type,
-            {"Message ID": message_id, "Body": body},
+            {"To": sender_email or "(original sender)", "Body": body},
+            recipients=reply_recipients if reply_recipients else None,
+            context="mail",
         )
-
-        client = get_msgraph_client()
 
         # Step 1: Create a draft reply
         create_action = "createReplyAll" if reply_all else "createReply"
