@@ -5,6 +5,8 @@
 
 from typing import List, Tuple
 
+from code_puppy.config import get_puppy_emoji
+
 # ============================================================================
 # Slide Data Constants
 # ============================================================================
@@ -55,7 +57,7 @@ def get_gradient_banner() -> str:
                 result.append(f"[{color}]{line}[/{color}]")
         return "\n".join(result)
     except ImportError:
-        return "[bold bright_cyan]═══ CODE PUPPY 🐶 ═══[/bold bright_cyan]"
+        return f"[bold bright_cyan]═══ CODE PUPPY {get_puppy_emoji()} ═══[/bold bright_cyan]"
 
 
 # ============================================================================
@@ -67,7 +69,7 @@ def slide_welcome() -> str:
     """Slide 1: Welcome - quick intro."""
     content = get_gradient_banner()
     content += "\n\n"
-    content += "[bold white]Welcome! 🐶[/bold white]\n\n"
+    content += f"[bold white]Welcome! {get_puppy_emoji()}[/bold white]\n\n"
     content += "[cyan]Quick setup:[/cyan]\n"
     content += "  1. Pick your model provider\n"
     content += "  2. Optional: MCP servers\n"
@@ -136,7 +138,7 @@ def slide_use_cases() -> str:
     """Slide 4: When to use which agent - THE IMPORTANT ONE."""
     content = "[bold cyan]🎯 When to Use What[/bold cyan]\n\n"
 
-    content += "[bold yellow]🐶 Code Puppy (default)[/bold yellow]\n"
+    content += f"[bold yellow]{get_puppy_emoji()} Code Puppy (default)[/bold yellow]\n"
     content += "  [green]USE FOR:[/green] Direct coding tasks\n"
     content += "  • Fix this bug\n"
     content += "  • Add a feature to this file\n"
@@ -174,6 +176,8 @@ def slide_done(trigger_oauth: str | None) -> str:
         content += f"[bold cyan]→ {trigger_oauth.title()} OAuth next![/bold cyan]\n\n"
 
     content += "[dim]Re-run anytime: [/dim][cyan]/tutorial[/cyan]\n"
-    content += "\n[bold yellow]Press Enter to start coding! 🐶[/bold yellow]"
+    content += (
+        f"\n[bold yellow]Press Enter to start coding! {get_puppy_emoji()}[/bold yellow]"
+    )
     content += get_nav_footer()
     return content
