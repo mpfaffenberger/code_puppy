@@ -32,6 +32,10 @@ from code_puppy.config import (
     set_openai_reasoning_summary,
     set_openai_verbosity,
 )
+from code_puppy.item_visibility import (
+    load_hidden_models,
+    prune_stale_entries,
+)
 from code_puppy.messaging import emit_info
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools.command_runner import set_awaiting_user_input
@@ -240,6 +244,12 @@ class ModelSettingsMenu:
         self.all_models = _load_all_model_names()
         self.current_model_name = get_global_model_name()
 
+        # Load visibility state and prune stale entries
+        self._hidden_models: set = load_hidden_models()
+        prune_stale_entries(self.all_models)
+        self._hidden_models = load_hidden_models()  # reload after pruning
+        self.show_all: bool = False  # session-level; resets every menu open
+
         # Navigation state
         self.view_mode = "models"  # "models" or "settings"
         self.model_index = 0  # Index in model list (absolute)
@@ -250,8 +260,9 @@ class ModelSettingsMenu:
         self.page_size = MODELS_PER_PAGE
 
         # Try to pre-select the current model and set correct page
-        if self.current_model_name in self.all_models:
-            self.model_index = self.all_models.index(self.current_model_name)
+        # Use display_model_names to account for visibility
+        if self.current_model_name in self.display_model_names:
+            self.model_index = self.display_model_names.index(self.current_model_name)
             self.page = get_page_for_index(self.model_index, self.page_size)
 
         # Editing state
@@ -267,31 +278,47 @@ class ModelSettingsMenu:
     @property
     def total_pages(self) -> int:
         """Calculate total number of pages."""
-        return get_total_pages(len(self.all_models), self.page_size)
+        return get_total_pages(len(self.display_model_names), self.page_size)
+
+    @property
+    def display_model_names(self) -> List[str]:
+        """Models shown in the list, respecting visibility settings.
+
+        Decision matrix:
+        - show_all=True  → All models (hidden ones dimmed in render)
+        - show_all=False → Non-hidden models only
+        """
+        if self.show_all:
+            return self.all_models
+        return [m for m in self.all_models if m not in self._hidden_models]
 
     @property
     def page_start(self) -> int:
         """Get the starting index for the current page."""
-        start, _ = get_page_bounds(self.page, len(self.all_models), self.page_size)
+        start, _ = get_page_bounds(
+            self.page, len(self.display_model_names), self.page_size
+        )
         return start
 
     @property
     def page_end(self) -> int:
         """Get the ending index (exclusive) for the current page."""
-        _, end = get_page_bounds(self.page, len(self.all_models), self.page_size)
+        _, end = get_page_bounds(
+            self.page, len(self.display_model_names), self.page_size
+        )
         return end
 
     @property
     def models_on_page(self) -> List[str]:
         """Get the models visible on the current page."""
-        return self.all_models[self.page_start : self.page_end]
+        return self.display_model_names[self.page_start : self.page_end]
 
     def _ensure_selection_visible(self):
         """Ensure the current selection is on the visible page."""
         self.page = ensure_visible_page(
             self.model_index,
             self.page,
-            len(self.all_models),
+            len(self.display_model_names),
             self.page_size,
         )
 
@@ -353,8 +380,14 @@ class ModelSettingsMenu:
                 )
             lines.append(("", "\n\n"))
 
-            if not self.all_models:
-                lines.append(("fg:ansiyellow", "  No models available."))
+            if not self.display_model_names:
+                if self._hidden_models:
+                    lines.append(("fg:ansiyellow", "  All models are hidden."))
+                    lines.append(("fg:ansibrightblack", "  Press "))
+                    lines.append(("", "Tab"))
+                    lines.append(("fg:ansibrightblack", "  to show all models.\n"))
+                else:
+                    lines.append(("fg:ansiyellow", "  No models available."))
                 lines.append(("", "\n\n"))
                 self._add_model_nav_hints(lines)
                 return lines
@@ -364,21 +397,36 @@ class ModelSettingsMenu:
                 absolute_index = self.page_start + i
                 is_selected = absolute_index == self.model_index
                 is_current = model_name == self.current_model_name
+                is_hidden = model_name in self._hidden_models
 
                 prefix = " › " if is_selected else "   "
-                style = "fg:ansiwhite bold" if is_selected else "fg:ansibrightblack"
+                if is_hidden:
+                    style = (
+                        "fg:ansibrightblack dim"
+                        if is_selected
+                        else "fg:ansibrightblack dim"
+                    )
+                    arrow_style = (
+                        "fg:ansiwhite bold" if is_selected else "fg:ansibrightblack"
+                    )
+                else:
+                    style = "fg:ansiwhite bold" if is_selected else "fg:ansibrightblack"
+                    arrow_style = style
 
                 # Check if model has any custom settings
                 model_settings = get_all_model_settings(model_name)
                 has_settings = len(model_settings) > 0
 
-                lines.append((style, f"{prefix}{model_name}"))
+                lines.append((arrow_style, prefix))
+                lines.append((style, model_name))
 
                 # Show indicators
                 if is_current:
                     lines.append(("fg:ansigreen", " (active)"))
                 if has_settings:
                     lines.append(("fg:ansicyan", " ⚙"))
+                if is_hidden:
+                    lines.append(("fg:ansibrightblack dim", " [hidden]"))
 
                 lines.append(("", "\n"))
 
@@ -433,6 +481,10 @@ class ModelSettingsMenu:
         if self.total_pages > 1:
             lines.append(("fg:ansibrightblack", "  PgUp/PgDn  "))
             lines.append(("", "Change page\n"))
+        lines.append(("fg:ansibrightblack", "  Space  "))
+        lines.append(("", "Toggle visibility\n"))
+        lines.append(("fg:ansibrightblack", "  Tab  "))
+        lines.append(("", "Show/hide all\n"))
         lines.append(("fg:ansigreen", "  Enter  "))
         lines.append(("", "Configure model\n"))
         lines.append(("fg:ansiyellow", "  Esc  "))
@@ -624,9 +676,9 @@ class ModelSettingsMenu:
 
     def _enter_settings_view(self):
         """Enter settings view for the selected model."""
-        if not self.all_models:
+        if not self.display_model_names:
             return
-        model_name = self.all_models[self.model_index]
+        model_name = self.display_model_names[self.model_index]
         self._load_model_settings(model_name)
         self.view_mode = "settings"
 
@@ -825,7 +877,7 @@ class ModelSettingsMenu:
         @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
         def _(event):
             if self.view_mode == "models":
-                if self.model_index < len(self.all_models) - 1:
+                if self.model_index < len(self.display_model_names) - 1:
                     self.model_index += 1
                     self._ensure_selection_visible()
                     self.update_display()
@@ -905,6 +957,36 @@ class ModelSettingsMenu:
             if self.editing_mode:
                 self._cancel_edit()
             event.app.exit()
+
+        @kb.add("space")
+        def _(event):
+            """Toggle visibility of the currently highlighted model."""
+            if self.view_mode != "models":
+                return
+            from code_puppy.item_visibility import (
+                load_hidden_models,
+                toggle_model_hidden,
+            )
+
+            if not self.display_model_names:
+                return
+            model = self.display_model_names[self.model_index]
+            # Silently ignore if trying to hide the currently active model
+            if model == self.current_model_name:
+                return
+            toggle_model_hidden(model)
+            self._hidden_models = load_hidden_models()
+            self._ensure_selection_visible()
+            self.update_display()
+
+        @kb.add("tab")
+        def _(event):
+            """Toggle show-all mode (session-level, not persisted)."""
+            if self.view_mode != "models":
+                return
+            self.show_all = not self.show_all
+            self._ensure_selection_visible()
+            self.update_display()
 
         layout = Layout(root_container)
         app = Application(
