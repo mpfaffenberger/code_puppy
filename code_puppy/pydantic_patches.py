@@ -269,10 +269,12 @@ def patch_tool_call_callbacks() -> None:
                 except Exception:
                     tool_args = {"raw": call.args}
 
-            # --- pre_tool_call (with blocking support) ---
-            # Returns a string tool-result on block so pydantic-ai sees a clean
-            # "BLOCKED: ..." message and the agent can react gracefully, without
-            # triggering UnexpectedModelBehavior crashes.
+            # --- pre_tool_call (with blocking + context-injection support) ---
+            # On block: returns a string tool-result so pydantic-ai sees a clean
+            # "BLOCKED: ..." message and the agent can react gracefully.
+            # On ``{"inject_context": "..."}``: capture the text and prepend it
+            # to the real tool result so the model sees the hook's nudge.
+            injected_context_parts: list[str] = []
             try:
                 from code_puppy import callbacks
                 from code_puppy.messaging import emit_warning
@@ -282,11 +284,9 @@ def patch_tool_call_callbacks() -> None:
                 )
 
                 for callback_result in callback_results:
-                    if (
-                        callback_result
-                        and isinstance(callback_result, dict)
-                        and callback_result.get("blocked")
-                    ):
+                    if not callback_result or not isinstance(callback_result, dict):
+                        continue
+                    if callback_result.get("blocked"):
                         raw_reason = (
                             callback_result.get("error_message")
                             or callback_result.get("reason")
@@ -303,6 +303,9 @@ def patch_tool_call_callbacks() -> None:
                         block_msg = f"🚫 Hook blocked this tool call: {clean_reason}"
                         emit_warning(block_msg)
                         return f"ERROR: {block_msg}\n\nThe hook policy prevented this tool from running. Please inform the user and do not retry this specific command."
+                    injected = callback_result.get("inject_context")
+                    if injected:
+                        injected_context_parts.append(str(injected))
             except Exception:
                 pass  # other errors don't block tool execution
 
@@ -318,6 +321,12 @@ def patch_tool_call_callbacks() -> None:
                     approved=approved,
                     metadata=metadata,
                 )
+                # Prepend any pre-hook context so the model sees the nudge
+                # alongside the real tool output. Only applied to stringy
+                # results to avoid corrupting structured returns.
+                if injected_context_parts and isinstance(result, str):
+                    header = "\n\n".join(injected_context_parts)
+                    result = f"[hook-context]\n{header}\n\n{result}"
                 return result
             except Exception as exc:
                 error = exc

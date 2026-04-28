@@ -39,6 +39,10 @@ PhaseType = Literal[
     "message_history_processor_start",
     "message_history_processor_end",
     "on_message",
+    "user_prompt_submit",
+    "pre_compact",
+    "session_end",
+    "notification",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -78,6 +82,10 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "message_history_processor_start": [],
     "message_history_processor_end": [],
     "on_message": [],
+    "user_prompt_submit": [],
+    "pre_compact": [],
+    "session_end": [],
+    "notification": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -788,3 +796,72 @@ async def on_message(message_id: str, message: Any) -> List[Any]:
         List of results from registered callbacks.
     """
     return await _trigger_callbacks("on_message", message_id, message)
+
+
+async def on_user_prompt_submit(prompt: str, **kwargs: Any) -> List[Any]:
+    """Trigger callbacks when the user submits a prompt to an agent.
+
+    Fires before the prompt is sent to the model. Callbacks may return:
+        - A string: replaces the prompt text entirely
+        - A dict with ``{"inject_context": "..."}``: the text is prepended to the prompt
+        - A dict with ``{"blocked": True, "reason": "..."}``: signals the caller to veto
+        - ``None``: no change
+
+    Args:
+        prompt: The raw user prompt string.
+        **kwargs: Reserved for future context (session_id, agent_name, etc).
+
+    Returns:
+        List of results from registered callbacks (in registration order).
+    """
+    return await _trigger_callbacks("user_prompt_submit", prompt, **kwargs)
+
+
+async def on_pre_compact(
+    agent_name: str,
+    session_id: Optional[str],
+    message_history: List[Any],
+    incoming_messages: List[Any],
+) -> List[Any]:
+    """Trigger callbacks immediately before message-history compaction.
+
+    This is a Claude-Code-compatible mirror of ``message_history_processor_start``
+    specifically for the ``PreCompact`` hook event. Stays observation-only;
+    callbacks can log/annotate but cannot currently veto compaction.
+
+    Args:
+        agent_name: Name of the agent whose history is being compacted.
+        session_id: Optional session identifier.
+        message_history: Current message history (pre-compaction).
+        incoming_messages: New messages being added in this pass.
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return await _trigger_callbacks(
+        "pre_compact", agent_name, session_id, message_history, incoming_messages
+    )
+
+
+async def on_session_end() -> List[Any]:
+    """Trigger callbacks when a session ends (distinct from app shutdown).
+
+    ``shutdown`` fires once when the CLI process exits. ``session_end`` is the
+    Claude-Code-compatible twin and currently fires from the same site but is
+    intentionally a separate phase so plugins can opt into either semantic.
+    """
+    return await _trigger_callbacks("session_end")
+
+
+async def on_notification(notification_type: str, payload: Any = None) -> List[Any]:
+    """Trigger callbacks when a user-facing notification is emitted.
+
+    Args:
+        notification_type: A short string tag (e.g. ``"warning"``, ``"info"``,
+            ``"error"``). Free-form; plugins choose their own taxonomy.
+        payload: The notification body (any JSON-ish object or string).
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return await _trigger_callbacks("notification", notification_type, payload)

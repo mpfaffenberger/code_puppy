@@ -63,6 +63,7 @@ from code_puppy.callbacks import (
     on_agent_run_end,
     on_agent_run_result,
     on_agent_run_start,
+    on_user_prompt_submit,
 )
 from code_puppy.config import (
     get_enable_streaming,
@@ -286,6 +287,26 @@ async def run_with_mcp(
 
     prompt = _sanitize_prompt(prompt)
     group_id = str(uuid.uuid4())
+
+    # Fire UserPromptSubmit hook — callbacks may rewrite or augment the prompt
+    # before it reaches the model. Hooks returning a plain string replace the
+    # prompt entirely; ``{"inject_context": "..."}`` prepends to it.
+    try:
+        hook_results = await on_user_prompt_submit(
+            prompt, agent_name=agent.name, session_id=group_id
+        )
+        for hook_result in hook_results:
+            if hook_result is None:
+                continue
+            if isinstance(hook_result, str) and hook_result.strip():
+                prompt = hook_result
+            elif isinstance(hook_result, dict):
+                injected = hook_result.get("inject_context")
+                if injected:
+                    prompt = f"{injected}\n\n{prompt}"
+    except Exception:
+        # Hook failures never block user prompts.
+        pass
 
     if agent._code_generation_agent is None:
         build_pydantic_agent(agent)
