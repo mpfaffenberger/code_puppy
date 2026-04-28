@@ -495,7 +495,7 @@ def require_user_approval(
 
     from .approval_tui import request_approval
 
-    approved = request_approval(action, details)
+    approved = request_approval(action, details, context=context)
     if not approved:
         raise UserRejectedError(f"User declined: {action}")
 
