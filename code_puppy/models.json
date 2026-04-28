@@ -109,6 +109,17 @@
     "context_length": 262144,
     "supported_settings": ["temperature", "seed", "top_p"]
   },
+  "firepass-kimi-k2p6": {
+    "type": "custom_openai",
+    "provider": "firepass",
+    "name": "accounts/fireworks/routers/kimi-k2p6",
+    "custom_endpoint": {
+      "url": "https://api.fireworks.ai/inference/v1",
+      "api_key": "$FIREWORKS_API_KEY"
+    },
+    "context_length": 262144,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  },
   "zai-glm-5-coding": {
     "type": "zai_coding",
     "provider": "zai",

@@ -12,7 +12,6 @@ This module tests error handling and edge cases in BaseAgent methods:
 Focuses on ensuring error handling doesn't crash and provides graceful degradation.
 """
 
-
 import pytest
 
 from code_puppy.agents.agent_code_puppy import CodePuppyAgent

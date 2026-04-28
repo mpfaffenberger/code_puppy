@@ -86,12 +86,20 @@ class TestModelManagement:
         models_file = tmp_path / "models.json"
         mock_path.return_value = models_file
 
-        result = add_models_to_extra_config(["gpt-5.2", "gpt-5.2-codex"])
+        result = add_models_to_extra_config(
+            [
+                "gpt-5.5",
+                "gpt-5.2",
+                "gpt-5.2-codex",
+            ]
+        )
 
         assert result is True
         models = json.loads(models_file.read_text())
+        assert "chatgpt-gpt-5.5" in models
         assert "chatgpt-gpt-5.2" in models
         assert "chatgpt-gpt-5.2-codex" in models
+        assert models["chatgpt-gpt-5.5"]["supports_xhigh_reasoning"] is True
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.get_chatgpt_models_path")
     def test_add_models_with_context_settings(self, mock_path, tmp_path):
@@ -169,6 +177,7 @@ class TestModelManagement:
         models = fetch_chatgpt_models("test_token", "test_account")
 
         # Required models are prepended if not in API response
+        assert "gpt-5.5" in models
         assert "gpt-5.4" in models
         assert "gpt-5.3-instant" in models
         assert "gpt-5.2" in models

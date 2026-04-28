@@ -96,6 +96,42 @@ class TestMakeModelSettings:
         # extra_body should NOT be set for codex models
         assert settings.get("extra_body") is None
 
+    def test_make_model_settings_foundry_gpt5_uses_responses_fields(self):
+        """Test Azure Foundry GPT-5 gets Responses API reasoning summary fields."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config",
+            return_value={
+                "foundry-gpt-5-4": {
+                    "type": "azure_foundry_openai",
+                    "name": "gpt-5-4",
+                    "context_length": 1_000_000,
+                }
+            },
+        ):
+            with patch(
+                "code_puppy.config.get_openai_reasoning_effort",
+                return_value="medium",
+            ):
+                with patch(
+                    "code_puppy.config.get_openai_reasoning_summary",
+                    return_value="auto",
+                ):
+                    with patch(
+                        "code_puppy.config.get_openai_verbosity",
+                        return_value="medium",
+                    ):
+                        settings = make_model_settings(
+                            "foundry-gpt-5-4", max_tokens=4096
+                        )
+
+        assert isinstance(settings, dict)
+        assert settings["openai_reasoning_effort"] == "medium"
+        assert settings["openai_reasoning_summary"] == "auto"
+        assert settings["openai_text_verbosity"] == "medium"
+        assert settings.get("extra_body") is None
+
     def test_make_model_settings_claude_has_temperature(self):
         """Test Claude model returns settings with temperature."""
         from code_puppy.model_factory import make_model_settings

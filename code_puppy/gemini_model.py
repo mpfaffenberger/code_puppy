@@ -633,6 +633,12 @@ class GeminiModel(Model):
         # Add tools
         if model_request_parameters.function_tools:
             body["tools"] = self._build_tools(model_request_parameters.function_tools)
+            body["toolConfig"] = {
+                "functionCallingConfig": {
+                    "mode": "AUTO",
+                    "streamFunctionCallArguments": True,
+                }
+            }
 
         # Make streaming request
         client = await self._get_client()
@@ -672,6 +678,53 @@ class GeminiModel(Model):
         )
 
 
+_MISSING = object()
+
+
+def _extract_partial_value(p_arg: dict) -> Any:
+    for key in [
+        "stringValue",
+        "numberValue",
+        "boolValue",
+        "nullValue",
+        "structValue",
+        "listValue",
+    ]:
+        if key in p_arg:
+            val = p_arg[key]
+            if key == "nullValue":
+                return None
+            return val
+    return _MISSING
+
+
+def _apply_json_path(target: dict, path: str, value: Any):
+    parts = path.split(".")
+    curr = target
+    for i, part in enumerate(parts):
+        if "[" in part and part.endswith("]"):
+            key, idx_str = part.split("[")
+            idx = int(idx_str[:-1])
+            if key not in curr:
+                curr[key] = []
+            while len(curr[key]) <= idx:
+                curr[key].append(None)
+
+            if i == len(parts) - 1:
+                curr[key][idx] = value
+            else:
+                if curr[key][idx] is None:
+                    curr[key][idx] = {}
+                curr = curr[key][idx]
+        else:
+            if i == len(parts) - 1:
+                curr[part] = value
+            else:
+                if part not in curr or curr[part] is None:
+                    curr[part] = {}
+                curr = curr[part]
+
+
 @dataclass
 class GeminiStreamingResponse(StreamedResponse):
     """Streaming response handler for Gemini API."""
@@ -681,6 +734,10 @@ class GeminiStreamingResponse(StreamedResponse):
     _provider_name_str: str = "google"
     _provider_url_str: str | None = None
     _timestamp_val: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    _current_tool_call_id: str | None = None
+    _current_tool_name: str | None = None
+    _current_vendor_part_id: uuid.UUID | None = None
+    _current_args: dict[str, Any] = field(default_factory=dict)
 
     async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
         """Process streaming chunks and yield events."""
@@ -728,14 +785,43 @@ class GeminiStreamingResponse(StreamedResponse):
                 # Handle function call
                 elif part.get("functionCall"):
                     fc = part["functionCall"]
-                    event = self._parts_manager.handle_tool_call_delta(
-                        vendor_part_id=uuid.uuid4(),
-                        tool_name=fc.get("name"),
-                        args=fc.get("args"),
-                        tool_call_id=fc.get("id") or generate_tool_call_id(),
-                    )
-                    if event is not None:
-                        yield event
+
+                    # Check if it's a new function call
+                    if fc.get("name"):
+                        self._current_tool_name = fc["name"]
+                        self._current_tool_call_id = (
+                            fc.get("id") or generate_tool_call_id()
+                        )
+                        self._current_vendor_part_id = uuid.uuid4()
+                        self._current_args = {}
+
+                    delta_args = {}
+                    # Handle partial arguments if present
+                    if "partialArgs" in fc:
+                        for p_arg in fc["partialArgs"]:
+                            json_path = p_arg.get("jsonPath")
+                            if json_path and json_path.startswith("$."):
+                                value = _extract_partial_value(p_arg)
+                                if value is not _MISSING:
+                                    _apply_json_path(
+                                        self._current_args, json_path[2:], value
+                                    )
+                                    _apply_json_path(delta_args, json_path[2:], value)
+
+                    elif "args" in fc:
+                        delta_args = fc["args"]
+                        self._current_args.update(fc["args"])
+
+                    # Yield delta event if we have a current part ID
+                    if self._current_vendor_part_id:
+                        event = self._parts_manager.handle_tool_call_delta(
+                            vendor_part_id=self._current_vendor_part_id,
+                            tool_name=self._current_tool_name,
+                            args=delta_args,
+                            tool_call_id=self._current_tool_call_id,
+                        )
+                        if event is not None:
+                            yield event
 
     @property
     def model_name(self) -> str:
