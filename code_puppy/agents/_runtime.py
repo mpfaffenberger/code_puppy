@@ -409,8 +409,8 @@ async def run_with_mcp(
         except* Exception as other:
             unexpected = _collect_exceptions(
                 other,
-                lambda e: not isinstance(
-                    e, (asyncio.CancelledError, UsageLimitExceeded)
+                lambda e: (
+                    not isinstance(e, (asyncio.CancelledError, UsageLimitExceeded))
                 ),
             )
             for exc in unexpected:
