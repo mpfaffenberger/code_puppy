@@ -344,6 +344,59 @@ def patch_tool_call_callbacks() -> None:
         pass
 
 
+def patch_prompt_toolkit_emoji_width() -> None:
+    """Patch prompt_toolkit's character width calculation for emojis.
+
+    Modern terminals render most emojis as 2 cells wide, but wcwidth often
+    returns 1 for many emoji codepoints. This causes cursor misalignment.
+
+    This patch:
+    1. Returns 0 for variation selectors (zero-width modifiers)
+    2. Returns 2 for emoji codepoints (terminals render them wide)
+    3. Falls back to wcwidth for non-emoji characters
+    """
+    try:
+        import wcwidth
+        from prompt_toolkit import utils as pt_utils
+
+        _original_get_cwidth = pt_utils.get_cwidth
+
+        def _patched_get_cwidth(char: str) -> int:
+            """Get character width with better emoji support."""
+            code = ord(char)
+
+            # Variation selectors are zero-width
+            if 0xFE00 <= code <= 0xFE0F:  # VS1-VS16
+                return 0
+
+            # Emoji codepoints - terminals render these as 2 cells wide
+            # even when wcwidth says 1
+            if (
+                0x1F300 <= code <= 0x1F9FF  # Misc Symbols/Pictographs, Emoticons
+                or 0x1F600 <= code <= 0x1F64F  # Emoticons
+                or 0x1F680 <= code <= 0x1F6FF  # Transport/Map symbols
+                or 0x1FA00 <= code <= 0x1FAFF  # Symbols/Pictographs Extended-A
+                or 0x2600 <= code <= 0x26FF  # Misc Symbols (☀️, ⚡, etc)
+                or 0x2700 <= code <= 0x27BF  # Dingbats (✂️, ✈️, etc)
+                or 0x1F1E0 <= code <= 0x1F1FF  # Regional indicators (flags)
+            ):
+                return 2
+
+            # Use wcwidth for non-emoji
+            w = wcwidth.wcwidth(char)
+            if w >= 0:
+                return w
+
+            return _original_get_cwidth(char)
+
+        pt_utils.get_cwidth = _patched_get_cwidth
+
+    except ImportError:
+        pass  # wcwidth or prompt_toolkit not available
+    except Exception:
+        pass  # Don't crash on patch failure
+
+
 def apply_all_patches() -> None:
     """Apply all pydantic-ai monkey patches.
 
@@ -354,3 +407,4 @@ def apply_all_patches() -> None:
     patch_process_message_history()
     patch_tool_call_json_repair()
     patch_tool_call_callbacks()
+    patch_prompt_toolkit_emoji_width()
