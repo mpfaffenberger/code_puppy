@@ -98,6 +98,17 @@
     "context_length": 262144,
     "supported_settings": ["temperature", "seed", "top_p", "max_tokens"]
   },
+  "wafer-DeepSeek-V4-Pro": {
+    "type": "custom_openai",
+    "provider": "wafer",
+    "name": "DeepSeek-V4-Pro",
+    "custom_endpoint": {
+      "url": "https://pass.wafer.ai/v1",
+      "api_key": "$WAFER_API_KEY"
+    },
+    "context_length": 262144,
+    "supported_settings": ["temperature", "seed", "top_p", "max_tokens"]
+  },
   "firepass-kimi-k2p5-turbo": {
     "type": "custom_openai",
     "provider": "firepass",
