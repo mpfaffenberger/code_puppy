@@ -56,10 +56,17 @@ def get_pingfed_auth_help() -> list:
 
 
 def _get_puppy_base_url() -> str:
-    """Get the puppy site base URL based on environment."""
-    if os.environ.get("CODEPUPPY_LOCAL_AGENT_MARKETPLACE") == "1":
-        return "https://puppy-dev.walmart.com"
-    return "https://puppy.walmart.com"
+    """Get the puppy site base URL based on the CODEPUPPY_LOCAL_AGENT_MARKETPLACE env var.
+
+    - "1" -> dev   (https://puppy.dev.walmart.com)
+    - "2" -> stage (https://puppy.stg.walmart.com)
+    - anything else (or unset) -> prod (https://puppy.walmart.com)
+    """
+    env = os.environ.get("CODEPUPPY_LOCAL_AGENT_MARKETPLACE")
+    return {
+        "1": "https://puppy.dev.walmart.com",
+        "2": "https://puppy.stg.walmart.com",
+    }.get(env, "https://puppy.walmart.com")
 
 
 async def _fetch_puppy_token_playwright() -> Optional[dict]:
