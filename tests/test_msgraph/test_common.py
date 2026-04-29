@@ -10,6 +10,10 @@ from code_puppy.tools.msgraph.common import (
     MAX_RESPONSE_CHARS,
     msgraph_api_request,
     msgraph_authenticate,
+    get_current_user_identity,
+    should_skip_approval,
+    require_user_approval,
+    UserRejectedError,
 )
 from code_puppy.plugins.walmart_specific.msgraph_client import (
     MSGraphAuthError,
@@ -363,3 +367,557 @@ class TestMaxResponseCharsConstant:
 
         assert len(result["content"]) == MAX_RESPONSE_CHARS
         assert result["next_offset"] == MAX_RESPONSE_CHARS
+
+
+# =============================================================================
+# APPROVAL SKIP TESTS (PUP-14)
+# =============================================================================
+
+
+class TestGetCurrentUserIdentity:
+    """Test suite for get_current_user_identity helper."""
+
+    def test_get_current_user_identity_success(self):
+        """Test fetching current user identity from MS Graph."""
+        # Clear cache first
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = None
+
+        with patch(
+            "code_puppy.tools.msgraph.common.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = {
+                "id": "USER-123",
+                "mail": "Test.User@walmart.com",
+                "userPrincipalName": "test.user@walmart.com",
+            }
+            mock_get_client.return_value = mock_client
+
+            result = get_current_user_identity()
+
+            assert result is not None
+            assert result["id"] == "user-123"  # Lowercased
+            assert result["mail"] == "test.user@walmart.com"  # Lowercased
+            assert result["upn"] == "test.user@walmart.com"  # Lowercased
+
+        # Clear cache after test
+        common_module._current_user_cache = None
+
+    def test_get_current_user_identity_cached(self):
+        """Test that identity is cached after first call."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = None
+
+        with patch(
+            "code_puppy.tools.msgraph.common.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = {
+                "id": "USER-123",
+                "mail": "test@example.com",
+                "userPrincipalName": "test@example.com",
+            }
+            mock_get_client.return_value = mock_client
+
+            # First call
+            result1 = get_current_user_identity()
+            # Second call
+            result2 = get_current_user_identity()
+
+            # Should only call the API once
+            assert mock_client.get.call_count == 1
+            assert result1 == result2
+
+        common_module._current_user_cache = None
+
+    def test_get_current_user_identity_api_failure(self):
+        """Test graceful handling when API call fails."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = None
+
+        with patch(
+            "code_puppy.tools.msgraph.common.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.side_effect = Exception("Network error")
+            mock_get_client.return_value = mock_client
+
+            result = get_current_user_identity()
+
+            assert result is None  # Should return None, not raise
+
+        common_module._current_user_cache = None
+
+
+class TestShouldSkipApproval:
+    """Test suite for should_skip_approval function."""
+
+    def test_skip_when_sending_to_self_by_email(self):
+        """Test skip when recipient matches current user's email."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        should_skip, reason = should_skip_approval(["me@walmart.com"])
+
+        assert should_skip is True
+        assert "self" in reason.lower()
+
+        common_module._current_user_cache = None
+
+    def test_skip_when_sending_to_self_by_upn(self):
+        """Test skip when recipient matches current user's UPN."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "my.upn@walmart.com",
+        }
+
+        should_skip, reason = should_skip_approval(["MY.UPN@walmart.com"])  # Case insensitive
+
+        assert should_skip is True
+        assert "self" in reason.lower()
+
+        common_module._current_user_cache = None
+
+    def test_skip_when_sending_to_self_by_id(self):
+        """Test skip when recipient matches current user's ID."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "abc-123-def",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        should_skip, reason = should_skip_approval(["ABC-123-DEF"])  # Case insensitive
+
+        assert should_skip is True
+        assert "self" in reason.lower()
+
+        common_module._current_user_cache = None
+
+    def test_no_skip_when_sending_to_others(self):
+        """Test no skip when sending to other users."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        should_skip, reason = should_skip_approval(["someone.else@walmart.com"])
+
+        assert should_skip is False
+        assert reason is None
+
+        common_module._current_user_cache = None
+
+    def test_no_skip_when_mixed_recipients(self):
+        """Test no skip when some recipients are self and some are others."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        should_skip, reason = should_skip_approval(
+            ["me@walmart.com", "someone.else@walmart.com"]
+        )
+
+        assert should_skip is False
+        assert reason is None
+
+        common_module._current_user_cache = None
+
+    def test_no_skip_when_empty_recipients(self):
+        """Test no skip when recipients list is empty."""
+        should_skip, reason = should_skip_approval([])
+
+        assert should_skip is False
+        assert reason is None
+
+    def test_no_skip_when_recipients_is_none(self):
+        """Test handling of None recipients."""
+        # should_skip_approval expects a list, but we want to ensure
+        # the caller passes an empty list for None case
+        should_skip, reason = should_skip_approval([])
+
+        assert should_skip is False
+        assert reason is None
+
+    def test_no_skip_when_current_user_unavailable(self):
+        """Test no skip when we can't fetch current user."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = None
+
+        with patch(
+            "code_puppy.tools.msgraph.common.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.side_effect = Exception("Network error")
+            mock_get_client.return_value = mock_client
+
+            should_skip, reason = should_skip_approval(["anyone@walmart.com"])
+
+            assert should_skip is False
+            assert reason is None
+
+        common_module._current_user_cache = None
+
+    def test_handles_whitespace_in_recipients(self):
+        """Test that whitespace in recipients is handled."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        should_skip, reason = should_skip_approval(["  me@walmart.com  "])
+
+        assert should_skip is True
+
+        common_module._current_user_cache = None
+
+
+class TestRequireUserApprovalWithSkip:
+    """Test suite for require_user_approval with skip functionality."""
+
+    def test_skips_approval_when_sending_to_self(self):
+        """Test that approval is skipped for self-send."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.common.emit_info"
+        ) as mock_emit:
+            # Should NOT raise, should NOT call approval TUI
+            require_user_approval(
+                "Send Email",
+                {"To": "me@walmart.com", "Subject": "Test"},
+                recipients=["me@walmart.com"],
+            )
+
+            # Should have emitted skip message
+            mock_emit.assert_called_once()
+            call_arg = mock_emit.call_args[0][0]
+            assert "self" in call_arg.lower()
+
+        common_module._current_user_cache = None
+
+    def test_requires_approval_when_sending_to_others(self):
+        """Test that approval is required for non-self recipients."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.approval_tui.request_approval"
+        ) as mock_request:
+            mock_request.return_value = False  # User rejects
+
+            with pytest.raises(UserRejectedError):
+                require_user_approval(
+                    "Send Email",
+                    {"To": "other@walmart.com", "Subject": "Test"},
+                    recipients=["other@walmart.com"],
+                )
+
+            # Should have called approval TUI
+            mock_request.assert_called_once()
+
+        common_module._current_user_cache = None
+
+    def test_backwards_compatible_without_recipients(self):
+        """Test that require_user_approval works without recipients arg."""
+        with patch(
+            "code_puppy.tools.msgraph.approval_tui.request_approval"
+        ) as mock_request:
+            mock_request.return_value = True  # User approves
+
+            # Should work without recipients argument (backwards compatible)
+            require_user_approval(
+                "Send Email",
+                {"To": "anyone@walmart.com", "Subject": "Test"},
+            )
+
+            mock_request.assert_called_once()
+
+
+class TestApprovalWhitelist:
+    """Test suite for context-specific whitelist-based approval skip."""
+
+    def test_mail_whitelist_works_for_mail_context(self):
+        """Test that mail whitelist applies to mail context."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        with patch(
+            "code_puppy.config.get_msgraph_mail_whitelist"
+        ) as mock_whitelist:
+            mock_whitelist.return_value = ["boss@walmart.com", "team@walmart.com"]
+
+            should_skip, reason = should_skip_approval(
+                ["boss@walmart.com"], context="mail"
+            )
+
+            assert should_skip is True
+            assert "whitelist" in reason.lower()
+
+        common_module._current_user_cache = None
+
+    def test_mail_whitelist_does_not_apply_to_teams(self):
+        """Test that mail whitelist does NOT apply to teams context."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        with patch(
+            "code_puppy.config.get_msgraph_mail_whitelist"
+        ) as mock_mail_whitelist, patch(
+            "code_puppy.config.get_msgraph_teams_whitelist"
+        ) as mock_teams_whitelist:
+            mock_mail_whitelist.return_value = ["boss@walmart.com"]
+            mock_teams_whitelist.return_value = []  # Empty teams whitelist
+
+            should_skip, reason = should_skip_approval(
+                ["boss@walmart.com"], context="teams"
+            )
+
+            assert should_skip is False
+            assert reason is None
+
+        common_module._current_user_cache = None
+
+    def test_teams_whitelist_works_for_teams_context(self):
+        """Test that teams whitelist applies to teams context."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        with patch(
+            "code_puppy.config.get_msgraph_teams_whitelist"
+        ) as mock_whitelist:
+            mock_whitelist.return_value = ["coworker@walmart.com"]
+
+            should_skip, reason = should_skip_approval(
+                ["coworker@walmart.com"], context="teams"
+            )
+
+            assert should_skip is True
+            assert "whitelist" in reason.lower()
+
+        common_module._current_user_cache = None
+
+    def test_teams_whitelist_does_not_apply_to_mail(self):
+        """Test that teams whitelist does NOT apply to mail context."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        with patch(
+            "code_puppy.config.get_msgraph_mail_whitelist"
+        ) as mock_mail_whitelist, patch(
+            "code_puppy.config.get_msgraph_teams_whitelist"
+        ) as mock_teams_whitelist:
+            mock_mail_whitelist.return_value = []  # Empty mail whitelist
+            mock_teams_whitelist.return_value = ["coworker@walmart.com"]
+
+            should_skip, reason = should_skip_approval(
+                ["coworker@walmart.com"], context="mail"
+            )
+
+            assert should_skip is False
+            assert reason is None
+
+        common_module._current_user_cache = None
+
+    def test_multiple_whitelisted_recipients_skip(self):
+        """Test that multiple whitelisted recipients all skip."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        with patch(
+            "code_puppy.config.get_msgraph_mail_whitelist"
+        ) as mock_whitelist:
+            mock_whitelist.return_value = ["boss@walmart.com", "team@walmart.com"]
+
+            should_skip, reason = should_skip_approval(
+                ["boss@walmart.com", "team@walmart.com"], context="mail"
+            )
+
+            assert should_skip is True
+
+        common_module._current_user_cache = None
+
+    def test_partial_whitelist_requires_approval(self):
+        """Test that mixed whitelisted/non-whitelisted requires approval."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        with patch(
+            "code_puppy.config.get_msgraph_mail_whitelist"
+        ) as mock_whitelist:
+            mock_whitelist.return_value = ["boss@walmart.com"]
+
+            should_skip, reason = should_skip_approval(
+                ["boss@walmart.com", "stranger@walmart.com"], context="mail"
+            )
+
+            assert should_skip is False
+            assert reason is None
+
+        common_module._current_user_cache = None
+
+    def test_self_plus_whitelisted_skips(self):
+        """Test that combining self and whitelisted recipients skips."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        with patch(
+            "code_puppy.config.get_msgraph_mail_whitelist"
+        ) as mock_whitelist:
+            mock_whitelist.return_value = ["boss@walmart.com"]
+
+            should_skip, reason = should_skip_approval(
+                ["me@walmart.com", "boss@walmart.com"], context="mail"
+            )
+
+            assert should_skip is True
+
+        common_module._current_user_cache = None
+
+    def test_empty_whitelist_falls_back_to_self_check(self):
+        """Test that empty whitelist still allows self-send."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        with patch(
+            "code_puppy.config.get_msgraph_mail_whitelist"
+        ) as mock_whitelist:
+            mock_whitelist.return_value = []  # Empty whitelist
+
+            # Self-send should still work
+            should_skip, reason = should_skip_approval(
+                ["me@walmart.com"], context="mail"
+            )
+            assert should_skip is True
+            assert "self" in reason.lower()
+
+            # Other recipients should require approval
+            should_skip, reason = should_skip_approval(
+                ["other@walmart.com"], context="mail"
+            )
+            assert should_skip is False
+
+        common_module._current_user_cache = None
+
+    def test_whitelist_case_insensitive(self):
+        """Test that whitelist matching is case-insensitive."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        with patch(
+            "code_puppy.config.get_msgraph_mail_whitelist"
+        ) as mock_whitelist:
+            mock_whitelist.return_value = ["boss@walmart.com"]  # lowercase
+
+            # Should match regardless of case
+            should_skip, reason = should_skip_approval(
+                ["BOSS@WALMART.COM"], context="mail"
+            )
+
+            assert should_skip is True
+
+        common_module._current_user_cache = None
+
+
+class TestTeamsSelfChatSkip:
+    """Test suite for Teams 48:notes self-chat skip."""
+
+    def test_48_notes_skips_approval(self):
+        """Test that 48:notes (Teams self-chat) skips confirmation."""
+        # Should work without any user cache
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = None
+
+        should_skip, reason = should_skip_approval(["48:notes"])
+
+        assert should_skip is True
+        assert "48:notes" in reason
+
+    def test_48_notes_case_insensitive(self):
+        """Test that 48:notes matching is case-insensitive."""
+        should_skip, reason = should_skip_approval(["48:NOTES"])
+        assert should_skip is True
+
+        should_skip, reason = should_skip_approval(["48:Notes"])
+        assert should_skip is True
+
+    def test_random_chat_id_requires_approval(self):
+        """Test that random chat IDs still require approval."""
+        should_skip, reason = should_skip_approval(["19:abc123@thread.tacv2"])
+        assert should_skip is False
+        assert reason is None
+
+    def test_48_notes_mixed_with_other_requires_approval(self):
+        """Test that 48:notes + another recipient requires approval."""
+        import code_puppy.tools.msgraph.common as common_module
+        common_module._current_user_cache = {
+            "id": "user-123",
+            "mail": "me@walmart.com",
+            "upn": "me@walmart.com",
+        }
+
+        should_skip, reason = should_skip_approval(["48:notes", "other@walmart.com"])
+
+        assert should_skip is False
+        assert reason is None
+
+        common_module._current_user_cache = None

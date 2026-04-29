@@ -23,6 +23,15 @@ def mock_context():
     return Mock()
 
 
+@pytest.fixture(autouse=True)
+def auto_approve_msgraph_actions():
+    """Auto-approve all msgraph approval requests in tests."""
+    with patch(
+        "code_puppy.tools.msgraph.mail.require_user_approval"
+    ):
+        yield
+
+
 @pytest.fixture
 def mock_message_preview_data():
     """Create mock message preview data from MS Graph API."""
@@ -447,6 +456,12 @@ class TestMSGraphMailTools:
             "code_puppy.tools.msgraph.mail.get_msgraph_client"
         ) as mock_get_client:
             mock_client = Mock()
+            # Get original message for recipient extraction
+            mock_client.get.return_value = {
+                "from": {"emailAddress": {"address": "sender@walmart.com"}},
+                "toRecipients": [],
+                "ccRecipients": [],
+            }
             # First post (createReply) returns draft with id, second post (send) returns None
             mock_client.post.side_effect = [{"id": "draft-123"}, None]
             mock_client.patch.return_value = None
@@ -476,6 +491,16 @@ class TestMSGraphMailTools:
             "code_puppy.tools.msgraph.mail.get_msgraph_client"
         ) as mock_get_client:
             mock_client = Mock()
+            # Get original message for recipient extraction
+            mock_client.get.return_value = {
+                "from": {"emailAddress": {"address": "sender@walmart.com"}},
+                "toRecipients": [
+                    {"emailAddress": {"address": "me@walmart.com"}},
+                ],
+                "ccRecipients": [
+                    {"emailAddress": {"address": "manager@walmart.com"}},
+                ],
+            }
             # First post (createReplyAll) returns draft with id, second post (send) returns None
             mock_client.post.side_effect = [{"id": "draft-456"}, None]
             mock_client.patch.return_value = None
@@ -503,7 +528,8 @@ class TestMSGraphMailTools:
             "code_puppy.tools.msgraph.mail.get_msgraph_client"
         ) as mock_get_client:
             mock_client = Mock()
-            mock_client.post.side_effect = MSGraphNotFoundError("Message not found")
+            # Fetching original message fails with not found
+            mock_client.get.side_effect = MSGraphNotFoundError("Message not found")
             mock_get_client.return_value = mock_client
 
             result = msgraph_reply_to_message(

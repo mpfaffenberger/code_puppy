@@ -245,9 +245,227 @@ class UserRejectedError(Exception):
     """Raised when the user declines to approve a send action."""
 
 
+# Cache for current user identity (avoids repeated /me calls)
+_current_user_cache: dict | None = None
+
+
+def get_current_user_identity() -> dict | None:
+    """Get current user's email, UPN, and ID (cached for session).
+
+    Returns:
+        Dict with lowercase 'id', 'mail', and 'upn' keys, or None if unavailable.
+    """
+    global _current_user_cache
+    if _current_user_cache is not None:
+        return _current_user_cache
+
+    try:
+        client = get_msgraph_client()
+        me = client.get("/me", params={"$select": "id,mail,userPrincipalName"})
+        _current_user_cache = {
+            "id": (me.get("id") or "").lower(),
+            "mail": (me.get("mail") or "").lower(),
+            "upn": (me.get("userPrincipalName") or "").lower(),
+        }
+        return _current_user_cache
+    except Exception:  # noqa: BLE001
+        # If we can't get current user, don't block - just skip the optimization
+        return None
+
+
+# Special Teams chat IDs that indicate self-messaging
+SELF_CHAT_IDS = {
+    "48:notes",  # Teams "Chat with yourself" feature
+}
+
+
+def _resolve_teams_whitelist_entry(
+    entry: str, client: "MSGraphClient | None" = None
+) -> set[str]:
+    """Resolve a Teams whitelist entry to matchable identifiers.
+
+    Whitelist entry formats:
+    - Plain email/UPN: "user@walmart.com" → for Teams DMs to individuals
+    - Chat ID: "19:abc123@thread.v2" → direct chat/group chat ID
+    - Named group chat: "chat:Daily Standup" → exact topic match (via API lookup)
+    - Channel: "channel:Platform Team/General" → exact team/channel match (via API)
+
+    Examples:
+        # Individual DM - just use their email
+        msgraph_teams_whitelist = user@walmart.com, boss@walmart.com
+
+        # Named group chat - use chat: prefix with exact topic
+        msgraph_teams_whitelist = chat:Daily Standup
+
+        # Channel - use channel: prefix with Team Name/Channel Name
+        msgraph_teams_whitelist = channel:Platform Team/General
+
+    Args:
+        entry: Whitelist entry (may have chat: or channel: prefix).
+        client: Optional MSGraphClient for lookups.
+
+    Returns:
+        Set of identifiers that match this entry (exact match only).
+    """
+    entry_stripped = entry.strip()
+    entry_lower = entry_stripped.lower()
+
+    # Plain email or ID - return as-is (for DMs to individuals)
+    if not entry_lower.startswith(("chat:", "channel:")):
+        return {entry_lower}
+
+    # Need client for lookups
+    if client is None:
+        try:
+            client = get_msgraph_client()
+        except Exception:  # noqa: BLE001
+            return set()  # Can't resolve without client
+
+    # Chat topic lookup: "chat:Topic Name" - EXACT match only
+    if entry_lower.startswith("chat:"):
+        topic_name = entry_stripped[5:].strip().lower()
+        if not topic_name:
+            return set()  # Empty topic name
+        try:
+            response = client.get("/me/chats", params={"$top": 50})
+            chats = response.get("value", [])
+            for chat in chats:
+                chat_topic = (chat.get("topic") or "").strip().lower()
+                # Exact match required for security
+                if chat_topic and chat_topic == topic_name:
+                    return {chat.get("id", "").lower()}
+            return set()  # No exact match found
+        except Exception:  # noqa: BLE001
+            return set()
+
+    # Channel lookup: "channel:Team Name/Channel Name" - EXACT match only
+    if entry_lower.startswith("channel:"):
+        channel_spec = entry_stripped[8:].strip()  # e.g., "Platform Team/General"
+        if "/" not in channel_spec:
+            return set()  # Invalid format
+
+        team_name, channel_name = channel_spec.split("/", 1)
+        team_name = team_name.strip().lower()
+        channel_name = channel_name.strip().lower()
+
+        if not team_name or not channel_name:
+            return set()  # Empty team or channel name
+
+        try:
+            # Find team - exact match
+            teams_response = client.get("/me/joinedTeams")
+            teams = teams_response.get("value", [])
+
+            for team in teams:
+                team_display = (team.get("displayName") or "").strip().lower()
+                if team_display == team_name:  # Exact match
+                    team_id = team.get("id")
+                    # Find channel in this team - exact match
+                    channels_response = client.get(f"/teams/{team_id}/channels")
+                    channels = channels_response.get("value", [])
+
+                    for channel in channels:
+                        channel_display = (channel.get("displayName") or "").strip().lower()
+                        if channel_display == channel_name:  # Exact match
+                            return {channel.get("id", "").lower()}
+            return set()  # No exact match found
+        except Exception:  # noqa: BLE001
+            return set()
+
+    return set()
+
+
+def should_skip_approval(
+    recipients: list[str],
+    context: str = "mail",
+) -> tuple[bool, str | None]:
+    """Check if approval should be skipped for these recipients.
+
+    Checks in order:
+    1. Special self-chat IDs (e.g., "48:notes" for Teams self-chat)
+    2. All recipients are the current user (self-messages)
+    3. All recipients are in the configured whitelist (context-specific)
+
+    Args:
+        recipients: List of email addresses, user IDs, or chat IDs.
+        context: "mail" or "teams" - determines which whitelist to use.
+
+    Returns:
+        Tuple of (should_skip, reason_message).
+        If should_skip is True, reason_message explains why.
+    """
+    if not recipients:
+        return False, None
+
+    normalized = {r.lower().strip() for r in recipients if r}
+    if not normalized:
+        return False, None
+
+    # Check: Special self-chat IDs (e.g., 48:notes for Teams)
+    if normalized.issubset(SELF_CHAT_IDS):
+        return True, "Sending to self (48:notes) \u2014 skipping confirmation"
+
+    # Build set of all "safe" recipients (self + whitelist)
+    safe_recipients: set[str] = set()
+
+    # Add self identities
+    current_user = get_current_user_identity()
+    if current_user:
+        self_identities = {
+            current_user["id"],
+            current_user["mail"],
+            current_user["upn"],
+        }
+        self_identities.discard("")  # Remove empty strings
+        safe_recipients.update(self_identities)
+
+    # Check: All recipients are self (before loading whitelist for efficiency)
+    if safe_recipients and normalized.issubset(safe_recipients):
+        return True, "Sending to self \u2014 skipping confirmation"
+
+    # Load context-specific whitelist
+    try:
+        if context == "mail":
+            from code_puppy.config import get_msgraph_mail_whitelist
+            whitelist = get_msgraph_mail_whitelist()
+            # Mail whitelist is simple - just email addresses
+            if whitelist:
+                safe_recipients.update(whitelist)
+        elif context == "teams":
+            from code_puppy.config import get_msgraph_teams_whitelist
+            whitelist = get_msgraph_teams_whitelist()
+            # Teams whitelist may need resolution (chat:, channel: prefixes)
+            if whitelist:
+                for entry in whitelist:
+                    if entry.startswith(("chat:", "channel:")):
+                        # Resolve named entries to IDs
+                        resolved = _resolve_teams_whitelist_entry(entry)
+                        safe_recipients.update(resolved)
+                    else:
+                        # Plain email or ID
+                        safe_recipients.add(entry)
+    except Exception:  # noqa: BLE001
+        # If config loading fails, continue without whitelist
+        pass
+
+    # Check: All recipients are in safe set (self + whitelist)
+    if safe_recipients and normalized.issubset(safe_recipients):
+        # Determine reason based on what matched
+        if current_user:
+            self_set = {current_user["id"], current_user["mail"], current_user["upn"]}
+            self_set.discard("")
+            if normalized.issubset(self_set):
+                return True, "Sending to self \u2014 skipping confirmation"
+        return True, "All recipients whitelisted \u2014 skipping confirmation"
+
+    return False, None
+
+
 def require_user_approval(
     action: str,
     details: dict[str, str],
+    recipients: list[str] | None = None,
+    context: str = "mail",
 ) -> None:
     """Ask the user for approval before sending a message or email.
 
@@ -257,16 +475,27 @@ def require_user_approval(
     Falls back to a simple y/N prompt if the TUI can't be shown (e.g., async
     context, non-interactive terminal, sub-agent, or wiggum mode).
 
+    Auto-skips confirmation when sending to self (same user identity).
+
     Args:
         action: Short description, e.g. "Send Email" or "Teams Channel Message".
         details: Key/value pairs to display (e.g. {"To": "...", "Subject": "..."}).
+        recipients: Optional list of recipient emails/IDs for skip-check.
+        context: "mail" or "teams" - determines which whitelist to use.
 
     Raises:
         UserRejectedError: If the user does not approve.
     """
+    # Check if we should skip approval (e.g., sending to self)
+    if recipients:
+        should_skip, reason = should_skip_approval(recipients, context=context)
+        if should_skip:
+            emit_info(f"✓ {reason}")
+            return
+
     from .approval_tui import request_approval
 
-    approved = request_approval(action, details)
+    approved = request_approval(action, details, context=context)
     if not approved:
         raise UserRejectedError(f"User declined: {action}")
 
