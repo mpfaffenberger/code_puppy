@@ -155,16 +155,27 @@ def get_continuity_compaction_semantic_task_detection() -> bool:
     )
 
 
-def get_continuity_compaction_semantic_model_name() -> str:
+def get_continuity_compaction_semantic_model_setting() -> str:
+    """Return the explicit Continuity semantic model setting, if configured."""
+    val = get_value("continuity_compaction_semantic_model")
+    return str(val).strip() if val and str(val).strip() else ""
+
+
+def get_continuity_compaction_semantic_model_name(
+    default_model_name: str | None = None,
+) -> str:
     """Return the model used for Continuity semantic memory extraction.
 
     The plugin-owned setting lets users tune the semantic memory call without
-    changing the legacy summarization strategy. If unset, Continuity inherits
-    Code Puppy's existing summarization model setting.
+    changing the active chat model. If unset, Continuity inherits the active
+    chat model supplied by the compaction caller. The summarization model is
+    only used as a last-resort fallback for non-agent call sites.
     """
-    val = get_value("continuity_compaction_semantic_model")
-    if val and str(val).strip():
-        return str(val).strip()
+    configured = get_continuity_compaction_semantic_model_setting()
+    if configured:
+        return configured
+    if default_model_name and str(default_model_name).strip():
+        return str(default_model_name).strip()
     return get_summarization_model_name()
 
 

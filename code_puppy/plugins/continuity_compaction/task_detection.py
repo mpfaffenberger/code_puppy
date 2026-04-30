@@ -76,6 +76,7 @@ def resolve_semantic_memory_state(
     archive_index: list[dict[str, Any]],
     transcript_snippets: list[str],
     allowed_files: list[str],
+    active_model_name: str | None = None,
     timeout_seconds: int | None = None,
     error_sink: list[str] | None = None,
 ) -> SemanticMemoryState | None:
@@ -107,11 +108,13 @@ def resolve_semantic_memory_state(
         raw_response = run_continuity_memory_sync(
             prompt,
             timeout_seconds=timeout,
+            active_model_name=active_model_name,
         )
         payload = _parse_or_repair_memory_payload(
             prompt,
             raw_response,
             timeout_seconds=timeout,
+            active_model_name=active_model_name,
         )
         return _coerce_semantic_memory_state(
             payload,
@@ -221,14 +224,19 @@ def build_continuity_memory_repair_prompt(
     )
 
 
-def run_continuity_memory_sync(prompt: str, *, timeout_seconds: int) -> str:
+def run_continuity_memory_sync(
+    prompt: str,
+    *,
+    timeout_seconds: int,
+    active_model_name: str | None = None,
+) -> str:
     """Run a raw text model request for continuity memory with a bounded wait.
 
     This intentionally avoids ``Agent.run`` result validation. The continuity
     memory layer wants raw text first, then applies its own JSON parsing,
     schema coercion, archive-id filtering, and file allow-list validation.
     """
-    model_name = get_continuity_compaction_semantic_model_name()
+    model_name = get_continuity_compaction_semantic_model_name(active_model_name)
     prepared = prepare_prompt_for_model(model_name, _memory_instructions(), prompt)
     models_config = ModelFactory.load_config()
     model = ModelFactory.get_model(model_name, models_config)
@@ -284,6 +292,7 @@ def _parse_or_repair_memory_payload(
     raw_response: str,
     *,
     timeout_seconds: int,
+    active_model_name: str | None = None,
 ) -> dict[str, Any]:
     try:
         return _parse_json_object(raw_response)
@@ -294,6 +303,7 @@ def _parse_or_repair_memory_payload(
             repaired_response = run_continuity_memory_sync(
                 repair_prompt,
                 timeout_seconds=repair_timeout,
+                active_model_name=active_model_name,
             )
             return _parse_json_object(repaired_response)
         except Exception as repair_error:

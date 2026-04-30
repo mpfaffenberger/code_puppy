@@ -130,7 +130,9 @@ def compact_continuity(
         messages, keep_indices, agent, settings, model_name
     )
     archive_index = build_archive_index(agent)
-    durable_state = _build_durable_state(agent, messages, settings, archive_index)
+    durable_state = _build_durable_state(
+        agent, messages, settings, archive_index, model_name
+    )
     write_durable_state(agent, durable_state)
     messages = _inject_durable_memory(messages, durable_state)
     compacted_tokens = _history_tokens(messages, model_name) + context_overhead
@@ -721,6 +723,7 @@ def _build_durable_state(
     messages: list[ModelMessage],
     settings: ContinuityCompactionSettings,
     archive_index: list[dict[str, Any]],
+    model_name: str | None,
 ) -> DurableState:
     recent_text = _messages_to_text(messages[-20:])
     previous = read_durable_state(agent)
@@ -746,6 +749,7 @@ def _build_durable_state(
         archive_index=archive_index,
         messages=messages,
         settings=settings,
+        model_name=model_name,
     )
     if semantic_state is not None:
         state = _state_from_semantic(
@@ -838,6 +842,7 @@ def _semantic_memory_state(
     archive_index: list[dict[str, Any]],
     messages: list[ModelMessage],
     settings: ContinuityCompactionSettings,
+    model_name: str | None,
 ) -> tuple[SemanticMemoryState | None, str]:
     if not get_continuity_compaction_semantic_task_detection():
         return None, "semantic memory disabled"
@@ -857,6 +862,7 @@ def _semantic_memory_state(
             archive_index=archive_index,
             transcript_snippets=_transcript_snippets(messages),
             allowed_files=_allowed_files(fallback_state, archive_index),
+            active_model_name=model_name,
             timeout_seconds=settings.semantic_timeout_seconds,
             error_sink=errors,
         )

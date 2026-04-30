@@ -13,7 +13,7 @@ from .config import (
     get_continuity_compaction_archive_retrieval_count,
     get_continuity_compaction_archive_retrieval_enabled,
     get_continuity_compaction_predictive_trigger_min_ratio,
-    get_continuity_compaction_semantic_model_name,
+    get_continuity_compaction_semantic_model_setting,
     get_continuity_compaction_semantic_task_detection,
     get_continuity_compaction_semantic_timeout_seconds,
 )
@@ -133,10 +133,15 @@ def _handle_continuity_command(command: str) -> bool:
         return True
 
     if action == "diagnostics":
+        semantic_model_setting = get_continuity_compaction_semantic_model_setting()
+        semantic_model = (
+            semantic_model_setting
+            or "active chat model (default; summarization_model fallback)"
+        )
         lines = [
             "[bold magenta]Continuity Diagnostics[/bold magenta]",
             f"semantic_enabled: {get_continuity_compaction_semantic_task_detection()}",
-            f"semantic_model: {get_continuity_compaction_semantic_model_name()}",
+            f"semantic_model: {semantic_model}",
             f"semantic_timeout_seconds: {get_continuity_compaction_semantic_timeout_seconds()}",
             f"predictive_trigger_min_ratio: {get_continuity_compaction_predictive_trigger_min_ratio():.3f}",
             f"archive_retrieval_enabled: {get_continuity_compaction_archive_retrieval_enabled()}",

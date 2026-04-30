@@ -60,9 +60,11 @@ be changed the same way as core settings:
 ```
 
 `continuity_compaction_semantic_model` controls the semantic memory LLM call.
-If it is unset, Continuity inherits the existing `summarization_model` setting.
+If it is unset, Continuity uses the same active chat model that is handling the
+current Code Puppy session. If no active chat model is available for a direct
+utility call, it falls back to the existing `summarization_model` setting.
 Fallback summarization uses Code Puppy's existing summarization path, so users
-can tune that with `summarization_model`.
+can tune fallback summaries with `summarization_model`.
 
 Useful inspection commands:
 

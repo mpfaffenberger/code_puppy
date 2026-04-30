@@ -182,6 +182,10 @@ class TestConfigExtendedPart2:
                 assert (
                     get_continuity_compaction_semantic_model_name() == "summary-model"
                 )
+                assert (
+                    get_continuity_compaction_semantic_model_name("active-model")
+                    == "active-model"
+                )
             assert get_continuity_compaction_semantic_timeout_seconds() == 60
             assert get_continuity_compaction_archive_retrieval_enabled() is True
             assert get_continuity_compaction_archive_retrieval_count() == 3

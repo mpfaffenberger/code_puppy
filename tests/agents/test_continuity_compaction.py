@@ -607,9 +607,12 @@ def test_semantic_memory_parses_fenced_json_and_sanitizes_fields(monkeypatch):
         lambda: True,
     )
 
-    def fake_run(prompt: str, *, timeout_seconds: int) -> str:
+    def fake_run(
+        prompt: str, *, timeout_seconds: int, active_model_name: str | None = None
+    ) -> str:
         captured["prompt"] = prompt
         captured["timeout"] = timeout_seconds
+        captured["active_model_name"] = active_model_name
         return """```json
 {
   "current_task_id": "task-a",
@@ -651,6 +654,7 @@ def test_semantic_memory_parses_fenced_json_and_sanitizes_fields(monkeypatch):
     assert "UNTRUSTED" in captured["prompt"]
     assert "RESPONSE CONTRACT" in captured["prompt"]
     assert captured["timeout"] == 5
+    assert captured["active_model_name"] is None
     assert state.current_task == "Semantic task ROOT-A"
     assert state.tasks[0].active_files == ["src/app.py"]
     assert state.tasks[0].archive_refs == ["obs_valid"]
@@ -666,8 +670,10 @@ def test_semantic_memory_repairs_non_json_response(monkeypatch):
     )
     prompts = []
 
-    def fake_run(prompt: str, *, timeout_seconds: int) -> str:
-        prompts.append((prompt, timeout_seconds))
+    def fake_run(
+        prompt: str, *, timeout_seconds: int, active_model_name: str | None = None
+    ) -> str:
+        prompts.append((prompt, timeout_seconds, active_model_name))
         if len(prompts) == 1:
             return "I found the current task, but this is prose instead of JSON."
         return json.dumps(
@@ -701,6 +707,7 @@ def test_semantic_memory_repairs_non_json_response(monkeypatch):
     assert state.current_task == "Repaired semantic task ROOT-REPAIRED"
     assert len(prompts) == 2
     assert prompts[1][1] == 10
+    assert prompts[1][2] is None
     assert "BAD RESPONSE TO REPAIR" in prompts[1][0]
     assert "ORIGINAL CONTINUITY MEMORY INPUT" in prompts[1][0]
 
@@ -774,7 +781,7 @@ def test_continuity_memory_sync_uses_raw_text_model_request(monkeypatch):
     monkeypatch.setattr(
         task_detection,
         "get_continuity_compaction_semantic_model_name",
-        lambda: "fake-memory-model",
+        lambda default_model_name=None: default_model_name or "fake-memory-model",
     )
     monkeypatch.setattr(
         task_detection.ModelFactory,
@@ -803,11 +810,12 @@ def test_continuity_memory_sync_uses_raw_text_model_request(monkeypatch):
     result = task_detection.run_continuity_memory_sync(
         "memory prompt",
         timeout_seconds=5,
+        active_model_name="active-chat-model",
     )
 
     assert result == '{"current_task":"Task ROOT"}'
     assert captured["model_settings"] == {
-        "model_name": "fake-memory-model",
+        "model_name": "active-chat-model",
         "max_tokens": 4096,
     }
     assert captured["request_parameters"].output_mode == "text"
