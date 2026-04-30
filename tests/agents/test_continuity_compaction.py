@@ -5,6 +5,7 @@ import os
 import time
 from pathlib import Path
 
+import pytest
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -823,6 +824,112 @@ def test_continuity_memory_sync_uses_raw_text_model_request(monkeypatch):
     assert captured["request_parameters"].output_tools == []
     assert captured["messages"][0].instructions == "memory instructions"
     assert captured["messages"][0].parts[0].content == "prepared memory prompt"
+
+
+def test_continuity_memory_sync_falls_back_from_empty_active_model(monkeypatch):
+    calls = []
+
+    class FakePreparedPrompt:
+        instructions = "memory instructions"
+        user_prompt = "prepared memory prompt"
+
+    class FakeModel:
+        def __init__(self, model_name: str):
+            self.model_name = model_name
+
+        async def request(self, messages, model_settings, request_parameters):
+            calls.append(self.model_name)
+            if self.model_name == "active-chat-model":
+                return ModelResponse(parts=[], model_name=self.model_name)
+            return ModelResponse(
+                parts=[TextPart(content='{"current_task":"Task SUMMARY"}')],
+                model_name=self.model_name,
+            )
+
+    monkeypatch.setattr(
+        task_detection,
+        "get_continuity_compaction_semantic_model_setting",
+        lambda: "",
+    )
+    monkeypatch.setattr(
+        task_detection,
+        "get_continuity_compaction_semantic_model_name",
+        lambda default_model_name=None: default_model_name or "summary-model",
+    )
+    monkeypatch.setattr(
+        task_detection,
+        "get_summarization_model_name",
+        lambda: "summary-model",
+    )
+    monkeypatch.setattr(task_detection.ModelFactory, "load_config", lambda: {})
+    monkeypatch.setattr(
+        task_detection.ModelFactory,
+        "get_model",
+        lambda model_name, _models_config: FakeModel(model_name),
+    )
+    monkeypatch.setattr(
+        task_detection,
+        "make_model_settings",
+        lambda model_name, max_tokens=None: {"model_name": model_name},
+    )
+    monkeypatch.setattr(
+        task_detection,
+        "prepare_prompt_for_model",
+        lambda _model_name, _instructions, _prompt: FakePreparedPrompt(),
+    )
+
+    result = task_detection.run_continuity_memory_sync(
+        "memory prompt",
+        timeout_seconds=5,
+        active_model_name="active-chat-model",
+    )
+
+    assert result == '{"current_task":"Task SUMMARY"}'
+    assert calls == ["active-chat-model", "summary-model"]
+
+
+def test_continuity_memory_sync_respects_explicit_model_failure(monkeypatch):
+    calls = []
+
+    class FakePreparedPrompt:
+        instructions = "memory instructions"
+        user_prompt = "prepared memory prompt"
+
+    class FakeModel:
+        async def request(self, messages, model_settings, request_parameters):
+            calls.append(model_settings["model_name"])
+            return ModelResponse(parts=[], model_name=model_settings["model_name"])
+
+    monkeypatch.setattr(
+        task_detection,
+        "get_continuity_compaction_semantic_model_setting",
+        lambda: "explicit-memory-model",
+    )
+    monkeypatch.setattr(task_detection.ModelFactory, "load_config", lambda: {})
+    monkeypatch.setattr(
+        task_detection.ModelFactory,
+        "get_model",
+        lambda _model_name, _models_config: FakeModel(),
+    )
+    monkeypatch.setattr(
+        task_detection,
+        "make_model_settings",
+        lambda model_name, max_tokens=None: {"model_name": model_name},
+    )
+    monkeypatch.setattr(
+        task_detection,
+        "prepare_prompt_for_model",
+        lambda _model_name, _instructions, _prompt: FakePreparedPrompt(),
+    )
+
+    with pytest.raises(ValueError, match="explicit-memory-model"):
+        task_detection.run_continuity_memory_sync(
+            "memory prompt",
+            timeout_seconds=5,
+            active_model_name="active-chat-model",
+        )
+
+    assert calls == ["explicit-memory-model"]
 
 
 def test_long_session_tasks_retained_but_prompt_snapshot_is_bounded(

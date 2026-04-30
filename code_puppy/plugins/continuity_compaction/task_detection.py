@@ -18,10 +18,12 @@ from code_puppy.plugins.continuity_compaction.storage import (
     TaskMemory,
 )
 from code_puppy.plugins.continuity_compaction.config import (
+    get_continuity_compaction_semantic_model_setting,
     get_continuity_compaction_semantic_model_name,
     get_continuity_compaction_semantic_task_detection,
     get_continuity_compaction_semantic_timeout_seconds,
 )
+from code_puppy.config import get_summarization_model_name
 from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.model_utils import prepare_prompt_for_model
 from code_puppy.summarization_agent import run_summarization_sync
@@ -236,27 +238,28 @@ def run_continuity_memory_sync(
     memory layer wants raw text first, then applies its own JSON parsing,
     schema coercion, archive-id filtering, and file allow-list validation.
     """
-    model_name = get_continuity_compaction_semantic_model_name(active_model_name)
-    prepared = prepare_prompt_for_model(model_name, _memory_instructions(), prompt)
-    models_config = ModelFactory.load_config()
-    model = ModelFactory.get_model(model_name, models_config)
-    model_settings = make_model_settings(
-        model_name,
-        max_tokens=_SEMANTIC_MEMORY_MAX_OUTPUT_TOKENS,
-    )
-    request = ModelRequest(
-        parts=[UserPromptPart(content=prepared.user_prompt)],
-        instructions=prepared.instructions,
-    )
-    request_parameters = ModelRequestParameters(
-        output_mode="text",
-        allow_text_output=True,
-    )
     timeout = max(1, timeout_seconds)
 
-    def _run_in_thread():
+    def _run_in_thread(model_name: str):
         loop = asyncio.new_event_loop()
         try:
+            prepared = prepare_prompt_for_model(
+                model_name, _memory_instructions(), prompt
+            )
+            models_config = ModelFactory.load_config()
+            model = ModelFactory.get_model(model_name, models_config)
+            model_settings = make_model_settings(
+                model_name,
+                max_tokens=_SEMANTIC_MEMORY_MAX_OUTPUT_TOKENS,
+            )
+            request = ModelRequest(
+                parts=[UserPromptPart(content=prepared.user_prompt)],
+                instructions=prepared.instructions,
+            )
+            request_parameters = ModelRequestParameters(
+                output_mode="text",
+                allow_text_output=True,
+            )
             response = loop.run_until_complete(
                 asyncio.wait_for(
                     model.request([request], model_settings, request_parameters),
@@ -281,10 +284,35 @@ def run_continuity_memory_sync(
                 loop.close()
 
     pool = _ensure_thread_pool()
-    try:
-        return str(pool.submit(_run_in_thread).result(timeout=timeout + 1))
-    except (TimeoutError, FutureTimeoutError) as exc:
-        raise TimeoutError("continuity semantic memory timed out") from exc
+    errors: list[str] = []
+    for model_name in _semantic_model_candidates(active_model_name):
+        try:
+            return str(
+                pool.submit(_run_in_thread, model_name).result(timeout=timeout + 1)
+            )
+        except (TimeoutError, FutureTimeoutError) as exc:
+            raise TimeoutError("continuity semantic memory timed out") from exc
+        except Exception as exc:
+            errors.append(f"{model_name}: {_semantic_error_message(exc)}")
+            continue
+    detail = "; ".join(errors) if errors else "no semantic memory model available"
+    raise ValueError(detail)
+
+
+def _semantic_model_candidates(active_model_name: str | None) -> list[str]:
+    configured = get_continuity_compaction_semantic_model_setting()
+    if configured:
+        return [configured]
+    candidates = [
+        get_continuity_compaction_semantic_model_name(active_model_name),
+        get_summarization_model_name(),
+    ]
+    result: list[str] = []
+    for candidate in candidates:
+        candidate = str(candidate or "").strip()
+        if candidate and candidate not in result:
+            result.append(candidate)
+    return result
 
 
 def _parse_or_repair_memory_payload(
@@ -646,6 +674,8 @@ def _last_text(messages: Any) -> str:
 def _message_text(message: Any) -> str:
     if isinstance(message, str):
         return message
+    if hasattr(message, "parts") and not (getattr(message, "parts", None) or []):
+        return ""
     chunks: list[str] = []
     for part in getattr(message, "parts", []) or []:
         if hasattr(part, "content"):
