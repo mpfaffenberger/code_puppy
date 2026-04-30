@@ -34,6 +34,7 @@ def handle_show_command(command: str) -> bool:
     from code_puppy.config import (
         get_auto_save_session,
         get_compaction_strategy,
+        get_compaction_strategy_names,
         get_compaction_threshold,
         get_default_agent,
         get_effective_temperature,
@@ -60,6 +61,7 @@ def handle_show_command(command: str) -> bool:
     protected_tokens = get_protected_token_count()
     compaction_threshold = get_compaction_threshold()
     compaction_strategy = get_compaction_strategy()
+    compaction_strategy_names = ", ".join(sorted(get_compaction_strategy_names()))
     global_temperature = get_temperature()
     effective_temperature = get_effective_temperature(model)
 
@@ -79,7 +81,7 @@ def handle_show_command(command: str) -> bool:
 [bold]auto_save_session:[/bold]     {"[green]enabled[/green]" if auto_save else "[yellow]disabled[/yellow]"}
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
-[bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
+[bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] ({compaction_strategy_names})
 [bold]resume_message_count:[/bold] [cyan]{get_resume_message_count()}[/cyan] messages shown on /resume
 [bold]reasoning_effort:[/bold]      [cyan]{get_openai_reasoning_effort()}[/cyan]
 [bold]verbosity:[/bold]             [cyan]{get_openai_verbosity()}[/cyan]
@@ -199,9 +201,12 @@ def handle_set_command(command: str) -> bool:
         key = tokens[1]
         value = ""
     else:
+        from code_puppy.config import get_compaction_strategy_names
+
         config_keys = get_config_keys()
         if "compaction_strategy" not in config_keys:
             config_keys.append("compaction_strategy")
+        compaction_strategies = ", ".join(sorted(get_compaction_strategy_names()))
         session_help = (
             "\n[yellow]Session Management[/yellow]"
             "\n  [cyan]auto_save_session[/cyan]    Auto-save chat after every response (true/false)"
@@ -212,7 +217,7 @@ def handle_set_command(command: str) -> bool:
         )
         emit_warning(
             Text.from_markup(
-                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]{session_help}{keymap_help}"
+                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be one of: {compaction_strategies}[/dim]{session_help}{keymap_help}"
             )
         )
         return True

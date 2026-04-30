@@ -11,6 +11,23 @@ from code_puppy.config import (
     load_mcp_server_configs,
     set_agent_pinned_model,
 )
+from code_puppy.plugins.continuity_compaction.config import (
+    get_continuity_compaction_archive_retention_count,
+    get_continuity_compaction_archive_retention_days,
+    get_continuity_compaction_archive_retrieval_count,
+    get_continuity_compaction_archive_retrieval_enabled,
+    get_continuity_compaction_emergency_trigger_ratio,
+    get_continuity_compaction_growth_history_window,
+    get_continuity_compaction_predicted_growth_floor_ratio,
+    get_continuity_compaction_predictive_trigger_min_ratio,
+    get_continuity_compaction_recent_raw_floor_ratio,
+    get_continuity_compaction_semantic_model_name,
+    get_continuity_compaction_semantic_task_detection,
+    get_continuity_compaction_semantic_timeout_seconds,
+    get_continuity_compaction_soft_trigger_ratio,
+    get_continuity_compaction_target_ratio,
+    get_continuity_compaction_task_retention_count,
+)
 
 
 class TestConfigExtendedPart2:
@@ -60,21 +77,33 @@ class TestConfigExtendedPart2:
         with patch("code_puppy.config.get_value") as mock_get:
             mock_get.return_value = None
             result = get_compaction_strategy()
-            assert result == "truncation"  # Default value
+            assert result == "continuity"  # Default value
             mock_get.assert_called_once_with("compaction_strategy")
 
-        # Test valid strategies
+        # Test built-in strategies
         for strategy in ["summarization", "truncation"]:
             with patch("code_puppy.config.get_value") as mock_get:
                 mock_get.return_value = strategy.upper()  # Test case normalization
                 result = get_compaction_strategy()
                 assert result == strategy.lower()
 
+        # Test plugin strategies registered through callbacks.
+        with (
+            patch("code_puppy.config.get_value") as mock_get,
+            patch(
+                "code_puppy.config.get_compaction_strategy_names",
+                return_value={"summarization", "truncation", "continuity"},
+            ),
+        ):
+            mock_get.return_value = "CONTINUITY"
+            result = get_compaction_strategy()
+            assert result == "continuity"
+
         # Test invalid strategy falls back to default
         with patch("code_puppy.config.get_value") as mock_get:
             mock_get.return_value = "invalid_strategy"
             result = get_compaction_strategy()
-            assert result == "truncation"  # Default fallback
+            assert result == "continuity"  # Default fallback
 
     def test_get_compaction_threshold(self, mock_config_file):
         """Test getting compaction threshold configuration"""
@@ -108,6 +137,98 @@ class TestConfigExtendedPart2:
             mock_get.return_value = "invalid"
             result = get_compaction_threshold()
             assert result == 0.85  # Default fallback
+
+    def test_continuity_compaction_config_defaults(self, mock_config_file):
+        defaults = {
+            "continuity_compaction_soft_trigger_ratio": 0.825,
+            "continuity_compaction_emergency_trigger_ratio": 0.9,
+            "continuity_compaction_target_ratio": 0.35,
+            "continuity_compaction_recent_raw_floor_ratio": 0.2,
+            "continuity_compaction_predicted_growth_floor_ratio": 0.06,
+            "continuity_compaction_predictive_trigger_min_ratio": 0.725,
+            "continuity_compaction_growth_history_window": 10,
+            "continuity_compaction_archive_retention_days": 30,
+            "continuity_compaction_archive_retention_count": 500,
+            "continuity_compaction_semantic_task_detection": True,
+            "continuity_compaction_semantic_model": None,
+            "continuity_compaction_semantic_timeout_seconds": 60,
+            "continuity_compaction_archive_retrieval_enabled": True,
+            "continuity_compaction_archive_retrieval_count": 3,
+            "continuity_compaction_task_retention_count": 100,
+        }
+
+        def fake_get(key):
+            assert key in defaults
+            return None
+
+        with patch(
+            "code_puppy.plugins.continuity_compaction.config.get_value",
+            side_effect=fake_get,
+        ):
+            assert get_continuity_compaction_soft_trigger_ratio() == 0.825
+            assert get_continuity_compaction_emergency_trigger_ratio() == 0.9
+            assert get_continuity_compaction_target_ratio() == 0.35
+            assert get_continuity_compaction_recent_raw_floor_ratio() == 0.2
+            assert get_continuity_compaction_predicted_growth_floor_ratio() == 0.06
+            assert get_continuity_compaction_predictive_trigger_min_ratio() == 0.725
+            assert get_continuity_compaction_growth_history_window() == 10
+            assert get_continuity_compaction_archive_retention_days() == 30
+            assert get_continuity_compaction_archive_retention_count() == 500
+            assert get_continuity_compaction_semantic_task_detection() is True
+            with patch(
+                "code_puppy.plugins.continuity_compaction.config.get_summarization_model_name",
+                return_value="summary-model",
+            ):
+                assert (
+                    get_continuity_compaction_semantic_model_name() == "summary-model"
+                )
+                assert (
+                    get_continuity_compaction_semantic_model_name("active-model")
+                    == "active-model"
+                )
+            assert get_continuity_compaction_semantic_timeout_seconds() == 60
+            assert get_continuity_compaction_archive_retrieval_enabled() is True
+            assert get_continuity_compaction_archive_retrieval_count() == 3
+            assert get_continuity_compaction_task_retention_count() == 100
+
+    def test_continuity_compaction_config_clamps(self, mock_config_file):
+        values = {
+            "continuity_compaction_soft_trigger_ratio": "0.1",
+            "continuity_compaction_emergency_trigger_ratio": "2.0",
+            "continuity_compaction_target_ratio": "0.95",
+            "continuity_compaction_recent_raw_floor_ratio": "0.01",
+            "continuity_compaction_predicted_growth_floor_ratio": "0.9",
+            "continuity_compaction_predictive_trigger_min_ratio": "0.1",
+            "continuity_compaction_growth_history_window": "0",
+            "continuity_compaction_archive_retention_days": "0",
+            "continuity_compaction_archive_retention_count": "0",
+            "continuity_compaction_semantic_task_detection": "false",
+            "continuity_compaction_semantic_model": "memory-model",
+            "continuity_compaction_semantic_timeout_seconds": "0",
+            "continuity_compaction_archive_retrieval_enabled": "false",
+            "continuity_compaction_archive_retrieval_count": "999",
+            "continuity_compaction_task_retention_count": "0",
+        }
+
+        with patch(
+            "code_puppy.plugins.continuity_compaction.config.get_value",
+            side_effect=values.get,
+        ):
+            assert get_continuity_compaction_soft_trigger_ratio() == 0.5
+            assert get_continuity_compaction_emergency_trigger_ratio() == 0.98
+            assert get_continuity_compaction_target_ratio() == 0.9
+            assert get_continuity_compaction_recent_raw_floor_ratio() == 0.05
+            assert get_continuity_compaction_predicted_growth_floor_ratio() == 0.5
+            assert get_continuity_compaction_predictive_trigger_min_ratio() == 0.5
+            assert get_continuity_compaction_growth_history_window() == 1
+            assert get_continuity_compaction_archive_retention_days() == 1
+            assert get_continuity_compaction_archive_retention_count() == 1
+            assert get_continuity_compaction_semantic_task_detection() is False
+            assert get_continuity_compaction_semantic_model_name() == "memory-model"
+            assert get_continuity_compaction_semantic_timeout_seconds() == 1
+            assert get_continuity_compaction_archive_retrieval_enabled() is False
+            assert get_continuity_compaction_archive_retrieval_count() == 20
+            assert get_continuity_compaction_task_retention_count() == 1
 
     def test_get_use_dbos(self, mock_config_file):
         """Test getting DBOS usage flag"""
@@ -210,7 +331,7 @@ class TestConfigExtendedPart2:
             mock_get.return_value = "  summarization  "
             result = get_compaction_strategy()
             # The actual implementation doesn't strip whitespace, so it falls back to default
-            assert result == "truncation"  # Default fallback for non-exact match
+            assert result == "continuity"  # Default fallback for non-exact match
 
         # Test compaction strategy with exact match
         with patch("code_puppy.config.get_value") as mock_get:

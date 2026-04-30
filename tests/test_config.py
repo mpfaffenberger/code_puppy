@@ -268,9 +268,10 @@ class TestSimpleGetters:
 
 
 class TestGetConfigKeys:
+    @patch("code_puppy.config._get_plugin_config_keys", return_value=set())
     @patch("configparser.ConfigParser")
     def test_get_config_keys_with_existing_keys(
-        self, mock_config_parser_class, mock_config_paths
+        self, mock_config_parser_class, _mock_plugin_keys, mock_config_paths
     ):
         _, mock_cfg_file = mock_config_paths
         mock_parser_instance = MagicMock()
@@ -335,9 +336,10 @@ class TestGetConfigKeys:
             ]
         )
 
+    @patch("code_puppy.config._get_plugin_config_keys", return_value=set())
     @patch("configparser.ConfigParser")
     def test_get_config_keys_empty_config(
-        self, mock_config_parser_class, mock_config_paths
+        self, mock_config_parser_class, _mock_plugin_keys, mock_config_paths
     ):
         _, mock_cfg_file = mock_config_paths
         mock_parser_instance = MagicMock()

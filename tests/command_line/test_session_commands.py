@@ -91,8 +91,7 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="truncation",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=50),
-            patch("code_puppy.agents._compaction.truncate", return_value=["m3"]),
+            patch("code_puppy.agents._compaction.compact", return_value=(["m3"], [])),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as ms,
         ):
@@ -114,7 +113,10 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=50),
+            patch(
+                "code_puppy.agents._compaction.compact",
+                return_value=(["summary"], ["m1"]),
+            ),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as ms,
         ):
@@ -135,7 +137,7 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=50),
+            patch("code_puppy.agents._compaction.compact", return_value=([], [])),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_error") as me,
         ):
@@ -168,11 +170,118 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=0),
+            patch("code_puppy.agents._compaction.compact", return_value=(["s"], [])),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success"),
         ):
             assert self._run() is True
+
+
+class TestHandleContinuityCommand:
+    def _run(self, cmd="/continuity"):
+        from code_puppy.plugins.continuity_compaction.register_callbacks import (
+            _handle_continuity_command,
+        )
+
+        return _handle_continuity_command(cmd)
+
+    def _agent_with_memory(self, tmp_path, monkeypatch):
+        import code_puppy.config as cp_config
+        from code_puppy.plugins.continuity_compaction.archives import (
+            archive_observation,
+        )
+        from code_puppy.plugins.continuity_compaction.storage import (
+            DurableState,
+            TaskMemory,
+            write_durable_state,
+        )
+
+        monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
+        agent = MagicMock()
+        agent.session_id = "continuity-command-session"
+        state = DurableState(
+            goal="Build command surface ROOT-CMD",
+            current_task="Build command surface ROOT-CMD",
+            latest_user_request="Show continuity ROOT-LATEST",
+            global_constraints=["global constraint"],
+            tasks=[
+                TaskMemory(
+                    task_id="task-cmd",
+                    title="Build command surface ROOT-CMD",
+                    status="active",
+                    constraints=["task constraint"],
+                    active_files=["src/cmd.py"],
+                )
+            ],
+            current_task_id="task-cmd",
+            original_root_task_id="task-cmd",
+            semantic_status="semantic",
+            active_files=["src/cmd.py"],
+        )
+        write_durable_state(agent, state)
+        record = archive_observation(
+            agent=agent,
+            tool_name="run_shell_command",
+            tool_call_id="call-cmd",
+            content="AssertionError ROOT-CMD-SIGNAL in src/cmd.py",
+            token_count=100,
+            key_signal="AssertionError ROOT-CMD-SIGNAL in src/cmd.py",
+            key_signals=["AssertionError ROOT-CMD-SIGNAL in src/cmd.py"],
+            affected_files=["src/cmd.py"],
+            status="failed",
+        )
+        return agent, record
+
+    def test_continuity_show_and_tasks(self, tmp_path, monkeypatch):
+        agent, _record = self._agent_with_memory(tmp_path, monkeypatch)
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=agent,
+            ),
+            patch("code_puppy.messaging.emit_info") as mock_info,
+        ):
+            assert self._run("/continuity show") is True
+            assert "ROOT-CMD" in mock_info.call_args[0][0]
+            assert self._run("/continuity tasks") is True
+            assert "task-cmd" in mock_info.call_args[0][0]
+
+    def test_continuity_archives_search_show_and_diagnostics(
+        self, tmp_path, monkeypatch
+    ):
+        agent, record = self._agent_with_memory(tmp_path, monkeypatch)
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=agent,
+            ),
+            patch("code_puppy.messaging.emit_info") as mock_info,
+        ):
+            assert self._run("/continuity archives search ROOT-CMD-SIGNAL") is True
+            assert record["observation_id"] in mock_info.call_args[0][0]
+            assert (
+                self._run(f"/continuity archives show {record['observation_id']}")
+                is True
+            )
+            assert "checksum:" in mock_info.call_args[0][0]
+            assert self._run("/continuity diagnostics") is True
+            assert "semantic_timeout_seconds" in mock_info.call_args[0][0]
+
+    def test_continuity_no_memory(self, tmp_path, monkeypatch):
+        import code_puppy.config as cp_config
+
+        monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
+        agent = MagicMock()
+        agent.session_id = "empty-continuity-session"
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=agent,
+            ),
+            patch("code_puppy.messaging.emit_warning") as mock_warning,
+        ):
+            assert self._run("/continuity") is True
+            mock_warning.assert_called_once()
 
 
 class TestHandleTruncateCommand:

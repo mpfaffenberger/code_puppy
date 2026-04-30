@@ -708,7 +708,10 @@ class TestCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=1000),
+            patch(
+                "code_puppy.agents._compaction.compact",
+                return_value=([{"role": "system", "content": "summarized"}], []),
+            ),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as mock_success,
         ):
@@ -751,17 +754,16 @@ class TestCompactCommand:
             patch(
                 "code_puppy.config.get_compaction_strategy", return_value="truncation"
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=1000),
             patch(
-                "code_puppy.agents._compaction.truncate",
-                return_value=[{"role": "system", "content": "System"}],
-            ) as mock_truncate,
+                "code_puppy.agents._compaction.compact",
+                return_value=([{"role": "system", "content": "System"}], []),
+            ) as mock_compact,
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success"),
         ):
             result = handle_command("/compact")
             assert result is True
-            mock_truncate.assert_called_once()
+            mock_compact.assert_called_once()
 
 
 class TestReasoningCommand:

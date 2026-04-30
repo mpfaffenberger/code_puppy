@@ -74,7 +74,7 @@ def handle_session_command(command: str) -> bool:
 def handle_compact_command(command: str) -> bool:
     """Compact message history using configured strategy."""
     from code_puppy.agents.agent_manager import get_current_agent
-    from code_puppy.config import get_compaction_strategy, get_protected_token_count
+    from code_puppy.config import get_compaction_strategy
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     try:
@@ -89,28 +89,30 @@ def handle_compact_command(command: str) -> bool:
             current_agent.estimate_tokens_for_message(m) for m in history
         )
         compaction_strategy = get_compaction_strategy()
-        protected_tokens = get_protected_token_count()
         emit_info(
             f"🤔 Compacting {len(history)} messages using {compaction_strategy} strategy... (~{before_tokens} tokens)"
         )
 
         current_agent = get_current_agent()
-        if compaction_strategy == "truncation":
-            from code_puppy.agents._compaction import truncate
+        from code_puppy.agents._compaction import compact
 
-            compacted = truncate(history, protected_tokens)
-            summarized_messages = []  # No summarization in truncation mode
-        else:
-            # Default to summarization
-            compacted, summarized_messages = current_agent.summarize_messages(
-                history, with_protection=True
-            )
+        compacted, summarized_messages = compact(
+            current_agent,
+            history,
+            current_agent._get_model_context_length(),
+            current_agent._estimate_context_overhead(),
+            force=True,
+        )
 
         if not compacted:
             emit_error("Compaction failed. History unchanged.")
             return True
 
         agent.set_message_history(compacted)
+        compacted_hashes = getattr(agent, "_compacted_message_hashes", None)
+        if compacted_hashes is not None:
+            for message in summarized_messages:
+                compacted_hashes.add(agent.hash_message(message))
 
         current_agent = get_current_agent()
         after_tokens = sum(
@@ -123,9 +125,9 @@ def handle_compact_command(command: str) -> bool:
         )
 
         strategy_info = (
-            f"using {compaction_strategy} strategy"
-            if compaction_strategy == "truncation"
-            else "via summarization"
+            "via summarization"
+            if compaction_strategy == "summarization"
+            else f"using {compaction_strategy} strategy"
         )
         emit_success(
             f"✨ Done! History: {len(history)} → {len(compacted)} messages {strategy_info}\n"

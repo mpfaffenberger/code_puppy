@@ -32,6 +32,7 @@ from code_puppy.agents._history import (
     prune_interrupted_tool_calls,
 )
 from code_puppy.callbacks import (
+    on_compact_message_history,
     on_message_history_processor_end,
     on_message_history_processor_start,
 )
@@ -281,6 +282,7 @@ def compact(
     messages: List[ModelMessage],
     model_max: int,
     context_overhead: int,
+    force: bool = False,
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
     """Unified compaction entrypoint. Replaces ``message_history_processor``.
 
@@ -290,6 +292,8 @@ def compact(
         messages: Current message history (already accumulated by the caller).
         model_max: Effective model context window in tokens.
         context_overhead: Estimated overhead for system prompt + tool schemas.
+        force: If true, run the configured compaction strategy even below its
+            normal trigger. Used by the manual ``/compact`` command.
 
     Returns:
         ``(new_messages, dropped_messages_for_hash_tracking)``.
@@ -312,11 +316,33 @@ def compact(
     )
     update_spinner_context(context_summary)
 
-    threshold = get_compaction_threshold()
-    if proportion_used <= threshold:
-        return messages, []
-
     strategy = get_compaction_strategy()
+    plugin_result = _run_plugin_compaction(
+        strategy=strategy,
+        agent=agent,
+        messages=messages,
+        model_max=model_max,
+        context_overhead=context_overhead,
+        model_name=model_name,
+        force=force,
+        total_tokens=total_tokens,
+        proportion_used=proportion_used,
+    )
+    if plugin_result is not None:
+        result_messages, summarized_messages = plugin_result
+        _update_final_spinner(result_messages, model_name, model_max)
+        return result_messages, summarized_messages
+
+    if strategy not in {"summarization", "truncation"}:
+        emit_warning(
+            f"Compaction strategy '{strategy}' was not handled by any plugin; "
+            "falling back to truncation for this compaction cycle."
+        )
+        strategy = "truncation"
+
+    threshold = get_compaction_threshold()
+    if not force and proportion_used <= threshold:
+        return messages, []
 
     protected_tokens = get_protected_token_count()
     filtered = filter_huge_messages(messages, model_name)
@@ -360,8 +386,58 @@ def compact(
                 filtered, protected_tokens, model_name
             )
 
+    _update_final_spinner(result_messages, model_name, model_max)
+
+    return result_messages, summarized_messages
+
+
+def _run_plugin_compaction(
+    *,
+    strategy: str,
+    agent: Any,
+    messages: List[ModelMessage],
+    model_max: int,
+    context_overhead: int,
+    model_name: Optional[str],
+    force: bool,
+    total_tokens: int,
+    proportion_used: float,
+) -> Tuple[List[ModelMessage], List[ModelMessage]] | None:
+    """Return plugin compaction output when a plugin handles the strategy."""
+    results = on_compact_message_history(
+        strategy=strategy,
+        agent=agent,
+        messages=messages,
+        model_max=model_max,
+        context_overhead=context_overhead,
+        model_name=model_name,
+        force=force,
+        total_tokens=total_tokens,
+        proportion_used=proportion_used,
+    )
+    for result in results:
+        if not isinstance(result, dict) or not result.get("handled"):
+            continue
+        result_messages = result.get("messages")
+        if not isinstance(result_messages, list):
+            emit_warning(
+                f"Compaction plugin for '{strategy}' returned no message list; ignoring."
+            )
+            continue
+        dropped = result.get("dropped_messages", result.get("dropped", []))
+        if not isinstance(dropped, list):
+            dropped = []
+        return result_messages, dropped
+    return None
+
+
+def _update_final_spinner(
+    messages: List[ModelMessage],
+    model_name: Optional[str],
+    model_max: int,
+) -> None:
     final_token_count = sum(
-        estimate_tokens_for_message(m, model_name) for m in result_messages
+        estimate_tokens_for_message(m, model_name) for m in messages
     )
     final_summary = SpinnerBase.format_context_info(
         final_token_count,
@@ -369,8 +445,6 @@ def compact(
         final_token_count / model_max if model_max else 0.0,
     )
     update_spinner_context(final_summary)
-
-    return result_messages, summarized_messages
 
 
 def _strip_empty_thinking_parts(

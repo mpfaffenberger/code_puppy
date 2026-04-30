@@ -279,37 +279,25 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
                 f"Got final response data with keys: {list(final_response_data.keys())}"
             )
 
-        # Build the final response body
+        collected_output = self._build_collected_output(
+            collected_text, collected_tool_calls
+        )
+
+        # Build the final response body. Some ChatGPT Codex responses stream
+        # output_text deltas but send `output: []` in response.completed when
+        # store=false. Preserve the completed response metadata, but patch in
+        # collected output so pydantic-ai can parse the non-streaming result.
         if final_response_data:
-            response_body = final_response_data
+            response_body = dict(final_response_data)
+            if not response_body.get("output") and collected_output:
+                response_body["output"] = collected_output
         else:
             # Fallback: construct a minimal response from collected data
             response_body = {
                 "id": "reconstructed",
                 "object": "response",
-                "output": [],
+                "output": collected_output,
             }
-
-            if collected_text:
-                response_body["output"].append(
-                    {
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [
-                            {"type": "output_text", "text": "".join(collected_text)}
-                        ],
-                    }
-                )
-
-            for tool_call in collected_tool_calls:
-                response_body["output"].append(
-                    {
-                        "type": "function_call",
-                        "name": tool_call["name"],
-                        "arguments": tool_call["arguments"],
-                        "call_id": tool_call["call_id"],
-                    }
-                )
 
         # Create a new response with the complete body
         body_bytes = json.dumps(response_body).encode("utf-8")
@@ -322,6 +310,33 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
             request=response.request,
         )
         return new_response
+
+    @staticmethod
+    def _build_collected_output(
+        collected_text: list[str], collected_tool_calls: list[dict[str, str]]
+    ) -> list[dict[str, Any]]:
+        output: list[dict[str, Any]] = []
+        if collected_text:
+            output.append(
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "output_text", "text": "".join(collected_text)}
+                    ],
+                }
+            )
+
+        for tool_call in collected_tool_calls:
+            output.append(
+                {
+                    "type": "function_call",
+                    "name": tool_call["name"],
+                    "arguments": tool_call["arguments"],
+                    "call_id": tool_call["call_id"],
+                }
+            )
+        return output
 
 
 def create_codex_async_client(

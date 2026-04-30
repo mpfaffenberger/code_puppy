@@ -337,7 +337,33 @@ def get_config_keys():
     config.read(CONFIG_FILE)
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
     keys.update(default_keys)
+    keys.update(_get_plugin_config_keys())
     return sorted(keys)
+
+
+def _get_plugin_config_keys() -> set[str]:
+    """Return config keys registered by loaded plugins."""
+    try:
+        from code_puppy.callbacks import on_register_config_keys
+
+        results = on_register_config_keys()
+    except Exception:
+        return set()
+
+    keys: set[str] = set()
+    for result in results:
+        if not result:
+            continue
+        if isinstance(result, str):
+            keys.add(result)
+            continue
+        try:
+            for item in result:
+                if isinstance(item, str) and item:
+                    keys.add(item)
+        except TypeError:
+            continue
+    return keys
 
 
 def set_config_value(key: str, value: str):
@@ -1231,15 +1257,44 @@ def get_compaction_threshold():
 def get_compaction_strategy() -> str:
     """
     Returns the user-configured compaction strategy.
-    Options are 'summarization' or 'truncation'.
-    Defaults to 'summarization' if not set or misconfigured.
+    Built-in options are 'summarization' and 'truncation'. Plugins may register
+    additional strategy names through callbacks.
+    Defaults to 'continuity' if not set or misconfigured.
     Configurable by 'compaction_strategy' key.
     """
     val = get_value("compaction_strategy")
-    if val and val.lower() in ["summarization", "truncation"]:
-        return val.lower()
-    # Default to summarization
-    return "truncation"
+    if val:
+        normalized = val.lower()
+        if normalized in get_compaction_strategy_names():
+            return normalized
+    return "continuity"
+
+
+def get_compaction_strategy_names() -> set[str]:
+    """Return built-in and plugin-registered compaction strategy names."""
+    names = {"summarization", "truncation"}
+    try:
+        from code_puppy.callbacks import on_register_compaction_strategies
+
+        results = on_register_compaction_strategies()
+    except Exception:
+        return names
+
+    for result in results:
+        if not result:
+            continue
+        items = result if isinstance(result, (list, tuple, set)) else [result]
+        for item in items:
+            name = None
+            if isinstance(item, str):
+                name = item
+            elif isinstance(item, dict):
+                raw_name = item.get("name")
+                if isinstance(raw_name, str):
+                    name = raw_name
+            if name:
+                names.add(name.strip().lower())
+    return names
 
 
 def get_http2() -> bool:
