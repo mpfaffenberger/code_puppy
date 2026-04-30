@@ -1,8 +1,7 @@
 """
 Tests for code_puppy.plugins.walmart_specific.devcontainer_detection
 
-Covers detection of VS Code devcontainers, GitHub Codespaces, Gitpod,
-and manual override via AUTH_CALLBACK_URL.
+Covers detection of VS Code devcontainers and manual override via AUTH_CALLBACK_URL.
 """
 
 import os
@@ -99,9 +98,6 @@ class TestGetDevcontainerCallbackUrlNoRemote:
         env_vars = [
             "VSCODE_PROXY_URI",
             "AUTH_CALLBACK_URL",
-            "CODESPACE_NAME",
-            "GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN",
-            "GITPOD_WORKSPACE_URL",
         ]
         with patch.dict(os.environ, {}, clear=True):
             # Restore only non-remote env vars
@@ -112,7 +108,7 @@ class TestGetDevcontainerCallbackUrlNoRemote:
     def test_returns_none_when_no_remote_env(self):
         """Should return None when not in any remote environment."""
         # Ensure all remote env vars are cleared
-        for var in ["VSCODE_PROXY_URI", "AUTH_CALLBACK_URL", "CODESPACE_NAME", "GITPOD_WORKSPACE_URL"]:
+        for var in ["VSCODE_PROXY_URI", "AUTH_CALLBACK_URL"]:
             os.environ.pop(var, None)
         result = get_devcontainer_callback_url(8091)
         assert result is None
@@ -188,75 +184,6 @@ class TestGetDevcontainerCallbackUrlOverride:
 
 
 # ---------------------------------------------------------------------------
-# get_devcontainer_callback_url - GitHub Codespaces
-# ---------------------------------------------------------------------------
-
-
-class TestGetDevcontainerCallbackUrlCodespaces:
-    """Test GitHub Codespaces detection."""
-
-    def test_codespaces_detection(self):
-        """Should build callback URL from Codespaces env vars."""
-        with patch.dict(
-            os.environ,
-            {
-                "CODESPACE_NAME": "my-codespace",
-                "GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN": "app.github.dev",
-            },
-        ):
-            # Clear other env vars that would take precedence
-            os.environ.pop("VSCODE_PROXY_URI", None)
-            os.environ.pop("AUTH_CALLBACK_URL", None)
-            result = get_devcontainer_callback_url(8091)
-            assert result == "https://my-codespace-8091.app.github.dev/save_token"
-
-    def test_codespaces_requires_both_env_vars(self):
-        """Should not detect Codespaces if only one env var is set."""
-        with patch.dict(os.environ, {"CODESPACE_NAME": "my-codespace"}, clear=False):
-            os.environ.pop("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", None)
-            os.environ.pop("VSCODE_PROXY_URI", None)
-            os.environ.pop("AUTH_CALLBACK_URL", None)
-            os.environ.pop("GITPOD_WORKSPACE_URL", None)
-            result = get_devcontainer_callback_url(8091)
-            assert result is None
-
-
-# ---------------------------------------------------------------------------
-# get_devcontainer_callback_url - Gitpod
-# ---------------------------------------------------------------------------
-
-
-class TestGetDevcontainerCallbackUrlGitpod:
-    """Test Gitpod detection."""
-
-    def test_gitpod_detection(self):
-        """Should build callback URL from Gitpod workspace URL."""
-        with patch.dict(
-            os.environ,
-            {"GITPOD_WORKSPACE_URL": "https://myworkspace.gitpod.io"},
-            clear=False,
-        ):
-            os.environ.pop("VSCODE_PROXY_URI", None)
-            os.environ.pop("AUTH_CALLBACK_URL", None)
-            os.environ.pop("CODESPACE_NAME", None)
-            result = get_devcontainer_callback_url(8091)
-            assert result == "https://8091-myworkspace.gitpod.io/save_token"
-
-    def test_gitpod_with_complex_url(self):
-        """Should handle complex Gitpod workspace URLs."""
-        with patch.dict(
-            os.environ,
-            {"GITPOD_WORKSPACE_URL": "https://abc123-myworkspace.ws-us123.gitpod.io"},
-            clear=False,
-        ):
-            os.environ.pop("VSCODE_PROXY_URI", None)
-            os.environ.pop("AUTH_CALLBACK_URL", None)
-            os.environ.pop("CODESPACE_NAME", None)
-            result = get_devcontainer_callback_url(3000)
-            assert result == "https://3000-abc123-myworkspace.ws-us123.gitpod.io/save_token"
-
-
-# ---------------------------------------------------------------------------
 # is_remote_environment
 # ---------------------------------------------------------------------------
 
@@ -277,16 +204,6 @@ class TestIsRemoteEnvironment:
     def test_remote_with_auth_callback_url(self):
         """Should return True when AUTH_CALLBACK_URL is set."""
         with patch.dict(os.environ, {"AUTH_CALLBACK_URL": "https://example.com"}):
-            assert is_remote_environment() is True
-
-    def test_remote_with_codespace_name(self):
-        """Should return True when CODESPACE_NAME is set."""
-        with patch.dict(os.environ, {"CODESPACE_NAME": "my-codespace"}):
-            assert is_remote_environment() is True
-
-    def test_remote_with_gitpod(self):
-        """Should return True when GITPOD_WORKSPACE_URL is set."""
-        with patch.dict(os.environ, {"GITPOD_WORKSPACE_URL": "https://example.gitpod.io"}):
             assert is_remote_environment() is True
 
     def test_remote_with_remote_containers(self):
