@@ -773,7 +773,7 @@ def test_continuity_memory_sync_uses_raw_text_model_request(monkeypatch):
 
     monkeypatch.setattr(
         task_detection,
-        "get_summarization_model_name",
+        "get_continuity_compaction_semantic_model_name",
         lambda: "fake-memory-model",
     )
     monkeypatch.setattr(

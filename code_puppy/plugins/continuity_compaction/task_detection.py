@@ -17,8 +17,8 @@ from code_puppy.plugins.continuity_compaction.storage import (
     TASK_STATUSES,
     TaskMemory,
 )
-from code_puppy.config import get_summarization_model_name
 from code_puppy.plugins.continuity_compaction.config import (
+    get_continuity_compaction_semantic_model_name,
     get_continuity_compaction_semantic_task_detection,
     get_continuity_compaction_semantic_timeout_seconds,
 )
@@ -228,7 +228,7 @@ def run_continuity_memory_sync(prompt: str, *, timeout_seconds: int) -> str:
     memory layer wants raw text first, then applies its own JSON parsing,
     schema coercion, archive-id filtering, and file allow-list validation.
     """
-    model_name = get_summarization_model_name()
+    model_name = get_continuity_compaction_semantic_model_name()
     prepared = prepare_prompt_for_model(model_name, _memory_instructions(), prompt)
     models_config = ModelFactory.load_config()
     model = ModelFactory.get_model(model_name, models_config)

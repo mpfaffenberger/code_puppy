@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from code_puppy.config import get_value
+from code_puppy.config import get_summarization_model_name, get_value
 
 CONFIG_KEYS: Final[tuple[str, ...]] = (
     "continuity_compaction_soft_trigger_ratio",
@@ -17,6 +17,7 @@ CONFIG_KEYS: Final[tuple[str, ...]] = (
     "continuity_compaction_archive_retention_days",
     "continuity_compaction_archive_retention_count",
     "continuity_compaction_semantic_task_detection",
+    "continuity_compaction_semantic_model",
     "continuity_compaction_semantic_timeout_seconds",
     "continuity_compaction_archive_retrieval_enabled",
     "continuity_compaction_archive_retrieval_count",
@@ -152,6 +153,19 @@ def get_continuity_compaction_semantic_task_detection() -> bool:
         "continuity_compaction_semantic_task_detection",
         True,
     )
+
+
+def get_continuity_compaction_semantic_model_name() -> str:
+    """Return the model used for Continuity semantic memory extraction.
+
+    The plugin-owned setting lets users tune the semantic memory call without
+    changing the legacy summarization strategy. If unset, Continuity inherits
+    Code Puppy's existing summarization model setting.
+    """
+    val = get_value("continuity_compaction_semantic_model")
+    if val and str(val).strip():
+        return str(val).strip()
+    return get_summarization_model_name()
 
 
 def get_continuity_compaction_semantic_timeout_seconds() -> int:

@@ -21,6 +21,7 @@ from code_puppy.plugins.continuity_compaction.config import (
     get_continuity_compaction_predicted_growth_floor_ratio,
     get_continuity_compaction_predictive_trigger_min_ratio,
     get_continuity_compaction_recent_raw_floor_ratio,
+    get_continuity_compaction_semantic_model_name,
     get_continuity_compaction_semantic_task_detection,
     get_continuity_compaction_semantic_timeout_seconds,
     get_continuity_compaction_soft_trigger_ratio,
@@ -149,6 +150,7 @@ class TestConfigExtendedPart2:
             "continuity_compaction_archive_retention_days": 30,
             "continuity_compaction_archive_retention_count": 500,
             "continuity_compaction_semantic_task_detection": True,
+            "continuity_compaction_semantic_model": None,
             "continuity_compaction_semantic_timeout_seconds": 60,
             "continuity_compaction_archive_retrieval_enabled": True,
             "continuity_compaction_archive_retrieval_count": 3,
@@ -173,6 +175,13 @@ class TestConfigExtendedPart2:
             assert get_continuity_compaction_archive_retention_days() == 30
             assert get_continuity_compaction_archive_retention_count() == 500
             assert get_continuity_compaction_semantic_task_detection() is True
+            with patch(
+                "code_puppy.plugins.continuity_compaction.config.get_summarization_model_name",
+                return_value="summary-model",
+            ):
+                assert (
+                    get_continuity_compaction_semantic_model_name() == "summary-model"
+                )
             assert get_continuity_compaction_semantic_timeout_seconds() == 60
             assert get_continuity_compaction_archive_retrieval_enabled() is True
             assert get_continuity_compaction_archive_retrieval_count() == 3
@@ -190,6 +199,7 @@ class TestConfigExtendedPart2:
             "continuity_compaction_archive_retention_days": "0",
             "continuity_compaction_archive_retention_count": "0",
             "continuity_compaction_semantic_task_detection": "false",
+            "continuity_compaction_semantic_model": "memory-model",
             "continuity_compaction_semantic_timeout_seconds": "0",
             "continuity_compaction_archive_retrieval_enabled": "false",
             "continuity_compaction_archive_retrieval_count": "999",
@@ -210,6 +220,7 @@ class TestConfigExtendedPart2:
             assert get_continuity_compaction_archive_retention_days() == 1
             assert get_continuity_compaction_archive_retention_count() == 1
             assert get_continuity_compaction_semantic_task_detection() is False
+            assert get_continuity_compaction_semantic_model_name() == "memory-model"
             assert get_continuity_compaction_semantic_timeout_seconds() == 1
             assert get_continuity_compaction_archive_retrieval_enabled() is False
             assert get_continuity_compaction_archive_retrieval_count() == 20

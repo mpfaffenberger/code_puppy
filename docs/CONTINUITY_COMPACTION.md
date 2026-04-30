@@ -38,6 +38,53 @@ Target trimming also pins the newest raw tail first, using
 `continuity_compaction_recent_raw_floor_ratio` (`20%` by default), so the final
 trim phase does not undercut the recent raw conversation just to hit target.
 
+## Configuration
+
+Continuity is opt-in:
+
+```text
+/set compaction_strategy=continuity
+```
+
+The plugin registers its own config keys, so they appear in `/set` help and can
+be changed the same way as core settings:
+
+```text
+/set continuity_compaction_semantic_model=gpt-5.4
+/set continuity_compaction_semantic_timeout_seconds=60
+/set continuity_compaction_soft_trigger_ratio=0.825
+/set continuity_compaction_predictive_trigger_min_ratio=0.725
+/set continuity_compaction_target_ratio=0.35
+/set continuity_compaction_recent_raw_floor_ratio=0.20
+/set continuity_compaction_emergency_trigger_ratio=0.90
+```
+
+`continuity_compaction_semantic_model` controls the semantic memory LLM call.
+If it is unset, Continuity inherits the existing `summarization_model` setting.
+Fallback summarization uses Code Puppy's existing summarization path, so users
+can tune that with `summarization_model`.
+
+Useful inspection commands:
+
+```text
+/continuity
+/continuity tasks
+/continuity archives search <query>
+/continuity archives show <id>
+/continuity diagnostics
+```
+
+## Practical Tradeoffs
+
+| Scenario | Truncation Risk | Summarization Risk | Continuity Behavior |
+|---|---|---|---|
+| A long coding session starts with OAuth work, then switches to dashboard work. | Early OAuth constraints can be deleted completely. | The summary may flatten task boundaries and make old constraints look current. | Keeps the original root, active task, task ledger, and task-scoped constraints separately. |
+| The agent reads huge files and test logs many times. | Old observations vanish, including useful failure signals. | Large outputs are compressed into prose that may omit exact status, tool name, or archive location. | Archives bulky raw observations locally and leaves deterministic capsules with tool name, status, checksum, token count, and signals. |
+| A later bug depends on an old failed test or invalidated hypothesis. | The failure may be outside the retained tail. | A summary can accidentally keep stale hypotheses as if still valid. | Tracks validation status, accepted decisions, invalidated hypotheses, and archive retrieval hints. |
+| The session runs through many compactions. | Repeated hard cuts can erase the roots of the session. | Repeated summaries can compound drift and lose task lifecycle. | Refreshes one bounded durable memory snapshot and preserves recent raw context separately. |
+| The model is about to perform a large next turn. | Compaction can happen too late, after context is already tight. | Same threshold issue unless manually compacted. | Predicts next-turn growth and compacts when the projected turn would cross the soft trigger. |
+| The user needs control over behavior. | Mostly controlled by global threshold/protected token settings. | Mostly controlled by summarization model/settings. | Exposes plugin-owned trigger, target, raw-tail, archive, retention, timeout, and semantic-model knobs. |
+
 ## Practical Before/After Example
 
 Imagine a session starts with "add OAuth login," inspects many files, runs
