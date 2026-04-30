@@ -51,6 +51,13 @@ from code_puppy.version_checker import default_version_mismatch_behavior
 plugins.load_plugin_callbacks()
 
 
+def _save_autosave_snapshot() -> bool:
+    """Persist the current autosave snapshot if autosave is enabled."""
+    from code_puppy.config import auto_save_session_if_enabled
+
+    return auto_save_session_if_enabled()
+
+
 async def main():
     """Main async entry point for Code Puppy CLI."""
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
@@ -332,6 +339,7 @@ async def main():
             # Default to interactive mode (no args = same as -i)
             await interactive_mode(message_renderer, initial_command=initial_command)
     finally:
+        _save_autosave_snapshot()
         if message_renderer:
             message_renderer.stop()
         if bus_renderer:
@@ -774,6 +782,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         from code_puppy.messaging import emit_warning
 
                         emit_warning("🍩 Wiggum loop stopped due to cancellation")
+                    _save_autosave_snapshot()
                     continue
                 # Get the structured response
                 agent_response = result.output
@@ -810,9 +819,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 get_queue_console().print_exception()
 
             # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
-            from code_puppy.config import auto_save_session_if_enabled
-
-            auto_save_session_if_enabled()
+            _save_autosave_snapshot()
 
             # ================================================================
             # WIGGUM LOOP: Re-run prompt if wiggum mode is active
@@ -882,7 +889,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     await asyncio.sleep(0.1)
 
                     # Auto-save
-                    auto_save_session_if_enabled()
+                    _save_autosave_snapshot()
 
                 except KeyboardInterrupt:
                     emit_warning("\n🍩 Wiggum loop interrupted by Ctrl+C")
@@ -1046,6 +1053,8 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         from code_puppy.messaging import emit_error
 
         emit_error(f"Error executing prompt: {str(e)}")
+    finally:
+        _save_autosave_snapshot()
 
 
 def main_entry():
