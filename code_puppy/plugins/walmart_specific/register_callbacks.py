@@ -26,6 +26,9 @@ from code_puppy.plugins.walmart_specific.auth import (
     is_puppy_token_valid,
     set_auth_callback_port,
 )
+from code_puppy.plugins.walmart_specific.devcontainer_detection import (
+    get_devcontainer_callback_url,
+)
 from code_puppy.plugins.walmart_specific.auto_update import _handle_update
 from code_puppy.plugins.walmart_specific.model_config_fetcher import ModelConfigFetcher
 from code_puppy.plugins.walmart_specific.pingfed_auth import (
@@ -153,13 +156,23 @@ register_callback("register_mcp_catalog_servers", get_walmart_mcp_servers)
 
 
 async def auth_flow() -> None:
-    # HTTP server starts silently in the background
+    """Execute the authentication flow at startup.
 
+    In devcontainer/remote environments, detects the proxy URL and passes
+    a full callback URL to the auth site instead of just a port number.
+    """
     # Find an available port before starting the HTTP server
     available_port = find_available_port()
 
     # Remember the port so we can re-auth on demand (e.g. after a 401).
     set_auth_callback_port(available_port)
+
+    # Check for devcontainer environment and get callback URL
+    callback_url = get_devcontainer_callback_url(available_port)
+
+    # Determine host binding - use 0.0.0.0 in remote environments
+    # to allow proxy connections, 127.0.0.1 otherwise for security
+    host = "0.0.0.0" if callback_url else "127.0.0.1"
 
     # Start the HTTP server in the background
     async def run_http_server() -> None:
@@ -168,7 +181,7 @@ async def auth_flow() -> None:
 
             config = uvicorn.Config(
                 http_app,
-                host="127.0.0.1",
+                host=host,
                 port=available_port,
                 log_level="critical",  # suppress most logs
                 access_log=False,  # suppress access logs
@@ -190,7 +203,7 @@ async def auth_flow() -> None:
 
     register_callback("shutdown", shutdown_http_server)
 
-    auth_success = await authenticate_puppy(available_port)
+    auth_success = await authenticate_puppy(available_port, callback_url=callback_url)
 
     if not auth_success:
         emit_warning(
