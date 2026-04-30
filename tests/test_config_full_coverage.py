@@ -223,7 +223,7 @@ class TestNumericGetters:
 
     def test_get_compaction_strategy_invalid(self):
         cp_config.set_config_value("compaction_strategy", "invalid")
-        assert cp_config.get_compaction_strategy() == "truncation"
+        assert cp_config.get_compaction_strategy() == "continuity"
 
     def test_get_message_limit_default(self):
         cp_config.reset_value("message_limit")

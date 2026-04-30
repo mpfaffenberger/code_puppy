@@ -1,9 +1,9 @@
 # Continuity Compaction
 
-Continuity is an opt-in compaction strategy for long coding sessions:
+Continuity is the default compaction strategy for long coding sessions:
 
 ```text
-/set compaction_strategy continuity
+/set compaction_strategy=continuity
 ```
 
 It is implemented as a built-in plugin under
@@ -40,7 +40,7 @@ trim phase does not undercut the recent raw conversation just to hit target.
 
 ## Configuration
 
-Continuity is opt-in:
+Continuity is the default strategy. Users can still explicitly set it:
 
 ```text
 /set compaction_strategy=continuity

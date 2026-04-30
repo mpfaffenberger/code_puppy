@@ -1259,7 +1259,7 @@ def get_compaction_strategy() -> str:
     Returns the user-configured compaction strategy.
     Built-in options are 'summarization' and 'truncation'. Plugins may register
     additional strategy names through callbacks.
-    Defaults to 'truncation' if not set or misconfigured.
+    Defaults to 'continuity' if not set or misconfigured.
     Configurable by 'compaction_strategy' key.
     """
     val = get_value("compaction_strategy")
@@ -1267,8 +1267,7 @@ def get_compaction_strategy() -> str:
         normalized = val.lower()
         if normalized in get_compaction_strategy_names():
             return normalized
-    # Default to truncation for backward compatibility with current behavior.
-    return "truncation"
+    return "continuity"
 
 
 def get_compaction_strategy_names() -> set[str]:

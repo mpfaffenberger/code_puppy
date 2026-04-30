@@ -77,7 +77,7 @@ class TestConfigExtendedPart2:
         with patch("code_puppy.config.get_value") as mock_get:
             mock_get.return_value = None
             result = get_compaction_strategy()
-            assert result == "truncation"  # Default value
+            assert result == "continuity"  # Default value
             mock_get.assert_called_once_with("compaction_strategy")
 
         # Test built-in strategies
@@ -103,7 +103,7 @@ class TestConfigExtendedPart2:
         with patch("code_puppy.config.get_value") as mock_get:
             mock_get.return_value = "invalid_strategy"
             result = get_compaction_strategy()
-            assert result == "truncation"  # Default fallback
+            assert result == "continuity"  # Default fallback
 
     def test_get_compaction_threshold(self, mock_config_file):
         """Test getting compaction threshold configuration"""
@@ -331,7 +331,7 @@ class TestConfigExtendedPart2:
             mock_get.return_value = "  summarization  "
             result = get_compaction_strategy()
             # The actual implementation doesn't strip whitespace, so it falls back to default
-            assert result == "truncation"  # Default fallback for non-exact match
+            assert result == "continuity"  # Default fallback for non-exact match
 
         # Test compaction strategy with exact match
         with patch("code_puppy.config.get_value") as mock_get:

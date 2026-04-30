@@ -1,7 +1,7 @@
 # Continuity Compaction Live Evaluation
 
 This note records the live model comparison run used to sanity-check the new
-opt-in `compaction_strategy=continuity` implementation against Code Puppy's
+default `compaction_strategy=continuity` implementation against Code Puppy's
 legacy compaction strategies.
 
 The reusable benchmark harness is `scripts/live_compaction_qa_eval.py`. The
