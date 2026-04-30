@@ -7,6 +7,11 @@ from code_puppy.config import (
     get_agent_pinned_model,
     get_compaction_strategy,
     get_compaction_threshold,
+    get_use_dbos,
+    load_mcp_server_configs,
+    set_agent_pinned_model,
+)
+from code_puppy.plugins.continuity_compaction.config import (
     get_continuity_compaction_archive_retention_count,
     get_continuity_compaction_archive_retention_days,
     get_continuity_compaction_archive_retrieval_count,
@@ -21,9 +26,6 @@ from code_puppy.config import (
     get_continuity_compaction_soft_trigger_ratio,
     get_continuity_compaction_target_ratio,
     get_continuity_compaction_task_retention_count,
-    get_use_dbos,
-    load_mcp_server_configs,
-    set_agent_pinned_model,
 )
 
 
@@ -77,12 +79,24 @@ class TestConfigExtendedPart2:
             assert result == "truncation"  # Default value
             mock_get.assert_called_once_with("compaction_strategy")
 
-        # Test valid strategies
-        for strategy in ["summarization", "truncation", "continuity"]:
+        # Test built-in strategies
+        for strategy in ["summarization", "truncation"]:
             with patch("code_puppy.config.get_value") as mock_get:
                 mock_get.return_value = strategy.upper()  # Test case normalization
                 result = get_compaction_strategy()
                 assert result == strategy.lower()
+
+        # Test plugin strategies registered through callbacks.
+        with (
+            patch("code_puppy.config.get_value") as mock_get,
+            patch(
+                "code_puppy.config.get_compaction_strategy_names",
+                return_value={"summarization", "truncation", "continuity"},
+            ),
+        ):
+            mock_get.return_value = "CONTINUITY"
+            result = get_compaction_strategy()
+            assert result == "continuity"
 
         # Test invalid strategy falls back to default
         with patch("code_puppy.config.get_value") as mock_get:
@@ -145,7 +159,10 @@ class TestConfigExtendedPart2:
             assert key in defaults
             return None
 
-        with patch("code_puppy.config.get_value", side_effect=fake_get):
+        with patch(
+            "code_puppy.plugins.continuity_compaction.config.get_value",
+            side_effect=fake_get,
+        ):
             assert get_continuity_compaction_soft_trigger_ratio() == 0.825
             assert get_continuity_compaction_emergency_trigger_ratio() == 0.9
             assert get_continuity_compaction_target_ratio() == 0.35
@@ -179,7 +196,10 @@ class TestConfigExtendedPart2:
             "continuity_compaction_task_retention_count": "0",
         }
 
-        with patch("code_puppy.config.get_value", side_effect=values.get):
+        with patch(
+            "code_puppy.plugins.continuity_compaction.config.get_value",
+            side_effect=values.get,
+        ):
             assert get_continuity_compaction_soft_trigger_ratio() == 0.5
             assert get_continuity_compaction_emergency_trigger_ratio() == 0.98
             assert get_continuity_compaction_target_ratio() == 0.9

@@ -29,7 +29,8 @@ from pydantic_ai.messages import (
 import code_puppy.config as cp_config
 from code_puppy.agents import _compaction
 from code_puppy.agents._history import estimate_tokens_for_message
-from code_puppy.agents.continuity_compaction.storage import (
+import code_puppy.plugins.continuity_compaction.register_callbacks  # noqa: F401
+from code_puppy.plugins.continuity_compaction.storage import (
     MASKED_OBSERVATION_MARKER,
     observations_dir,
 )

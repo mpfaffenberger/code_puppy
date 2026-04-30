@@ -838,6 +838,7 @@ class TestRun:
         m = _make_model()
         p = _make_provider(env=[])
         menu = _make_menu_with_providers([p])
+        mock_input.return_value = "test-credential"
         mock_app = MagicMock()
         mock_app_cls.return_value = mock_app
 

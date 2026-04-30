@@ -12,15 +12,15 @@ from typing import Any, Iterable
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 from pydantic_ai.models import ModelRequestParameters
 
-from code_puppy.agents.continuity_compaction.storage import (
+from code_puppy.plugins.continuity_compaction.storage import (
     DurableState,
     TASK_STATUSES,
     TaskMemory,
 )
-from code_puppy.config import (
+from code_puppy.config import get_summarization_model_name
+from code_puppy.plugins.continuity_compaction.config import (
     get_continuity_compaction_semantic_task_detection,
     get_continuity_compaction_semantic_timeout_seconds,
-    get_summarization_model_name,
 )
 from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.model_utils import prepare_prompt_for_model

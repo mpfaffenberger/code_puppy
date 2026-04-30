@@ -88,7 +88,11 @@ def test_set_compaction_strategy_continuity():
             with open(code_puppy.config.CONFIG_FILE, "w") as f:
                 config.write(f)
 
-            strategy = get_compaction_strategy()
+            with patch(
+                "code_puppy.config.get_compaction_strategy_names",
+                return_value={"summarization", "truncation", "continuity"},
+            ):
+                strategy = get_compaction_strategy()
             assert strategy == "continuity"
         finally:
             code_puppy.config.CONFIG_DIR = original_config_dir

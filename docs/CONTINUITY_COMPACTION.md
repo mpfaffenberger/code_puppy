@@ -6,6 +6,11 @@ Continuity is an opt-in compaction strategy for long coding sessions:
 /set compaction_strategy continuity
 ```
 
+It is implemented as a built-in plugin under
+`code_puppy/plugins/continuity_compaction/`. Core only exposes generic
+callbacks for strategy registration, config-key discovery, and message-history
+compaction.
+
 The strategy is designed to preserve working state rather than preserve the
 entire conversation as a raw transcript. It keeps a recent raw tail, injects a
 durable memory snapshot, masks old bulky tool observations, and only falls back

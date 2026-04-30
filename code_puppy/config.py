@@ -299,20 +299,6 @@ def get_config_keys():
         "compaction_strategy",
         "protected_token_count",
         "compaction_threshold",
-        "continuity_compaction_soft_trigger_ratio",
-        "continuity_compaction_emergency_trigger_ratio",
-        "continuity_compaction_target_ratio",
-        "continuity_compaction_recent_raw_floor_ratio",
-        "continuity_compaction_predicted_growth_floor_ratio",
-        "continuity_compaction_predictive_trigger_min_ratio",
-        "continuity_compaction_growth_history_window",
-        "continuity_compaction_archive_retention_days",
-        "continuity_compaction_archive_retention_count",
-        "continuity_compaction_semantic_task_detection",
-        "continuity_compaction_semantic_timeout_seconds",
-        "continuity_compaction_archive_retrieval_enabled",
-        "continuity_compaction_archive_retrieval_count",
-        "continuity_compaction_task_retention_count",
         "summarization_model",
         "message_limit",
         "allow_recursion",
@@ -351,7 +337,33 @@ def get_config_keys():
     config.read(CONFIG_FILE)
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
     keys.update(default_keys)
+    keys.update(_get_plugin_config_keys())
     return sorted(keys)
+
+
+def _get_plugin_config_keys() -> set[str]:
+    """Return config keys registered by loaded plugins."""
+    try:
+        from code_puppy.callbacks import on_register_config_keys
+
+        results = on_register_config_keys()
+    except Exception:
+        return set()
+
+    keys: set[str] = set()
+    for result in results:
+        if not result:
+            continue
+        if isinstance(result, str):
+            keys.add(result)
+            continue
+        try:
+            for item in result:
+                if isinstance(item, str) and item:
+                    keys.add(item)
+        except TypeError:
+            continue
+    return keys
 
 
 def set_config_value(key: str, value: str):
@@ -1245,193 +1257,45 @@ def get_compaction_threshold():
 def get_compaction_strategy() -> str:
     """
     Returns the user-configured compaction strategy.
-    Options are 'summarization', 'truncation', or 'continuity'.
+    Built-in options are 'summarization' and 'truncation'. Plugins may register
+    additional strategy names through callbacks.
     Defaults to 'truncation' if not set or misconfigured.
     Configurable by 'compaction_strategy' key.
     """
     val = get_value("compaction_strategy")
-    if val and val.lower() in ["summarization", "truncation", "continuity"]:
-        return val.lower()
+    if val:
+        normalized = val.lower()
+        if normalized in get_compaction_strategy_names():
+            return normalized
     # Default to truncation for backward compatibility with current behavior.
     return "truncation"
 
 
-def _get_bounded_float_config(
-    key: str,
-    default: float,
-    *,
-    minimum: float,
-    maximum: float,
-) -> float:
-    val = get_value(key)
+def get_compaction_strategy_names() -> set[str]:
+    """Return built-in and plugin-registered compaction strategy names."""
+    names = {"summarization", "truncation"}
     try:
-        parsed = float(val) if val else default
-    except (ValueError, TypeError):
-        return default
-    return max(minimum, min(maximum, parsed))
+        from code_puppy.callbacks import on_register_compaction_strategies
 
+        results = on_register_compaction_strategies()
+    except Exception:
+        return names
 
-def _get_bounded_int_config(
-    key: str,
-    default: int,
-    *,
-    minimum: int,
-    maximum: int,
-) -> int:
-    val = get_value(key)
-    try:
-        parsed = int(val) if val else default
-    except (ValueError, TypeError):
-        return default
-    return max(minimum, min(maximum, parsed))
-
-
-def _get_bool_config(key: str, default: bool) -> bool:
-    val = get_value(key)
-    if val is None:
-        return default
-    normalized = str(val).strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
-def get_continuity_compaction_soft_trigger_ratio() -> float:
-    """Context-window ratio that starts predictive continuity compaction."""
-    return _get_bounded_float_config(
-        "continuity_compaction_soft_trigger_ratio",
-        0.825,
-        minimum=0.5,
-        maximum=0.95,
-    )
-
-
-def get_continuity_compaction_emergency_trigger_ratio() -> float:
-    """Context-window ratio that activates emergency continuity compaction."""
-    return _get_bounded_float_config(
-        "continuity_compaction_emergency_trigger_ratio",
-        0.9,
-        minimum=0.6,
-        maximum=0.98,
-    )
-
-
-def get_continuity_compaction_target_ratio() -> float:
-    """Context-window ratio continuity compaction tries to reach."""
-    return _get_bounded_float_config(
-        "continuity_compaction_target_ratio",
-        0.35,
-        minimum=0.2,
-        maximum=0.9,
-    )
-
-
-def get_continuity_compaction_recent_raw_floor_ratio() -> float:
-    """Context-window ratio kept raw at the recent end of history."""
-    return _get_bounded_float_config(
-        "continuity_compaction_recent_raw_floor_ratio",
-        0.2,
-        minimum=0.05,
-        maximum=0.75,
-    )
-
-
-def get_continuity_compaction_predicted_growth_floor_ratio() -> float:
-    """Minimum predicted next-turn growth as a context-window ratio."""
-    return _get_bounded_float_config(
-        "continuity_compaction_predicted_growth_floor_ratio",
-        0.06,
-        minimum=0.0,
-        maximum=0.5,
-    )
-
-
-def get_continuity_compaction_predictive_trigger_min_ratio() -> float:
-    """Minimum current context ratio before predictive continuity compaction may fire."""
-    return _get_bounded_float_config(
-        "continuity_compaction_predictive_trigger_min_ratio",
-        0.725,
-        minimum=0.5,
-        maximum=0.95,
-    )
-
-
-def get_continuity_compaction_growth_history_window() -> int:
-    """Number of recent growth observations used by continuity compaction prediction."""
-    return _get_bounded_int_config(
-        "continuity_compaction_growth_history_window",
-        10,
-        minimum=1,
-        maximum=100,
-    )
-
-
-def get_continuity_compaction_archive_retention_days() -> int:
-    """Number of days to retain continuity-compaction observation archives."""
-    return _get_bounded_int_config(
-        "continuity_compaction_archive_retention_days",
-        30,
-        minimum=1,
-        maximum=3650,
-    )
-
-
-def get_continuity_compaction_archive_retention_count() -> int:
-    """Maximum continuity-compaction observation archives retained per session."""
-    return _get_bounded_int_config(
-        "continuity_compaction_archive_retention_count",
-        500,
-        minimum=1,
-        maximum=100000,
-    )
-
-
-def get_continuity_compaction_semantic_task_detection() -> bool:
-    """Whether continuity compaction may use the summarization model for task state."""
-    return _get_bool_config(
-        "continuity_compaction_semantic_task_detection",
-        True,
-    )
-
-
-def get_continuity_compaction_semantic_timeout_seconds() -> int:
-    """Maximum wait for one continuity semantic-memory call."""
-    return _get_bounded_int_config(
-        "continuity_compaction_semantic_timeout_seconds",
-        60,
-        minimum=1,
-        maximum=120,
-    )
-
-
-def get_continuity_compaction_archive_retrieval_enabled() -> bool:
-    """Whether continuity compaction injects short relevant archive signals."""
-    return _get_bool_config(
-        "continuity_compaction_archive_retrieval_enabled",
-        True,
-    )
-
-
-def get_continuity_compaction_archive_retrieval_count() -> int:
-    """Number of archive signal snippets retrieved during continuity compaction."""
-    return _get_bounded_int_config(
-        "continuity_compaction_archive_retrieval_count",
-        3,
-        minimum=0,
-        maximum=20,
-    )
-
-
-def get_continuity_compaction_task_retention_count() -> int:
-    """Maximum number of task lifecycle entries kept in durable memory."""
-    return _get_bounded_int_config(
-        "continuity_compaction_task_retention_count",
-        100,
-        minimum=1,
-        maximum=1000,
-    )
+    for result in results:
+        if not result:
+            continue
+        items = result if isinstance(result, (list, tuple, set)) else [result]
+        for item in items:
+            name = None
+            if isinstance(item, str):
+                name = item
+            elif isinstance(item, dict):
+                raw_name = item.get("name")
+                if isinstance(raw_name, str):
+                    name = raw_name
+            if name:
+                names.add(name.strip().lower())
+    return names
 
 
 def get_http2() -> bool:

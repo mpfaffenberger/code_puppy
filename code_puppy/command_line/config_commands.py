@@ -34,16 +34,8 @@ def handle_show_command(command: str) -> bool:
     from code_puppy.config import (
         get_auto_save_session,
         get_compaction_strategy,
+        get_compaction_strategy_names,
         get_compaction_threshold,
-        get_continuity_compaction_emergency_trigger_ratio,
-        get_continuity_compaction_archive_retrieval_count,
-        get_continuity_compaction_archive_retrieval_enabled,
-        get_continuity_compaction_semantic_task_detection,
-        get_continuity_compaction_semantic_timeout_seconds,
-        get_continuity_compaction_soft_trigger_ratio,
-        get_continuity_compaction_predictive_trigger_min_ratio,
-        get_continuity_compaction_task_retention_count,
-        get_continuity_compaction_target_ratio,
         get_default_agent,
         get_effective_temperature,
         get_openai_reasoning_effort,
@@ -69,17 +61,7 @@ def handle_show_command(command: str) -> bool:
     protected_tokens = get_protected_token_count()
     compaction_threshold = get_compaction_threshold()
     compaction_strategy = get_compaction_strategy()
-    continuity_soft = get_continuity_compaction_soft_trigger_ratio()
-    continuity_predictive_min = get_continuity_compaction_predictive_trigger_min_ratio()
-    continuity_target = get_continuity_compaction_target_ratio()
-    continuity_emergency = get_continuity_compaction_emergency_trigger_ratio()
-    continuity_semantic_tasks = get_continuity_compaction_semantic_task_detection()
-    continuity_semantic_timeout = get_continuity_compaction_semantic_timeout_seconds()
-    continuity_archive_retrieval = get_continuity_compaction_archive_retrieval_enabled()
-    continuity_archive_retrieval_count = (
-        get_continuity_compaction_archive_retrieval_count()
-    )
-    continuity_task_retention = get_continuity_compaction_task_retention_count()
+    compaction_strategy_names = ", ".join(sorted(get_compaction_strategy_names()))
     global_temperature = get_temperature()
     effective_temperature = get_effective_temperature(model)
 
@@ -99,8 +81,7 @@ def handle_show_command(command: str) -> bool:
 [bold]auto_save_session:[/bold]     {"[green]enabled[/green]" if auto_save else "[yellow]disabled[/yellow]"}
 [bold]protected_tokens:[/bold]      [cyan]{protected_tokens:,}[/cyan] recent tokens preserved
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
-[bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (continuity, summarization, or truncation)
-[bold]continuity_compaction:[/bold] [cyan]soft {continuity_soft:.1%}, predictive_min {continuity_predictive_min:.1%}, target {continuity_target:.1%}, emergency {continuity_emergency:.1%}, semantic_memory {"on" if continuity_semantic_tasks else "off"} ({continuity_semantic_timeout}s), archive_retrieval {"on" if continuity_archive_retrieval else "off"} x{continuity_archive_retrieval_count}, tasks {continuity_task_retention}[/cyan]
+[bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] ({compaction_strategy_names})
 [bold]resume_message_count:[/bold] [cyan]{get_resume_message_count()}[/cyan] messages shown on /resume
 [bold]reasoning_effort:[/bold]      [cyan]{get_openai_reasoning_effort()}[/cyan]
 [bold]verbosity:[/bold]             [cyan]{get_openai_verbosity()}[/cyan]
@@ -220,9 +201,12 @@ def handle_set_command(command: str) -> bool:
         key = tokens[1]
         value = ""
     else:
+        from code_puppy.config import get_compaction_strategy_names
+
         config_keys = get_config_keys()
         if "compaction_strategy" not in config_keys:
             config_keys.append("compaction_strategy")
+        compaction_strategies = ", ".join(sorted(get_compaction_strategy_names()))
         session_help = (
             "\n[yellow]Session Management[/yellow]"
             "\n  [cyan]auto_save_session[/cyan]    Auto-save chat after every response (true/false)"
@@ -233,7 +217,7 @@ def handle_set_command(command: str) -> bool:
         )
         emit_warning(
             Text.from_markup(
-                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'continuity', 'summarization', or 'truncation'[/dim]{session_help}{keymap_help}"
+                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be one of: {compaction_strategies}[/dim]{session_help}{keymap_help}"
             )
         )
         return True

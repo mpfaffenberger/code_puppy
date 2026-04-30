@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from code_puppy.config import (
+from code_puppy.plugins.continuity_compaction.config import (
     get_continuity_compaction_archive_retention_count,
     get_continuity_compaction_archive_retention_days,
     get_continuity_compaction_archive_retrieval_count,

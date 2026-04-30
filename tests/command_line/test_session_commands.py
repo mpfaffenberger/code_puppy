@@ -91,8 +91,7 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="truncation",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=50),
-            patch("code_puppy.agents._compaction.truncate", return_value=["m3"]),
+            patch("code_puppy.agents._compaction.compact", return_value=(["m3"], [])),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as ms,
         ):
@@ -114,7 +113,10 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=50),
+            patch(
+                "code_puppy.agents._compaction.compact",
+                return_value=(["summary"], ["m1"]),
+            ),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as ms,
         ):
@@ -135,7 +137,7 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=50),
+            patch("code_puppy.agents._compaction.compact", return_value=([], [])),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_error") as me,
         ):
@@ -168,7 +170,7 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=0),
+            patch("code_puppy.agents._compaction.compact", return_value=(["s"], [])),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success"),
         ):
@@ -177,16 +179,20 @@ class TestHandleCompactCommand:
 
 class TestHandleContinuityCommand:
     def _run(self, cmd="/continuity"):
-        from code_puppy.command_line.session_commands import handle_continuity_command
+        from code_puppy.plugins.continuity_compaction.register_callbacks import (
+            _handle_continuity_command,
+        )
 
-        return handle_continuity_command(cmd)
+        return _handle_continuity_command(cmd)
 
     def _agent_with_memory(self, tmp_path, monkeypatch):
         import code_puppy.config as cp_config
-        from code_puppy.agents.continuity_compaction.storage import (
+        from code_puppy.plugins.continuity_compaction.archives import (
+            archive_observation,
+        )
+        from code_puppy.plugins.continuity_compaction.storage import (
             DurableState,
             TaskMemory,
-            archive_observation,
             write_durable_state,
         )
 

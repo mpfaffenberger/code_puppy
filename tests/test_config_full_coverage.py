@@ -214,7 +214,12 @@ class TestNumericGetters:
         cp_config.set_config_value("compaction_strategy", "truncation")
         assert cp_config.get_compaction_strategy() == "truncation"
         cp_config.set_config_value("compaction_strategy", "continuity")
-        assert cp_config.get_compaction_strategy() == "continuity"
+        with patch.object(
+            cp_config,
+            "get_compaction_strategy_names",
+            return_value={"summarization", "truncation", "continuity"},
+        ):
+            assert cp_config.get_compaction_strategy() == "continuity"
 
     def test_get_compaction_strategy_invalid(self):
         cp_config.set_config_value("compaction_strategy", "invalid")

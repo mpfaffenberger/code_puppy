@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import dataclasses
-import json
 import math
 import re
 from typing import Any, Iterable
@@ -20,34 +19,48 @@ from code_puppy.agents._history import (
     hash_message,
     prune_interrupted_tool_calls,
 )
-from code_puppy.agents.continuity_compaction.settings import (
+from code_puppy.plugins.continuity_compaction.settings import (
     ContinuityCompactionSettings,
     load_continuity_compaction_settings,
 )
-from code_puppy.agents.continuity_compaction.storage import (
+from code_puppy.plugins.continuity_compaction.signals import (
+    SIGNAL_RE as _SIGNAL_RE,
+    content_text as _content_text,
+    dedupe_nonempty as _dedupe_nonempty,
+    extract_key_signal as _extract_key_signal,
+    extract_key_signals as _extract_key_signals,
+    extract_paths as _extract_paths,
+    messages_to_text as _messages_to_text,
+    status_from_text as _status_from_text,
+)
+from code_puppy.plugins.continuity_compaction.archives import (
+    archive_observation,
+    archive_signal_from_record,
+    build_archive_index,
+    cleanup_observation_archives,
+    render_masked_observation,
+    search_archive_index,
+)
+from code_puppy.plugins.continuity_compaction.storage import (
     DURABLE_MEMORY_MARKER,
     MASKED_OBSERVATION_MARKER,
     STRUCTURED_SUMMARY_MARKER,
     ArchiveSignal,
     DurableState,
     TaskMemory,
-    archive_observation,
-    archive_signal_from_record,
-    build_archive_index,
-    cleanup_observation_archives,
     read_durable_state,
     render_durable_state,
-    render_masked_observation,
-    search_archive_index,
     write_durable_state,
 )
-from code_puppy.agents.continuity_compaction.task_detection import (
+from code_puppy.plugins.continuity_compaction.task_detection import (
     SemanticMemoryState,
     resolve_semantic_task_state as _legacy_resolve_semantic_task_state,
     resolve_semantic_memory_state,
 )
-from code_puppy.config import get_continuity_compaction_semantic_task_detection
 from code_puppy.messaging import emit_info, emit_success, emit_warning
+from code_puppy.plugins.continuity_compaction.config import (
+    get_continuity_compaction_semantic_task_detection,
+)
 
 _TOOL_CALL_KINDS = {"tool-call", "builtin-tool-call"}
 _TOOL_RETURN_KINDS = {"tool-return", "builtin-tool-return"}
@@ -55,14 +68,6 @@ _MESSAGE_GROUP = "token_context_status"
 _TASK_LEDGER_LIMIT = 16
 _TASK_TEXT_LIMIT = 320
 resolve_semantic_task_state = _legacy_resolve_semantic_task_state
-_PATH_RE = re.compile(
-    r"(?:\.{0,2}/|/)?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*"
-    r"\.(?:py|pyi|js|jsx|ts|tsx|json|toml|yaml|yml|md|txt|go|rs|java|c|cc|cpp|h|hpp|css|html)"
-)
-_SIGNAL_RE = re.compile(
-    r"(error|failed|failure|exception|traceback|assertion|exit code|exit_code)",
-    re.IGNORECASE,
-)
 _TASK_START_RE = re.compile(
     r"\b("
     r"new task|switch(?:ing)? tasks?|different task|separate task|"
@@ -620,20 +625,6 @@ def _extract_next_actions(lines: list[str]) -> list[str]:
         if marker in lowered:
             actions.append(line[lowered.index(marker) + len(marker) :].strip())
     return actions
-
-
-def _dedupe_nonempty(items: Iterable[str], limit: int) -> list[str]:
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for item in items:
-        value = str(item).strip()
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        deduped.append(value[:300])
-        if len(deduped) >= limit:
-            break
-    return deduped
 
 
 def _trim_to_target(
@@ -1328,64 +1319,3 @@ def _extract_matching_lines(text: str, needles: tuple[str, ...]) -> list[str]:
         if len(found) >= 8:
             break
     return found
-
-
-def _content_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    try:
-        return json.dumps(content, sort_keys=True, default=str)
-    except TypeError:
-        return str(content)
-
-
-def _messages_to_text(messages: Iterable[Any]) -> str:
-    chunks: list[str] = []
-    for message in messages:
-        for part in getattr(message, "parts", []) or []:
-            if hasattr(part, "content"):
-                chunks.append(_content_text(getattr(part, "content")))
-            elif hasattr(part, "args"):
-                chunks.append(_content_text(getattr(part, "args")))
-    return "\n".join(chunk for chunk in chunks if chunk)
-
-
-def _extract_paths(text: str) -> list[str]:
-    seen: set[str] = set()
-    paths: list[str] = []
-    for match in _PATH_RE.findall(text):
-        if match not in seen:
-            seen.add(match)
-            paths.append(match)
-    return paths
-
-
-def _extract_key_signal(text: str) -> str:
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if line and _SIGNAL_RE.search(line):
-            return line[:300]
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if line:
-            return line[:300]
-    return "no textual signal"
-
-
-def _extract_key_signals(text: str) -> list[str]:
-    signals: list[str] = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if line and (_SIGNAL_RE.search(line) or _PATH_RE.search(line)):
-            signals.append(line[:300])
-        if len(signals) >= 8:
-            break
-    if not signals:
-        first = _extract_key_signal(text)
-        if first:
-            signals.append(first)
-    return _dedupe_nonempty(signals, limit=8)
-
-
-def _status_from_text(text: str) -> str:
-    return "failed" if _SIGNAL_RE.search(text) else "completed"

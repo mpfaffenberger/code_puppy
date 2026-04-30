@@ -16,28 +16,30 @@ from pydantic_ai.messages import (
 )
 
 from code_puppy.agents import _compaction
-from code_puppy.agents.continuity_compaction import engine
-from code_puppy.agents.continuity_compaction import task_detection
-from code_puppy.agents.continuity_compaction.settings import (
+from code_puppy.plugins.continuity_compaction import engine
+from code_puppy.plugins.continuity_compaction import task_detection
+from code_puppy.plugins.continuity_compaction.settings import (
     ContinuityCompactionSettings,
     load_continuity_compaction_settings,
 )
-from code_puppy.agents.continuity_compaction.storage import (
+from code_puppy.plugins.continuity_compaction.storage import (
     DURABLE_MEMORY_MARKER,
     MASKED_OBSERVATION_MARKER,
     STRUCTURED_SUMMARY_MARKER,
     DurableState,
     TaskMemory,
-    archive_observation,
-    build_archive_index,
-    cleanup_observation_archives,
     durable_state_path,
     observations_dir,
     read_durable_state,
     render_durable_state,
+)
+from code_puppy.plugins.continuity_compaction.archives import (
+    archive_observation,
+    build_archive_index,
+    cleanup_observation_archives,
     search_archive_index,
 )
-from code_puppy.agents.continuity_compaction.task_detection import (
+from code_puppy.plugins.continuity_compaction.task_detection import (
     SemanticMemoryState,
 )
 
@@ -135,6 +137,12 @@ def _bulky_history() -> list[ModelMessage]:
 
 
 def _patch_continuity_strategy(monkeypatch):
+    from code_puppy.callbacks import register_callback
+    from code_puppy.plugins.continuity_compaction import register_callbacks
+
+    register_callback(
+        "compact_message_history", register_callbacks._compact_message_history
+    )
     monkeypatch.setattr(_compaction, "get_compaction_strategy", lambda: "continuity")
     monkeypatch.setattr(engine, "resolve_semantic_memory_state", lambda **_kwargs: None)
 

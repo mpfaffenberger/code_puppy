@@ -36,6 +36,9 @@ PhaseType = Literal[
     "register_mcp_catalog_servers",
     "register_browser_types",
     "register_model_providers",
+    "register_config_keys",
+    "register_compaction_strategies",
+    "compact_message_history",
     "message_history_processor_start",
     "message_history_processor_end",
     "on_message",
@@ -75,6 +78,9 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_mcp_catalog_servers": [],
     "register_browser_types": [],
     "register_model_providers": [],
+    "register_config_keys": [],
+    "register_compaction_strategies": [],
+    "compact_message_history": [],
     "message_history_processor_start": [],
     "message_history_processor_end": [],
     "on_message": [],
@@ -701,6 +707,58 @@ def on_register_model_providers() -> List[Any]:
         List of dicts from all registered callbacks.
     """
     return _trigger_callbacks_sync("register_model_providers")
+
+
+def on_register_config_keys() -> List[Any]:
+    """Collect additional config keys exposed by plugins.
+
+    Each callback may return a list/tuple/set of config key strings, a single
+    string key, or ``None``. Core treats this as discoverability only; config
+    persistence still accepts arbitrary keys for backward compatibility.
+    """
+    return _trigger_callbacks_sync("register_config_keys")
+
+
+def on_register_compaction_strategies() -> List[Any]:
+    """Collect plugin-provided compaction strategy declarations.
+
+    Each callback may return strings or dicts with at least ``{"name": str}``.
+    The names extend the accepted ``compaction_strategy`` values; actual
+    compaction behavior is supplied through ``compact_message_history``.
+    """
+    return _trigger_callbacks_sync("register_compaction_strategies")
+
+
+def on_compact_message_history(
+    strategy: str,
+    agent: Any,
+    messages: List[Any],
+    model_max: int,
+    context_overhead: int,
+    model_name: str | None = None,
+    force: bool = False,
+    total_tokens: int | None = None,
+    proportion_used: float | None = None,
+) -> List[Any]:
+    """Allow plugins to handle message-history compaction.
+
+    A callback should return ``None`` when it does not handle ``strategy``. To
+    handle compaction, return a dict with ``handled=True``, ``messages`` set to
+    the rebuilt message list, and ``dropped``/``dropped_messages`` set to the
+    source messages removed from live history for compacted-hash tracking.
+    """
+    return _trigger_callbacks_sync(
+        "compact_message_history",
+        strategy,
+        agent,
+        messages,
+        model_max,
+        context_overhead,
+        model_name,
+        force,
+        total_tokens,
+        proportion_used,
+    )
 
 
 def on_message_history_processor_start(

@@ -268,9 +268,10 @@ class TestSimpleGetters:
 
 
 class TestGetConfigKeys:
+    @patch("code_puppy.config._get_plugin_config_keys", return_value=set())
     @patch("configparser.ConfigParser")
     def test_get_config_keys_with_existing_keys(
-        self, mock_config_parser_class, mock_config_paths
+        self, mock_config_parser_class, _mock_plugin_keys, mock_config_paths
     ):
         _, mock_cfg_file = mock_config_paths
         mock_parser_instance = MagicMock()
@@ -331,27 +332,14 @@ class TestGetConfigKeys:
                 "resume_message_count",
                 "summarization_model",
                 "temperature",
-                "continuity_compaction_archive_retention_count",
-                "continuity_compaction_archive_retention_days",
-                "continuity_compaction_archive_retrieval_count",
-                "continuity_compaction_archive_retrieval_enabled",
-                "continuity_compaction_emergency_trigger_ratio",
-                "continuity_compaction_growth_history_window",
-                "continuity_compaction_predicted_growth_floor_ratio",
-                "continuity_compaction_predictive_trigger_min_ratio",
-                "continuity_compaction_recent_raw_floor_ratio",
-                "continuity_compaction_semantic_task_detection",
-                "continuity_compaction_semantic_timeout_seconds",
-                "continuity_compaction_soft_trigger_ratio",
-                "continuity_compaction_target_ratio",
-                "continuity_compaction_task_retention_count",
                 "yolo_mode",
             ]
         )
 
+    @patch("code_puppy.config._get_plugin_config_keys", return_value=set())
     @patch("configparser.ConfigParser")
     def test_get_config_keys_empty_config(
-        self, mock_config_parser_class, mock_config_paths
+        self, mock_config_parser_class, _mock_plugin_keys, mock_config_paths
     ):
         _, mock_cfg_file = mock_config_paths
         mock_parser_instance = MagicMock()
@@ -405,20 +393,6 @@ class TestGetConfigKeys:
                 "resume_message_count",
                 "summarization_model",
                 "temperature",
-                "continuity_compaction_archive_retention_count",
-                "continuity_compaction_archive_retention_days",
-                "continuity_compaction_archive_retrieval_count",
-                "continuity_compaction_archive_retrieval_enabled",
-                "continuity_compaction_emergency_trigger_ratio",
-                "continuity_compaction_growth_history_window",
-                "continuity_compaction_predicted_growth_floor_ratio",
-                "continuity_compaction_predictive_trigger_min_ratio",
-                "continuity_compaction_recent_raw_floor_ratio",
-                "continuity_compaction_semantic_task_detection",
-                "continuity_compaction_semantic_timeout_seconds",
-                "continuity_compaction_soft_trigger_ratio",
-                "continuity_compaction_target_ratio",
-                "continuity_compaction_task_retention_count",
                 "yolo_mode",
             ]
         )

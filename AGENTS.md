@@ -40,6 +40,9 @@ That's it. The plugin loader auto-discovers `register_callbacks.py` in subdirs.
 | `register_tools` | Tool registration | `() -> list[dict]` with `{"name": str, "register_func": callable}` |
 | `register_agents` | Agent catalogue | `() -> list[dict]` with `{"name": str, "class": type}` |
 | `register_model_type` | Custom model type | `() -> list[dict]` with `{"type": str, "handler": callable}` |
+| `register_config_keys` | Config discoverability | `() -> list[str]` |
+| `register_compaction_strategies` | Compaction strategy catalogue | `() -> list[str \| dict]` |
+| `compact_message_history` | Message history compaction | `(strategy, agent, messages, model_max, context_overhead, model_name=None, force=False, total_tokens=None, proportion_used=None) -> dict \| None` |
 | `load_model_config` | Patch model config | `(*args, **kwargs) -> Any` |
 | `load_models_config` | Inject models | `() -> dict` |
 | `get_model_system_prompt` | Per-model prompt | `(model_name, default_prompt, user_prompt) -> dict \| None` |
