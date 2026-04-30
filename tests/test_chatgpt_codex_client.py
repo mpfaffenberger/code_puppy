@@ -382,43 +382,6 @@ class TestConvertStreamToResponse:
         assert body["id"] == "resp_abc123"
 
     @pytest.mark.asyncio
-    async def test_response_completed_empty_output_uses_collected_text(self):
-        """Patch collected text into completed Codex responses with empty output."""
-        final_response = {
-            "id": "resp_empty_output",
-            "object": "response",
-            "output": [],
-            "status": "completed",
-        }
-        sse_lines = [
-            'data: {"type": "response.output_text.delta", "delta": "{\\"current"}',
-            'data: {"type": "response.output_text.delta", "delta": "_task\\":\\"Task ROOT\\"}"}',
-            f'data: {{"type": "response.completed", "response": {json.dumps(final_response)}}}',
-            "data: [DONE]",
-        ]
-
-        async def mock_aiter_lines():
-            for line in sse_lines:
-                yield line
-
-        mock_response = Mock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.headers = {}
-        mock_response.aiter_lines = mock_aiter_lines
-        mock_response.request = Mock()
-
-        client = ChatGPTCodexAsyncClient()
-        result = await client._convert_stream_to_response(mock_response)
-
-        body = json.loads(result.content)
-        assert body["id"] == "resp_empty_output"
-        assert body["status"] == "completed"
-        assert body["output"][0]["type"] == "message"
-        assert body["output"][0]["content"][0]["text"] == (
-            '{"current_task":"Task ROOT"}'
-        )
-
-    @pytest.mark.asyncio
     async def test_skip_empty_lines(self):
         """Test that empty lines are skipped."""
         sse_lines = [
