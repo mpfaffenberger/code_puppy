@@ -33,14 +33,21 @@ from code_puppy.model_factory import ModelFactory, make_model_settings
 _reload_count = 0
 
 _AGENT_RULE_FILES = ("AGENTS.md", "AGENT.md", "agents.md", "agent.md")
+_CODE_PUPPY_DIR = ".code_puppy"
 
 
 def load_puppy_rules() -> Optional[str]:
     """Load AGENT(S).md from global config dir and/or the current project dir.
 
     Global rules (``~/.code_puppy/AGENTS.md``) come first; project-local rules
-    are appended, allowing projects to override/extend global ones. Returns
-    ``None`` if neither exists.
+    are appended, allowing projects to override/extend global ones.
+
+    **Search order for project rules:**
+
+    1. ``.code_puppy/AGENTS.md`` (preferred — keeps root clean)
+    2. ``./AGENTS.md`` (alternate location)
+
+    Returns ``None`` if neither exists.
     """
     global_rules: Optional[str] = None
     for name in _AGENT_RULE_FILES:
@@ -50,11 +57,23 @@ def load_puppy_rules() -> Optional[str]:
             break
 
     project_rules: Optional[str] = None
-    for name in _AGENT_RULE_FILES:
-        candidate = Path(name)
-        if candidate.exists():
-            project_rules = candidate.read_text(encoding="utf-8-sig")
-            break
+
+    # Priority 1: Check .code_puppy/ directory (preferred location)
+    code_puppy_dir = Path(_CODE_PUPPY_DIR)
+    if code_puppy_dir.is_dir():
+        for name in _AGENT_RULE_FILES:
+            candidate = code_puppy_dir / name
+            if candidate.exists():
+                project_rules = candidate.read_text(encoding="utf-8-sig")
+                break
+
+    # Priority 2: Fallback to project root
+    if project_rules is None:
+        for name in _AGENT_RULE_FILES:
+            candidate = Path(name)
+            if candidate.exists():
+                project_rules = candidate.read_text(encoding="utf-8-sig")
+                break
 
     rules = [r for r in (global_rules, project_rules) if r]
     return "\n\n".join(rules) if rules else None

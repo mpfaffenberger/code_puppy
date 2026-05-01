@@ -32,6 +32,7 @@ Run:
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import pytest
 from pydantic_ai.messages import ModelRequest
@@ -164,6 +165,19 @@ async def test_summarization_oversize_falls_back_to_truncation(
 
     monkeypatch.setattr(_compaction, "_truncate_with_dropped", spy_truncate_fallback)
 
+    # -- Exception spy (to detect rate limits swallowed by run_agent_task) ---
+    from code_puppy.agents import _runtime as _runtime_mod
+    from code_puppy.agents._diagnostics import emit_exception_diagnostics
+
+    _captured_exceptions: list[BaseException] = []
+    orig_emit_diag = emit_exception_diagnostics
+
+    def spy_emit_diag(exc: BaseException, **kwargs: Any) -> None:
+        _captured_exceptions.append(exc)
+        return orig_emit_diag(exc, **kwargs)
+
+    monkeypatch.setattr(_runtime_mod, "emit_exception_diagnostics", spy_emit_diag)
+
     # -- History setup --------------------------------------------------------
     # 500k tokens — well over the 200k ctx window. The summarization payload
     # (history minus ~20k protected tail) will be ~480k → guaranteed reject.
@@ -181,6 +195,26 @@ async def test_summarization_oversize_falls_back_to_truncation(
 
     # -- Kick the run ---------------------------------------------------------
     result = await glm51_agent.run_with_mcp("hi")
+
+    # -- Rate-limit guard ------------------------------------------------------
+    # Live integration tests can hit 429s from the provider. If run_with_mcp
+    # returned None because of a rate-limit that exhausted retries, skip
+    # rather than fail — the compaction fallback machinery itself is sound.
+    if result is None:
+        for exc in _captured_exceptions:
+            status_code = getattr(exc, "status_code", None)
+            if status_code == 429:
+                pytest.skip(
+                    f"Rate-limited by provider (429) — skipping live fallback test. "
+                    f"Exception: {exc}"
+                )
+            # Also check nested exceptions (ExceptionGroup / cause chains)
+            cause = getattr(exc, "__cause__", None)
+            if cause and getattr(cause, "status_code", None) == 429:
+                pytest.skip(
+                    f"Rate-limited by provider (429) — skipping live fallback test. "
+                    f"Cause: {cause}"
+                )
 
     # -- Assertions -----------------------------------------------------------
 

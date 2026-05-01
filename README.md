@@ -183,8 +183,12 @@ Please review this code for security issues." > .claude/commands/review.md
 - Ollama endpoint available
 
 ## 🏢 Enterprise Licensing
+## Agent Rules
 
 This Walmart internal fork operates under a **dual licensing model**:
+Code Puppy supports `AGENTS.md` files for defining coding standards, project conventions, and behavioral guidelines that the AI should follow. These rules can cover formatting, naming conventions, architectural patterns, and project-specific instructions.
+
+For examples and more information about agent rules, visit [https://agent.md](https://agent.md)
 
 - **Legacy Open Source Code (Pre-July 7, 2025):** MIT License from original contributors
 - **Walmart Proprietary Enhancements (Post-July 7, 2025):** Exclusive Walmart Inc. property
@@ -219,6 +223,21 @@ For instance, if you want to ensure that your application follows a specific des
 
 Ensure that all components follow these color schemes to promote consistency in design.
 ```
+
+### AGENTS.md Search Order
+
+Code Puppy loads rules from multiple locations, combining them in order:
+
+| Priority | Location | Purpose |
+|----------|----------|----------|
+| 1 | `~/.code_puppy/AGENTS.md` | Global rules (applied to all projects) |
+| 2 | `.code_puppy/AGENTS.md` | Project rules (preferred location) |
+| 3 | `./AGENTS.md` | Project rules (alternate location) |
+
+**Key behaviors:**
+- Global and project rules are **combined** (global first, then project)
+- `.code_puppy/` directory takes **precedence** over project root
+- All filename variants are supported: `AGENTS.md`, `AGENT.md`, `agents.md`, `agent.md`
 
 ## Using MCP Servers for External Tools
 

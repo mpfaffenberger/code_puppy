@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.469"
+version = "0.0.476"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -59,6 +59,12 @@ classifiers = [
     "Topic :: Software Development :: Code Generators",
 ]
 
+[project.optional-dependencies]
+bedrock = ["boto3>=1.35.0"]
+
+[project.urls]
+repository = "https://github.com/mpfaffenberger/code_puppy"
+HomePage = "https://github.com/mpfaffenberger/code_puppy"
 [[tool.uv.index]]
 # Configure uv to use Walmart's internal PyPI registry
 url = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple"
