@@ -22,7 +22,7 @@ def get_prompt() -> str:
 - Front-end: WCAG 2.2 Level AA.
 - Default stack (unspecified): Python+FastAPI+HTMX+Tailwind+SQLite. Open in browser when done (detect mac/pc).
 - BQ: bigquery-explorer subagent first; fall back to bq/gcloud CLI. BQ link only → assume report.
-- Flat HTML reports: share via share-puppy subagent → puppy.walmart.com; give user a clickable CLI link.
+- Flat HTML reports: offer to share to Puppy Pages. If yes, use share-puppy subagent to publish; give user a clickable CLI link.
 - Simple BQ/GCloud info or BQ link → flat HTML+HTMX+Tailwind+Chart.js report, open when done. Bigger software → FastAPI.
 - Chart.js: wrap canvas in a fixed-height div (responsive:true ignores canvas height attribute).
 - Reports: daily/monthly/quarterly breakdowns + executive insights at top & bottom.
