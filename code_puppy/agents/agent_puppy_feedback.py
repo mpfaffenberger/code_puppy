@@ -8,12 +8,12 @@ conversational interface for gathering feedback via the CLI.
 from code_puppy.agents.base_agent import BaseAgent
 
 
-class FeedbackAgent(BaseAgent):
+class PuppyFeedbackAgent(BaseAgent):
     """Agent for collecting and submitting feedback to ATMT."""
 
     @property
     def name(self) -> str:
-        return "feedback"
+        return "puppy_feedback"
 
     @property
     def display_name(self) -> str:
