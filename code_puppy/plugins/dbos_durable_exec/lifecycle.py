@@ -9,19 +9,17 @@ import traceback
 from code_puppy import __version__ as current_version
 from code_puppy.messaging import emit_error, emit_info
 
-from .config import DBOS_DATABASE_URL, is_enabled
+from .config import DBOS_DATABASE_URL
 
 
 def on_startup() -> None:
     """Initialize and launch DBOS for durable execution."""
-    # Diagnostics: surface plugin-level decisions in the log so CI/users can
-    # debug why DBOS may not be initializing. Cheap; one line each.
-    emit_info(
-        f"[dbos_durable_exec] startup: enabled={is_enabled()} url={DBOS_DATABASE_URL}"
-    )
     try:
         from dbos import DBOS, DBOSConfig
     except ImportError:
+        # Should not happen — register_callbacks.py only registers this hook
+        # when dbos is importable. Kept defensive in case install state
+        # changes between module-load and startup.
         emit_error(
             "[dbos_durable_exec] dbos package not installed; durable exec disabled."
         )
@@ -42,7 +40,6 @@ def on_startup() -> None:
         emit_info(f"Initializing DBOS with database at: {DBOS_DATABASE_URL}")
         DBOS(config=dbos_config)
         DBOS.launch()
-        emit_info("[dbos_durable_exec] DBOS.launch() completed successfully")
     except Exception as e:
         emit_error(
             f"[dbos_durable_exec] Error initializing DBOS: {e}\n{traceback.format_exc()}"

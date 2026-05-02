@@ -35,7 +35,9 @@ jobs:
         run: uv venv
 
       - name: Install dependencies
-        run: uv pip install -e .
+        # [durable] extras pulls in dbos, required by integration test
+        # tests/integration/test_dbos_enabled.py
+        run: uv pip install -e ".[durable]"
 
       - name: Install pexpect for integration tests
         run: uv pip install pexpect>=4.9.0
