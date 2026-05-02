@@ -21,11 +21,32 @@ def test_dbos_initializes_and_creates_db(spawned_cli):
             break
         time.sleep(0.25)
     if not db_path.exists():
-        # Surface the spawned CLI's log so CI failures are debuggable.
+        # Surface the spawned CLI's log + filesystem state so CI failures
+        # are debuggable. We log the FIRST 16kb (where DBOS init messages
+        # live) plus a directory tree of the .code_puppy dir.
+        import os
+
         cli_log = spawned_cli.read_log()
+        cp_dir = home / ".code_puppy"
+        if cp_dir.exists():
+            tree_lines = []
+            for root, dirs, files in os.walk(cp_dir):
+                for f in files:
+                    p = Path(root) / f
+                    try:
+                        size = p.stat().st_size
+                    except OSError:
+                        size = -1
+                    tree_lines.append(f"  {p.relative_to(home)}  ({size} bytes)")
+            tree = "\n".join(tree_lines) or "  <empty>"
+        else:
+            tree = "  <.code_puppy dir does not exist>"
+
         msg = (
             f"Expected DB file at {db_path} (waited 10s).\n"
-            f"--- spawned CLI log (last 4kb) ---\n{cli_log[-4096:]}"
+            f"--- .code_puppy dir contents ---\n{tree}\n"
+            f"--- spawned CLI log (FIRST 16kb) ---\n{cli_log[:16384]}\n"
+            f"--- spawned CLI log (LAST 4kb) ---\n{cli_log[-4096:]}"
         )
         raise AssertionError(msg)
 
