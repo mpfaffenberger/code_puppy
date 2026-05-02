@@ -54,3 +54,5 @@ Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
 3. **600-line hard cap** — split into submodules
 4. **Fail gracefully** — never crash the app
 5. **Return `None` from commands you don't own**
+6. **Always run linters - `ruff check --fix`, `ruff format .`
+7. **NEVER ALLOW A CLAUDE CO-AUTHOR COMMIT**
