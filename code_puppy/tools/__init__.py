@@ -143,6 +143,9 @@ from code_puppy.tools.marketplace_tools import (
     register_marketplace_check_update,
     register_marketplace_authenticate,
 )
+from code_puppy.tools.atmt_tools import (
+    register_atmt_submit_feedback,
+)
 
 from code_puppy.tools.msgraph import MSGRAPH_TOOLS
 from code_puppy.tools.pete_tools import PETE_TOOLS
@@ -304,6 +307,8 @@ TOOL_REGISTRY = {
     "marketplace_upload_agent": register_marketplace_upload_agent,
     "marketplace_check_update": register_marketplace_check_update,
     "marketplace_authenticate": register_marketplace_authenticate,
+    # ATMT Feedback Tools
+    "atmt_submit_feedback": register_atmt_submit_feedback,
     # Terminal Connection Tools
     "terminal_check_server": register_check_terminal_server,
     "terminal_open": register_open_terminal,
