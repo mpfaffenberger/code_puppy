@@ -20,7 +20,14 @@ def test_dbos_initializes_and_creates_db(spawned_cli):
         if db_path.exists():
             break
         time.sleep(0.25)
-    assert db_path.exists(), f"Expected DB file at {db_path} (waited 10s)"
+    if not db_path.exists():
+        # Surface the spawned CLI's log so CI failures are debuggable.
+        cli_log = spawned_cli.read_log()
+        msg = (
+            f"Expected DB file at {db_path} (waited 10s).\n"
+            f"--- spawned CLI log (last 4kb) ---\n{cli_log[-4096:]}"
+        )
+        raise AssertionError(msg)
 
     # Quit cleanly
     spawned_cli.send("/quit\r")
