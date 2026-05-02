@@ -1,11 +1,11 @@
-"""Robust, always-diff-logging file-modification helpers + agent tools.
+"""Robust file-modification helpers + agent tools.
 
 Key guarantees
 --------------
-1. **A diff is printed _inline_ on every path** (success, no-op, or error) – no decorator magic.
-2. **Full traceback logging** for unexpected errors via `_log_error`.
-3. Helper functions stay print-free and return a `diff` key, while agent-tool wrappers handle
-   all console output.
+1. **Create/edit operations emit diffs** when there are changes to show.
+2. **Delete-file operations do not print removed content**; they only report deletion.
+3. **Full traceback logging** for unexpected errors via `_log_error`.
+4. Helper functions stay print-free while agent-tool wrappers handle console output.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from code_puppy.messaging import (  # Structured messaging types
     DiffLine,
     DiffMessage,
     emit_error,
+    emit_success,
     emit_warning,
     get_message_bus,
 )
@@ -611,44 +612,23 @@ def _delete_file(
 
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
-            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
-        else:
-            with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-                original = f.read()
-            # Sanitize any surrogate characters from reading
-            try:
-                original = original.encode("utf-8", errors="surrogatepass").decode(
-                    "utf-8", errors="replace"
-                )
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
-            from code_puppy.config import get_diff_context_lines
+            return {"error": f"File '{file_path}' does not exist."}
 
-            diff_text = "".join(
-                difflib.unified_diff(
-                    original.splitlines(keepends=True),
-                    [],
-                    fromfile=f"a/{os.path.basename(file_path)}",
-                    tofile=f"b/{os.path.basename(file_path)}",
-                    n=get_diff_context_lines(),
-                )
-            )
-            os.remove(file_path)
-            res = {
-                "success": True,
-                "path": file_path,
-                "message": f"File '{file_path}' deleted successfully.",
-                "changed": True,
-                "diff": diff_text,
-            }
+        os.remove(file_path)
+        try:
+            emit_success(f"Deleted file: {file_path}", message_group=message_group)
+        except Exception:
+            # Deletion already succeeded; UI notification failures should not flip it.
+            pass
+        return {
+            "success": True,
+            "path": file_path,
+            "message": f"File '{file_path}' deleted successfully.",
+            "changed": True,
+        }
     except Exception as exc:
         _log_error("Unhandled exception in delete_file", exc)
-        res = {"error": str(exc), "diff": ""}
-
-    diff = res.get("diff", "")
-    if diff:
-        _emit_diff_message(file_path, "delete", diff)
-    return res
+        return {"error": str(exc)}
 
 
 def register_edit_file(agent):
@@ -732,9 +712,9 @@ def register_delete_file(agent):
 
     @agent.tool
     def delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
-        """Safely delete files with comprehensive logging and diff generation.
+        """Safely delete a file and report the deletion.
 
-        Shows exactly what content was removed via diff output.
+        Delete operations intentionally do not generate or print diffs of removed content.
         """
         # Generate group_id for delete_file tool execution
         group_id = generate_group_id("delete_file", file_path)
