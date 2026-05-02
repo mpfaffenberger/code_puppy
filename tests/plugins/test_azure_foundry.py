@@ -87,13 +87,54 @@ class TestConfig:
             assert get_foundry_resource() == "test-resource"
 
     def test_get_foundry_resource_not_set(self):
-        """Test getting resource name when not set."""
+        """Test getting resource name when neither env var nor puppy.cfg is set."""
         from code_puppy.plugins.azure_foundry.config import get_foundry_resource
 
         with patch.dict(os.environ, {}, clear=True):
-            # Remove the env var if it exists
             os.environ.pop("ANTHROPIC_FOUNDRY_RESOURCE", None)
-            assert get_foundry_resource() is None
+            with patch(
+                "code_puppy.plugins.azure_foundry.config.get_value",
+                return_value=None,
+            ):
+                assert get_foundry_resource() is None
+
+    def test_get_foundry_resource_from_cfg(self):
+        """When no env var is set, fall back to puppy.cfg."""
+        from code_puppy.plugins.azure_foundry.config import get_foundry_resource
+
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("ANTHROPIC_FOUNDRY_RESOURCE", None)
+            with patch(
+                "code_puppy.plugins.azure_foundry.config.get_value",
+                return_value="saved-resource",
+            ):
+                assert get_foundry_resource() == "saved-resource"
+
+    def test_get_foundry_resource_env_overrides_cfg(self):
+        """Env var should take precedence over puppy.cfg value."""
+        from code_puppy.plugins.azure_foundry.config import get_foundry_resource
+
+        with patch.dict(
+            os.environ, {"ANTHROPIC_FOUNDRY_RESOURCE": "from-env"}, clear=True
+        ):
+            with patch(
+                "code_puppy.plugins.azure_foundry.config.get_value",
+                return_value="from-cfg",
+            ):
+                assert get_foundry_resource() == "from-env"
+
+    def test_set_foundry_resource_persists_to_cfg(self):
+        """set_foundry_resource writes to puppy.cfg under the expected key."""
+        from code_puppy.plugins.azure_foundry.config import (
+            CFG_KEY_FOUNDRY_RESOURCE,
+            set_foundry_resource,
+        )
+
+        with patch(
+            "code_puppy.plugins.azure_foundry.config.set_config_value"
+        ) as mock_set:
+            set_foundry_resource("my-resource")
+            mock_set.assert_called_once_with(CFG_KEY_FOUNDRY_RESOURCE, "my-resource")
 
     def test_get_foundry_base_url_from_resource(self):
         """Test constructing base URL from resource name."""
