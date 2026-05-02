@@ -1,0 +1,1 @@
+"""Personality tone control plugin."""
