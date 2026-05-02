@@ -9,8 +9,14 @@ from .workflow_ids import generate_dbos_workflow_id
 
 
 def skip_fallback_render(_agent) -> bool:
-    """DBOS renders its own output; tell core to skip the non-streaming fallback."""
-    return True
+    """DBOS renders its own output; tell core to skip the non-streaming fallback.
+
+    Only valid when DBOS is actually launched — otherwise we'd skip the
+    fallback render for plain pydantic agents, leaving users with no output.
+    """
+    from .lifecycle import is_launched
+
+    return is_launched()
 
 
 @asynccontextmanager
@@ -21,6 +27,14 @@ async def dbos_run_context(agent, pydantic_agent, group_id, mcp_servers):
     an atomic counter to ensure DBOS workflow ID uniqueness across rapid
     back-to-back calls. For the main agent, use group_id as-is.
     """
+    from .lifecycle import is_launched
+
+    if not is_launched():
+        # DBOS not launched (e.g. running inside pytest) — be a no-op so the
+        # plain pydantic agent run proceeds normally.
+        yield
+        return
+
     try:
         from dbos import SetWorkflowID
     except ImportError:

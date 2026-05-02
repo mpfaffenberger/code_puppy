@@ -89,7 +89,15 @@ class TestGenerateDbosWorkflowId:
 
 
 def _install_fake_pydantic_dbos(monkeypatch):
-    """Install a fake pydantic_ai.durable_exec.dbos module with a sentinel DBOSAgent."""
+    """Install a fake pydantic_ai.durable_exec.dbos module with a sentinel DBOSAgent.
+
+    Also forces ``lifecycle.is_launched()`` to True so the wrapper actually
+    proceeds (it now bails out when DBOS hasn't been launched, to avoid
+    handing back broken DBOSAgents in test environments).
+    """
+    from code_puppy.plugins.dbos_durable_exec import lifecycle as lifecycle_mod
+
+    monkeypatch.setattr(lifecycle_mod, "_LAUNCHED", True)
     captured = {}
 
     class FakeDBOSAgent:
@@ -110,8 +118,33 @@ def _install_fake_pydantic_dbos(monkeypatch):
 
 
 class TestWrapWithDbosAgent:
+    def test_returns_none_when_dbos_not_launched(self, monkeypatch):
+        """Wrapper must bail out when DBOS hasn't been launched.
+
+        Regression: when [durable] extras were installed in CI, dbos became
+        importable in pytest's process, so the wrapper produced DBOSAgents
+        that were unusable (no DBOS instance running). Test verifies that
+        path now passes through unmodified.
+        """
+        from code_puppy.plugins.dbos_durable_exec import lifecycle as lifecycle_mod
+
+        monkeypatch.setattr(lifecycle_mod, "_LAUNCHED", False)
+        # Even with the pydantic_ai dbos submodule available, we must NOT wrap.
+        _install_fake_pydantic_dbos(monkeypatch)
+        # _install_fake_pydantic_dbos sets _LAUNCHED=True; flip it back.
+        monkeypatch.setattr(lifecycle_mod, "_LAUNCHED", False)
+
+        agent = MagicMock(name="agent")
+        pydantic_agent = MagicMock(name="pyd")
+        pydantic_agent._toolsets = []
+        result = wrapper_mod.wrap_with_dbos_agent(agent, pydantic_agent)
+        assert result is None
+
     def test_returns_none_when_import_fails(self, monkeypatch):
         # Force import to fail by setting the submodule to None.
+        from code_puppy.plugins.dbos_durable_exec import lifecycle as lifecycle_mod
+
+        monkeypatch.setattr(lifecycle_mod, "_LAUNCHED", True)
         monkeypatch.setitem(sys.modules, "pydantic_ai.durable_exec.dbos", None)
         agent = MagicMock(name="agent")
         pydantic_agent = MagicMock(name="pyd")
@@ -191,10 +224,14 @@ class _FakeSetWorkflowID:
 
 @contextmanager
 def _install_fake_dbos(monkeypatch):
+    """Stub the dbos module + force is_launched()=True for the runtime tests."""
+    from code_puppy.plugins.dbos_durable_exec import lifecycle as lifecycle_mod
+
     _FakeSetWorkflowID.calls = []
     fake_mod = types.ModuleType("dbos")
     fake_mod.SetWorkflowID = _FakeSetWorkflowID
     monkeypatch.setitem(sys.modules, "dbos", fake_mod)
+    monkeypatch.setattr(lifecycle_mod, "_LAUNCHED", True)
     try:
         yield fake_mod
     finally:

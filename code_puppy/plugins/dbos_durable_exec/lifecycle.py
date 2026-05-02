@@ -11,9 +11,23 @@ from code_puppy.messaging import emit_error, emit_info
 
 from .config import DBOS_DATABASE_URL
 
+# Module-level flag flipped True only after a successful DBOS.launch().
+# Other plugin modules (e.g. wrapper.py, runtime.py) MUST check this before
+# attempting to use DBOS — having `dbos` importable is not the same as
+# having DBOS launched. In test environments where the plugin is imported
+# but on_startup() is never called (pytest process, not the spawned CLI),
+# this stays False and the wrapper passes through unmodified.
+_LAUNCHED = False
+
+
+def is_launched() -> bool:
+    """True iff this plugin successfully called DBOS.launch()."""
+    return _LAUNCHED
+
 
 def on_startup() -> None:
     """Initialize and launch DBOS for durable execution."""
+    global _LAUNCHED
     try:
         from dbos import DBOS, DBOSConfig
     except ImportError:
@@ -40,6 +54,7 @@ def on_startup() -> None:
         emit_info(f"Initializing DBOS with database at: {DBOS_DATABASE_URL}")
         DBOS(config=dbos_config)
         DBOS.launch()
+        _LAUNCHED = True
     except Exception as e:
         emit_error(
             f"[dbos_durable_exec] Error initializing DBOS: {e}\n{traceback.format_exc()}"
@@ -48,6 +63,7 @@ def on_startup() -> None:
 
 def on_shutdown() -> None:
     """Tear DBOS down. Best-effort, never raises."""
+    global _LAUNCHED
     try:
         from dbos import DBOS
     except ImportError:
@@ -56,3 +72,5 @@ def on_shutdown() -> None:
         DBOS.destroy()
     except Exception:
         pass
+    finally:
+        _LAUNCHED = False

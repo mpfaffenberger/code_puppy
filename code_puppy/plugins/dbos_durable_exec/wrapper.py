@@ -20,7 +20,24 @@ def wrap_with_dbos_agent(
     message_group=None,
     kind: str = "main",
 ):
-    """Return a DBOSAgent wrapping ``pydantic_agent`` (or None if DBOS missing)."""
+    """Return a DBOSAgent wrapping ``pydantic_agent`` (or None if DBOS missing).
+
+    Returns None — meaning "don't wrap, leave the plain pydantic agent alone" —
+    in three cases:
+      1. pydantic_ai.durable_exec.dbos is not importable.
+      2. DBOS itself was never launched (e.g. wrapper hook fired in the
+         pytest process where on_startup() was never called).
+
+    Without case 2 the wrapper would hand back a DBOSAgent whose .run()
+    fails because there is no running DBOS instance — exactly the
+    `run_with_mcp returned None` regression seen when [durable] extras
+    were installed in the CI test environment.
+    """
+    from .lifecycle import is_launched
+
+    if not is_launched():
+        return None
+
     try:
         from pydantic_ai.durable_exec.dbos import DBOSAgent
     except ImportError:
