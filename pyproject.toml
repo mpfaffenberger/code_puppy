@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.477"
+version = "0.0.478"
 description = "Code generation agent"
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11,<3.15"
 dependencies = [
     "pydantic-ai-slim[openai,anthropic,mcp]==1.56.0",
     "typer>=0.12.0",
