@@ -250,10 +250,8 @@ class TestRegisterInvokeAgent:
         agent.tool = lambda fn: (captured.update({"fn": fn}), fn)[-1]
         register_invoke_agent(agent)
 
-        # Create real context vars for the token reset
-        fake_term_var = contextvars.ContextVar("fake_term")
+        # Create a real context var for the token reset
         fake_browser_var = contextvars.ContextVar("fake_browser")
-        term_token = fake_term_var.set("x")
         browser_token = fake_browser_var.set("y")
 
         ctx = MagicMock()
@@ -267,16 +265,8 @@ class TestRegisterInvokeAgent:
             ),
             patch("code_puppy.tools.agent_tools.set_session_context"),
             patch(
-                "code_puppy.tools.browser.terminal_tools.set_terminal_session",
-                return_value=term_token,
-            ),
-            patch(
                 "code_puppy.tools.browser.browser_manager.set_browser_session",
                 return_value=browser_token,
-            ),
-            patch(
-                "code_puppy.tools.browser.terminal_tools._terminal_session_var",
-                fake_term_var,
             ),
             patch(
                 "code_puppy.tools.browser.browser_manager._browser_session_var",

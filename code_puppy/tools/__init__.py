@@ -57,25 +57,6 @@ from code_puppy.tools.browser.browser_workflows import (
     register_read_workflow,
     register_save_workflow,
 )
-from code_puppy.tools.browser.terminal_command_tools import (
-    register_run_terminal_command,
-    register_send_terminal_keys,
-    register_wait_terminal_output,
-)
-from code_puppy.tools.browser.terminal_screenshot_tools import (
-    register_load_image,
-    register_terminal_compare_mockup,
-    register_terminal_read_output,
-    register_terminal_screenshot,
-)
-
-# Terminal automation tools
-from code_puppy.tools.browser.terminal_tools import (
-    register_check_terminal_server,
-    register_close_terminal,
-    register_open_terminal,
-    register_start_api_server,
-)
 from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
@@ -95,6 +76,7 @@ from code_puppy.tools.file_operations import (
     register_list_files,
     register_read_file,
 )
+from code_puppy.tools.image_tools import register_load_image
 from code_puppy.tools.skills_tools import (
     register_activate_skill,
     register_list_or_search_skills,
@@ -167,19 +149,7 @@ TOOL_REGISTRY = {
     "browser_save_workflow": register_save_workflow,
     "browser_list_workflows": register_list_workflows,
     "browser_read_workflow": register_read_workflow,
-    # Terminal Connection Tools
-    "terminal_check_server": register_check_terminal_server,
-    "terminal_open": register_open_terminal,
-    "terminal_close": register_close_terminal,
-    "start_api_server": register_start_api_server,
-    # Terminal Command Execution Tools
-    "terminal_run_command": register_run_terminal_command,
-    "terminal_send_keys": register_send_terminal_keys,
-    "terminal_wait_output": register_wait_terminal_output,
-    # Terminal Screenshot Tools
-    "terminal_screenshot_analyze": register_terminal_screenshot,
-    "terminal_read_output": register_terminal_read_output,
-    "terminal_compare_mockup": register_terminal_compare_mockup,
+    # Image loading (used by browser/QA agents and friends)
     "load_image_for_analysis": register_load_image,
     # Skills Tools
     "activate_skill": register_activate_skill,

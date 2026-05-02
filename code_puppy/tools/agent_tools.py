@@ -343,15 +343,6 @@ def register_invoke_agent(agent):
         previous_session_id = get_session_context()
         set_session_context(session_id)
 
-        # Set terminal session for browser-based terminal tools
-        # This uses contextvars which properly propagate through async tasks
-        from code_puppy.tools.browser.terminal_tools import (
-            _terminal_session_var,
-            set_terminal_session,
-        )
-
-        terminal_session_token = set_terminal_session(f"terminal-{session_id}")
-
         # Set browser session for browser tools (qa-kitten, etc.)
         # This allows parallel agent invocations to each have their own browser
         from code_puppy.tools.browser.browser_manager import (
@@ -567,8 +558,6 @@ def register_invoke_agent(agent):
         finally:
             # Restore the previous session context
             set_session_context(previous_session_id)
-            # Reset terminal session context
-            _terminal_session_var.reset(terminal_session_token)
             # Reset browser session context
             from code_puppy.tools.browser.browser_manager import (
                 _browser_session_var,
