@@ -48,7 +48,6 @@ EXTRA_MODELS_FILE = os.path.join(DATA_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(DATA_DIR, "agents")
 SKILLS_DIR = os.path.join(DATA_DIR, "skills")
 CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
-_DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 
 # OAuth plugin model files (XDG_DATA_HOME)
 GEMINI_MODELS_FILE = os.path.join(DATA_DIR, "gemini_models.json")
@@ -61,19 +60,6 @@ AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
 
 # State files (XDG_STATE_HOME)
 COMMAND_HISTORY_FILE = os.path.join(STATE_DIR, "command_history.txt")
-DBOS_DATABASE_URL = os.environ.get(
-    "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
-)
-# DBOS enable switch is controlled solely via puppy.cfg using key 'enable_dbos'.
-# Default: True (DBOS enabled) unless explicitly disabled.
-
-
-def get_use_dbos() -> bool:
-    """Return True if DBOS should be used based on 'enable_dbos' (default True)."""
-    cfg_val = get_value("enable_dbos")
-    if cfg_val is None:
-        return True
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def get_subagent_verbose() -> bool:
@@ -315,8 +301,8 @@ def get_config_keys():
         "frontend_emitter_max_recent_events",
         "frontend_emitter_queue_size",
     ]
-    # Add DBOS control key
-    default_keys.append("enable_dbos")
+    # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
+    # via the generic get_value API; intentionally not in default_keys.
     # Add pack agents control key
     default_keys.append("enable_pack_agents")
     # Add universal constructor control key
@@ -1261,11 +1247,6 @@ def set_http2(enabled: bool) -> None:
         enabled: Whether to enable HTTP/2 for httpx clients
     """
     set_config_value("http2", "true" if enabled else "false")
-
-
-def set_enable_dbos(enabled: bool) -> None:
-    """Enable DBOS via config (true enables, default false)."""
-    set_config_value("enable_dbos", "true" if enabled else "false")
 
 
 def get_message_limit(default: int = 1000) -> int:

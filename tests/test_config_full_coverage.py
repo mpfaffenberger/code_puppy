@@ -33,14 +33,6 @@ class TestGetXdgDir:
 # Boolean config getters
 # ---------------------------------------------------------------------------
 class TestBooleanGetters:
-    def test_get_use_dbos_default_true(self):
-        """enable_dbos defaults to True when not set."""
-        assert cp_config.get_use_dbos() is True
-
-    def test_get_use_dbos_false(self):
-        cp_config.set_config_value("enable_dbos", "false")
-        assert cp_config.get_use_dbos() is False
-
     def test_get_subagent_verbose_default_false(self):
         assert cp_config.get_subagent_verbose() is False
 
@@ -727,7 +719,6 @@ class TestConfigKeys:
         assert keys == sorted(keys)
         assert "yolo_mode" in keys
         assert "compaction_strategy" in keys
-        assert "enable_dbos" in keys
         assert "enable_streaming" in keys
         assert "cancel_agent_key" in keys
         assert "resume_message_count" in keys
@@ -1080,17 +1071,6 @@ class TestAllowRecursion:
     def test_false(self):
         cp_config.set_config_value("allow_recursion", "false")
         assert cp_config.get_allow_recursion() is False
-
-
-# ---------------------------------------------------------------------------
-# set_enable_dbos
-# ---------------------------------------------------------------------------
-class TestSetEnableDbos:
-    def test_set(self):
-        cp_config.set_enable_dbos(True)
-        assert cp_config.get_use_dbos() is True
-        cp_config.set_enable_dbos(False)
-        assert cp_config.get_use_dbos() is False
 
 
 # ---------------------------------------------------------------------------

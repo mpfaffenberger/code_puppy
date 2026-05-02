@@ -39,6 +39,10 @@ PhaseType = Literal[
     "message_history_processor_start",
     "message_history_processor_end",
     "on_message",
+    "wrap_pydantic_agent",
+    "agent_run_context",
+    "agent_run_cancel",
+    "should_skip_fallback_render",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -78,6 +82,10 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "message_history_processor_start": [],
     "message_history_processor_end": [],
     "on_message": [],
+    "wrap_pydantic_agent": [],
+    "agent_run_context": [],
+    "agent_run_cancel": [],
+    "should_skip_fallback_render": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -788,3 +796,66 @@ async def on_message(message_id: str, message: Any) -> List[Any]:
         List of results from registered callbacks.
     """
     return await _trigger_callbacks("on_message", message_id, message)
+
+
+def on_wrap_pydantic_agent(
+    agent,
+    pydantic_agent,
+    *,
+    event_stream_handler=None,
+    message_group=None,
+    kind: str = "main",
+):
+    """Allow plugins to wrap the constructed pydantic agent.
+
+    Each callback receives ``(agent, pydantic_agent, event_stream_handler=...,
+    message_group=..., kind=...)``. ``kind`` is one of ``"main"`` (top-level
+    agent build) or ``"subagent"`` (invoke_agent tool). Plugins return a
+    wrapped agent (any object exposing the same ``.run()`` / ``.iter()``
+    interface) or ``None`` to leave the agent unchanged. The last non-``None``
+    result wins.
+
+    Returns the (possibly wrapped) agent. Always returns something — falls
+    back to the input ``pydantic_agent`` if no plugin handled it.
+    """
+    results = _trigger_callbacks_sync(
+        "wrap_pydantic_agent",
+        agent,
+        pydantic_agent,
+        event_stream_handler=event_stream_handler,
+        message_group=message_group,
+        kind=kind,
+    )
+    for r in reversed(results):
+        if r is not None:
+            return r
+    return pydantic_agent
+
+
+def on_agent_run_context(agent, pydantic_agent, group_id, mcp_servers) -> List[Any]:
+    """Collect async context managers that should wrap the ``pydantic_agent.run()`` call.
+
+    Each callback returns an async CM (with ``__aenter__``/``__aexit__``) or
+    ``None``. The caller composes all non-``None`` results via
+    ``contextlib.AsyncExitStack``.
+
+    Returns a list of async context managers (may be empty).
+    """
+    results = _trigger_callbacks_sync(
+        "agent_run_context", agent, pydantic_agent, group_id, mcp_servers
+    )
+    return [r for r in results if r is not None]
+
+
+async def on_agent_run_cancel(group_id: str) -> List[Any]:
+    """Fired when an agent run is cancelled or interrupted.
+
+    Plugins use this to cancel any external workflow tracking the run.
+    """
+    return await _trigger_callbacks("agent_run_cancel", group_id)
+
+
+def on_should_skip_fallback_render(agent) -> bool:
+    """Return True if any plugin requests skipping the non-streaming fallback render."""
+    results = _trigger_callbacks_sync("should_skip_fallback_render", agent)
+    return any(r is True for r in results)

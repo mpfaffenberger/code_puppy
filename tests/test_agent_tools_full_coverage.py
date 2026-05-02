@@ -9,7 +9,6 @@ from code_puppy.tools.agent_tools import (
     AgentInfo,
     AgentInvokeOutput,
     ListAgentsOutput,
-    _generate_dbos_workflow_id,
     _generate_session_hash_suffix,
     _get_subagent_sessions_dir,
     _load_session_history,
@@ -39,14 +38,6 @@ class TestValidateSessionId:
             _validate_session_id("my_session")
         with pytest.raises(ValueError, match="kebab-case"):
             _validate_session_id("my session")
-
-
-class TestGenerateDbosWorkflowId:
-    def test_unique(self):
-        id1 = _generate_dbos_workflow_id("base")
-        id2 = _generate_dbos_workflow_id("base")
-        assert id1 != id2
-        assert id1.startswith("base-wf-")
 
 
 class TestGenerateSessionHashSuffix:

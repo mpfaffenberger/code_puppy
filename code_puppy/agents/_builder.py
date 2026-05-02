@@ -1,9 +1,12 @@
 """Pydantic-ai agent construction + MCP wiring, extracted from ``BaseAgent``.
 
-Collapses the previous duplicated DBOS vs non-DBOS build paths and the parallel
+Collapses the previous duplicated build paths and the parallel
 ``_create_agent_with_output_type`` method into a single ``build_pydantic_agent``
 entry point. Everything else in here (puppy rules loading, MCP server loading,
 model fallback, MCP tool filtering) is a pure free function.
+
+Plugins may wrap the constructed pydantic agent via the ``wrap_pydantic_agent``
+hook; see :func:`code_puppy.callbacks.on_wrap_pydantic_agent`.
 """
 
 from __future__ import annotations
@@ -13,24 +16,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic_ai import Agent as PydanticAgent
-from pydantic_ai.durable_exec.dbos import DBOSAgent
 from rich.text import Text
 
 from code_puppy.agents._compaction import make_history_processor
 from code_puppy.agents.event_stream_handler import event_stream_handler
+from code_puppy.callbacks import on_wrap_pydantic_agent
 from code_puppy.config import (
     CONFIG_DIR,
     get_global_model_name,
-    get_use_dbos,
     get_value,
 )
 from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory, make_model_settings
-
-# Module-level counter used when naming DBOSAgent instances. Incremented every
-# time ``build_pydantic_agent`` wraps with DBOS so each workflow has a unique name.
-_reload_count = 0
 
 _AGENT_RULE_FILES = ("AGENTS.md", "AGENT.md", "agents.md", "agent.md")
 _CODE_PUPPY_DIR = ".code_puppy"
@@ -222,17 +220,16 @@ def build_pydantic_agent(
     - ``agent._puppy_rules = None`` (invalidates any cached rules)
     - ``agent.cur_model``             ← resolved pydantic-ai model
     - ``agent._last_model_name``      ← resolved model name
-    - ``agent.pydantic_agent``        ← the final (possibly DBOS-wrapped) agent
+    - ``agent.pydantic_agent``        ← the final (possibly plugin-wrapped) agent
     - ``agent._code_generation_agent`` ← same as ``pydantic_agent``
     - ``agent._mcp_servers``          ← MCP toolsets (post-filter)
 
     The build happens in two passes: we construct once with ``toolsets=[]`` so
     we can introspect registered tool names, then rebuild with MCP servers
-    filtered against those names to prevent collisions. DBOS keeps MCP out of
-    the constructor entirely — the runtime injects it via ``_toolsets`` swap.
+    filtered against those names to prevent collisions. Plugins may wrap the
+    final pydantic agent via the ``wrap_pydantic_agent`` hook (e.g. to swap
+    in a durable-exec wrapper).
     """
-    global _reload_count
-
     from code_puppy.tools import register_tools_for_agent
 
     agent._puppy_rules = None
@@ -275,11 +272,10 @@ def build_pydantic_agent(
             Text.from_markup(f"[dim]Filtered {dropped} conflicting MCP tools[/dim]")
         )
 
-    # Pass 2: real build. DBOS path keeps MCP out of the constructor because
-    # pydantic-ai's DBOS integration can't pickle async_generator toolsets.
-    use_dbos = get_use_dbos()
-    final_toolsets = [] if use_dbos else filtered_mcp_servers
-    final_pydantic = _new_pydantic_agent(toolsets=final_toolsets)
+    # Pass 2: real build. MCP servers are always included in the constructor;
+    # plugins (e.g. DBOS) may swap them out at run time via the
+    # ``agent_run_context`` hook if their wrapper can't handle them directly.
+    final_pydantic = _new_pydantic_agent(toolsets=filtered_mcp_servers)
     register_tools_for_agent(
         final_pydantic, agent_tools, model_name=resolved_model_name
     )
@@ -288,17 +284,13 @@ def build_pydantic_agent(
     agent._last_model_name = resolved_model_name
     agent._mcp_servers = filtered_mcp_servers
 
-    if use_dbos:
-        _reload_count += 1
-        wrapped = DBOSAgent(
-            final_pydantic,
-            name=f"{agent.name}-{_reload_count}",
-            event_stream_handler=event_stream_handler,
-        )
-        agent.pydantic_agent = wrapped
-        agent._code_generation_agent = wrapped
-        return wrapped
-
-    agent.pydantic_agent = final_pydantic
-    agent._code_generation_agent = final_pydantic
-    return final_pydantic
+    wrapped = on_wrap_pydantic_agent(
+        agent,
+        final_pydantic,
+        event_stream_handler=event_stream_handler,
+        message_group=message_group,
+        kind="main",
+    )
+    agent.pydantic_agent = wrapped
+    agent._code_generation_agent = wrapped
+    return wrapped

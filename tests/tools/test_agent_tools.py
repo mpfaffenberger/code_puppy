@@ -7,16 +7,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-class TestGenerateDbosWorkflowId:
-    def test_unique_ids(self):
-        from code_puppy.tools.agent_tools import _generate_dbos_workflow_id
-
-        id1 = _generate_dbos_workflow_id("base")
-        id2 = _generate_dbos_workflow_id("base")
-        assert id1 != id2
-        assert id1.startswith("base-wf-")
-
-
 class TestGenerateSessionHashSuffix:
     def test_returns_hex_string(self):
         from code_puppy.tools.agent_tools import _generate_session_hash_suffix

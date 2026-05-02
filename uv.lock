@@ -251,7 +251,6 @@ source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "azure-identity" },
-    { name = "dbos" },
     { name = "fastapi" },
     { name = "httpx", extra = ["http2"] },
     { name = "json-repair" },
@@ -279,6 +278,9 @@ dependencies = [
 bedrock = [
     { name = "boto3" },
 ]
+durable = [
+    { name = "dbos" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -294,7 +296,7 @@ requires-dist = [
     { name = "anthropic", specifier = "==0.79.0" },
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "dbos", specifier = ">=2.11.0" },
+    { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "fastapi", specifier = ">=0.109.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "json-repair", specifier = ">=0.46.2" },
@@ -317,7 +319,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
     { name = "websockets", specifier = ">=12.0" },
 ]
-provides-extras = ["bedrock"]
+provides-extras = ["bedrock", "durable"]
 
 [package.metadata.requires-dev]
 dev = [

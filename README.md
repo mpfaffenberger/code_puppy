@@ -75,6 +75,21 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 uvx code-puppy
 ```
 
+#### Optional: DBOS durable execution
+
+Code Puppy ships with an optional [DBOS](https://github.com/dbos-inc/dbos-transact-py)-backed
+durable-execution plugin that survives crashes and lets you resume long agent runs.
+It's **off by default in the dependency tree** — install the `durable` extra to opt in:
+
+```bash
+pip install "code-puppy[durable]"
+# or
+uv pip install "code-puppy[durable]"
+```
+
+Then toggle it from inside the app via `/dbos on` (and restart). Use `/dbos status`
+to check, `/dbos off` to disable.
+
 ## Changelog (By Kittylog!)
 
 [📋 View the full changelog on Kittylog](https://kittylog.app/c/mpfaffenberger/code_puppy)
