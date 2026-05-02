@@ -66,9 +66,7 @@ def test_handle_tone_sets_config_and_reloads():
         patch(
             "code_puppy.plugins.personality_tone.register_callbacks.set_config_value"
         ) as set_config,
-        patch(
-            "code_puppy.plugins.personality_tone.register_callbacks.emit_success"
-        ),
+        patch("code_puppy.plugins.personality_tone.register_callbacks.emit_success"),
     ):
         plugin._set_tone("dry", reload_agent=reload_agent)
 
@@ -101,4 +99,3 @@ def test_custom_help_includes_tone_command():
 
 def test_handle_custom_command_ignores_other_commands():
     assert plugin._handle_custom_command("/other", "other") is None
-
