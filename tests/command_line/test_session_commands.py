@@ -116,12 +116,19 @@ class TestHandleCompactCommand:
             patch(
                 "code_puppy.agents._compaction.compact",
                 return_value=(["summary"], ["m1"]),
-            ),
+            ) as mock_compact,
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as ms,
         ):
             assert self._run() is True
             ms.assert_called_once()
+            mock_compact.assert_called_once_with(
+                agent,
+                ["m1", "m2"],
+                agent._get_model_context_length(),
+                agent._estimate_context_overhead(),
+                force=True,
+            )
 
     def test_compaction_fails(self):
         agent = MagicMock()

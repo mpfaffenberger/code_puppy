@@ -249,6 +249,88 @@ def test_predictive_trigger_can_fire_below_legacy_threshold(
     assert "latest request must remain raw" in rendered
 
 
+def test_automatic_continuity_compaction_calls_semantic_memory_with_active_model(
+    monkeypatch, tmp_path: Path
+):
+    import code_puppy.config as cp_config
+    from code_puppy.callbacks import register_callback
+    from code_puppy.plugins.continuity_compaction import register_callbacks
+
+    monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
+    register_callback(
+        "compact_message_history", register_callbacks._compact_message_history
+    )
+    monkeypatch.setattr(_compaction, "get_compaction_strategy", lambda: "continuity")
+    captured = {}
+
+    def fake_semantic_memory(**kwargs):
+        captured.update(kwargs)
+        return SemanticMemoryState(
+            current_task="Semantic active task",
+            current_task_id="semantic-task",
+            task_ledger=["Semantic active task"],
+            tasks=[
+                TaskMemory(
+                    task_id="semantic-task",
+                    title="Semantic active task",
+                    status="active",
+                    summary="semantic memory updated",
+                )
+            ],
+            global_constraints=[],
+            accepted_decisions=[],
+            invalidated_hypotheses=[],
+            validation_status={},
+            active_files=[],
+            next_action="continue",
+            archive_queries=[],
+        )
+
+    monkeypatch.setattr(engine, "resolve_semantic_memory_state", fake_semantic_memory)
+
+    agent = _FakeAgent()
+    new_messages, dropped = _compaction.compact(
+        agent, _bulky_history(), model_max=10_000, context_overhead=0
+    )
+
+    assert new_messages
+    assert dropped
+    assert captured["active_model_name"] == "fake-model"
+    assert captured["timeout_seconds"] == 60
+
+
+def test_manual_continuity_compaction_calls_semantic_memory_with_active_model(
+    monkeypatch, tmp_path: Path
+):
+    import code_puppy.config as cp_config
+    from code_puppy.callbacks import register_callback
+    from code_puppy.plugins.continuity_compaction import register_callbacks
+
+    monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path))
+    register_callback(
+        "compact_message_history", register_callbacks._compact_message_history
+    )
+    monkeypatch.setattr(_compaction, "get_compaction_strategy", lambda: "continuity")
+    captured = {}
+
+    def fake_semantic_memory(**kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(engine, "resolve_semantic_memory_state", fake_semantic_memory)
+
+    _compaction.compact(
+        _FakeAgent(),
+        [_sys_msg(), _user_msg("small manual request")],
+        model_max=100_000,
+        context_overhead=0,
+        force=True,
+    )
+
+    assert captured["active_model_name"] == "fake-model"
+    assert captured["timeout_seconds"] == 60
+
+
 def test_continuity_compaction_emits_visible_status(monkeypatch, tmp_path: Path):
     import code_puppy.config as cp_config
 
