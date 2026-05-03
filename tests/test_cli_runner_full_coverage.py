@@ -647,6 +647,7 @@ class TestInteractiveMode:
     @pytest.mark.anyio
     async def test_prompt_returns_none_cancelled(self):
         call_count = 0
+        mock_autosave = MagicMock()
 
         async def fake_input(*a, **kw):
             nonlocal call_count
@@ -667,8 +668,10 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     return_value=_mock_parse_result("write hello")
                 ),
+                "code_puppy.cli_runner._save_autosave_snapshot": mock_autosave,
             },
         )
+        mock_autosave.assert_called()
 
     @pytest.mark.anyio
     async def test_prompt_cancelled_wiggum_active(self):
