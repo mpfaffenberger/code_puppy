@@ -8,6 +8,8 @@ import asyncio
 import logging
 import os
 import socket
+import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 import httpx
@@ -51,12 +53,36 @@ def _resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
         or os.environ.get("http_proxy")
         or os.environ.get("https_proxy")
     )
-except ImportError:
-    # Fallback if pydantic_ai.retries is not available
-    AsyncTenacityTransport = None
-    RetryConfig = None
-    TenacityTransport = None
-    wait_retry_after = None
+
+    # Determine trust_env and verify based on proxy/retry settings
+    if disable_retry:
+        # Test mode: disable SSL verification for proxy testing
+        verify = False
+        trust_env = True
+    elif has_proxy:
+        # Production proxy: keep SSL verification enabled
+        trust_env = True
+    else:
+        trust_env = False
+
+    # Extract proxy URL
+    proxy_url = None
+    if has_proxy:
+        proxy_url = (
+            os.environ.get("HTTPS_PROXY")
+            or os.environ.get("https_proxy")
+            or os.environ.get("HTTP_PROXY")
+            or os.environ.get("http_proxy")
+        )
+
+    return ProxyConfig(
+        verify=verify,
+        trust_env=trust_env,
+        proxy_url=proxy_url,
+        disable_retry=disable_retry,
+        http2_enabled=http2_enabled,
+    )
+
 
 try:
     from .reopenable_async_client import ReopenableAsyncClient
@@ -64,12 +90,14 @@ except ImportError:
     ReopenableAsyncClient = None
 
 try:
-    from .messaging import emit_info
+    from .messaging import emit_info, emit_warning
 except ImportError:
     # Fallback if messaging system is not available
     def emit_info(content: str, **metadata):
         pass  # No-op if messaging system is not available
 
+    def emit_warning(content: str, **metadata):
+        pass
 
 
 class RetryingAsyncClient(httpx.AsyncClient):
@@ -175,7 +203,7 @@ class RetryingAsyncClient(httpx.AsyncClient):
 
 def get_cert_bundle_path() -> str | None:
     # First check if SSL_CERT_FILE environment variable is set
-    ssl_cert_file = os.environ.get("_SSL_CERT_FILE")
+    ssl_cert_file = os.environ.get("SSL_CERT_FILE")
     if ssl_cert_file and os.path.exists(ssl_cert_file):
         return ssl_cert_file
 
@@ -189,10 +217,17 @@ def create_client(
     if verify is None:
         verify = get_cert_bundle_path()
 
+    # Check if HTTP/2 is enabled in config
     http2_enabled = get_http2()
-    # Simple client without retry logic
+
+    # If retry components are available, create a client with retry transport
+    # Note: TenacityTransport was removed. For now we just return a standard client.
+    # Future TODO: Implement RetryingClient(httpx.Client) if needed.
     return httpx.Client(
-        verify=verify, headers=headers or {}, timeout=timeout, http2=http2_enabled
+        verify=verify,
+        headers=headers or {},
+        timeout=timeout,
+        http2=http2_enabled,
     )
 
 
@@ -201,54 +236,34 @@ def create_async_client(
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
     retry_status_codes: tuple = (429, 502, 503, 504),
-    debug_responses: bool = False,
+    model_name: str = "",
 ) -> httpx.AsyncClient:
-    if verify is None:
-        verify = get_cert_bundle_path()
+    config = _resolve_proxy_config(verify)
 
-    # Simple client without retry logic
-    http2_enabled = get_http2()
-
-    # Debug hooks for troubleshooting
-    event_hooks = {}
-    if debug_responses:
-        import logging
-
-        logger = logging.getLogger("code_puppy.http_debug")
-
-        async def log_request(request: httpx.Request):
-            try:
-                emit_info(f"[dim]HTTP Request: {request.method} {request.url}[/dim]")
-                logger.warning(f"HTTP Request: {request.method} {request.url}")
-            except Exception:
-                pass
-
-        async def log_response(response: httpx.Response):
-            try:
-                content_type = response.headers.get("content-type", "")
-                logger.warning(
-                    f"HTTP Response: {response.status_code} {response.url} ({content_type})"
-                )
-                emit_info(
-                    f"[dim]HTTP Response: {response.status_code} ({content_type})[/dim]"
-                )
-            except Exception:
-                pass
-
-        event_hooks["request"] = [log_request]
-        event_hooks["response"] = [log_response]
-
-    return httpx.AsyncClient(
-        verify=verify,
-        headers=headers or {},
-        timeout=timeout,
-        http2=http2_enabled,
-        event_hooks=event_hooks if event_hooks else None,
-    )
+    if not config.disable_retry:
+        return RetryingAsyncClient(
+            retry_status_codes=retry_status_codes,
+            model_name=model_name,
+            proxy=config.proxy_url,
+            verify=config.verify,
+            headers=headers or {},
+            timeout=timeout,
+            http2=config.http2_enabled,
+            trust_env=config.trust_env,
+        )
+    else:
+        return httpx.AsyncClient(
+            proxy=config.proxy_url,
+            verify=config.verify,
+            headers=headers or {},
+            timeout=timeout,
+            http2=config.http2_enabled,
+            trust_env=config.trust_env,
+        )
 
 
 def create_requests_session(
-    timeout: float = 10.0,
+    timeout: float = 5.0,
     verify: Union[bool, str] = None,
     headers: Optional[Dict[str, str]] = None,
 ) -> "requests.Session":
@@ -296,20 +311,36 @@ def create_reopenable_async_client(
     retry_status_codes: tuple = (429, 502, 503, 504),
     model_name: str = "",
 ) -> Union[ReopenableAsyncClient, httpx.AsyncClient]:
-    if verify is None:
-        verify = get_cert_bundle_path()
+    config = _resolve_proxy_config(verify)
 
-    http2_enabled = get_http2()
-    # Simple client without retry logic
+    base_kwargs = {
+        "proxy": config.proxy_url,
+        "verify": config.verify,
+        "headers": headers or {},
+        "timeout": timeout,
+        "http2": config.http2_enabled,
+        "trust_env": config.trust_env,
+    }
+
     if ReopenableAsyncClient is not None:
-        return ReopenableAsyncClient(
-            verify=verify, headers=headers or {}, timeout=timeout, http2=http2_enabled
+        client_class = (
+            RetryingAsyncClient if not config.disable_retry else httpx.AsyncClient
         )
+        kwargs = {**base_kwargs, "client_class": client_class}
+        if not config.disable_retry:
+            kwargs["retry_status_codes"] = retry_status_codes
+            kwargs["model_name"] = model_name
+        return ReopenableAsyncClient(**kwargs)
     else:
-        # Fallback to regular AsyncClient if ReopenableAsyncClient is not available
-        return httpx.AsyncClient(
-            verify=verify, headers=headers or {}, timeout=timeout, http2=http2_enabled
-        )
+        # Fallback to RetryingAsyncClient or plain AsyncClient
+        if not config.disable_retry:
+            return RetryingAsyncClient(
+                retry_status_codes=retry_status_codes,
+                model_name=model_name,
+                **base_kwargs,
+            )
+        else:
+            return httpx.AsyncClient(**base_kwargs)
 
 
 def disable_openai_sdk_retries(
