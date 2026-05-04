@@ -4,6 +4,8 @@ HTTP utilities module for code-puppy.
 This module provides functions for creating properly configured HTTP clients.
 """
 
+import asyncio
+import logging
 import os
 import socket
 from typing import TYPE_CHECKING, Any, Dict, Optional, Union
@@ -14,12 +16,40 @@ if TYPE_CHECKING:
     import requests
 from code_puppy.config import get_http2
 
-try:
-    from pydantic_ai.retries import (
-        AsyncTenacityTransport,
-        RetryConfig,
-        TenacityTransport,
-        wait_retry_after,
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ProxyConfig:
+    """Configuration for proxy and SSL settings."""
+
+    verify: Union[bool, str, None]
+    trust_env: bool
+    proxy_url: str | None
+    disable_retry: bool
+    http2_enabled: bool
+
+
+def _resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
+    """Resolve proxy, SSL, and retry settings from environment.
+
+    This centralizes the logic for detecting proxies, determining SSL verification,
+    and checking if retry transport should be disabled.
+    """
+    if verify is None:
+        verify = get_cert_bundle_path()
+
+    http2_enabled = get_http2()
+
+    disable_retry = os.environ.get(
+        "CODE_PUPPY_DISABLE_RETRY_TRANSPORT", ""
+    ).lower() in ("1", "true", "yes")
+
+    has_proxy = bool(
+        os.environ.get("HTTP_PROXY")
+        or os.environ.get("HTTPS_PROXY")
+        or os.environ.get("http_proxy")
+        or os.environ.get("https_proxy")
     )
 except ImportError:
     # Fallback if pydantic_ai.retries is not available
@@ -280,6 +310,63 @@ def create_reopenable_async_client(
         return httpx.AsyncClient(
             verify=verify, headers=headers or {}, timeout=timeout, http2=http2_enabled
         )
+
+
+def disable_openai_sdk_retries(
+    http_client: httpx.AsyncClient,
+    **openai_kwargs: Any,
+) -> dict:
+    """When a RetryingAsyncClient is used as http_client for the OpenAI SDK,
+    disable the SDK's own retries to avoid multiplicative retry explosion.
+
+    The OpenAI SDK defaults to max_retries=2, and RetryingAsyncClient has 5.
+    Together with 3 streaming retries, a 429 can trigger up to
+    3 x 3 x 5 = 45 retries. Disabling SDK retries caps this at 3 x 5 = 15.
+
+    Returns provider kwargs. If the client is NOT a RetryingAsyncClient,
+    returns {"http_client": client} (+ any openai_kwargs as separate keys).
+    If it IS a RetryingAsyncClient, returns {"openai_client": AsyncOpenAI(...)}
+    with max_retries=0 and the provided openai_kwargs folded in.
+    Falls back to {"http_client": client} if AsyncOpenAI construction fails
+    (e.g. missing api_key).
+
+    Args:
+        http_client: The httpx client (possibly RetryingAsyncClient).
+        **openai_kwargs: Extra kwargs for AsyncOpenAI (api_key, base_url, etc).
+            Only used when creating an openai_client to bypass SDK retries.
+    """
+    if isinstance(http_client, RetryingAsyncClient):
+        try:
+            from openai import AsyncOpenAI
+
+            openai_client = AsyncOpenAI(
+                http_client=http_client,
+                max_retries=0,
+                **openai_kwargs,
+            )
+            return {"openai_client": openai_client}
+        except ImportError:
+            # openai package not installed; fall through
+            pass
+        except Exception as exc:
+            # Missing api_key (OpenAIError), wrong kwargs (TypeError),
+            # or other construction failures — fall back gracefully.
+            try:
+                from openai import OpenAIError as _OpenAIError
+
+                _warnable = (TypeError, ValueError, _OpenAIError)
+            except ImportError:
+                _warnable = (TypeError, ValueError)
+            if isinstance(exc, _warnable):
+                emit_warning(
+                    f"Could not disable OpenAI SDK retries ({exc}). "
+                    f"Falling back to http_client mode — multiplicative retries possible."
+                )
+            else:  # pragma: no cover
+                logger.debug("Unexpected error disabling OpenAI SDK retries: %s", exc)
+    result = {"http_client": http_client}
+    result.update(openai_kwargs)
+    return result
 
 
 def is_cert_bundle_available() -> bool:

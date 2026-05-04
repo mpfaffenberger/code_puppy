@@ -1,11 +1,12 @@
-"""Agent run orchestration: streaming retries, signal/key cancellation, DBOS.
+"""Agent run orchestration: streaming retries, signal/key cancellation.
 
 Replaces the monolithic ``BaseAgent.run_with_mcp`` coroutine. Everything here
 is a free function; the agent is passed in explicitly. Integration points
 preserved verbatim:
 
-- DBOS workflow ID via ``SetWorkflowID(group_id)``
-- DBOS MCP toolset injection (temp ``_toolsets`` swap with try/finally restore)
+- Plugin-supplied async context managers wrap the run (see
+  ``on_agent_run_context``); used e.g. by the DBOS plugin to set a workflow
+  ID and swap MCP toolsets in/out.
 - Signal-vs-key-listener branch driven by ``cancel_agent_uses_signal()``
 - Windows terminal reset on graceful SIGINT
 - ``is_awaiting_user_input()`` guards interrupt handling
@@ -19,12 +20,12 @@ import asyncio
 import signal
 import threading
 import uuid
+from contextlib import AsyncExitStack
 from typing import Any, Callable, List, Optional, Sequence, Type, Union
 
 import httpcore
 import httpx
 import mcp
-from dbos import DBOS, SetWorkflowID
 from pydantic_ai import (
     BinaryContent,
     DocumentUrl,
@@ -60,15 +61,17 @@ from code_puppy.agents._non_streaming_render import (
 )
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
+    on_agent_run_cancel,
+    on_agent_run_context,
     on_agent_run_end,
     on_agent_run_result,
     on_agent_run_start,
+    on_should_skip_fallback_render,
 )
 from code_puppy.config import (
     get_enable_streaming,
     get_max_hook_retries,
     get_message_limit,
-    get_use_dbos,
 )
 from code_puppy.keymap import cancel_agent_uses_signal
 from code_puppy.messaging import emit_error, emit_info, emit_warning
@@ -310,8 +313,9 @@ async def run_with_mcp(
             StreamingTextDetector(event_stream_handler) if use_streaming else None
         )
         stream_handler = detector if detector is not None else None
-        # DBOS renders its own output at construction time, so skip there.
-        skip_fallback_render = get_use_dbos()
+        # Plugins (e.g. DBOS) can render their own output and ask us to skip
+        # the non-streaming fallback render.
+        skip_fallback_render = on_should_skip_fallback_render(agent)
 
         @streaming_retry()
         async def _call() -> Any:
@@ -370,23 +374,13 @@ async def run_with_mcp(
                 agent._message_history
             )
 
-            use_dbos = get_use_dbos()
             mcp_servers = getattr(agent, "_mcp_servers", None) or []
-
-            if use_dbos and mcp_servers:
-                # DBOS path: inject MCP via the private _toolsets swap, then
-                # restore unconditionally so future runs aren't corrupted.
-                original_toolsets = pydantic_agent._toolsets
-                pydantic_agent._toolsets = original_toolsets + mcp_servers
-                try:
-                    with SetWorkflowID(group_id):
-                        return await _do_run(prompt_payload)
-                finally:
-                    pydantic_agent._toolsets = original_toolsets
-            elif use_dbos:
-                with SetWorkflowID(group_id):
-                    return await _do_run(prompt_payload)
-            else:
+            run_ctxs = on_agent_run_context(
+                agent, pydantic_agent, group_id, mcp_servers
+            )
+            async with AsyncExitStack() as stack:
+                for cm in run_ctxs:
+                    await stack.enter_async_context(cm)
                 return await _do_run(prompt_payload)
         except* UsageLimitExceeded as ule:
             emit_info(f"Usage limit exceeded: {ule}", group_id=group_id)
@@ -400,12 +394,10 @@ async def run_with_mcp(
             emit_info("Try disabling any malfunctioning MCP servers", group_id=group_id)
         except* asyncio.CancelledError:
             emit_info("Cancelled")
-            if get_use_dbos():
-                await DBOS.cancel_workflow_async(group_id)
+            await on_agent_run_cancel(group_id)
         except* InterruptedError as ie:
             emit_info(f"Interrupted: {ie}")
-            if get_use_dbos():
-                await DBOS.cancel_workflow_async(group_id)
+            await on_agent_run_cancel(group_id)
         except* Exception as other:
             unexpected = _collect_exceptions(
                 other,

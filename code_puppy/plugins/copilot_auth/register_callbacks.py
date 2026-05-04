@@ -358,7 +358,7 @@ def _create_copilot_model(model_name: str, model_config: Dict, config: Dict) -> 
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
 
-    from code_puppy.http_utils import create_async_client
+    from code_puppy.http_utils import create_async_client, disable_openai_sdk_retries
 
     # Discover token — match against the host stored in the model config
     host = model_config.get("copilot_host", "github.com")
@@ -414,12 +414,14 @@ def _create_copilot_model(model_name: str, model_config: Dict, config: Dict) -> 
         if config_url:
             base_url = config_url
 
-    # Use a placeholder API key — the actual token is injected by _CopilotAuth
-    provider = OpenAIProvider(
+    # Disable OpenAI SDK retries when using our own RetryingAsyncClient
+    # to avoid multiplicative retry explosion (3 streaming x 3 SDK x 5 HTTP = 45)
+    provider_kwargs = disable_openai_sdk_retries(
+        client,
         api_key="copilot-session-managed",
         base_url=base_url,
-        http_client=client,
     )
+    provider = OpenAIProvider(**provider_kwargs)
 
     # Build a model profile that tells pydantic-ai how to handle thinking.
     # Claude models behind the Copilot API return thinking in a custom field
