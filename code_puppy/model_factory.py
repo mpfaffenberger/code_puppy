@@ -25,12 +25,7 @@ from code_puppy.messaging import emit_warning
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
 from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
-from .http_utils import (
-    create_async_client,
-    disable_openai_sdk_retries,
-    get_cert_bundle_path,
-    get_http2,
-)
+from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .provider_identity import (
     make_anthropic_provider,
     make_openai_provider,
@@ -713,20 +708,11 @@ class ModelFactory:
                 verify=verify,
                 timeout=timeout if timeout is not None else 180,
             )
+            provider_args = {"base_url": url}
             if isinstance(client, httpx.AsyncClient):
-                # Disable OpenAI SDK retries when using our own
-                # RetryingAsyncClient to avoid multiplicative retry explosion
-                # (3 streaming x 3 SDK x 5 HTTP = 45 retries on 429)
-                openai_kwargs = {}
-                if url:
-                    openai_kwargs["base_url"] = url
-                if api_key:
-                    openai_kwargs["api_key"] = api_key
-                provider_args = disable_openai_sdk_retries(client, **openai_kwargs)
-            else:
-                provider_args = {"base_url": url}
-                if api_key:
-                    provider_args["api_key"] = api_key
+                provider_args["http_client"] = client
+            if api_key:
+                provider_args["api_key"] = api_key
             provider = make_openai_provider(provider_identity, **provider_args)
             model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
             if model_name == "chatgpt-gpt-5-codex":
@@ -830,10 +816,10 @@ class ModelFactory:
                 model_name="cerebras",
                 timeout=timeout if timeout is not None else 180,
             )
-            # Disable OpenAI SDK retries when using our own
-            # RetryingAsyncClient to avoid multiplicative retry explosion
-            # (3 streaming x 3 SDK x 5 HTTP = 45 retries on 429)
-            provider_args = disable_openai_sdk_retries(client, api_key=api_key)
+            provider_args = dict(
+                api_key=api_key,
+                http_client=client,
+            )
             provider = ZaiCerebrasProvider(**provider_args)
 
             return OpenAIChatModel(model_name=model_config["name"], provider=provider)

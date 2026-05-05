@@ -8,9 +8,11 @@ import argparse
 import asyncio
 import os
 import sys
+import time
 import traceback
 from pathlib import Path
 
+from dbos import DBOS, DBOSConfig
 from rich.console import Console
 
 from code_puppy import __version__, callbacks, plugins
@@ -20,9 +22,11 @@ from code_puppy.command_line.clipboard import get_clipboard_manager
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
+    DBOS_DATABASE_URL,
     ensure_config_exists,
     finalize_autosave_session,
     get_auto_update,
+    get_use_dbos,
     initialize_command_history_file,
     save_command_to_history,
 )
@@ -44,57 +48,6 @@ from code_puppy.version_checker import default_version_mismatch_behavior
 
 apply_all_patches()
 plugins.load_plugin_callbacks()
-
-
-def _resume_session_from_path(raw_path: str) -> None:
-    """Restore agent message history from a saved .pkl session file.
-
-    Accepts any path (autosaves, contexts, somewhere weird on disk). We don't
-    care where it lives — we just decompose into (parent_dir, stem) and reuse
-    ``session_storage.load_session`` so we stay DRY.
-    """
-    from code_puppy.agents.agent_manager import get_current_agent
-    from code_puppy.messaging import emit_error, emit_success
-    from code_puppy.session_storage import load_session
-
-    session_path = Path(raw_path).expanduser().resolve()
-
-    if not session_path.exists():
-        emit_error(f"--resume: session file not found: {session_path}")
-        sys.exit(1)
-
-    if session_path.suffix != ".pkl":
-        emit_error(
-            f"--resume: expected a .pkl session file, got '{session_path.suffix}': {session_path}"
-        )
-        sys.exit(1)
-
-    try:
-        history = load_session(session_path.stem, session_path.parent)
-    except Exception as exc:
-        emit_error(f"--resume: failed to load session: {exc}")
-        sys.exit(1)
-
-    try:
-        agent = get_current_agent()
-        agent.set_message_history(history)
-    except Exception as exc:
-        emit_error(f"--resume: failed to attach history to agent: {exc}")
-        sys.exit(1)
-
-    # Rotate autosave id so we don't clobber the original file we just resumed.
-    try:
-        from code_puppy.config import rotate_autosave_id
-
-        rotate_autosave_id()
-    except Exception:
-        pass  # autosave rotation is best-effort
-
-    total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
-    emit_success(
-        f"✅ Resumed session: {len(history)} messages ({total_tokens} tokens)\n"
-        f"📁 From: {session_path}"
-    )
 
 
 async def main():
@@ -136,8 +89,8 @@ async def main():
         "--resume",
         "-r",
         type=str,
-        metavar="PATH",
-        help="Resume a saved session from a .pkl file (e.g. ~/.code_puppy/contexts/foo.pkl)",
+        help="Resume from a saved context (pickle file path or session name)",
+        metavar="SESSION",
     )
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
@@ -345,8 +298,80 @@ async def main():
 
     await callbacks.on_startup()
 
+    # Handle --resume flag to load a saved context
     if args.resume:
-        _resume_session_from_path(args.resume)
+        from code_puppy.agents.agent_manager import get_current_agent
+        from code_puppy.config import CONTEXTS_DIR, rotate_autosave_id
+        from code_puppy.messaging import emit_error, emit_info, emit_success
+        from code_puppy.session_storage import list_sessions, load_session
+
+        resume_target = args.resume
+        contexts_dir = Path(CONTEXTS_DIR)
+
+        # Check if it's a full path to a pickle file
+        resume_path = Path(resume_target)
+        if resume_path.suffix == ".pkl" and resume_path.exists():
+            # Full path to a pickle file - load directly
+            session_name = resume_path.stem
+            session_dir = resume_path.parent
+        elif (contexts_dir / f"{resume_target}.pkl").exists():
+            # Session name in the default contexts directory
+            session_name = resume_target
+            session_dir = contexts_dir
+        elif resume_path.exists():
+            # Path without .pkl extension but file exists
+            session_name = resume_path.stem
+            session_dir = resume_path.parent
+        else:
+            # Not found
+            emit_error(f"Resume target not found: {resume_target}")
+            available = list_sessions(contexts_dir)
+            if available:
+                emit_info(f"Available contexts: {', '.join(available[:10])}")
+            sys.exit(1)
+
+        try:
+            history = load_session(session_name, session_dir)
+            agent = get_current_agent()
+            agent.set_message_history(history)
+            total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
+
+            # Rotate autosave id to avoid overwriting existing autosave
+            new_id = rotate_autosave_id()
+            emit_success(
+                f"✅ Resumed: {len(history)} messages ({total_tokens} tokens) from {session_name}\n"
+                f"🔄 Autosave session: {new_id}"
+            )
+        except Exception as e:
+            emit_error(f"Failed to resume from {resume_target}: {e}")
+            sys.exit(1)
+
+    # Initialize DBOS if not disabled
+    if get_use_dbos():
+        # Append a Unix timestamp in ms to the version for uniqueness
+        dbos_app_version = os.environ.get(
+            "DBOS_APP_VERSION", f"{current_version}-{int(time.time() * 1000)}"
+        )
+        dbos_config: DBOSConfig = {
+            "name": "dbos-code-puppy",
+            "system_database_url": DBOS_DATABASE_URL,
+            "run_admin_server": False,
+            "conductor_key": os.environ.get(
+                "DBOS_CONDUCTOR_KEY"
+            ),  # Optional, if set in env, connect to conductor
+            "log_level": os.environ.get(
+                "DBOS_LOG_LEVEL", "ERROR"
+            ),  # Default to ERROR level to suppress verbose logs
+            "application_version": dbos_app_version,  # Match DBOS app version to Code Puppy version
+        }
+        try:
+            DBOS(config=dbos_config)
+            DBOS.launch()
+        except Exception as e:
+            emit_error(f"Error initializing DBOS: {e}")
+            sys.exit(1)
+    else:
+        pass
 
     global shutdown_flag
     shutdown_flag = False
@@ -372,6 +397,8 @@ async def main():
         if bus_renderer:
             bus_renderer.stop()
         callbacks.on_shutdown()
+        if get_use_dbos():
+            DBOS.destroy()
 
 
 async def interactive_mode(message_renderer, initial_command: str = None) -> None:
@@ -522,7 +549,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Fall back to basic input if prompt_toolkit is not available
                 task = input(">>> ")
 
-        except (KeyboardInterrupt, asyncio.CancelledError):
+        except KeyboardInterrupt:
             # Handle Ctrl+C - cancel input and continue
             # Windows-specific: Reset terminal state after interrupt to prevent
             # the terminal from becoming unresponsive (can't type characters)
@@ -1065,6 +1092,8 @@ def main_entry():
     except KeyboardInterrupt:
         # Note: Using sys.stderr for crash output - messaging system may not be available
         sys.stderr.write(traceback.format_exc())
+        if get_use_dbos():
+            DBOS.destroy()
         return 0
     finally:
         # Reset terminal on Unix-like systems (not Windows)
