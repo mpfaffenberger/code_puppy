@@ -54,3 +54,65 @@ Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
 3. **600-line hard cap** — split into submodules
 4. **Fail gracefully** — never crash the app
 5. **Return `None` from commands you don't own**
+
+## CI: Portable Venv Distribution
+
+The `manual_release` flow in `.looper.yml` does more than publish a wheel —
+it also produces fully portable, relocatable virtualenvs for **macOS arm64**
+and **Windows x86_64**, then uploads them to the shared `puppy-pages` GCS
+bucket. The puppy-backend service serves these zips back to clients via
+endpoints, so users can grab a pre-built code-puppy environment without
+running `uv` or hitting Artifactory directly.
+
+### What gets published
+
+On a successful `manual_release` run, three GCS objects are written (the
+`latest/version.txt` pointer is only flipped after **both** platform
+uploads succeed):
+
+```
+gs://puppy-pages/code-puppy-venv/<VERSION>/code-puppy-venv-mac.zip
+gs://puppy-pages/code-puppy-venv/<VERSION>/code-puppy-venv-windows.zip
+gs://puppy-pages/code-puppy-venv/latest/version.txt   # contents: just <VERSION>, no \n
+```
+
+`<VERSION>` is whatever `import code_puppy; print(code_puppy.__version__)`
+resolves to during the release (i.e. the post-bump version).
+
+### puppy-backend endpoints (separate repo, already shipped)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/code-puppy-venv/version` | Returns the current `latest` version string |
+| GET | `/code-puppy-venv/download/{mac\|windows}` | Streams the latest zip for that platform |
+| GET | `/code-puppy-venv/download/{mac\|windows}/{version}` | Streams a pinned version |
+
+### Pipeline scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/build_portable_venv.sh` | macOS: `uv venv --relocatable` + install wheel + zip |
+| `scripts/build_portable_venv.ps1` | Windows: same, in PowerShell |
+| `scripts/upload_venv_to_gcs.sh` | macOS uploader (Python heredoc + google-auth + REST) |
+| `scripts/upload_venv_to_gcs.ps1` | Windows uploader (JWT/RSA-SHA256 + REST, no gcloud) |
+
+### One-time setup (operator)
+
+1. **Encrypt the GCS service account key** and replace the
+   `<ENCRYPTED>` placeholder for `GCS_SA_KEY_B64` at the top of `.looper.yml`:
+
+   ```bash
+   looper encrypt -r AI-INNOVATION-LAB/code-puppy -s "$(base64 < sa-key.json)"
+   ```
+
+   Use the same `wmt-ww-gg-gi-dev` (or equivalent) service account that
+   puppy-frontend / puppy-launcher use for the `puppy-pages` bucket.
+
+2. **Onboard the Looper job for the `mac` agent type.** The `macos_arm64`
+   label (note the underscore — it is _not_ `mac-arm64`) requires the job
+   to be onboarded first. See:
+   <https://confluence.walmart.com/display/DXDOCS/14.+Agent+Types+and+Labels>
+
+Until both steps are done, the `manual_release` flow will fail at the
+platform-specific build steps. The Artifactory wheel publish + Slack
+notification will still complete because they happen earlier in the flow.
