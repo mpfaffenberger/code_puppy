@@ -143,6 +143,7 @@ from code_puppy.tools.marketplace_tools import (
     register_marketplace_check_update,
     register_marketplace_authenticate,
 )
+
 from code_puppy.tools.msgraph import MSGRAPH_TOOLS
 from code_puppy.tools.pete_tools import PETE_TOOLS
 from code_puppy.tools.powerbi import POWERBI_TOOLS
