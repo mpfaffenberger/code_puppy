@@ -13,6 +13,8 @@ Note: Teams messages require specific permissions (ChannelMessage.Read.All, etc.
 
 from typing import Any
 
+from datetime import datetime, timezone
+
 from pydantic_ai import RunContext
 from pydantic_ai.tools import Tool
 from rich.text import Text
@@ -703,6 +705,259 @@ def register_msgraph_list_chats(agent: Any) -> Tool:
         The registered Tool instance.
     """
     return agent.tool(msgraph_list_chats)
+
+
+# =============================================================================
+# LIST CHAT MESSAGES TOOL
+# =============================================================================
+
+
+def msgraph_list_chat_messages(
+    ctx: RunContext,
+    chat_id: str,
+    beginning_date: str,
+    ending_date: str | None = None,
+    max_pages: int = 20,
+) -> dict:
+    """List chat messages in [beginning_date, ending_date] (auto-paginated).
+
+    Internally walks @odata.nextLink until it sees a message older than
+    `beginning_date`, then stops. Returns ONLY messages within the requested
+    date range. This dramatically reduces context vs the agent calling a
+    paginated tool many times itself.
+
+    MS Graph chat messages API quirks (forced on us):
+    - Page size hard-capped at 50
+    - `$skip` not supported (HTTP 400)
+    - `$filter` on createdDateTime not supported (so we filter client-side)
+    - Pagination is cursor-based via @odata.nextLink only
+
+    Args:
+        chat_id: The chat ID (get from msgraph_list_chats).
+        beginning_date: ISO 8601 date or datetime (inclusive lower bound).
+            Examples: "2026-04-27", "2026-04-27T00:00:00Z",
+            "2026-04-27T14:30:00+00:00". Naive dates are treated as UTC.
+        ending_date: Optional ISO 8601 date or datetime (inclusive upper
+            bound). If provided, messages newer than this are stripped.
+            Same parsing rules as beginning_date. Defaults to None (no
+            upper bound = include everything up to now).
+        max_pages: Safety cap on pages fetched (default 20 = up to ~1000
+            messages). Prevents runaway loops on huge chats. If hit, the
+            response includes hit_max_pages=True so the caller can decide
+            whether to widen the date range or increase the cap.
+
+    Returns:
+        Dict with:
+        - success: True/False
+        - messages: list of formatted messages in
+          [beginning_date, ending_date], newest first (MS Graph default order)
+        - message_count: total messages returned
+        - chat_id: echoed back for convenience
+        - beginning_date: parsed beginning_date as ISO string (UTC)
+        - ending_date: parsed ending_date as ISO string (UTC), or None
+        - earliest_message_date / latest_message_date: bounds of returned set
+        - pages_fetched: how many API calls were made internally
+        - reached_beginning_date: True if we walked past beginning_date
+          (i.e. the date range is fully covered)
+        - hit_max_pages: True if we stopped due to max_pages safety cap
+        - hint (optional): present only if hit_max_pages=True
+    """
+    display_id = chat_id[:40] + "..." if len(chat_id) > 40 else chat_id
+
+    # --- parse beginning_date ---
+    try:
+        # fromisoformat handles "2026-04-27", "2026-04-27T00:00:00",
+        # "2026-04-27T00:00:00+00:00". Replace "Z" suffix manually since
+        # fromisoformat in <3.11 doesn't accept it (3.11+ does, but be safe).
+        normalized = beginning_date.replace("Z", "+00:00")
+        parsed_begin = datetime.fromisoformat(normalized)
+        if parsed_begin.tzinfo is None:
+            parsed_begin = parsed_begin.replace(tzinfo=timezone.utc)
+    except (ValueError, AttributeError) as e:
+        return {
+            "success": False,
+            "error_type": "invalid_argument",
+            "error": (
+                f"Invalid beginning_date {beginning_date!r}: {e}. "
+                f"Expected ISO 8601, e.g. '2026-04-27' or "
+                f"'2026-04-27T00:00:00Z'."
+            ),
+        }
+
+    # --- parse ending_date (optional) ---
+    parsed_end: datetime | None = None
+    if ending_date is not None:
+        try:
+            normalized_end = ending_date.replace("Z", "+00:00")
+            parsed_end = datetime.fromisoformat(normalized_end)
+            if parsed_end.tzinfo is None:
+                parsed_end = parsed_end.replace(tzinfo=timezone.utc)
+        except (ValueError, AttributeError) as e:
+            return {
+                "success": False,
+                "error_type": "invalid_argument",
+                "error": (
+                    f"Invalid ending_date {ending_date!r}: {e}. "
+                    f"Expected ISO 8601, e.g. '2026-04-27' or "
+                    f"'2026-04-27T00:00:00Z'."
+                ),
+            }
+        if parsed_end < parsed_begin:
+            return {
+                "success": False,
+                "error_type": "invalid_argument",
+                "error": (
+                    f"ending_date ({parsed_end.isoformat()}) must be >= "
+                    f"beginning_date ({parsed_begin.isoformat()})."
+                ),
+            }
+
+    range_desc = (
+        f"from {parsed_begin.isoformat()} to {parsed_end.isoformat()}"
+        if parsed_end is not None
+        else f"since {parsed_begin.isoformat()}"
+    )
+    emit_info(
+        Text.from_markup(
+            f"\n[bold white on blue] MS GRAPH [/bold white on blue] "
+            f"💬 [bold cyan]Listing messages in chat: {display_id} "
+            f"{range_desc}[/bold cyan]"
+        )
+    )
+
+    try:
+        client = get_msgraph_client()
+
+        # Lazy import to avoid circular deps; needed for URL normalization.
+        from code_puppy.plugins.walmart_specific.msgraph_client import (
+            MSGRAPH_BASE_URL,
+        )
+
+        all_messages: list[dict] = []
+        pages_fetched = 0
+        reached_beginning_date = False
+        hit_max_pages = False
+
+        # Initial endpoint - sorted newest-first so we can short-circuit
+        # as soon as we see a message older than beginning_date.
+        next_endpoint: str | None = (
+            f"/me/chats/{chat_id}/messages"
+            "?$top=50&$orderby=createdDateTime+desc"
+        )
+
+        while next_endpoint is not None:
+            if pages_fetched >= max_pages:
+                hit_max_pages = True
+                break
+
+            response = client.get(next_endpoint)
+            pages_fetched += 1
+
+            page_messages = response.get("value", []) or []
+            stop_after_this_page = False
+
+            for raw_msg in page_messages:
+                created_str = raw_msg.get("createdDateTime")
+                if not created_str:
+                    # No timestamp - keep it (better than silently dropping).
+                    all_messages.append(_format_message(raw_msg))
+                    continue
+
+                try:
+                    created_dt = datetime.fromisoformat(
+                        created_str.replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    all_messages.append(_format_message(raw_msg))
+                    continue
+
+                if created_dt < parsed_begin:
+                    # Hit a message older than our window - we're done.
+                    # Newest-first ordering means everything after this is
+                    # also out of range.
+                    reached_beginning_date = True
+                    stop_after_this_page = True
+                    break
+
+                if parsed_end is not None and created_dt > parsed_end:
+                    # Newer than ending_date - skip this one but keep iterating.
+                    # Older messages later in the page may still be in range.
+                    continue
+
+                # In range [beginning_date, ending_date].
+                all_messages.append(_format_message(raw_msg))
+
+            if stop_after_this_page:
+                break
+
+            raw_next = response.get("@odata.nextLink")
+            if not raw_next:
+                # End of chat history reached - by definition we covered
+                # everything from beginning_date forward.
+                reached_beginning_date = True
+                next_endpoint = None
+            else:
+                next_endpoint = (
+                    raw_next[len(MSGRAPH_BASE_URL):]
+                    if raw_next.startswith(MSGRAPH_BASE_URL)
+                    else raw_next
+                )
+
+        message_count = len(all_messages)
+        earliest = all_messages[-1]["created"] if all_messages else None
+        latest = all_messages[0]["created"] if all_messages else None
+
+        coverage_note = (
+            " (full range covered)"
+            if reached_beginning_date
+            else " (stopped early - hit max_pages)"
+            if hit_max_pages
+            else ""
+        )
+        emit_success(
+            f"Retrieved {message_count} message(s) across "
+            f"{pages_fetched} page(s){coverage_note}"
+        )
+
+        result = {
+            "success": True,
+            "messages": all_messages,
+            "message_count": message_count,
+            "chat_id": chat_id,
+            "beginning_date": parsed_begin.isoformat(),
+            "ending_date": parsed_end.isoformat() if parsed_end else None,
+            "earliest_message_date": earliest,
+            "latest_message_date": latest,
+            "pages_fetched": pages_fetched,
+            "reached_beginning_date": reached_beginning_date,
+            "hit_max_pages": hit_max_pages,
+        }
+
+        if hit_max_pages:
+            result["hint"] = (
+                f"Stopped after {pages_fetched} pages (max_pages={max_pages}) "
+                f"WITHOUT reaching beginning_date. The oldest message returned "
+                f"is {earliest}. To get earlier messages either: (a) call "
+                f"again with a narrower beginning_date closer to that timestamp, "
+                f"or (b) raise max_pages."
+            )
+
+        return result
+
+    except Exception as e:
+        return _handle_msgraph_error(e)
+
+
+def register_msgraph_list_chat_messages(agent: Any) -> Tool:
+    """Register the msgraph_list_chat_messages tool with a PydanticAI agent.
+
+    Args:
+        agent: PydanticAI agent instance.
+
+    Returns:
+        The registered Tool instance.
+    """
+    return agent.tool(msgraph_list_chat_messages)
 
 
 # =============================================================================

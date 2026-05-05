@@ -62,6 +62,7 @@ from code_puppy.tools.msgraph.teams import (
     register_msgraph_send_channel_message,
     register_msgraph_create_online_meeting,
     register_msgraph_list_chats,
+    register_msgraph_list_chat_messages,
     register_msgraph_send_chat_message,
     register_msgraph_send_direct_message,
 )
@@ -139,6 +140,7 @@ MSGRAPH_TOOLS = {
     "msgraph_send_channel_message": register_msgraph_send_channel_message,
     "msgraph_create_online_meeting": register_msgraph_create_online_meeting,
     "msgraph_list_chats": register_msgraph_list_chats,
+    "msgraph_list_chat_messages": register_msgraph_list_chat_messages,
     "msgraph_send_chat_message": register_msgraph_send_chat_message,
     "msgraph_send_direct_message": register_msgraph_send_direct_message,
     # SharePoint
