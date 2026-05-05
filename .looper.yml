@@ -1,3 +1,40 @@
+# ============================================================================
+# Code Puppy — LooperPro CI/CD Pipeline
+# ============================================================================
+# Standard Python build/release pipeline + portable venv distribution.
+#
+#   default / push  ->  python_flow              (build + bump version, no publish)
+#   pr              ->  pr                       (build only, sanity check)
+#   manual_release  ->  python_releaseSteps      (publish wheel to Artifactory)
+#                       commitVersion            (commit bump back to repo)
+#                       slackBuildMessagePython  (post to #code-puppy-pipelines)
+#                       build_and_upload_mac_venv      (macos_arm64 agent)
+#                       build_and_upload_windows_venv  (vs2022 agent)
+#                       write_venv_latest_pointer      (atomic latest pointer)
+#
+# Portable venvs are uploaded to:
+#   gs://puppy-pages/code-puppy-venv/<VERSION>/code-puppy-venv-mac.zip
+#   gs://puppy-pages/code-puppy-venv/<VERSION>/code-puppy-venv-windows.zip
+#   gs://puppy-pages/code-puppy-venv/latest/version.txt   (just the version, no \n)
+#
+# Served back to clients by puppy-backend (separate repo) at:
+#   GET /code-puppy-venv/version
+#   GET /code-puppy-venv/download/{mac,windows}            (latest)
+#   GET /code-puppy-venv/download/{mac,windows}/{version}  (pinned)
+#
+# Looper Pro API reference (for build logs, triggering, etc.):
+#   Base URL : https://looperpro-cigateway.prod.walmart.com
+#   Log viewer: https://looperpro.walmart.com/log/0?jobName={job}&buildNo={n}&...
+#   Agent labels:
+#     https://confluence.walmart.com/display/DXDOCS/14.+Agent+Types+and+Labels
+#
+# PREREQUISITES (one-time, manual):
+#   1. Encrypt the GCS service account key and replace the placeholder below:
+#        looper encrypt -r AI-INNOVATION-LAB/code-puppy -s "$(base64 < sa-key.json)"
+#   2. Onboard this Looper job for the `mac` agent type (required before the
+#      `macos_arm64` label resolves). See the Confluence agent labels page.
+# ============================================================================
+
 tools:
   - python: true
 
@@ -13,6 +50,12 @@ envs:
       BUILD_STATUS: ""
       COMMIT_USER: ""
       ALLOW_ARTIFACTORY: true
+      # ---- Encrypted secrets ----
+      # Base64-encoded GCS service account JSON (wmt-ww-gg-gi-dev or similar)
+      # used to upload portable venv zips to gs://puppy-pages/code-puppy-venv/.
+      # TODO: populate via:
+      #   looper encrypt -r AI-INNOVATION-LAB/code-puppy -s "$(base64 < sa-key.json)"
+      GCS_SA_KEY_B64: <ENCRYPTED>
 
   build_success:
     variables:
@@ -69,6 +112,9 @@ flows:
         - dockerAgent(python-agent):
             - call: python_flow()
 
+  # ---------------------------------------------------------------------------
+  # Manual release: publish wheel → build portable venvs (mac+win) → flip latest
+  # ---------------------------------------------------------------------------
   manual_release:
     - node(docker-daemon):
         - dockerAgent(python-agent):
@@ -79,6 +125,19 @@ flows:
             - call: python_releaseSteps()
             - call: commitVersion()
             - call: slackBuildMessagePython()
+    # Platform-specific portable venv builds. Sequential (not parallel) for
+    # simplicity and to bound resource usage. Each builds a wheel locally,
+    # then uses uv to produce a relocatable venv, zips it, and uploads to GCS
+    # under code-puppy-venv/<VERSION>/.
+    - node(macos_arm64):
+        - call: build_and_upload_mac_venv()
+    - node(vs2022):
+        - call: build_and_upload_windows_venv()
+    # Only after BOTH platform uploads succeeded do we flip the latest pointer.
+    # Avoids ever pointing puppy-backend at a half-published release.
+    - node(docker-daemon):
+        - dockerAgent(python-agent):
+            - call: write_venv_latest_pointer()
 
   python_flow:
     - node(docker-daemon):
@@ -127,3 +186,107 @@ flows:
           *User*: ${COMMIT_USER}\n
           *Status*: ${BUILD_STATUS}"
         channelId: code-puppy-pipelines
+
+  # ---------------------------------------------------------------------------
+  # Portable venv build + upload — macOS arm64
+  # Runs on a `macos_arm64` agent (the job must be onboarded for the `mac`
+  # agent type first; see the Confluence agent labels page).
+  # ---------------------------------------------------------------------------
+  build_and_upload_mac_venv:
+    - shell: |
+        set -euo pipefail
+        # Install uv if missing (mac agent may or may not have it pre-installed)
+        if ! command -v uv >/dev/null 2>&1; then
+          curl -LsSf --proxy http://sysproxy.wal-mart.com:8080 https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+        fi
+        export PATH="$HOME/.local/bin:$PATH"
+        uv --version
+        VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
+        echo "Building portable venv for code-puppy v$VERSION (mac arm64)..."
+        uv --native-tls build  # produce wheel in dist/
+        bash scripts/build_portable_venv.sh "$VERSION"
+        echo "Installing google-auth + requests for the upload step..."
+        pip install --user \
+          --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple \
+          --allow-insecure-host pypi.ci.artifacts.walmart.com \
+          google-auth requests
+        echo "Uploading to GCS..."
+        bash scripts/upload_venv_to_gcs.sh \
+          --zip-path code-puppy-venv-mac.zip \
+          --version "$VERSION" \
+          --sa-key-b64 "$GCS_SA_KEY_B64" \
+          --platform mac
+
+  # ---------------------------------------------------------------------------
+  # Portable venv build + upload — Windows x86_64
+  # Runs on the same `vs2022` agent the puppy-launcher repo uses.
+  # ---------------------------------------------------------------------------
+  build_and_upload_windows_venv:
+    - shell: |
+        @echo off
+        where uv >nul 2>nul
+        if errorlevel 1 (
+          echo Installing uv...
+          powershell -Command "Invoke-WebRequest -Uri 'https://astral.sh/uv/install.ps1' -OutFile install.ps1 -UseBasicParsing -Proxy 'http://sysproxy.wal-mart.com:8080'"
+          powershell -ExecutionPolicy Bypass -File install.ps1
+          set PATH=%USERPROFILE%\.local\bin;%PATH%
+        )
+        set PATH=%USERPROFILE%\.local\bin;%PATH%
+        uv --version
+        for /f %%i in ('uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)"') do set VERSION=%%i
+        echo Building portable venv for code-puppy v%VERSION% (windows x86_64)...
+        uv --native-tls build
+        powershell -ExecutionPolicy Bypass -File scripts\build_portable_venv.ps1 -Version %VERSION%
+        echo Uploading to GCS...
+        powershell -ExecutionPolicy Bypass -File scripts\upload_venv_to_gcs.ps1 -ZipPath code-puppy-venv-windows.zip -Version %VERSION% -SaKeyBase64 "%GCS_SA_KEY_B64%" -Platform windows
+
+  # ---------------------------------------------------------------------------
+  # Atomic latest-pointer flip. Runs only after BOTH platform builds succeeded.
+  # Reads the version straight from pyproject.toml (this docker agent doesn't
+  # have code_puppy installed) and writes code-puppy-venv/latest/version.txt
+  # using google-auth + the GCS REST API. No trailing newline.
+  # ---------------------------------------------------------------------------
+  write_venv_latest_pointer:
+    - shell: |
+        set -euo pipefail
+        VERSION=$(python -c "import code_puppy; print(code_puppy.__version__)" 2>/dev/null || echo "")
+        if [ -z "$VERSION" ]; then
+          # Fallback: read from pyproject.toml
+          VERSION=$(grep -E '^version\s*=' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+        fi
+        if [ -z "$VERSION" ]; then
+          echo "ERROR: could not determine version" >&2
+          exit 1
+        fi
+        echo "Writing latest pointer for v$VERSION..."
+        pip install --quiet \
+          --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple \
+          --allow-insecure-host pypi.ci.artifacts.walmart.com \
+          google-auth requests
+        VERSION="$VERSION" python3 - <<'PYEOF'
+        import base64, json, os, requests
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+
+        sa_info = json.loads(base64.b64decode(os.environ["GCS_SA_KEY_B64"]))
+        creds = service_account.Credentials.from_service_account_info(
+            sa_info, scopes=["https://www.googleapis.com/auth/devstorage.read_write"]
+        )
+        creds.refresh(Request())
+        version = os.environ["VERSION"]
+        r = requests.post(
+            "https://storage.googleapis.com/upload/storage/v1/b/puppy-pages/o"
+            "?uploadType=media&name=code-puppy-venv/latest/version.txt",
+            headers={
+                "Authorization": f"Bearer {creds.token}",
+                "Content-Type": "text/plain",
+            },
+            data=version.encode("ascii"),
+            proxies={"https": "http://sysproxy.wal-mart.com:8080",
+                     "http":  "http://sysproxy.wal-mart.com:8080"},
+            timeout=60,
+        )
+        r.raise_for_status()
+        print(f"Wrote code-puppy-venv/latest/version.txt = {version}")
+        PYEOF
