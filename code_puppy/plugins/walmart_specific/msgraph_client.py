@@ -40,6 +40,27 @@ from code_puppy.plugins.walmart_specific.rate_limiter import SharedRateLimiter
 MSGRAPH_BASE_URL: str = "https://graph.microsoft.com/v1.0"
 
 
+def normalize_nextlink(raw_next: str | None) -> str | None:
+    """Strip the MSGRAPH_BASE_URL prefix from an @odata.nextLink value.
+
+    MS Graph's @odata.nextLink can be returned as either an absolute URL
+    (https://graph.microsoft.com/v1.0/...) or a relative endpoint path. The
+    client's ``get()`` method always prepends MSGRAPH_BASE_URL itself, so we
+    strip the prefix here when present to avoid double-prefixing.
+
+    Args:
+        raw_next: The raw value of @odata.nextLink, or None.
+
+    Returns:
+        A relative endpoint path (e.g. "/me/messages?$skiptoken=...") or None.
+    """
+    if not raw_next:
+        return None
+    if raw_next.startswith(MSGRAPH_BASE_URL):
+        return raw_next[len(MSGRAPH_BASE_URL):]
+    return raw_next
+
+
 # =============================================================================
 # EXCEPTION CLASSES
 # =============================================================================
