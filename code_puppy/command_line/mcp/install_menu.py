@@ -16,6 +16,7 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
+from code_puppy.list_filtering import query_matches_text
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
@@ -55,6 +56,10 @@ class MCPInstallMenu:
         self.current_page = 0
         self.result = None  # Track installation result
 
+        # Live text filter (mirrors /model's ModelSelectionMenu UX). Applies
+        # to whichever list is currently visible (categories or servers).
+        self.filter_text = ""
+
         # Pending server for configuration
         self.pending_server = None
 
@@ -84,17 +89,86 @@ class MCPInstallMenu:
             self.categories = [CUSTOM_SERVER_CATEGORY]
 
     def _get_current_category(self) -> Optional[str]:
-        """Get the currently selected category."""
-        if 0 <= self.selected_category_idx < len(self.categories):
-            return self.categories[self.selected_category_idx]
+        """Get the currently selected category (filter-aware)."""
+        visible = self._visible_categories()
+        if 0 <= self.selected_category_idx < len(visible):
+            return visible[self.selected_category_idx]
         return None
 
     def _get_current_server(self):
-        """Get the currently selected server."""
-        if self.view_mode == "servers" and self.current_servers:
-            if 0 <= self.selected_server_idx < len(self.current_servers):
-                return self.current_servers[self.selected_server_idx]
+        """Get the currently selected server (filter-aware)."""
+        if self.view_mode != "servers":
+            return None
+        visible = self._visible_servers()
+        if 0 <= self.selected_server_idx < len(visible):
+            return visible[self.selected_server_idx]
         return None
+
+    # ------------------------------------------------------------------
+    # Filtering
+    # ------------------------------------------------------------------
+    def _visible_categories(self) -> List[str]:
+        """Return categories matching the current filter text.
+
+        The Custom Server entry is always shown so the user can fall back
+        to a hand-rolled config even when the filter hides everything else.
+        """
+        if not self.filter_text:
+            return list(self.categories)
+        out = []
+        for cat in self.categories:
+            if cat == CUSTOM_SERVER_CATEGORY:
+                out.append(cat)
+                continue
+            if query_matches_text(self.filter_text, cat):
+                out.append(cat)
+        return out
+
+    def _visible_servers(self) -> List:
+        """Return servers in the current category that match the filter.
+
+        Filters across the rich text on a server template — display name,
+        description, tags, and the underlying name — so users can search
+        by anything they remember about a server.
+        """
+        if not self.filter_text:
+            return list(self.current_servers)
+        out = []
+        for s in self.current_servers:
+            tags_str = " ".join(s.tags or [])
+            if query_matches_text(
+                self.filter_text,
+                s.display_name or "",
+                s.name or "",
+                s.description or "",
+                tags_str,
+            ):
+                out.append(s)
+        return out
+
+    def _on_filter_changed(self) -> None:
+        """Re-clamp selection + page after the filter text changes."""
+        if self.view_mode == "categories":
+            visible = self._visible_categories()
+        else:
+            visible = self._visible_servers()
+
+        if not visible:
+            self.selected_category_idx = 0
+            self.selected_server_idx = 0
+            self.current_page = 0
+            return
+
+        if self.view_mode == "categories":
+            self.selected_category_idx = min(
+                self.selected_category_idx, len(visible) - 1
+            )
+            self.current_page = self.selected_category_idx // PAGE_SIZE
+        else:
+            self.selected_server_idx = min(
+                self.selected_server_idx, len(visible) - 1
+            )
+            self.current_page = self.selected_server_idx // PAGE_SIZE
 
     def _get_category_icon(self, category: str) -> str:
         """Get an icon for a category."""
@@ -118,33 +192,39 @@ class MCPInstallMenu:
 
     def _is_custom_server_selected(self) -> bool:
         """Check if the custom server category is selected."""
-        return (
-            self.view_mode == "categories"
-            and self.selected_category_idx == 0
-            and len(self.categories) > 0
-            and self.categories[0] == CUSTOM_SERVER_CATEGORY
-        )
+        if self.view_mode != "categories":
+            return False
+        return self._get_current_category() == CUSTOM_SERVER_CATEGORY
 
     def _render_category_list(self) -> List:
         """Render the category list panel."""
         lines = []
 
         lines.append(("bold cyan", " 📂 CATEGORIES"))
-        lines.append(("", "\n\n"))
+        lines.append(("", "\n"))
+        self._render_filter_line(lines)
+        lines.append(("", "\n"))
 
-        if not self.categories:
-            lines.append(("fg:yellow", "  No categories available."))
+        visible = self._visible_categories()
+
+        if not visible:
+            empty_msg = (
+                "  No categories match the current filter."
+                if self.filter_text
+                else "  No categories available."
+            )
+            lines.append(("fg:yellow", empty_msg))
             lines.append(("", "\n\n"))
             self._render_navigation_hints(lines)
             return lines
 
         # Show categories for current page
-        total_pages = (len(self.categories) + PAGE_SIZE - 1) // PAGE_SIZE
+        total_pages = (len(visible) + PAGE_SIZE - 1) // PAGE_SIZE
         start_idx = self.current_page * PAGE_SIZE
-        end_idx = min(start_idx + PAGE_SIZE, len(self.categories))
+        end_idx = min(start_idx + PAGE_SIZE, len(visible))
 
         for i in range(start_idx, end_idx):
-            category = self.categories[i]
+            category = visible[i]
             is_selected = i == self.selected_category_idx
             icon = self._get_category_icon(category)
 
@@ -192,21 +272,30 @@ class MCPInstallMenu:
 
         icon = self._get_category_icon(self.current_category)
         lines.append(("bold cyan", f" {icon} {self.current_category.upper()}"))
-        lines.append(("", "\n\n"))
+        lines.append(("", "\n"))
+        self._render_filter_line(lines)
+        lines.append(("", "\n"))
 
-        if not self.current_servers:
-            lines.append(("fg:yellow", "  No servers in this category."))
+        visible = self._visible_servers()
+
+        if not visible:
+            if self.filter_text:
+                lines.append(("fg:yellow", "  No servers match the current filter."))
+            elif not self.current_servers:
+                lines.append(("fg:yellow", "  No servers in this category."))
+            else:
+                lines.append(("fg:yellow", "  No servers available."))
             lines.append(("", "\n\n"))
             self._render_navigation_hints(lines)
             return lines
 
         # Show servers for current page
-        total_pages = (len(self.current_servers) + PAGE_SIZE - 1) // PAGE_SIZE
+        total_pages = (len(visible) + PAGE_SIZE - 1) // PAGE_SIZE
         start_idx = self.current_page * PAGE_SIZE
-        end_idx = min(start_idx + PAGE_SIZE, len(self.current_servers))
+        end_idx = min(start_idx + PAGE_SIZE, len(visible))
 
         for i in range(start_idx, end_idx):
-            server = self.current_servers[i]
+            server = visible[i]
             is_selected = i == self.selected_server_idx
 
             # Create indicator icons
@@ -238,6 +327,15 @@ class MCPInstallMenu:
         self._render_navigation_hints(lines)
         return lines
 
+    def _render_filter_line(self, lines: List) -> None:
+        """Render the filter status line. Always present so the keybinding
+        is discoverable even before the user types."""
+        if self.filter_text:
+            lines.append(("fg:ansibrightblack", "  Filter: "))
+            lines.append(("fg:ansibrightyellow", self.filter_text))
+        else:
+            lines.append(("fg:ansibrightblack", "  Filter: type to filter"))
+
     def _render_navigation_hints(self, lines: List):
         """Render navigation hints at the bottom of the list panel."""
         lines.append(("", "\n"))
@@ -245,6 +343,10 @@ class MCPInstallMenu:
         lines.append(("", "Navigate  "))
         lines.append(("fg:ansibrightblack", "←/→ "))
         lines.append(("", "Page\n"))
+        lines.append(("fg:ansibrightblack", "  Type  "))
+        lines.append(("", "Filter  "))
+        lines.append(("fg:ansibrightblack", "Ctrl+U  "))
+        lines.append(("", "Clear filter\n"))
         if self.view_mode == "categories":
             lines.append(("fg:green", "  Enter  "))
             lines.append(("", "Browse Servers\n"))
@@ -476,6 +578,10 @@ class MCPInstallMenu:
         self.view_mode = "servers"
         self.selected_server_idx = 0
         self.current_page = 0
+        # Filter is intentionally preserved across view changes — if you
+        # typed "jira" to find the category, that same filter is likely
+        # useful for narrowing servers within it. Press Ctrl+U to clear.
+        self._on_filter_changed()
         self.update_display()
 
     def _go_back_to_categories(self):
@@ -485,6 +591,7 @@ class MCPInstallMenu:
         self.current_servers = []
         self.selected_server_idx = 0
         self.current_page = 0
+        self._on_filter_changed()
         self.update_display()
 
     def _select_current_server(self):
@@ -509,11 +616,13 @@ class MCPInstallMenu:
     def _handle_down(self):
         """Handle down arrow key."""
         if self.view_mode == "categories":
-            if self.selected_category_idx < len(self.categories) - 1:
+            limit = len(self._visible_categories())
+            if self.selected_category_idx < limit - 1:
                 self.selected_category_idx += 1
                 self.current_page = self.selected_category_idx // PAGE_SIZE
         else:
-            if self.selected_server_idx < len(self.current_servers) - 1:
+            limit = len(self._visible_servers())
+            if self.selected_server_idx < limit - 1:
                 self.selected_server_idx += 1
                 self.current_page = self.selected_server_idx // PAGE_SIZE
         self.update_display()
@@ -531,9 +640,9 @@ class MCPInstallMenu:
     def _handle_right(self):
         """Handle right arrow key (next page)."""
         if self.view_mode == "categories":
-            total_items = len(self.categories)
+            total_items = len(self._visible_categories())
         else:
-            total_items = len(self.current_servers)
+            total_items = len(self._visible_servers())
 
         total_pages = (total_items + PAGE_SIZE - 1) // PAGE_SIZE
         if self.current_page < total_pages - 1:
@@ -556,9 +665,33 @@ class MCPInstallMenu:
         return False
 
     def _handle_back(self):
-        """Handle escape/backspace key."""
+        """Handle escape/backspace key (when filter is empty)."""
         if self.view_mode == "servers":
             self._go_back_to_categories()
+
+    # ------------------------------------------------------------------
+    # Filter input handlers
+    # ------------------------------------------------------------------
+    def _append_filter_char(self, ch: str) -> None:
+        if not ch or not ch.isprintable():
+            return
+        self.filter_text += ch
+        self._on_filter_changed()
+        self.update_display()
+
+    def _delete_filter_char(self) -> None:
+        if not self.filter_text:
+            return
+        self.filter_text = self.filter_text[:-1]
+        self._on_filter_changed()
+        self.update_display()
+
+    def _clear_filter(self) -> None:
+        if not self.filter_text:
+            return
+        self.filter_text = ""
+        self._on_filter_changed()
+        self.update_display()
 
     def _reload_mcp_servers(self):
         """Attempt to reload MCP servers after installation."""
@@ -627,7 +760,23 @@ class MCPInstallMenu:
 
         @kb.add("backspace")
         def _(event):  # pragma: no cover
-            self._handle_back()
+            # Delete filter char if there is one; otherwise act as "back".
+            if self.filter_text:
+                self._delete_filter_char()
+            else:
+                self._handle_back()
+                self.update_display()
+
+        @kb.add("c-u")
+        def _(event):  # pragma: no cover
+            self._clear_filter()
+
+        @kb.add("<any>")
+        def _(event):  # pragma: no cover
+            data = getattr(event, "data", "") or ""
+            # Single printable character only — ignore control sequences.
+            if len(data) == 1 and data.isprintable():
+                self._append_filter_char(data)
 
         @kb.add("c-c")
         def _(event):  # pragma: no cover
