@@ -111,6 +111,59 @@ def test_http_tool_prefix_expands_and_nests_configured_prefix():
     assert call_kwargs["tool_prefix"] == "github_issues"
 
 
+# ---------------------------------------------------------------------------
+# Regression: duplicate tool_prefix kwarg used to crash server initialization.
+# Mocking MCPServerSSE / MCPServerStreamableHTTP swallows duplicate-kwarg
+# TypeErrors, so these tests intentionally hit the real pydantic-ai classes.
+# ---------------------------------------------------------------------------
+def test_sse_initializes_without_duplicate_tool_prefix_kwarg():
+    """MCPServerSSE must receive tool_prefix exactly once (no kwargs collision).
+
+    A previous bug passed both ``tool_prefix=tool_prefix`` (via **sse_kwargs)
+    and ``tool_prefix="mcp_"`` explicitly, raising TypeError and leaving the
+    server in ERROR state → user got "server not found".
+    """
+    server = ManagedMCPServer(
+        ServerConfig(
+            id="x",
+            name="jira",
+            type="sse",
+            config={"url": "http://example.com"},
+        )
+    )
+    assert server._error_message is None, server._error_message
+    assert server._pydantic_server is not None
+    assert server._pydantic_server.tool_prefix == "jira"
+
+
+def test_http_initializes_without_duplicate_tool_prefix_kwarg():
+    """MCPServerStreamableHTTP must receive tool_prefix exactly once."""
+    server = ManagedMCPServer(
+        ServerConfig(
+            id="x",
+            name="confluence",
+            type="http",
+            config={"url": "http://example.com"},
+        )
+    )
+    assert server._error_message is None, server._error_message
+    assert server._pydantic_server is not None
+    assert server._pydantic_server.tool_prefix == "confluence"
+
+
+def test_http_with_configured_prefix_has_nested_prefix():
+    server = ManagedMCPServer(
+        ServerConfig(
+            id="x",
+            name="confluence",
+            type="http",
+            config={"url": "http://example.com", "tool_prefix": "wiki"},
+        )
+    )
+    assert server._error_message is None
+    assert server._pydantic_server.tool_prefix == "confluence_wiki"
+
+
 def test_expand_env_vars_string():
     """Test env var expansion in strings."""
     with patch.dict(os.environ, {"MY_VAR": "expanded_value"}):

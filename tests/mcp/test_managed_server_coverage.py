@@ -189,6 +189,51 @@ class TestProcessToolCall:
         mock_call_tool.assert_called_once_with("empty_args_tool", {}, {"deps": None})
         assert result == "result"
 
+    @pytest.mark.asyncio
+    async def test_process_tool_call_banner_includes_server_prefix(self):
+        """The banner should show ``<server_prefix>_<tool>`` so users can see
+        the server prefix is actually being applied.
+
+        Pydantic-ai strips the tool_prefix off the ``name`` arg before
+        invoking ``process_tool_call`` (see pydantic_ai.mcp.MCPServer.call_tool),
+        so we have to recover the prefix from the bound ``call_tool`` method.
+        """
+        mock_ctx = Mock()
+        mock_ctx.deps = None
+
+        # Stand-in MCP server with a tool_prefix
+        class _FakeServer:
+            tool_prefix = "mcp-jira"
+
+        fake_server = _FakeServer()
+
+        async def _bound_call_tool(name, args, ctx):
+            return "ok"
+
+        # Bind the function so __self__ resolves to fake_server
+        _bound_call_tool.__self__ = fake_server  # type: ignore[attr-defined]
+
+        printed = []
+
+        class _StubConsole:
+            def print(self, *args, **kwargs):
+                if args:
+                    printed.append(args[0])
+
+        with patch("rich.console.Console", _StubConsole):
+            await process_tool_call(
+                ctx=mock_ctx,
+                call_tool=_bound_call_tool,
+                name="jql_based_search",  # the post-strip name pydantic-ai passes
+                tool_args={},
+            )
+
+        banner = next((p for p in printed if "MCP TOOL CALL" in str(p)), None)
+        assert banner is not None, "banner not printed"
+        assert "mcp-jira_jql_based_search" in banner, (
+            f"banner missing server-prefixed name; got: {banner!r}"
+        )
+
 
 # ============================================================================
 # ManagedMCPServer Initialization Tests
