@@ -211,7 +211,10 @@ async def wait_for_token_update(
     return False
 
 
-async def authenticate_puppy(port: int) -> bool:
+async def authenticate_puppy(
+    port: int,
+    callback_url: Optional[str] = None,
+) -> bool:
     """
     Execute the full authentication flow:
     1. Check if current token is valid
@@ -219,7 +222,10 @@ async def authenticate_puppy(port: int) -> bool:
     3. Wait for token to be received
 
     Args:
-        port: The port number for authentication callback
+        port: The port number for authentication callback.
+        callback_url: Full callback URL for devcontainer/remote environments.
+                     If provided, this is passed to the auth site instead of
+                     just the port number.
 
     Returns True if authentication succeeded, False otherwise.
     """
@@ -234,8 +240,13 @@ async def authenticate_puppy(port: int) -> bool:
     initial_token = get_puppy_token()
 
     # Open browser for authentication
-    auth_url = get_authentication_url(port=port)
-    msg = f"Opening browser for authentication: {auth_url}"
+    # Pass callback_url if we're in a remote environment
+    auth_url = get_authentication_url(port=port, callback_url=callback_url)
+
+    if callback_url:
+        msg = f"Opening browser for authentication (remote mode):\n  {auth_url}"
+    else:
+        msg = f"Opening browser for authentication: {auth_url}"
     emit_info(msg)
 
     try:

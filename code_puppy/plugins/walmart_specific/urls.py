@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import Optional
+from urllib.parse import urlencode
 
 
 class Environment(Enum):
@@ -31,13 +32,37 @@ def get_models_url(environment: Environment = Environment.PROD) -> str:
 
 
 def get_authentication_url(
-    port: Optional[int] = None, environment: Environment = Environment.PROD
+    port: Optional[int] = None,
+    callback_url: Optional[str] = None,
+    environment: Environment = Environment.PROD,
 ) -> str:
+    """Build the authentication URL for code-puppy.
+
+    Args:
+        port: The local port for auth callback (legacy, localhost-only).
+        callback_url: Full callback URL (for devcontainers/remote environments).
+                     If provided, this takes precedence over port.
+        environment: Target environment (dev/stage/prod).
+
+    Returns:
+        The authentication URL to open in the browser.
+
+    Example callback_url for devcontainer:
+        https://agent-sandbox.walmart.com/proxy/ws/app-123/proxy/8091/save_token
+    """
     base_url = get_base_url(environment)
     url = f"{base_url}/authenticate_puppy"
 
-    if port is not None:
-        url = f"{url}?port={port}"
+    params = {}
+    if callback_url is not None:
+        # Use the full callback URL (for devcontainer/remote environments)
+        params["callback_url"] = callback_url
+    elif port is not None:
+        # Legacy: just pass the port, auth site will POST to localhost:{port}
+        params["port"] = str(port)
+
+    if params:
+        url = f"{url}?{urlencode(params)}"
 
     return url
 
