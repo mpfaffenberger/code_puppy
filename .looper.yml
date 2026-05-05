@@ -8,12 +8,10 @@
 #   manual_release  ->  python_releaseSteps      (publish wheel to Artifactory)
 #                       commitVersion            (commit bump back to repo)
 #                       slackBuildMessagePython  (post to #code-puppy-pipelines)
-#                       build_and_upload_mac_venv      (macos_arm64 agent)
 #                       build_and_upload_windows_venv  (vs2022 agent)
 #                       write_venv_latest_pointer      (atomic latest pointer)
 #
 # Portable venvs are uploaded to:
-#   gs://puppy-pages/code-puppy-venv/<VERSION>/code-puppy-venv-mac.zip
 #   gs://puppy-pages/code-puppy-venv/<VERSION>/code-puppy-venv-windows.zip
 #   gs://puppy-pages/code-puppy-venv/latest/version.txt   (just the version, no \n)
 #
@@ -31,8 +29,6 @@
 # PREREQUISITES (one-time, manual):
 #   1. Encrypt the GCS service account key and replace the placeholder below:
 #        looper encrypt -r AI-INNOVATION-LAB/code-puppy -s "$(base64 < sa-key.json)"
-#   2. Onboard this Looper job for the `mac` agent type (required before the
-#      `macos_arm64` label resolves). See the Confluence agent labels page.
 # ============================================================================
 
 tools:
@@ -113,7 +109,7 @@ flows:
             - call: python_flow()
 
   # ---------------------------------------------------------------------------
-  # Manual release: publish wheel → build portable venvs (mac+win) → flip latest
+  # Manual release: publish wheel → build Windows portable venv → flip latest
   # ---------------------------------------------------------------------------
   manual_release:
     - node(docker-daemon):
@@ -125,16 +121,13 @@ flows:
             - call: python_releaseSteps()
             - call: commitVersion()
             - call: slackBuildMessagePython()
-    # Platform-specific portable venv builds. Sequential (not parallel) for
-    # simplicity and to bound resource usage. Each builds a wheel locally,
-    # then uses uv to produce a relocatable venv, zips it, and uploads to GCS
-    # under code-puppy-venv/<VERSION>/.
-    - node(macos_arm64):
-        - call: build_and_upload_mac_venv()
+    # Build the Windows x86_64 portable venv, then upload to GCS under
+    # code-puppy-venv/<VERSION>/.
     - node(vs2022):
         - call: build_and_upload_windows_venv()
-    # Only after BOTH platform uploads succeeded do we flip the latest pointer.
-    # Avoids ever pointing puppy-backend at a half-published release.
+    # Once the Windows zip is up, flip the latest pointer so puppy-backend
+    # starts serving the new version. Mac arm64 build was dropped — if it
+    # ever comes back, gate this step on both jobs again.
     - node(docker-daemon):
         - dockerAgent(python-agent):
             - call: write_venv_latest_pointer()
@@ -188,37 +181,6 @@ flows:
         channelId: code-puppy-pipelines
 
   # ---------------------------------------------------------------------------
-  # Portable venv build + upload — macOS arm64
-  # Runs on a `macos_arm64` agent (the job must be onboarded for the `mac`
-  # agent type first; see the Confluence agent labels page).
-  # ---------------------------------------------------------------------------
-  build_and_upload_mac_venv:
-    - shell: |
-        set -euo pipefail
-        # Install uv if missing (mac agent may or may not have it pre-installed)
-        if ! command -v uv >/dev/null 2>&1; then
-          curl -LsSf --proxy http://sysproxy.wal-mart.com:8080 https://astral.sh/uv/install.sh | sh
-          export PATH="$HOME/.local/bin:$PATH"
-        fi
-        export PATH="$HOME/.local/bin:$PATH"
-        uv --version
-        VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
-        echo "Building portable venv for code-puppy v$VERSION (mac arm64)..."
-        uv --native-tls build  # produce wheel in dist/
-        bash scripts/build_portable_venv.sh "$VERSION"
-        echo "Installing google-auth + requests for the upload step..."
-        pip install --user \
-          --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple \
-          --allow-insecure-host pypi.ci.artifacts.walmart.com \
-          google-auth requests
-        echo "Uploading to GCS..."
-        bash scripts/upload_venv_to_gcs.sh \
-          --zip-path code-puppy-venv-mac.zip \
-          --version "$VERSION" \
-          --sa-key-b64 "$GCS_SA_KEY_B64" \
-          --platform mac
-
-  # ---------------------------------------------------------------------------
   # Portable venv build + upload — Windows x86_64
   # Runs on the same `vs2022` agent the puppy-launcher repo uses.
   # ---------------------------------------------------------------------------
@@ -242,10 +204,11 @@ flows:
         powershell -ExecutionPolicy Bypass -File scripts\upload_venv_to_gcs.ps1 -ZipPath code-puppy-venv-windows.zip -Version %VERSION% -SaKeyBase64 "%GCS_SA_KEY_B64%" -Platform windows
 
   # ---------------------------------------------------------------------------
-  # Atomic latest-pointer flip. Runs only after BOTH platform builds succeeded.
-  # Reads the version straight from pyproject.toml (this docker agent doesn't
-  # have code_puppy installed) and writes code-puppy-venv/latest/version.txt
-  # using google-auth + the GCS REST API. No trailing newline.
+  # Atomic latest-pointer flip. Runs after the Windows portable venv build
+  # succeeds. Reads the version straight from pyproject.toml (this docker
+  # agent doesn't have code_puppy installed) and writes
+  # code-puppy-venv/latest/version.txt using google-auth + the GCS REST API.
+  # No trailing newline.
   # ---------------------------------------------------------------------------
   write_venv_latest_pointer:
     - shell: |
