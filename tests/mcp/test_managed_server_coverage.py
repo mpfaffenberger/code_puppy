@@ -87,11 +87,19 @@ class TestProcessToolCall:
                 tool_args={"arg1": "value1"},
             )
 
-        # Verify banner was printed with tool name
-        mock_console.print.assert_called_once()
-        printed = mock_console.print.call_args[0][0]
-        assert "test_tool" in printed
-        assert "MCP TOOL CALL" in printed
+        # The banner is now preceded by a line-clear ("\r") + newline so it
+        # doesn't get sandwiched between leftover spinner crumbs. Find the
+        # banner among all print() calls.
+        printed_texts = [
+            call_args[0][0]
+            for call_args in mock_console.print.call_args_list
+            if call_args[0]
+        ]
+        banner = next(
+            (t for t in printed_texts if "MCP TOOL CALL" in t), None
+        )
+        assert banner is not None, "banner not printed"
+        assert "test_tool" in banner
 
         # Verify call_tool was called with correct args
         mock_call_tool.assert_called_once_with(
@@ -100,6 +108,67 @@ class TestProcessToolCall:
 
         # Verify result is passed through
         assert result == "tool_result"
+
+    @pytest.mark.asyncio
+    async def test_process_tool_call_pauses_spinners_before_printing(self):
+        """Regression: spinners must be paused + line cleared before the banner
+        prints, otherwise leftover "Biscuit is thinking..." output gets
+        sandwiched between MCP TOOL CALL banners (see screenshot in PR).
+        """
+        from code_puppy.messaging import spinner as sp_mod
+
+        events = []
+
+        class _RecordingSpinner:
+            def pause(self):
+                events.append("pause")
+
+            def resume(self):
+                events.append("resume")
+
+        spinner = _RecordingSpinner()
+        sp_mod.register_spinner(spinner)
+        try:
+            mock_ctx = Mock()
+            mock_ctx.deps = None
+            mock_call_tool = AsyncMock(return_value="ok")
+
+            class _StubConsole:
+                def print(self, *args, **kwargs):
+                    end = kwargs.get("end", "\n")
+                    text = args[0] if args else ""
+                    events.append(("print", text, end))
+
+            with patch("rich.console.Console", _StubConsole):
+                await process_tool_call(
+                    ctx=mock_ctx,
+                    call_tool=mock_call_tool,
+                    name="jql_search",
+                    tool_args={"q": "x"},
+                )
+        finally:
+            sp_mod.unregister_spinner(spinner)
+
+        # 1. Spinner pause must come before any printing.
+        assert events[0] == "pause", f"expected pause first, got {events[0]!r}"
+        print_indices = [
+            i for i, e in enumerate(events) if isinstance(e, tuple) and e[0] == "print"
+        ]
+        assert print_indices, "no prints recorded"
+        assert all(i > 0 for i in print_indices)
+
+        # 2. The first print must be the line-clear (50+ spaces ending in \r),
+        #    so any leftover spinner glyph gets wiped.
+        first_print = events[print_indices[0]]
+        assert first_print[2] == "\r", "first print must end with \\r (line clear)"
+        assert first_print[1].strip() == "", "first print must be whitespace"
+
+        # 3. The MCP TOOL CALL banner must come after the line clear.
+        banner_print = next(
+            e for i, e in enumerate(events)
+            if isinstance(e, tuple) and e[0] == "print" and "MCP TOOL CALL" in e[1]
+        )
+        assert "jql_search" in banner_print[1]
 
     @pytest.mark.asyncio
     async def test_process_tool_call_with_empty_args(self):

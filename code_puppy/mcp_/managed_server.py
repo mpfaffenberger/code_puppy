@@ -79,15 +79,32 @@ async def process_tool_call(
     name: str,
     tool_args: dict[str, Any],
 ) -> ToolResult:
-    """A tool call processor that passes along the deps."""
+    """A tool call processor that passes along the deps.
+
+    Mirrors the spinner-pause + line-clear dance that
+    ``_print_response_banner`` does in event_stream_handler.py so the MCP
+    banner doesn't end up sandwiched between leftover "Biscuit is
+    thinking..." spinner crumbs.
+    """
+    import asyncio
+
     from rich.console import Console
 
     from code_puppy.config import get_banner_color
+    from code_puppy.messaging.spinner import pause_all_spinners
 
     console = Console()
     color = get_banner_color("mcp_tool_call")
     banner = f"[bold white on {color}] MCP TOOL CALL [/bold white on {color}]"
-    console.print(f"\n{banner} 🔧 [bold cyan]{name}[/bold cyan]")
+
+    # Pause spinners + clear current line so the banner lands on a fresh
+    # row instead of overwriting/being-overwritten by spinner output.
+    pause_all_spinners()
+    await asyncio.sleep(0.1)  # Let the spinner thread fully release the line.
+    console.print(" " * 50, end="\r")  # Wipe any residual spinner glyphs.
+    console.print()  # Newline before banner so it always starts clean.
+    console.print(f"{banner} 🔧 [bold cyan]{name}[/bold cyan]")
+
     return await call_tool(name, tool_args, {"deps": ctx.deps})
 
 
