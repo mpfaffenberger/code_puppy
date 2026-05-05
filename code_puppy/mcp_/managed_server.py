@@ -105,13 +105,22 @@ async def process_tool_call(
     color = get_banner_color("mcp_tool_call")
     banner = f"[bold white on {color}] MCP TOOL CALL [/bold white on {color}]"
 
+    # Pydantic-ai strips the server's tool_prefix off ``name`` before invoking
+    # us (see pydantic_ai.mcp.MCPServer.call_tool, line ~564), so the banner
+    # would otherwise show the bare tool name and look like prefixing didn't
+    # happen. ``call_tool`` is a bound method on the underlying MCPServer, so
+    # we can recover the prefix from it.
+    server = getattr(call_tool, "__self__", None)
+    tool_prefix = getattr(server, "tool_prefix", None) if server else None
+    display_name = f"{tool_prefix}_{name}" if tool_prefix else name
+
     # Pause spinners + clear current line so the banner lands on a fresh
     # row instead of overwriting/being-overwritten by spinner output.
     pause_all_spinners()
     await asyncio.sleep(0.1)  # Let the spinner thread fully release the line.
     console.print(" " * 50, end="\r")  # Wipe any residual spinner glyphs.
     console.print()  # Newline before banner so it always starts clean.
-    console.print(f"{banner} 🔧 [bold cyan]{name}[/bold cyan]")
+    console.print(f"{banner} 🔧 [bold cyan]{display_name}[/bold cyan]")
 
     return await call_tool(name, tool_args, {"deps": ctx.deps})
 
@@ -223,7 +232,6 @@ class ManagedMCPServer:
                 self._pydantic_server = MCPServerSSE(
                     **sse_kwargs,
                     process_tool_call=process_tool_call,
-                    tool_prefix="mcp_",
                 )
 
             elif server_type == "stdio":
@@ -292,7 +300,6 @@ class ManagedMCPServer:
                 self._pydantic_server = MCPServerStreamableHTTP(
                     **http_kwargs,
                     process_tool_call=process_tool_call,
-                    tool_prefix="mcp_",
                 )
 
             else:
