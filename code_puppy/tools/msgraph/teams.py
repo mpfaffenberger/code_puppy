@@ -712,6 +712,55 @@ def register_msgraph_list_chats(agent: Any) -> Tool:
 # =============================================================================
 
 
+def _parse_iso8601_utc(
+    value: str,
+    field_name: str,
+    must_be_at_or_after: datetime | None = None,
+) -> datetime | dict:
+    """Parse an ISO-8601 string into a TZ-aware UTC datetime.
+
+    Naive datetimes (no tzinfo) are interpreted as UTC. The ``Z`` suffix is
+    normalized to ``+00:00`` for compatibility with Python <3.11's
+    ``datetime.fromisoformat``.
+
+    Args:
+        value: The raw ISO-8601 string to parse.
+        field_name: Field label used in the returned error (e.g. ``"beginning_date"``).
+        must_be_at_or_after: If supplied, the parsed value must be >= this
+            datetime; otherwise an invalid_argument error dict is returned.
+
+    Returns:
+        A timezone-aware ``datetime`` on success, or an error dict
+        (``{"success": False, "error_type": "invalid_argument", "error": ...}``)
+        on failure. Callers should ``isinstance`` check on ``dict`` to branch.
+    """
+    try:
+        normalized = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+    except (ValueError, AttributeError) as e:
+        return {
+            "success": False,
+            "error_type": "invalid_argument",
+            "error": (
+                f"Invalid {field_name} {value!r}: {e}. "
+                f"Expected ISO 8601, e.g. '2026-04-27' or "
+                f"'2026-04-27T00:00:00Z'."
+            ),
+        }
+    if must_be_at_or_after is not None and parsed < must_be_at_or_after:
+        return {
+            "success": False,
+            "error_type": "invalid_argument",
+            "error": (
+                f"{field_name} ({parsed.isoformat()}) must be >= "
+                f"beginning_date ({must_be_at_or_after.isoformat()})."
+            ),
+        }
+    return parsed
+
+
 def msgraph_list_chat_messages(
     ctx: RunContext,
     chat_id: str,
@@ -764,53 +813,28 @@ def msgraph_list_chat_messages(
     """
     display_id = chat_id[:40] + "..." if len(chat_id) > 40 else chat_id
 
-    # --- parse beginning_date ---
-    try:
-        # fromisoformat handles "2026-04-27", "2026-04-27T00:00:00",
-        # "2026-04-27T00:00:00+00:00". Replace "Z" suffix manually since
-        # fromisoformat in <3.11 doesn't accept it (3.11+ does, but be safe).
-        normalized = beginning_date.replace("Z", "+00:00")
-        parsed_begin = datetime.fromisoformat(normalized)
-        if parsed_begin.tzinfo is None:
-            parsed_begin = parsed_begin.replace(tzinfo=timezone.utc)
-    except (ValueError, AttributeError) as e:
+    # --- validate max_pages ---
+    if max_pages < 1:
         return {
             "success": False,
             "error_type": "invalid_argument",
-            "error": (
-                f"Invalid beginning_date {beginning_date!r}: {e}. "
-                f"Expected ISO 8601, e.g. '2026-04-27' or "
-                f"'2026-04-27T00:00:00Z'."
-            ),
+            "error": f"max_pages must be >= 1 (got {max_pages}).",
         }
+
+    # --- parse beginning_date ---
+    parsed_begin = _parse_iso8601_utc(beginning_date, "beginning_date")
+    if isinstance(parsed_begin, dict):
+        return parsed_begin
 
     # --- parse ending_date (optional) ---
     parsed_end: datetime | None = None
     if ending_date is not None:
-        try:
-            normalized_end = ending_date.replace("Z", "+00:00")
-            parsed_end = datetime.fromisoformat(normalized_end)
-            if parsed_end.tzinfo is None:
-                parsed_end = parsed_end.replace(tzinfo=timezone.utc)
-        except (ValueError, AttributeError) as e:
-            return {
-                "success": False,
-                "error_type": "invalid_argument",
-                "error": (
-                    f"Invalid ending_date {ending_date!r}: {e}. "
-                    f"Expected ISO 8601, e.g. '2026-04-27' or "
-                    f"'2026-04-27T00:00:00Z'."
-                ),
-            }
-        if parsed_end < parsed_begin:
-            return {
-                "success": False,
-                "error_type": "invalid_argument",
-                "error": (
-                    f"ending_date ({parsed_end.isoformat()}) must be >= "
-                    f"beginning_date ({parsed_begin.isoformat()})."
-                ),
-            }
+        parsed = _parse_iso8601_utc(
+            ending_date, "ending_date", must_be_at_or_after=parsed_begin
+        )
+        if isinstance(parsed, dict):
+            return parsed
+        parsed_end = parsed
 
     range_desc = (
         f"from {parsed_begin.isoformat()} to {parsed_end.isoformat()}"
@@ -830,7 +854,7 @@ def msgraph_list_chat_messages(
 
         # Lazy import to avoid circular deps; needed for URL normalization.
         from code_puppy.plugins.walmart_specific.msgraph_client import (
-            MSGRAPH_BASE_URL,
+            normalize_nextlink,
         )
 
         all_messages: list[dict] = []
@@ -871,6 +895,12 @@ def msgraph_list_chat_messages(
                     all_messages.append(_format_message(raw_msg))
                     continue
 
+                # Defense: MS Graph normally returns TZ-aware ISO strings,
+                # but if a naive datetime ever sneaks through, treat it as
+                # UTC so the comparisons below don't crash with TypeError.
+                if created_dt.tzinfo is None:
+                    created_dt = created_dt.replace(tzinfo=timezone.utc)
+
                 if created_dt < parsed_begin:
                     # Hit a message older than our window - we're done.
                     # Newest-first ordering means everything after this is
@@ -897,11 +927,7 @@ def msgraph_list_chat_messages(
                 reached_beginning_date = True
                 next_endpoint = None
             else:
-                next_endpoint = (
-                    raw_next[len(MSGRAPH_BASE_URL):]
-                    if raw_next.startswith(MSGRAPH_BASE_URL)
-                    else raw_next
-                )
+                next_endpoint = normalize_nextlink(raw_next)
 
         message_count = len(all_messages)
         earliest = all_messages[-1]["created"] if all_messages else None
@@ -934,13 +960,22 @@ def msgraph_list_chat_messages(
         }
 
         if hit_max_pages:
-            result["hint"] = (
-                f"Stopped after {pages_fetched} pages (max_pages={max_pages}) "
-                f"WITHOUT reaching beginning_date. The oldest message returned "
-                f"is {earliest}. To get earlier messages either: (a) call "
-                f"again with a narrower beginning_date closer to that timestamp, "
-                f"or (b) raise max_pages."
-            )
+            if earliest:
+                result["hint"] = (
+                    f"Stopped after {pages_fetched} pages (max_pages={max_pages}) "
+                    f"WITHOUT reaching beginning_date. The oldest message returned "
+                    f"is {earliest}. To get earlier messages either: (a) call "
+                    f"again with a narrower beginning_date closer to that timestamp, "
+                    f"or (b) raise max_pages."
+                )
+            else:
+                result["hint"] = (
+                    f"Stopped after {pages_fetched} pages (max_pages={max_pages}) "
+                    f"WITHOUT reaching beginning_date, and no in-range messages "
+                    f"were returned. All scanned messages were newer than "
+                    f"ending_date. Consider widening the date range or raising "
+                    f"max_pages."
+                )
 
         return result
 

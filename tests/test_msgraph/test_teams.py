@@ -1499,6 +1499,151 @@ class TestMSGraphListChatMessages:
             assert "2026-05-05" in result["ending_date"]
             assert "+00:00" in result["ending_date"]
 
+    # ---------- defensive validation (PR review feedback) ----------
+
+    def test_max_pages_zero_rejected(self, mock_context):
+        """max_pages < 1 is a usage error - reject up front, don't 0-loop."""
+        result = msgraph_list_chat_messages(
+            mock_context,
+            chat_id="c1",
+            beginning_date="2026-05-01",
+            max_pages=0,
+        )
+        assert result["success"] is False
+        assert result["error_type"] == "invalid_argument"
+        assert "max_pages" in result["error"]
+
+    def test_max_pages_negative_rejected(self, mock_context):
+        """Negative max_pages is also rejected."""
+        result = msgraph_list_chat_messages(
+            mock_context,
+            chat_id="c1",
+            beginning_date="2026-05-01",
+            max_pages=-5,
+        )
+        assert result["success"] is False
+        assert result["error_type"] == "invalid_argument"
+
+    def test_naive_created_datetime_treated_as_utc(self, mock_context):
+        """If MS Graph ever returns a naive createdDateTime, don't crash.
+
+        Compare-as-UTC instead of raising TypeError on aware vs naive.
+        """
+        page = {
+            "value": [
+                # Naive datetime (no Z, no offset) - defensive case
+                self._msg("m1", "2026-05-04T10:00:00"),
+                self._msg("m2", "2026-04-30T10:00:00"),  # before beginning
+            ],
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = page
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context,
+                chat_id="c1",
+                beginning_date="2026-05-01",
+            )
+
+            assert result["success"] is True
+            # m1 is in range (treated as UTC), m2 stops the loop
+            assert [m["id"] for m in result["messages"]] == ["m1"]
+            assert result["reached_beginning_date"] is True
+
+    def test_hit_max_pages_with_no_in_range_messages_alt_hint(
+        self, mock_context
+    ):
+        """hit_max_pages=True + no messages returned should NOT mention 'oldest'.
+
+        Edge case: every scanned message was newer than ending_date so we
+        skipped them all but never reached beginning_date. The original
+        hint referenced 'oldest message returned is None' which is misleading.
+        """
+        # Each page is full of too-new messages, none in range.
+        too_new_page = {
+            "value": [
+                self._msg(f"m{i}", "2026-05-10T10:00:00Z")
+                for i in range(5)
+            ],
+            "@odata.nextLink": (
+                "https://graph.microsoft.com/v1.0/me/chats/c1/messages"
+                "?$skiptoken=more"
+            ),
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            # Always return the too-new page so we exhaust max_pages
+            mock_client.get.return_value = too_new_page
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context,
+                chat_id="c1",
+                beginning_date="2026-05-01",
+                ending_date="2026-05-05T00:00:00Z",
+                max_pages=2,
+            )
+
+            assert result["success"] is True
+            assert result["hit_max_pages"] is True
+            assert result["message_count"] == 0
+            assert "hint" in result
+            # Should NOT use the "oldest message returned is ..." template
+            assert "oldest message returned" not in result["hint"]
+            # Should mention the actual issue
+            assert "no in-range messages" in result["hint"]
+
+
+class TestMSGraphNormalizeNextlink:
+    """Test the @odata.nextLink normalization helper used for pagination.
+
+    Lives in the walmart_specific plugin so it can be shared across tools.
+    """
+
+    def test_strips_absolute_url_prefix(self):
+        from code_puppy.plugins.walmart_specific.msgraph_client import (
+            normalize_nextlink,
+        )
+
+        url = (
+            "https://graph.microsoft.com/v1.0/me/chats/c1/messages"
+            "?$skiptoken=abc"
+        )
+        assert (
+            normalize_nextlink(url)
+            == "/me/chats/c1/messages?$skiptoken=abc"
+        )
+
+    def test_passes_through_relative_path(self):
+        from code_puppy.plugins.walmart_specific.msgraph_client import (
+            normalize_nextlink,
+        )
+
+        rel = "/me/messages?$skiptoken=xyz"
+        assert normalize_nextlink(rel) == rel
+
+    def test_returns_none_for_none(self):
+        from code_puppy.plugins.walmart_specific.msgraph_client import (
+            normalize_nextlink,
+        )
+
+        assert normalize_nextlink(None) is None
+
+    def test_returns_none_for_empty_string(self):
+        from code_puppy.plugins.walmart_specific.msgraph_client import (
+            normalize_nextlink,
+        )
+
+        assert normalize_nextlink("") is None
+
 
 class TestMSGraphTeamsFormatting:
     """Test suite for Teams data formatting."""
