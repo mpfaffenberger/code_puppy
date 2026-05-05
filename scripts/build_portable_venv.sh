@@ -23,6 +23,20 @@ fi
 echo "Installing $WHEEL into portable venv..."
 uv pip install --python "$VENV_PATH/bin/python" "$WHEEL"
 
+echo "Venv size pre-compile: $(du -sh "$VENV_PATH" | cut -f1)"
+echo "Pre-compiling bytecode (checked-hash invalidation, parallel)..."
+# checked-hash mode embeds a SHA256 of each .py source into its .pyc, so the
+# pre-compiled cache survives the zip→unzip mtime reset. compileall exits
+# non-zero if any single file fails (e.g. py2-only test fixtures shipped by
+# a dep) — we log and continue; those files just get compiled lazily on first
+# import like normal.
+"$VENV_PATH/bin/python" -m compileall \
+    -q \
+    -j 0 \
+    --invalidation-mode checked-hash \
+    "$VENV_PATH" || echo "WARNING: compileall reported errors (continuing)"
+echo "Venv size post-compile: $(du -sh "$VENV_PATH" | cut -f1)"
+
 echo "Zipping venv to $ZIP_OUT..."
 rm -f "$ZIP_OUT"
 ( cd "$VENV_PATH" && zip -qr "../$ZIP_OUT" . )
