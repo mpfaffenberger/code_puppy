@@ -12,6 +12,7 @@ from code_puppy.tools.msgraph.teams import (
     msgraph_send_channel_message,
     msgraph_create_online_meeting,
     msgraph_list_chats,
+    msgraph_list_chat_messages,
 )
 from code_puppy.plugins.walmart_specific.msgraph_client import (
     MSGraphAuthError,
@@ -924,8 +925,584 @@ class TestMSGraphListChats:
             assert result["retry_after"] == 45
 
 
+class TestMSGraphListChatMessages:
+    """Test suite for msgraph_list_chat_messages tool.
+
+    The tool auto-paginates internally until it reaches `beginning_date`
+    or runs out of messages. Returns ONLY messages within the date range.
+    """
+
+    @staticmethod
+    def _msg(msg_id: str, created: str, body: str = "hi") -> dict:
+        """Build a minimal raw MS Graph message dict."""
+        return {
+            "id": msg_id,
+            "createdDateTime": created,
+            "from": {
+                "user": {"id": "u1", "displayName": "Test User"}
+            },
+            "body": {"content": body, "contentType": "text"},
+        }
+
+    # ---------- happy path ----------
+
+    def test_single_page_all_in_range_no_more_pages(self, mock_context):
+        """All messages in range, no @odata.nextLink → reached_beginning_date."""
+        page = {
+            "value": [
+                self._msg("m1", "2026-05-04T10:00:00Z"),
+                self._msg("m2", "2026-05-03T09:00:00Z"),
+            ]
+        }
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = page
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context, chat_id="c1", beginning_date="2026-05-01"
+            )
+
+            assert result["success"] is True
+            assert result["message_count"] == 2
+            assert result["pages_fetched"] == 1
+            assert result["reached_beginning_date"] is True
+            assert result["hit_max_pages"] is False
+            assert "hint" not in result
+            assert result["latest_message_date"] == "2026-05-04T10:00:00Z"
+            assert result["earliest_message_date"] == "2026-05-03T09:00:00Z"
+
+            # Verify initial call uses inline query string (no params dict)
+            mock_client.get.assert_called_once()
+            endpoint = mock_client.get.call_args[0][0]
+            assert endpoint.startswith("/me/chats/c1/messages")
+            assert "$top=50" in endpoint
+            assert "createdDateTime" in endpoint
+
+    def test_stops_when_message_older_than_beginning_date(self, mock_context):
+        """Page 2 contains a message older than beginning_date → stop and
+        only return messages in range."""
+        page1 = {
+            "value": [
+                self._msg("m1", "2026-05-04T10:00:00Z"),
+                self._msg("m2", "2026-05-03T10:00:00Z"),
+            ],
+            "@odata.nextLink": (
+                "https://graph.microsoft.com/v1.0/me/chats/c1/messages"
+                "?$skiptoken=p2"
+            ),
+        }
+        page2 = {
+            "value": [
+                self._msg("m3", "2026-05-02T10:00:00Z"),
+                # This one is older than beginning_date 2026-05-01
+                self._msg("m4", "2026-04-30T10:00:00Z"),
+                self._msg("m5", "2026-04-29T10:00:00Z"),
+            ],
+            "@odata.nextLink": (
+                "https://graph.microsoft.com/v1.0/me/chats/c1/messages"
+                "?$skiptoken=p3"
+            ),
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.side_effect = [page1, page2]
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context, chat_id="c1", beginning_date="2026-05-01"
+            )
+
+            assert result["success"] is True
+            # m1, m2 from page 1; m3 from page 2 (m4 stops the loop)
+            assert result["message_count"] == 3
+            assert [m["id"] for m in result["messages"]] == ["m1", "m2", "m3"]
+            assert result["pages_fetched"] == 2
+            assert result["reached_beginning_date"] is True
+            assert result["hit_max_pages"] is False
+            # We should NOT have fetched page 3 - the loop short-circuits
+            assert mock_client.get.call_count == 2
+
+    def test_walks_until_no_next_link(self, mock_context):
+        """Walks all pages when none exceed beginning_date →
+        reached_beginning_date=True (we covered everything)."""
+        page1 = {
+            "value": [self._msg("m1", "2026-05-04T10:00:00Z")],
+            "@odata.nextLink": (
+                "https://graph.microsoft.com/v1.0/me/chats/c1/messages"
+                "?$skiptoken=p2"
+            ),
+        }
+        page2 = {
+            "value": [self._msg("m2", "2026-05-03T10:00:00Z")]
+            # No @odata.nextLink → end of chat
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.side_effect = [page1, page2]
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context, chat_id="c1", beginning_date="2026-01-01"
+            )
+
+            assert result["success"] is True
+            assert result["message_count"] == 2
+            assert result["pages_fetched"] == 2
+            assert result["reached_beginning_date"] is True
+
+    # ---------- max_pages safety ----------
+
+    def test_hit_max_pages_returns_hint(self, mock_context):
+        """Stops at max_pages even if more pages exist; surfaces a hint."""
+        # Both pages are well within range and both have nextLinks
+        page = {
+            "value": [self._msg("m1", "2026-05-04T10:00:00Z")],
+            "@odata.nextLink": (
+                "https://graph.microsoft.com/v1.0/me/chats/c1/messages"
+                "?$skiptoken=more"
+            ),
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = page
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context,
+                chat_id="c1",
+                beginning_date="2026-01-01",
+                max_pages=2,
+            )
+
+            assert result["success"] is True
+            assert result["hit_max_pages"] is True
+            assert result["reached_beginning_date"] is False
+            assert result["pages_fetched"] == 2
+            assert mock_client.get.call_count == 2
+            assert "hint" in result
+            assert "max_pages" in result["hint"]
+
+    # ---------- date parsing ----------
+
+    def test_accepts_plain_date(self, mock_context):
+        """`beginning_date='2026-04-27'` should parse and work."""
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = {"value": []}
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context, chat_id="c1", beginning_date="2026-04-27"
+            )
+
+            assert result["success"] is True
+            assert "2026-04-27" in result["beginning_date"]
+
+    def test_accepts_iso_datetime_with_z_suffix(self, mock_context):
+        """`beginning_date='2026-04-27T00:00:00Z'` should parse."""
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = {"value": []}
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context,
+                chat_id="c1",
+                beginning_date="2026-04-27T00:00:00Z",
+            )
+
+            assert result["success"] is True
+
+    def test_naive_datetime_treated_as_utc(self, mock_context):
+        """Naive ISO datetime should be assumed UTC, not crash."""
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = {"value": []}
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context,
+                chat_id="c1",
+                beginning_date="2026-04-27T12:34:56",
+            )
+
+            assert result["success"] is True
+            assert "+00:00" in result["beginning_date"]
+
+    def test_invalid_date_returns_argument_error(self, mock_context):
+        """Bogus date string → success=False, error_type='invalid_argument'."""
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            # Should never get to the client - fail before any API call
+            mock_get_client.return_value = Mock()
+
+            result = msgraph_list_chat_messages(
+                mock_context, chat_id="c1", beginning_date="not-a-date"
+            )
+
+            assert result["success"] is False
+            assert result["error_type"] == "invalid_argument"
+            assert "beginning_date" in result["error"]
+
+    # ---------- edge cases ----------
+
+    def test_empty_chat_returns_empty_list(self, mock_context):
+        """Empty chat → success, no messages, reached_beginning_date=True."""
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = {"value": []}
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context, chat_id="c1", beginning_date="2026-01-01"
+            )
+
+            assert result["success"] is True
+            assert result["messages"] == []
+            assert result["message_count"] == 0
+            assert result["reached_beginning_date"] is True
+            assert result["earliest_message_date"] is None
+            assert result["latest_message_date"] is None
+
+    def test_first_page_already_older_than_window(self, mock_context):
+        """All messages older than beginning_date → empty result, no extra calls."""
+        page = {
+            "value": [
+                self._msg("old1", "2025-01-01T10:00:00Z"),
+                self._msg("old2", "2024-12-31T10:00:00Z"),
+            ],
+            "@odata.nextLink": (
+                "https://graph.microsoft.com/v1.0/me/chats/c1/messages"
+                "?$skiptoken=more"
+            ),
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = page
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context, chat_id="c1", beginning_date="2026-01-01"
+            )
+
+            assert result["success"] is True
+            assert result["messages"] == []
+            assert result["reached_beginning_date"] is True
+            # Crucially - we should NOT have followed nextLink
+            assert mock_client.get.call_count == 1
+
+    def test_message_without_timestamp_is_kept(self, mock_context):
+        """Defensive: messages with missing createdDateTime are kept,
+        not silently dropped."""
+        page = {
+            "value": [
+                self._msg("m1", "2026-05-04T10:00:00Z"),
+                {  # No createdDateTime
+                    "id": "m2",
+                    "from": {"user": {"id": "u1", "displayName": "x"}},
+                    "body": {"content": "x", "contentType": "text"},
+                },
+            ]
+        }
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = page
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context, chat_id="c1", beginning_date="2026-05-01"
+            )
+
+            assert result["success"] is True
+            assert result["message_count"] == 2
+
+    def test_strips_base_url_from_next_link(self, mock_context):
+        """@odata.nextLink with absolute URL gets normalized to relative path."""
+        page1 = {
+            "value": [self._msg("m1", "2026-05-04T10:00:00Z")],
+            "@odata.nextLink": (
+                "https://graph.microsoft.com/v1.0/me/chats/c1/messages"
+                "?$skiptoken=abc"
+            ),
+        }
+        page2 = {"value": []}
+
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.side_effect = [page1, page2]
+            mock_get_client.return_value = mock_client
+
+            msgraph_list_chat_messages(
+                mock_context, chat_id="c1", beginning_date="2026-01-01"
+            )
+
+            # Second call should use relative path, not absolute URL
+            second_call_endpoint = mock_client.get.call_args_list[1][0][0]
+            assert second_call_endpoint == (
+                "/me/chats/c1/messages?$skiptoken=abc"
+            )
+
+    # ---------- error paths ----------
+
+    def test_chat_not_found(self, mock_context):
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.side_effect = MSGraphNotFoundError("nope")
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context, chat_id="nope", beginning_date="2026-01-01"
+            )
+
+            assert result["success"] is False
+            assert result["error_type"] == "not_found"
+
+    def test_auth_error(self, mock_context):
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.side_effect = MSGraphAuthError("expired")
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context, chat_id="c1", beginning_date="2026-01-01"
+            )
+
+            assert result["success"] is False
+            assert result["error_type"] == "authentication"
+
+    def test_throttled(self, mock_context):
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            err = MSGraphThrottledError("slow down")
+            err.retry_after = 17
+            mock_client.get.side_effect = err
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context, chat_id="c1", beginning_date="2026-01-01"
+            )
+
+            assert result["success"] is False
+            assert result["error_type"] == "throttled"
+            assert result["retry_after"] == 17
+
+    # ---------- response shape contract ----------
+
+    def test_response_shape(self, mock_context):
+        """Lock down the response keys so the agent prompt stays accurate."""
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = {"value": []}
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context, chat_id="c1", beginning_date="2026-01-01"
+            )
+
+            expected_keys = {
+                "success",
+                "messages",
+                "message_count",
+                "chat_id",
+                "beginning_date",
+                "ending_date",
+                "earliest_message_date",
+                "latest_message_date",
+                "pages_fetched",
+                "reached_beginning_date",
+                "hit_max_pages",
+            }
+            assert expected_keys.issubset(result.keys())
+            # Old cursor-style fields should NOT exist anymore
+            assert "next_link" not in result
+            assert "has_more" not in result
+            # ending_date should be None when not specified
+            assert result["ending_date"] is None
+
+    # ---------- ending_date filtering ----------
+
+    def test_ending_date_strips_newer_messages(self, mock_context):
+        """Messages newer than ending_date are stripped, older ones still kept."""
+        page = {
+            "value": [
+                self._msg("m1", "2026-05-05T10:00:00Z"),  # too new
+                self._msg("m2", "2026-05-04T10:00:00Z"),  # too new
+                self._msg("m3", "2026-05-03T10:00:00Z"),  # in range
+                self._msg("m4", "2026-05-02T10:00:00Z"),  # in range
+            ],
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = page
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context,
+                chat_id="c1",
+                beginning_date="2026-05-01",
+                ending_date="2026-05-03T23:59:59Z",
+            )
+
+            assert result["success"] is True
+            assert result["message_count"] == 2
+            assert [m["id"] for m in result["messages"]] == ["m3", "m4"]
+            # Echoes back parsed ending_date
+            assert "2026-05-03" in result["ending_date"]
+
+    def test_ending_date_inclusive_boundary(self, mock_context):
+        """A message exactly at ending_date IS kept (inclusive upper bound)."""
+        page = {
+            "value": [
+                self._msg("m1", "2026-05-05T00:00:01Z"),  # 1s after ending
+                self._msg("m2", "2026-05-05T00:00:00Z"),  # exactly at ending
+                self._msg("m3", "2026-05-04T00:00:00Z"),  # in range
+            ],
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = page
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context,
+                chat_id="c1",
+                beginning_date="2026-05-01",
+                ending_date="2026-05-05T00:00:00Z",
+            )
+
+            assert result["success"] is True
+            assert [m["id"] for m in result["messages"]] == ["m2", "m3"]
+
+    def test_ending_date_does_not_stop_pagination(self, mock_context):
+        """Newer-than-ending messages skip but DON'T short-circuit the loop.
+
+        Critical: pagination must continue past too-new messages because
+        older (in-range) messages may still come."""
+        page1 = {
+            "value": [
+                self._msg("m1", "2026-05-10T10:00:00Z"),  # too new
+                self._msg("m2", "2026-05-09T10:00:00Z"),  # too new
+            ],
+            "@odata.nextLink": (
+                "https://graph.microsoft.com/v1.0/me/chats/c1/messages"
+                "?$skiptoken=p2"
+            ),
+        }
+        page2 = {
+            "value": [
+                self._msg("m3", "2026-05-03T10:00:00Z"),  # in range
+                self._msg("m4", "2026-05-02T10:00:00Z"),  # in range
+            ],
+        }
+
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.side_effect = [page1, page2]
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context,
+                chat_id="c1",
+                beginning_date="2026-05-01",
+                ending_date="2026-05-05T00:00:00Z",
+            )
+
+            assert result["success"] is True
+            assert [m["id"] for m in result["messages"]] == ["m3", "m4"]
+            assert mock_client.get.call_count == 2  # walked past page 1's noise
+
+    def test_ending_date_invalid_iso(self, mock_context):
+        """Invalid ending_date returns invalid_argument error."""
+        result = msgraph_list_chat_messages(
+            mock_context,
+            chat_id="c1",
+            beginning_date="2026-05-01",
+            ending_date="not-a-date",
+        )
+        assert result["success"] is False
+        assert result["error_type"] == "invalid_argument"
+        assert "ending_date" in result["error"]
+
+    def test_ending_date_before_beginning_rejected(self, mock_context):
+        """ending_date < beginning_date is a usage error."""
+        result = msgraph_list_chat_messages(
+            mock_context,
+            chat_id="c1",
+            beginning_date="2026-05-10",
+            ending_date="2026-05-01",
+        )
+        assert result["success"] is False
+        assert result["error_type"] == "invalid_argument"
+        assert "ending_date" in result["error"]
+        assert "beginning_date" in result["error"]
+
+    def test_ending_date_handles_z_suffix(self, mock_context):
+        """ending_date with Z suffix parses correctly."""
+        with patch(
+            "code_puppy.tools.msgraph.teams.get_msgraph_client"
+        ) as mock_get_client:
+            mock_client = Mock()
+            mock_client.get.return_value = {"value": []}
+            mock_get_client.return_value = mock_client
+
+            result = msgraph_list_chat_messages(
+                mock_context,
+                chat_id="c1",
+                beginning_date="2026-04-27",
+                ending_date="2026-05-05T00:00:00Z",
+            )
+            assert result["success"] is True
+            assert "2026-05-05" in result["ending_date"]
+            assert "+00:00" in result["ending_date"]
+
+
 class TestMSGraphTeamsFormatting:
     """Test suite for Teams data formatting."""
+
 
     def test_team_formatting_with_missing_fields(self, mock_context):
         """Verify team formatting handles missing fields gracefully."""

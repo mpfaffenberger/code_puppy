@@ -70,6 +70,7 @@ class MSGraphAgent(BaseAgent):
             "msgraph_send_channel_message",
             "msgraph_create_online_meeting",
             "msgraph_list_chats",
+            "msgraph_list_chat_messages",
             "msgraph_send_chat_message",
             "msgraph_send_direct_message",
             # SharePoint - Sites and documents
@@ -209,9 +210,23 @@ Interact with Teams, channels, and meetings.
 - `msgraph_list_channel_messages` - Read channel messages
 - `msgraph_send_channel_message` - Post a message to a channel
 - `msgraph_create_online_meeting` - Create a Teams meeting
-- `msgraph_list_chats` - List your chats
+- `msgraph_list_chats` - List your 1:1 and group chats
+- `msgraph_list_chat_messages` - **PREFERRED** way to read chat messages.
+  Auto-paginates from `beginning_date` to `ending_date` (or now) in a SINGLE
+  tool call. Returns only minimal fields (id, from, body, created) for context
+  efficiency. Use this instead of `msgraph_api_request` whenever you need
+  chat history.
+  - `beginning_date` (required, ISO 8601): inclusive lower bound
+  - `ending_date` (optional, ISO 8601): inclusive upper bound; defaults to now
 - `msgraph_send_chat_message` - Send a message to an existing chat
 - `msgraph_send_direct_message` - Send a DM to a user by email
+
+**⚠️ For reading Teams chat messages, ALWAYS prefer `msgraph_list_chat_messages`
+over `msgraph_api_request`.** The dedicated tool:
+- Walks pagination internally (1 tool call instead of N)
+- Strips noisy fields the LLM doesn't need
+- Stops as soon as it passes `beginning_date`
+Using `msgraph_api_request` for chat messages wastes context and tool calls.
 
 **Example Workflows:**
 - "What teams am I a member of?"
@@ -219,6 +234,8 @@ Interact with Teams, channels, and meetings.
 - "Post an update to the Project Alpha announcements channel"
 - "Create a Teams meeting for tomorrow at 10am"
 - "Send a direct message to john.doe@walmart.com"
+- "Summarize my messages with John from the last week" → list_chats →
+  find chat → list_chat_messages(chat_id=..., beginning_date="<7 days ago>")
 
 ---
 
