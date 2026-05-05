@@ -377,6 +377,26 @@ register_callback("custom_command_help", get_databricks_auth_help)
 register_callback("custom_command", handle_databricks_auth_command)
 
 
+# /feedback slash command — launches a privacy-conscious TUI for submitting
+# bugs / feature requests / ratings to ATMT. Slash command (not an LLM tool)
+# means feedback content never enters any model context. See feedback_menu.py.
+def _feedback_help() -> list[tuple[str, str]]:
+    return [("feedback", "Submit a bug, feature request, or rating to the Code Puppy team")]
+
+
+def _handle_feedback_command(command: str, name: str):
+    if name != "feedback":
+        return None
+    from code_puppy.plugins.walmart_specific.feedback_menu import run_feedback_wizard
+
+    run_feedback_wizard()
+    return True
+
+
+register_callback("custom_command_help", _feedback_help)
+register_callback("custom_command", _handle_feedback_command)
+
+
 def get_walmart_agents() -> list[Dict[str, Any]]:
     """Return Walmart-specific agent definitions for plugin registration.
 

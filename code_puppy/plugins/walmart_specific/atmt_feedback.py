@@ -1,20 +1,17 @@
-"""ATMT Feedback tools for Code Puppy CLI.
+"""ATMT Feedback submission for Code Puppy CLI.
 
-Provides tools for submitting feedback directly to the ATMT API,
-mirroring the frontend widget functionality.
+Provides a privacy-conscious async function for submitting feedback
+directly to the ATMT API. NOT registered as an LLM tool — feedback
+is collected via the `/feedback` slash command (see feedback_menu.py)
+so that no model ever sees user feedback content.
 """
 
 import json
 import uuid
 from typing import Any, Literal
 
-from pydantic_ai import RunContext
-from pydantic_ai.tools import Tool
-from rich.text import Text
-
 from code_puppy.config import get_puppy_token, CONFIG_DIR
 from code_puppy.http_utils import create_async_client
-from code_puppy.messaging import emit_error, emit_info, emit_success
 
 
 # =============================================================================
@@ -134,12 +131,11 @@ def _get_code_puppy_version() -> str:
 
 
 # =============================================================================
-# ATMT Submit Feedback Tool
+# ATMT Submit Feedback
 # =============================================================================
 
 
 async def atmt_submit_feedback(
-    ctx: RunContext,
     feedback_type: FeedbackType,
     comment: str,
     subject: str = "",
@@ -147,33 +143,28 @@ async def atmt_submit_feedback(
 ) -> dict[str, Any]:
     """Submit feedback to ATMT (Application Telemetry and Management Tool).
 
-    This tool submits user feedback directly to Walmart's ATMT system,
-    the same backend used by the Code Puppy web interface.
+    This is a plain async function — NOT a PydanticAI tool. It is invoked
+    only from the `/feedback` slash command UI, never by an LLM. This
+    keeps user feedback content (which may include sensitive details)
+    out of any model context.
 
     Args:
-        ctx: PydanticAI run context
         feedback_type: Type of feedback - "bug", "feature", or "rating"
         comment: The feedback comment/description from the user
         subject: Optional subject/title for the feedback
         rating: Star rating 1-5 (required for "rating" type)
 
     Returns:
-        Dict with success status and message or error details.
+        Dict with success status and message or error details. This
+        function is intentionally silent (no UI emits) — callers are
+        responsible for surfacing the result to the user.
     """
-    emit_info(
-        Text.from_markup(
-            f"\n[bold white on blue] ATMT FEEDBACK [/bold white on blue] "
-            f"📝 [bold cyan]{feedback_type.title()}[/bold cyan]"
-        )
-    )
-
     # Get auth token
     token = _get_auth_token()
     if not token:
-        emit_error("Not authenticated. Please restart Code Puppy to authenticate.")
         return {
             "success": False,
-            "error": "Not authenticated. Please restart Code Puppy and complete the authentication flow.",
+            "error": "Not authenticated. Restart Code Puppy and complete the authentication flow.",
             "action_required": "Restart Code Puppy",
         }
 
@@ -188,12 +179,11 @@ async def atmt_submit_feedback(
     
     # Build subject line
     if feedback_type == "bug":
-        default_subject = "Bug Report from Code Puppy CLI"
+        default_subject = "Report a Problem"
     elif feedback_type == "feature":
-        default_subject = "Feature Request from Code Puppy CLI"
+        default_subject = "Feature Request"
     else:  # rating
-        stars = "⭐" * max(1, min(5, rating)) if rating > 0 else ""
-        default_subject = f"Rating: {rating}/5 {stars}"
+        default_subject = "General Feedback"
     
     final_subject = subject if subject else default_subject
     
@@ -224,12 +214,7 @@ async def atmt_submit_feedback(
         "wm_consumer.id": product_id,
         "wm_qos.correlation_id": str(uuid.uuid4()),
     }
-    
-    emit_info(f"📤 Submitting {feedback_type} feedback to ATMT...")
-    emit_info(f"   Endpoint: {endpoint}")
-    emit_info(f"   Product ID: {product_id}")
-    emit_info(f"   Payload: {json.dumps(payload, indent=2)}")
-    
+
     try:
         async with create_async_client(timeout=30) as client:
             response = await client.post(
@@ -237,58 +222,33 @@ async def atmt_submit_feedback(
                 json=payload,
                 headers=headers,
             )
-            
+
             if response.status_code in (200, 201):
-                # Log the response for debugging
-                try:
-                    response_data = response.json()
-                    emit_info(f"ATMT Response: {response_data}")
-                except Exception:
-                    emit_info(f"ATMT Response (raw): {response.text[:200]}")
-                
-                emit_success("✅ Feedback submitted successfully!")
                 return {
                     "success": True,
                     "message": f"Your {feedback_type} feedback has been submitted to ATMT.",
                     "feedback_type": feedback_type,
                 }
             elif response.status_code == 401:
-                emit_error("Authentication expired. Please restart Code Puppy.")
                 return {
                     "success": False,
-                    "error": "Authentication expired. Please restart Code Puppy to re-authenticate.",
+                    "error": "Authentication expired. Restart Code Puppy to re-authenticate.",
                     "status_code": 401,
                     "action_required": "Restart Code Puppy",
                 }
             else:
-                # Try to get error details
-                try:
-                    error_msg = response.text[:500] if response.text else "Unknown error"
-                except Exception:
-                    error_msg = "Unknown error"
-                
-                emit_error(f"ATMT API error: {response.status_code} - {error_msg}")
+                error_msg = (response.text[:500] if response.text else "Unknown error")
                 return {
                     "success": False,
-                    "error": f"ATMT API error: {error_msg}",
+                    "error": f"ATMT API error ({response.status_code}): {error_msg}",
                     "status_code": response.status_code,
                 }
-                
+
     except Exception as e:
-        emit_error(f"Failed to submit feedback: {e}")
         return {
             "success": False,
-            "error": f"Failed to submit feedback: {str(e)}",
+            "error": f"Failed to submit feedback: {e}",
         }
 
 
-def register_atmt_submit_feedback(agent: Any) -> Tool:
-    """Register the atmt_submit_feedback tool with a PydanticAI agent.
 
-    Args:
-        agent: PydanticAI agent instance
-
-    Returns:
-        The registered Tool instance
-    """
-    return agent.tool(atmt_submit_feedback)

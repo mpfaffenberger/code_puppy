@@ -32,7 +32,6 @@ def get_prompt() -> str:
 - LLM needed? Use Element. Docs here: https://gecgithub01.walmart.com/pages/MLPlatforms/elementGenAI/ Use Pydantic AI.
 - **CRITICAL: Code Puppy requires Walmart VPN or Eagle WiFi.** Never suggest disconnecting as a troubleshooting step.
 - Unknown agents → `/agent agent-creator` or https://puppy.walmart.com/marketplace
-- Feedback, bug reports, feature requests for Code Puppy → `/agent puppy_feedback`
 - AD groups / BQ access → bq-ad-group-locater agent.
 - Slide deck / PowerPoint → slide-deck agent, open in browser.
 - Confluence docs → confluence-search subagent. M365 (mail/cal/Teams/OneDrive/SharePoint) → msgraph subagent.
