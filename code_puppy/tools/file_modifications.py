@@ -816,6 +816,21 @@ _REPLACEMENT_ITEM_SCHEMA = {
 InlineReplacement = Annotated[Dict[str, str], WithJsonSchema(_REPLACEMENT_ITEM_SCHEMA)]
 
 
+def _try_json_repair(v: Any) -> Any:
+    """Best-effort: turn a JSON-ish string into a real Python value.
+
+    Returns the parsed object on success, or the original ``v`` unchanged on
+    failure (or if ``v`` isn't a string in the first place). Used by both the
+    outer list coercion and the per-item validation in ``replace_in_file``.
+    """
+    if not isinstance(v, str):
+        return v
+    try:
+        return json.loads(json_repair.repair_json(v))
+    except Exception:
+        return v
+
+
 def _coerce_replacements_arg(v: Any) -> Any:
     """Coerce a stringified JSON array back into an actual list.
 
@@ -826,13 +841,7 @@ def _coerce_replacements_arg(v: Any) -> Any:
     the normal validator. Non-strings pass through untouched so regular list
     inputs keep their fast path.
     """
-    if isinstance(v, str):
-        try:
-            return json.loads(json_repair.repair_json(v))
-        except Exception:
-            # Fall through; let Pydantic raise its normal, informative error.
-            return v
-    return v
+    return _try_json_repair(v)
 
 
 # List type that tolerates JSON-string-encoded arrays coming from the wire.
@@ -859,32 +868,64 @@ def register_replace_in_file(agent):
         Replacements are applied sequentially. Prefer this over full file rewrites.
         """
         group_id = generate_group_id("replace_in_file", file_path)
-        # replacements arrive as plain dicts — pass them straight through
-        replacements_dict = [
-            {"old_str": r["old_str"], "new_str": r["new_str"]} for r in replacements
-        ]
-        result = _replace_in_file_helper(
-            context, file_path, replacements_dict, message_group=group_id
-        )
-        if "diff" in result:
-            del result["diff"]
+        try:
+            # Validate replacements up front so a malformed payload from the
+            # model returns a clean error instead of bubbling a KeyError up
+            # through pydantic_ai and tearing down the whole agent run.
+            normalized: List[Dict[str, str]] = []
+            for idx, raw in enumerate(replacements):
+                # Per-item json_repair: some models stringify each replacement
+                # individually (e.g. ["{\"old_str\": ...}", ...]). Heal those
+                # before strict validation so we don't reject recoverable input.
+                r = _try_json_repair(raw)
+                if not isinstance(r, dict):
+                    return {
+                        "error": (
+                            f"replacements[{idx}] must be an object with "
+                            f"'old_str' and 'new_str' keys, got {type(raw).__name__}."
+                        )
+                    }
+                missing = [k for k in ("old_str", "new_str") if k not in r]
+                if missing:
+                    return {
+                        "error": (
+                            f"replacements[{idx}] is missing required key(s): "
+                            f"{', '.join(missing)}. Each replacement must include "
+                            f"both 'old_str' and 'new_str'."
+                        )
+                    }
+                normalized.append({"old_str": r["old_str"], "new_str": r["new_str"]})
 
-        # Trigger legacy edit_file callbacks for backward compatibility
-        payload = ReplacementsPayload(
-            file_path=file_path,
-            replacements=[
-                Replacement(old_str=r["old_str"], new_str=r["new_str"])
-                for r in replacements
-            ],
-        )
-        enhanced_results = on_edit_file(context, result, payload)
-        if enhanced_results:
-            for enhanced_result in enhanced_results:
-                if enhanced_result is not None:
-                    result = enhanced_result
-                    break
+            result = _replace_in_file_helper(
+                context, file_path, normalized, message_group=group_id
+            )
+            if "diff" in result:
+                del result["diff"]
 
-        return result
+            # Trigger legacy edit_file callbacks for backward compatibility
+            payload = ReplacementsPayload(
+                file_path=file_path,
+                replacements=[
+                    Replacement(old_str=r["old_str"], new_str=r["new_str"])
+                    for r in normalized
+                ],
+            )
+            enhanced_results = on_edit_file(context, result, payload)
+            if enhanced_results:
+                for enhanced_result in enhanced_results:
+                    if enhanced_result is not None:
+                        result = enhanced_result
+                        break
+
+            return result
+        except Exception as exc:
+            # Last line of defense — never let this tool crash the agent run.
+            _log_error(
+                "Unhandled exception in replace_in_file",
+                exc,
+                message_group=group_id,
+            )
+            return {"error": f"replace_in_file failed: {exc}"}
 
 
 def register_delete_snippet(agent):

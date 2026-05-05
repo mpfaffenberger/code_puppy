@@ -4,6 +4,7 @@ HTTP utilities module for code-puppy.
 This module provides functions for creating properly configured HTTP clients.
 """
 
+import asyncio
 import os
 import socket
 import time
@@ -16,12 +17,38 @@ if TYPE_CHECKING:
     import requests
 from code_puppy.config import get_http2
 
-try:
-    from pydantic_ai.retries import (
-        AsyncTenacityTransport,
-        RetryConfig,
-        TenacityTransport,
-        wait_retry_after,
+
+@dataclass
+class ProxyConfig:
+    """Configuration for proxy and SSL settings."""
+
+    verify: Union[bool, str, None]
+    trust_env: bool
+    proxy_url: str | None
+    disable_retry: bool
+    http2_enabled: bool
+
+
+def _resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
+    """Resolve proxy, SSL, and retry settings from environment.
+
+    This centralizes the logic for detecting proxies, determining SSL verification,
+    and checking if retry transport should be disabled.
+    """
+    if verify is None:
+        verify = get_cert_bundle_path()
+
+    http2_enabled = get_http2()
+
+    disable_retry = os.environ.get(
+        "CODE_PUPPY_DISABLE_RETRY_TRANSPORT", ""
+    ).lower() in ("1", "true", "yes")
+
+    has_proxy = bool(
+        os.environ.get("HTTP_PROXY")
+        or os.environ.get("HTTPS_PROXY")
+        or os.environ.get("http_proxy")
+        or os.environ.get("https_proxy")
     )
 
     # Determine trust_env and verify based on proxy/retry settings
