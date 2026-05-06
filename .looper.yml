@@ -60,7 +60,11 @@ rules:
   before:
     - var(BRANCH_NAME): '%{TRIGGER_BRANCH.replaceAll(".+/","")}'
     - var(BRANCH_NAME_LOWERCASE): "%{BRANCH_NAME.toLowerCase()}"
-    - var(COMMIT_USER): git log -1 --format="%aN"
+    # DISABLED-FOR-WINDOWS-ITERATION: cmd.exe on the vs2022 agent eats the
+    # `%` chars in `--format="%aN"`, returning exit 128 and killing the whole
+    # build before the Windows step even starts. COMMIT_USER is only consumed
+    # by `slackBuildMessagePython`, which is also disabled. Restore together.
+    # DISABLED-FOR-WINDOWS-ITERATION: - var(COMMIT_USER): git log -1 --format="%aN"
 
 triggers:
   - push:
