@@ -93,6 +93,23 @@ $env:UV_PYTHON_PREFERENCE = "only-system"
 $env:UV_INDEX_URL = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple"
 $env:UV_NATIVE_TLS = "1"
 
+# --- 1e. Bypass sysproxy for internal Walmart hosts ---
+# vs2022 agents auto-pick up a corporate HTTPS proxy via WPAD/PAC.
+# `uv` is a Rust binary -- it honors HTTPS_PROXY/HTTP_PROXY env vars
+# verbatim and does NOT auto-bypass internal hosts the way Windows
+# native HTTP libraries do. Result: every `uv` fetch from
+# pypi.ci.artifacts.walmart.com gets CONNECT-tunneled through sysproxy
+# and dies with `tunnel error: failed to create underlying connection`
+# / `tcp connect error` (failure mode hit on first manual_release run
+# after re-enabling the linux phases -- previous standalone runs were
+# only green because hatchling happened to be cached on a sticky agent).
+#
+# Tell uv (and any other tool we shell out to) to talk to *.walmart.com
+# and *.wal-mart.com directly. Set both upper- and lower-case because
+# Rust HTTP stacks are inconsistent about which they honor.
+$env:NO_PROXY = "walmart.com,.walmart.com,wal-mart.com,.wal-mart.com,localhost,127.0.0.1"
+$env:no_proxy = $env:NO_PROXY
+
 # Verify uv works
 & uv --version
 if ($LASTEXITCODE -ne 0) { throw "uv --version failed" }
