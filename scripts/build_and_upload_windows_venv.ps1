@@ -51,6 +51,13 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 # use (uv venv / uv build / uv pip install).
 $env:UV_PYTHON = "3.13"
 
+# Pin uv's Python download mirror to the Walmart Artifactory proxy.
+# McAfee Web Gateway blocks direct downloads from github.com on the
+# vs2022 agents, so uv's default download URL fails with a tcp connect
+# timeout. The Artifactory generic mirror proxies the same release
+# tarballs.
+$env:UV_PYTHON_INSTALL_MIRROR = "https://generic.ci.artifacts.walmart.com/artifactory/github-releases-generic-release-remote/astral-sh/python-build-standalone/releases/download"
+
 # Verify uv works
 & uv --version
 if ($LASTEXITCODE -ne 0) { throw "uv --version failed" }
