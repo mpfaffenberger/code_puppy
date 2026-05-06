@@ -26,15 +26,19 @@ Write-Host "=== build_and_upload_windows_venv.ps1 ==="
 # and astral.sh (the uv installer). So we pull both binaries from
 # puppy-backend, which proxies them out of GCS / Artifactory:
 #
-#   GET https://puppy-backend.walmart.com/uv/download/windows
-#   GET https://puppy-backend.walmart.com/python/download/windows
+#   GET https://puppy-backend.stg.walmart.com/uv/download/windows
+#   GET https://puppy-backend.stg.walmart.com/python/download/windows
+#
+# Using stage during the Windows-CI iteration. Same GCS bucket as prod
+# (gs://puppy-pages), same artifacts, faster deploy cadence. Switch to
+# puppy-backend.walmart.com once Windows pipeline is green.
 #
 # After install we set UV_PYTHON_PREFERENCE=only-system so uv uses
 # the python.exe we just unpacked instead of trying to download its
 # own (which would hit github.com and fail).
 # ---------------------------------------------------------------
 
-$puppyBackend = "https://puppy-backend.walmart.com"
+$puppyBackend = "https://puppy-backend.stg.walmart.com"
 
 # --- 1a. Download + install uv ---
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
