@@ -26,11 +26,11 @@ if (-not $uvCmd) {
     # McAfee Web Gateway blocks direct downloads from astral.sh on the vs2022
     # CI agent, so we install uv via pip from the same Artifactory mirror the
     # Linux flows already use. No proxy / Invoke-WebRequest gymnastics needed.
-    & pip install `
+    & python -m pip install `
         --index-url "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" `
         --quiet `
         uv
-    if ($LASTEXITCODE -ne 0) { throw "pip install uv failed (exit $LASTEXITCODE)" }
+    if ($LASTEXITCODE -ne 0) { throw "python -m pip install uv failed (exit $LASTEXITCODE)" }
     # pip on Windows installs uv.exe to either:
     #   - <python-prefix>\Scripts\uv.exe   (system / venv python)
     #   - %APPDATA%\Python\Python3X\Scripts\uv.exe   (--user installs)
