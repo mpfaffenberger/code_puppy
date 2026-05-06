@@ -86,6 +86,13 @@ if ($LASTEXITCODE -ne 0) { throw "python --version failed" }
 $env:UV_PYTHON = "3.13"
 $env:UV_PYTHON_PREFERENCE = "only-system"
 
+# --- 1d. Pin uv's package index to Walmart Artifactory ---
+# Default PyPI (pypi.org) is blocked by McAfee on the vs2022 agents.
+# Mirror Linux phase config: --native-tls + --index-url => env vars so
+# every uv invocation in the child build_portable_venv.ps1 inherits them.
+$env:UV_INDEX_URL = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple"
+$env:UV_NATIVE_TLS = "1"
+
 # Verify uv works
 & uv --version
 if ($LASTEXITCODE -ne 0) { throw "uv --version failed" }
