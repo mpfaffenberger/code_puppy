@@ -113,6 +113,19 @@ function Get-GcsAccessToken($saKey) {
     # newlines, literal `\n`, whitespace -- leaving pure base64.
     $pemStripped = $pemRaw -replace '[^A-Za-z0-9+/=]', ''
     Write-Host "DIAG: pemStripped length=$($pemStripped.Length) (mod4=$($pemStripped.Length % 4))"
+    # Detailed diagnostic: head, tail, and where '=' chars appear. A valid
+    # base64 has '=' ONLY at the very end (0, 1, or 2 chars). Mid-string '='
+    # means someone escaped padding or the key was double-mangled.
+    $eqCount = ($pemStripped.ToCharArray() | Where-Object { $_ -eq '=' }).Count
+    $eqIndexes = @()
+    for ($i = 0; $i -lt $pemStripped.Length; $i++) {
+        if ($pemStripped[$i] -eq '=') { $eqIndexes += $i }
+    }
+    Write-Host "DIAG: pemStripped head='$($pemStripped.Substring(0, [Math]::Min(20, $pemStripped.Length)))' tail='$($pemStripped.Substring([Math]::Max(0, $pemStripped.Length - 20)))'"
+    Write-Host "DIAG: '=' count=$eqCount, positions (last 5)=$($eqIndexes | Select-Object -Last 5)"
+    # Also dump pemRaw head to see the original format
+    $rawHead = $pemRaw.Substring(0, [Math]::Min(60, $pemRaw.Length))
+    Write-Host "DIAG: pemRaw head (first 60 bytes, JSON-escaped)='$($rawHead -replace '[\r\n]', '<NL>' -replace '\\', '<BS>')'"
     $keyBytes = [Convert]::FromBase64String($pemStripped)
 
     $cngKey = [System.Security.Cryptography.CngKey]::Import(
