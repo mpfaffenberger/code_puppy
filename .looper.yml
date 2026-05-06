@@ -60,11 +60,14 @@ rules:
   before:
     - var(BRANCH_NAME): '%{TRIGGER_BRANCH.replaceAll(".+/","")}'
     - var(BRANCH_NAME_LOWERCASE): "%{BRANCH_NAME.toLowerCase()}"
-    # DISABLED-FOR-WINDOWS-ITERATION: cmd.exe on the vs2022 agent eats the
-    # `%` chars in `--format="%aN"`, returning exit 128 and killing the whole
-    # build before the Windows step even starts. COMMIT_USER is only consumed
-    # by `slackBuildMessagePython`, which is also disabled. Restore together.
-    # DISABLED-FOR-WINDOWS-ITERATION: - var(COMMIT_USER): git log -1 --format="%aN"
+    # COMMIT_USER intentionally left unset (default is ""). The natural way
+    # to populate it -- `git log -1 --format="%aN"` in the `before` block --
+    # explodes on the vs2022 agent because cmd.exe eats the `%` chars and
+    # returns exit 128, killing the build before the Windows step starts.
+    # Slack message renders "User: " (blank) instead. Acceptable trade.
+    # If we ever want it back, set COMMIT_USER inside the docker/python-agent
+    # block instead of the global `before` rule so vs2022 never sees it.
+    # - var(COMMIT_USER): git log -1 --format="%aN"
 
 triggers:
   - push:
@@ -110,23 +113,31 @@ flows:
   # ---------------------------------------------------------------------------
   # Manual release: publish wheel -> build Windows portable venv -> flip latest
   #
-  # *** TEMPORARY: Linux phase disabled while we iterate on the Windows step. ***
-  # Every Linux retry burns ~2 min that we don't need while debugging vs2022.
-  # The python_releaseSteps + commitVersion + slack + write_venv_latest_pointer
-  # calls are commented out with `# DISABLED-FOR-WINDOWS-ITERATION:` so they're
-  # easy to grep + restore once the vs2022 step is green. Restore by removing
-  # that prefix from each line below.
+  # Three phases, in order:
+  #   1. python-agent (linux): bump patch version, build & publish wheel to
+  #      Artifactory, commit version bump back to repo, slack the team.
+  #   2. vs2022:               build Windows portable venv from the freshly
+  #                            published wheel, upload zip to GCS.
+  #   3. python-agent (linux): atomically flip the latest/version.txt pointer
+  #                            so puppy-backend serves the new venv.
+  #
+  # Phases 1 & 3 were temporarily disabled while we iterated on the vs2022
+  # step (Windows build went through 12 rounds before hitting green --
+  # base64 SA key parsing, mojibake, etc.). Restored now that Windows is
+  # rock-solid. If a future vs2022 regression sends us back into iteration
+  # mode, the cleanest move is to disable just phase 3 (the latest pointer)
+  # so wheels still publish but users keep seeing the previous venv.
   # ---------------------------------------------------------------------------
   manual_release:
-    # DISABLED-FOR-WINDOWS-ITERATION: - node(docker-daemon):
-    # DISABLED-FOR-WINDOWS-ITERATION:     - dockerAgent(python-agent):
-    # DISABLED-FOR-WINDOWS-ITERATION:         - shell: pip install --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple pytest pytest-cov pytest-asyncio build bumpversion twine uv
-    # DISABLED-FOR-WINDOWS-ITERATION:         - shell: uv --native-tls venv
-    # DISABLED-FOR-WINDOWS-ITERATION:         - shell: uv --native-tls version --bump patch
-    # DISABLED-FOR-WINDOWS-ITERATION:         - shell: uv pip install --native-tls -e .
-    # DISABLED-FOR-WINDOWS-ITERATION:         - call: python_releaseSteps()
-    # DISABLED-FOR-WINDOWS-ITERATION:         - call: commitVersion()
-    # DISABLED-FOR-WINDOWS-ITERATION:         - call: slackBuildMessagePython()
+    - node(docker-daemon):
+        - dockerAgent(python-agent):
+            - shell: pip install --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple pytest pytest-cov pytest-asyncio build bumpversion twine uv
+            - shell: uv --native-tls venv
+            - shell: uv --native-tls version --bump patch
+            - shell: uv pip install --native-tls -e .
+            - call: python_releaseSteps()
+            - call: commitVersion()
+            - call: slackBuildMessagePython()
     # Build the Windows x86_64 portable venv, then upload to GCS under
     # code-puppy-venv/<VERSION>/.
     - node(vs2022):
@@ -134,9 +145,9 @@ flows:
     # Once the Windows zip is up, flip the latest pointer so puppy-backend
     # starts serving the new version. Mac arm64 build was dropped - if it
     # ever comes back, gate this step on both jobs again.
-    # DISABLED-FOR-WINDOWS-ITERATION: - node(docker-daemon):
-    # DISABLED-FOR-WINDOWS-ITERATION:     - dockerAgent(python-agent):
-    # DISABLED-FOR-WINDOWS-ITERATION:         - call: write_venv_latest_pointer()
+    - node(docker-daemon):
+        - dockerAgent(python-agent):
+            - call: write_venv_latest_pointer()
 
   python_flow:
     - node(docker-daemon):
