@@ -20,6 +20,44 @@ $ErrorActionPreference = "Stop"
 Write-Host "=== build_and_upload_windows_venv.ps1 ==="
 
 # --- 1. Ensure uv is installed ---
+# ───────────────────────────────────────────────────────────────
+# Discover Python on Windows agents that don't put it on PATH.
+# Order:
+#   1. `py.exe` launcher (installed by every Windows Python installer)
+#   2. Common install locations (system & per-user)
+# Once found, prepend its dir to PATH so `python`, `pip`, and uv work.
+# ───────────────────────────────────────────────────────────────
+$pythonExe = $null
+if (Get-Command py -ErrorAction SilentlyContinue) {
+    Write-Host "Resolving python via py.exe launcher..."
+    $pythonExe = & py -3 -c "import sys; print(sys.executable)" 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $pythonExe) { $pythonExe = $null }
+}
+if (-not $pythonExe) {
+    Write-Host "py.exe not usable, probing common install locations..."
+    $candidates = @(
+        "C:\Python313\python.exe",
+        "C:\Python312\python.exe",
+        "C:\Python311\python.exe",
+        "C:\Program Files\Python313\python.exe",
+        "C:\Program Files\Python312\python.exe",
+        "C:\Program Files\Python311\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe"
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path $c) { $pythonExe = $c; break }
+    }
+}
+if (-not $pythonExe) {
+    throw "No Python install found via py.exe or common locations. Agent likely missing Python."
+}
+$pythonDir = Split-Path $pythonExe -Parent
+$env:PATH = "$pythonDir;$pythonDir\Scripts;$env:PATH"
+Write-Host "Using Python at $pythonExe (added $pythonDir to PATH)"
+& python --version
+
 $uvCmd = Get-Command uv -ErrorAction SilentlyContinue
 if (-not $uvCmd) {
     Write-Host "uv not found, installing via Walmart Artifactory pypi mirror..."
