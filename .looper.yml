@@ -178,25 +178,15 @@ flows:
   # ---------------------------------------------------------------------------
   # Portable venv build + upload — Windows x86_64
   # Runs on the same `vs2022` agent the puppy-launcher repo uses.
+  # All real work lives in scripts/build_and_upload_windows_venv.ps1; this
+  # flow is just a thin CMD->PowerShell dispatch. Keeping the logic in a .ps1
+  # avoids CMD's early %PATH% expansion inside `if (...)` blocks, which trips
+  # over `C:\Program Files\Git\cmd` on the vs2022 agent.
   # ---------------------------------------------------------------------------
   build_and_upload_windows_venv:
     - shell: |
         @echo off
-        where uv >nul 2>nul
-        if errorlevel 1 (
-          echo Installing uv...
-          powershell -Command "Invoke-WebRequest -Uri 'https://astral.sh/uv/install.ps1' -OutFile install.ps1 -UseBasicParsing -Proxy 'http://sysproxy.wal-mart.com:8080'"
-          powershell -ExecutionPolicy Bypass -File install.ps1
-          set PATH=%USERPROFILE%\.local\bin;%PATH%
-        )
-        set PATH=%USERPROFILE%\.local\bin;%PATH%
-        uv --version
-        for /f %%i in ('uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)"') do set VERSION=%%i
-        echo Building portable venv for code-puppy v%VERSION% (windows x86_64)...
-        uv --native-tls build
-        powershell -ExecutionPolicy Bypass -File scripts\build_portable_venv.ps1 -Version %VERSION%
-        echo Uploading to GCS...
-        powershell -ExecutionPolicy Bypass -File scripts\upload_venv_to_gcs.ps1 -ZipPath code-puppy-venv-windows.zip -Version %VERSION% -SaKeyBase64 "%GCS_SA_KEY_B64%" -Platform windows
+        powershell -ExecutionPolicy Bypass -File scripts\build_and_upload_windows_venv.ps1
 
   # ---------------------------------------------------------------------------
   # Atomic latest-pointer flip. Runs after the Windows portable venv build
