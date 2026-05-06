@@ -121,7 +121,12 @@ $saKey = $env:GCS_SA_KEY_B64
 if (-not $saKey) { throw "GCS_SA_KEY_B64 env var is not set" }
 
 Write-Host "Uploading code-puppy-venv-windows.zip to GCS..."
-& powershell -ExecutionPolicy Bypass -File scripts\upload_venv_to_gcs.ps1 `
+# Call the upload script in-process (NOT via `powershell -File`). The base64
+# service-account key is ~3KB and may contain newlines/special chars that
+# get mangled when passed across a child-process command line, causing
+# PositionalParameterNotFound errors. Direct invocation marshals params
+# in-memory and preserves the value verbatim.
+& scripts\upload_venv_to_gcs.ps1 `
     -ZipPath "code-puppy-venv-windows.zip" `
     -Version $Version `
     -SaKeyBase64 $saKey `
