@@ -106,11 +106,13 @@ function Get-GcsAccessToken($saKey) {
 
     $unsigned = "$headerB64.$claimsB64"
     $pemRaw = $saKey.private_key
-    $pemBeginMarker = '-{5}BEGIN PRIVATE KEY-{5}'
-    $pemEndMarker   = '-{5}END PRIVATE KEY-{5}'
-    $pemStripped = $pemRaw -replace $pemBeginMarker, '' `
-                           -replace $pemEndMarker, '' `
-                           -replace '[\r\n\s]', ''
+    # Defensive strip: nuke EVERYTHING that isn't in the base64 alphabet.
+    # When the SA JSON arrives via Windows env var, the `\n` escapes inside
+    # `private_key` may be literal backslash-n (not newlines), and the BEGIN/
+    # END markers contain `-`. One regex kills all of it: PEM headers,
+    # newlines, literal `\n`, whitespace -- leaving pure base64.
+    $pemStripped = $pemRaw -replace '[^A-Za-z0-9+/=]', ''
+    Write-Host "DIAG: pemStripped length=$($pemStripped.Length) (mod4=$($pemStripped.Length % 4))"
     $keyBytes = [Convert]::FromBase64String($pemStripped)
 
     $cngKey = [System.Security.Cryptography.CngKey]::Import(
