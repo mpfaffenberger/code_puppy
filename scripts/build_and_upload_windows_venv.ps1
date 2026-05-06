@@ -20,7 +20,7 @@ $ErrorActionPreference = "Stop"
 Write-Host "=== build_and_upload_windows_venv.ps1 ==="
 
 # --- 1. Ensure uv is installed ---
-# ───────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------
 # Ensure uv is available. The vs2022 agent has neither Python nor
 # uv on PATH, so we download uv.exe directly from Walmart's
 # Artifactory mirror of astral-sh's GitHub releases. uv will then
@@ -28,9 +28,9 @@ Write-Host "=== build_and_upload_windows_venv.ps1 ==="
 #
 # This is the same approach puppy-launcher uses in
 # scripts/build_crucible.ps1.
-# ───────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    Write-Host "uv not on PATH — downloading from Walmart Artifactory GitHub mirror..."
+    Write-Host "uv not on PATH - downloading from Walmart Artifactory GitHub mirror..."
     $uvZipUrl = "https://generic.ci.artifacts.walmart.com/artifactory/github-releases-generic-release-remote/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
     $uvZip = Join-Path $env:TEMP "uv.zip"
     $uvDir = Join-Path $env:USERPROFILE ".uv-bin"
@@ -43,7 +43,7 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     $env:PATH = "$($uvExe.DirectoryName);$env:PATH"
     Write-Host "Installed uv $(& uv --version) at $($uvExe.FullName)"
 } else {
-    Write-Host "uv already on PATH at $((Get-Command uv).Source) — version: $(& uv --version)"
+    Write-Host "uv already on PATH at $((Get-Command uv).Source) - version: $(& uv --version)"
 }
 
 # Tell uv which Python to use for every subsequent invocation. The agent has
