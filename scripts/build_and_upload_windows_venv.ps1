@@ -22,18 +22,30 @@ Write-Host "=== build_and_upload_windows_venv.ps1 ==="
 # --- 1. Ensure uv is installed ---
 $uvCmd = Get-Command uv -ErrorAction SilentlyContinue
 if (-not $uvCmd) {
-    Write-Host "uv not found, installing..."
-    $env:HTTPS_PROXY = "http://sysproxy.wal-mart.com:8080"
-    $env:HTTP_PROXY  = "http://sysproxy.wal-mart.com:8080"
-    Invoke-WebRequest `
-        -Uri "https://astral.sh/uv/install.ps1" `
-        -OutFile "install_uv.ps1" `
-        -UseBasicParsing `
-        -Proxy "http://sysproxy.wal-mart.com:8080"
-    & powershell -ExecutionPolicy Bypass -File install_uv.ps1
-    Remove-Item install_uv.ps1 -ErrorAction SilentlyContinue
-    # uv installer puts the binary at %USERPROFILE%\.local\bin\uv.exe
-    $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
+    Write-Host "uv not found, installing via Walmart Artifactory pypi mirror..."
+    # McAfee Web Gateway blocks direct downloads from astral.sh on the vs2022
+    # CI agent, so we install uv via pip from the same Artifactory mirror the
+    # Linux flows already use. No proxy / Invoke-WebRequest gymnastics needed.
+    & pip install `
+        --index-url "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" `
+        --quiet `
+        uv
+    if ($LASTEXITCODE -ne 0) { throw "pip install uv failed (exit $LASTEXITCODE)" }
+    # pip on Windows installs uv.exe to either:
+    #   - <python-prefix>\Scripts\uv.exe   (system / venv python)
+    #   - %APPDATA%\Python\Python3X\Scripts\uv.exe   (--user installs)
+    # Both should be on PATH already if pip itself was installed normally; if not,
+    # prepend the most common locations so the rest of the script can find uv.
+    $userScripts = Join-Path $env:APPDATA "Python\Python313\Scripts"
+    if (Test-Path $userScripts) { $env:PATH = "$userScripts;$env:PATH" }
+    # Also try whatever python -m site --user-base reports
+    try {
+        $userBase = & python -c "import site; print(site.USER_BASE)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $userBase) {
+            $candidate = Join-Path $userBase "Scripts"
+            if (Test-Path $candidate) { $env:PATH = "$candidate;$env:PATH" }
+        }
+    } catch {}
 } else {
     Write-Host "uv already on PATH at $($uvCmd.Source)"
 }
