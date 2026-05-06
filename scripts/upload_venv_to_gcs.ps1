@@ -51,6 +51,16 @@ Write-Host "Decoding service account key..."
 # spaces, and FromBase64String is strict about both. -replace '\s' nukes
 # spaces, tabs, CR, LF in one shot.
 $saKeyB64Clean = $SaKeyBase64 -replace '\s', ''
+
+# DIAGNOSTIC: Looper encrypts secrets as `ENC[...]`. If the agent didn't
+# decrypt it (suspected on the vs2022 image), we'd see ENC[ here. Print
+# safe head/tail bytes + length so we can see WHAT is wrong without
+# leaking the actual secret.
+$len = $saKeyB64Clean.Length
+$head = if ($len -ge 8) { $saKeyB64Clean.Substring(0, 8) } else { $saKeyB64Clean }
+$tail = if ($len -ge 8) { $saKeyB64Clean.Substring($len - 8) } else { '' }
+Write-Host "DIAG: SaKeyBase64 length=$len head='$head' tail='$tail' (mod4=$($len % 4))"
+
 $saKeyJson = [System.Text.Encoding]::UTF8.GetString(
     [System.Convert]::FromBase64String($saKeyB64Clean)
 )
