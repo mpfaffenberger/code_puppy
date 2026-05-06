@@ -21,72 +21,35 @@ Write-Host "=== build_and_upload_windows_venv.ps1 ==="
 
 # --- 1. Ensure uv is installed ---
 # ───────────────────────────────────────────────────────────────
-# Discover Python on Windows agents that don't put it on PATH.
-# Order:
-#   1. `py.exe` launcher (installed by every Windows Python installer)
-#   2. Common install locations (system & per-user)
-# Once found, prepend its dir to PATH so `python`, `pip`, and uv work.
+# Ensure uv is available. The vs2022 agent has neither Python nor
+# uv on PATH, so we download uv.exe directly from Walmart's
+# Artifactory mirror of astral-sh's GitHub releases. uv will then
+# bootstrap its own Python interpreter on demand via `--python 3.13`.
+#
+# This is the same approach puppy-launcher uses in
+# scripts/build_crucible.ps1.
 # ───────────────────────────────────────────────────────────────
-$pythonExe = $null
-if (Get-Command py -ErrorAction SilentlyContinue) {
-    Write-Host "Resolving python via py.exe launcher..."
-    $pythonExe = & py -3 -c "import sys; print(sys.executable)" 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $pythonExe) { $pythonExe = $null }
-}
-if (-not $pythonExe) {
-    Write-Host "py.exe not usable, probing common install locations..."
-    $candidates = @(
-        "C:\Python313\python.exe",
-        "C:\Python312\python.exe",
-        "C:\Python311\python.exe",
-        "C:\Program Files\Python313\python.exe",
-        "C:\Program Files\Python312\python.exe",
-        "C:\Program Files\Python311\python.exe",
-        "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
-        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
-        "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe"
-    )
-    foreach ($c in $candidates) {
-        if (Test-Path $c) { $pythonExe = $c; break }
-    }
-}
-if (-not $pythonExe) {
-    throw "No Python install found via py.exe or common locations. Agent likely missing Python."
-}
-$pythonDir = Split-Path $pythonExe -Parent
-$env:PATH = "$pythonDir;$pythonDir\Scripts;$env:PATH"
-Write-Host "Using Python at $pythonExe (added $pythonDir to PATH)"
-& python --version
-
-$uvCmd = Get-Command uv -ErrorAction SilentlyContinue
-if (-not $uvCmd) {
-    Write-Host "uv not found, installing via Walmart Artifactory pypi mirror..."
-    # McAfee Web Gateway blocks direct downloads from astral.sh on the vs2022
-    # CI agent, so we install uv via pip from the same Artifactory mirror the
-    # Linux flows already use. No proxy / Invoke-WebRequest gymnastics needed.
-    & python -m pip install `
-        --index-url "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple" `
-        --quiet `
-        uv
-    if ($LASTEXITCODE -ne 0) { throw "python -m pip install uv failed (exit $LASTEXITCODE)" }
-    # pip on Windows installs uv.exe to either:
-    #   - <python-prefix>\Scripts\uv.exe   (system / venv python)
-    #   - %APPDATA%\Python\Python3X\Scripts\uv.exe   (--user installs)
-    # Both should be on PATH already if pip itself was installed normally; if not,
-    # prepend the most common locations so the rest of the script can find uv.
-    $userScripts = Join-Path $env:APPDATA "Python\Python313\Scripts"
-    if (Test-Path $userScripts) { $env:PATH = "$userScripts;$env:PATH" }
-    # Also try whatever python -m site --user-base reports
-    try {
-        $userBase = & python -c "import site; print(site.USER_BASE)" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $userBase) {
-            $candidate = Join-Path $userBase "Scripts"
-            if (Test-Path $candidate) { $env:PATH = "$candidate;$env:PATH" }
-        }
-    } catch {}
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Host "uv not on PATH — downloading from Walmart Artifactory GitHub mirror..."
+    $uvZipUrl = "https://generic.ci.artifacts.walmart.com/artifactory/github-releases-generic-release-remote/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
+    $uvZip = Join-Path $env:TEMP "uv.zip"
+    $uvDir = Join-Path $env:USERPROFILE ".uv-bin"
+    Invoke-WebRequest -Uri $uvZipUrl -OutFile $uvZip -UseBasicParsing -TimeoutSec 120
+    if (Test-Path $uvDir) { Remove-Item -Recurse -Force $uvDir }
+    Expand-Archive -Path $uvZip -DestinationPath $uvDir -Force
+    Remove-Item $uvZip -Force
+    $uvExe = Get-ChildItem -Path $uvDir -Filter "uv.exe" -Recurse | Select-Object -First 1
+    if (-not $uvExe) { throw "uv.exe not found after extraction from $uvZipUrl" }
+    $env:PATH = "$($uvExe.DirectoryName);$env:PATH"
+    Write-Host "Installed uv $(& uv --version) at $($uvExe.FullName)"
 } else {
-    Write-Host "uv already on PATH at $($uvCmd.Source)"
+    Write-Host "uv already on PATH at $((Get-Command uv).Source) — version: $(& uv --version)"
 }
+
+# Tell uv which Python to use for every subsequent invocation. The agent has
+# no system Python, so uv will download 3.13 into its managed cache on first
+# use (uv venv / uv build / uv pip install).
+$env:UV_PYTHON = "3.13"
 
 # Verify uv works
 & uv --version
