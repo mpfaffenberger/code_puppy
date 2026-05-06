@@ -61,9 +61,20 @@ $head = if ($len -ge 8) { $saKeyB64Clean.Substring(0, 8) } else { $saKeyB64Clean
 $tail = if ($len -ge 8) { $saKeyB64Clean.Substring($len - 8) } else { '' }
 Write-Host "DIAG: SaKeyBase64 length=$len head='$head' tail='$tail' (mod4=$($len % 4))"
 
-$saKeyJson = [System.Text.Encoding]::UTF8.GetString(
-    [System.Convert]::FromBase64String($saKeyB64Clean)
-)
+# Looper's ENC[...] decryption is inconsistent across platforms: Linux
+# agents expose the value still-base64-encoded, but Windows vs2022 agents
+# decode it one extra hop and hand us the raw JSON. Detect either format
+# by sniffing the first non-whitespace char: '{' => already JSON, else
+# treat as base64 and decode.
+if ($saKeyB64Clean.StartsWith('{')) {
+    Write-Host "DIAG: env var contains raw JSON (Windows-style); skipping base64 decode"
+    $saKeyJson = $saKeyB64Clean
+} else {
+    Write-Host "DIAG: env var contains base64; decoding"
+    $saKeyJson = [System.Text.Encoding]::UTF8.GetString(
+        [System.Convert]::FromBase64String($saKeyB64Clean)
+    )
+}
 $saKey = $saKeyJson | ConvertFrom-Json
 if (-not $saKey.client_email) {
     Write-Error "SA key JSON is missing client_email"
