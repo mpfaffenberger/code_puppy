@@ -46,8 +46,13 @@ Write-Host "Platform : $Platform"
 
 # ---------- Decode SA key ----------
 Write-Host "Decoding service account key..."
+# Strip ALL whitespace before decoding. The encrypted env var pipeline
+# (Looper -> agent -> $env -> here) sometimes inserts CR/LF or padding
+# spaces, and FromBase64String is strict about both. -replace '\s' nukes
+# spaces, tabs, CR, LF in one shot.
+$saKeyB64Clean = $SaKeyBase64 -replace '\s', ''
 $saKeyJson = [System.Text.Encoding]::UTF8.GetString(
-    [System.Convert]::FromBase64String($SaKeyBase64)
+    [System.Convert]::FromBase64String($saKeyB64Clean)
 )
 $saKey = $saKeyJson | ConvertFrom-Json
 if (-not $saKey.client_email) {
