@@ -169,10 +169,60 @@ flows:
   python_releaseSteps:
     - shell: uv --native-tls build
     - shell: |
-        VERSION=$(uv --native-tls run python -c "import code_puppy; print(code_puppy.__version__)")
+        # NB: dash, not bash. No `set -o pipefail` (same lesson as Phase 3).
+        set -eu
+
+        # ---- Resolve VERSION from pyproject.toml (single source of truth) ----
+        # We deliberately do NOT use `import code_puppy; print(__version__)`
+        # here -- code_puppy/__init__.py's except branch returns the literal
+        # string "0.0.0-dev" if importlib.metadata.version() raises (e.g.
+        # editable install metadata not picked up by uv's caching layer,
+        # which is exactly the regression that started silently around
+        # 0.0.461 / 2026-04-17 -- the entire 0.0.462 -> 0.0.504 range
+        # never made it to genaica-generic-prod-local because uploads
+        # went to /code-puppy/0.0.0-dev/ and curl quietly returned 4xx.
+        # The frontend's release-management UI reads from this generic repo,
+        # so promoteable versions just stopped appearing.
+        VERSION=$(grep -E '^version\s*=' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+
+        # ---- Hard semver gate (mirrors Phase 3's gate) ----
+        # If pyproject.toml ever holds a non-release value ("0.0.0-dev",
+        # "main", empty, etc.), refuse to upload rather than poisoning the
+        # generic repo with a junk folder.
+        case "$VERSION" in
+            *[!0-9.]*)
+                echo "ERROR: pyproject.toml version='$VERSION' contains non-digit/non-dot chars." >&2
+                echo "       Refusing to publish wheel to a bad path."     >&2
+                exit 1
+                ;;
+        esac
+        case "$VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) : ;;
+            *)
+                echo "ERROR: pyproject.toml version='$VERSION' does not look like X.Y.Z." >&2
+                exit 1
+                ;;
+        esac
+
+        # ---- Validate the wheel we just built MATCHES the version ----
+        # If `uv build` produced something with a different version (e.g.
+        # picked up a stale pyproject from a previous run), abort. Belt +
+        # suspenders to make sure the file path and the file contents agree.
+        if ! ls dist/code_puppy-${VERSION}-*.whl >/dev/null 2>&1; then
+            echo "ERROR: no wheel found in dist/ matching version $VERSION" >&2
+            echo "Got these files instead:" >&2
+            ls -la dist/ >&2
+            exit 1
+        fi
+
         DEST="${REPOSOLNS_GENERIC_RELEASE_REPO}/code-puppy/$VERSION"
         echo "Uploading to: $DEST"
-        echo "Auth user: $TWINE_USERNAME"
+        echo "Auth user:    $TWINE_USERNAME"
+        echo "Files:"; ls -la dist/
+
+        # `set -e` above + `curl --fail` means the first 4xx/5xx response
+        # exits the loop AND the build, so a broken upload is no longer
+        # silently swallowed.
         for f in dist/*; do
           echo "--- Uploading $(basename $f) ---"
           curl --fail --show-error \
