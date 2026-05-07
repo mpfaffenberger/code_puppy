@@ -261,7 +261,14 @@ flows:
 
         # `pip install` (real pip) uses --trusted-host, NOT --allow-insecure-host
         # (that's the uv-pip-only flag and explodes with `no such option`).
-        pip install --quiet \
+        #
+        # Use `python3 -m pip` (NOT bare `pip`) to guarantee the install lands
+        # in the same interpreter that runs the heredoc below. Build #69 hit
+        # ModuleNotFoundError because bare `pip` was python3.12's pip while
+        # `python3` resolved to a different interpreter (likely python3.10) --
+        # the install "succeeded" in 3s into the wrong site-packages and the
+        # heredoc couldn't find requests.
+        python3 -m pip install --quiet \
           --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple \
           --trusted-host pypi.ci.artifacts.walmart.com \
           google-auth requests
