@@ -93,21 +93,38 @@ $env:UV_PYTHON_PREFERENCE = "only-system"
 $env:UV_INDEX_URL = "https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple"
 $env:UV_NATIVE_TLS = "1"
 
-# --- 1e. Bypass sysproxy for internal Walmart hosts ---
-# vs2022 agents auto-pick up a corporate HTTPS proxy via WPAD/PAC.
-# `uv` is a Rust binary -- it honors HTTPS_PROXY/HTTP_PROXY env vars
-# verbatim and does NOT auto-bypass internal hosts the way Windows
-# native HTTP libraries do. Result: every `uv` fetch from
-# pypi.ci.artifacts.walmart.com gets CONNECT-tunneled through sysproxy
-# and dies with `tunnel error: failed to create underlying connection`
-# / `tcp connect error` (failure mode hit on first manual_release run
-# after re-enabling the linux phases -- previous standalone runs were
-# only green because hatchling happened to be cached on a sticky agent).
+# --- 1e. Bypass sysproxy for ALL URLs this script touches ---
+# Every host we hit is internal-routed:
+#   - puppy-backend.stg.walmart.com         (Invoke-WebRequest)
+#   - pypi.ci.artifacts.walmart.com         (uv build / uv pip install)
+#   - *.blob.core.windows.net               (artifactory 302-redirect target
+#                                            for the actual wheel binaries --
+#                                            Walmart-Azure storage on the
+#                                            ExpressRoute, NOT public Azure)
+#   - storage.googleapis.com                (GCS upload, *also* internal-
+#                                            routed via Walmart's GCP peering)
 #
-# Tell uv (and any other tool we shell out to) to talk to *.walmart.com
-# and *.wal-mart.com directly. Set both upper- and lower-case because
-# Rust HTTP stacks are inconsistent about which they honor.
-$env:NO_PROXY = "walmart.com,.walmart.com,wal-mart.com,.wal-mart.com,localhost,127.0.0.1"
+# vs2022 agents auto-pick up a corporate HTTPS proxy via WPAD/PAC. `uv` is
+# a Rust binary -- it honors HTTPS_PROXY/HTTP_PROXY env vars verbatim and
+# does NOT auto-bypass internal hosts the way Windows-native HTTP libraries
+# do. Result: uv tunnels every request through sysproxy and dies with
+#   `tunnel error: failed to create underlying connection` /
+#   `tcp connect error` / `os error 10060` (WSAETIMEDOUT)
+# because sysproxy can't reach internal hosts on the user's behalf.
+#
+# Belt-and-suspenders fix:
+#   1. Strip HTTP_PROXY / HTTPS_PROXY from this process so uv doesn't see
+#      them at all (root cause).
+#   2. Set NO_PROXY to a generous internal allowlist as backup, in case
+#      something downstream (uv subprocess, etc.) re-injects a proxy from
+#      the user profile or registry.
+#
+# Set both UPPER and lower case -- Rust HTTP stacks are inconsistent about
+# which they honor.
+foreach ($v in 'HTTP_PROXY','HTTPS_PROXY','http_proxy','https_proxy','ALL_PROXY','all_proxy') {
+    if (Test-Path "Env:$v") { Remove-Item "Env:$v" -ErrorAction SilentlyContinue }
+}
+$env:NO_PROXY = "walmart.com,.walmart.com,wal-mart.com,.wal-mart.com,blob.core.windows.net,.blob.core.windows.net,googleapis.com,.googleapis.com,localhost,127.0.0.1"
 $env:no_proxy = $env:NO_PROXY
 
 # Verify uv works
