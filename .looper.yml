@@ -224,19 +224,46 @@ flows:
         # explodes with `Illegal option -o pipefail` on dash, so we use
         # plain `set -eu` -- no critical pipe chains here anyway.
         set -eu
-        VERSION=$(python -c "import code_puppy; print(code_puppy.__version__)" 2>/dev/null || echo "")
-        if [ -z "$VERSION" ]; then
-          # Fallback: read from pyproject.toml
-          VERSION=$(grep -E '^version\s*=' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-        fi
-        if [ -z "$VERSION" ]; then
-          echo "ERROR: could not determine version" >&2
-          exit 1
-        fi
+
+        # ---- Resolve the version (pyproject.toml is the source of truth) ----
+        # We deliberately do NOT use `python -c "import code_puppy; print(...)"`
+        # here -- this docker agent is a fresh checkout with no editable
+        # install, so `importlib.metadata.version("code-puppy")` raises and
+        # code_puppy/__init__.py's except branch returns the literal string
+        # "0.0.0-dev". Earlier versions of this script trusted that value and
+        # would have happily written "0.0.0-dev" to the latest pointer,
+        # bricking every installer in prod. (Caught on build #68.)
+        VERSION=$(grep -E '^version\s*=' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+
+        # ---- Hard sanity gate: must look like X.Y.Z, refuse anything else --
+        # If a future regression sneaks a non-semver value in here, fail loud
+        # rather than poison the latest pointer. Two-step check because dash
+        # `case` globs aren't real regex -- `[0-9]*.[0-9]*.[0-9]*` alone
+        # would happily match "0.0.0-dev" since `*` greedily eats `-dev`.
+        # Step 1: reject if ANY character is not a digit or dot.
+        # Step 2: require at least the X.Y.Z shape.
+        case "$VERSION" in
+            *[!0-9.]*)
+                echo "ERROR: pyproject.toml version='$VERSION' contains non-digit/non-dot chars." >&2
+                echo "       Refusing to flip the latest pointer to a bad value."     >&2
+                exit 1
+                ;;
+        esac
+        case "$VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) : ;;
+            *)
+                echo "ERROR: pyproject.toml version='$VERSION' does not look like X.Y.Z." >&2
+                echo "       Refusing to flip the latest pointer to a bad value."     >&2
+                exit 1
+                ;;
+        esac
         echo "Writing latest pointer for v$VERSION..."
+
+        # `pip install` (real pip) uses --trusted-host, NOT --allow-insecure-host
+        # (that's the uv-pip-only flag and explodes with `no such option`).
         pip install --quiet \
           --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple \
-          --allow-insecure-host pypi.ci.artifacts.walmart.com \
+          --trusted-host pypi.ci.artifacts.walmart.com \
           google-auth requests
         VERSION="$VERSION" python3 - <<'PYEOF'
         import base64, json, os, requests
