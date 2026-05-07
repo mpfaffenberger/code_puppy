@@ -119,6 +119,34 @@ class TestHandleCdCommand:
                             assert result is True
                             mock_chdir.assert_called_once_with(special_path)
 
+    def test_cd_windows_path_with_dot_uses_backslashsafely(self):
+        """Windows /cd must preserve backslashes and dots in folder names."""
+        windows_path = r"C:\\Users\\alice\\repo.v2"
+
+        with patch("os.name", "nt"):
+            with patch("code_puppy.messaging.emit_success"):
+                with patch("os.path.expanduser", return_value=windows_path):
+                    with patch("os.path.isabs", return_value=True):
+                        with patch("os.path.isdir", return_value=True):
+                            with patch("os.chdir") as mock_chdir:
+                                result = handle_cd_command(f"/cd {windows_path}")
+                                assert result is True
+                                mock_chdir.assert_called_once_with(windows_path)
+
+    def test_cd_windows_quoted_path_strips_quotes(self):
+        """Windows non-POSIX tokenization keeps quotes; handler should normalize them."""
+        windows_path = r"C:\\Users\\alice\\repo.v2"
+
+        with patch("os.name", "nt"):
+            with patch("code_puppy.messaging.emit_success"):
+                with patch("os.path.expanduser", return_value=windows_path):
+                    with patch("os.path.isabs", return_value=True):
+                        with patch("os.path.isdir", return_value=True):
+                            with patch("os.chdir") as mock_chdir:
+                                result = handle_cd_command(f'/cd "{windows_path}"')
+                                assert result is True
+                                mock_chdir.assert_called_once_with(windows_path)
+
     def test_cd_listing_with_permission_error(self):
         """Test cd listing handles permission errors gracefully."""
         with patch(
