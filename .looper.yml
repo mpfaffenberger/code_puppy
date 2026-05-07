@@ -219,7 +219,11 @@ flows:
   # ---------------------------------------------------------------------------
   write_venv_latest_pointer:
     - shell: |
-        set -euo pipefail
+        # NB: this script is run by /bin/sh (dash) on the python-agent
+        # docker image, not bash. `set -o pipefail` is a bash-ism that
+        # explodes with `Illegal option -o pipefail` on dash, so we use
+        # plain `set -eu` -- no critical pipe chains here anyway.
+        set -eu
         VERSION=$(python -c "import code_puppy; print(code_puppy.__version__)" 2>/dev/null || echo "")
         if [ -z "$VERSION" ]; then
           # Fallback: read from pyproject.toml
