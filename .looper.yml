@@ -273,11 +273,50 @@ flows:
           --trusted-host pypi.ci.artifacts.walmart.com \
           google-auth requests
         VERSION="$VERSION" python3 - <<'PYEOF'
-        import base64, json, os, requests
+        import base64, json, os, re, requests, sys
         from google.oauth2 import service_account
         from google.auth.transport.requests import Request
 
-        sa_info = json.loads(base64.b64decode(os.environ["GCS_SA_KEY_B64"]))
+        # ---- Robust SA-key decode ----
+        # Ported from the Windows-side upload_venv_to_gcs.ps1 which we beat
+        # on for ~12 rounds during the Windows iteration. Gotchas:
+        #
+        #   1. Looper's secret pipeline injects CR/LF/spaces into the env
+        #      var (esp. encrypted ENC[...] secrets) -- strip ALL whitespace
+        #      before decoding or base64.b64decode chokes.
+        #
+        #   2. Looper's ENC[...] decryption is INCONSISTENT across agent
+        #      types: linux python-agent gives us still-base64-encoded,
+        #      Windows vs2022 decodes one extra hop and hands us raw JSON.
+        #      Sniff the first non-whitespace char: '{' => already JSON.
+        #      We're on linux here so it should be base64, but defensive
+        #      coding is cheap.
+        #
+        #   3. base64 padding (`=` chars) sometimes gets stripped along the
+        #      way. Re-pad to a multiple of 4 before decoding -- this is
+        #      what bit us on build #70 with 'binascii.Error: Incorrect
+        #      padding'.
+        raw = os.environ["GCS_SA_KEY_B64"]
+        cleaned = re.sub(r"\s+", "", raw)
+        # Safe diagnostic: first/last 8 chars + length, NOT the secret itself.
+        n = len(cleaned)
+        head = cleaned[:8] if n >= 8 else cleaned
+        tail = cleaned[-8:] if n >= 8 else ""
+        print(f"DIAG: GCS_SA_KEY_B64 length={n} head='{head}' tail='{tail}' mod4={n % 4}", file=sys.stderr)
+
+        if cleaned.startswith("{"):
+            print("DIAG: env var is raw JSON (Windows-style); skipping b64 decode", file=sys.stderr)
+            sa_json = cleaned
+        else:
+            print("DIAG: env var is base64; padding + decoding", file=sys.stderr)
+            padded = cleaned + "=" * (-n % 4)   # add 0..3 trailing '='
+            sa_json = base64.b64decode(padded).decode("utf-8")
+
+        sa_info = json.loads(sa_json)
+        if "client_email" not in sa_info:
+            sys.exit("ERROR: SA key JSON is missing client_email")
+        print(f"Service account: {sa_info['client_email']}", file=sys.stderr)
+
         creds = service_account.Credentials.from_service_account_info(
             sa_info, scopes=["https://www.googleapis.com/auth/devstorage.read_write"]
         )
