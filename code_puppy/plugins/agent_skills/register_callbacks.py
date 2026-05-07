@@ -141,6 +141,9 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
         /skills install  – Browse & install from remote catalog
         /skills enable   – Enable skills integration globally
         /skills disable  – Disable skills integration globally
+        /skills toggle   – Toggle skills integration globally
+        /skills refresh  – Force skill re-discovery and refresh local cache
+        /skills help     – Show skills command help
     """
     if name not in (_COMMAND_NAME, *_ALIASES):
         return None
@@ -151,7 +154,10 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
         get_skills_enabled,
         set_skills_enabled,
     )
-    from code_puppy.plugins.agent_skills.discovery import discover_skills
+    from code_puppy.plugins.agent_skills.discovery import (
+        discover_skills,
+        refresh_skill_cache,
+    )
     from code_puppy.plugins.agent_skills.metadata import parse_skill_metadata
     from code_puppy.plugins.agent_skills.skills_menu import show_skills_menu
 
@@ -220,9 +226,40 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
             emit_warning("\U0001f534 Skills integration disabled globally")
             return True
 
+        elif subcommand == "toggle":
+            new_state = not get_skills_enabled()
+            set_skills_enabled(new_state)
+            if new_state:
+                emit_success("✅ Skills integration enabled globally")
+            else:
+                emit_warning("🔴 Skills integration disabled globally")
+            return True
+
+        elif subcommand == "refresh":
+            refreshed = refresh_skill_cache()
+            valid_skills = [skill for skill in refreshed if skill.has_skill_md]
+            emit_success(
+                f"🔄 Refreshed skills cache: {len(refreshed)} discovered "
+                f"({len(valid_skills)} with SKILL.md)"
+            )
+            return True
+
+        elif subcommand == "help":
+            emit_info("Available /skills subcommands:")
+            emit_info("  /skills list     - List all installed skills")
+            emit_info("  /skills install  - Browse & install from catalog")
+            emit_info("  /skills enable   - Enable skills integration globally")
+            emit_info("  /skills disable  - Disable skills integration globally")
+            emit_info("  /skills toggle   - Toggle skills integration globally")
+            emit_info("  /skills refresh  - Refresh skill cache")
+            emit_info("  /skills          - Open interactive skills menu")
+            return True
+
         else:
             emit_error(f"Unknown subcommand: {subcommand}")
-            emit_info("Usage: /skills [list|install|enable|disable]")
+            emit_info(
+                "Usage: /skills [list|install|enable|disable|toggle|refresh|help]"
+            )
             return True
 
     # No subcommand – launch TUI menu
