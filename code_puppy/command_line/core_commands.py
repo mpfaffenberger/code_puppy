@@ -54,16 +54,24 @@ def handle_help_command(command: str) -> bool:
 )
 def handle_cd_command(command: str) -> bool:
     """Change directory or list current directory."""
-    # Use shlex.split to handle quoted paths properly
     import shlex
 
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     try:
-        tokens = shlex.split(command)
+        if os.name == "nt":
+            # Windows paths commonly use backslashes; POSIX shlex treats them as
+            # escape characters and corrupts valid paths (e.g., C:\foo\bar).
+            lexer = shlex.shlex(command, posix=False)
+            lexer.whitespace_split = True
+            lexer.commenters = ""
+            tokens = list(lexer)
+        else:
+            tokens = shlex.split(command)
     except ValueError:
-        # Fallback to simple split if shlex fails
-        tokens = command.split()
+        # Keep remaining text as one argument for better resilience.
+        tokens = command.split(maxsplit=1)
+
     if len(tokens) == 1:
         try:
             table = make_directory_table()
@@ -71,8 +79,11 @@ def handle_cd_command(command: str) -> bool:
         except Exception as e:
             emit_error(f"Error listing directory: {e}")
         return True
-    elif len(tokens) == 2:
-        dirname = tokens[1]
+
+    if len(tokens) >= 2:
+        # /cd takes one path argument; if tokenizer split extra whitespace,
+        # rejoin it so unquoted paths with spaces still have a chance.
+        dirname = " ".join(tokens[1:]).strip().strip("\"'")
         target = os.path.expanduser(dirname)
         if not os.path.isabs(target):
             target = os.path.join(os.getcwd(), target)
@@ -96,6 +107,7 @@ def handle_cd_command(command: str) -> bool:
         else:
             emit_error(f"Not a directory: {dirname}")
         return True
+
     return True
 
 
