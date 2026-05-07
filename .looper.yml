@@ -317,72 +317,82 @@ flows:
             sys.exit("ERROR: SA key JSON is missing client_email")
         print(f"Service account: {sa_info['client_email']}", file=sys.stderr)
 
-        # ---- Fix mangled PEM line-endings in private_key ----
-        # Build #71 got past every previous bug AND auth setup, but died at
-        # `serialization.load_pem_private_key()` with:
-        #   ValueError: Unable to load PEM file. ... MalformedFraming
+        # ---- Fix mangled PEM in private_key ----
+        # The Looper secret pipeline mangles the SA-key JSON in MULTIPLE
+        # ways and we have to defend against all of them. Diagnostic from
+        # build #73 was the smoking gun:
+        #   head40='-----BEGINPRIVATEKEY-----\nMIIE...'
+        #   tail40='...=\n-----ENDPRIVATEKEY-----\n'
+        # Note the spaces between BEGIN/PRIVATE/KEY are GONE. cryptography
+        # rejects this with MalformedFraming because PEM requires exactly
+        # `-----BEGIN PRIVATE KEY-----` (with single spaces).
         #
-        # Looper's secret pipeline JSON-stringifies the SA key blob during
-        # encryption/transit. The `\n` escapes inside the `private_key` value
-        # can survive as the literal 2-character sequence `\` + `n` instead
-        # of being un-escaped to actual newline bytes. The cryptography lib
-        # then sees a single line:
-        #   -----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n
-        # which is not valid PEM framing.
+        # Phase 2 (Windows venv upload) hits the EXACT same mangled secret
+        # but works fine because it sidesteps PEM parsing entirely --
+        # signs the JWT manually with raw CngKey.Import() on the base64-
+        # decoded body bytes (see scripts/upload_venv_to_gcs.ps1, lines
+        # 108-128, the lesson behind commit 62077753).
         #
-        # First-pass fix in build #72 was too narrow -- it ONLY un-escaped
-        # if there were ZERO real newlines, but a key with a trailing
-        # newline + literal `\n` separators in the middle would slip
-        # through. Build #72 also failed with MalformedFraming despite the
-        # "already has real newlines" diagnostic firing. Lesson: don't
-        # trust a binary heuristic, just dump the structure and decide.
+        # Easiest port of that strategy to Python: strip the mangled
+        # markers + whitespace, base64-decode the body to raw PKCS8 DER,
+        # then *reconstruct* a clean PEM with proper formatting
+        # (`-----BEGIN PRIVATE KEY-----`, 64-char-wrapped body,
+        # `-----END PRIVATE KEY-----`) before handing it to google-auth.
+        # This way google-auth/cryptography sees a textbook-perfect PEM
+        # regardless of how badly Looper mangled the original.
+        import textwrap
         pk = sa_info.get("private_key", "")
 
-        # Detailed diagnostics so future failures are debuggable from logs
-        # alone (head/tail show structure without leaking the actual key bytes
-        # -- BEGIN/END markers and trailing whitespace are always safe).
+        # Diagnostics first (head40/tail40 only -- never the secret bytes).
         n_real_nl = pk.count("\n")
         n_esc_nl  = pk.count("\\n")
         n_cr      = pk.count("\r")
-        head40 = pk[:40]
-        tail40 = pk[-40:]
         print(
             f"DIAG: private_key len={len(pk)} real_nl={n_real_nl} "
             f"escaped_nl={n_esc_nl} cr={n_cr}",
             file=sys.stderr,
         )
-        print(f"DIAG: private_key head40={head40!r}", file=sys.stderr)
-        print(f"DIAG: private_key tail40={tail40!r}", file=sys.stderr)
+        print(f"DIAG: private_key head40={pk[:40]!r}", file=sys.stderr)
+        print(f"DIAG: private_key tail40={pk[-40:]!r}", file=sys.stderr)
 
-        # Repair strategy: a valid PKCS8 PEM key has roughly
-        #   ~28 newlines (1 BEGIN + ~26 base64 lines @ 64 chars + 1 END).
-        # If we see way fewer real newlines than escaped ones, we know the
-        # body is collapsed onto a single line with literal `\n` separators.
-        # Un-escape EVERY `\n` -> `\n` regardless of whether some real
-        # newlines also exist (idempotent: replacing `\\n` in already-real-
-        # newline text is a no-op).
+        # Step 1: un-escape literal \n + normalize CRLF (idempotent).
         if n_esc_nl > 0:
-            print(f"DIAG: un-escaping {n_esc_nl} literal '\\n' sequences in private_key", file=sys.stderr)
             pk = pk.replace("\\n", "\n")
-
-        # Normalize CRLF -> LF (cryptography is tolerant but belt+suspenders).
         if "\r" in pk:
-            print("DIAG: normalizing CRLF -> LF in private_key", file=sys.stderr)
             pk = pk.replace("\r\n", "\n").replace("\r", "\n")
 
-        # Final sanity: must start with -----BEGIN, end with -----END line
-        # (possibly + trailing newline), and have at least 3 lines total.
-        if not pk.startswith("-----BEGIN"):
-            sys.exit(f"ERROR: private_key doesn't start with '-----BEGIN' (got {pk[:20]!r})")
-        if "-----END" not in pk:
-            sys.exit("ERROR: private_key missing '-----END' marker")
-        if pk.count("\n") < 3:
-            sys.exit(
-                f"ERROR: private_key has only {pk.count(chr(10))} newlines after "
-                f"repair -- need at least 3 (BEGIN line + body + END line)"
-            )
-        print(f"DIAG: private_key after repair: real_nl={pk.count(chr(10))}", file=sys.stderr)
-        sa_info["private_key"] = pk
+        # Step 2: strip the BEGIN/END marker lines REGARDLESS of mangling.
+        # `-{2,}` eats the dashes, `[^-]*` greedily swallows everything
+        # between (BEGIN, PRIVATE, KEY, spaces or no-spaces, etc.) up to
+        # the next dash run. Catches both `-----BEGIN PRIVATE KEY-----`
+        # and `-----BEGINPRIVATEKEY-----` and `-----BEGIN RSA PRIVATE KEY-----`.
+        body = re.sub(r"-{2,}[^-]*BEGIN[^-]*-{2,}", "", pk)
+        body = re.sub(r"-{2,}[^-]*END[^-]*-{2,}",   "", body)
+
+        # Step 3: nuke ALL whitespace from the body. We're left with pure
+        # base64 (the BEGIN/END words were the only source of A-Z letters
+        # that aren't valid base64 anyway, and we just removed them).
+        body = re.sub(r"\s+", "", body)
+
+        # Step 4: re-pad to multiple of 4 and base64-decode -> raw PKCS8 DER.
+        body += "=" * (-len(body) % 4)
+        try:
+            der_bytes = base64.b64decode(body, validate=True)
+        except Exception as e:
+            sys.exit(f"ERROR: base64-decoding key body failed: {e}")
+        print(f"DIAG: decoded private_key body to {len(der_bytes)} DER bytes", file=sys.stderr)
+
+        # Step 5: rebuild a textbook-clean PEM (proper markers, 64-char wrap).
+        clean_b64 = base64.b64encode(der_bytes).decode("ascii")
+        sa_info["private_key"] = (
+            "-----BEGIN PRIVATE KEY-----\n"
+            + "\n".join(textwrap.wrap(clean_b64, 64))
+            + "\n-----END PRIVATE KEY-----\n"
+        )
+        print(
+            f"DIAG: rebuilt PEM with {sa_info['private_key'].count(chr(10))} newlines",
+            file=sys.stderr,
+        )
 
         creds = service_account.Credentials.from_service_account_info(
             sa_info, scopes=["https://www.googleapis.com/auth/devstorage.read_write"]
