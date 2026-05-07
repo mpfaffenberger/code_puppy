@@ -330,20 +330,59 @@ flows:
         #   -----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n
         # which is not valid PEM framing.
         #
-        # Detection: a real PEM key has actual `\n` characters AND starts
-        # with `-----BEGIN`. If we see `-----BEGIN` but no real newline
-        # anywhere in the value, we know the escapes need un-doing.
+        # First-pass fix in build #72 was too narrow -- it ONLY un-escaped
+        # if there were ZERO real newlines, but a key with a trailing
+        # newline + literal `\n` separators in the middle would slip
+        # through. Build #72 also failed with MalformedFraming despite the
+        # "already has real newlines" diagnostic firing. Lesson: don't
+        # trust a binary heuristic, just dump the structure and decide.
         pk = sa_info.get("private_key", "")
-        if pk.startswith("-----BEGIN") and "\n" not in pk:
-            print("DIAG: private_key has escaped \\n; un-escaping to real newlines", file=sys.stderr)
-            sa_info["private_key"] = pk.replace("\\n", "\n")
-        elif pk.startswith("-----BEGIN") and "\n" in pk:
-            print("DIAG: private_key already has real newlines; leaving as-is", file=sys.stderr)
-        else:
+
+        # Detailed diagnostics so future failures are debuggable from logs
+        # alone (head/tail show structure without leaking the actual key bytes
+        # -- BEGIN/END markers and trailing whitespace are always safe).
+        n_real_nl = pk.count("\n")
+        n_esc_nl  = pk.count("\\n")
+        n_cr      = pk.count("\r")
+        head40 = pk[:40]
+        tail40 = pk[-40:]
+        print(
+            f"DIAG: private_key len={len(pk)} real_nl={n_real_nl} "
+            f"escaped_nl={n_esc_nl} cr={n_cr}",
+            file=sys.stderr,
+        )
+        print(f"DIAG: private_key head40={head40!r}", file=sys.stderr)
+        print(f"DIAG: private_key tail40={tail40!r}", file=sys.stderr)
+
+        # Repair strategy: a valid PKCS8 PEM key has roughly
+        #   ~28 newlines (1 BEGIN + ~26 base64 lines @ 64 chars + 1 END).
+        # If we see way fewer real newlines than escaped ones, we know the
+        # body is collapsed onto a single line with literal `\n` separators.
+        # Un-escape EVERY `\n` -> `\n` regardless of whether some real
+        # newlines also exist (idempotent: replacing `\\n` in already-real-
+        # newline text is a no-op).
+        if n_esc_nl > 0:
+            print(f"DIAG: un-escaping {n_esc_nl} literal '\\n' sequences in private_key", file=sys.stderr)
+            pk = pk.replace("\\n", "\n")
+
+        # Normalize CRLF -> LF (cryptography is tolerant but belt+suspenders).
+        if "\r" in pk:
+            print("DIAG: normalizing CRLF -> LF in private_key", file=sys.stderr)
+            pk = pk.replace("\r\n", "\n").replace("\r", "\n")
+
+        # Final sanity: must start with -----BEGIN, end with -----END line
+        # (possibly + trailing newline), and have at least 3 lines total.
+        if not pk.startswith("-----BEGIN"):
+            sys.exit(f"ERROR: private_key doesn't start with '-----BEGIN' (got {pk[:20]!r})")
+        if "-----END" not in pk:
+            sys.exit("ERROR: private_key missing '-----END' marker")
+        if pk.count("\n") < 3:
             sys.exit(
-                f"ERROR: private_key looks malformed (startswith={pk[:11]!r}, "
-                f"has_newline={chr(10) in pk}, len={len(pk)})"
+                f"ERROR: private_key has only {pk.count(chr(10))} newlines after "
+                f"repair -- need at least 3 (BEGIN line + body + END line)"
             )
+        print(f"DIAG: private_key after repair: real_nl={pk.count(chr(10))}", file=sys.stderr)
+        sa_info["private_key"] = pk
 
         creds = service_account.Credentials.from_service_account_info(
             sa_info, scopes=["https://www.googleapis.com/auth/devstorage.read_write"]
