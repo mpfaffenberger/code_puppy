@@ -317,6 +317,34 @@ flows:
             sys.exit("ERROR: SA key JSON is missing client_email")
         print(f"Service account: {sa_info['client_email']}", file=sys.stderr)
 
+        # ---- Fix mangled PEM line-endings in private_key ----
+        # Build #71 got past every previous bug AND auth setup, but died at
+        # `serialization.load_pem_private_key()` with:
+        #   ValueError: Unable to load PEM file. ... MalformedFraming
+        #
+        # Looper's secret pipeline JSON-stringifies the SA key blob during
+        # encryption/transit. The `\n` escapes inside the `private_key` value
+        # can survive as the literal 2-character sequence `\` + `n` instead
+        # of being un-escaped to actual newline bytes. The cryptography lib
+        # then sees a single line:
+        #   -----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n
+        # which is not valid PEM framing.
+        #
+        # Detection: a real PEM key has actual `\n` characters AND starts
+        # with `-----BEGIN`. If we see `-----BEGIN` but no real newline
+        # anywhere in the value, we know the escapes need un-doing.
+        pk = sa_info.get("private_key", "")
+        if pk.startswith("-----BEGIN") and "\n" not in pk:
+            print("DIAG: private_key has escaped \\n; un-escaping to real newlines", file=sys.stderr)
+            sa_info["private_key"] = pk.replace("\\n", "\n")
+        elif pk.startswith("-----BEGIN") and "\n" in pk:
+            print("DIAG: private_key already has real newlines; leaving as-is", file=sys.stderr)
+        else:
+            sys.exit(
+                f"ERROR: private_key looks malformed (startswith={pk[:11]!r}, "
+                f"has_newline={chr(10) in pk}, len={len(pk)})"
+            )
+
         creds = service_account.Credentials.from_service_account_info(
             sa_info, scopes=["https://www.googleapis.com/auth/devstorage.read_write"]
         )
