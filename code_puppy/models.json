@@ -131,6 +131,17 @@
     "context_length": 262144,
     "supported_settings": ["temperature", "seed", "top_p"]
   },
+  "crof-kimi-k2.5-lightning": {
+    "type": "custom_openai",
+    "provider": "crof",
+    "name": "kimi-k2.5-lightning",
+    "custom_endpoint": {
+      "url": "https://api.crof.ai/v1",
+      "api_key": "$CROF_API_KEY"
+    },
+    "context_length": 131072,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  },
   "zai-glm-5-coding": {
     "type": "zai_coding",
     "provider": "zai",
