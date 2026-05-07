@@ -425,7 +425,8 @@ def display_resumed_history(
     from rich.markdown import Markdown
     from rich.rule import Rule
 
-    from code_puppy.config import get_banner_color, get_resume_message_count
+    from code_puppy.config import get_resume_message_count
+    from code_puppy.messaging.banner import format_banner
 
     if not history:
         return
@@ -467,9 +468,6 @@ def display_resumed_history(
         )
         console.print()
 
-    # Get banner color for agent responses
-    response_color = get_banner_color("agent_response")
-
     # Render each message in the same style as normal chat
     for msg in messages_to_show:
         role, content = _extract_message_content(msg)
@@ -484,8 +482,16 @@ def display_resumed_history(
             # Tool output is typically dim/collapsed
             console.print(f"[dim]{content}[/dim]")
         else:  # assistant
-            # Use the exact same banner format as normal AGENT RESPONSE
-            banner = f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
+            # Use the shared banner formatter, passing the message's stored
+            # timestamp so reloaded sessions show the *original* time the
+            # response happened (not the time of the reload). pydantic-ai
+            # stores this on every message in UTC; the formatter converts to
+            # local time. If the timestamp is missing or banner timestamps
+            # are disabled, the formatter simply omits the annotation.
+            msg_timestamp = getattr(msg, "timestamp", None)
+            banner = format_banner(
+                "agent_response", "AGENT RESPONSE", when=msg_timestamp
+            )
             console.print(f"\n{banner}")
             # Render content as markdown (same as normal chat)
             md = Markdown(content)

@@ -4,7 +4,7 @@ import sys
 import types
 from io import StringIO
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from rich.console import Console
@@ -300,9 +300,12 @@ def test_markdown_rendering_to_real_console() -> None:
 
 def test_format_banner_and_level_prefix() -> None:
     renderer, _ = _make_renderer()
-    renderer._get_banner_color = Mock(return_value="magenta")
-
-    banner = renderer._format_banner("thinking", "HELLO")
+    # _format_banner now delegates to messaging.banner.format_banner, which
+    # reads the color from code_puppy.config.get_banner_color directly
+    # (rather than via the renderer's _get_banner_color hook), so we patch
+    # there instead.
+    with patch("code_puppy.config.get_banner_color", return_value="magenta"):
+        banner = renderer._format_banner("thinking", "HELLO")
     assert "magenta" in banner
     assert "HELLO" in banner
 

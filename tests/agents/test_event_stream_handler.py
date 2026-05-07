@@ -178,7 +178,7 @@ class TestEventStreamHandler:
         with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    "code_puppy.config.get_banner_color",
                     return_value="blue",
                 ):
                     await event_stream_handler(mock_ctx, event_stream())
@@ -201,7 +201,7 @@ class TestEventStreamHandler:
         with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    "code_puppy.config.get_banner_color",
                     return_value="blue",
                 ):
                     with patch("termflow.Parser"):
@@ -228,7 +228,7 @@ class TestEventStreamHandler:
         with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    "code_puppy.config.get_banner_color",
                     return_value="blue",
                 ):
                     await event_stream_handler(mock_ctx, event_stream())
@@ -255,7 +255,7 @@ class TestEventStreamHandler:
         with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    "code_puppy.config.get_banner_color",
                     return_value="blue",
                 ):
                     with patch("termflow.Parser") as mock_parser_cls:
@@ -360,7 +360,7 @@ class TestEventStreamHandler:
         with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    "code_puppy.config.get_banner_color",
                     return_value="blue",
                 ):
                     await event_stream_handler(mock_ctx, event_stream())
@@ -422,7 +422,7 @@ class TestEventStreamHandler:
         with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    "code_puppy.config.get_banner_color",
                     return_value="blue",
                 ):
                     with patch("termflow.Parser") as mock_parser_cls:
@@ -456,7 +456,7 @@ class TestEventStreamHandler:
         with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    "code_puppy.config.get_banner_color",
                     return_value="blue",
                 ):
                     with patch("termflow.Parser") as mock_parser_cls:
@@ -537,7 +537,7 @@ class TestEventStreamHandler:
         with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    "code_puppy.config.get_banner_color",
                     return_value="blue",
                 ):
                     await event_stream_handler(mock_ctx, event_stream())
@@ -561,7 +561,7 @@ class TestEventStreamHandler:
         with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    "code_puppy.config.get_banner_color",
                     return_value="blue",
                 ):
                     with patch("termflow.Parser") as mock_parser_cls:
@@ -592,7 +592,7 @@ class TestEventStreamHandler:
         with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    "code_puppy.config.get_banner_color",
                     return_value="blue",
                 ):
                     with patch("termflow.Parser") as mock_parser_cls:
@@ -631,7 +631,7 @@ class TestEventStreamHandler:
         with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    "code_puppy.config.get_banner_color",
                     return_value="blue",
                 ):
                     with patch("termflow.Parser") as mock_parser_cls:
@@ -723,7 +723,7 @@ class TestSubAgentSuppression:
                     "code_puppy.agents.event_stream_handler.resume_all_spinners"
                 ):
                     with patch(
-                        "code_puppy.agents.event_stream_handler.get_banner_color",
+                        "code_puppy.config.get_banner_color",
                         return_value="blue",
                     ):
                         with patch("termflow.Parser") as mock_parser_cls:
@@ -761,7 +761,7 @@ class TestSubAgentSuppression:
         with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
             with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
-                    "code_puppy.agents.event_stream_handler.get_banner_color",
+                    "code_puppy.config.get_banner_color",
                     return_value="blue",
                 ):
                     with patch("termflow.Parser") as mock_parser_cls:
