@@ -11,8 +11,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest]
-        python-version: ['3.13']
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.11', '3.12', '3.13']
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -25,69 +25,27 @@ jobs:
       - name: Install uv
         run: pip install uv
 
-      - name: Setup uv virtual environment
-        run: uv venv
+      - name: Setup uv virtual environment and install dependencies
+        run: uv sync --group dev
 
-      - name: Install dependencies
-        run: uv pip install -e .
+      - name: Compile check
+        run: uv run python -m compileall -q code_puppy tests
 
-      - name: Install pexpect for integration tests
-        run: uv pip install pexpect>=4.9.0
+      - name: Lint with ruff
+        run: uv run ruff check .
 
-      - name: Debug environment variables
-        env:
-          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY || 'fake-key-for-ci-testing' }}
-          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY || 'fake-key-for-ci-testing' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
-          SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
-        run: |
-          echo "=== DEBUG: Environment Variables ==="
-          echo "CEREBRAS_API_KEY is set: ${{ secrets.CEREBRAS_API_KEY != '' }}"
-          echo "CONTEXT7_API_KEY is set: ${{ secrets.CONTEXT7_API_KEY != '' }}"
-          echo "OPENAI_API_KEY is set: ${{ secrets.OPENAI_API_KEY != '' }}"
-          echo "ANTHROPIC_API_KEY is set: ${{ secrets.ANTHROPIC_API_KEY != '' }}"
-          echo "SYN_API_KEY is set: ${{ secrets.SYN_API_KEY != '' }}"
-          echo "CEREBRAS_API_KEY length: ${#CEREBRAS_API_KEY}"
-          echo "CONTEXT7_API_KEY length: ${#CONTEXT7_API_KEY}"
-          echo "OPENAI_API_KEY length: ${#OPENAI_API_KEY}"
-          echo "ANTHROPIC_API_KEY length: ${#ANTHROPIC_API_KEY}"
-          echo "SYN_API_KEY length: ${#SYN_API_KEY}"
-          echo "=== END DEBUG ==="
+      - name: Check formatting with ruff
+        run: uv run ruff format --check .
 
       - name: Run tests
         env:
           CI: '1'
           CODE_PUPPY_TEST_FAST: '1'
-          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY || 'fake-key-for-ci-testing' }}
-          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY || 'fake-key-for-ci-testing' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
-          SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
+          CEREBRAS_API_KEY: 'fake-key-for-ci-testing'
+          CONTEXT7_API_KEY: 'fake-key-for-ci-testing'
+          OPENAI_API_KEY: 'fake-key-for-ci-testing'
+          ANTHROPIC_API_KEY: 'fake-key-for-ci-testing'
+          SYN_API_KEY: 'fake-key-for-ci-testing'
         run: |
           echo "Running unit tests (skipping integration tests) on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
-          echo "Required environment variables are set (using CI fallbacks if secrets not available)"
           uv run pytest tests/ --ignore tests/integration -v --cov=code_puppy --cov-report=term-missing
-
-  quality:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Setup Python 3.13
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-
-      - name: Install dev dependencies (ruff)
-        run: pip install ruff
-
-      - name: Install code_puppy
-        run: pip install .
-
-      - name: Lint with ruff
-        run: ruff check .
-
-      - name: Check formatting with ruff
-        run: ruff format --check .

@@ -776,6 +776,25 @@ Consider contributing agent templates for:
 
 ---
 
+## Security & Trust Boundaries
+
+Code Puppy implements multiple safety layers to protect your secrets, filesystem, and runtime:
+
+- **Sessions use JSON by default** — legacy pickle sessions are rejected unless explicitly imported with `--import-legacy-pickle-session` (RCE risk warning).
+- **Secrets are redacted** — token files are created with `0o600`, logs scrub `Authorization: Bearer ...` and sensitive query params, and token length is never logged.
+- **Shell commands require approval by default** — `yolo_mode` is off; background commands require approval before `Popen`.
+- **Workspace boundaries** — file tools enforce cwd containment, block sensitive paths (`.env`, `.ssh`, etc.), and cap huge files/diffs before full read.
+- **Hook trust** — project hooks from `.claude/settings.json` require explicit trust (keyed by content hash); untrusted hooks are blocked.
+- **Universal Constructor safety** — user-generated tools run in a subprocess worker with JSON-only serialization, dangerous patterns (`eval`, `exec`, `subprocess`) are blocked or approval-gated, and timeouts kill the worker process.
+- **Grep safety** — search patterns are passed after `--` so they are treated as data, not CLI flags.
+- **MCP disable** — use `disable_mcp = true` in config (the old `disable_mcp_servers` alias works but emits a deprecation warning).
+
+Run `/safety` or `/status` inside Code Puppy to see the current risk posture without exposing secrets.
+
+For full details, see [docs/SECURITY.md](docs/SECURITY.md).
+
+---
+
 # Code Puppy Privacy Commitment
 
 **Zero-compromise privacy policy. Always.**
