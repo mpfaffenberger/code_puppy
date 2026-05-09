@@ -1,24 +1,80 @@
 name: Build and Publish to PyPI
 
 on:
-  workflow_dispatch:
-    inputs:
-      run_tests:
-        description: "Run the test suite before publishing"
-        required: true
-        default: false
-        type: boolean
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
+concurrency:
+  group: publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
 jobs:
-  test:
-    if: ${{ inputs.run_tests }}
-    runs-on: macos-latest
+  validate-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.package-version.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Validate release tag matches package version
+        id: package-version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          tag = os.environ["RELEASE_TAG"]
+          normalized_tag = tag[1:] if tag.startswith("v") else tag
+
+          if normalized_tag != version:
+              raise SystemExit(
+                  f"Release tag {tag!r} does not match pyproject.toml version {version!r}. "
+                  f"Use tag v{version} or update pyproject.toml before publishing."
+              )
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"version={version}", file=output)
+          PY
+
+      - name: Check version is not already on PyPI
+        env:
+          PACKAGE_VERSION: ${{ steps.package-version.outputs.version }}
+        run: |
+          status="$(curl -sS -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/fast-puppy/${PACKAGE_VERSION}/json")"
+
+          if [ "$status" = "200" ]; then
+              echo "fast-puppy ${PACKAGE_VERSION} already exists on PyPI."
+              exit 1
+          fi
+
+          if [ "$status" != "404" ]; then
+              echo "Unexpected PyPI response while checking fast-puppy ${PACKAGE_VERSION}: HTTP ${status}"
+              exit 1
+          fi
+
+  test:
+    runs-on: macos-latest
+    needs: validate-version
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Setup Python 3.13
         uses: actions/setup-python@v6
@@ -43,18 +99,19 @@ jobs:
         run: uv run pytest tests/ -v --cov=code_puppy --cov-report=term-missing
 
   build-publish:
-    if: ${{ always() && (!inputs.run_tests || needs.test.result == 'success') }}
     runs-on: ubuntu-latest
-    needs: test
+    needs: [validate-version, test]
     environment:
       name: pypi
-      url: https://pypi.org/p/fast-puppy
+      url: https://pypi.org/project/fast-puppy/${{ needs.validate-version.outputs.version }}/
     permissions:
       contents: read
       id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Setup Python 3.13
         uses: actions/setup-python@v6

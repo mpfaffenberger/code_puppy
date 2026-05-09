@@ -741,6 +741,10 @@ The agent system supports future expansion:
 
 ## Contributing
 
+### Releases
+
+Maintainer release steps live in [docs/RELEASING.md](docs/RELEASING.md).
+
 ### Sharing JSON Agents
 1. Create and test your agent thoroughly
 2. Ensure it follows best practices
