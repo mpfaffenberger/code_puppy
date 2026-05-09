@@ -437,9 +437,7 @@ def register_invoke_agent(agent):
                 bound_agent_name = getattr(agent_config, "name", None)
                 if bound_agent_name:
                     await autostart_bound_servers_async(manager, bound_agent_name)
-                mcp_servers = manager.get_servers_for_agent(
-                    agent_name=bound_agent_name
-                )
+                mcp_servers = manager.get_servers_for_agent(agent_name=bound_agent_name)
 
             from code_puppy.agents._compaction import make_history_processor
 
