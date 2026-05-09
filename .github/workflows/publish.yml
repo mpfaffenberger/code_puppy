@@ -6,7 +6,7 @@ on:
       run_tests:
         description: "Run the test suite before publishing"
         required: true
-        default: true
+        default: false
         type: boolean
 
 permissions:
