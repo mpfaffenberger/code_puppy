@@ -2,12 +2,19 @@ name: Build and Publish to PyPI
 
 on:
   workflow_dispatch:
+    inputs:
+      run_tests:
+        description: "Run the test suite before publishing"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
   test:
+    if: ${{ inputs.run_tests }}
     runs-on: macos-latest
     steps:
       - name: Checkout code
@@ -36,6 +43,7 @@ jobs:
         run: uv run pytest tests/ -v --cov=code_puppy --cov-report=term-missing
 
   build-publish:
+    if: ${{ always() && (!inputs.run_tests || needs.test.result == 'success') }}
     runs-on: ubuntu-latest
     needs: test
     environment:
