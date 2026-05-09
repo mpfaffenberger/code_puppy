@@ -5,6 +5,8 @@ import httpx
 from code_puppy.messaging import emit_info, emit_success, emit_warning, get_message_bus
 from code_puppy.messaging.messages import VersionCheckMessage
 
+UVX_REFRESH_COMMAND = "uvx --refresh-package fast-puppy fast-puppy -i"
+
 
 def normalize_version(version_str):
     if not version_str:
@@ -79,4 +81,6 @@ def default_version_mismatch_behavior(current_version):
     if update_available:
         emit_info(f"Latest version: {latest_version}")
         emit_warning(f"A new version of code puppy is available: {latest_version}")
-        emit_success("Please consider updating!")
+        emit_success(
+            f"Run to refresh uvx and start the latest version: {UVX_REFRESH_COMMAND}"
+        )

@@ -132,8 +132,11 @@ class TestDefaultVersionMismatchBehavior:
         mock_emit_info.assert_any_call("Latest version: 2.0.0")
         # Should emit warning about new version
         mock_emit_warning.assert_called()
-        # Should emit success message about updating
-        mock_emit_success.assert_called()
+        # Should emit success message with an actionable uvx refresh command
+        mock_emit_success.assert_called_once_with(
+            "Run to refresh uvx and start the latest version: "
+            "uvx --refresh-package fast-puppy fast-puppy -i"
+        )
 
     @patch("code_puppy.version_checker.get_message_bus")
     @patch("code_puppy.version_checker.emit_success")

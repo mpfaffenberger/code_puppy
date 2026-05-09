@@ -51,6 +51,13 @@ Code Puppy is an AI-powered code generation agent, designed to understand progra
 uvx fast-puppy -i
 ````
 
+If `uvx` still starts an older cached version after a release, refresh the tool
+environment:
+
+```bash
+uvx --refresh-package fast-puppy fast-puppy -i
+```
+
 ## Installation
 
 ### UV (Recommended)
