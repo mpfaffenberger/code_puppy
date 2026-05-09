@@ -70,9 +70,13 @@ class TestDisplayNonStreamedResult:
         # Verify parser was instantiated
         mock_parser_class.assert_called_once()
 
-        # Verify renderer was instantiated
+        # Verify renderer was instantiated (clipboard=False prevents OSC 52 overwrite)
+        from termflow.render.style import RenderFeatures
+
         mock_renderer_class.assert_called_once_with(
-            output=mock_console.file, width=mock_console.width
+            output=mock_console.file,
+            width=mock_console.width,
+            features=RenderFeatures(clipboard=False),
         )
 
     @patch("code_puppy.messaging.spinner.pause_all_spinners")
@@ -511,8 +515,14 @@ class TestDisplayNonStreamedResult:
         # Call the function
         display_non_streamed_result(content="test", console=mock_console)
 
-        # Verify renderer was created with the correct console.file
-        mock_renderer_class.assert_called_once_with(output=test_file, width=100)
+        # Verify renderer was created with the correct console.file (clipboard=False prevents OSC 52 overwrite)
+        from termflow.render.style import RenderFeatures
+
+        mock_renderer_class.assert_called_once_with(
+            output=test_file,
+            width=100,
+            features=RenderFeatures(clipboard=False),
+        )
 
     @patch("code_puppy.messaging.spinner.pause_all_spinners")
     @patch("code_puppy.messaging.spinner.resume_all_spinners")
