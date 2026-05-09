@@ -1,5 +1,6 @@
 import os
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -12,6 +13,20 @@ from code_puppy.tools.file_modifications import (
     _delete_file,
     _edit_file,
 )
+
+
+@pytest.fixture(autouse=True)
+def _allow_file_permissions(monkeypatch):
+    """Bypass interactive file-permission prompts during tests."""
+    monkeypatch.setattr(
+        "code_puppy.callbacks.on_file_permission", lambda *args, **kwargs: [True]
+    )
+
+
+@pytest.fixture(autouse=True)
+def _chdir_tmp_path(tmp_path, monkeypatch):
+    """Make tmp_path the workspace root so path policy allows writes."""
+    monkeypatch.chdir(tmp_path)
 
 
 class TestFileModificationsExtended:
@@ -368,30 +383,25 @@ def func3():
         assert nested_file.exists()
         assert nested_file.read_text() == "print('in nested dir')"
 
-    def test_edit_file_function_variants(self):
+    def test_edit_file_function_variants(self, tmp_path):
         """Test the _edit_file function with different payload variants."""
         # Test the main _edit_file function directly
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".py") as f:
-            f.write("print('test')")
-            temp_path = f.name
+        temp_path = str(tmp_path / "temp.py")
+        Path(temp_path).write_text("print('test')")
 
-        try:
-            mock_context = Mock()
+        mock_context = Mock()
 
-            # Test with ContentPayload
-            payload = ContentPayload(
-                file_path=temp_path, content="print('modified')", overwrite=True
-            )
+        # Test with ContentPayload
+        payload = ContentPayload(
+            file_path=temp_path, content="print('modified')", overwrite=True
+        )
 
-            result = _edit_file(mock_context, payload)
+        result = _edit_file(mock_context, payload)
 
-            # Verify the result structure
-            assert result["success"] is True
-            assert result["changed"] is True
-            assert "diff" in result
-
-        finally:
-            os.unlink(temp_path)
+        # Verify the result structure
+        assert result["success"] is True
+        assert result["changed"] is True
+        assert "diff" in result
 
     def test_json_payload_parsing(self, tmp_path):
         """Test JSON string payload parsing for the edit_file tool."""
