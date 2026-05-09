@@ -59,7 +59,7 @@ def default_version_mismatch_behavior(current_version):
         current_version = "0.0.0-unknown"
         emit_warning("Could not detect current version, using fallback")
 
-    latest_version = fetch_latest_version("code-puppy")
+    latest_version = fetch_latest_version("fast-puppy")
 
     update_available = bool(
         latest_version and version_is_newer(latest_version, current_version)

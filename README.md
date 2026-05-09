@@ -4,20 +4,20 @@
 
 **🐶✨The sassy AI code agent that makes IDEs look outdated** ✨🐶
 
-[![Version](https://img.shields.io/pypi/v/code-puppy?style=for-the-badge&logo=python&label=Version&color=purple)](https://pypi.org/project/code-puppy/)
-[![Downloads](https://img.shields.io/badge/Downloads-170k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/code-puppy/)
+[![Version](https://img.shields.io/pypi/v/fast-puppy?style=for-the-badge&logo=python&label=Version&color=purple)](https://pypi.org/project/fast-puppy/)
+[![Downloads](https://img.shields.io/badge/Downloads-170k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/fast-puppy/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/actions)
-[![Tests](https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge&logo=pytest)](https://github.com/mpfaffenberger/code_puppy/tests)
+[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge&logo=github)](https://github.com/asx8678/fast_puppy/actions)
+[![Tests](https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge&logo=pytest)](https://github.com/asx8678/fast_puppy/tests)
 
-[![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
+[![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/asx8678/fast_puppy)
 [![Pydantic AI](https://img.shields.io/badge/Pydantic-AI-success?style=for-the-badge)](https://github.com/pydantic/pydantic-ai)
 
-[![100% privacy](https://img.shields.io/badge/FULL-Privacy%20commitment-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy/blob/main/README.md#code-puppy-privacy-commitment)
+[![100% privacy](https://img.shields.io/badge/FULL-Privacy%20commitment-blue?style=for-the-badge)](https://github.com/asx8678/fast_puppy/blob/main/README.md#code-puppy-privacy-commitment)
 
-[![GitHub stars](https://img.shields.io/github/stars/mpfaffenberger/code_puppy?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/mpfaffenberger/code_puppy?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/network)
+[![GitHub stars](https://img.shields.io/github/stars/asx8678/fast_puppy?style=for-the-badge&logo=github)](https://github.com/asx8678/fast_puppy/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/asx8678/fast_puppy?style=for-the-badge&logo=github)](https://github.com/asx8678/fast_puppy/network)
 
 [![Discord](https://img.shields.io/badge/Discord-Community-purple?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/eAGdE4J7Ca)
 [![Docs](https://img.shields.io/badge/Read-The%20Docs-blue?style=for-the-badge&logo=readthedocs)](https://code-puppy.dev)
@@ -48,7 +48,7 @@ Code Puppy is an AI-powered code generation agent, designed to understand progra
 ## Quick start
 
 ```bash
-uvx code-puppy -i
+uvx fast-puppy -i
 ````
 
 ## Installation
@@ -61,18 +61,18 @@ uvx code-puppy -i
 # Install UV if you don't have it
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-uvx code-puppy
+uvx fast-puppy
 ```
 
 #### Windows
 
-On Windows, we recommend installing code-puppy as a global tool for the best experience with keyboard shortcuts (Ctrl+C/Ctrl+X cancellation):
+On Windows, we recommend installing fast-puppy as a global tool for the best experience with keyboard shortcuts (Ctrl+C/Ctrl+X cancellation):
 
 ```powershell
 # Install UV if you don't have it (run in PowerShell as Admin)
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-uvx code-puppy
+uvx fast-puppy
 ```
 
 #### Optional: DBOS durable execution
@@ -82,9 +82,9 @@ durable-execution plugin that survives crashes and lets you resume long agent ru
 It's **off by default in the dependency tree** — install the `durable` extra to opt in:
 
 ```bash
-pip install "code-puppy[durable]"
+pip install "fast-puppy[durable]"
 # or
-uv pip install "code-puppy[durable]"
+uv pip install "fast-puppy[durable]"
 ```
 
 Then toggle it from inside the app via `/dbos on` (and restart). Use `/dbos status`
@@ -92,7 +92,7 @@ to check, `/dbos off` to disable.
 
 ## Changelog (By Kittylog!)
 
-[📋 View the full changelog on Kittylog](https://kittylog.app/c/mpfaffenberger/code_puppy)
+[📋 View the full changelog on Kittylog](https://kittylog.app/c/asx8678/fast_puppy)
 
 ## Usage
 

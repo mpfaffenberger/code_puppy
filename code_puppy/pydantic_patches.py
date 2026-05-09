@@ -15,7 +15,7 @@ from typing import Any
 def _get_code_puppy_version() -> str:
     """Get the current code-puppy version."""
     try:
-        return importlib.metadata.version("code-puppy")
+        return importlib.metadata.version("fast-puppy")
     except Exception:
         return "0.0.0-dev"
 

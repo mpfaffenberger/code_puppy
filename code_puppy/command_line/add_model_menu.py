@@ -988,6 +988,8 @@ class AddModelMenu:
                     )
                     continue
 
+                value = str(value)
+
                 # Save to config
                 set_config_value(env_var, value)
                 # Also set in current environment so it's immediately available
