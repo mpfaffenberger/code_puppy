@@ -5,6 +5,7 @@ This module provides a managed wrapper around pydantic-ai MCP server classes
 that adds management capabilities while maintaining 100% compatibility.
 """
 
+import logging as _logging
 import os
 import uuid
 from dataclasses import dataclass, field
@@ -13,6 +14,12 @@ from enum import Enum
 from typing import Any, Dict, Optional, Union
 
 import httpx
+
+from code_puppy.mcp_.secrets import (
+    _validate_env_list_secrets,
+    _validate_no_hardcoded_secrets,
+    redact_mcp_config,
+)
 from pydantic_ai import RunContext
 from pydantic_ai.mcp import (
     CallToolFunc,
@@ -24,6 +31,8 @@ from pydantic_ai.mcp import (
 
 from code_puppy.http_utils import create_async_client
 from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
+
+_MCP_LOGGER = _logging.getLogger(__name__)
 
 
 def _expand_env_vars(value: Any) -> Any:
@@ -180,6 +189,18 @@ class ManagedMCPServer:
         server_type = self.config.type.lower()
         config = self.config.config
         tool_prefix = _build_tool_prefix(self.config.name, config)
+
+        # Warn on hardcoded secrets in headers and env before we use them
+        raw_headers = config.get("headers")
+        if isinstance(raw_headers, dict):
+            _validate_no_hardcoded_secrets(
+                raw_headers, self.config.name, source="header"
+            )
+        raw_env = config.get("env")
+        if isinstance(raw_env, dict):
+            _validate_no_hardcoded_secrets(raw_env, self.config.name, source="env")
+        elif isinstance(raw_env, list):
+            _validate_env_list_secrets(raw_env, self.config.name)
 
         try:
             if server_type == "sse":
@@ -401,9 +422,20 @@ class ManagedMCPServer:
         if isinstance(self._pydantic_server, BlockingMCPServerStdio):
             await self._pydantic_server.ensure_ready(timeout)
 
+    @staticmethod
+    def _redact_config(config: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a copy of *config* with sensitive values redacted.
+
+        Delegates to :func:`code_puppy.mcp_.secrets.redact_mcp_config`.
+        """
+        return redact_mcp_config(config)
+
     def get_status(self) -> Dict[str, Any]:
         """
         Return current status information.
+
+        Sensitive configuration values (headers, env vars) are redacted
+        to prevent API key leakage through status queries or logs.
 
         Returns:
             Dictionary containing comprehensive status information
@@ -429,7 +461,7 @@ class ManagedMCPServer:
             "start_time": self._start_time.isoformat() if self._start_time else None,
             "stop_time": self._stop_time.isoformat() if self._stop_time else None,
             "error_message": self._error_message,
-            "config": self.config.config.copy(),  # Copy to prevent modification
+            "config": self._redact_config(self.config.config),
             "server_available": (
                 self._pydantic_server is not None
                 and self._enabled

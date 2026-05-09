@@ -68,8 +68,15 @@ def _redact_bearer_tokens(value: str) -> str:
 
 
 def _redact_env_assignments(value: str) -> str:
+    # The value capture uses a lazy ``.+?`` that stops at the next
+    # ``UPPER_KEY=`` assignment (separated by whitespace or ``&``) or
+    # end-of-string.  This correctly handles values that contain
+    # whitespace (e.g. ``Authorization=Bearer sk-abc``) which the old
+    # ``[^&\s]+`` pattern would split, leaking the token.
+    # The ``&`` separator ensures URL query strings like
+    # ``?access_token=sekrit&foo=bar`` are not over-consumed.
     return re.sub(
-        r"(?i)([A-Z_]*(?:API_KEY|SECRET|TOKEN|PASSWORD|AUTH|CREDENTIALS)[A-Z_]*=)([^&\s]+)",
+        r"(?i)([A-Z_]*(?:API_KEY|SECRET|TOKEN|PASSWORD|AUTH|CREDENTIALS)[A-Z_]*=)(.+?)(?=[\s&]+[A-Z_][A-Z0-9_]+=|$)",
         r"\1" + REDACTED,
         value,
     )

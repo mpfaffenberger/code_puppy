@@ -66,6 +66,34 @@ class TestRedactSecrets:
         assert "MY_API_KEY=<redacted>" in result
         assert "OTHER=value" in result
 
+    def test_redacts_env_assignment_with_spaces_in_value(self):
+        """Values containing whitespace (e.g. Bearer tokens) must be fully redacted."""
+        text = "Authorization=Bearer sk-abc123"
+        result = redact_secrets(text)
+        assert "sk-abc123" not in result
+        assert "<redacted>" in result
+
+    def test_redacts_env_assignment_basic_auth_with_spaces(self):
+        """Basic auth with a space-separated secret must not leak the token."""
+        text = "AUTHORIZATION=Basic sk-abc123"
+        result = redact_secrets(text)
+        assert "sk-abc123" not in result
+        assert "<redacted>" in result
+
+    def test_env_assignment_preserves_ampersand_separated_pairs(self):
+        """URL query strings with & separators must not over-consume."""
+        text = "access_token=sekrit&foo=bar"
+        result = redact_secrets(text)
+        assert "sekrit" not in result
+        assert "foo=bar" in result
+
+    def test_env_assignment_multi_value_with_spaces(self):
+        """Multi-assignment strings must preserve later pairs."""
+        text = "MY_TOKEN=Bearer sk-abc123 OTHER=val"
+        result = redact_secrets(text)
+        assert "sk-abc123" not in result
+        assert "OTHER=val" in result
+
     def test_redacts_bytes(self):
         raw = b'{"access_token":"tok"}'
         result = redact_secrets(raw)

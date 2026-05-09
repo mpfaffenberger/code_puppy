@@ -134,6 +134,16 @@ This document describes the safety mechanisms built into Code Puppy. It is meant
 - Use `disable_mcp = true` in `puppy.cfg` to skip loading MCP servers.
 - The deprecated alias `disable_mcp_servers` still works but emits a **one-time `DeprecationWarning`**.
 
+### Key & header redaction
+- MCP server status (`get_status()`) **redacts** sensitive header and environment variable values before returning them.
+- Keys matching known sensitive names (e.g. `Authorization`, `api_key`, `OPENAI_API_KEY`) are replaced with `<redacted>`.
+- Use environment variable references (`$VAR` / `${VAR}`) in MCP config headers and env dicts to keep secrets out of config files.
+
+### Hardcoded secret detection
+- At server creation, MCP configs are scanned for **hardcoded secrets** in header values.
+- Known prefixes (`sk-`, `ghp_`, `xoxb-`, `AKIA`, `AIza`, etc.) trigger a warning recommending `$VAR` references instead.
+- This is a **warning**, not a block — the server still starts, but the user is notified.
+
 ---
 
 ## HTTP Safety

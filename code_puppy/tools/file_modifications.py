@@ -434,9 +434,8 @@ def _replace_in_file(
             )
         )
         if len(diff_text) > MAX_DIFF_BYTES:
-            diff_text = diff_text[:MAX_DIFF_BYTES] + (
-                f"\n\n[Diff truncated: exceeded {MAX_DIFF_BYTES} bytes]\n"
-            )
+            trunc_msg = f"\n\n[Diff truncated: exceeded {MAX_DIFF_BYTES} bytes]\n"
+            diff_text = diff_text[: MAX_DIFF_BYTES - len(trunc_msg)] + trunc_msg
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(modified)
         return {
@@ -499,9 +498,8 @@ def _write_to_file(
         )
         diff_text = "".join(diff_lines)
         if len(diff_text) > MAX_DIFF_BYTES:
-            diff_text = diff_text[:MAX_DIFF_BYTES] + (
-                f"\n\n[Diff truncated: exceeded {MAX_DIFF_BYTES} bytes]\n"
-            )
+            trunc_msg = f"\n\n[Diff truncated: exceeded {MAX_DIFF_BYTES} bytes]\n"
+            diff_text = diff_text[: MAX_DIFF_BYTES - len(trunc_msg)] + trunc_msg
 
         os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
         with open(file_path, "w", encoding="utf-8") as f:

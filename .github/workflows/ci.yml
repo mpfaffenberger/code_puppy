@@ -37,6 +37,14 @@ jobs:
       - name: Check formatting with ruff
         run: uv run ruff format --check .
 
+      - name: Run security regression tests
+        env:
+          CI: '1'
+          CODE_PUPPY_TEST_FAST: '1'
+        run: |
+          echo "Running security regression tests on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
+          uv run pytest tests/security/ -v
+
       - name: Run tests
         env:
           CI: '1'
