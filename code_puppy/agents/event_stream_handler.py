@@ -107,6 +107,7 @@ async def event_stream_handler(
 
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
+    from termflow.render.style import RenderFeatures
 
     # Use the module-level console (set via set_streaming_console)
     console = get_streaming_console()
@@ -191,7 +192,9 @@ async def event_stream_handler(
                 # Initialize termflow streaming for this text part
                 termflow_parsers[event.index] = TermflowParser()
                 termflow_renderers[event.index] = TermflowRenderer(
-                    output=console.file, width=console.width
+                    output=console.file,
+                    width=console.width,
+                    features=RenderFeatures(clipboard=False),
                 )
                 termflow_line_buffers[event.index] = ""
                 # Handle initial content if present

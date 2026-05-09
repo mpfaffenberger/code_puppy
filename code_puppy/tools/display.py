@@ -43,6 +43,7 @@ def display_non_streamed_result(
     from rich.text import Text
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
+    from termflow.render.style import RenderFeatures
 
     from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
 
@@ -66,7 +67,11 @@ def display_non_streamed_result(
 
     # Use termflow for markdown rendering
     parser = TermflowParser()
-    renderer = TermflowRenderer(output=console.file, width=console.width)
+    renderer = TermflowRenderer(
+        output=console.file,
+        width=console.width,
+        features=RenderFeatures(clipboard=False),
+    )
 
     # Process content line by line
     for line in content.split("\n"):
