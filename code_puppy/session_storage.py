@@ -1,42 +1,96 @@
 """Shared helpers for persisting and restoring chat sessions.
 
-This module centralises the pickle + metadata handling that used to live in
-both the CLI command handler and the auto-save feature. Keeping it here helps
-us avoid duplication while staying inside the Zen-of-Python sweet spot: simple
-is better than complex, nested side effects are worse than deliberate helpers.
+This module centralises JSON session handling using pydantic-ai message
+serialization.  Pickle is no longer the default; legacy pickle files are
+rejected unless an explicit migration flag is provided.
 """
 
 from __future__ import annotations
 
 import json
 import pickle
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List
 
+from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
 
-def _safe_loads(data: bytes) -> Any:
-    """Deserialize pickle data."""
+_LEGACY_SIGNED_HEADER = b"CPSESSION\x01"
+_LEGACY_SIGNATURE_SIZE = 32  # retained only for backward-compat parsing
+
+SessionHistory = List[ModelMessage]
+TokenEstimator = Callable[[Any], int]
+
+_SCHEMA_VERSION = "code_puppy.session.v1"
+_FORMAT = "pydantic-ai-model-messages-json"
+
+
+def _unsafe_pickle_loads_for_explicit_legacy_migration_only(data: bytes) -> Any:
+    """Deserialize pickle data with a loud warning.
+
+    This function is intentionally scary-named so callers think twice before
+    passing untrusted bytes to it.
+    """
+    warnings.warn(
+        "Loading legacy pickle session — this is dangerous and should only be "
+        "used for explicit migration.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
     return pickle.loads(data)  # noqa: S301
 
 
-_LEGACY_SIGNED_HEADER = b"CPSESSION\x01"
-_LEGACY_SIGNATURE_SIZE = (
-    32  # legacy signature bytes, retained only for backward-compat parsing
-)
+def _extract_pickle_payload(raw: bytes) -> bytes:
+    """Return the pickle payload from raw session file bytes.
 
-SessionHistory = List[Any]
-TokenEstimator = Callable[[Any], int]
+    Legacy format was: header + 32-byte signature + pickle payload.
+    We no longer verify or generate signatures.
+    """
+    if raw.startswith(_LEGACY_SIGNED_HEADER):
+        offset = len(_LEGACY_SIGNED_HEADER) + _LEGACY_SIGNATURE_SIZE
+        return raw[offset:]
+    return raw
+
+
+def _wrap_messages(messages: SessionHistory) -> dict[str, Any]:
+    return {
+        "schema": _SCHEMA_VERSION,
+        "format": _FORMAT,
+        "messages": ModelMessagesTypeAdapter.dump_python(messages, mode="json"),
+    }
+
+
+def _unwrap_messages(data: dict[str, Any]) -> SessionHistory:
+    schema = data.get("schema")
+    if schema != _SCHEMA_VERSION:
+        raise ValueError(f"Unknown session schema: {schema}")
+    raw_messages = data.get("messages", [])
+    if not isinstance(raw_messages, list):
+        raise ValueError("Session 'messages' must be a list")
+    return ModelMessagesTypeAdapter.validate_python(raw_messages)
 
 
 @dataclass(slots=True)
 class SessionPaths:
+    """Paths for a single session.
+
+    The ``pickle_path`` field is retained for backward compatibility with
+    existing callers but now points to a ``.json`` file.
+    """
+
     pickle_path: Path
     metadata_path: Path
 
 
 @dataclass(slots=True)
 class SessionMetadata:
+    """Metadata describing a persisted session.
+
+    The ``pickle_path`` field is retained for backward compatibility but
+    now points to a ``.json`` file.
+    """
+
     session_name: str
     timestamp: str
     message_count: int
@@ -56,28 +110,15 @@ class SessionMetadata:
         }
 
 
-def _extract_pickle_payload(raw: bytes) -> bytes:
-    """Return the pickle payload from raw session file bytes.
-
-    New format is raw pickle bytes.
-    Legacy format was: header + 32-byte signature + pickle payload.
-    We no longer verify or generate signatures.
-    """
-    if raw.startswith(_LEGACY_SIGNED_HEADER):
-        offset = len(_LEGACY_SIGNED_HEADER) + _LEGACY_SIGNATURE_SIZE
-        return raw[offset:]
-    return raw
-
-
 def ensure_directory(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def build_session_paths(base_dir: Path, session_name: str) -> SessionPaths:
-    pickle_path = base_dir / f"{session_name}.pkl"
+    session_path = base_dir / f"{session_name}.json"
     metadata_path = base_dir / f"{session_name}_meta.json"
-    return SessionPaths(pickle_path=pickle_path, metadata_path=metadata_path)
+    return SessionPaths(pickle_path=session_path, metadata_path=metadata_path)
 
 
 def save_session(
@@ -92,11 +133,11 @@ def save_session(
     ensure_directory(base_dir)
     paths = build_session_paths(base_dir, session_name)
 
-    pickle_data = pickle.dumps(history)
-    tmp_pickle = paths.pickle_path.with_suffix(".tmp")
-    with tmp_pickle.open("wb") as pickle_file:
-        pickle_file.write(pickle_data)
-    tmp_pickle.replace(paths.pickle_path)
+    session_data = _wrap_messages(history)
+    tmp_session = paths.pickle_path.with_suffix(".tmp")
+    with tmp_session.open("w", encoding="utf-8") as session_file:
+        json.dump(session_data, session_file, indent=2)
+    tmp_session.replace(paths.pickle_path)
 
     total_tokens = sum(token_estimator(message) for message in history)
     metadata = SessionMetadata(
@@ -120,22 +161,31 @@ def save_session(
 def load_session(
     session_name: str, base_dir: Path, *, allow_legacy: bool = False
 ) -> SessionHistory:
-    # Kept for API compatibility; legacy loading is always supported now.
-    _ = allow_legacy
-
     paths = build_session_paths(base_dir, session_name)
     if not paths.pickle_path.exists():
+        if allow_legacy:
+            legacy_path = base_dir / f"{session_name}.pkl"
+            if legacy_path.exists():
+                raw = legacy_path.read_bytes()
+                pickle_data = _extract_pickle_payload(raw)
+                return _unsafe_pickle_loads_for_explicit_legacy_migration_only(
+                    pickle_data
+                )
         raise FileNotFoundError(paths.pickle_path)
 
-    raw = paths.pickle_path.read_bytes()
-    pickle_data = _extract_pickle_payload(raw)
-    return _safe_loads(pickle_data)
+    with paths.pickle_path.open("r", encoding="utf-8") as session_file:
+        data = json.load(session_file)
+    return _unwrap_messages(data)
 
 
 def list_sessions(base_dir: Path) -> List[str]:
     if not base_dir.exists():
         return []
-    return sorted(path.stem for path in base_dir.glob("*.pkl"))
+    return sorted(
+        path.stem
+        for path in base_dir.glob("*.json")
+        if not path.name.endswith("_meta.json")
+    )
 
 
 def cleanup_sessions(base_dir: Path, max_sessions: int) -> List[str]:
@@ -145,7 +195,9 @@ def cleanup_sessions(base_dir: Path, max_sessions: int) -> List[str]:
     if not base_dir.exists():
         return []
 
-    candidate_paths = list(base_dir.glob("*.pkl"))
+    candidate_paths = [
+        path for path in base_dir.glob("*.json") if not path.name.endswith("_meta.json")
+    ]
     if len(candidate_paths) <= max_sessions:
         return []
 
@@ -156,12 +208,12 @@ def cleanup_sessions(base_dir: Path, max_sessions: int) -> List[str]:
 
     stale_entries = sorted_candidates[:-max_sessions]
     removed_sessions: List[str] = []
-    for _, pickle_path in stale_entries:
-        metadata_path = base_dir / f"{pickle_path.stem}_meta.json"
+    for _, session_path in stale_entries:
+        metadata_path = base_dir / f"{session_path.stem}_meta.json"
         try:
-            pickle_path.unlink(missing_ok=True)
+            session_path.unlink(missing_ok=True)
             metadata_path.unlink(missing_ok=True)
-            removed_sessions.append(pickle_path.stem)
+            removed_sessions.append(session_path.stem)
         except OSError:
             continue
 
@@ -323,7 +375,7 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
 
     total_tokens = sum(agent.estimate_tokens_for_message(msg) for msg in history)
 
-    session_path = base_dir / f"{chosen_name}.pkl"
+    session_path = base_dir / f"{chosen_name}.json"
     emit_success(
         f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
         f"📁 From: {session_path}"

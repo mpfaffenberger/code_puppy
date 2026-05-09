@@ -142,7 +142,7 @@ class TestOAuthServer:
             server.context = mock_context
             server.redirect_uri = mock_context.redirect_uri
 
-            bundle, success_url = server.exchange_code("test_auth_code")
+            bundle = server.exchange_code("test_auth_code")
 
             assert isinstance(bundle, AuthBundle)
             assert bundle.token_data.id_token == mock_tokens_data["id_token"]
@@ -150,11 +150,6 @@ class TestOAuthServer:
             assert bundle.token_data.refresh_token == mock_tokens_data["refresh_token"]
             assert bundle.token_data.account_id == "account_789"
             assert bundle.api_key == mock_tokens_data["access_token"]
-
-            # Verify success URL contains expected parameters
-            assert "success" in success_url
-            assert mock_tokens_data["access_token"] in success_url
-            assert "org_123" in success_url  # Should use the default org
 
             # Verify request was made correctly
             mock_post.assert_called_once()
@@ -232,7 +227,7 @@ class TestOAuthServer:
         ) as mock_parse:
             mock_parse.return_value = {}
 
-            bundle, success_url = server.exchange_code("test_auth_code")
+            bundle = server.exchange_code("test_auth_code")
 
             assert bundle.token_data.id_token == ""
             assert bundle.token_data.refresh_token == ""
@@ -271,10 +266,10 @@ class TestOAuthServer:
             server.context = mock_context
             server.redirect_uri = mock_context.redirect_uri
 
-            bundle, success_url = server.exchange_code("test_auth_code")
+            bundle = server.exchange_code("test_auth_code")
 
-            # Should fallback to top-level organization_id
-            assert "org_fallback_123" in success_url
+            # Should use chatgpt_account_id from nested auth structure
+            assert bundle.token_data.account_id == "account_789"
 
             server.server_close()
 
@@ -288,6 +283,8 @@ class TestCallbackHandler:
         server = Mock(spec=_OAuthServer)
         server.exit_code = 1
         server.exchange_code = Mock()
+        server.context = Mock()
+        server.context.state = "test_state_123"
         return server
 
     @pytest.fixture
@@ -374,7 +371,9 @@ class TestCallbackHandler:
 
         with patch.object(callback_handler, "_send_failure") as mock_failure:
             with patch.object(callback_handler, "_shutdown") as mock_shutdown:
-                callback_handler.path = "/auth/callback?code=test_code"
+                callback_handler.path = (
+                    "/auth/callback?code=test_code&state=test_state_123"
+                )
                 callback_handler.do_GET()
 
                 mock_failure.assert_called_once_with(
@@ -399,16 +398,15 @@ class TestCallbackHandler:
             last_refresh="2023-01-01T00:00:00Z",
         )
 
-        callback_handler.server.exchange_code.return_value = (
-            mock_bundle,
-            "http://localhost:1455/success",
-        )
+        callback_handler.server.exchange_code.return_value = mock_bundle
 
         with patch.object(callback_handler, "_send_redirect") as mock_redirect:
             with patch.object(
                 callback_handler, "_shutdown_after_delay"
             ) as mock_shutdown:
-                callback_handler.path = "/auth/callback?code=test_code"
+                callback_handler.path = (
+                    "/auth/callback?code=test_code&state=test_state_123"
+                )
                 callback_handler.do_GET()
 
                 # Should save tokens
@@ -422,8 +420,8 @@ class TestCallbackHandler:
                 # Should set success exit code
                 assert callback_handler.server.exit_code == 0
 
-                # Should redirect to success URL
-                mock_redirect.assert_called_once_with("http://localhost:1455/success")
+                # Should redirect to token-free success URL
+                mock_redirect.assert_called_once_with("http://127.0.0.1:1455/success")
                 mock_shutdown.assert_called_once_with(2.0)
 
     @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.save_tokens")
@@ -442,14 +440,13 @@ class TestCallbackHandler:
             last_refresh="2023-01-01T00:00:00Z",
         )
 
-        callback_handler.server.exchange_code.return_value = (
-            mock_bundle,
-            "http://localhost:1455/success",
-        )
+        callback_handler.server.exchange_code.return_value = mock_bundle
 
         with patch.object(callback_handler, "_send_failure") as mock_failure:
             with patch.object(callback_handler, "_shutdown") as mock_shutdown:
-                callback_handler.path = "/auth/callback?code=test_code"
+                callback_handler.path = (
+                    "/auth/callback?code=test_code&state=test_state_123"
+                )
                 callback_handler.do_GET()
 
                 mock_failure.assert_called_once_with(

@@ -122,9 +122,12 @@ class TestLoadBuiltinPlugins:
             assert result == []
             mock_import.assert_not_called()
 
-    def test_skips_shell_safety_when_safety_level_high(self, tmp_path):
-        """Test shell_safety plugin is skipped when safety_permission_level is high."""
-        # Create shell_safety plugin directory
+    def test_loads_shell_safety_when_safety_level_high(self, tmp_path):
+        """Test shell_safety plugin is loaded regardless of safety_permission_level.
+
+        Built-in plugins load unconditionally; safety filtering is handled
+        by the shell_safety plugin itself, not by the plugin loader.
+        """
         plugin_dir = tmp_path / "shell_safety"
         plugin_dir.mkdir()
         (plugin_dir / "register_callbacks.py").write_text("# Shell safety")
@@ -134,11 +137,11 @@ class TestLoadBuiltinPlugins:
             patch("code_puppy.plugins.importlib.import_module") as mock_import,
         ):
             result = _load_builtin_plugins(tmp_path)
-            assert "shell_safety" not in result
-            mock_import.assert_not_called()
+            assert "shell_safety" in result
+            mock_import.assert_called_once()
 
-    def test_skips_shell_safety_when_safety_level_medium(self, tmp_path):
-        """Test shell_safety plugin is skipped when safety_permission_level is medium."""
+    def test_loads_shell_safety_when_safety_level_medium(self, tmp_path):
+        """Test shell_safety plugin is loaded when safety_permission_level is medium."""
         plugin_dir = tmp_path / "shell_safety"
         plugin_dir.mkdir()
         (plugin_dir / "register_callbacks.py").write_text("# Shell safety")
@@ -150,8 +153,8 @@ class TestLoadBuiltinPlugins:
             patch("code_puppy.plugins.importlib.import_module") as mock_import,
         ):
             result = _load_builtin_plugins(tmp_path)
-            assert "shell_safety" not in result
-            mock_import.assert_not_called()
+            assert "shell_safety" in result
+            mock_import.assert_called_once()
 
     def test_loads_shell_safety_when_safety_level_low(self, tmp_path):
         """Test shell_safety plugin is loaded when safety_permission_level is low."""
@@ -251,8 +254,12 @@ class TestLoadUserPlugins:
         assert result == []
         assert "User plugins path is not a directory" in caplog.text
 
-    def test_adds_user_plugins_dir_to_sys_path(self, tmp_path):
-        """Test that user plugins directory is added to sys.path."""
+    def test_does_not_add_user_plugins_dir_to_sys_path(self, tmp_path):
+        """Test that user plugins directory is NOT added to sys.path.
+
+        User plugins are loaded via importlib with unique module names,
+        not by inserting the user plugins dir into sys.path.
+        """
         user_plugins_dir = tmp_path / "user_plugins"
         user_plugins_dir.mkdir()
         user_plugins_str = str(user_plugins_dir)
@@ -263,9 +270,10 @@ class TestLoadUserPlugins:
 
         try:
             _load_user_plugins(user_plugins_dir)
-            assert user_plugins_str in sys.path
+            # User plugins dir must NOT be in sys.path
+            assert user_plugins_str not in sys.path
         finally:
-            # Clean up
+            # Clean up just in case
             if user_plugins_str in sys.path:
                 sys.path.remove(user_plugins_str)
 
@@ -334,8 +342,8 @@ class TestLoadUserPlugins:
             if str(user_plugins_dir) in sys.path:
                 sys.path.remove(str(user_plugins_dir))
 
-    def test_loads_plugin_with_register_callbacks(self, tmp_path):
-        """Test loading a user plugin with register_callbacks.py."""
+    def test_loads_trusted_plugin_with_register_callbacks(self, tmp_path):
+        """Test loading a trusted user plugin with register_callbacks.py."""
         user_plugins_dir = tmp_path / "user_plugins"
         user_plugins_dir.mkdir()
 
@@ -344,26 +352,14 @@ class TestLoadUserPlugins:
         callbacks_file = plugin_dir / "register_callbacks.py"
         callbacks_file.write_text("# User plugin callbacks")
 
-        mock_spec = MagicMock()
-        mock_spec.loader = MagicMock()
-        mock_module = MagicMock()
+        # Record trust so the plugin can load
+        from code_puppy.plugins import compute_plugin_hash, record_plugin_trust
 
-        with (
-            patch(
-                "code_puppy.plugins.importlib.util.spec_from_file_location",
-                return_value=mock_spec,
-            ),
-            patch(
-                "code_puppy.plugins.importlib.util.module_from_spec",
-                return_value=mock_module,
-            ),
-        ):
-            try:
-                result = _load_user_plugins(user_plugins_dir)
-                assert "my_user_plugin" in result
-            finally:
-                if str(user_plugins_dir) in sys.path:
-                    sys.path.remove(str(user_plugins_dir))
+        content_hash = compute_plugin_hash(plugin_dir)
+        record_plugin_trust("my_user_plugin", content_hash, str(plugin_dir))
+
+        result = _load_user_plugins(user_plugins_dir)
+        assert "my_user_plugin" in result
 
     def test_handles_spec_is_none(self, tmp_path, caplog):
         """Test handling when spec_from_file_location returns None."""
@@ -374,17 +370,19 @@ class TestLoadUserPlugins:
         plugin_dir.mkdir()
         (plugin_dir / "register_callbacks.py").write_text("# Bad spec")
 
+        # Record trust
+        from code_puppy.plugins import compute_plugin_hash, record_plugin_trust
+
+        content_hash = compute_plugin_hash(plugin_dir)
+        record_plugin_trust("bad_spec_plugin", content_hash, str(plugin_dir))
+
         with patch(
             "code_puppy.plugins.importlib.util.spec_from_file_location",
             return_value=None,
         ):
-            try:
-                result = _load_user_plugins(user_plugins_dir)
-                assert "bad_spec_plugin" not in result
-                assert "Could not create module spec" in caplog.text
-            finally:
-                if str(user_plugins_dir) in sys.path:
-                    sys.path.remove(str(user_plugins_dir))
+            result = _load_user_plugins(user_plugins_dir)
+            assert "bad_spec_plugin" not in result
+            assert "Could not create module spec" in caplog.text
 
     def test_handles_spec_loader_is_none(self, tmp_path, caplog):
         """Test handling when spec.loader is None."""
@@ -395,6 +393,12 @@ class TestLoadUserPlugins:
         plugin_dir.mkdir()
         (plugin_dir / "register_callbacks.py").write_text("# No loader")
 
+        # Record trust
+        from code_puppy.plugins import compute_plugin_hash, record_plugin_trust
+
+        content_hash = compute_plugin_hash(plugin_dir)
+        record_plugin_trust("no_loader_plugin", content_hash, str(plugin_dir))
+
         mock_spec = MagicMock()
         mock_spec.loader = None
 
@@ -402,13 +406,9 @@ class TestLoadUserPlugins:
             "code_puppy.plugins.importlib.util.spec_from_file_location",
             return_value=mock_spec,
         ):
-            try:
-                result = _load_user_plugins(user_plugins_dir)
-                assert "no_loader_plugin" not in result
-                assert "Could not create module spec" in caplog.text
-            finally:
-                if str(user_plugins_dir) in sys.path:
-                    sys.path.remove(str(user_plugins_dir))
+            result = _load_user_plugins(user_plugins_dir)
+            assert "no_loader_plugin" not in result
+            assert "Could not create module spec" in caplog.text
 
     def test_handles_import_error_for_register_callbacks(self, tmp_path, caplog):
         """Test graceful handling of ImportError during user plugin loading."""
@@ -418,6 +418,12 @@ class TestLoadUserPlugins:
         plugin_dir = user_plugins_dir / "import_error_plugin"
         plugin_dir.mkdir()
         (plugin_dir / "register_callbacks.py").write_text("# Import error")
+
+        # Record trust
+        from code_puppy.plugins import compute_plugin_hash, record_plugin_trust
+
+        content_hash = compute_plugin_hash(plugin_dir)
+        record_plugin_trust("import_error_plugin", content_hash, str(plugin_dir))
 
         mock_spec = MagicMock()
         mock_spec.loader = MagicMock()
@@ -433,13 +439,9 @@ class TestLoadUserPlugins:
                 return_value=MagicMock(),
             ),
         ):
-            try:
-                result = _load_user_plugins(user_plugins_dir)
-                assert "import_error_plugin" not in result
-                assert "Failed to import callbacks from user plugin" in caplog.text
-            finally:
-                if str(user_plugins_dir) in sys.path:
-                    sys.path.remove(str(user_plugins_dir))
+            result = _load_user_plugins(user_plugins_dir)
+            assert "import_error_plugin" not in result
+            assert "Failed to import callbacks from user plugin" in caplog.text
 
     def test_handles_generic_exception_for_register_callbacks(self, tmp_path, caplog):
         """Test graceful handling of unexpected exceptions during user plugin loading."""
@@ -449,6 +451,12 @@ class TestLoadUserPlugins:
         plugin_dir = user_plugins_dir / "exploding_plugin"
         plugin_dir.mkdir()
         (plugin_dir / "register_callbacks.py").write_text("# Exploding")
+
+        # Record trust
+        from code_puppy.plugins import compute_plugin_hash, record_plugin_trust
+
+        content_hash = compute_plugin_hash(plugin_dir)
+        record_plugin_trust("exploding_plugin", content_hash, str(plugin_dir))
 
         mock_spec = MagicMock()
         mock_spec.loader = MagicMock()
@@ -464,16 +472,12 @@ class TestLoadUserPlugins:
                 return_value=MagicMock(),
             ),
         ):
-            try:
-                result = _load_user_plugins(user_plugins_dir)
-                assert "exploding_plugin" not in result
-                assert "Unexpected error loading user plugin" in caplog.text
-            finally:
-                if str(user_plugins_dir) in sys.path:
-                    sys.path.remove(str(user_plugins_dir))
+            result = _load_user_plugins(user_plugins_dir)
+            assert "exploding_plugin" not in result
+            assert "Unexpected error loading user plugin" in caplog.text
 
-    def test_loads_plugin_with_init_fallback(self, tmp_path):
-        """Test loading a user plugin that only has __init__.py (no register_callbacks)."""
+    def test_loads_trusted_plugin_with_init_fallback(self, tmp_path):
+        """Test loading a trusted user plugin that only has __init__.py."""
         user_plugins_dir = tmp_path / "user_plugins"
         user_plugins_dir.mkdir()
 
@@ -483,26 +487,14 @@ class TestLoadUserPlugins:
         init_file = plugin_dir / "__init__.py"
         init_file.write_text("# Simple plugin")
 
-        mock_spec = MagicMock()
-        mock_spec.loader = MagicMock()
-        mock_module = MagicMock()
+        # Record trust
+        from code_puppy.plugins import compute_plugin_hash, record_plugin_trust
 
-        with (
-            patch(
-                "code_puppy.plugins.importlib.util.spec_from_file_location",
-                return_value=mock_spec,
-            ),
-            patch(
-                "code_puppy.plugins.importlib.util.module_from_spec",
-                return_value=mock_module,
-            ),
-        ):
-            try:
-                result = _load_user_plugins(user_plugins_dir)
-                assert "simple_plugin" in result
-            finally:
-                if str(user_plugins_dir) in sys.path:
-                    sys.path.remove(str(user_plugins_dir))
+        content_hash = compute_plugin_hash(plugin_dir)
+        record_plugin_trust("simple_plugin", content_hash, str(plugin_dir))
+
+        result = _load_user_plugins(user_plugins_dir)
+        assert "simple_plugin" in result
 
     def test_handles_spec_is_none_for_init_fallback(self, tmp_path):
         """Test handling when spec is None for __init__.py fallback."""
@@ -556,6 +548,12 @@ class TestLoadUserPlugins:
         plugin_dir.mkdir()
         (plugin_dir / "__init__.py").write_text("# Exploding init")
 
+        # Record trust
+        from code_puppy.plugins import compute_plugin_hash, record_plugin_trust
+
+        content_hash = compute_plugin_hash(plugin_dir)
+        record_plugin_trust("exploding_init_plugin", content_hash, str(plugin_dir))
+
         mock_spec = MagicMock()
         mock_spec.loader = MagicMock()
         mock_spec.loader.exec_module.side_effect = RuntimeError("Init boom!")
@@ -570,13 +568,9 @@ class TestLoadUserPlugins:
                 return_value=MagicMock(),
             ),
         ):
-            try:
-                result = _load_user_plugins(user_plugins_dir)
-                assert "exploding_init_plugin" not in result
-                assert "Unexpected error loading user plugin" in caplog.text
-            finally:
-                if str(user_plugins_dir) in sys.path:
-                    sys.path.remove(str(user_plugins_dir))
+            result = _load_user_plugins(user_plugins_dir)
+            assert "exploding_init_plugin" not in result
+            assert "Unexpected error loading user plugin" in caplog.text
 
     def test_skips_directory_without_callbacks_or_init(self, tmp_path):
         """Test that directories without register_callbacks.py or __init__.py are skipped."""

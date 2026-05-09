@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import traceback
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from functools import partial
@@ -28,6 +29,7 @@ from code_puppy.messaging import (  # Structured messaging types
     emit_warning,
     get_message_bus,
 )
+from code_puppy.tools.background_jobs import register_background_job
 from code_puppy.tools.common import generate_group_id, get_user_approval_async
 from code_puppy.tools.subagent_context import is_subagent
 
@@ -621,8 +623,8 @@ def run_shell_command_streaming(
 
     ABSOLUTE_TIMEOUT_SECONDS = 270
 
-    stdout_lines = []
-    stderr_lines = []
+    stdout_lines: deque[str] = deque(maxlen=256)
+    stderr_lines: deque[str] = deque(maxlen=256)
 
     stdout_thread = None
     stderr_thread = None
@@ -817,8 +819,8 @@ def run_shell_command_streaming(
             **{
                 "success": False,
                 "command": command,
-                "stdout": "\n".join(stdout_lines[-256:]),
-                "stderr": "\n".join(stderr_lines[-256:]),
+                "stdout": "\n".join(stdout_lines),
+                "stderr": "\n".join(stderr_lines),
                 "exit_code": -9,
                 "execution_time": execution_time,
                 "timeout": True,
@@ -875,8 +877,8 @@ def run_shell_command_streaming(
         _unregister_process(process)
 
         # Apply line length limits to stdout/stderr before returning
-        truncated_stdout = stdout_lines[-256:]
-        truncated_stderr = stderr_lines[-256:]
+        truncated_stdout = list(stdout_lines)
+        truncated_stderr = list(stderr_lines)
 
         # Emit structured ShellOutputMessage for the UI (skip for silent sub-agents)
         if not silent:
@@ -893,7 +895,6 @@ def run_shell_command_streaming(
             _ACTIVE_STOP_EVENTS.discard(stop_event)
 
         if exit_code != 0:
-            time.sleep(1)
             return ShellCommandOutput(
                 success=False,
                 command=command,
@@ -924,8 +925,8 @@ def run_shell_command_streaming(
             success=False,
             command=command,
             error=f"Error during streaming execution: {str(e)}",
-            stdout="\n".join(stdout_lines[-256:]),
-            stderr="\n".join(stderr_lines[-256:]),
+            stdout="\n".join(stdout_lines),
+            stderr="\n".join(stderr_lines),
             exit_code=-1,
             timeout=False,
         )
@@ -962,8 +963,98 @@ async def run_shell_command(
                 execution_time=None,
             )
 
-    # Handle background execution - runs command detached and returns immediately
-    # This happens BEFORE user confirmation since we don't wait for the command
+    if not command or not command.strip():
+        emit_error("Command cannot be empty", message_group=group_id)
+        return ShellCommandOutput(
+            **{"success": False, "error": "Command cannot be empty"}
+        )
+
+    from code_puppy.config import get_yolo_mode
+
+    yolo_mode = get_yolo_mode()
+
+    # Check if we're running as a sub-agent (skip confirmation and run silently)
+    running_as_subagent = is_subagent()
+
+    confirmation_lock_acquired = False
+
+    # Only ask for confirmation if we're in an interactive TTY, not in yolo mode,
+    # and NOT running as a sub-agent (sub-agents run without user interaction)
+    if not yolo_mode and not running_as_subagent and sys.stdin.isatty():
+        confirmation_lock_acquired = _CONFIRMATION_LOCK.acquire(blocking=False)
+        if not confirmation_lock_acquired:
+            return ShellCommandOutput(
+                success=False,
+                command=command,
+                error="Another command is currently awaiting confirmation",
+            )
+
+        # Get puppy name for personalized messages
+        from code_puppy.config import get_puppy_name
+
+        puppy_name = get_puppy_name().title()
+
+        # Build panel content
+        panel_content = Text()
+        panel_content.append("⚡ Requesting permission to run:\n", style="bold yellow")
+        panel_content.append("$ ", style="bold green")
+        panel_content.append(command, style="bold white")
+
+        if cwd:
+            panel_content.append("\n\n", style="")
+            panel_content.append("📂 Working directory: ", style="dim")
+            panel_content.append(cwd, style="dim cyan")
+
+        if background:
+            panel_content.append("\n\n", style="")
+            panel_content.append(
+                "⏱️  This command will run in the background with no timeout.\n",
+                style="bold red",
+            )
+            panel_content.append(
+                "The process will continue until it completes or is manually stopped.",
+                style="dim",
+            )
+
+        # Use the common approval function (async version)
+        confirmed, user_feedback = await get_user_approval_async(
+            title="Shell Command",
+            content=panel_content,
+            preview=None,
+            border_style="dim white",
+            puppy_name=puppy_name,
+        )
+
+        # Release lock after approval
+        if confirmation_lock_acquired:
+            _CONFIRMATION_LOCK.release()
+
+        if not confirmed:
+            if user_feedback:
+                result = ShellCommandOutput(
+                    success=False,
+                    command=command,
+                    error=f"USER REJECTED: {user_feedback}",
+                    user_feedback=user_feedback,
+                    stdout=None,
+                    stderr=None,
+                    exit_code=None,
+                    execution_time=None,
+                )
+            else:
+                result = ShellCommandOutput(
+                    success=False,
+                    command=command,
+                    error="User rejected the command!",
+                    stdout=None,
+                    stderr=None,
+                    exit_code=None,
+                    execution_time=None,
+                )
+            return result
+
+    # Handle background execution - runs command detached and returns immediately.
+    # Approval has already been obtained above (or skipped in yolo/sub-agent mode).
     if background:
         # Create temp log file for output
         log_file = tempfile.NamedTemporaryFile(
@@ -1011,6 +1102,14 @@ async def run_shell_command(
                 )
             )
 
+            # Register the job so it can be listed/stopped later
+            register_background_job(
+                pid=process.pid,
+                command=command,
+                cwd=cwd,
+                log_file=log_file.name,
+            )
+
             # Emit info about background execution
             emit_info(
                 f"🚀 Background process started (PID: {process.pid}) - no timeout, runs until complete"
@@ -1051,88 +1150,6 @@ async def run_shell_command(
                 execution_time=None,
                 background=True,
             )
-
-    # Rest of the existing function continues...
-    if not command or not command.strip():
-        emit_error("Command cannot be empty", message_group=group_id)
-        return ShellCommandOutput(
-            **{"success": False, "error": "Command cannot be empty"}
-        )
-
-    from code_puppy.config import get_yolo_mode
-
-    yolo_mode = get_yolo_mode()
-
-    # Check if we're running as a sub-agent (skip confirmation and run silently)
-    running_as_subagent = is_subagent()
-
-    confirmation_lock_acquired = False
-
-    # Only ask for confirmation if we're in an interactive TTY, not in yolo mode,
-    # and NOT running as a sub-agent (sub-agents run without user interaction)
-    if not yolo_mode and not running_as_subagent and sys.stdin.isatty():
-        confirmation_lock_acquired = _CONFIRMATION_LOCK.acquire(blocking=False)
-        if not confirmation_lock_acquired:
-            return ShellCommandOutput(
-                success=False,
-                command=command,
-                error="Another command is currently awaiting confirmation",
-            )
-
-        # Get puppy name for personalized messages
-        from code_puppy.config import get_puppy_name
-
-        puppy_name = get_puppy_name().title()
-
-        # Build panel content
-        panel_content = Text()
-        panel_content.append("⚡ Requesting permission to run:\n", style="bold yellow")
-        panel_content.append("$ ", style="bold green")
-        panel_content.append(command, style="bold white")
-
-        if cwd:
-            panel_content.append("\n\n", style="")
-            panel_content.append("📂 Working directory: ", style="dim")
-            panel_content.append(cwd, style="dim cyan")
-
-        # Use the common approval function (async version)
-        confirmed, user_feedback = await get_user_approval_async(
-            title="Shell Command",
-            content=panel_content,
-            preview=None,
-            border_style="dim white",
-            puppy_name=puppy_name,
-        )
-
-        # Release lock after approval
-        if confirmation_lock_acquired:
-            _CONFIRMATION_LOCK.release()
-
-        if not confirmed:
-            if user_feedback:
-                result = ShellCommandOutput(
-                    success=False,
-                    command=command,
-                    error=f"USER REJECTED: {user_feedback}",
-                    user_feedback=user_feedback,
-                    stdout=None,
-                    stderr=None,
-                    exit_code=None,
-                    execution_time=None,
-                )
-            else:
-                result = ShellCommandOutput(
-                    success=False,
-                    command=command,
-                    error="User rejected the command!",
-                    stdout=None,
-                    stderr=None,
-                    exit_code=None,
-                    execution_time=None,
-                )
-            return result
-    else:
-        time.time()
 
     # Execute the command - sub-agents run silently without keyboard context
     return await _execute_shell_command(

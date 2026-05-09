@@ -3,13 +3,19 @@
 Extracted from the original ``BaseAgent`` god-class. Everything in here is a
 free function with no hidden state. Call sites pass messages (and, where
 needed, already-resolved strings / tool dicts) in explicitly.
+
+PERF-04 adds :class:`CompactionCache` — a per-compaction-run cache that avoids
+repeated ``hash_message`` / ``estimate_tokens_for_message`` calls on the same
+message objects within a single ``compact()`` invocation. No global caches
+that retain message objects.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pydantic
 from pydantic_ai import BinaryContent
@@ -265,9 +271,65 @@ def has_pending_tool_calls(messages: List[ModelMessage]) -> bool:
 def filter_huge_messages(
     messages: List[ModelMessage],
     model_name: Optional[str] = None,
+    cache: Optional[Any] = None,  # CompactionCache when available
 ) -> List[ModelMessage]:
     """Drop individual messages above a 50k-token budget, then prune orphans."""
     filtered = [
-        m for m in messages if estimate_tokens_for_message(m, model_name) < 50000
+        m
+        for m in messages
+        if (
+            cache.estimate_tokens(m, model_name)
+            if cache
+            else estimate_tokens_for_message(m, model_name)
+        )
+        < 50000
     ]
     return prune_interrupted_tool_calls(filtered)
+
+
+# ---------------------------------------------------------------------------
+# PERF-04: Per-compaction-run cache
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass
+class CompactionCache:
+    """Per-compaction-run cache for message hashes and token estimates.
+
+    Created fresh at the start of each ``compact()`` call. Avoids repeated
+    ``hash_message()`` and ``estimate_tokens_for_message()`` invocations on
+    the same ``ModelMessage`` objects within a single compaction cycle.
+
+    Importantly, this is *not* a global cache — it is scoped to one
+    ``compact()`` invocation and dropped afterwards so we never retain
+    message objects beyond their natural lifecycle.
+    """
+
+    # message id(id(m)) → int hash
+    _message_hashes: Dict[int, int] = dataclasses.field(default_factory=dict)
+    # (id(m), model_name_or_None) → int token count
+    _token_counts: Dict[Tuple[int, Optional[str]], int] = dataclasses.field(
+        default_factory=dict
+    )
+
+    def hash_message(self, message: ModelMessage) -> int:
+        """Cached wrapper around :func:`hash_message` (module-level)."""
+        key = id(message)
+        if key not in self._message_hashes:
+            self._message_hashes[key] = hash_message(message)
+        return self._message_hashes[key]
+
+    def estimate_tokens(
+        self, message: ModelMessage, model_name: Optional[str] = None
+    ) -> int:
+        """Cached wrapper around :func:`estimate_tokens_for_message`."""
+        key = (id(message), model_name)
+        if key not in self._token_counts:
+            self._token_counts[key] = estimate_tokens_for_message(message, model_name)
+        return self._token_counts[key]
+
+    def sum_tokens(
+        self, messages: List[ModelMessage], model_name: Optional[str] = None
+    ) -> int:
+        """Sum estimated tokens across all messages using the cache."""
+        return sum(self.estimate_tokens(m, model_name) for m in messages)

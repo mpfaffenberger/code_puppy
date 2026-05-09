@@ -183,10 +183,19 @@ class TestGrepFunction:
         result = _grep(None, search, str(tmp_path))
         assert isinstance(result, GrepOutput)
 
-    @patch("subprocess.run")
-    def test_grep_timeout_handling(self, mock_run, tmp_path):
+    @patch("subprocess.Popen")
+    def test_grep_timeout_handling(self, mock_popen, tmp_path):
         """Test grep handles timeout gracefully."""
-        mock_run.side_effect = subprocess.TimeoutExpired("rg", 30)
+        mock_proc = mock_popen.return_value
+
+        def _timeout_gen():
+            raise subprocess.TimeoutExpired("rg", 30)
+            yield ""  # pragma: no cover
+
+        mock_proc.stdout = _timeout_gen()
+        mock_proc.poll.return_value = None
+        mock_proc.wait.return_value = 0
+        mock_popen.side_effect = lambda *a, **k: mock_proc
 
         result = _grep(None, "test", str(tmp_path))
 
@@ -194,20 +203,20 @@ class TestGrepFunction:
         assert "timed out" in result.error
         assert result.matches == []
 
-    @patch("subprocess.run")
-    def test_grep_file_not_found_error(self, mock_run, tmp_path):
+    @patch("subprocess.Popen")
+    def test_grep_file_not_found_error(self, mock_popen, tmp_path):
         """Test grep handles FileNotFoundError (ripgrep not installed)."""
-        mock_run.side_effect = FileNotFoundError("rg not found")
+        mock_popen.side_effect = FileNotFoundError("rg not found")
 
         result = _grep(None, "test", str(tmp_path))
 
         assert result.error is not None
         assert "ripgrep" in result.error.lower() or "not found" in result.error.lower()
 
-    @patch("subprocess.run")
-    def test_grep_generic_exception(self, mock_run, tmp_path):
+    @patch("subprocess.Popen")
+    def test_grep_generic_exception(self, mock_popen, tmp_path):
         """Test grep handles generic exceptions."""
-        mock_run.side_effect = RuntimeError("Unexpected error")
+        mock_popen.side_effect = RuntimeError("Unexpected error")
 
         result = _grep(None, "test", str(tmp_path))
 

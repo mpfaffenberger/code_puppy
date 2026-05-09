@@ -389,47 +389,38 @@ class TestHandleCallAction:
         mock_reg = MagicMock()
         tool = MagicMock()
         tool.meta.enabled = True
-        tool.source_path = None
+        tool.source_path = "/fake/path.py"
+        tool.function_name = "fn"
         mock_reg.get_tool.return_value = tool
-        mock_reg.get_tool_function.return_value = lambda x=1: x * 2
-        with patch(
-            "code_puppy.plugins.universal_constructor.registry.get_registry",
-            return_value=mock_reg,
-        ):
-            r = _handle_call_action(MagicMock(), "t", {"x": 5})
-        assert r.success
-        assert r.call_result.result == 10
-
-    def test_timeout(self):
-        import time
-
-        from code_puppy.tools.universal_constructor import _handle_call_action
-
-        mock_reg = MagicMock()
-        tool = MagicMock()
-        tool.meta.enabled = True
-        tool.source_path = None
-        mock_reg.get_tool.return_value = tool
-
-        def slow_func():
-            time.sleep(100)
-
-        mock_reg.get_tool_function.return_value = slow_func
         with patch(
             "code_puppy.plugins.universal_constructor.registry.get_registry",
             return_value=mock_reg,
         ):
             with patch(
-                "code_puppy.tools.universal_constructor.ThreadPoolExecutor"
-            ) as mock_exec:
-                from concurrent.futures import TimeoutError as FTE
+                "code_puppy.plugins.universal_constructor.runner.run_tool_subprocess",
+                return_value={"success": True, "result": 10, "execution_time": 0.1},
+            ):
+                r = _handle_call_action(MagicMock(), "t", {"x": 5})
+        assert r.success
+        assert r.call_result.result == 10
 
-                mock_future = MagicMock()
-                mock_future.result.side_effect = FTE()
-                mock_exec.return_value.__enter__ = MagicMock(
-                    return_value=MagicMock(submit=MagicMock(return_value=mock_future))
-                )
-                mock_exec.return_value.__exit__ = MagicMock(return_value=False)
+    def test_timeout(self):
+        from code_puppy.tools.universal_constructor import _handle_call_action
+
+        mock_reg = MagicMock()
+        tool = MagicMock()
+        tool.meta.enabled = True
+        tool.source_path = "/fake/path.py"
+        tool.function_name = "fn"
+        mock_reg.get_tool.return_value = tool
+        with patch(
+            "code_puppy.plugins.universal_constructor.registry.get_registry",
+            return_value=mock_reg,
+        ):
+            with patch(
+                "code_puppy.plugins.universal_constructor.runner.run_tool_subprocess",
+                return_value={"success": False, "error": "timed out after 30s"},
+            ):
                 r = _handle_call_action(MagicMock(), "t", {})
         assert not r.success
         assert "timed out" in r.error
@@ -440,19 +431,18 @@ class TestHandleCallAction:
         mock_reg = MagicMock()
         tool = MagicMock()
         tool.meta.enabled = True
-        tool.source_path = None
+        tool.source_path = "/fake/path.py"
+        tool.function_name = "fn"
         mock_reg.get_tool.return_value = tool
-
-        def bad_func():
-            raise TypeError("wrong args")
-
-        mock_reg.get_tool_function.return_value = bad_func
         with patch(
             "code_puppy.plugins.universal_constructor.registry.get_registry",
             return_value=mock_reg,
         ):
-            # ThreadPoolExecutor will propagate the TypeError
-            r = _handle_call_action(MagicMock(), "t", {})
+            with patch(
+                "code_puppy.plugins.universal_constructor.runner.run_tool_subprocess",
+                return_value={"success": False, "error": "Invalid arguments"},
+            ):
+                r = _handle_call_action(MagicMock(), "t", {})
         assert not r.success
 
     def test_general_exception(self):
@@ -461,18 +451,18 @@ class TestHandleCallAction:
         mock_reg = MagicMock()
         tool = MagicMock()
         tool.meta.enabled = True
-        tool.source_path = None
+        tool.source_path = "/fake/path.py"
+        tool.function_name = "fn"
         mock_reg.get_tool.return_value = tool
-
-        def bad_func():
-            raise RuntimeError("boom")
-
-        mock_reg.get_tool_function.return_value = bad_func
         with patch(
             "code_puppy.plugins.universal_constructor.registry.get_registry",
             return_value=mock_reg,
         ):
-            r = _handle_call_action(MagicMock(), "t", {})
+            with patch(
+                "code_puppy.plugins.universal_constructor.runner.run_tool_subprocess",
+                return_value={"success": False, "error": "boom"},
+            ):
+                r = _handle_call_action(MagicMock(), "t", {})
         assert not r.success
 
     def test_with_source_preview(self):
@@ -482,14 +472,18 @@ class TestHandleCallAction:
         tool = MagicMock()
         tool.meta.enabled = True
         tool.source_path = "/tmp/test.py"
+        tool.function_name = "fn"
         mock_reg.get_tool.return_value = tool
-        mock_reg.get_tool_function.return_value = lambda: 42
         with patch(
             "code_puppy.plugins.universal_constructor.registry.get_registry",
             return_value=mock_reg,
         ):
             with patch("pathlib.Path.read_text", return_value="def f(): pass"):
-                r = _handle_call_action(MagicMock(), "t", {})
+                with patch(
+                    "code_puppy.plugins.universal_constructor.runner.run_tool_subprocess",
+                    return_value={"success": True, "result": 42, "execution_time": 0.1},
+                ):
+                    r = _handle_call_action(MagicMock(), "t", {})
         assert r.success
         assert r.call_result.source_preview is not None
 
@@ -499,14 +493,18 @@ class TestHandleCallAction:
         mock_reg = MagicMock()
         tool = MagicMock()
         tool.meta.enabled = True
-        tool.source_path = None
+        tool.source_path = "/fake/path.py"
+        tool.function_name = "fn"
         mock_reg.get_tool.return_value = tool
-        mock_reg.get_tool_function.return_value = lambda x=1: x
         with patch(
             "code_puppy.plugins.universal_constructor.registry.get_registry",
             return_value=mock_reg,
         ):
-            r = _handle_call_action(MagicMock(), "t", '{"x": 42}')
+            with patch(
+                "code_puppy.plugins.universal_constructor.runner.run_tool_subprocess",
+                return_value={"success": True, "result": 42, "execution_time": 0.1},
+            ):
+                r = _handle_call_action(MagicMock(), "t", '{"x": 42}')
         assert r.success
 
 
@@ -814,6 +812,10 @@ class TestHandleUpdateAction:
                 "code_puppy.plugins.universal_constructor.sandbox._extract_tool_meta",
                 return_value=None,
             ),
+            patch(
+                "code_puppy.plugins.universal_constructor.safety.is_path_within_uc_dir",
+                return_value=True,
+            ),
         ):
             mock_val.return_value = MagicMock(valid=True)
             r = _handle_update_action(MagicMock(), "t", "def f(): pass", None)
@@ -844,6 +846,10 @@ class TestHandleUpdateAction:
             patch(
                 "code_puppy.plugins.universal_constructor.sandbox._validate_tool_meta",
                 return_value=["err"],
+            ),
+            patch(
+                "code_puppy.plugins.universal_constructor.safety.is_path_within_uc_dir",
+                return_value=True,
             ),
         ):
             mock_val.return_value = MagicMock(valid=True)
@@ -879,6 +885,10 @@ class TestHandleUpdateAction:
                 "code_puppy.tools.universal_constructor._run_ruff_format",
                 return_value=None,
             ),
+            patch(
+                "code_puppy.plugins.universal_constructor.safety.is_path_within_uc_dir",
+                return_value=True,
+            ),
         ):
             mock_val.return_value = MagicMock(valid=True)
             r = _handle_update_action(MagicMock(), "t", "def f(): pass", None)
@@ -901,6 +911,10 @@ class TestHandleUpdateAction:
             patch(
                 "code_puppy.plugins.universal_constructor.sandbox.validate_syntax",
                 side_effect=Exception("boom"),
+            ),
+            patch(
+                "code_puppy.plugins.universal_constructor.safety.is_path_within_uc_dir",
+                return_value=True,
             ),
         ):
             r = _handle_update_action(MagicMock(), "t", "code", None)
@@ -986,13 +1000,17 @@ class TestHandleCallSourceReadError:
         tool = MagicMock()
         tool.meta.enabled = True
         tool.source_path = "/tmp/nonexistent_12345.py"
+        tool.function_name = "fn"
         mock_reg.get_tool.return_value = tool
-        mock_reg.get_tool_function.return_value = lambda: 42
         with patch(
             "code_puppy.plugins.universal_constructor.registry.get_registry",
             return_value=mock_reg,
         ):
-            r = _handle_call_action(MagicMock(), "t", {})
+            with patch(
+                "code_puppy.plugins.universal_constructor.runner.run_tool_subprocess",
+                return_value={"success": True, "result": 42, "execution_time": 0.1},
+            ):
+                r = _handle_call_action(MagicMock(), "t", {})
         assert r.success
 
 
@@ -1046,12 +1064,17 @@ class TestHandleUpdateFormatWarning:
             ),
             patch(
                 "code_puppy.tools.universal_constructor._run_ruff_format",
-                return_value="ruff warning",
+                return_value="format failed",
+            ),
+            patch(
+                "code_puppy.plugins.universal_constructor.safety.is_path_within_uc_dir",
+                return_value=True,
             ),
         ):
             mock_val.return_value = MagicMock(valid=True)
             r = _handle_update_action(MagicMock(), "t", "def f(): pass", None)
         assert r.success
+        assert any("format failed" in c for c in r.update_result.changes_applied)
 
 
 class TestImplRegistration:

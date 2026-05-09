@@ -13,7 +13,9 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+from code_puppy.hook_engine.trust import compute_content_hash, is_hook_trusted
 
 logger = logging.getLogger(__name__)
 
@@ -70,25 +72,61 @@ def load_hooks_config() -> Optional[Dict[str, Any]]:
     2. .claude/settings.json (project-level) - merged with global
 
     Returns:
-        Configuration dictionary or None if no config found
+        Merged configuration dictionary or None if no config found.
+        This function preserves backward compatibility; trust metadata
+        is handled separately via load_hooks_config_with_sources().
+    """
+    config, _sources = load_hooks_config_with_sources()
+    return config
+
+
+def load_hooks_config_with_sources() -> Tuple[Optional[Dict[str, Any]], List[dict]]:
+    """
+    Load and merge hooks configuration from available sources with trust metadata.
+
+    Priority order:
+    1. ~/.code_puppy/hooks.json (global level) - always loaded if exists
+    2. .claude/settings.json (project-level) - merged with global
+
+    Returns:
+        Tuple of (merged configuration dictionary, list of source metadata dicts).
+        Each source metadata dict contains:
+            - path: file path
+            - source: "global" | "project"
+            - config: the raw hooks dict from this source
+            - content_hash: SHA-256 of file content
+            - trusted: bool
     """
     merged_config: Dict[str, Any] = {}
+    sources: List[dict] = []
 
     # Load global hooks first
     global_config_path = Path(GLOBAL_HOOKS_FILE)
 
     if global_config_path.exists():
         try:
-            with open(global_config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
+            raw = global_config_path.read_text(encoding="utf-8")
+            config = json.loads(raw)
+            hooks_part = None
             if "hooks" in config and isinstance(config["hooks"], dict):
                 logger.info(
                     f"Loaded hooks configuration (wrapped format) from {GLOBAL_HOOKS_FILE}"
                 )
-                merged_config = _deep_merge_hooks(merged_config, config["hooks"])
+                hooks_part = config["hooks"]
             elif isinstance(config, dict):
                 logger.info(f"Loaded hooks configuration from {GLOBAL_HOOKS_FILE}")
-                merged_config = _deep_merge_hooks(merged_config, config)
+                hooks_part = config
+            if hooks_part is not None:
+                merged_config = _deep_merge_hooks(merged_config, hooks_part)
+                sources.append(
+                    {
+                        "path": str(global_config_path),
+                        "source": "global",
+                        "config": hooks_part,
+                        "content_hash": compute_content_hash(raw),
+                        "trusted": True,
+                    }
+                )
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in {GLOBAL_HOOKS_FILE}: {e}")
         except Exception as e:
@@ -99,12 +137,28 @@ def load_hooks_config() -> Optional[Dict[str, Any]]:
 
     if project_config_path.exists():
         try:
-            with open(project_config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
+            raw = project_config_path.read_text(encoding="utf-8")
+            config = json.loads(raw)
             hooks_config = config.get("hooks")
             if hooks_config:
                 logger.info(f"Merging hooks configuration from {project_config_path}")
                 merged_config = _deep_merge_hooks(merged_config, hooks_config)
+                content_hash = compute_content_hash(raw)
+                project_root = str(Path(os.getcwd()).resolve())
+                trusted = is_hook_trusted(
+                    project_root,
+                    str(project_config_path.resolve()),
+                    content_hash,
+                )
+                sources.append(
+                    {
+                        "path": str(project_config_path),
+                        "source": "project",
+                        "config": hooks_config,
+                        "content_hash": content_hash,
+                        "trusted": trusted,
+                    }
+                )
             else:
                 logger.debug(f"No 'hooks' section found in {project_config_path}")
         except json.JSONDecodeError as e:
@@ -114,13 +168,13 @@ def load_hooks_config() -> Optional[Dict[str, Any]]:
 
     if not merged_config:
         logger.debug("No hooks configuration found")
-        return None
+        return None, sources
 
     event_count = len(
         [event for event in merged_config.keys() if not event.startswith("_")]
     )
     logger.info(f"Hooks configuration ready ({event_count} event type(s))")
-    return merged_config
+    return merged_config, sources
 
 
 def get_hooks_config_paths() -> list:

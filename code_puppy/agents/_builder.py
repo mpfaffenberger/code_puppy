@@ -24,7 +24,7 @@ from code_puppy.callbacks import on_wrap_pydantic_agent
 from code_puppy.config import (
     CONFIG_DIR,
     get_global_model_name,
-    get_value,
+    get_mcp_disabled,
 )
 from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.messaging import emit_error, emit_info, emit_warning
@@ -82,8 +82,7 @@ def load_mcp_servers(
 ) -> List[Any]:
     """Return pydantic-ai compatible MCP servers, or ``[]`` if disabled."""
     del extra_headers  # accepted for API compatibility; manager owns headers
-    mcp_disabled = get_value("disable_mcp_servers")
-    if mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on"):
+    if get_mcp_disabled():
         return []
     return get_mcp_manager().get_servers_for_agent()
 

@@ -47,15 +47,15 @@ from code_puppy.version_checker import default_version_mismatch_behavior
 plugins.load_plugin_callbacks()
 
 
-def _resume_session_from_path(raw_path: str) -> None:
-    """Restore agent message history from a saved .pkl session file.
+def _resume_session_from_path(raw_path: str, *, allow_legacy: bool = False) -> None:
+    """Restore agent message history from a saved session file.
 
     Accepts any path (autosaves, contexts, somewhere weird on disk). We don't
     care where it lives — we just decompose into (parent_dir, stem) and reuse
     ``session_storage.load_session`` so we stay DRY.
     """
     from code_puppy.agents.agent_manager import get_current_agent
-    from code_puppy.messaging import emit_error, emit_success
+    from code_puppy.messaging import emit_error, emit_success, emit_warning
     from code_puppy.session_storage import load_session
 
     session_path = Path(raw_path).expanduser().resolve()
@@ -64,14 +64,28 @@ def _resume_session_from_path(raw_path: str) -> None:
         emit_error(f"--resume: session file not found: {session_path}")
         sys.exit(1)
 
-    if session_path.suffix != ".pkl":
+    if session_path.suffix == ".json":
+        pass  # preferred format
+    elif session_path.suffix == ".pkl":
+        if not allow_legacy:
+            emit_error(
+                f"--resume: legacy pickle sessions are blocked by default. "
+                f"Use --import-legacy-pickle-session if you really need to load {session_path}"
+            )
+            sys.exit(1)
+        emit_warning(
+            "DANGER: loading legacy pickle session — this can execute arbitrary code!"
+        )
+    else:
         emit_error(
-            f"--resume: expected a .pkl session file, got '{session_path.suffix}': {session_path}"
+            f"--resume: expected a .json session file, got '{session_path.suffix}': {session_path}"
         )
         sys.exit(1)
 
     try:
-        history = load_session(session_path.stem, session_path.parent)
+        history = load_session(
+            session_path.stem, session_path.parent, allow_legacy=allow_legacy
+        )
     except Exception as exc:
         emit_error(f"--resume: failed to load session: {exc}")
         sys.exit(1)
@@ -137,7 +151,12 @@ async def main():
         "-r",
         type=str,
         metavar="PATH",
-        help="Resume a saved session from a .pkl file (e.g. ~/.code_puppy/contexts/foo.pkl)",
+        help="Resume a saved session from a .json file (e.g. ~/.code_puppy/contexts/foo.json)",
+    )
+    parser.add_argument(
+        "--import-legacy-pickle-session",
+        action="store_true",
+        help="DANGER: allow loading a legacy .pkl session file (pickle can execute arbitrary code)",
     )
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
@@ -341,7 +360,9 @@ async def main():
     await callbacks.on_startup()
 
     if args.resume:
-        _resume_session_from_path(args.resume)
+        _resume_session_from_path(
+            args.resume, allow_legacy=args.import_legacy_pickle_session
+        )
 
     global shutdown_flag
     shutdown_flag = False
@@ -738,7 +759,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 agent.estimate_tokens_for_message(msg)
                                 for msg in history
                             )
-                            session_path = base_dir / f"{chosen_session}.pkl"
+                            session_path = base_dir / f"{chosen_session}.json"
 
                             emit_success(
                                 f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"

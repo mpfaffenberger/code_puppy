@@ -1,10 +1,20 @@
-"""Skill metadata parsing - extracts info from SKILL.md frontmatter."""
+"""Skill metadata parsing - extracts info from SKILL.md frontmatter.
 
+Includes size validation before reading and content capping for
+model-context injection.
+"""
+
+import hashlib
 import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
+
+from code_puppy.plugins.agent_skills.discovery import (
+    MAX_SKILL_MD_BYTES,
+    cap_skill_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +36,10 @@ class SkillMetadata:
     version: Optional[str] = None
     author: Optional[str] = None
     tags: List[str] = field(default_factory=list)
+    source: Optional[str] = None
+    trust: Optional[str] = None
+    skill_md_hash: Optional[str] = None
+    skill_md_size: Optional[int] = None
 
 
 def _unquote(value: str) -> str:
@@ -119,11 +133,29 @@ def parse_skill_metadata(skill_path: Path) -> Optional[SkillMetadata]:
         logger.debug(f"SKILL.md not found in skill directory: {skill_path}")
         return None
 
+    # Validate size before reading
+    try:
+        file_size = skill_md_path.stat().st_size
+        if file_size > MAX_SKILL_MD_BYTES:
+            logger.warning(
+                "SKILL.md at %s is too large (%d bytes, max %d), skipping",
+                skill_md_path,
+                file_size,
+                MAX_SKILL_MD_BYTES,
+            )
+            return None
+    except OSError as e:
+        logger.error("Failed to stat SKILL.md at %s: %s", skill_md_path, e)
+        return None
+
     try:
         content = skill_md_path.read_text(encoding="utf-8")
     except Exception as e:
-        logger.error(f"Failed to read SKILL.md at {skill_md_path}: {e}")
+        logger.error("Failed to read SKILL.md at %s: %s", skill_md_path, e)
         return None
+
+    # Compute hash for trust/source tracking
+    content_hash = hashlib.sha256(content.encode()).hexdigest()
 
     frontmatter = parse_yaml_frontmatter(content)
     if not frontmatter:
@@ -153,6 +185,10 @@ def parse_skill_metadata(skill_path: Path) -> Optional[SkillMetadata]:
     elif isinstance(raw_tags, str):
         tags = [tag.strip() for tag in raw_tags.split(",") if tag.strip()]
 
+    # Classify source/trust
+    source = _classify_skill_source(skill_path)
+    trust = source  # user/project/unknown
+
     return SkillMetadata(
         name=name,
         description=description,
@@ -160,31 +196,70 @@ def parse_skill_metadata(skill_path: Path) -> Optional[SkillMetadata]:
         version=frontmatter.get("version"),
         author=frontmatter.get("author"),
         tags=tags,
+        source=source,
+        trust=trust,
+        skill_md_hash=content_hash,
+        skill_md_size=file_size,
     )
+
+
+def _classify_skill_source(skill_path: Path) -> str:
+    """Classify a skill directory as 'user', 'project', or 'unknown'."""
+    home_skills = Path.home() / ".code_puppy" / "skills"
+    try:
+        skill_path.resolve().relative_to(home_skills.resolve())
+        return "user"
+    except ValueError:
+        pass
+    try:
+        skill_path.resolve().relative_to(Path.cwd().resolve())
+        return "project"
+    except ValueError:
+        pass
+    return "unknown"
 
 
 def load_full_skill_content(skill_path: Path) -> Optional[str]:
     """Load the complete SKILL.md content for activation.
 
+    Validates file size before reading and caps content to
+    prevent model-context blowup.
+
     Args:
         skill_path: Path to the skill directory
 
     Returns:
-        Full file content as string, or None if not found.
+        Full file content as string (capped), or None if not found.
     """
     if not skill_path.exists():
-        logger.warning(f"Skill path does not exist: {skill_path}")
+        logger.warning("Skill path does not exist: %s", skill_path)
         return None
 
     skill_md_path = skill_path / "SKILL.md"
     if not skill_md_path.exists():
-        logger.warning(f"SKILL.md not found in skill directory: {skill_path}")
+        logger.warning("SKILL.md not found in skill directory: %s", skill_path)
+        return None
+
+    # Validate size before reading
+    try:
+        file_size = skill_md_path.stat().st_size
+        if file_size > MAX_SKILL_MD_BYTES:
+            logger.warning(
+                "SKILL.md at %s is too large (%d bytes, max %d)",
+                skill_md_path,
+                file_size,
+                MAX_SKILL_MD_BYTES,
+            )
+            return None
+    except OSError:
         return None
 
     try:
-        return skill_md_path.read_text(encoding="utf-8")
+        content = skill_md_path.read_text(encoding="utf-8")
+        # Cap content for model-context injection
+        return cap_skill_content(content)
     except Exception as e:
-        logger.error(f"Failed to read SKILL.md at {skill_md_path}: {e}")
+        logger.error("Failed to read SKILL.md at %s: %s", skill_md_path, e)
         return None
 
 

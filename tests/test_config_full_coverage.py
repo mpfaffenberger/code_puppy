@@ -84,6 +84,18 @@ class TestBooleanGetters:
         cp_config.set_config_value("disable_mcp", "yes")
         assert cp_config.get_mcp_disabled() is True
 
+    def test_get_mcp_disabled_servers_alias_warns(self):
+        """Deprecated alias 'disable_mcp_servers' is accepted with a warning."""
+        cp_config.set_config_value("disable_mcp_servers", "true")
+        with pytest.warns(DeprecationWarning, match="disable_mcp_servers"):
+            assert cp_config.get_mcp_disabled() is True
+
+    def test_get_mcp_disabled_servers_alias_false(self):
+        """Deprecated alias set to false returns False."""
+        cp_config.set_config_value("disable_mcp_servers", "0")
+        with pytest.warns(DeprecationWarning, match="disable_mcp_servers"):
+            assert cp_config.get_mcp_disabled() is False
+
     def test_get_grep_output_verbose_default_false(self):
         assert cp_config.get_grep_output_verbose() is False
 

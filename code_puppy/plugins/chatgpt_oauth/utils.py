@@ -16,6 +16,12 @@ from urllib.parse import urlencode, urlparse
 
 import requests
 
+from code_puppy.secret_storage import (
+    atomic_write_private_json,
+    warn_or_fix_private_file_mode,
+)
+from code_puppy.security.redaction import redact_secrets
+
 from .config import (
     CHATGPT_OAUTH_CONFIG,
     get_chatgpt_models_path,
@@ -142,6 +148,7 @@ def load_stored_tokens() -> Optional[Dict[str, Any]]:
     try:
         token_path = get_token_storage_path()
         if token_path.exists():
+            warn_or_fix_private_file_mode(token_path)
             with open(token_path, "r", encoding="utf-8") as handle:
                 return json.load(handle)
     except Exception as exc:
@@ -232,8 +239,12 @@ def refresh_access_token() -> Optional[str]:
                 logger.info("Successfully refreshed ChatGPT OAuth token")
                 return tokens["access_token"]
         else:
+            safe_text = redact_secrets(response.text)
             logger.error(
-                "Token refresh failed: %s - %s", response.status_code, response.text
+                "Token refresh failed: status=%s content_type=%s error=%s",
+                response.status_code,
+                response.headers.get("content-type", "unknown"),
+                safe_text[:200],
             )
     except Exception as exc:
         logger.error("Token refresh error: %s", exc)
@@ -246,9 +257,7 @@ def save_tokens(tokens: Dict[str, Any]) -> bool:
         raise TypeError("tokens cannot be None")
     try:
         token_path = get_token_storage_path()
-        with open(token_path, "w", encoding="utf-8") as handle:
-            json.dump(tokens, handle, indent=2)
-        token_path.chmod(0o600)
+        atomic_write_private_json(token_path, tokens)
         return True
     except Exception as exc:
         logger.error("Failed to save tokens: %s", exc)
@@ -319,20 +328,22 @@ def exchange_code_for_tokens(
             )
             return token_data
         else:
+            safe_text = redact_secrets(response.text)
             logger.error(
-                "Token exchange failed: %s - %s",
+                "Token exchange failed: status=%s content_type=%s error=%s",
                 response.status_code,
-                response.text,
+                response.headers.get("content-type", "unknown"),
+                safe_text[:200],
             )
             # Try to parse OAuth error
             if response.headers.get("content-type", "").startswith("application/json"):
                 try:
                     error_data = response.json()
                     if "error" in error_data:
-                        logger.error(
-                            "OAuth error: %s",
-                            error_data.get("error_description", error_data["error"]),
+                        safe_error = redact_secrets(
+                            error_data.get("error_description", error_data["error"])
                         )
+                        logger.error("OAuth error: %s", safe_error)
                 except Exception:
                     pass
     except Exception as exc:

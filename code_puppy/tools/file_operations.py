@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections import deque
 from typing import List
 
 from pydantic import BaseModel, conint
@@ -20,6 +21,14 @@ from code_puppy.messaging import (  # New structured messaging types
     GrepResultMessage,
     get_message_bus,
 )
+from code_puppy.tools.path_policy import Operation, check_path_allowed
+
+# Caps for listing / reading to avoid unbounded memory and model-context blowup
+MAX_LIST_FILES_UI_ENTRIES = 5_000
+MAX_LIST_FILES_LLM_ENTRIES = 1_000
+MAX_READ_FILE_BYTES = 128_000
+MAX_GREP_MATCHES = 50
+MAX_GREP_LINE_LENGTH = 512
 
 
 # Pydantic models for tool return types
@@ -153,8 +162,13 @@ def _list_files(
 ) -> ListFileOutput:
     import sys
 
-    results = []
     directory = os.path.abspath(os.path.expanduser(directory))
+
+    # Enforce workspace / sensitive directory policy before listing
+    policy = check_path_allowed(directory, Operation.LIST)
+    if not policy.allowed:
+        error_msg = policy.reason or "Directory listing blocked by path policy."
+        return ListFileOutput(content=error_msg, error=error_msg)
 
     # Plain text output for LLM consumption
     output_lines = []
@@ -166,6 +180,8 @@ def _list_files(
     if not os.path.isdir(directory):
         error_msg = f"Error: '{directory}' is not a directory"
         return ListFileOutput(content=error_msg, error=error_msg)
+
+    results = []
 
     # Smart home directory detection - auto-limit recursion for performance
     # But allow recursion in tests (when context=None) or when explicitly requested
@@ -415,7 +431,9 @@ def _list_files(
         parts = item.path.split(os.sep)
         return (parts, item.type != "directory")
 
-    for item in sorted(results, key=_sort_key):
+    sorted_results = sorted(results, key=_sort_key)
+
+    for item in sorted_results:
         if item.type == "directory" and not item.path:
             continue
         file_entries.append(
@@ -426,6 +444,12 @@ def _list_files(
                 depth=item.depth or 0,
             )
         )
+
+    # Cap UI structured entries
+    ui_truncated = False
+    if len(file_entries) > MAX_LIST_FILES_UI_ENTRIES:
+        file_entries = file_entries[:MAX_LIST_FILES_UI_ENTRIES]
+        ui_truncated = True
 
     # Emit structured message for the UI
     file_listing_msg = FileListingMessage(
@@ -439,21 +463,33 @@ def _list_files(
     get_message_bus().emit(file_listing_msg)
 
     # Build plain text output for LLM consumption
-    for item in sorted(results, key=_sort_key):
+    llm_lines: list[str] = []
+    for item in sorted_results:
         if item.type == "directory" and not item.path:
             continue
         name = os.path.basename(item.path) or item.path
         indent = "  " * (item.depth or 0)
         if item.type == "directory":
-            output_lines.append(f"{indent}{name}/")
+            llm_lines.append(f"{indent}{name}/")
         else:
             size_str = format_size(item.size)
-            output_lines.append(f"{indent}{name} ({size_str})")
+            llm_lines.append(f"{indent}{name} ({size_str})")
+
+    llm_truncated = False
+    if len(llm_lines) > MAX_LIST_FILES_LLM_ENTRIES:
+        llm_lines = llm_lines[:MAX_LIST_FILES_LLM_ENTRIES]
+        llm_truncated = True
+
+    output_lines.extend(llm_lines)
 
     # Add summary
     output_lines.append(
         f"\nSummary: {dir_count} directories, {file_count} files ({format_size(total_size)} total)"
     )
+    if ui_truncated or llm_truncated:
+        output_lines.append(
+            f"\n[Truncated: shown {MAX_LIST_FILES_LLM_ENTRIES} of {len(sorted_results)} entries]"
+        )
 
     return ListFileOutput(content="\n".join(output_lines))
 
@@ -466,12 +502,34 @@ def _read_file(
 ) -> ReadFileOutput:
     file_path = os.path.abspath(os.path.expanduser(file_path))
 
+    # Enforce path policy before reading
+    policy = check_path_allowed(file_path, Operation.READ)
+    if not policy.allowed:
+        error_msg = policy.reason or "File read blocked by path policy."
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+
     if not os.path.exists(file_path):
         error_msg = f"File {file_path} does not exist"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     if not os.path.isfile(file_path):
         error_msg = f"{file_path} is not a file"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+
+    # Huge-file gate: reject full reads of files larger than cap unless chunked
+    try:
+        file_size = os.path.getsize(file_path)
+    except OSError:
+        file_size = 0
+    if start_line is None and num_lines is None and file_size > MAX_READ_FILE_BYTES:
+        return ReadFileOutput(
+            content=None,
+            error=(
+                f"File is too large ({file_size} bytes > {MAX_READ_FILE_BYTES} bytes). "
+                "Please read this file in chunks using start_line and num_lines."
+            ),
+            num_tokens=0,
+        )
+
     try:
         # Use errors="surrogateescape" to handle files with invalid UTF-8 sequences
         # This is common on Windows when files contain emojis or were created by
@@ -586,7 +644,6 @@ def _sanitize_string(text: str) -> str:
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
     import json
     import os
-    import shlex
     import shutil
     import subprocess
     import sys
@@ -595,27 +652,23 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     search_string = _sanitize_string(search_string)
 
     directory = os.path.abspath(os.path.expanduser(directory))
-    matches: List[MatchInfo] = []
+
+    # Enforce workspace / sensitive directory policy before searching
+    policy = check_path_allowed(directory, Operation.SEARCH)
+    if not policy.allowed:
+        error_message = policy.reason or "Search blocked by path policy."
+        return GrepOutput(matches=[], error=error_message)
+
+    matches: deque[MatchInfo] = deque(maxlen=MAX_GREP_MATCHES)
     error_message: str | None = None
 
     # Create a temporary ignore file with our ignore patterns
     ignore_file = None
     try:
-        # Use ripgrep to search for the string
-        # Use absolute path to ensure it works from any directory
-        # --json for structured output
-        # --max-count 50 to limit results
-        # --max-filesize 5M to avoid huge files (increased from 1M)
-        # --type=all to search across all recognized text file types
-        # --ignore-file to obey our ignore list
-
         # Find ripgrep executable - first check system PATH, then virtual environment
         rg_path = shutil.which("rg")
         if not rg_path:
-            # Try to find it in the virtual environment
-            # Use sys.executable to determine the Python environment path
             python_dir = os.path.dirname(sys.executable)
-            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
             for name in ["rg", "rg.exe"]:
                 candidate = os.path.join(python_dir, name)
                 if os.path.exists(candidate):
@@ -628,14 +681,19 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             )
             return GrepOutput(matches=[], error=error_message)
 
+        # Prevent option injection: treat search_string as data/regex only.
+        # Use '--' before the pattern so ripgrep stops parsing flags.
         cmd = [
             rg_path,
             "--json",
             "--max-count",
-            "50",
+            str(MAX_GREP_MATCHES),
             "--max-filesize",
             "5M",
             "--type=all",
+            "--",
+            search_string,
+            directory,
         ]
 
         # Add ignore patterns to the command via a temporary file
@@ -645,64 +703,87 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         ignore_file = f.name
         try:
             for pattern in DIR_IGNORE_PATTERNS:
+                # Skip patterns that would match the search directory itself
+                if would_match_directory(pattern, directory):
+                    continue
                 f.write(f"{pattern}\n")
         finally:
             f.close()
 
-        cmd.extend(["--ignore-file", ignore_file])
-        # Split search_string to support ripgrep flags like --ignore-case
-        try:
-            parts = shlex.split(search_string)
-        except ValueError:
-            # Fallback for unmatched quotes (e.g., apostrophes in search terms)
-            parts = [search_string]
-        cmd.extend(parts)
-        cmd.append(directory)
-        # Use encoding with error handling to handle files with invalid UTF-8
-        result = subprocess.run(
+        # Insert ignore-file arg after the base flags and before '--'
+        cmd.insert(1, "--ignore-file")
+        cmd.insert(2, ignore_file)
+
+        # Stream JSON output via Popen to avoid buffering huge results
+        process = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=30,
             encoding="utf-8",
-            errors="replace",  # Replace invalid chars instead of crashing
+            errors="replace",
         )
 
-        # Parse the JSON output from ripgrep
-        for line in result.stdout.strip().split("\n"):
-            if not line:
-                continue
+        timed_out = False
+        import threading
+
+        def _kill_on_timeout():
+            nonlocal timed_out
+            timed_out = True
             try:
-                match_data = json.loads(line)
-                # Only process match events, not context or summary
-                if match_data.get("type") == "match":
-                    data = match_data.get("data", {})
-                    path_data = data.get("path", {})
-                    file_path = (
-                        path_data.get("text", "") if path_data.get("text") else ""
-                    )
-                    line_number = data.get("line_number", None)
-                    line_content = (
-                        data.get("lines", {}).get("text", "")
-                        if data.get("lines", {}).get("text")
-                        else ""
-                    )
-                    if len(line_content.strip()) > 512:
-                        line_content = line_content.strip()[0:512]
-                    if file_path and line_number:
-                        # Sanitize content to handle any remaining encoding issues
-                        match_info = MatchInfo(
+                process.kill()
+            except Exception:
+                pass
+
+        timer = threading.Timer(30.0, _kill_on_timeout)
+        timer.start()
+
+        try:
+            for raw_line in process.stdout:
+                if timed_out:
+                    raise subprocess.TimeoutExpired("rg", 30)
+                line = raw_line.rstrip("\n")
+                if not line:
+                    continue
+                try:
+                    match_data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if match_data.get("type") != "match":
+                    continue
+                data = match_data.get("data", {})
+                path_data = data.get("path", {})
+                file_path = path_data.get("text", "") if path_data.get("text") else ""
+                line_number = data.get("line_number", None)
+                line_content = (
+                    data.get("lines", {}).get("text", "")
+                    if data.get("lines", {}).get("text")
+                    else ""
+                )
+                if len(line_content) > MAX_GREP_LINE_LENGTH:
+                    line_content = line_content[:MAX_GREP_LINE_LENGTH]
+                if file_path and line_number:
+                    matches.append(
+                        MatchInfo(
                             file_path=_sanitize_string(file_path),
                             line_number=line_number,
                             line_content=_sanitize_string(line_content.strip()),
                         )
-                        matches.append(match_info)
-                        # Limit to 50 matches total, same as original implementation
-                        if len(matches) >= 50:
-                            break
-            except json.JSONDecodeError:
-                # Skip lines that aren't valid JSON
-                continue
+                    )
+                    if len(matches) >= MAX_GREP_MATCHES:
+                        break
+        finally:
+            timer.cancel()
+            # Ensure ripgrep is killed even if we stopped early
+            try:
+                if process.poll() is None:
+                    process.kill()
+            except Exception:
+                pass
+            try:
+                process.wait(timeout=2)
+            except Exception:
+                pass
 
     except subprocess.TimeoutExpired:
         error_message = "Grep command timed out after 30 seconds"
@@ -713,9 +794,13 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     except Exception as e:
         error_message = f"Error during grep operation: {e}"
     finally:
-        # Clean up the temporary ignore file
         if ignore_file and os.path.exists(ignore_file):
-            os.unlink(ignore_file)
+            try:
+                os.unlink(ignore_file)
+            except OSError:
+                pass
+
+    match_list = list(matches)
 
     # Build structured GrepMatch objects for the UI
     grep_matches = [
@@ -724,23 +809,21 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             line_number=m.line_number or 1,
             line_content=m.line_content or "",
         )
-        for m in matches
+        for m in match_list
     ]
 
-    # Count unique files searched (approximation based on matches)
-    unique_files = len(set(m.file_path for m in matches)) if matches else 0
+    unique_files = len(set(m.file_path for m in match_list)) if match_list else 0
 
-    # Emit structured message for the UI (only once, at the end)
     grep_result_msg = GrepResultMessage(
         search_term=search_string,
         directory=directory,
         matches=grep_matches,
-        total_matches=len(matches),
+        total_matches=len(match_list),
         files_searched=unique_files,
     )
     get_message_bus().emit(grep_result_msg)
 
-    return GrepOutput(matches=matches, error=error_message)
+    return GrepOutput(matches=match_list, error=error_message)
 
 
 def register_list_files(agent):
@@ -797,6 +880,8 @@ def register_grep(agent):
     ) -> GrepOutput:
         """Recursively search for text patterns across files using ripgrep (rg).
 
-        search_string supports ripgrep flag syntax (regex, -i for case-insensitive, etc).
+        search_string is treated as a regex pattern, not CLI flags.
+        Use plain text or regex syntax; option injection is blocked.
+        Output is capped to 50 matches and 512 characters per line.
         """
         return _grep(context, search_string, directory)

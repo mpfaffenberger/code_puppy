@@ -3,8 +3,12 @@
 This module provides the core registry that scans the user's UC directory,
 loads tool metadata, extracts function signatures, and provides access
 to enabled tools for the LLM.
+
+Hardened to parse TOOL_META via AST before importing, and to skip
+disabled or untrusted tools during scan.
 """
 
+import ast
 import importlib.util
 import inspect
 import logging
@@ -16,6 +20,12 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from . import USER_UC_DIR
 from .models import ToolMeta, UCToolInfo
+from .safety import (
+    UCApprovalStore,
+    check_code_safety,
+    is_path_within_uc_dir,
+    validate_full_tool_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +94,24 @@ class UCRegistry:
     def _load_tool_file(self, file_path: Path) -> Optional[UCToolInfo]:
         """Load a tool from a Python file.
 
+        Hardened flow:
+        1. Parse TOOL_META via AST before importing the module.
+        2. Validate tool name for path traversal / reserved names.
+        3. Skip disabled tools (no import needed).
+        4. For enabled tools with dangerous code, require approval.
+        5. Only import if the tool passes safety and trust checks.
+
         Args:
             file_path: Path to the Python file.
 
         Returns:
             UCToolInfo if valid tool, None otherwise.
         """
+        # Safety: file must be within tools directory
+        if not is_path_within_uc_dir(file_path, self._tools_dir):
+            logger.warning(f"Tool file outside UC directory: {file_path}")
+            return None
+
         # Calculate namespace from relative path
         try:
             rel_path = file_path.relative_to(self._tools_dir)
@@ -98,17 +120,18 @@ class UCRegistry:
         except ValueError:
             namespace = ""
 
-        # Load the module
-        module = self._load_module(file_path)
-        if module is None:
+        # Step 1: Parse TOOL_META via AST without importing
+        try:
+            code = file_path.read_text(encoding="utf-8")
+            tree = ast.parse(code)
+        except (SyntaxError, OSError) as e:
+            logger.warning(f"Cannot parse {file_path}: {e}")
             return None
 
-        # Check for TOOL_META
-        if not hasattr(module, "TOOL_META"):
+        raw_meta = self._extract_tool_meta_from_ast(tree)
+        if raw_meta is None:
             logger.debug(f"No TOOL_META found in {file_path}")
             return None
-
-        raw_meta = dict(module.TOOL_META)  # Copy to avoid mutating module constant
         if not isinstance(raw_meta, dict):
             logger.warning(f"TOOL_META is not a dict in {file_path}")
             return None
@@ -121,6 +144,57 @@ class UCRegistry:
             meta = ToolMeta(**raw_meta)
         except Exception as e:
             logger.warning(f"Invalid TOOL_META in {file_path}: {e}")
+            return None
+
+        # Validate tool name
+        full_name = f"{namespace}.{meta.name}" if namespace else meta.name
+        name_error = validate_full_tool_name(full_name)
+        if name_error:
+            logger.warning(f"Invalid tool name '{full_name}': {name_error}")
+            return None
+
+        # Step 2: Skip disabled tools without importing
+        if not meta.enabled:
+            return UCToolInfo(
+                meta=meta,
+                signature=f"{meta.name}(...)",
+                source_path=str(file_path),
+                function_name=meta.name,
+                docstring=None,
+            )
+
+        # Step 3: Safety check for enabled tools
+        safety = check_code_safety(code)
+        if safety.blocked:
+            logger.warning(
+                f"Tool '{full_name}' blocked by safety check: {safety.errors}"
+            )
+            return UCToolInfo(
+                meta=meta,
+                signature=f"{meta.name}(...)",
+                source_path=str(file_path),
+                function_name=meta.name,
+                docstring=None,
+            )
+
+        if safety.requires_approval:
+            approval_store = UCApprovalStore()
+            if not approval_store.is_approved(full_name, safety.code_hash):
+                logger.warning(
+                    f"Tool '{full_name}' requires approval (dangerous patterns). "
+                    f"Run /approve-uc {full_name} to enable."
+                )
+                return UCToolInfo(
+                    meta=meta,
+                    signature=f"{meta.name}(...)",
+                    source_path=str(file_path),
+                    function_name=meta.name,
+                    docstring=None,
+                )
+
+        # Step 4: Only import if we passed safety/trust
+        module = self._load_module(file_path)
+        if module is None:
             return None
 
         # Find the callable function
@@ -140,7 +214,6 @@ class UCRegistry:
         docstring = inspect.getdoc(func)
 
         # Store module reference for later calls
-        full_name = f"{namespace}.{meta.name}" if namespace else meta.name
         self._modules[full_name] = module
 
         return UCToolInfo(
@@ -150,6 +223,21 @@ class UCRegistry:
             function_name=func_name,
             docstring=docstring,
         )
+
+    @staticmethod
+    def _extract_tool_meta_from_ast(tree: ast.AST) -> Optional[Dict]:
+        """Extract TOOL_META dict from an AST without executing code."""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "TOOL_META":
+                        if isinstance(node.value, ast.Dict):
+                            try:
+                                meta_str = ast.unparse(node.value)
+                                return ast.literal_eval(meta_str)
+                            except (ValueError, SyntaxError):
+                                return None
+        return None
 
     def _load_module(self, file_path: Path) -> Optional[ModuleType]:
         """Load a Python module from a file path.

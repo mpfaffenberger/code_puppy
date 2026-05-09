@@ -21,6 +21,7 @@ import signal
 import threading
 import uuid
 from contextlib import AsyncExitStack
+from dataclasses import dataclass
 from typing import Any, Callable, List, Optional, Sequence, Type, Union
 
 import httpcore
@@ -291,6 +292,15 @@ def _collect_exceptions(
     return out
 
 
+@dataclass
+class RunOutcome:
+    """Structured result of a single agent run attempt."""
+
+    success: bool
+    result: Any = None
+    error: Optional[BaseException] = None
+
+
 # ---- The main entry point ---------------------------------------------------
 
 
@@ -346,9 +356,11 @@ async def run_with_mcp(
         # ``None``, which makes pydantic-ai use the non-streaming
         # ``model.request()`` path instead of ``request_stream()``.
         _saved_handler: Any = None
+        handler_was_modified = False
         if not use_streaming:
             _saved_handler = getattr(pydantic_agent, "_event_stream_handler", None)
             pydantic_agent._event_stream_handler = None
+            handler_was_modified = True
         # Plugins (e.g. DBOS) can render their own output and ask us to skip
         # the non-streaming fallback render.
         skip_fallback_render = on_should_skip_fallback_render(agent)
@@ -386,42 +398,44 @@ async def run_with_mcp(
                     await asyncio.sleep(retry_delay)
                 return await _call()
 
-        result = await _call_with_exception_recovery()
+        try:
+            result = await _call_with_exception_recovery()
 
-        # Restore the handler we cleared (non-streaming models).
-        if _saved_handler is not None or not use_streaming:
-            pydantic_agent._event_stream_handler = _saved_handler
-
-        for _ in range(get_max_hook_retries()):
-            hook_results = await on_agent_run_result(
-                result,
-                agent_name=agent.name,
-                model_name=agent.get_model_name(),
-            )
-            retry_req = next(
-                (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
-                None,
-            )
-            if not retry_req:
-                break
-
-            retry_prompt = retry_req.get("prompt", "Please continue.")
-            retry_delay = retry_req.get("delay", 1.0)
-            if hasattr(result, "all_messages"):
-                agent._message_history = list(result.all_messages())
-            await asyncio.sleep(retry_delay)
-
-            @streaming_retry()
-            async def _retry_call() -> Any:
-                return await pydantic_agent.run(
-                    retry_prompt,
-                    message_history=agent._message_history,
-                    usage_limits=usage_limits,
-                    event_stream_handler=stream_handler,
-                    **kwargs,
+            for _ in range(get_max_hook_retries()):
+                hook_results = await on_agent_run_result(
+                    result,
+                    agent_name=agent.name,
+                    model_name=agent.get_model_name(),
                 )
+                retry_req = next(
+                    (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
+                    None,
+                )
+                if not retry_req:
+                    break
 
-            result = await _retry_call()
+                retry_prompt = retry_req.get("prompt", "Please continue.")
+                retry_delay = retry_req.get("delay", 1.0)
+                if hasattr(result, "all_messages"):
+                    agent._message_history = list(result.all_messages())
+                await asyncio.sleep(retry_delay)
+
+                @streaming_retry()
+                async def _retry_call() -> Any:
+                    return await pydantic_agent.run(
+                        retry_prompt,
+                        message_history=agent._message_history,
+                        usage_limits=usage_limits,
+                        event_stream_handler=stream_handler,
+                        **kwargs,
+                    )
+
+                result = await _retry_call()
+
+        finally:
+            # Restore the handler we cleared (non-streaming models).
+            if handler_was_modified:
+                pydantic_agent._event_stream_handler = _saved_handler
 
         # Fallback render when streaming didn't surface any text to the user.
         if result is not None and should_render_fallback(
@@ -431,7 +445,8 @@ async def run_with_mcp(
 
         return result
 
-    async def run_agent_task() -> Any:
+    async def run_agent_task() -> RunOutcome:
+        outcome: Optional[RunOutcome] = None
         try:
             agent._message_history = _history.prune_interrupted_tool_calls(
                 agent._message_history
@@ -444,7 +459,8 @@ async def run_with_mcp(
             async with AsyncExitStack() as stack:
                 for cm in run_ctxs:
                     await stack.enter_async_context(cm)
-                return await _do_run(prompt_payload)
+                result = await _do_run(prompt_payload)
+                outcome = RunOutcome(True, result=result)
         except* UsageLimitExceeded as ule:
             emit_info(f"Usage limit exceeded: {ule}", group_id=group_id)
             emit_info(
@@ -452,15 +468,11 @@ async def run_with_mcp(
                 "by saying 'please continue' or similar.",
                 group_id=group_id,
             )
+            outcome = RunOutcome(False, error=ule)
         except* mcp.shared.exceptions.McpError as mcp_error:
             emit_info(f"MCP server error: {mcp_error}", group_id=group_id)
             emit_info("Try disabling any malfunctioning MCP servers", group_id=group_id)
-        except* asyncio.CancelledError:
-            emit_info("Cancelled")
-            await on_agent_run_cancel(group_id)
-        except* InterruptedError as ie:
-            emit_info(f"Interrupted: {ie}")
-            await on_agent_run_cancel(group_id)
+            outcome = RunOutcome(False, error=mcp_error)
         except* Exception as other:
             unexpected = _collect_exceptions(
                 other,
@@ -470,10 +482,14 @@ async def run_with_mcp(
             )
             for exc in unexpected:
                 emit_exception_diagnostics(exc, group_id=group_id)
+            outcome = RunOutcome(False, error=other)
         finally:
             agent._message_history = _history.prune_interrupted_tool_calls(
                 agent._message_history
             )
+        if outcome is None:
+            return RunOutcome(False)
+        return outcome
 
     agent_task = asyncio.create_task(run_agent_task())
 
@@ -542,17 +558,29 @@ async def run_with_mcp(
                 on_cancel_agent=schedule_agent_cancel,
             )
 
-        result = await agent_task
-        run_success = True
-        run_response_text = _extract_response_text(result)
-        return result
-    except asyncio.CancelledError:
+        outcome = await agent_task
+        if outcome.success:
+            result = outcome.result
+            run_success = True
+            run_response_text = _extract_response_text(result)
+            return result
+        else:
+            run_error = outcome.error
+            if outcome.error is not None:
+                raise outcome.error
+    except asyncio.CancelledError as exc:
         run_response_text = ""
+        run_error = exc
+        await on_agent_run_cancel(group_id)
         agent_task.cancel()
+        raise
     except KeyboardInterrupt:
         run_response_text = ""
         if not agent_task.done():
             agent_task.cancel()
+    except BaseExceptionGroup as e:
+        run_error = e
+        raise
     except Exception as e:
         run_error = e
         raise

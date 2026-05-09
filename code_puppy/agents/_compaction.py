@@ -25,6 +25,7 @@ from pydantic_ai.messages import (
 )
 
 from code_puppy.agents._history import (
+    CompactionCache,
     estimate_tokens_for_message,
     filter_huge_messages,
     has_pending_tool_calls,
@@ -97,6 +98,7 @@ def split_for_protected_summarization(
     messages: List[ModelMessage],
     protected_tokens: int,
     model_name: Optional[str] = None,
+    cache: Optional[CompactionCache] = None,
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
     """Split messages into (to_summarize, protected) groups.
 
@@ -109,14 +111,16 @@ def split_for_protected_summarization(
     if len(messages) <= 1:
         return [], messages
 
+    _tok = cache.estimate_tokens if cache else estimate_tokens_for_message
+
     system_message = messages[0]
-    system_tokens = estimate_tokens_for_message(system_message, model_name)
+    system_tokens = _tok(system_message, model_name)
 
     protected_messages: List[ModelMessage] = []
     running_tokens = system_tokens
 
     for i in range(len(messages) - 1, 0, -1):
-        msg_tokens = estimate_tokens_for_message(messages[i], model_name)
+        msg_tokens = _tok(messages[i], model_name)
         if running_tokens + msg_tokens > protected_tokens:
             break
         protected_messages.append(messages[i])
@@ -142,12 +146,15 @@ def truncate(
     messages: List[ModelMessage],
     protected_tokens: int,
     model_name: Optional[str] = None,
+    cache: Optional[CompactionCache] = None,
 ) -> List[ModelMessage]:
     """Drop middle messages, keeping system prompt, optional thinking, and recent tail."""
     import queue
 
     if not messages:
         return messages
+
+    _tok = cache.estimate_tokens if cache else estimate_tokens_for_message
 
     emit_info("Truncating message history to manage token usage")
     result: List[ModelMessage] = [messages[0]]
@@ -166,7 +173,7 @@ def truncate(
     num_tokens = 0
     stack: "queue.LifoQueue[ModelMessage]" = queue.LifoQueue()
     for msg in reversed(messages_to_scan):
-        num_tokens += estimate_tokens_for_message(msg, model_name)
+        num_tokens += _tok(msg, model_name)
         if num_tokens > protected_tokens:
             break
         stack.put(msg)
@@ -182,6 +189,7 @@ def _run_summarization_core(
     protected_tokens: int,
     with_protection: bool,
     model_name: Optional[str],
+    cache: Optional[CompactionCache] = None,
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
     """Inner summarization that propagates exceptions to the caller.
 
@@ -195,7 +203,7 @@ def _run_summarization_core(
 
     if with_protection:
         messages_to_summarize, protected_messages = split_for_protected_summarization(
-            messages, protected_tokens, model_name
+            messages, protected_tokens, model_name, cache=cache
         )
     else:
         messages_to_summarize = messages[1:]
@@ -242,6 +250,7 @@ def summarize(
     protected_tokens: int,
     with_protection: bool = True,
     model_name: Optional[str] = None,
+    cache: Optional[CompactionCache] = None,
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
     """Summarize older messages, preserving the protected recent tail.
 
@@ -250,7 +259,7 @@ def summarize(
     """
     try:
         return _run_summarization_core(
-            messages, protected_tokens, with_protection, model_name
+            messages, protected_tokens, with_protection, model_name, cache=cache
         )
     except Exception as e:
         _log_summarization_failure(
@@ -264,15 +273,17 @@ def _truncate_with_dropped(
     filtered: List[ModelMessage],
     protected_tokens: int,
     model_name: Optional[str],
+    cache: Optional[CompactionCache] = None,
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
     """Truncate ``filtered`` and compute which messages got dropped.
 
     Shared by the truncation strategy and the summarization-failure fallback
     so both paths agree on what counts as 'dropped' for hash bookkeeping.
     """
-    result_messages = truncate(filtered, protected_tokens, model_name)
-    result_hashes = {hash_message(m) for m in result_messages}
-    dropped = [m for m in filtered if hash_message(m) not in result_hashes]
+    result_messages = truncate(filtered, protected_tokens, model_name, cache=cache)
+    _hash = cache.hash_message if cache else hash_message
+    result_hashes = {_hash(m) for m in result_messages}
+    dropped = [m for m in filtered if _hash(m) not in result_hashes]
     return result_messages, dropped
 
 
@@ -303,7 +314,11 @@ def compact(
         except Exception:
             model_name = None
 
-    message_tokens = sum(estimate_tokens_for_message(m, model_name) for m in messages)
+    # PERF-04: create a per-compaction cache to avoid repeated hash/token
+    # computations on the same message objects within this invocation.
+    cache = CompactionCache()
+
+    message_tokens = cache.sum_tokens(messages, model_name)
     total_tokens = message_tokens + context_overhead
     proportion_used = total_tokens / model_max if model_max else 0.0
 
@@ -319,7 +334,7 @@ def compact(
     strategy = get_compaction_strategy()
 
     protected_tokens = get_protected_token_count()
-    filtered = filter_huge_messages(messages, model_name)
+    filtered = filter_huge_messages(messages, model_name, cache=cache)
 
     # filter_huge_messages() already runs prune_interrupted_tool_calls(),
     # so by this point any orphaned tool_call / tool_return pairs (from
@@ -341,13 +356,13 @@ def compact(
 
     if strategy == "truncation":
         result_messages, summarized_messages = _truncate_with_dropped(
-            filtered, protected_tokens, model_name
+            filtered, protected_tokens, model_name, cache=cache
         )
     else:
         # Route through the public summarize() so error handling, logging,
         # and any future instrumentation stay in one place (DRY).
         result_messages, summarized_messages = summarize(
-            filtered, protected_tokens, True, model_name
+            filtered, protected_tokens, True, model_name, cache=cache
         )
         # If summarization failed gracefully (returned original messages
         # with nothing dropped), fall back to truncation for this cycle.
@@ -359,12 +374,10 @@ def compact(
                 message_group="token_context_status",
             )
             result_messages, summarized_messages = _truncate_with_dropped(
-                filtered, protected_tokens, model_name
+                filtered, protected_tokens, model_name, cache=cache
             )
 
-    final_token_count = sum(
-        estimate_tokens_for_message(m, model_name) for m in result_messages
-    )
+    final_token_count = cache.sum_tokens(result_messages, model_name)
     final_summary = SpinnerBase.format_context_info(
         final_token_count,
         model_max,

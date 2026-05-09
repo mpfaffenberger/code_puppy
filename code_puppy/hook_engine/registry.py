@@ -26,12 +26,18 @@ SUPPORTED_EVENT_TYPES = [
 ]
 
 
-def build_registry_from_config(config: Dict[str, Any]) -> HookRegistry:
+def build_registry_from_config(
+    config: Dict[str, Any],
+    source: str = "global",
+    trusted: bool = True,
+) -> HookRegistry:
     """
     Build a HookRegistry from a configuration dictionary.
 
     Args:
-        config: Hook configuration dictionary
+        config: Hook configuration dictionary.
+        source: Origin of this config ("global" or "project").
+        trusted: Whether hooks from this config are pre-trusted.
 
     Returns:
         Populated HookRegistry
@@ -68,6 +74,8 @@ def build_registry_from_config(config: Dict[str, Any]) -> HookRegistry:
                         once=hook_data.get("once", False),
                         enabled=hook_data.get("enabled", True),
                         id=hook_data.get("id"),
+                        source=source,  # type: ignore[arg-type]
+                        trusted=trusted,
                     )
                     registry.add_hook(event_type, hook)
                 except (ValueError, KeyError) as e:

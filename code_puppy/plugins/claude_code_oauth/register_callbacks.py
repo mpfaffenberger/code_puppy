@@ -61,8 +61,8 @@ class _CallbackHandler(BaseHTTPRequestHandler):
     received_event: threading.Event
 
     def do_GET(self) -> None:  # noqa: N802
-        logger.info("Callback received: path=%s", self.path)
         parsed = urlparse(self.path)
+        logger.info("Callback received: path=%s", parsed.path)
         params: Dict[str, List[str]] = parse_qs(parsed.query)
 
         code = params.get("code", [None])[0]

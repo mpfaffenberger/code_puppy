@@ -619,7 +619,10 @@ class TestTokenStorage:
         """Test saving tokens with permission error returns False."""
         mock_get_path.return_value = Path("/root/protected.json")
 
-        with patch("builtins.open", side_effect=PermissionError("Permission denied")):
+        with patch(
+            "code_puppy.plugins.chatgpt_oauth.utils.atomic_write_private_json",
+            side_effect=PermissionError("Permission denied"),
+        ):
             result = save_tokens({"test": "data"})
             assert result is False
 

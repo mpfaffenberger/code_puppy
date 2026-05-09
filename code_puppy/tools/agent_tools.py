@@ -2,7 +2,6 @@
 import asyncio
 import hashlib
 import json
-import pickle
 import re
 import traceback
 from contextlib import AsyncExitStack
@@ -15,7 +14,9 @@ from pydantic import BaseModel
 
 # Import Agent from pydantic_ai to create temporary agents for invocation
 from pydantic_ai import Agent, RunContext, UsageLimits
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
+
+from code_puppy.secret_storage import atomic_write_private_json
 
 from code_puppy.callbacks import (
     on_agent_run_cancel,
@@ -24,8 +25,8 @@ from code_puppy.callbacks import (
 )
 from code_puppy.config import (
     DATA_DIR,
+    get_mcp_disabled,
     get_message_limit,
-    get_value,
 )
 from code_puppy.messaging import (
     SubAgentInvocationMessage,
@@ -112,7 +113,7 @@ def _save_session_history(
     agent_name: str,
     initial_prompt: str | None = None,
 ) -> None:
-    """Save session history to filesystem.
+    """Save session history to filesystem as JSON with atomic private writes.
 
     Args:
         session_id: The session identifier (must be kebab-case)
@@ -128,10 +129,14 @@ def _save_session_history(
 
     sessions_dir = _get_subagent_sessions_dir()
 
-    # Save pickle file with message history
-    pkl_path = sessions_dir / f"{session_id}.pkl"
-    with open(pkl_path, "wb") as f:
-        pickle.dump(message_history, f)
+    # Save JSON file with message history
+    json_path = sessions_dir / f"{session_id}.json"
+    session_data = {
+        "schema": "code_puppy.subagent.session.v1",
+        "format": "pydantic-ai-model-messages-json",
+        "messages": ModelMessagesTypeAdapter.dump_python(message_history, mode="json"),
+    }
+    atomic_write_private_json(json_path, session_data)
 
     # Save or update txt file with metadata
     txt_path = sessions_dir / f"{session_id}.txt"
@@ -175,16 +180,20 @@ def _load_session_history(session_id: str) -> List[ModelMessage]:
     _validate_session_id(session_id)
 
     sessions_dir = _get_subagent_sessions_dir()
-    pkl_path = sessions_dir / f"{session_id}.pkl"
+    json_path = sessions_dir / f"{session_id}.json"
 
-    if not pkl_path.exists():
+    if not json_path.exists():
         return []
 
     try:
-        with open(pkl_path, "rb") as f:
-            return pickle.load(f)
+        with open(json_path, "r", encoding="utf-8") as f:
+            session_data = json.load(f)
+        raw_messages = session_data.get("messages", [])
+        if not isinstance(raw_messages, list):
+            return []
+        return ModelMessagesTypeAdapter.validate_python(raw_messages)
     except Exception:
-        # If pickle is corrupted or incompatible, return empty history
+        # If JSON is corrupted or incompatible, return empty history
         return []
 
 
@@ -415,10 +424,7 @@ def register_invoke_agent(agent):
             from code_puppy.mcp_ import get_mcp_manager
 
             mcp_servers = []
-            mcp_disabled = get_value("disable_mcp_servers")
-            if not (
-                mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on")
-            ):
+            if not get_mcp_disabled():
                 manager = get_mcp_manager()
                 mcp_servers = manager.get_servers_for_agent()
 

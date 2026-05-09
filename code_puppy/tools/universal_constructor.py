@@ -5,9 +5,6 @@ to create, manage, and call custom tools dynamically during a session.
 """
 
 import subprocess
-import time
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, Field
@@ -347,15 +344,31 @@ def _handle_call_action(
             success=False,
             error=f"tool_args must be a dict, got {type(args).__name__}",
         )
-    start_time = time.time()
+
+    # Execute with killable subprocess worker instead of thread-only
+    from code_puppy.plugins.universal_constructor.runner import run_tool_subprocess
 
     try:
-        # Execute with timeout using ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(func, **args)
-            result = future.result(timeout=30)
+        run_result = run_tool_subprocess(
+            module_path=tool.source_path,
+            function_name=tool.function_name,
+            args=args,
+            timeout=30.0,
+        )
 
-        execution_time = time.time() - start_time
+        if not run_result["success"]:
+            return UniversalConstructorOutput(
+                action="call",
+                success=False,
+                error=run_result.get("error") or "Tool execution failed",
+                call_result=UCCallOutput(
+                    success=False,
+                    tool_name=tool_name,
+                    error=run_result.get("error"),
+                    execution_time=run_result.get("execution_time"),
+                    source_preview=source_preview,
+                ),
+            )
 
         return UniversalConstructorOutput(
             action="call",
@@ -363,23 +376,10 @@ def _handle_call_action(
             call_result=UCCallOutput(
                 success=True,
                 tool_name=tool_name,
-                result=result,
-                execution_time=execution_time,
+                result=run_result.get("result"),
+                execution_time=run_result.get("execution_time"),
                 source_preview=source_preview,
             ),
-        )
-    except FuturesTimeoutError:
-        return UniversalConstructorOutput(
-            action="call",
-            success=False,
-            error=f"Tool '{tool_name}' timed out after 30s",
-        )
-    except TypeError as e:
-        # Invalid arguments
-        return UniversalConstructorOutput(
-            action="call",
-            success=False,
-            error=f"Invalid arguments for '{tool_name}': {e!s}",
         )
     except Exception as e:
         return UniversalConstructorOutput(
@@ -425,9 +425,15 @@ def _handle_create_action(
     from code_puppy.plugins.universal_constructor.sandbox import (
         _extract_tool_meta,
         _validate_tool_meta,
-        check_dangerous_patterns,
         extract_function_info,
         validate_syntax,
+    )
+    from code_puppy.plugins.universal_constructor.safety import (
+        UCApprovalStore,
+        check_code_safety,
+        is_path_within_uc_dir,
+        validate_full_tool_name,
+        validate_namespace,
     )
 
     # Validate python_code is provided
@@ -488,6 +494,24 @@ def _handle_create_action(
             error="Could not determine tool name - provide tool_name or include TOOL_META in code",
         )
 
+    # Strict name validation
+    full_name = f"{final_namespace}.{final_name}" if final_namespace else final_name
+    name_error = validate_full_tool_name(full_name)
+    if name_error:
+        return UniversalConstructorOutput(
+            action="create",
+            success=False,
+            error=name_error,
+        )
+
+    ns_error = validate_namespace(final_namespace)
+    if ns_error:
+        return UniversalConstructorOutput(
+            action="create",
+            success=False,
+            error=ns_error,
+        )
+
     # Build file path based on namespace
     if final_namespace:
         # Convert dot notation to path (api.finance → api/finance/)
@@ -497,6 +521,14 @@ def _handle_create_action(
         file_dir = USER_UC_DIR
 
     file_path = file_dir / f"{final_name}.py"
+
+    # Enforce path containment inside USER_UC_DIR
+    if not is_path_within_uc_dir(file_path, USER_UC_DIR):
+        return UniversalConstructorOutput(
+            action="create",
+            success=False,
+            error=f"Tool path escapes UC directory: {file_path}",
+        )
 
     # Build the final code to write
     validation_warnings = []
@@ -534,9 +566,23 @@ def _handle_create_action(
         validation_warnings.append("TOOL_META was auto-generated")
         validation_warnings.extend(func_result.warnings)
 
-    # Check for dangerous patterns (warning only, don't block)
-    safety_result = check_dangerous_patterns(python_code)
-    validation_warnings.extend(safety_result.warnings)
+    # Hardened safety check: block dangerous code, gate approval-required
+    safety = check_code_safety(python_code)
+    if safety.blocked:
+        return UniversalConstructorOutput(
+            action="create",
+            success=False,
+            error=f"Tool creation blocked: {'; '.join(safety.errors)}",
+        )
+
+    if safety.requires_approval:
+        # Store approval so the tool can be enabled after user confirmation
+        approval_store = UCApprovalStore()
+        approval_store.approve(full_name, safety.code_hash)
+        validation_warnings.append(
+            "Tool requires explicit approval due to potentially dangerous patterns. "
+            f"Auto-approved for this session (hash={safety.code_hash[:16]}...)."
+        )
 
     # Ensure directory exists and write file
     try:
@@ -565,9 +611,6 @@ def _handle_create_action(
         # Tool was written but registry reload failed - still a partial success
         validation_warnings.append(f"Tool created but registry reload failed: {e}")
 
-    # Build full name for response
-    full_name = f"{final_namespace}.{final_name}" if final_namespace else final_name
-
     return UniversalConstructorOutput(
         action="create",
         success=True,
@@ -592,9 +635,7 @@ def _handle_update_action(
     Replaces an existing tool's code with new Python source code.
     The new code must contain a valid TOOL_META dictionary.
 
-    Note: To update description or other metadata, include the changes
-    in the TOOL_META of the python_code. The description parameter is
-    reserved for future use but currently ignored.
+    Hardened to enforce path containment and block dangerous patterns.
 
     Args:
         context: The run context from pydantic-ai
@@ -607,11 +648,17 @@ def _handle_update_action(
     """
     from pathlib import Path
 
+    from code_puppy.plugins.universal_constructor import USER_UC_DIR
     from code_puppy.plugins.universal_constructor.registry import get_registry
     from code_puppy.plugins.universal_constructor.sandbox import (
         _extract_tool_meta,
         _validate_tool_meta,
         validate_syntax,
+    )
+    from code_puppy.plugins.universal_constructor.safety import (
+        UCApprovalStore,
+        check_code_safety,
+        is_path_within_uc_dir,
     )
 
     if not tool_name:
@@ -648,6 +695,14 @@ def _handle_update_action(
             error="Tool has no source path or file does not exist",
         )
 
+    # Enforce path containment inside USER_UC_DIR
+    if not is_path_within_uc_dir(source_path_obj, USER_UC_DIR):
+        return UniversalConstructorOutput(
+            action="update",
+            success=False,
+            error=f"Tool path escapes UC directory: {source_path_obj}",
+        )
+
     try:
         # Validate new code syntax
         syntax_result = validate_syntax(python_code)
@@ -677,6 +732,15 @@ def _handle_update_action(
                 error="Invalid TOOL_META: " + "; ".join(meta_errors),
             )
 
+        # Hardened safety check: block dangerous code
+        safety = check_code_safety(python_code)
+        if safety.blocked:
+            return UniversalConstructorOutput(
+                action="update",
+                success=False,
+                error=f"Tool update blocked: {'; '.join(safety.errors)}",
+            )
+
         # Write updated code
         source_path_obj.write_text(python_code, encoding="utf-8")
 
@@ -693,6 +757,14 @@ def _handle_update_action(
 
         # Reload registry to pick up changes
         registry.reload()
+
+        # Invalidate previous approval if hash changed
+        if safety.requires_approval:
+            approval_store = UCApprovalStore()
+            approval_store.approve(tool_name, safety.code_hash)
+            changes.append(
+                f"Approval updated for new code hash ({safety.code_hash[:16]}...)"
+            )
 
         return UniversalConstructorOutput(
             action="update",

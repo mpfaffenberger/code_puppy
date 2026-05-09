@@ -1321,9 +1321,13 @@ def test_tool(): pass
                 mock_get_registry.return_value = mock_registry
 
                 # Try to update with invalid syntax
-                result = _handle_update_action(
-                    context, "test_tool", "def broken(", None
-                )
+                with patch(
+                    "code_puppy.plugins.universal_constructor.safety.is_path_within_uc_dir",
+                    return_value=True,
+                ):
+                    result = _handle_update_action(
+                        context, "test_tool", "def broken(", None
+                    )
                 assert result.success is False
                 assert "Syntax error" in result.error
 
@@ -1362,9 +1366,13 @@ def test_tool(): pass
                 mock_get_registry.return_value = mock_registry
 
                 # Try to update with code that has no TOOL_META
-                result = _handle_update_action(
-                    context, "test_tool", "def foo(): pass", None
-                )
+                with patch(
+                    "code_puppy.plugins.universal_constructor.safety.is_path_within_uc_dir",
+                    return_value=True,
+                ):
+                    result = _handle_update_action(
+                        context, "test_tool", "def foo(): pass", None
+                    )
                 assert result.success is False
                 assert "TOOL_META" in result.error
 
@@ -1406,7 +1414,11 @@ def updatable(): return "original"
 TOOL_META = {"name": "updatable", "description": "Updated"}
 def updatable(): return "updated"
 """
-                result = _handle_update_action(context, "updatable", new_code, None)
+                with patch(
+                    "code_puppy.plugins.universal_constructor.safety.is_path_within_uc_dir",
+                    return_value=True,
+                ):
+                    result = _handle_update_action(context, "updatable", new_code, None)
                 assert result.success is True
                 assert result.update_result is not None
                 assert result.update_result.success is True

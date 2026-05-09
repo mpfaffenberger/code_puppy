@@ -172,16 +172,16 @@ class TestResolveProxyConfig:
         mock_get_http2,
         mock_get_cert,
     ):
-        """Test disable retry transport flag."""
+        """Test disable retry transport flag does NOT disable TLS."""
         from code_puppy.http_utils import _resolve_proxy_config
 
         mock_get_http2.return_value = False
-        mock_get_cert.return_value = None
+        mock_get_cert.return_value = "/path/to/ca-bundle.crt"
 
         with patch.dict(os.environ, {"CODE_PUPPY_DISABLE_RETRY_TRANSPORT": "1"}):
             config = _resolve_proxy_config()
             assert config.disable_retry is True
-            assert config.verify is False  # SSL disabled in test mode
+            assert config.verify == "/path/to/ca-bundle.crt"  # TLS still on
 
     @patch("code_puppy.http_utils.get_cert_bundle_path")
     @patch("code_puppy.http_utils.get_http2")
@@ -200,6 +200,45 @@ class TestResolveProxyConfig:
             with patch.dict(os.environ, {"CODE_PUPPY_DISABLE_RETRY_TRANSPORT": value}):
                 config = _resolve_proxy_config()
                 assert config.disable_retry is True
+
+    @patch("code_puppy.http_utils.get_cert_bundle_path")
+    @patch("code_puppy.http_utils.get_http2")
+    def test_explicit_disable_tls_verify_sets_verify_false(
+        self,
+        mock_get_http2,
+        mock_get_cert,
+    ):
+        """Test CODE_PUPPY_DISABLE_TLS_VERIFY explicitly disables TLS."""
+        from code_puppy.http_utils import _resolve_proxy_config
+
+        mock_get_http2.return_value = False
+        mock_get_cert.return_value = "/path/to/ca-bundle.crt"
+
+        with patch.dict(os.environ, {"CODE_PUPPY_DISABLE_TLS_VERIFY": "1"}):
+            config = _resolve_proxy_config()
+            assert config.verify is False
+
+    @patch("code_puppy.http_utils.get_cert_bundle_path")
+    @patch("code_puppy.http_utils.get_http2")
+    def test_proxy_env_sets_trust_env_without_disabling_verify(
+        self,
+        mock_get_http2,
+        mock_get_cert,
+    ):
+        """Test proxy env sets trust_env=True without touching verify."""
+        from code_puppy.http_utils import _resolve_proxy_config
+
+        mock_get_http2.return_value = False
+        mock_get_cert.return_value = "/path/to/ca-bundle.crt"
+
+        with patch.dict(
+            os.environ,
+            {"HTTPS_PROXY": "https://proxy.example.com:3128"},
+        ):
+            config = _resolve_proxy_config()
+            assert config.trust_env is True
+            assert config.proxy_url == "https://proxy.example.com:3128"
+            assert config.verify == "/path/to/ca-bundle.crt"
 
     @patch("code_puppy.http_utils.get_cert_bundle_path")
     @patch("code_puppy.http_utils.get_http2")

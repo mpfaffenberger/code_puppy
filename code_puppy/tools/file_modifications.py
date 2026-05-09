@@ -31,6 +31,16 @@ from code_puppy.messaging import (  # Structured messaging types
     get_message_bus,
 )
 from code_puppy.tools.common import _find_best_window, generate_group_id
+from code_puppy.tools.path_policy import Operation, check_path_allowed
+
+# Caps for edits/diffs to avoid unbounded memory use
+MAX_EDIT_FILE_BYTES = 1_000_000
+MAX_DIFF_BYTES = 512_000
+
+# Fuzzy replacement fallback limits (P2-04)
+MAX_FUZZY_FILE_LINES = 20_000  # Skip fuzzy on files with more lines
+MAX_FUZZY_OLD_SNIPPET_CHARS = 20_000  # Skip fuzzy when old snippet exceeds this
+MAX_FUZZY_REPLACEMENT_COUNT = 20  # Reject replacements list above this
 
 
 def _create_rejection_response(file_path: str) -> Dict[str, Any]:
@@ -215,10 +225,30 @@ def _delete_snippet_from_file(
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     file_path = os.path.abspath(file_path)
+
+    # Enforce path policy before editing
+    policy = check_path_allowed(file_path, Operation.WRITE)
+    if not policy.allowed:
+        return {"error": policy.reason or "Edit blocked by path policy.", "diff": ""}
+
     diff_text = ""
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
+
+        # Huge-file gate: reject edits before full read
+        try:
+            if os.path.getsize(file_path) > MAX_EDIT_FILE_BYTES:
+                return {
+                    "error": (
+                        f"File is too large to edit safely (> {MAX_EDIT_FILE_BYTES} bytes). "
+                        "Please break the edit into smaller chunks."
+                    ),
+                    "diff": diff_text,
+                }
+        except OSError:
+            pass
+
         with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
             original = f.read()
         # Sanitize any surrogate characters from reading
@@ -266,10 +296,40 @@ def _replace_in_file(
 ) -> Dict[str, Any]:
     """Robust replacement engine with explicit edge‑case reporting."""
     file_path = os.path.abspath(path)
+
+    # Enforce path policy before editing
+    policy = check_path_allowed(file_path, Operation.WRITE)
+    if not policy.allowed:
+        return {"error": policy.reason or "Edit blocked by path policy.", "diff": ""}
+
+    # P2-04: cap replacement count to bound fuzzy-matching cost
+    if len(replacements) > MAX_FUZZY_REPLACEMENT_COUNT:
+        return {
+            "error": (
+                f"Too many replacements ({len(replacements)}); "
+                f"maximum is {MAX_FUZZY_REPLACEMENT_COUNT}. "
+                "Split into smaller batches."
+            ),
+            "diff": "",
+        }
+
     diff_text = ""
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
+
+        # Huge-file gate: reject edits before full read
+        try:
+            if os.path.getsize(file_path) > MAX_EDIT_FILE_BYTES:
+                return {
+                    "error": (
+                        f"File is too large to edit safely (> {MAX_EDIT_FILE_BYTES} bytes). "
+                        "Please break the edit into smaller chunks."
+                    ),
+                    "diff": diff_text,
+                }
+        except OSError:
+            pass
 
         with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
             original = f.read()
@@ -282,6 +342,11 @@ def _replace_in_file(
         except (UnicodeEncodeError, UnicodeDecodeError):
             pass
 
+        # P2-04: pre-compute file line count once for fuzzy-limit check
+        original_line_count = original.count("\n") + (
+            1 if original and not original.endswith("\n") else 0
+        )
+
         modified = original
         for rep in replacements:
             old_snippet = rep.get("old_str", "")
@@ -291,7 +356,35 @@ def _replace_in_file(
                 modified = modified.replace(old_snippet, new_snippet, 1)
                 continue
 
+            # --- P2-04: fuzzy fallback limits ---
+            # Skip expensive Jaro-Winkler sliding window on large inputs
+            fuzzy_blocked_reasons: List[str] = []
+            if original_line_count > MAX_FUZZY_FILE_LINES:
+                fuzzy_blocked_reasons.append(
+                    f"file has {original_line_count} lines "
+                    f"(limit {MAX_FUZZY_FILE_LINES})"
+                )
+            if len(old_snippet) > MAX_FUZZY_OLD_SNIPPET_CHARS:
+                fuzzy_blocked_reasons.append(
+                    f"old_str is {len(old_snippet)} chars "
+                    f"(limit {MAX_FUZZY_OLD_SNIPPET_CHARS})"
+                )
+
+            if fuzzy_blocked_reasons:
+                return {
+                    "error": (
+                        f"Exact match not found and fuzzy fallback skipped: "
+                        f"{'; '.join(fuzzy_blocked_reasons)}. "
+                        "Provide the exact text to replace, or break the "
+                        "edit into smaller chunks targeting a smaller region."
+                    ),
+                    "fuzzy_skipped": True,
+                    "diff": "",
+                }
+            # --- end P2-04 limits ---
+
             had_trailing_newline = modified.endswith("\n")
+            # Work on a copy so we never mutate the running buffer
             orig_lines = modified.splitlines()
             loc, score = _find_best_window(orig_lines, old_snippet)
 
@@ -340,6 +433,10 @@ def _replace_in_file(
                 n=get_diff_context_lines(),
             )
         )
+        if len(diff_text) > MAX_DIFF_BYTES:
+            diff_text = diff_text[:MAX_DIFF_BYTES] + (
+                f"\n\n[Diff truncated: exceeded {MAX_DIFF_BYTES} bytes]\n"
+            )
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(modified)
         return {
@@ -361,6 +458,11 @@ def _write_to_file(
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     file_path = os.path.abspath(path)
+
+    # Enforce path policy before writing
+    policy = check_path_allowed(file_path, Operation.WRITE)
+    if not policy.allowed:
+        return {"error": policy.reason or "Write blocked by path policy.", "diff": ""}
 
     try:
         exists = os.path.exists(file_path)
@@ -396,6 +498,10 @@ def _write_to_file(
             n=get_diff_context_lines(),
         )
         diff_text = "".join(diff_lines)
+        if len(diff_text) > MAX_DIFF_BYTES:
+            diff_text = diff_text[:MAX_DIFF_BYTES] + (
+                f"\n\n[Diff truncated: exceeded {MAX_DIFF_BYTES} bytes]\n"
+            )
 
         os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
         with open(file_path, "w", encoding="utf-8") as f:
@@ -595,6 +701,11 @@ def _delete_file(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
     file_path = os.path.abspath(file_path)
+
+    # Enforce path policy before deleting
+    policy = check_path_allowed(file_path, Operation.DELETE)
+    if not policy.allowed:
+        return {"error": policy.reason or "Delete blocked by path policy."}
 
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
@@ -837,7 +948,7 @@ def register_replace_in_file(agent):
     def replace_in_file(
         context: RunContext,
         file_path: str = "",
-        replacements: RepairableReplacementsList = [],
+        replacements: RepairableReplacementsList | None = None,
     ) -> Dict[str, Any]:
         """Apply targeted text replacements to an existing file.
 
@@ -845,6 +956,11 @@ def register_replace_in_file(agent):
         Replacements are applied sequentially. Prefer this over full file rewrites.
         """
         group_id = generate_group_id("replace_in_file", file_path)
+        replacements = replacements or []
+        if not replacements:
+            return {
+                "error": "No replacements provided. 'replacements' is required and must not be empty.",
+            }
         try:
             # Validate replacements up front so a malformed payload from the
             # model returns a clean error instead of bubbling a KeyError up

@@ -8,7 +8,7 @@ import time
 import urllib.parse
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 import requests
 
@@ -26,7 +26,7 @@ from .utils import (
 )
 
 REQUIRED_PORT = CHATGPT_OAUTH_CONFIG["required_port"]
-URL_BASE = f"http://localhost:{REQUIRED_PORT}"
+URL_BASE = f"http://127.0.0.1:{REQUIRED_PORT}"
 
 
 @dataclass
@@ -52,7 +52,7 @@ class _OAuthServer(HTTPServer):
         verbose: bool = False,
     ) -> None:
         super().__init__(
-            ("localhost", REQUIRED_PORT), _CallbackHandler, bind_and_activate=True
+            ("127.0.0.1", REQUIRED_PORT), _CallbackHandler, bind_and_activate=True
         )
         self.exit_code = 1
         self.verbose = verbose
@@ -79,7 +79,7 @@ class _OAuthServer(HTTPServer):
         }
         return f"{self.issuer}/oauth/authorize?" + urllib.parse.urlencode(params)
 
-    def exchange_code(self, code: str) -> Tuple[AuthBundle, str]:
+    def exchange_code(self, code: str) -> AuthBundle:
         data = {
             "grant_type": "authorization_code",
             "code": code,
@@ -102,7 +102,6 @@ class _OAuthServer(HTTPServer):
         refresh_token = payload.get("refresh_token", "")
 
         id_token_claims = parse_jwt_claims(id_token) or {}
-        access_token_claims = parse_jwt_claims(access_token) or {}
 
         auth_claims = id_token_claims.get("https://api.openai.com/auth") or {}
         chatgpt_account_id = auth_claims.get("chatgpt_account_id", "")
@@ -126,8 +125,7 @@ class _OAuthServer(HTTPServer):
             account_id=chatgpt_account_id,
         )
 
-        # Instead of exchanging for an API key, just use the access_token directly
-        # This matches how ChatMock works - no token exchange, just OAuth tokens
+        # Use access_token directly as the API key (ChatMock behaviour)
         api_key = token_data.access_token
 
         last_refresh = (
@@ -135,21 +133,9 @@ class _OAuthServer(HTTPServer):
             .isoformat()
             .replace("+00:00", "Z")
         )
-        bundle = AuthBundle(
+        return AuthBundle(
             api_key=api_key, token_data=token_data, last_refresh=last_refresh
         )
-
-        # Build success URL with all the token info
-        success_query = {
-            "id_token": token_data.id_token,
-            "access_token": token_data.access_token,
-            "refresh_token": token_data.refresh_token,
-            "org_id": org_id or "",
-            "plan_type": access_token_claims.get("chatgpt_plan_type"),
-            "platform_url": "https://platform.openai.com",
-        }
-        success_url = f"{URL_BASE}/success?{urllib.parse.urlencode(success_query)}"
-        return bundle, success_url
 
 
 class _CallbackHandler(BaseHTTPRequestHandler):
@@ -180,8 +166,14 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             self._shutdown()
             return
 
+        state = params.get("state", [None])[0]
+        if state != self.server.context.state:
+            self._send_failure(400, "Invalid state parameter — possible CSRF attack.")
+            self._shutdown()
+            return
+
         try:
-            auth_bundle, success_url = self.server.exchange_code(code)
+            auth_bundle = self.server.exchange_code(code)
         except Exception as exc:  # noqa: BLE001
             self._send_failure(500, f"Token exchange failed: {exc}")
             self._shutdown()
@@ -199,8 +191,8 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         if save_tokens(tokens):
             self.server.exit_code = 0
-            # Redirect to the success URL returned by exchange_code
-            self._send_redirect(success_url)
+            # Redirect to a token-free success URL
+            self._send_redirect(f"{URL_BASE}/success")
         else:
             self._send_failure(
                 500, "Unable to persist auth file — a puppy probably chewed it."
@@ -216,7 +208,17 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A003
         if getattr(self.server, "verbose", False):
-            super().log_message(fmt, *args)
+            safe_args = []
+            for arg in args:
+                arg_str = str(arg)
+                if "?" in arg_str:
+                    parsed = urllib.parse.urlparse(arg_str)
+                    if parsed.query:
+                        arg_str = urllib.parse.urlunparse(
+                            parsed._replace(query="<redacted>")
+                        )
+                safe_args.append(arg_str)
+            super().log_message(fmt, *safe_args)
 
     def _send_redirect(self, url: str) -> None:
         self.send_response(302)

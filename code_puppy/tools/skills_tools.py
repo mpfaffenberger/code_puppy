@@ -194,7 +194,12 @@ def register_list_or_search_skills(agent):
                     "tags": metadata.tags,
                     "version": metadata.version,
                     "author": metadata.author,
+                    "source": metadata.source or skill_info.source,
+                    "trust": metadata.trust or skill_info.trust,
+                    "hash": metadata.skill_md_hash or skill_info.skill_md_hash,
                 }
+                # Filter out None values for cleanliness
+                skill_dict = {k: v for k, v in skill_dict.items() if v is not None}
                 skills_list.append(skill_dict)
 
         # Filter by query if provided

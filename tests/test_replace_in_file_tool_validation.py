@@ -6,7 +6,23 @@ because that's where malformed payloads from a model would arrive.
 
 from typing import Callable, Dict, Any
 
+import pytest
+
 from code_puppy.tools.file_modifications import register_replace_in_file
+
+
+@pytest.fixture(autouse=True)
+def _chdir_tmp_path(tmp_path, monkeypatch):
+    """Make tmp_path the workspace root so path policy allows writes."""
+    monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _allow_file_permissions(monkeypatch):
+    """Bypass interactive file-permission prompts during tests."""
+    monkeypatch.setattr(
+        "code_puppy.callbacks.on_file_permission", lambda *args, **kwargs: [True]
+    )
 
 
 class _CapturingAgent:
@@ -90,6 +106,34 @@ def test_replace_in_file_happy_path_still_works(tmp_path):
 
     assert "error" not in result
     assert path.read_text() == "hello biscuit"
+
+
+def test_replace_in_file_missing_replacements_returns_error(tmp_path):
+    """Calling with None (or omitted) replacements must return a clean error."""
+    path = tmp_path / "x.txt"
+    path.write_text("hello")
+
+    tool = _get_replace_in_file_tool()
+    result = tool(None, file_path=str(path), replacements=None)
+
+    assert isinstance(result, dict)
+    assert "error" in result
+    assert "No replacements provided" in result["error"]
+    assert path.read_text() == "hello"
+
+
+def test_replace_in_file_empty_replacements_returns_error(tmp_path):
+    """Calling with an empty list must return a clean error."""
+    path = tmp_path / "x.txt"
+    path.write_text("hello")
+
+    tool = _get_replace_in_file_tool()
+    result = tool(None, file_path=str(path), replacements=[])
+
+    assert isinstance(result, dict)
+    assert "error" in result
+    assert "No replacements provided" in result["error"]
+    assert path.read_text() == "hello"
 
 
 def test_replace_in_file_repairs_stringified_item(tmp_path):

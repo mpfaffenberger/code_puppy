@@ -13,11 +13,16 @@ from code_puppy.session_storage import (
     load_session,
     save_session,
 )
+from pydantic_ai.messages import ModelRequest, UserPromptPart
 
 
 @pytest.fixture()
-def history() -> List[str]:
-    return ["one", "two", "three"]
+def history() -> List[ModelRequest]:
+    return [
+        ModelRequest(parts=[UserPromptPart(content="one")]),
+        ModelRequest(parts=[UserPromptPart(content="two")]),
+        ModelRequest(parts=[UserPromptPart(content="three")]),
+    ]
 
 
 @pytest.fixture()
@@ -25,7 +30,9 @@ def token_estimator() -> Callable[[object], int]:
     return lambda message: len(str(message))
 
 
-def test_save_and_load_session(tmp_path: Path, history: List[str], token_estimator):
+def test_save_and_load_session(
+    tmp_path: Path, history: List[ModelRequest], token_estimator
+):
     session_name = "demo_session"
     timestamp = "2024-01-01T00:00:00"
     metadata = save_session(
@@ -48,10 +55,12 @@ def test_save_and_load_session(tmp_path: Path, history: List[str], token_estimat
     assert stored["auto_saved"] is False
 
     loaded_history = load_session(session_name, tmp_path)
-    assert loaded_history == history
+    assert len(loaded_history) == len(history)
+    for original, loaded in zip(history, loaded_history):
+        assert loaded.parts[0].content == original.parts[0].content
 
 
-def test_list_sessions(tmp_path: Path, history: List[str], token_estimator):
+def test_list_sessions(tmp_path: Path, history: List[ModelRequest], token_estimator):
     names = ["beta", "alpha", "gamma"]
     for name in names:
         save_session(
@@ -65,7 +74,7 @@ def test_list_sessions(tmp_path: Path, history: List[str], token_estimator):
     assert list_sessions(tmp_path) == sorted(names)
 
 
-def test_cleanup_sessions(tmp_path: Path, history: List[str], token_estimator):
+def test_cleanup_sessions(tmp_path: Path, history: List[ModelRequest], token_estimator):
     session_names = ["session_earliest", "session_middle", "session_latest"]
     for index, name in enumerate(session_names):
         metadata = save_session(

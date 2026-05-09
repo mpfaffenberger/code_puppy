@@ -22,6 +22,9 @@ class HookConfig:
         once: Execute only once per session (default: False)
         enabled: Whether this hook is enabled (default: True)
         id: Optional unique identifier for this hook
+        source: Origin of the hook config ("global" or "project")
+        trusted: Whether this hook has been explicitly trusted. For global
+            hooks this defaults to True. Project hooks default to False.
     """
 
     matcher: str
@@ -31,6 +34,8 @@ class HookConfig:
     once: bool = False
     enabled: bool = True
     id: Optional[str] = None
+    source: Literal["global", "project"] = "global"
+    trusted: bool = True
 
     def __post_init__(self):
         """Validate hook configuration after initialization."""

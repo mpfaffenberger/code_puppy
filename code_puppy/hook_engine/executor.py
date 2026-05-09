@@ -22,8 +22,15 @@ from typing import Any, Dict, List, Optional
 
 from .matcher import _extract_file_path
 from .models import EventData, ExecutionResult, HookConfig
+from .trust import build_minimal_hook_env, cap_hook_output
 
 logger = logging.getLogger(__name__)
+
+# Max output from hooks to feed into model context
+_MAX_HOOK_STDOUT = 4096
+_MAX_HOOK_STDERR = 2048
+_MAX_HOOK_STDOUT_LINES = 256
+_MAX_HOOK_STDERR_LINES = 128
 
 
 def _build_stdin_payload(event_data: EventData) -> bytes:
@@ -77,6 +84,10 @@ async def execute_hook(
     """
     Execute a hook command with timeout and variable substitution.
 
+    Trust enforcement:
+      - Project hooks (source="project") that are not trusted are blocked
+        with a clear skipped/blocked result.
+
     Input to the hook script:
       - stdin: JSON object (Claude Code compatible format)
       - env CLAUDE_TOOL_INPUT: JSON string of tool_args (legacy)
@@ -87,6 +98,19 @@ async def execute_hook(
       - 1: block operation (stderr becomes block reason)
       - 2: error feedback to Claude without blocking
     """
+    # Trust check: project hooks must be explicitly trusted
+    if hook.source == "project" and not hook.trusted:
+        return ExecutionResult(
+            blocked=True,
+            hook_command=hook.command,
+            stdout="",
+            stderr="Hook blocked: project hook not trusted. Run /trust-hooks or approve in settings.",
+            exit_code=1,
+            duration_ms=0.0,
+            error="Project hook blocked: not explicitly trusted",
+            hook_id=hook.id,
+        )
+
     if hook.type == "prompt":
         return ExecutionResult(
             blocked=False,
@@ -102,7 +126,7 @@ async def execute_hook(
     start_time = time.perf_counter()
 
     try:
-        env = _build_environment(event_data, env_vars)
+        env = _build_environment(event_data, env_vars, hook_source=hook.source)
 
         proc = await asyncio.create_subprocess_shell(
             command,
@@ -140,6 +164,15 @@ async def execute_hook(
         duration_ms = (time.perf_counter() - start_time) * 1000
         stdout_str = stdout.decode("utf-8", errors="replace") if stdout else ""
         stderr_str = stderr.decode("utf-8", errors="replace") if stderr else ""
+
+        # Cap output to prevent unbounded model context growth
+        stdout_str = cap_hook_output(
+            stdout_str, _MAX_HOOK_STDOUT, _MAX_HOOK_STDOUT_LINES
+        )
+        stderr_str = cap_hook_output(
+            stderr_str, _MAX_HOOK_STDERR, _MAX_HOOK_STDERR_LINES
+        )
+
         exit_code = proc.returncode or 0
 
         blocked = exit_code == 1
@@ -200,8 +233,18 @@ def _substitute_variables(
 def _build_environment(
     event_data: EventData,
     env_vars: Optional[Dict[str, str]] = None,
+    hook_source: str = "global",
 ) -> Dict[str, str]:
-    env = os.environ.copy()
+    """Build environment for hook execution.
+
+    Project hooks receive a stripped-down environment with secret-like
+    variables removed. Global hooks receive the full environment.
+    """
+    if hook_source == "project":
+        env = build_minimal_hook_env()
+    else:
+        env = os.environ.copy()
+
     env["CLAUDE_PROJECT_DIR"] = os.getcwd()
     env["CLAUDE_TOOL_INPUT"] = json.dumps(event_data.tool_args)
     env["CLAUDE_TOOL_NAME"] = event_data.tool_name

@@ -15,6 +15,12 @@ from urllib.parse import urlencode
 
 import requests
 
+from code_puppy.secret_storage import (
+    atomic_write_private_json,
+    warn_or_fix_private_file_mode,
+)
+from code_puppy.security.redaction import redact_secrets
+
 from .config import (
     CLAUDE_CODE_OAUTH_CONFIG,
     get_claude_models_path,
@@ -130,6 +136,7 @@ def load_stored_tokens() -> Optional[Dict[str, Any]]:
     try:
         token_path = get_token_storage_path()
         if token_path.exists():
+            warn_or_fix_private_file_mode(token_path)
             with open(token_path, "r", encoding="utf-8") as handle:
                 return json.load(handle)
     except Exception as exc:  # pragma: no cover - defensive logging
@@ -240,10 +247,11 @@ def refresh_access_token(force: bool = False) -> Optional[str]:
         if response.status_code == 200:
             content_type = response.headers.get("content-type", "")
             if not content_type.startswith("application/json"):
+                safe_text = redact_secrets(response.text)
                 logger.error(
                     "Token refresh returned non-JSON response (Content-Type: %s): %s",
                     content_type,
-                    response.text[:500],
+                    safe_text[:200],
                 )
                 return None
             try:
@@ -263,8 +271,12 @@ def refresh_access_token(force: bool = False) -> Optional[str]:
                 update_claude_code_model_tokens(tokens["access_token"])
                 return tokens["access_token"]
         else:
+            safe_text = redact_secrets(response.text)
             logger.error(
-                "Token refresh failed: %s - %s", response.status_code, response.text
+                "Token refresh failed: status=%s content_type=%s error=%s",
+                response.status_code,
+                response.headers.get("content-type", "unknown"),
+                safe_text[:200],
             )
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Token refresh error: %s", exc)
@@ -301,9 +313,7 @@ def get_valid_access_token() -> Optional[str]:
 def save_tokens(tokens: Dict[str, Any]) -> bool:
     try:
         token_path = get_token_storage_path()
-        with open(token_path, "w", encoding="utf-8") as handle:
-            json.dump(tokens, handle, indent=2)
-        token_path.chmod(0o600)
+        atomic_write_private_json(token_path, tokens)
         return True
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Failed to save tokens: %s", exc)
@@ -371,12 +381,11 @@ def load_claude_models_filtered() -> Dict[str, Any]:
 def save_claude_models(models: Dict[str, Any]) -> bool:
     try:
         models_path = get_claude_models_path()
-        with open(models_path, "w", encoding="utf-8") as handle:
-            json.dump(models, handle, indent=2)
+        atomic_write_private_json(models_path, models)
         return True
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Failed to save Claude models: %s", exc)
-        return False
+    return False
 
 
 def exchange_code_for_tokens(
@@ -402,7 +411,8 @@ def exchange_code_for_tokens(
 
     logger.info("Exchanging code for tokens: %s", CLAUDE_CODE_OAUTH_CONFIG["token_url"])
     logger.debug("Payload keys: %s", list(payload.keys()))
-    logger.debug("Headers: %s", headers)
+    redacted_headers = {k: redact_secrets(v) for k, v in headers.items()}
+    logger.debug("Headers: %s", redacted_headers)
     try:
         response = requests.post(
             CLAUDE_CODE_OAUTH_CONFIG["token_url"],
@@ -411,14 +421,14 @@ def exchange_code_for_tokens(
             timeout=30,
         )
         logger.info("Token exchange response: %s", response.status_code)
-        logger.debug("Response body: %s", response.text)
         if response.status_code == 200:
             content_type = response.headers.get("content-type", "")
             if not content_type.startswith("application/json"):
+                safe_text = redact_secrets(response.text)
                 logger.error(
                     "Token exchange returned non-JSON response (Content-Type: %s): %s",
                     content_type,
-                    response.text[:500],
+                    safe_text[:200],
                 )
                 return None
             try:
@@ -430,10 +440,12 @@ def exchange_code_for_tokens(
                 token_data.get("expires_in")
             )
             return token_data
+        safe_text = redact_secrets(response.text)
         logger.error(
-            "Token exchange failed: %s - %s",
+            "Token exchange failed: status=%s content_type=%s error=%s",
             response.status_code,
-            response.text,
+            response.headers.get("content-type", "unknown"),
+            safe_text[:200],
         )
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Token exchange error: %s", exc)
@@ -524,10 +536,11 @@ def fetch_claude_code_models(access_token: str) -> Optional[List[str]]:
         if response.status_code == 200:
             content_type = response.headers.get("content-type", "")
             if not content_type.startswith("application/json"):
+                safe_text = redact_secrets(response.text)
                 logger.error(
                     "Models fetch returned non-JSON response (Content-Type: %s): %s",
                     content_type,
-                    response.text[:500],
+                    safe_text[:200],
                 )
                 return None
             try:
@@ -543,10 +556,12 @@ def fetch_claude_code_models(access_token: str) -> Optional[List[str]]:
                         models.append(name)
                 return models
         else:
+            safe_text = redact_secrets(response.text)
             logger.error(
-                "Failed to fetch models: %s - %s",
+                "Failed to fetch models: status=%s content_type=%s error=%s",
                 response.status_code,
-                response.text,
+                response.headers.get("content-type", "unknown"),
+                safe_text[:200],
             )
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.error("Error fetching Claude Code models: %s", exc)

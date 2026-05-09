@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 from code_puppy.callbacks import register_callback
 from code_puppy.hook_engine import EventData, HookEngine
 
-from .config import load_hooks_config
+from .config import load_hooks_config_with_sources
 
 _SUBAGENT_NAMES = frozenset(
     {
@@ -33,14 +33,46 @@ _hook_engine: Optional[HookEngine] = None
 
 
 def _initialize_engine() -> Optional[HookEngine]:
-    config = load_hooks_config()
+    from code_puppy.hook_engine.models import HookRegistry
+    from code_puppy.hook_engine.registry import build_registry_from_config
 
-    if not config:
+    merged_config, sources = load_hooks_config_with_sources()
+
+    if not merged_config:
         logger.info("No hooks configuration found - Claude Code hooks disabled")
         return None
 
     try:
-        engine = HookEngine(config, strict_validation=False)
+        # Build registry per-source so project hooks can be marked untrusted
+        registry = HookRegistry()
+        for source_info in sources:
+            source = source_info.get("source", "global")
+            trusted = source_info.get("trusted", source == "global")
+            cfg = source_info.get("config", {})
+            if not cfg:
+                continue
+            sub_registry = build_registry_from_config(
+                cfg,
+                source=source,  # type: ignore[arg-type]
+                trusted=trusted,
+            )
+            # Merge sub_registry into main registry
+            for attr_name in [
+                "pre_tool_use",
+                "post_tool_use",
+                "session_start",
+                "session_end",
+                "pre_compact",
+                "user_prompt_submit",
+                "notification",
+                "stop",
+                "subagent_stop",
+            ]:
+                for hook in getattr(sub_registry, attr_name, []):
+                    registry.add_hook(attr_name, hook)
+
+        engine = HookEngine(strict_validation=False)
+        engine._registry = registry
         stats = engine.get_stats()
         logger.info(
             f"Hook engine ready - Total: {stats['total_hooks']}, "

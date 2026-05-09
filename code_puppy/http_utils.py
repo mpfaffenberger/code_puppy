@@ -29,6 +29,17 @@ class ProxyConfig:
     http2_enabled: bool
 
 
+def _detect_proxy_url() -> str | None:
+    """Return the first proxy URL found in environment variables."""
+    return (
+        os.environ.get("HTTPS_PROXY")
+        or os.environ.get("https_proxy")
+        or os.environ.get("HTTP_PROXY")
+        or os.environ.get("http_proxy")
+        or None
+    )
+
+
 def _resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
     """Resolve proxy, SSL, and retry settings from environment.
 
@@ -44,33 +55,19 @@ def _resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
         "CODE_PUPPY_DISABLE_RETRY_TRANSPORT", ""
     ).lower() in ("1", "true", "yes")
 
-    has_proxy = bool(
-        os.environ.get("HTTP_PROXY")
-        or os.environ.get("HTTPS_PROXY")
-        or os.environ.get("http_proxy")
-        or os.environ.get("https_proxy")
-    )
-
-    # Determine trust_env and verify based on proxy/retry settings
-    if disable_retry:
-        # Test mode: disable SSL verification for proxy testing
+    # Explicit TLS disable — independent from retry logic
+    disable_tls_verify = os.environ.get(
+        "CODE_PUPPY_DISABLE_TLS_VERIFY", ""
+    ).lower() in ("1", "true", "yes")
+    if disable_tls_verify:
         verify = False
-        trust_env = True
-    elif has_proxy:
-        # Production proxy: keep SSL verification enabled
-        trust_env = True
-    else:
-        trust_env = False
 
-    # Extract proxy URL
-    proxy_url = None
-    if has_proxy:
-        proxy_url = (
-            os.environ.get("HTTPS_PROXY")
-            or os.environ.get("https_proxy")
-            or os.environ.get("HTTP_PROXY")
-            or os.environ.get("http_proxy")
-        )
+    proxy_url = _detect_proxy_url()
+    has_proxy = proxy_url is not None
+
+    # trust_env lets httpx read proxy settings from the environment.
+    # It should not affect SSL verification.
+    trust_env = has_proxy
 
     return ProxyConfig(
         verify=verify,

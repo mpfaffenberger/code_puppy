@@ -1093,7 +1093,7 @@ def initialize_command_history_file():
 def get_yolo_mode():
     """
     Checks puppy.cfg for 'yolo_mode' (case-insensitive in value only).
-    Defaults to True if not set.
+    Defaults to False (safe mode) if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     """
     true_vals = {"1", "true", "yes", "on"}
@@ -1102,7 +1102,7 @@ def get_yolo_mode():
         if str(cfg_val).strip().lower() in true_vals:
             return True
         return False
-    return True
+    return False
 
 
 def get_safety_permission_level():
@@ -1123,7 +1123,8 @@ def get_safety_permission_level():
 
 def get_mcp_disabled():
     """
-    Checks puppy.cfg for 'disable_mcp' (case-insensitive in value only).
+    Checks puppy.cfg for 'disable_mcp' (canonical key) or the deprecated
+    'disable_mcp_servers' alias (case-insensitive in value only).
     Defaults to False if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     When enabled, Code Puppy will skip loading MCP servers entirely.
@@ -1134,6 +1135,22 @@ def get_mcp_disabled():
         if str(cfg_val).strip().lower() in true_vals:
             return True
         return False
+
+    # Deprecated alias — one-time warning
+    deprecated_val = get_value("disable_mcp_servers")
+    if deprecated_val is not None:
+        import warnings
+
+        warnings.warn(
+            "Config key 'disable_mcp_servers' is deprecated. "
+            "Use 'disable_mcp' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if str(deprecated_val).strip().lower() in true_vals:
+            return True
+        return False
+
     return False
 
 

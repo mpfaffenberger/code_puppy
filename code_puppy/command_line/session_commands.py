@@ -261,7 +261,7 @@ def handle_load_context_command(command: str) -> bool:
 
     session_name = tokens[1]
     contexts_dir = Path(CONTEXTS_DIR)
-    session_path = contexts_dir / f"{session_name}.pkl"
+    session_path = contexts_dir / f"{session_name}.json"
 
     try:
         history = load_session(session_name, contexts_dir)

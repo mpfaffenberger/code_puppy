@@ -42,6 +42,12 @@ def build_available_skills_xml(skills: List["SkillMetadata"]) -> str:
                 .replace("'", "&#39;")
             )
             xml_parts.append(f"    <description>{escaped_desc}</description>")
+        if skill.source:
+            xml_parts.append(f"    <source>{skill.source}</source>")
+        if skill.trust:
+            xml_parts.append(f"    <trust>{skill.trust}</trust>")
+        if skill.skill_md_hash:
+            xml_parts.append(f"    <hash>{skill.skill_md_hash[:12]}</hash>")
         xml_parts.append("  </skill>")
 
     xml_parts.append("</available_skills>")
