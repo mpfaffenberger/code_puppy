@@ -35,7 +35,9 @@ jobs:
         run: uv venv
 
       - name: Install dependencies
-        run: uv pip install -e .
+        # [durable] extras pulls in dbos, required by integration test
+        # tests/integration/test_dbos_enabled.py
+        run: uv pip install -e ".[durable]"
 
       - name: Install pexpect for integration tests
         run: uv pip install pexpect>=4.9.0
@@ -100,6 +102,13 @@ jobs:
       - name: Bump version
         run: uv version --bump patch
 
+      - name: Capture new version
+        id: version
+        run: |
+          NEW_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "New version: $NEW_VERSION"
+
       - name: Build package
         run: |
           uv build
@@ -110,7 +119,7 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: uv run twine upload --verbose dist/*
 
-      - name: Push version bump to GitHub
+      - name: Push version bump and tag to GitHub
         if: ${{ success() }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -119,4 +128,7 @@ jobs:
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add .
           git commit -m "chore: bump version [ci skip]" || echo "No changes to commit"
+          TAG="v${{ steps.version.outputs.version }}"
+          git tag -a "$TAG" -m "Release $TAG"
           git push
+          git push origin "$TAG"

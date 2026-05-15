@@ -44,6 +44,7 @@ That's it. The plugin loader auto-discovers `register_callbacks.py` in subdirs.
 | `load_models_config` | Inject models | `() -> dict` |
 | `get_model_system_prompt` | Per-model prompt | `(model_name, default_prompt, user_prompt) -> dict \| None` |
 | `stream_event` | Response streaming | `(event_type, event_data, agent_session_id=None) -> None` |
+| `pre_mcp_autostart` | Before bound MCP servers auto-start | `(agent_name, server_names) -> None` (refresh tokens / mint creds here) |
 
 Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
 
@@ -54,3 +55,5 @@ Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
 3. **600-line hard cap** — split into submodules
 4. **Fail gracefully** — never crash the app
 5. **Return `None` from commands you don't own**
+6. **Always run linters - `ruff check --fix`, `ruff format .`
+7. **NEVER ALLOW A CLAUDE CO-AUTHOR COMMIT**

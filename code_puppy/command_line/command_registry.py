@@ -28,6 +28,28 @@ class CommandInfo:
 
 # Global registry: maps command name/alias -> CommandInfo
 _COMMAND_REGISTRY: Dict[str, CommandInfo] = {}
+_PLUGIN_COMMANDS_LOADING = False
+
+
+def _ensure_plugin_commands_loaded() -> None:
+    """Load plugin callbacks so plugin-registered commands exist.
+
+    Kept here because tests and utility code often query the registry directly
+    without going through command_handler. No ghost commands, thanks.
+    """
+    global _PLUGIN_COMMANDS_LOADING
+    if _PLUGIN_COMMANDS_LOADING:
+        return
+    _PLUGIN_COMMANDS_LOADING = True
+    try:
+        from code_puppy import plugins
+
+        plugins.load_plugin_callbacks()
+    except Exception:
+        # Command lookup should stay safe even if a plugin is busted.
+        pass
+    finally:
+        _PLUGIN_COMMANDS_LOADING = False
 
 
 def register_command(
@@ -100,6 +122,7 @@ def get_all_commands() -> Dict[str, CommandInfo]:
         Dictionary mapping command names/aliases to CommandInfo objects.
         Note: Aliases point to the same CommandInfo as their primary command.
     """
+    _ensure_plugin_commands_loaded()
     return _COMMAND_REGISTRY.copy()
 
 
@@ -109,6 +132,7 @@ def get_unique_commands() -> List[CommandInfo]:
     Returns:
         List of unique CommandInfo objects (one per primary command).
     """
+    _ensure_plugin_commands_loaded()
     seen = set()
     unique = []
     for cmd_info in _COMMAND_REGISTRY.values():
@@ -131,6 +155,8 @@ def get_command(name: str) -> Optional[CommandInfo]:
     Returns:
         CommandInfo if found, None otherwise
     """
+    _ensure_plugin_commands_loaded()
+
     # First try exact match (for backward compatibility)
     exact_match = _COMMAND_REGISTRY.get(name)
     if exact_match is not None:

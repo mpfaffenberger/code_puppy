@@ -633,125 +633,6 @@ class TestHandleModelSettingsCommand:
             assert handle_model_settings_command("/model_settings") is True
 
 
-class TestHandleApiCommand:
-    def test_status_not_running(self, tmp_path, monkeypatch):
-        from code_puppy.command_line.core_commands import handle_api_command
-
-        monkeypatch.setattr("code_puppy.config.STATE_DIR", str(tmp_path))
-        with patch("code_puppy.messaging.emit_info"):
-            assert handle_api_command("/api status") is True
-
-    def test_status_default(self, tmp_path, monkeypatch):
-        from code_puppy.command_line.core_commands import handle_api_command
-
-        monkeypatch.setattr("code_puppy.config.STATE_DIR", str(tmp_path))
-        with patch("code_puppy.messaging.emit_info"):
-            assert handle_api_command("/api") is True
-
-    def test_start_new(self, tmp_path, monkeypatch):
-        from code_puppy.command_line.core_commands import handle_api_command
-
-        monkeypatch.setattr("code_puppy.config.STATE_DIR", str(tmp_path))
-        mock_proc = MagicMock()
-        mock_proc.pid = 12345
-        with (
-            patch("code_puppy.messaging.emit_info"),
-            patch("code_puppy.messaging.emit_success"),
-            patch("subprocess.Popen", return_value=mock_proc),
-        ):
-            assert handle_api_command("/api start") is True
-
-    def test_start_already_running(self, tmp_path, monkeypatch):
-        from code_puppy.command_line.core_commands import handle_api_command
-
-        monkeypatch.setattr("code_puppy.config.STATE_DIR", str(tmp_path))
-        pid_file = tmp_path / "api_server.pid"
-        pid_file.write_text("99999")
-        with (
-            patch("code_puppy.messaging.emit_info"),
-            patch("os.kill"),
-        ):  # Process exists
-            assert handle_api_command("/api start") is True
-
-    def test_start_stale_pid(self, tmp_path, monkeypatch):
-        from code_puppy.command_line.core_commands import handle_api_command
-
-        monkeypatch.setattr("code_puppy.config.STATE_DIR", str(tmp_path))
-        pid_file = tmp_path / "api_server.pid"
-        pid_file.write_text("99999")
-        mock_proc = MagicMock()
-        mock_proc.pid = 11111
-        with (
-            patch("code_puppy.messaging.emit_info"),
-            patch("code_puppy.messaging.emit_success"),
-            patch("os.kill", side_effect=OSError),
-            patch("subprocess.Popen", return_value=mock_proc),
-        ):
-            assert handle_api_command("/api start") is True
-
-    def test_stop_running(self, tmp_path, monkeypatch):
-        from code_puppy.command_line.core_commands import handle_api_command
-
-        monkeypatch.setattr("code_puppy.config.STATE_DIR", str(tmp_path))
-        pid_file = tmp_path / "api_server.pid"
-        pid_file.write_text("12345")
-        with patch("code_puppy.messaging.emit_success"), patch("os.kill"):
-            assert handle_api_command("/api stop") is True
-
-    def test_stop_not_running(self, tmp_path, monkeypatch):
-        from code_puppy.command_line.core_commands import handle_api_command
-
-        monkeypatch.setattr("code_puppy.config.STATE_DIR", str(tmp_path))
-        with patch("code_puppy.messaging.emit_info"):
-            assert handle_api_command("/api stop") is True
-
-    def test_stop_error(self, tmp_path, monkeypatch):
-        from code_puppy.command_line.core_commands import handle_api_command
-
-        monkeypatch.setattr("code_puppy.config.STATE_DIR", str(tmp_path))
-        pid_file = tmp_path / "api_server.pid"
-        pid_file.write_text("12345")
-        with (
-            patch("code_puppy.messaging.emit_error"),
-            patch("os.kill", side_effect=OSError("nope")),
-        ):
-            assert handle_api_command("/api stop") is True
-
-    def test_status_running(self, tmp_path, monkeypatch):
-        from code_puppy.command_line.core_commands import handle_api_command
-
-        monkeypatch.setattr("code_puppy.config.STATE_DIR", str(tmp_path))
-        pid_file = tmp_path / "api_server.pid"
-        pid_file.write_text("12345")
-        with (
-            patch("code_puppy.messaging.emit_success"),
-            patch("code_puppy.messaging.emit_info"),
-            patch("os.kill"),
-        ):
-            assert handle_api_command("/api status") is True
-
-    def test_status_stale_pid(self, tmp_path, monkeypatch):
-        from code_puppy.command_line.core_commands import handle_api_command
-
-        monkeypatch.setattr("code_puppy.config.STATE_DIR", str(tmp_path))
-        pid_file = tmp_path / "api_server.pid"
-        pid_file.write_text("12345")
-        with (
-            patch("code_puppy.messaging.emit_info"),
-            patch("os.kill", side_effect=OSError),
-        ):
-            assert handle_api_command("/api status") is True
-
-    def test_unknown_subcommand(self):
-        from code_puppy.command_line.core_commands import handle_api_command
-
-        with (
-            patch("code_puppy.messaging.emit_error"),
-            patch("code_puppy.messaging.emit_info"),
-        ):
-            assert handle_api_command("/api bogus") is True
-
-
 class TestHandleGeneratePrDescription:
     def test_basic(self):
         from code_puppy.command_line.core_commands import (
@@ -775,21 +656,25 @@ class TestHandleGeneratePrDescription:
 
 class TestHandleWiggumCommand:
     def test_no_prompt(self):
-        from code_puppy.command_line.core_commands import handle_wiggum_command
+        from code_puppy.plugins.wiggum.register_callbacks import (
+            handle_wiggum_command,
+        )
 
         with (
-            patch("code_puppy.messaging.emit_warning"),
-            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.plugins.wiggum.register_callbacks.emit_warning"),
+            patch("code_puppy.plugins.wiggum.register_callbacks.emit_info"),
         ):
             assert handle_wiggum_command("/wiggum") is True
 
     def test_with_prompt(self):
-        from code_puppy.command_line.core_commands import handle_wiggum_command
+        from code_puppy.plugins.wiggum.register_callbacks import (
+            handle_wiggum_command,
+        )
 
         with (
-            patch("code_puppy.command_line.wiggum_state.start_wiggum"),
-            patch("code_puppy.messaging.emit_success"),
-            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.plugins.wiggum.state.start"),
+            patch("code_puppy.plugins.wiggum.register_callbacks.emit_success"),
+            patch("code_puppy.plugins.wiggum.register_callbacks.emit_info"),
         ):
             result = handle_wiggum_command("/wiggum say hello")
             assert result == "say hello"
@@ -797,27 +682,31 @@ class TestHandleWiggumCommand:
 
 class TestHandleWiggumStopCommand:
     def test_active(self):
-        from code_puppy.command_line.core_commands import handle_wiggum_stop_command
+        from code_puppy.plugins.wiggum.register_callbacks import (
+            handle_wiggum_stop_command,
+        )
 
         with (
             patch(
-                "code_puppy.command_line.wiggum_state.is_wiggum_active",
+                "code_puppy.plugins.wiggum.state.is_active",
                 return_value=True,
             ),
-            patch("code_puppy.command_line.wiggum_state.stop_wiggum"),
-            patch("code_puppy.messaging.emit_success"),
+            patch("code_puppy.plugins.wiggum.state.stop"),
+            patch("code_puppy.plugins.wiggum.register_callbacks.emit_success"),
         ):
             assert handle_wiggum_stop_command("/wiggum_stop") is True
 
     def test_not_active(self):
-        from code_puppy.command_line.core_commands import handle_wiggum_stop_command
+        from code_puppy.plugins.wiggum.register_callbacks import (
+            handle_wiggum_stop_command,
+        )
 
         with (
             patch(
-                "code_puppy.command_line.wiggum_state.is_wiggum_active",
+                "code_puppy.plugins.wiggum.state.is_active",
                 return_value=False,
             ),
-            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.plugins.wiggum.register_callbacks.emit_info"),
         ):
             assert handle_wiggum_stop_command("/wiggum_stop") is True
 

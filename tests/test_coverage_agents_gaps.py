@@ -16,23 +16,13 @@ import pytest
 
 
 _REVIEWER_AGENTS = [
-    ("code_puppy.agents.agent_c_reviewer", "CReviewerAgent"),
-    ("code_puppy.agents.agent_code_reviewer", "CodeQualityReviewerAgent"),
-    ("code_puppy.agents.agent_cpp_reviewer", "CppReviewerAgent"),
-    ("code_puppy.agents.agent_golang_reviewer", "GolangReviewerAgent"),
-    ("code_puppy.agents.agent_javascript_reviewer", "JavaScriptReviewerAgent"),
-    ("code_puppy.agents.agent_python_reviewer", "PythonReviewerAgent"),
-    ("code_puppy.agents.agent_python_programmer", "PythonProgrammerAgent"),
-    ("code_puppy.agents.agent_qa_expert", "QAExpertAgent"),
     ("code_puppy.agents.agent_qa_kitten", "QualityAssuranceKittenAgent"),
-    ("code_puppy.agents.agent_security_auditor", "SecurityAuditorAgent"),
-    ("code_puppy.agents.agent_typescript_reviewer", "TypeScriptReviewerAgent"),
 ]
 
 
 @pytest.mark.parametrize("module_path,class_name", _REVIEWER_AGENTS)
 def test_reviewer_agent_tools_and_prompt(module_path, class_name):
-    """Exercise get_available_tools() and get_system_prompt() for each reviewer agent."""
+    """Exercise get_available_tools() and get_system_prompt() for each surviving agent."""
     import importlib
 
     mod = importlib.import_module(module_path)
@@ -60,31 +50,6 @@ class TestPlanningAgent:
         prompt = agent.get_system_prompt()
         assert "Planning Mode" in prompt
         assert "EXECUTION PLAN" in prompt
-
-
-class TestPromptReviewerAgent:
-    def test_tools_and_prompt(self):
-        from code_puppy.agents.prompt_reviewer import PromptReviewerAgent
-
-        agent = PromptReviewerAgent()
-        tools = agent.get_available_tools()
-        assert "read_file" in tools
-
-        prompt = agent.get_system_prompt()
-        assert "Prompt Review Mode" in prompt
-        assert "Quality Dimensions" in prompt
-
-
-class TestSchedulerAgent:
-    def test_tools_and_prompt(self):
-        from code_puppy.agents.agent_scheduler import SchedulerAgent
-
-        agent = SchedulerAgent()
-        tools = agent.get_available_tools()
-        assert "scheduler_list_tasks" in tools
-
-        prompt = agent.get_system_prompt()
-        assert "Scheduler Agent" in prompt
 
 
 class TestCodePuppyAgentTools:

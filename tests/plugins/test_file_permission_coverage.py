@@ -156,7 +156,7 @@ class TestPreviewDeleteFile:
         f = tmp_path / "f.txt"
         f.write_text("content")
         result = _preview_delete_file(str(f))
-        assert result is not None
+        assert result is None
 
     def test_not_found(self, tmp_path):
         from code_puppy.plugins.file_permission_handler.register_callbacks import (
@@ -353,7 +353,7 @@ class TestGeneratePreviewFromOperationData:
         f = tmp_path / "f.txt"
         f.write_text("content")
         result = _generate_preview_from_operation_data(str(f), "delete", {})
-        assert result is not None
+        assert result is None
 
     def test_write(self, tmp_path):
         from code_puppy.plugins.file_permission_handler.register_callbacks import (
@@ -525,19 +525,15 @@ class TestWriteToFileExceptionBranch:
             assert _preview_write_to_file("f.txt", "content") is None
 
 
-class TestDeleteFileExceptionBranch:
-    def test_delete_file_general_exception(self, tmp_path):
+class TestDeleteFileNoPreview:
+    def test_delete_file_preview_is_always_empty(self, tmp_path):
         from code_puppy.plugins.file_permission_handler.register_callbacks import (
             _preview_delete_file,
         )
 
         f = tmp_path / "f.txt"
         f.write_text("content")
-        with patch(
-            "code_puppy.plugins.file_permission_handler.register_callbacks.get_diff_context_lines",
-            side_effect=RuntimeError("boom"),
-        ):
-            assert _preview_delete_file(str(f)) is None
+        assert _preview_delete_file(str(f)) is None
 
 
 class TestPreviewUnicodeEdgeCases:
@@ -590,7 +586,7 @@ class TestPreviewUnicodeEdgeCases:
         f = tmp_path / "f.txt"
         f.write_bytes(b"content \xed\xa0\x80")
         result = _preview_delete_file(str(f))
-        assert result is not None
+        assert result is None
 
     def test_replace_exception(self):
         from code_puppy.plugins.file_permission_handler.register_callbacks import (

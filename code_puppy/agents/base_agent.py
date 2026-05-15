@@ -186,4 +186,4 @@ class BaseAgent(ABC):
         return None
 
     def reload_mcp_servers(self) -> List[Any]:
-        return reload_mcp_servers()
+        return reload_mcp_servers(agent_name=self.name)

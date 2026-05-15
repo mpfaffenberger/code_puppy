@@ -21,6 +21,7 @@ from code_puppy.command_line.pagination import (
     get_page_bounds,
     get_total_pages,
 )
+from code_puppy.command_line.utils import safe_input
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.plugins.agent_skills.config import (
     add_skill_directory,
@@ -496,8 +497,6 @@ class SkillsMenu:
 
 def _prompt_for_directory() -> Optional[str]:
     """Prompt user for a directory path to add."""
-    from code_puppy.tools.common import safe_input
-
     try:
         print("\n" + "=" * 60)
         print("ADD SKILL DIRECTORY")
@@ -521,8 +520,6 @@ def _prompt_for_directory() -> Optional[str]:
 
 def _show_directories_menu() -> Optional[str]:
     """Show current directories and allow removal."""
-    from code_puppy.tools.common import safe_input
-
     try:
         dirs = get_skill_directories()
 

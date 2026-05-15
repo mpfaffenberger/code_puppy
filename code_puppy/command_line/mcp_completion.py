@@ -42,13 +42,11 @@ class MCPCompleter(Completer):
             "remove": "Remove an MCP server",
         }
 
-        # Subcommands that don't take server names
+        # Subcommands that don't take server names.
+        # NOTE: "list" is intentionally omitted — bare /mcp already does that.
         self.general_subcommands = {
-            "list": "List all registered MCP servers",
             "start-all": "Start all MCP servers",
             "stop-all": "Stop all MCP servers",
-            "test": "Test MCP server connection",
-            "add": "Add a new MCP server",
             "install": "Install MCP servers from a list",
             "search": "Search for available MCP servers",
             "help": "Show help for MCP commands",

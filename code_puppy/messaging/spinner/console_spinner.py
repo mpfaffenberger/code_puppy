@@ -118,9 +118,14 @@ class ConsoleSpinner(SpinnerBase):
     def _generate_spinner_panel(self):
         """Generate a Rich panel containing the spinner text."""
         # Check if we're awaiting user input - show nothing during input prompts
+        from code_puppy.messaging.pause_controller import get_pause_controller
         from code_puppy.tools.command_runner import is_awaiting_user_input
 
-        if self._paused or is_awaiting_user_input():
+        if (
+            self._paused
+            or is_awaiting_user_input()
+            or get_pause_controller().is_paused()
+        ):
             return Text("")
 
         text = Text()
@@ -145,12 +150,21 @@ class ConsoleSpinner(SpinnerBase):
                 self.update_frame()
 
                 # Check if we're awaiting user input before updating the display
+                from code_puppy.messaging.pause_controller import (
+                    get_pause_controller,
+                )
                 from code_puppy.tools.command_runner import is_awaiting_user_input
 
                 awaiting_input = is_awaiting_user_input()
+                agent_paused = get_pause_controller().is_paused()
 
                 # Update the live display only if not paused and not awaiting input
-                if self._live and not self._paused and not awaiting_input:
+                if (
+                    self._live
+                    and not self._paused
+                    and not awaiting_input
+                    and not agent_paused
+                ):
                     # Manually refresh instead of auto-refresh to avoid wiping input
                     self._live.update(self._generate_spinner_panel())
                     self._live.refresh()
@@ -184,11 +198,18 @@ class ConsoleSpinner(SpinnerBase):
 
     def resume(self):
         """Resume the spinner animation."""
-        # Check if we should show a spinner - don't resume if waiting for user input
+        # Check if we should show a spinner - don't resume if waiting for
+        # user input OR if the agent-level PauseController says we're
+        # paused (e.g. the user pressed Ctrl+T to open the steering
+        # editor). Without the second guard, any other code path
+        # (event_stream_handler's PartEndEvent branch, etc.) could
+        # accidentally re-summon the spinner on top of the editor.
+        # Local imports keep startup cost zero + dodge circular risks.
+        from code_puppy.messaging.pause_controller import get_pause_controller
         from code_puppy.tools.command_runner import is_awaiting_user_input
 
-        if is_awaiting_user_input():
-            return  # Don't resume if waiting for user input
+        if is_awaiting_user_input() or get_pause_controller().is_paused():
+            return
 
         if self._is_spinning and self._paused:
             self._paused = False

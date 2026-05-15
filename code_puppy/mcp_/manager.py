@@ -229,6 +229,7 @@ class MCPManager:
 
     def get_servers_for_agent(
         self,
+        agent_name: Optional[str] = None,
     ) -> List[Union[MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP]]:
         """
         Get pydantic-ai compatible servers for agent use.
@@ -237,13 +238,41 @@ class MCPManager:
         instances (not wrappers). Only returns enabled, non-quarantined servers.
         Handles errors gracefully by logging but not crashing.
 
+        Args:
+            agent_name: If provided, restrict to servers explicitly bound to
+                this agent via ``mcp_agent_bindings.json`` (strict opt-in).
+                If ``None``, return every enabled server (legacy behaviour
+                used by status / listing code paths).
+
         Returns:
             List of actual pydantic-ai MCP server instances ready for use
         """
+        bound_names: Optional[set] = None
+        if agent_name is not None:
+            try:
+                from code_puppy.mcp_.agent_bindings import get_bound_servers
+
+                bound_names = set(get_bound_servers(agent_name).keys())
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "Failed to load MCP bindings for agent '%s': %s", agent_name, exc
+                )
+                bound_names = set()
+
         servers = []
 
         for server_id, managed_server in self._managed_servers.items():
             try:
+                if (
+                    bound_names is not None
+                    and managed_server.config.name not in bound_names
+                ):
+                    logger.debug(
+                        "Skipping server %s: not bound to agent %s",
+                        managed_server.config.name,
+                        agent_name,
+                    )
+                    continue
                 # Only include enabled, non-quarantined servers
                 if managed_server.is_enabled() and not managed_server.is_quarantined():
                     # Get the actual pydantic-ai server instance
@@ -732,6 +761,19 @@ class MCPManager:
             self.status_tracker.record_event(
                 server_id, "removed", {"message": "Server removed"}
             )
+            # Clean up any agent bindings that referenced this server
+            try:
+                from code_puppy.mcp_.agent_bindings import (
+                    remove_server_from_all_agents,
+                )
+
+                remove_server_from_all_agents(server_name)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "Failed to clean up bindings for removed server %s: %s",
+                    server_name,
+                    exc,
+                )
             logger.info(f"Removed server: {server_name} (ID: {server_id})")
             return True
         else:

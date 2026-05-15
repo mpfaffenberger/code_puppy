@@ -28,7 +28,6 @@ from .start_command import StartCommand
 from .status_command import StatusCommand
 from .stop_all_command import StopAllCommand
 from .stop_command import StopCommand
-from .test_command import TestCommand
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -61,7 +60,6 @@ class MCPCommandHandler(MCPCommandBase):
             "stop-all": StopAllCommand(),
             "restart": RestartCommand(),
             "status": StatusCommand(),
-            "test": TestCommand(),
             "edit": EditCommand(),
             "remove": RemoveCommand(),
             "logs": LogsCommand(),

@@ -28,6 +28,7 @@ def _make_metadata(
 
 # Patch targets (module under test)
 _MOD = "code_puppy.plugins.agent_skills.skills_menu"
+_SAFE_INPUT = f"{_MOD}.safe_input"
 
 
 # ---------------------------------------------------------------------------
@@ -536,7 +537,7 @@ class TestSkillsMenuRun:
 class TestPromptForDirectory:
     def test_prompt_returns_path(self):
         with patch(
-            "code_puppy.tools.common.safe_input",
+            _SAFE_INPUT,
             create=True,
             return_value="~/my-skills",
         ):
@@ -549,9 +550,7 @@ class TestPromptForDirectory:
             assert "~" not in result  # should be expanded
 
     def test_prompt_empty_returns_none(self):
-        with patch(
-            "code_puppy.tools.common.safe_input", create=True, return_value="  "
-        ):
+        with patch(_SAFE_INPUT, create=True, return_value="  "):
             from code_puppy.plugins.agent_skills.skills_menu import (
                 _prompt_for_directory,
             )
@@ -561,7 +560,7 @@ class TestPromptForDirectory:
 
     def test_prompt_keyboard_interrupt(self):
         with patch(
-            "code_puppy.tools.common.safe_input",
+            _SAFE_INPUT,
             create=True,
             side_effect=KeyboardInterrupt,
         ):
@@ -573,9 +572,7 @@ class TestPromptForDirectory:
             assert result is None
 
     def test_prompt_eof_error(self):
-        with patch(
-            "code_puppy.tools.common.safe_input", create=True, side_effect=EOFError
-        ):
+        with patch(_SAFE_INPUT, create=True, side_effect=EOFError):
             from code_puppy.plugins.agent_skills.skills_menu import (
                 _prompt_for_directory,
             )
@@ -587,7 +584,7 @@ class TestPromptForDirectory:
 class TestShowDirectoriesMenu:
     @patch(f"{_MOD}.get_skill_directories", return_value=[])
     def test_no_dirs(self, mock_dirs):
-        with patch("code_puppy.tools.common.safe_input", create=True, return_value=""):
+        with patch(_SAFE_INPUT, create=True, return_value=""):
             from code_puppy.plugins.agent_skills.skills_menu import (
                 _show_directories_menu,
             )
@@ -598,9 +595,7 @@ class TestShowDirectoriesMenu:
     @patch(f"{_MOD}.remove_skill_directory")
     @patch(f"{_MOD}.get_skill_directories", return_value=["/tmp/skills"])
     def test_remove_dir(self, mock_dirs, mock_remove):
-        with patch(
-            "code_puppy.tools.common.safe_input", create=True, side_effect=["1", "y"]
-        ):
+        with patch(_SAFE_INPUT, create=True, side_effect=["1", "y"]):
             from code_puppy.plugins.agent_skills.skills_menu import (
                 _show_directories_menu,
             )
@@ -611,9 +606,7 @@ class TestShowDirectoriesMenu:
 
     @patch(f"{_MOD}.get_skill_directories", return_value=["/tmp/skills"])
     def test_remove_dir_cancel(self, mock_dirs):
-        with patch(
-            "code_puppy.tools.common.safe_input", create=True, side_effect=["1", "n"]
-        ):
+        with patch(_SAFE_INPUT, create=True, side_effect=["1", "n"]):
             from code_puppy.plugins.agent_skills.skills_menu import (
                 _show_directories_menu,
             )
@@ -623,9 +616,7 @@ class TestShowDirectoriesMenu:
 
     @patch(f"{_MOD}.get_skill_directories", return_value=["/tmp/skills"])
     def test_invalid_choice(self, mock_dirs):
-        with patch(
-            "code_puppy.tools.common.safe_input", create=True, return_value="abc"
-        ):
+        with patch(_SAFE_INPUT, create=True, return_value="abc"):
             from code_puppy.plugins.agent_skills.skills_menu import (
                 _show_directories_menu,
             )
@@ -635,9 +626,7 @@ class TestShowDirectoriesMenu:
 
     @patch(f"{_MOD}.get_skill_directories", return_value=["/tmp/skills"])
     def test_out_of_range(self, mock_dirs):
-        with patch(
-            "code_puppy.tools.common.safe_input", create=True, return_value="99"
-        ):
+        with patch(_SAFE_INPUT, create=True, return_value="99"):
             from code_puppy.plugins.agent_skills.skills_menu import (
                 _show_directories_menu,
             )
@@ -648,7 +637,7 @@ class TestShowDirectoriesMenu:
     @patch(f"{_MOD}.get_skill_directories", return_value=["/tmp/skills"])
     def test_keyboard_interrupt(self, mock_dirs):
         with patch(
-            "code_puppy.tools.common.safe_input",
+            _SAFE_INPUT,
             create=True,
             side_effect=KeyboardInterrupt,
         ):

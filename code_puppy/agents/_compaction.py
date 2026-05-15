@@ -344,17 +344,19 @@ def compact(
             filtered, protected_tokens, model_name
         )
     else:
-        try:
-            result_messages, summarized_messages = _run_summarization_core(
-                filtered, protected_tokens, True, model_name
-            )
-        except Exception as e:
-            # Summarization blew up (model error, network, schema rejection,
-            # etc.). Don't just give up and let history balloon — fall back
-            # to truncation for *this* compaction cycle. The user's strategy
-            # preference is preserved for the next cycle.
-            _log_summarization_failure(
-                e, "↪️  Falling back to truncation for this compaction cycle."
+        # Route through the public summarize() so error handling, logging,
+        # and any future instrumentation stay in one place (DRY).
+        result_messages, summarized_messages = summarize(
+            filtered, protected_tokens, True, model_name
+        )
+        # If summarization failed gracefully (returned original messages
+        # with nothing dropped), fall back to truncation for this cycle.
+        # The user's strategy preference is preserved for the next cycle.
+        if not summarized_messages:
+            emit_warning(
+                "↪️  Summarization produced no compaction; "
+                "falling back to truncation for this cycle.",
+                message_group="token_context_status",
             )
             result_messages, summarized_messages = _truncate_with_dropped(
                 filtered, protected_tokens, model_name

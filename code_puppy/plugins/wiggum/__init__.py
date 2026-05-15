@@ -1,0 +1,1 @@
+"""Wiggum looping plugin."""

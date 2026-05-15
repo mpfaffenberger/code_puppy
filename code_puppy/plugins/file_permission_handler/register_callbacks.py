@@ -193,35 +193,8 @@ def _preview_replace_in_file(
 
 
 def _preview_delete_file(file_path: str) -> str | None:
-    """Generate a preview diff for deleting a file without modifying it."""
-    try:
-        file_path = os.path.abspath(file_path)
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
-            return None
-
-        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            original = f.read()
-
-        # Sanitize any surrogate characters
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
-
-        diff_text = "".join(
-            difflib.unified_diff(
-                original.splitlines(keepends=True),
-                [],
-                fromfile=f"a/{os.path.basename(file_path)}",
-                tofile=f"b/{os.path.basename(file_path)}",
-                n=get_diff_context_lines(),
-            )
-        )
-        return diff_text
-    except Exception:
-        return None
+    """Whole-file deletes intentionally do not show content diffs."""
+    return None
 
 
 def prompt_for_file_permission(

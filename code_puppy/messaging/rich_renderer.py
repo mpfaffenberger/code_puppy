@@ -99,6 +99,20 @@ DIFF_STYLES = {
 }
 
 
+def _is_paused() -> bool:
+    """Cheap, never-raising check against the PauseController singleton.
+
+    Imported lazily so the messaging package's import graph stays acyclic
+    and so a broken/missing PauseController never takes down the renderer.
+    """
+    try:
+        from code_puppy.messaging.pause_controller import get_pause_controller
+
+        return get_pause_controller().is_paused()
+    except Exception:
+        return False
+
+
 # =============================================================================
 # Rich Console Renderer
 # =============================================================================
@@ -223,7 +237,13 @@ class RichConsoleRenderer:
                 time.sleep(0.01)
 
     def _render_sync(self, message: AnyMessage) -> None:
-        """Render a message synchronously with error handling."""
+        """Render a message synchronously with error handling.
+
+        The pause-silencing check lives in ``_do_render`` so both the
+        sync and async render paths share it. Don't move it back here
+        without also patching ``render()`` — last time we did that, shell
+        output leaked through the async path during steering. 🐛
+        """
         try:
             self._do_render(message)
         except Exception as e:
@@ -231,6 +251,26 @@ class RichConsoleRenderer:
             # Escape the error message to prevent nested markup errors
             safe_error = escape_rich_markup(str(e))
             self._console.print(f"[dim red]Render error: {safe_error}[/dim red]")
+
+    def _should_silence_during_pause(self, message: AnyMessage) -> bool:
+        """Return True iff this message must be silently dropped right now.
+
+        While the ``PauseController`` is paused (Ctrl+T steering), shell
+        command stdout/stderr/banners are dropped on the floor — they're
+        firehose-noisy and would trash the steering prompt. The agent
+        still records full stdout in ``command_runner.py``'s
+        ``stdout_lines`` independently, so the data isn't lost; we're
+        only silencing the visual stream. Non-shell messages render
+        normally; pause-buffering those is the legacy
+        ``SynchronousInteractiveRenderer``'s job.
+        """
+        return (
+            isinstance(
+                message,
+                (ShellStartMessage, ShellLineMessage, ShellOutputMessage),
+            )
+            and _is_paused()
+        )
 
     # =========================================================================
     # Async Lifecycle (for future async-first usage)
@@ -262,7 +302,15 @@ class RichConsoleRenderer:
         """Synchronously render a message by dispatching to the appropriate handler.
 
         Note: User input requests are skipped in sync mode as they require async.
+
+        Pause silencing lives here (not in ``_render_sync``) so the async
+        ``render()`` path can't end-run the check. See the bug where shell
+        banners triple-printed during a Ctrl+T steer — that was the async
+        path bypassing an earlier sync-only filter.
         """
+        if self._should_silence_during_pause(message):
+            return
+
         # Dispatch based on message type
         if isinstance(message, TextMessage):
             self._render_text(message)

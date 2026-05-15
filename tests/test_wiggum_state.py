@@ -118,15 +118,17 @@ class TestWiggumCommand:
     """Test wiggum command registration and handling."""
 
     def setup_method(self):
-        """Reset wiggum state and ensure commands are registered before each test."""
+        """Reset wiggum state and ensure plugin commands are registered."""
         import importlib
 
-        import code_puppy.command_line.core_commands
+        import code_puppy.plugins.wiggum.register_callbacks as wiggum_plugin
         from code_puppy.command_line.wiggum_state import stop_wiggum
 
-        # Reload core_commands to ensure commands are registered
-        # (in case a previous test cleared the registry)
-        importlib.reload(code_puppy.command_line.core_commands)
+        # Wiggum commands live in the plugin now. Other tests (e.g. the
+        # command_registry suite) call clear_registry(), and the plugin loader
+        # is idempotent via _PLUGINS_LOADED, so we re-run the registrations by
+        # reloading the module. Decorators re-fire on reload.
+        importlib.reload(wiggum_plugin)
         stop_wiggum()
 
     def test_wiggum_command_registered(self):

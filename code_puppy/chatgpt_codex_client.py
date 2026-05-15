@@ -233,8 +233,14 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
         """
         logger.debug("Converting SSE stream to non-streaming response")
         final_response_data = None
-        collected_text = []
-        collected_tool_calls = []
+        collected_text: list[str] = []
+        collected_tool_calls: list[dict] = []
+        # Capture full output items from `response.output_item.done` events.
+        # When `store=false`, the `response.completed` event's `output` array
+        # is EMPTY — the only place the full items show up is in the
+        # output_item.done events. Without this we drop all model output on the
+        # floor and pydantic_ai retries forever.
+        completed_output_items: list[dict] = []
 
         # Read the entire stream
         async for line in response.aiter_lines():
@@ -250,17 +256,28 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
                 event_type = event.get("type", "")
 
                 if event_type == "response.output_text.delta":
-                    # Collect text deltas
+                    # Collect text deltas (used only for last-resort fallback)
                     delta = event.get("delta", "")
                     if delta:
                         collected_text.append(delta)
 
+                elif event_type == "response.output_item.done":
+                    # This event carries the *complete* item (message,
+                    # reasoning, function_call, etc.) with full content.
+                    # Codex's `response.completed` event returns an empty
+                    # `output` array when `store=false`, so these are the
+                    # only reliable source of model output.
+                    item = event.get("item")
+                    if isinstance(item, dict):
+                        completed_output_items.append(item)
+
                 elif event_type == "response.completed":
-                    # This contains the final response object
+                    # Holds the final response envelope (id, usage, etc.) —
+                    # but its `output` is empty when store=false.
                     final_response_data = event.get("response", {})
 
                 elif event_type == "response.function_call_arguments.done":
-                    # Collect tool calls
+                    # Legacy fallback collection for tool calls
                     tool_call = {
                         "name": event.get("name", ""),
                         "arguments": event.get("arguments", ""),
@@ -272,44 +289,82 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
                 continue
 
         logger.debug(
-            f"Collected {len(collected_text)} text chunks, {len(collected_tool_calls)} tool calls"
+            "Collected %d text chunks, %d tool calls, %d output items",
+            len(collected_text),
+            len(collected_tool_calls),
+            len(completed_output_items),
         )
         if final_response_data:
             logger.debug(
                 f"Got final response data with keys: {list(final_response_data.keys())}"
             )
 
-        # Build the final response body
+        # Build the final response body.
+        # Strategy: start with the `response.completed` envelope (metadata,
+        # id, usage, etc.) and overwrite its `output` field with the items
+        # we collected from `response.output_item.done` events. This handles
+        # the store=false case where `response.completed.output` is empty.
         if final_response_data:
-            response_body = final_response_data
+            response_body = dict(final_response_data)
+            existing_output = response_body.get("output") or []
+            if not existing_output and completed_output_items:
+                response_body["output"] = completed_output_items
+            elif not existing_output:
+                # No items captured either — fall back to text/tool deltas.
+                rebuilt: list[dict] = []
+                if collected_text:
+                    rebuilt.append(
+                        {
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "".join(collected_text),
+                                }
+                            ],
+                        }
+                    )
+                for tool_call in collected_tool_calls:
+                    rebuilt.append(
+                        {
+                            "type": "function_call",
+                            "name": tool_call["name"],
+                            "arguments": tool_call["arguments"],
+                            "call_id": tool_call["call_id"],
+                        }
+                    )
+                response_body["output"] = rebuilt
         else:
-            # Fallback: construct a minimal response from collected data
+            # No `response.completed` envelope at all — build from scratch.
             response_body = {
                 "id": "reconstructed",
                 "object": "response",
-                "output": [],
+                "output": list(completed_output_items),
             }
-
-            if collected_text:
-                response_body["output"].append(
-                    {
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [
-                            {"type": "output_text", "text": "".join(collected_text)}
-                        ],
-                    }
-                )
-
-            for tool_call in collected_tool_calls:
-                response_body["output"].append(
-                    {
-                        "type": "function_call",
-                        "name": tool_call["name"],
-                        "arguments": tool_call["arguments"],
-                        "call_id": tool_call["call_id"],
-                    }
-                )
+            if not response_body["output"]:
+                if collected_text:
+                    response_body["output"].append(
+                        {
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "".join(collected_text),
+                                }
+                            ],
+                        }
+                    )
+                for tool_call in collected_tool_calls:
+                    response_body["output"].append(
+                        {
+                            "type": "function_call",
+                            "name": tool_call["name"],
+                            "arguments": tool_call["arguments"],
+                            "call_id": tool_call["call_id"],
+                        }
+                    )
 
         # Create a new response with the complete body
         body_bytes = json.dumps(response_body).encode("utf-8")

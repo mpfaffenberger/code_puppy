@@ -51,6 +51,14 @@ def _expand_env_vars(value: Any) -> Any:
     return value
 
 
+def _build_tool_prefix(server_name: str, config: Dict[str, Any]) -> str:
+    """Build the pydantic-ai MCP tool prefix for a configured server."""
+    configured_prefix = _expand_env_vars(config.get("tool_prefix"))
+    if configured_prefix:
+        return f"{server_name}_{configured_prefix}"
+    return server_name
+
+
 class ServerState(Enum):
     """Enumeration of possible server states."""
 
@@ -171,6 +179,7 @@ class ManagedMCPServer:
         """
         server_type = self.config.type.lower()
         config = self.config.config
+        tool_prefix = _build_tool_prefix(self.config.name, config)
 
         try:
             if server_type == "sse":
@@ -180,6 +189,7 @@ class ManagedMCPServer:
                 # Prepare arguments for MCPServerSSE (expand env vars in URL)
                 sse_kwargs = {
                     "url": _expand_env_vars(config["url"]),
+                    "tool_prefix": tool_prefix,
                 }
 
                 # Add optional parameters if provided
@@ -230,7 +240,7 @@ class ManagedMCPServer:
                 self._pydantic_server = BlockingMCPServerStdio(
                     **stdio_kwargs,
                     process_tool_call=process_tool_call,
-                    tool_prefix=self.config.name,
+                    tool_prefix=tool_prefix,
                     emit_stderr=False,  # Logs go to file, not console (use /mcp logs to view)
                     message_group=message_group,
                 )
@@ -242,6 +252,7 @@ class ManagedMCPServer:
                 # Prepare arguments for MCPServerStreamableHTTP (expand env vars in URL)
                 http_kwargs = {
                     "url": _expand_env_vars(config["url"]),
+                    "tool_prefix": tool_prefix,
                 }
 
                 # Add optional parameters if provided

@@ -257,6 +257,50 @@ class TestHandleSkillsCommand:
         ):
             assert _handle_skills_command("/skills disable", "skills") is True
 
+    def test_skills_toggle(self):
+        from code_puppy.plugins.agent_skills.register_callbacks import (
+            _handle_skills_command,
+        )
+
+        with (
+            patch(f"{_CFG}.get_skills_enabled", return_value=False),
+            patch(f"{_CFG}.set_skills_enabled") as mock_set,
+            patch(f"{_MSG}.emit_success") as mock_success,
+        ):
+            assert _handle_skills_command("/skills toggle", "skills") is True
+            mock_set.assert_called_once_with(True)
+            mock_success.assert_called_once()
+
+    def test_skills_help(self):
+        from code_puppy.plugins.agent_skills.register_callbacks import (
+            _handle_skills_command,
+        )
+
+        with patch(f"{_MSG}.emit_info") as mock_info:
+            assert _handle_skills_command("/skills help", "skills") is True
+            assert mock_info.call_count >= 2
+            assert "toggle" in str(mock_info.call_args_list)
+
+    def test_skills_refresh(self):
+        from code_puppy.plugins.agent_skills.register_callbacks import (
+            _handle_skills_command,
+        )
+
+        refreshed = [
+            MagicMock(name="valid", has_skill_md=True),
+            MagicMock(name="invalid", has_skill_md=False),
+        ]
+
+        with (
+            patch(f"{_DISC}.refresh_skill_cache", return_value=refreshed),
+            patch(f"{_MSG}.emit_success") as mock_success,
+        ):
+            assert _handle_skills_command("/skills refresh", "skills") is True
+            mock_success.assert_called_once()
+            assert "Refreshed skills cache" in str(mock_success.call_args)
+            assert "2 discovered" in str(mock_success.call_args)
+            assert "1 with SKILL.md" in str(mock_success.call_args)
+
     def test_skills_unknown_subcommand(self):
         from code_puppy.plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
@@ -264,9 +308,11 @@ class TestHandleSkillsCommand:
 
         with (
             patch(f"{_MSG}.emit_error"),
-            patch(f"{_MSG}.emit_info"),
+            patch(f"{_MSG}.emit_info") as mock_info,
         ):
             assert _handle_skills_command("/skills bogus", "skills") is True
+            assert "toggle" in str(mock_info.call_args)
+            assert "help" in str(mock_info.call_args)
 
     def test_skills_no_subcommand_launches_menu(self):
         from code_puppy.plugins.agent_skills.register_callbacks import (
