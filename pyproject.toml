@@ -93,6 +93,7 @@ omit = ["code_puppy/main.py"]
 
 [tool.uv]
 python-preference = "only-managed"
+exclude-newer = "7 days"
 
 [dependency-groups]
 dev = [
