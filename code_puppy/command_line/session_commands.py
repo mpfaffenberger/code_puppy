@@ -66,6 +66,47 @@ def handle_session_command(command: str) -> bool:
 
 
 @register_command(
+    name="clear",
+    description="Clear conversation history (rotates autosave; agent forgets prior turns)",
+    usage="/clear",
+    aliases=["cls"],
+    category="session",
+    detailed_help="""
+    Wipe the current conversation history so the agent starts fresh.
+
+    What it does:
+      - Finalizes & rotates the current autosave session (so prior history
+        is preserved on disk and recoverable via /autosave_load)
+      - Clears the in-memory message history for the active agent
+      - Drops any pending clipboard images queued for the next turn
+
+    The bare word `clear` (no slash) also works, for backward compatibility.
+    """,
+)
+def handle_clear_command(command: str) -> bool:
+    """Clear conversation history and rotate autosave session."""
+    from code_puppy.agents.agent_manager import get_current_agent
+    from code_puppy.command_line.clipboard import get_clipboard_manager
+    from code_puppy.config import finalize_autosave_session
+    from code_puppy.messaging import emit_info, emit_system_message, emit_warning
+
+    agent = get_current_agent()
+    new_session_id = finalize_autosave_session()
+    agent.clear_message_history()
+    emit_warning("Conversation history cleared!")
+    emit_system_message("The agent will not remember previous interactions.")
+    emit_info(f"Auto-save session rotated to: {new_session_id}")
+
+    # Also clear pending clipboard images so they don't leak into the next turn
+    clipboard_manager = get_clipboard_manager()
+    clipboard_count = clipboard_manager.get_pending_count()
+    clipboard_manager.clear_pending()
+    if clipboard_count > 0:
+        emit_info(f"Cleared {clipboard_count} pending clipboard image(s)")
+    return True
+
+
+@register_command(
     name="compact",
     description="Summarize and compact current chat history (uses compaction_strategy config)",
     usage="/compact",

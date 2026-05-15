@@ -416,3 +416,78 @@ class TestHandleLoadContextCommand:
             patch("code_puppy.command_line.autosave_menu.display_resumed_history"),
         ):
             assert self._run("/load_context mysession") is True
+
+
+class TestHandleClearCommand:
+    """Tests for the /clear command handler.
+
+    Lives in session_commands so it shows up in /help (single source of truth).
+    """
+
+    def _run(self, command="/clear"):
+        from code_puppy.command_line.session_commands import handle_clear_command
+
+        return handle_clear_command(command)
+
+    def test_clear_wipes_history_and_rotates_session(self):
+        agent = MagicMock()
+        clipboard = MagicMock()
+        clipboard.get_pending_count.return_value = 0
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=agent,
+            ),
+            patch(
+                "code_puppy.command_line.clipboard.get_clipboard_manager",
+                return_value=clipboard,
+            ),
+            patch(
+                "code_puppy.config.finalize_autosave_session",
+                return_value="new-session-id",
+            ),
+            patch("code_puppy.messaging.emit_warning") as mock_warn,
+            patch("code_puppy.messaging.emit_system_message"),
+            patch("code_puppy.messaging.emit_info") as mock_info,
+        ):
+            assert self._run() is True
+            agent.clear_message_history.assert_called_once()
+            clipboard.clear_pending.assert_called_once()
+            mock_warn.assert_called_once()
+            # Info called once for the session-rotated message; no clipboard msg
+            assert mock_info.call_count == 1
+
+    def test_clear_reports_dropped_clipboard_images(self):
+        agent = MagicMock()
+        clipboard = MagicMock()
+        clipboard.get_pending_count.return_value = 3
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=agent,
+            ),
+            patch(
+                "code_puppy.command_line.clipboard.get_clipboard_manager",
+                return_value=clipboard,
+            ),
+            patch(
+                "code_puppy.config.finalize_autosave_session",
+                return_value="sid",
+            ),
+            patch("code_puppy.messaging.emit_warning"),
+            patch("code_puppy.messaging.emit_system_message"),
+            patch("code_puppy.messaging.emit_info") as mock_info,
+        ):
+            assert self._run() is True
+            # One info for session rotation, one for the dropped clipboard count
+            assert mock_info.call_count == 2
+            assert any("3" in str(c) for c in mock_info.call_args_list)
+
+    def test_clear_is_registered_and_appears_in_help(self):
+        """Regression: /clear must show up in /help (was previously hidden)."""
+        # Trigger registration via import side-effects
+        import code_puppy.command_line.session_commands  # noqa: F401
+        from code_puppy.command_line.command_registry import get_unique_commands
+
+        names = {c.name for c in get_unique_commands()}
+        assert "clear" in names

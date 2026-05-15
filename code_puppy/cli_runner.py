@@ -651,29 +651,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             # The renderer is stopped in the finally block of main().
             break
 
-        # Check for clear command (supports both `clear` and `/clear`)
-        if task.strip().lower() in ("clear", "/clear"):
-            from code_puppy.command_line.clipboard import get_clipboard_manager
-            from code_puppy.messaging import (
-                emit_info,
-                emit_system_message,
-                emit_warning,
-            )
-
-            agent = get_current_agent()
-            new_session_id = finalize_autosave_session()
-            agent.clear_message_history()
-            emit_warning("Conversation history cleared!")
-            emit_system_message("The agent will not remember previous interactions.")
-            emit_info(f"Auto-save session rotated to: {new_session_id}")
-
-            # Also clear pending clipboard images
-            clipboard_manager = get_clipboard_manager()
-            clipboard_count = clipboard_manager.get_pending_count()
-            clipboard_manager.clear_pending()
-            if clipboard_count > 0:
-                emit_info(f"Cleared {clipboard_count} pending clipboard image(s)")
-            continue
+        # Backward-compat: bare `clear` (no slash) is rewritten to `/clear`
+        # so the registered handler in session_commands is the single source
+        # of truth. The slash form is dispatched normally below.
+        if task.strip().lower() == "clear":
+            task = "/clear"
 
         # Parse attachments first so leading paths aren't misread as commands
         processed_for_commands = parse_prompt_attachments(task)
