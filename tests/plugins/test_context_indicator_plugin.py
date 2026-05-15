@@ -1,4 +1,14 @@
-"""Tests for the context_indicator plugin."""
+"""Tests for the context_indicator plugin.
+
+Important: we do **not** permanently inject a stub for
+``code_puppy.agents.agent_manager`` into ``sys.modules``. Doing so at import
+time would leak the MagicMock to every other test that imports the real
+``agent_manager`` afterwards, causing order-dependent failures.
+
+Instead, the ``stub_agent_manager`` fixture below uses ``monkeypatch`` so the
+stub is automatically torn down after the test. Tests that don't actually
+exercise ``get_current_agent`` don't take the fixture at all.
+"""
 
 from __future__ import annotations
 
@@ -10,34 +20,28 @@ import pytest
 
 
 def _plugin_module():
-    sys.modules.setdefault("dbos", MagicMock())
-    _ensure_agent_manager_stub()
     return importlib.import_module(
         "code_puppy.plugins.context_indicator.register_callbacks"
     )
 
 
-def _ensure_agent_manager_stub():
-    """Stub ``code_puppy.agents.agent_manager`` so ``patch()`` can target it.
+def _usage_module():
+    return importlib.import_module("code_puppy.plugins.context_indicator.usage")
 
-    Importing the real module pulls in MCP dependencies that aren't installed
-    in the test environment. The plugin only ever calls
-    ``get_current_agent`` — a stub with that attribute is plenty.
+
+@pytest.fixture
+def stub_agent_manager(monkeypatch):
+    """Provide a scoped stub for ``code_puppy.agents.agent_manager``.
+
+    The plugin only ever calls ``get_current_agent`` from that module, so a
+    bare ``MagicMock`` with that attribute is enough. ``monkeypatch.setitem``
+    guarantees ``sys.modules`` is restored to its previous state when the
+    test ends — no leakage to siblings.
     """
-    if "code_puppy.agents.agent_manager" in sys.modules:
-        return
     stub = MagicMock()
     stub.get_current_agent = MagicMock(side_effect=RuntimeError("unstubbed"))
-    sys.modules["code_puppy.agents.agent_manager"] = stub
-    # Also ensure parent ``code_puppy.agents`` namespace knows about it.
-    agents_pkg = sys.modules.get("code_puppy.agents")
-    if agents_pkg is not None:
-        setattr(agents_pkg, "agent_manager", stub)
-
-
-def _usage_module():
-    _ensure_agent_manager_stub()
-    return importlib.import_module("code_puppy.plugins.context_indicator.usage")
+    monkeypatch.setitem(sys.modules, "code_puppy.agents.agent_manager", stub)
+    return stub
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +79,9 @@ def test_context_usage_proportion_and_percent():
 
 
 def test_context_usage_zero_capacity_safe():
-    usage = _usage_module().ContextUsage(used_tokens=10, overhead_tokens=10, capacity=0)
+    usage = _usage_module().ContextUsage(
+        used_tokens=10, overhead_tokens=10, capacity=0
+    )
     assert usage.proportion == 0.0
     assert usage.indicator == "🟢"
 
@@ -83,41 +89,34 @@ def test_context_usage_zero_capacity_safe():
 # ---------------------------------------------------------------------------
 # get_current_usage — defensive paths
 # ---------------------------------------------------------------------------
-def test_get_current_usage_returns_none_when_agent_missing():
+def test_get_current_usage_returns_none_when_agent_missing(stub_agent_manager):
     mod = _usage_module()
-    with patch(
-        "code_puppy.agents.agent_manager.get_current_agent",
-        side_effect=RuntimeError("nope"),
-    ):
-        assert mod.get_current_usage() is None
+    stub_agent_manager.get_current_agent.side_effect = RuntimeError("nope")
+    assert mod.get_current_usage() is None
 
 
-def test_get_current_usage_returns_none_when_capacity_zero():
+def test_get_current_usage_returns_none_when_capacity_zero(stub_agent_manager):
     mod = _usage_module()
     fake_agent = MagicMock()
     fake_agent.get_message_history.return_value = []
     fake_agent.estimate_tokens_for_message.return_value = 0
     fake_agent._estimate_context_overhead.return_value = 0
     fake_agent._get_model_context_length.return_value = 0
-    with patch(
-        "code_puppy.agents.agent_manager.get_current_agent",
-        return_value=fake_agent,
-    ):
-        assert mod.get_current_usage() is None
+    stub_agent_manager.get_current_agent.side_effect = None
+    stub_agent_manager.get_current_agent.return_value = fake_agent
+    assert mod.get_current_usage() is None
 
 
-def test_get_current_usage_computes_totals():
+def test_get_current_usage_computes_totals(stub_agent_manager):
     mod = _usage_module()
     fake_agent = MagicMock()
     fake_agent.get_message_history.return_value = ["m1", "m2", "m3"]
     fake_agent.estimate_tokens_for_message.side_effect = lambda m: 1000
     fake_agent._estimate_context_overhead.return_value = 500
     fake_agent._get_model_context_length.return_value = 10000
-    with patch(
-        "code_puppy.agents.agent_manager.get_current_agent",
-        return_value=fake_agent,
-    ):
-        usage = mod.get_current_usage()
+    stub_agent_manager.get_current_agent.side_effect = None
+    stub_agent_manager.get_current_agent.return_value = fake_agent
+    usage = mod.get_current_usage()
     assert usage is not None
     assert usage.used_tokens == 3000
     assert usage.overhead_tokens == 500
