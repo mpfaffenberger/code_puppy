@@ -75,9 +75,7 @@ def test_context_usage_proportion_and_percent():
 
 
 def test_context_usage_zero_capacity_safe():
-    usage = _usage_module().ContextUsage(
-        used_tokens=10, overhead_tokens=10, capacity=0
-    )
+    usage = _usage_module().ContextUsage(used_tokens=10, overhead_tokens=10, capacity=0)
     assert usage.proportion == 0.0
     assert usage.indicator == "🟢"
 

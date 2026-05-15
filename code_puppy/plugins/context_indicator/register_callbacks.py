@@ -123,9 +123,7 @@ def _format_usage_report(usage: ContextUsage) -> str:
 def _handle_context_command(command: str) -> bool:
     usage = get_current_usage()
     if usage is None:
-        _emit_info(
-            "🐶 No context info yet — load an agent and send a message first."
-        )
+        _emit_info("🐶 No context info yet — load an agent and send a message first.")
         return True
     _emit_info(_format_usage_report(usage))
     return True
