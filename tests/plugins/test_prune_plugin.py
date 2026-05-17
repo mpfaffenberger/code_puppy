@@ -188,6 +188,30 @@ class TestShortArgs:
 # ───────────────────────────────────────────────────────────────────────────
 
 
+class TestMessageEntryIsLocked:
+    """The lock invariant must cover both transports that carry the
+    system prompt — bundled ``SystemPromptPart`` and first-user-text.
+    """
+
+    def test_role_system_is_locked(self):
+        entry = MessageEntry(history_index=5, role="system", preview="x", full_text="x")
+        assert entry.is_locked is True
+
+    def test_history_index_0_is_locked_even_for_user_role(self):
+        entry = MessageEntry(history_index=0, role="user", preview="x", full_text="x")
+        assert entry.is_locked is True
+
+    def test_regular_user_entry_is_not_locked(self):
+        entry = MessageEntry(history_index=3, role="user", preview="x", full_text="x")
+        assert entry.is_locked is False
+
+    def test_assistant_entry_is_not_locked(self):
+        entry = MessageEntry(
+            history_index=1, role="assistant", preview="x", full_text="x"
+        )
+        assert entry.is_locked is False
+
+
 class TestBuildMessageEntries:
     def test_filters_system_prompt(self):
         history = [_system_msg(), _user_msg("hello")]
@@ -252,28 +276,27 @@ class TestBuildMessageEntries:
         assert len(entries) == 1
         assert entries[0].role == "user"
 
-    def test_synthesizes_system_entry_from_agent_when_missing(self):
-        """Code Puppy sends the system prompt via pydantic-ai's instructions
-        field rather than as a SystemPromptPart, so raw history doesn't
-        contain it. The menu must synthesize one from the agent's
-        ``get_full_system_prompt()`` so the user can see what's always
-        in context.
+    def test_no_synthetic_system_entry_is_injected(self):
+        """The synthetic sys row (built from ``agent.get_full_system_prompt``)
+        was removed because it created a duplicate at index 1 whenever the
+        first user message had the system prompt folded into it (e.g.
+        claude-code OAuth). The agent arg is accepted for back-compat but
+        the function must never inject a virtual sys row anymore.
         """
         agent = MagicMock()
         agent.get_full_system_prompt.return_value = "You are Rowsdower"
         history = [_user_msg("hi"), _assistant_text("hello!")]
         entries = build_message_entries(history, agent)
-        assert entries[0].role == "system"
-        assert entries[0].history_index < 0  # sentinel — not a real slot
-        assert entries[0].in_context is True  # always in context
-        assert "Rowsdower" in entries[0].full_text
-        # The two real entries follow.
-        assert entries[1].role == "user"
-        assert entries[2].role == "assistant"
+        # No synthetic system row at the top — just the real history.
+        assert all(e.role != "system" for e in entries)
+        assert entries[0].role == "user"
+        assert entries[1].role == "assistant"
+        # And we never even asked the agent for its prompt.
+        agent.get_full_system_prompt.assert_not_called()
 
-    def test_does_not_synthesize_system_when_already_present(self):
-        """When raw history already advertises a system role (e.g. a
-        system+user bundle), don't double up with a synthetic one.
+    def test_real_system_role_from_history_is_preserved(self):
+        """When raw history contains a bundled system+user ModelRequest, the
+        real sys entry is kept (and is the only sys entry — no synthetic).
         """
         agent = MagicMock()
         agent.get_full_system_prompt.return_value = "You are Rowsdower"
@@ -281,31 +304,15 @@ class TestBuildMessageEntries:
         entries = build_message_entries(history, agent)
         sys_entries = [e for e in entries if e.role == "system"]
         assert len(sys_entries) == 1
-        # And the one that's there is the REAL one (positive history_index),
-        # not the synthetic.
+        # And it's the REAL one (positive history_index), not synthetic.
         assert sys_entries[0].history_index >= 0
 
     def test_no_agent_means_no_synthetic_system_entry(self):
-        """When called without an agent (e.g. legacy callers, tests),
-        nothing is synthesized — preserves backward-compatible behavior.
+        """Called without an agent: still no synthetic sys row (and no
+        crash) — same behavior as the agent-supplied case.
         """
         history = [_user_msg("hi")]
         entries = build_message_entries(history)
-        assert all(e.role != "system" for e in entries)
-
-    def test_synthetic_system_entry_skips_when_prompt_empty(self):
-        agent = MagicMock()
-        agent.get_full_system_prompt.return_value = ""
-        history = [_user_msg("hi")]
-        entries = build_message_entries(history, agent)
-        assert all(e.role != "system" for e in entries)
-
-    def test_synthetic_system_entry_skips_when_agent_raises(self):
-        agent = MagicMock()
-        agent.get_full_system_prompt.side_effect = RuntimeError("nope")
-        history = [_user_msg("hi")]
-        # Must not propagate — the menu should degrade gracefully.
-        entries = build_message_entries(history, agent)
         assert all(e.role != "system" for e in entries)
 
 
@@ -353,17 +360,18 @@ class TestThinkingPartExtraction:
         assert "[thinking]" in asst.full_text
         assert "reasoning" in asst.full_text
 
-    def test_brain_icon_set_when_thinking_present_and_no_tool_calls(self):
+    def test_thinking_segments_captured_alongside_text(self):
         history = [
             _user_msg("why"),
             _assistant_with_thinking(text="a", thinking="b"),
         ]
         entries = build_message_entries(history)
-        assert entries[-1].icon == "🧠"
+        assert entries[-1].thinking_segments == ["b"]
 
-    def test_tool_call_icon_wins_over_thinking_icon(self):
-        """Tool calls communicate what the turn DID — that should keep its
-        priority over the chain-of-thought marker.
+    def test_thinking_segments_captured_alongside_tool_calls(self):
+        """Even when an assistant turn fires tool calls, the chain-of-
+        thought content must still be captured so the detail pane can
+        surface it.
         """
         if ThinkingPart is None:  # pragma: no cover
             import pytest
@@ -380,15 +388,13 @@ class TestThinkingPartExtraction:
             ),
         ]
         entries = build_message_entries(history)
-        # Whatever classify_tool('shell') returns, NOT the brain.
-        assert entries[-1].icon != "🧠"
         assert entries[-1].thinking_segments == ["plan"]
+        assert entries[-1].tool_calls  # tool calls preserved too
 
-    def test_no_thinking_means_no_segments_and_no_brain(self):
+    def test_no_thinking_means_no_segments(self):
         history = [_user_msg("hi"), _assistant_text("hello")]
         entries = build_message_entries(history)
         assert entries[-1].thinking_segments == []
-        assert entries[-1].icon != "🧠"
 
 
 class TestRetryPromptPart:
@@ -847,10 +853,13 @@ class TestPruneMenuInit:
         message_rows = [r for r in menu.rows if r.kind == "message"]
         assert all(not entries[r.message_idx].is_pure_tool_return for r in message_rows)
 
-    def test_rows_include_tool_calls(self):
+    def test_rows_are_all_messages(self):
+        """Granular tool-call sub-rows were removed — only message rows
+        should exist now. (Editing ModelResponse parts in place broke
+        Anthropic's thinking-block invariant.)
+        """
         menu, _, _ = _menu_with_history()
-        tool_rows = [r for r in menu.rows if r.kind == "tool_call"]
-        assert {r.tool_call_id for r in tool_rows} == {"tc1", "tc2"}
+        assert all(r.kind == "message" for r in menu.rows)
 
     def test_rows_are_ordered_newest_first(self):
         """The newest message must be at the top of the list (row 0) so
@@ -861,22 +870,6 @@ class TestPruneMenuInit:
         # → oldest) because pure-tool-return entries are filtered out.
         history_idx_seq = [entries[r.message_idx].history_index for r in message_rows]
         assert history_idx_seq == sorted(history_idx_seq, reverse=True)
-
-    def test_tool_calls_stay_below_their_parent_message(self):
-        """Reversal applies to messages, not to the tool-call list inside
-        a single message — those stay in invocation order under their
-        parent row."""
-        menu, _, _ = _menu_with_history()
-        # For each tool_call row, walk backwards until we hit a message
-        # row. That message row must be the parent (same message_idx).
-        for i, row in enumerate(menu.rows):
-            if row.kind != "tool_call":
-                continue
-            j = i - 1
-            while j >= 0 and menu.rows[j].kind != "message":
-                j -= 1
-            assert j >= 0, f"tool_call row at index {i} has no parent"
-            assert menu.rows[j].message_idx == row.message_idx
 
 
 class TestPruneMenuSelection:
@@ -889,45 +882,6 @@ class TestPruneMenuSelection:
         assert menu.rows[first_msg_row].message_idx in menu.selected_messages
         menu._toggle_current()
         assert menu.rows[first_msg_row].message_idx not in menu.selected_messages
-
-    def test_toggle_message_clears_child_tool_calls(self):
-        menu, _, _ = _menu_with_history()
-        # Find the assistant message with tool calls + one of its tool-call rows
-        tc_row_idx = next(i for i, r in enumerate(menu.rows) if r.kind == "tool_call")
-        tc_row = menu.rows[tc_row_idx]
-        # Pre-select the tool call directly
-        menu.selected_tool_calls.add((tc_row.message_idx, tc_row.tool_call_id))
-        # Now toggle the parent message
-        parent_row_idx = next(
-            i
-            for i, r in enumerate(menu.rows)
-            if r.kind == "message" and r.message_idx == tc_row.message_idx
-        )
-        menu.cursor = parent_row_idx
-        menu._toggle_current()
-        assert tc_row.message_idx in menu.selected_messages
-        # Tool-call selection was wiped
-        assert not any(m == tc_row.message_idx for (m, _) in menu.selected_tool_calls)
-
-    def test_toggle_tool_call_noop_when_parent_selected(self):
-        menu, _, _ = _menu_with_history()
-        tc_row_idx = next(i for i, r in enumerate(menu.rows) if r.kind == "tool_call")
-        tc_row = menu.rows[tc_row_idx]
-        menu.selected_messages.add(tc_row.message_idx)
-        menu.cursor = tc_row_idx
-        before = set(menu.selected_tool_calls)
-        menu._toggle_current()
-        assert menu.selected_tool_calls == before
-
-    def test_toggle_tool_call_adds_and_removes(self):
-        menu, _, _ = _menu_with_history()
-        tc_row_idx = next(i for i, r in enumerate(menu.rows) if r.kind == "tool_call")
-        tc_row = menu.rows[tc_row_idx]
-        menu.cursor = tc_row_idx
-        menu._toggle_current()
-        assert (tc_row.message_idx, tc_row.tool_call_id) in menu.selected_tool_calls
-        menu._toggle_current()
-        assert (tc_row.message_idx, tc_row.tool_call_id) not in menu.selected_tool_calls
 
     def test_system_row_is_not_toggleable(self):
         """Pressing space on a system row must be a no-op so the user
@@ -964,28 +918,45 @@ class TestPruneMenuSelection:
         sys_msg_idx = next(i for i, e in enumerate(menu.entries) if e.role == "system")
         assert sys_msg_idx not in menu.selected_messages
 
-    def test_select_all_clears_individual_tool_call_selections(self):
-        menu, _, _ = _menu_with_history()
-        tc_row = next(r for r in menu.rows if r.kind == "tool_call")
-        menu.selected_tool_calls.add((tc_row.message_idx, tc_row.tool_call_id))
+    def test_history_index_0_is_not_toggleable_even_when_role_user(self):
+        """Some transports (e.g. claude-code OAuth) fold the system prompt
+        into the first user message's text instead of using a
+        SystemPromptPart. In that case ``history[0]`` has ``role='user'``
+        but pruning it would still strip the agent's identity. The lock
+        invariant must cover this case via ``history_index == 0``.
+        """
+        history = [
+            _user_msg("system prompt folded in here + first user turn"),
+            _assistant_text("hi"),
+        ]
+        entries = build_message_entries(history)
+        menu = PruneMenu(entries=entries, preview_only=False)
+        # The first message in the menu rows maps to history_index 0.
+        idx0_row = next(
+            i
+            for i, r in enumerate(menu.rows)
+            if r.kind == "message" and menu.entries[r.message_idx].history_index == 0
+        )
+        menu.cursor = idx0_row
+        menu._toggle_current()
+        idx0_msg_idx = menu.rows[idx0_row].message_idx
+        assert idx0_msg_idx not in menu.selected_messages
+        # And select-all also skips it.
         menu._select_all()
-        assert menu.selected_tool_calls == set()
-        assert menu.selected_messages  # at least one message selected
+        assert idx0_msg_idx not in menu.selected_messages
 
     def test_clear_all(self):
         menu, _, _ = _menu_with_history()
         menu.selected_messages.add(0)
-        menu.selected_tool_calls.add((0, "tc1"))
         menu._clear_all()
         assert menu.selected_messages == set()
-        assert menu.selected_tool_calls == set()
 
-    def test_row_is_checked_implied(self):
+    def test_row_is_checked_returns_bool(self):
         menu, _, _ = _menu_with_history()
-        tc_row = next(r for r in menu.rows if r.kind == "tool_call")
-        menu.selected_messages.add(tc_row.message_idx)
-        checked, implied = menu._row_is_checked(tc_row)
-        assert checked is True and implied is True
+        msg_row = next(r for r in menu.rows if r.kind == "message")
+        assert menu._row_is_checked(msg_row) is False
+        menu.selected_messages.add(msg_row.message_idx)
+        assert menu._row_is_checked(msg_row) is True
 
     def test_selection_has_side_effects_via_message(self):
         menu, _, _ = _menu_with_history()
@@ -997,12 +968,6 @@ class TestPruneMenuSelection:
             if r.kind == "message" and menu.entries[r.message_idx].tool_calls
         )
         menu.selected_messages.add(msg_row.message_idx)
-        assert menu._selection_has_side_effects() is True
-
-    def test_selection_has_side_effects_via_tool_call(self):
-        menu, _, _ = _menu_with_history()
-        tc_row = next(r for r in menu.rows if r.kind == "tool_call")
-        menu.selected_tool_calls.add((tc_row.message_idx, tc_row.tool_call_id))
         assert menu._selection_has_side_effects() is True
 
 
@@ -1017,12 +982,17 @@ class TestPruneMenuBuildSelection:
             in sel.history_indices_to_drop
         )
 
-    def test_tool_call_ids_passed_through(self):
+    def test_selection_only_has_history_indices(self):
+        """PruneSelection no longer carries ``tool_call_ids_to_drop`` —
+        whole-message removal is the only path.
+        """
         menu, _, _ = _menu_with_history()
-        tc_row = next(r for r in menu.rows if r.kind == "tool_call")
-        menu.selected_tool_calls.add((tc_row.message_idx, tc_row.tool_call_id))
+        menu.selected_messages.add(
+            next(r.message_idx for r in menu.rows if r.kind == "message")
+        )
         sel = menu._build_selection()
-        assert tc_row.tool_call_id in sel.tool_call_ids_to_drop
+        assert hasattr(sel, "history_indices_to_drop")
+        assert not hasattr(sel, "tool_call_ids_to_drop")
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -1079,47 +1049,32 @@ class TestCollectRemovedToolCallIds:
 
 
 # ───────────────────────────────────────────────────────────────────────────
-# _filter_message_parts
+# _message_has_orphan_tool_return — cascade-drop predicate
 # ───────────────────────────────────────────────────────────────────────────
 
 
-class TestFilterMessageParts:
-    def test_response_drops_matching_tool_call(self):
+class TestMessageHasOrphanToolReturn:
+    def test_true_for_matching_tool_return(self):
         mod = _plugin_module()
-        msg = ModelResponse(
-            parts=[
-                TextPart(content="kept"),
-                ToolCallPart(tool_name="t", args="{}", tool_call_id="drop-me"),
-            ]
+        msg = _tool_return("tc-orphan")
+        assert mod._message_has_orphan_tool_return(msg, {"tc-orphan"}) is True
+
+    def test_false_for_unrelated_tool_return(self):
+        mod = _plugin_module()
+        msg = _tool_return("keep-me")
+        assert mod._message_has_orphan_tool_return(msg, {"other"}) is False
+
+    def test_false_for_assistant_message(self):
+        mod = _plugin_module()
+        assert (
+            mod._message_has_orphan_tool_return(_assistant_text("hi"), {"anything"})
+            is False
         )
-        new_msg, n_calls, n_returns = mod._filter_message_parts(msg, {"drop-me"}, set())
-        assert n_calls == 1
-        assert n_returns == 0
-        assert new_msg is not None
-        assert all(not isinstance(p, ToolCallPart) for p in new_msg.parts)
 
-    def test_response_collapses_when_empty(self):
+    def test_false_for_empty_orphan_set(self):
         mod = _plugin_module()
-        msg = ModelResponse(
-            parts=[ToolCallPart(tool_name="t", args="{}", tool_call_id="drop-me")]
-        )
-        new_msg, n_calls, _ = mod._filter_message_parts(msg, {"drop-me"}, set())
-        assert new_msg is None
-        assert n_calls == 1
-
-    def test_request_drops_matching_tool_return(self):
-        mod = _plugin_module()
-        msg = _tool_return("ret-id")
-        new_msg, _, n_returns = mod._filter_message_parts(msg, set(), {"ret-id"})
-        assert n_returns == 1
-        assert new_msg is None  # collapsed
-
-    def test_no_drops_returns_original(self):
-        mod = _plugin_module()
-        msg = _assistant_text("hi")
-        new_msg, n_calls, n_returns = mod._filter_message_parts(msg, set(), set())
-        assert new_msg is msg
-        assert (n_calls, n_returns) == (0, 0)
+        msg = _tool_return("x")
+        assert mod._message_has_orphan_tool_return(msg, set()) is False
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -1189,7 +1144,7 @@ class TestPerformPrune:
                 "code_puppy.plugins.prune.register_callbacks.emit_warning"
             ) as mock_warn,
         ):
-            _plugin_module()._perform_prune({1}, set())
+            _plugin_module()._perform_prune({1})
         agent.set_message_history.assert_not_called()
         mock_warn.assert_called_once()
 
@@ -1203,7 +1158,7 @@ class TestPerformPrune:
             ),
             patch("code_puppy.plugins.prune.register_callbacks.emit_info") as mock_info,
         ):
-            _plugin_module()._perform_prune(set(), set())
+            _plugin_module()._perform_prune(set())
         agent.set_message_history.assert_not_called()
         mock_info.assert_called_once()
 
@@ -1218,12 +1173,15 @@ class TestPerformPrune:
             patch("code_puppy.plugins.prune.register_callbacks.emit_info") as mock_info,
         ):
             # Caller maliciously asked us to drop index 0 — should be a no-op.
-            _plugin_module()._perform_prune({0}, set())
+            _plugin_module()._perform_prune({0})
         agent.set_message_history.assert_not_called()
         mock_info.assert_called_once()
 
-    def test_drops_message_and_matching_tool_return(self):
-        """Selecting the assistant message should also nuke its return."""
+    def test_drops_message_and_cascades_matching_tool_return(self):
+        """Dropping an assistant message should cascade-drop its orphaned
+        ToolReturnPart message so the model never sees a tool result
+        without a matching tool call.
+        """
         system = _system_msg()
         user = _user_msg("step 1")
         asst = _assistant_with_tool(
@@ -1243,29 +1201,38 @@ class TestPerformPrune:
             patch("code_puppy.plugins.prune.register_callbacks.emit_success"),
             patch("code_puppy.plugins.prune.register_callbacks.emit_info"),
         ):
-            # Drop the assistant message (index 2). Its tool-return at index 3
-            # should be collapsed away as a side effect.
-            _plugin_module()._perform_prune({2}, set())
+            # Drop the assistant message (index 2). Its tool-return at
+            # index 3 should cascade-drop.
+            _plugin_module()._perform_prune({2})
 
         agent.set_message_history.assert_called_once()
         new_history = agent.set_message_history.call_args[0][0]
         assert new_history == [system, user, followup]
 
-    def test_drops_individual_tool_call_and_its_return(self):
-        """Surgical tool-call removal: parent message survives, return goes."""
+    def test_unrelated_assistant_message_is_left_untouched(self):
+        """The big behavioural change: we never edit a ModelResponse's
+        parts in place. Messages we didn't select must be the exact same
+        object on the way out so thinking-block signatures survive.
+        """
         system = _system_msg()
-        asst = ModelResponse(
+        asst_keep = ModelResponse(
             parts=[
                 TextPart(content="doing work"),
                 ToolCallPart(tool_name="create_file", args="{}", tool_call_id="keep"),
-                ToolCallPart(tool_name="create_file", args="{}", tool_call_id="drop"),
             ]
         )
         ret_keep = _tool_return("keep")
-        ret_drop = _tool_return("drop")
+        user2 = _user_msg("another turn")
+        asst_drop = _assistant_text("this one's getting nuked")
 
         agent = MagicMock()
-        agent.get_message_history.return_value = [system, asst, ret_keep, ret_drop]
+        agent.get_message_history.return_value = [
+            system,
+            asst_keep,
+            ret_keep,
+            user2,
+            asst_drop,
+        ]
 
         with (
             patch.dict(
@@ -1275,16 +1242,13 @@ class TestPerformPrune:
             patch("code_puppy.plugins.prune.register_callbacks.emit_success"),
             patch("code_puppy.plugins.prune.register_callbacks.emit_info"),
         ):
-            _plugin_module()._perform_prune(set(), {"drop"})
+            _plugin_module()._perform_prune({4})
 
         new_history = agent.set_message_history.call_args[0][0]
-        # System + (assistant with one tool call) + the "keep" return remain.
-        assert len(new_history) == 3
-        kept_asst = new_history[1]
-        kept_tool_call_ids = [
-            p.tool_call_id for p in kept_asst.parts if isinstance(p, ToolCallPart)
-        ]
-        assert kept_tool_call_ids == ["keep"]
+        # The kept assistant ModelResponse must be the SAME object — not
+        # a model_copy with rebuilt parts.
+        assert new_history[1] is asst_keep
+        assert new_history[2] is ret_keep
 
     def test_set_history_failure_emits_error(self):
         agent = MagicMock()
@@ -1300,7 +1264,7 @@ class TestPerformPrune:
                 "code_puppy.plugins.prune.register_callbacks.emit_error"
             ) as mock_error,
         ):
-            _plugin_module()._perform_prune({1}, set())
+            _plugin_module()._perform_prune({1})
 
         mock_error.assert_called_once()
 
@@ -1397,13 +1361,19 @@ class TestRenderDetailSmoke:
         assert "message" in flat
         assert "history index" in flat
 
-    def test_tool_call_detail(self):
+    def test_message_detail_lists_tool_calls_inline(self):
+        """Tool calls live inside the message detail pane now — they
+        aren't separately selectable rows anymore.
+        """
         menu, _, _ = _menu_with_history()
-        menu.cursor = next(i for i, r in enumerate(menu.rows) if r.kind == "tool_call")
+        menu.cursor = next(
+            i
+            for i, r in enumerate(menu.rows)
+            if r.kind == "message" and menu.entries[r.message_idx].tool_calls
+        )
         flat = _flatten(render_detail(menu))
-        assert "tool call" in flat
-        # Our fixture's tool calls all have returns, so the warning is absent.
-        assert "no matching return" not in flat
+        assert "tool calls" in flat
+        assert "will go with message" in flat
 
     def test_message_detail_surfaces_thinking_block_count(self):
         """When an assistant turn carried thinking content, the metadata
@@ -1472,14 +1442,6 @@ class TestPruneMenuViewport:
         menu._scroll_into_view()
         assert menu.viewport_top == 0
 
-    def test_update_display_resets_detail_scroll_on_cursor_move(self):
-        menu, _, _ = _menu_with_history()
-        menu.detail_scroll = 5
-        menu._last_cursor_for_detail = 0
-        menu.cursor = 1
-        menu._update_display()
-        assert menu.detail_scroll == 0
-
 
 class TestHandlePruneCommand:
     def test_empty_history_bails_out(self):
@@ -1500,8 +1462,8 @@ class TestHandlePruneCommand:
 
     def test_only_system_entries_bails_out(self):
         """With a non-empty raw history of just a system message, the
-        synthetic system row is the only entry — and it's non-prunable —
-        so we should bail out gracefully.
+        system-only request is filtered out by ``_extract_message`` and
+        the entries list ends up empty — we should bail out gracefully.
         """
         agent = MagicMock()
         agent.get_message_history.return_value = [_system_msg()]

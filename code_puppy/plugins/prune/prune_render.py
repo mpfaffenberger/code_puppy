@@ -17,7 +17,6 @@ from code_puppy.plugins.prune.prune_model import (
     C_FOOTER_OK,
     C_FOOTER_PREVIEW,
     C_HEADER,
-    C_IMPLIED,
     C_SHELL,
     C_TOOL,
     ContextBudget,
@@ -201,8 +200,8 @@ def render_legend() -> List[tuple]:
 def render_list(menu: Any) -> List[tuple]:
     """Render the left (history list) pane.
 
-    Reads from the menu: entries, rows, viewport_top, _visible_rows, cursor,
-    selected_messages, selected_tool_calls, preview_only, budget.
+    Reads from the menu: entries, rows, viewport_top, _visible_rows,
+    cursor, selected_messages, preview_only, budget.
     """
     out: List[tuple] = []
     title = "prune — preview" if menu.preview_only else "prune"
@@ -237,14 +236,13 @@ def render_list(menu: Any) -> List[tuple]:
         out.append(("", "\n"))
 
     msg_count = len(menu.selected_messages)
-    tc_count = len(menu.selected_tool_calls)
     out.append(("", "\n"))
     footer_style = C_FOOTER_PREVIEW if menu.preview_only else C_FOOTER_OK
     prefix = "preview: would remove" if menu.preview_only else "enter = remove"
     out.append(
         (
             footer_style,
-            f" {prefix} {msg_count} message(s) + {tc_count} extra tool call(s)\n",
+            f" {prefix} {msg_count} message(s)\n",
         )
     )
     out.extend(render_legend())
@@ -256,65 +254,41 @@ def render_row(menu: Any, idx: int, row: Row, out: List[tuple]) -> None:
     is_cursor = idx == menu.cursor
     cursor_marker = "▶ " if is_cursor else "  "
     cursor_style = C_CURSOR if is_cursor else ""
-    checked, implied = menu._row_is_checked(row)
+    checked = menu._row_is_checked(row)
 
     entry = menu.entries[row.message_idx]
 
-    # System rows are protected — render with a distinct "locked" box so
-    # the user can see at a glance that this isn't toggleable.
-    if entry.role == "system":
+    # Locked rows (sys bundle or history[0]) get a distinct "locked" box
+    # so the user can see at a glance that this isn't toggleable.
+    if entry.is_locked:
         box, box_style = "[-] ", C_DIM
-    elif checked and implied:
-        box, box_style = "[~] ", C_IMPLIED
     elif checked:
         box, box_style = "[x] ", C_CHECKED
     else:
         box, box_style = "[ ] ", C_DIM
 
-    if row.kind == "message":
-        role_short = {
-            "system": "sys  ",
-            "user": "user ",
-            "assistant": "asst ",
-            "tool-return": "tool ",
-            "unknown": "?    ",
-        }.get(entry.role, "?    ")
-        row_style = C_CHECKED if checked else entry.role_color
-        out.append((cursor_style, cursor_marker))
-        out.append((box_style, box))
-        ctx_glyph, ctx_style = ctx_indicator(entry)
-        out.append((ctx_style, f"{ctx_glyph} "))
-        # Synthetic entries (e.g. the agent's instructions, history_index=-1)
-        # have no real history slot, so the index column is left blank.
-        idx_col = "   " if entry.history_index < 0 else f"{entry.history_index:3d}"
-        out.append(
-            (
-                row_style,
-                f"{idx_col}  {role_short} {entry.icon}  {entry.preview}",
-            )
-        )
-        tok = tokens_str(entry)
-        if tok:
-            out.append((C_DIM, f"  {tok}"))
-        out.append(("", "\n"))
-        return
-
-    # tool-call sub-row
-    tc = next(
-        (t for t in entry.tool_calls if t.tool_call_id == row.tool_call_id),
-        None,
-    )
-    if tc is None:
-        return
-    tc_style = C_IMPLIED if implied else (C_CHECKED if checked else C_TOOL)
+    role_short = {
+        "system": "sys  ",
+        "user": "user ",
+        "assistant": "asst ",
+        "tool-return": "tool ",
+        "unknown": "?    ",
+    }.get(entry.role, "?    ")
+    row_style = C_CHECKED if checked else entry.role_color
     out.append((cursor_style, cursor_marker))
-    out.append(("", "       └─ "))
     out.append((box_style, box))
-    out.append((tc_style, f"{tc.icon}  {tc.name}"))
-    if tc.args_preview:
-        out.append((C_DIM, f"  {tc.args_preview}"))
-    if not tc.has_return:
-        out.append((C_DIM, "  (no return)"))
+    ctx_glyph, ctx_style = ctx_indicator(entry)
+    out.append((ctx_style, f"{ctx_glyph} "))
+    idx_col = f"{entry.history_index:3d}"
+    out.append(
+        (
+            row_style,
+            f"{idx_col}  {role_short}  {entry.preview}",
+        )
+    )
+    tok = tokens_str(entry)
+    if tok:
+        out.append((C_DIM, f"  {tok}"))
     out.append(("", "\n"))
 
 
@@ -329,18 +303,7 @@ def render_detail(menu: Any) -> List[tuple]:
     row = menu.rows[menu.cursor]
     entry = menu.entries[row.message_idx]
     out: List[tuple] = []
-
-    if row.kind == "message":
-        _render_message_detail(entry, out)
-    else:
-        tc = next(
-            (t for t in entry.tool_calls if t.tool_call_id == row.tool_call_id),
-            None,
-        )
-        if tc is None:
-            out.append((C_DIM, " <stale tool call>\n"))
-            return out
-        _render_tool_call_detail(entry, tc, out)
+    _render_message_detail(entry, out)
 
     out.append(("", "\n"))
     if menu._selection_has_side_effects():
@@ -351,19 +314,13 @@ def render_detail(menu: Any) -> List[tuple]:
                 "pruning does NOT roll them back\n",
             )
         )
-    out.append((C_DIM, " scroll: shift+↑/↓ (or J/K)  page: < >  top: g\n"))
     return out
 
 
 def _render_message_detail(entry: MessageEntry, out: List[tuple]) -> None:
     out.append((C_HEADER, f" {entry.role}  (message)\n"))
     tok = f" · ~{entry.tokens}t" if entry.tokens is not None else ""
-    # Synthetic system entry: the agent's instructions live outside
-    # message history, so we surface a clearer label than "history index -1".
-    if entry.history_index < 0:
-        location = "agent instructions (in overhead)"
-    else:
-        location = f"history index {entry.history_index}"
+    location = f"history index {entry.history_index}"
     # Surface thinking presence in the metadata line so it's clear at a
     # glance that this assistant turn carried chain-of-thought tokens.
     thinking_note = (
@@ -395,28 +352,6 @@ def _render_tool_call_block(tc: ToolCallInfo, out: List[tuple]) -> None:
     out.append(("", "\n"))
     for line in format_args_full(tc.full_args, tc.args_preview):
         out.append((C_DIM, f"       {line}\n"))
-
-
-def _render_tool_call_detail(
-    entry: MessageEntry, tc: ToolCallInfo, out: List[tuple]
-) -> None:
-    out.append((C_HEADER, f" tool call: {tc.name}\n"))
-    out.append(
-        (
-            C_DIM,
-            f" parent history index {entry.history_index}  ·  id {tc.tool_call_id}\n\n",
-        )
-    )
-    out.append((C_HEADER, " args:\n"))
-    for line in format_args_full(tc.full_args, tc.args_preview):
-        out.append(("", f"   {line}\n"))
-    out.append(("", "\n"))
-    if tc.has_return:
-        out.append(
-            (C_DIM, " matching tool-return is in history; it will be removed too\n")
-        )
-    else:
-        out.append((C_SHELL, " ⚠  no matching return found in history\n"))
 
 
 __all__ = [

@@ -173,85 +173,48 @@ def _collect_removed_tool_call_ids(
     return removed
 
 
-def _filter_message_parts(
-    message: Any,
-    drop_tool_call_ids: Set[str],
-    removed_return_ids: Set[str],
-) -> Tuple[Optional[Any], int, int]:
-    """Return (new_message_or_None, n_calls_dropped, n_returns_dropped).
+def _message_has_orphan_tool_return(message: Any, orphan_call_ids: Set[str]) -> bool:
+    """True if ``message`` is a ModelRequest carrying a ToolReturnPart
+    whose ``tool_call_id`` is in ``orphan_call_ids``.
 
-    A message with no remaining meaningful parts is collapsed to None so
-    the caller can drop it.
+    Used to cascade-drop messages that would otherwise leave the model
+    looking at a tool result with no matching tool call (which providers
+    like Anthropic reject outright).
     """
+    if not orphan_call_ids:
+        return False
     try:
-        from pydantic_ai.messages import (
-            ModelRequest,
-            ModelResponse,
-            ToolCallPart,
-            ToolReturnPart,
-        )
+        from pydantic_ai.messages import ModelRequest, ToolReturnPart
+
+        try:
+            from pydantic_ai.messages import RetryPromptPart  # type: ignore
+        except Exception:  # pragma: no cover — older pydantic-ai
+            RetryPromptPart = None  # type: ignore[assignment]
     except Exception:
-        return message, 0, 0
-
-    parts = list(getattr(message, "parts", []) or [])
-    if not parts:
-        return message, 0, 0
-
-    if isinstance(message, ModelResponse):
-        new_parts = []
-        dropped = 0
-        for part in parts:
-            if isinstance(part, ToolCallPart):
-                tcid = getattr(part, "tool_call_id", None)
-                if tcid and tcid in drop_tool_call_ids:
-                    dropped += 1
-                    continue
-            new_parts.append(part)
-        if dropped == 0:
-            return message, 0, 0
-        if not new_parts:
-            return None, dropped, 0
-        try:
-            return message.model_copy(update={"parts": new_parts}), dropped, 0
-        except Exception:
-            # Fall back to direct mutation if model_copy isn't available
-            try:
-                message.parts = new_parts  # type: ignore[attr-defined]
-                return message, dropped, 0
-            except Exception:
-                return message, 0, 0
-
-    if isinstance(message, ModelRequest):
-        new_parts = []
-        dropped = 0
-        for part in parts:
-            if isinstance(part, ToolReturnPart):
-                tcid = getattr(part, "tool_call_id", None)
-                if tcid and tcid in removed_return_ids:
-                    dropped += 1
-                    continue
-            new_parts.append(part)
-        if dropped == 0:
-            return message, 0, 0
-        if not new_parts:
-            return None, 0, dropped
-        try:
-            return message.model_copy(update={"parts": new_parts}), 0, dropped
-        except Exception:
-            try:
-                message.parts = new_parts  # type: ignore[attr-defined]
-                return message, 0, dropped
-            except Exception:
-                return message, 0, 0
-
-    return message, 0, 0
+        return False
+    if not isinstance(message, ModelRequest):
+        return False
+    reply_kinds: tuple = (ToolReturnPart,)
+    if RetryPromptPart is not None:
+        reply_kinds = (ToolReturnPart, RetryPromptPart)
+    for part in getattr(message, "parts", []) or []:
+        if isinstance(part, reply_kinds):
+            tcid = getattr(part, "tool_call_id", None)
+            if tcid and tcid in orphan_call_ids:
+                return True
+    return False
 
 
-def _perform_prune(
-    drop_indices: Set[int],
-    drop_tool_call_ids: Set[str],
-) -> None:
-    """Apply the prune selection to current agent history."""
+def _perform_prune(drop_indices: Set[int]) -> None:
+    """Apply the prune selection to current agent history.
+
+    Whole-message removal only. Individual ToolCallPart / ToolReturnPart
+    surgery used to be supported, but editing a ``ModelResponse``'s parts
+    in place breaks Anthropic's invariant that ``thinking`` /
+    ``redacted_thinking`` blocks in the latest assistant message must
+    remain byte-identical to what the model returned. Full-entry-or-
+    nothing avoids that whole class of bug.
+    """
     from code_puppy.agents.agent_manager import get_current_agent
 
     try:
@@ -268,37 +231,28 @@ def _perform_prune(
     # Defensive: never drop the system prompt (index 0).
     drop_indices = {i for i in drop_indices if i != 0 and 0 <= i < len(history)}
 
-    if not drop_indices and not drop_tool_call_ids:
+    if not drop_indices:
         emit_info("/prune: nothing selected – history unchanged")
         return
 
-    removed_call_ids = _collect_removed_tool_call_ids(
-        history, drop_indices, drop_tool_call_ids
-    )
+    # First pass: figure out which tool_call_ids belonged to dropped
+    # messages so we can cascade-drop their orphaned returns elsewhere.
+    orphan_call_ids = _collect_removed_tool_call_ids(history, drop_indices, set())
 
     before_count = len(history)
 
     new_history: List[Any] = []
     msgs_dropped = 0
-    calls_dropped = 0
-    returns_dropped = 0
-    msgs_collapsed = 0
+    cascade_dropped = 0
 
     for hist_idx, msg in enumerate(history):
         if hist_idx in drop_indices:
             msgs_dropped += 1
             continue
-
-        filtered, n_calls, n_returns = _filter_message_parts(
-            msg, drop_tool_call_ids, removed_call_ids
-        )
-        calls_dropped += n_calls
-        returns_dropped += n_returns
-
-        if filtered is None:
-            msgs_collapsed += 1
+        if _message_has_orphan_tool_return(msg, orphan_call_ids):
+            cascade_dropped += 1
             continue
-        new_history.append(filtered)
+        new_history.append(msg)
 
     new_history, extra_pruned = _prune_dangling_tool_fragments(new_history)
     after_count = len(new_history)
@@ -313,15 +267,9 @@ def _perform_prune(
         ":scissors: Prune complete.",
         f"  · {msgs_dropped} message(s) removed by selection",
     ]
-    if calls_dropped:
-        summary_lines.append(f"  · {calls_dropped} individual tool call(s) removed")
-    if returns_dropped:
+    if cascade_dropped:
         summary_lines.append(
-            f"  · {returns_dropped} matching tool-return part(s) removed"
-        )
-    if msgs_collapsed:
-        summary_lines.append(
-            f"  · {msgs_collapsed} message(s) collapsed (no parts remained)"
+            f"  · {cascade_dropped} message(s) cascade-dropped (orphaned tool returns)"
         )
     if extra_pruned:
         summary_lines.append(
@@ -457,10 +405,10 @@ def _launch_menu(*, preview_only: bool) -> None:
     )
 
     entries = build_message_entries(raw_history, agent)
-    # Bail out when there's nothing the user can actually toggle. The
-    # synthetic system row counts as an entry but can never be pruned, so
-    # "only system entries" is the same as "empty conversation".
-    if not entries or all(e.role == "system" for e in entries):
+    # Bail out when there's nothing the user can actually toggle.
+    # Locked rows (system bundle or history[0]) are non-prunable, so an
+    # all-locked list is the same as an empty conversation.
+    if not entries or all(e.is_locked for e in entries):
         emit_info("/prune: no prunable messages")
         return
 
@@ -489,17 +437,12 @@ def _launch_menu(*, preview_only: bool) -> None:
 
     if preview_only:
         msg_count = len(selection.history_indices_to_drop)
-        tc_count = len(selection.tool_call_ids_to_drop)
         emit_info(
-            f"/prune preview: would remove {msg_count} message(s) and "
-            f"{tc_count} extra tool call(s). Run /prune to apply."
+            f"/prune preview: would remove {msg_count} message(s). Run /prune to apply."
         )
         return
 
-    _perform_prune(
-        selection.history_indices_to_drop,
-        selection.tool_call_ids_to_drop,
-    )
+    _perform_prune(selection.history_indices_to_drop)
 
 
 # ── custom_command plumbing ────────────────────────────────────────────────
@@ -518,9 +461,9 @@ register_callback("custom_command", _handle_custom_command)
 __all__ = [
     "_collect_removed_tool_call_ids",
     "_custom_help",
-    "_filter_message_parts",
     "_handle_custom_command",
     "_handle_prune_command",
+    "_message_has_orphan_tool_return",
     "_perform_prune",
     "_prune_dangling_tool_fragments",
 ]

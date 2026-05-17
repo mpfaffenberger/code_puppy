@@ -1,23 +1,20 @@
 """Interactive TUI for /prune — multi-select history pruner.
 
-Renders conversation history as a checkable tree:
+Renders conversation history as a flat checkable list:
 
     [ ]   001  asst   ✎   "I've updated the auth module..."
-            └─ [ ]  ✎   create_file  file_path=auth.py
-            └─ [ ]  ⚡   agent_run_shell_command  command=pytest
     [ ]   002  user        "now make it idempotent"
     [ ]   003  asst        "Let me think through..."
 
 Selection rules:
-    * Selecting a message implicitly selects all its child tool calls
-      (greyed checkbox shown for the children).
-    * Selecting a tool call only removes that ToolCallPart and its
-      matching ToolReturnPart from history.
+    * Only whole messages are selectable. Their tool calls go with them.
     * Tool returns (ModelRequest with ToolReturnPart) are not directly
-      selectable — they tag along with the tool call that owns them.
+      selectable — they tag along with whatever message owns the
+      matching ToolCallPart.
+    * Locked rows (history[0] / role=system) cannot be toggled.
 
-Returns a PruneSelection describing which messages and which individual
-tool calls to remove. The caller owns the actual mutation.
+Returns a PruneSelection describing which messages to remove. The
+caller owns the actual mutation.
 """
 
 from __future__ import annotations
@@ -61,42 +58,25 @@ class PruneMenu:
         self.budget = budget or ContextBudget()
 
         # Build the visible row list NEWEST-FIRST. Pure tool-return
-        # messages are hidden from the top level — they're represented
-        # by their parent's tool call rows. Tool calls within a message
-        # keep their original chronological order (that's semantic — the
-        # sequence the model invoked them in).
-        self.rows: List[Row] = []
-        for msg_idx in range(len(entries) - 1, -1, -1):
-            entry = entries[msg_idx]
-            if entry.is_pure_tool_return:
-                continue
-            self.rows.append(Row(kind="message", message_idx=msg_idx))
-            for tc in entry.tool_calls:
-                self.rows.append(
-                    Row(
-                        kind="tool_call",
-                        message_idx=msg_idx,
-                        tool_call_id=tc.tool_call_id,
-                    )
-                )
+        # messages are hidden from the top level — they tag along with
+        # whichever assistant message owns the matching ToolCallPart.
+        self.rows: List[Row] = [
+            Row(kind="message", message_idx=msg_idx)
+            for msg_idx in range(len(entries) - 1, -1, -1)
+            if not entries[msg_idx].is_pure_tool_return
+        ]
 
         if not self.rows:
             raise ValueError("PruneMenu has no visible rows")
 
         self.cursor: int = 0
         self.selected_messages: Set[int] = set()  # message_idx values
-        self.selected_tool_calls: Set[Tuple[int, str]] = set()
 
         # Viewport state — set for real in run() once we know the terminal
         # size, but seed with sensible defaults so the menu can be unit-tested
         # without a live TTY.
         self.viewport_top: int = 0
         self._visible_rows: int = 20
-
-        # Detail pane scroll. Reset to 0 whenever the cursor lands on a new
-        # row so each row's detail starts at the top.
-        self.detail_scroll: int = 0
-        self._last_cursor_for_detail: int = -1
 
         self.list_control: Optional[FormattedTextControl] = None
         self.detail_control: Optional[FormattedTextControl] = None
@@ -108,55 +88,29 @@ class PruneMenu:
 
     def _toggle_current(self) -> None:
         row = self.rows[self.cursor]
-        # System rows (history[0]'s system+user bundle) are non-toggleable —
-        # pruning them would nuke the agent's identity. The defensive
-        # index-0 check in _perform_prune is belt; this is the suspenders.
-        if self.entries[row.message_idx].role == "system":
+        # Locked rows (system bundle OR history[0] for transports that
+        # fold the system prompt into the first user message) are
+        # non-toggleable — pruning them would nuke the agent's identity.
+        # The defensive index-0 check in _perform_prune is belt; this is
+        # the suspenders.
+        if self.entries[row.message_idx].is_locked:
             return
-        if row.kind == "message":
-            if row.message_idx in self.selected_messages:
-                self.selected_messages.discard(row.message_idx)
-            else:
-                self.selected_messages.add(row.message_idx)
-                # Clear individual tool-call selections under this message —
-                # they're now implied by the message-level selection.
-                self.selected_tool_calls = {
-                    (m, tc)
-                    for (m, tc) in self.selected_tool_calls
-                    if m != row.message_idx
-                }
+        if row.message_idx in self.selected_messages:
+            self.selected_messages.discard(row.message_idx)
         else:
-            # Toggling a tool call when its parent message is selected does
-            # nothing — the parent already implies removal.
-            if row.message_idx in self.selected_messages:
-                return
-            key = (row.message_idx, row.tool_call_id or "")
-            if key in self.selected_tool_calls:
-                self.selected_tool_calls.discard(key)
-            else:
-                self.selected_tool_calls.add(key)
+            self.selected_messages.add(row.message_idx)
 
     def _select_all(self) -> None:
         for msg_idx, entry in enumerate(self.entries):
-            if entry.is_pure_tool_return or entry.role == "system":
+            if entry.is_pure_tool_return or entry.is_locked:
                 continue
             self.selected_messages.add(msg_idx)
-        self.selected_tool_calls.clear()
 
     def _clear_all(self) -> None:
         self.selected_messages.clear()
-        self.selected_tool_calls.clear()
 
-    def _row_is_checked(self, row: Row) -> Tuple[bool, bool]:
-        """Return (is_checked, is_implied)."""
-        if row.kind == "message":
-            return (row.message_idx in self.selected_messages, False)
-        if row.message_idx in self.selected_messages:
-            return (True, True)
-        return (
-            (row.message_idx, row.tool_call_id or "") in self.selected_tool_calls,
-            False,
-        )
+    def _row_is_checked(self, row: Row) -> bool:
+        return row.message_idx in self.selected_messages
 
     # ── viewport / pagination ──────────────────────────────────────────────────
 
@@ -186,26 +140,14 @@ class PruneMenu:
             for tc in self.entries[msg_idx].tool_calls:
                 if tc.icon in SIDE_EFFECT_ICONS:
                     return True
-        for msg_idx, tc_id in self.selected_tool_calls:
-            for tc in self.entries[msg_idx].tool_calls:
-                if tc.tool_call_id == tc_id and tc.icon in SIDE_EFFECT_ICONS:
-                    return True
         return False
 
     def _update_display(self) -> None:
         self._scroll_into_view()
-        # Reset detail-pane scroll whenever the cursor lands on a new row.
-        if self.cursor != self._last_cursor_for_detail:
-            self.detail_scroll = 0
-            self._last_cursor_for_detail = self.cursor
         if self.list_control:
             self.list_control.text = render_list(self)
         if self.detail_control:
             self.detail_control.text = render_detail(self)
-        if self.detail_window is not None:
-            # Clamp non-negative; prompt_toolkit clamps the upper bound
-            # automatically against actual rendered line count.
-            self.detail_window.vertical_scroll = max(0, self.detail_scroll)
 
     # ── main entry ────────────────────────────────────────────────────────
 
@@ -213,8 +155,6 @@ class PruneMenu:
         sel = PruneSelection()
         for msg_idx in self.selected_messages:
             sel.history_indices_to_drop.add(self.entries[msg_idx].history_index)
-        for _msg_idx, tc_id in self.selected_tool_calls:
-            sel.tool_call_ids_to_drop.add(tc_id)
         return sel
 
     def _build_keybindings(self) -> KeyBindings:
@@ -271,39 +211,6 @@ class PruneMenu:
             self._clear_all()
             self._update_display()
 
-        # ── detail-pane scroll bindings ──────────────────────────────────────
-        # shift+arrows for line-by-line, < / > for page jumps, also K / J
-        # as alternates for terminals that swallow shift modifiers.
-
-        def _detail_step(delta: int) -> None:
-            self.detail_scroll = max(0, self.detail_scroll + delta)
-            if self.detail_window is not None:
-                self.detail_window.vertical_scroll = self.detail_scroll
-
-        @kb.add("s-up")
-        @kb.add("K")
-        def _detail_up(event):
-            _detail_step(-1)
-
-        @kb.add("s-down")
-        @kb.add("J")
-        def _detail_down(event):
-            _detail_step(1)
-
-        @kb.add("<")
-        def _detail_pageup(event):
-            _detail_step(-max(1, self._page_size() - 2))
-
-        @kb.add(">")
-        def _detail_pagedown(event):
-            _detail_step(max(1, self._page_size() - 2))
-
-        @kb.add("g")
-        def _detail_home(event):
-            self.detail_scroll = 0
-            if self.detail_window is not None:
-                self.detail_window.vertical_scroll = 0
-
         @kb.add("enter")
         def _confirm(event):
             self._result = self._build_selection()
@@ -356,7 +263,9 @@ class PruneMenu:
             content=self.list_control, wrap_lines=False, width=list_width
         )
         detail_window = Window(
-            content=self.detail_control, wrap_lines=True, width=detail_width
+            content=self.detail_control,
+            wrap_lines=True,
+            width=detail_width,
         )
         self.detail_window = detail_window
 

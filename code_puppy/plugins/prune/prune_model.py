@@ -78,7 +78,6 @@ class MessageEntry:
     preview: str
     full_text: str
     tool_calls: List[ToolCallInfo] = field(default_factory=list)
-    icon: str = " "
     is_pure_tool_return: bool = False
     tool_return_ids: List[str] = field(default_factory=list)
     # Thinking / chain-of-thought content from the model. These are
@@ -91,6 +90,26 @@ class MessageEntry:
     # Both default to None when no estimator is available.
     tokens: Optional[int] = None
     in_context: Optional[bool] = None
+
+    @property
+    def is_locked(self) -> bool:
+        """True when this entry must never be pruned.
+
+        Two cases qualify:
+
+        * ``role == "system"`` — a bundled ``SystemPromptPart`` lives
+          inside this request (e.g. pydantic-ai's default system+user
+          bundle at ``history[0]``).
+        * ``history_index == 0`` — the very first message in raw history
+          carries the system prompt no matter how it's transported.
+          Some providers (notably claude-code OAuth) fold the system
+          prompt into the first user message's text instead of using a
+          ``SystemPromptPart``; in that case the entry has
+          ``role == "user"`` but pruning it would still strip the
+          agent's identity. Locking ``history_index == 0`` covers both
+          transports with one invariant.
+        """
+        return self.history_index == 0 or self.role == "system"
 
     @property
     def role_color(self) -> str:
@@ -107,32 +126,34 @@ class MessageEntry:
 
 @dataclass
 class Row:
-    """One visible row in the TUI tree.
+    """One visible row in the TUI list — always a message header.
 
-    Either a message header or an indented tool-call child.
+    Earlier versions of the menu also produced tool-call sub-rows so the
+    user could surgically remove a single ToolCallPart, but that path
+    required editing ``ModelResponse.parts`` in place, which violates
+    Anthropic's invariant that ``thinking`` / ``redacted_thinking``
+    blocks in the latest assistant message must remain byte-identical
+    to what the model returned. Full-entry-or-nothing is the safer rule.
     """
 
-    kind: str  # "message" | "tool_call"
+    kind: str  # always "message" — kept as a field for future-proofing
     message_idx: int  # index into MessageEntry list (not history_index)
-    tool_call_id: Optional[str] = None  # only for tool_call rows
 
 
 @dataclass
 class PruneSelection:
     """Result of the menu — what the caller should remove.
 
-    history_indices_to_drop: messages to remove entirely (along with all
-        their tool calls and any ToolReturnParts that match them).
-    tool_call_ids_to_drop: individual tool call IDs to surgically remove
-        (their matching ToolReturnParts go too).
+    Only whole messages can be selected. Their tool calls (and the
+    matching tool returns elsewhere in history) come along for the ride
+    via cascade logic in ``_perform_prune``.
     """
 
     history_indices_to_drop: Set[int] = field(default_factory=set)
-    tool_call_ids_to_drop: Set[str] = field(default_factory=set)
 
     @property
     def is_empty(self) -> bool:
-        return not self.history_indices_to_drop and not self.tool_call_ids_to_drop
+        return not self.history_indices_to_drop
 
 
 @dataclass
@@ -193,14 +214,6 @@ def short_args(args: dict, limit: int = 80) -> str:
     if len(joined) > limit:
         return joined[: limit - 1] + "…"
     return joined
-
-
-def _aggregate_icon(tool_calls: List[ToolCallInfo]) -> str:
-    kinds = {tc.icon for tc in tool_calls}
-    for kind in ("⚡", "✎", "🌐", "▶", "·"):
-        if kind in kinds:
-            return kind
-    return " "
 
 
 # ── pydantic-ai introspection ──────────────────────────────────────────────
@@ -317,7 +330,6 @@ def _extract_message(message: Any) -> Optional[MessageEntry]:
             preview=short_str(preview_source, limit=80),
             full_text=text,
             tool_calls=[],
-            icon=" ",
             is_pure_tool_return=(role == "tool-return"),
             tool_return_ids=tool_return_ids,
         )
@@ -365,23 +377,12 @@ def _extract_message(message: Any) -> Optional[MessageEntry]:
         else:
             full_text = text
 
-        # Icon priority: tool-call kind wins (it tells the user what the
-        # turn DID), thinking is the fallback so chain-of-thought-only
-        # turns still get a visual marker in the list pane.
-        if tool_calls:
-            icon = _aggregate_icon(tool_calls)
-        elif thinking_segments:
-            icon = "🧠"
-        else:
-            icon = " "
-
         return MessageEntry(
             history_index=-1,
             role="assistant",
             preview=short_str(text, limit=80),
             full_text=full_text,
             tool_calls=tool_calls,
-            icon=icon,
             thinking_segments=thinking_segments,
         )
 
@@ -393,56 +394,22 @@ def _extract_message(message: Any) -> Optional[MessageEntry]:
     )
 
 
-def _make_synthetic_system_entry(agent: Any) -> Optional[MessageEntry]:
-    """Build a virtual ``system`` entry from the agent's instructions.
-
-    Code Puppy sends the system prompt to pydantic-ai via the ``instructions``
-    field — it never appears as a ``SystemPromptPart`` in message history.
-    Without this helper the prune menu would render only user / assistant
-    rows and leave the always-in-context system prompt invisible.
-
-    The synthetic entry uses ``history_index = -1`` as a sentinel so it can
-    never collide with a real history index and the prune logic skips it
-    when computing drop targets. ``tokens`` stays ``None`` because the
-    system prompt is already accounted for in the ``overhead`` calculation;
-    counting it again would double-bill the budget.
-    """
-    if agent is None:
-        return None
-    try:
-        system_prompt = agent.get_full_system_prompt()
-    except Exception:
-        return None
-    if not system_prompt:
-        return None
-    text = str(system_prompt)
-    return MessageEntry(
-        history_index=-1,
-        role="system",
-        preview=short_str(text, limit=80),
-        full_text=text,
-        tool_calls=[],
-        icon=" ",
-        is_pure_tool_return=False,
-        tool_return_ids=[],
-        in_context=True,
-    )
-
-
 def build_message_entries(
     raw_history: List[Any], agent: Any = None
 ) -> List[MessageEntry]:
     """Turn pydantic-ai history into a list of MessageEntry, preserving order.
 
-    Pure-system messages in raw history are filtered out (we synthesize
-    our own system row from the agent's instructions instead).
+    Pure-system messages in raw history are filtered out.
     Tool-return-only messages stay in the list but are flagged so the menu
     can hide them from the top level and surface them via the parent tool
     calls instead.
 
-    When ``agent`` is supplied and no message in ``raw_history`` already
-    carries the system role, a virtual system entry is prepended so the
-    user can see what's always in context.
+    The ``agent`` argument is accepted for backward compatibility with
+    callers/tests but is no longer used — the sys row (when shown) comes
+    exclusively from real history (e.g. a ``SystemPromptPart`` bundled in
+    ``history[0]``). This avoids the duplicate-at-index-1 problem caused
+    by injecting a synthetic sys row when the first user message already
+    has the system prompt folded into it (e.g. claude-code OAuth).
     """
     return_ids: Set[str] = set()
     try:
@@ -479,14 +446,6 @@ def build_message_entries(
         for tc in entry.tool_calls:
             tc.has_return = tc.tool_call_id in return_ids
         entries.append(entry)
-
-    # If no real entry advertised role="system" (i.e. pydantic-ai isn't
-    # storing a SystemPromptPart for this model), inject the agent's
-    # instructions as a synthetic system row so it's always visible.
-    if not any(e.role == "system" for e in entries):
-        synthetic = _make_synthetic_system_entry(agent)
-        if synthetic is not None:
-            entries.insert(0, synthetic)
 
     return entries
 
