@@ -239,8 +239,9 @@ def test_stop_drains_remaining_buffer(buffer_io):
 
 def test_bus_listener_path_respects_pause(buffer_io):
     """The bus listener path is what production uses — emit_info() and
-    friends call ``MessageQueue.emit`` which fires registered listeners
-    (i.e. our ``_render_message``). Verify buffering works end-to-end.
+    friends call ``MessageQueue.emit`` which feeds the renderer's
+    ``_consume_messages`` thread (which polls ``get_nowait`` every 10ms
+    and calls ``_render_message``). Verify buffering works end-to-end.
     """
     console = Console(file=buffer_io, force_terminal=False, width=200)
     q = MessageQueue()
@@ -249,12 +250,23 @@ def test_bus_listener_path_respects_pause(buffer_io):
     try:
         pc = get_pause_controller()
         pc.pause()
-        # Emit through the queue; the renderer is a registered listener.
+        # Emit through the queue; the consume thread will pick these up
+        # and route them through ``_render_message`` (which buffers while
+        # paused).
         q.emit(_msg("bus-1"))
         q.emit(_msg("bus-2"))
-        # Give the consume thread a chance to drain (it shouldn't matter:
-        # listeners fire synchronously on emit, but let's be paranoid).
-        time.sleep(0.05)
+        # Wait for the consume thread to actually drain the queue into
+        # the renderer's pause buffer. A fixed sleep here is flaky under
+        # load — poll the observable state instead.
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if len(renderer._paused_buffer) >= 2:
+                break
+            time.sleep(0.005)
+        assert [m.content for m in renderer._paused_buffer] == [
+            "bus-1",
+            "bus-2",
+        ], "consume thread never drained the queue into the pause buffer"
         assert buffer_io.getvalue() == ""
 
         pc.resume()
