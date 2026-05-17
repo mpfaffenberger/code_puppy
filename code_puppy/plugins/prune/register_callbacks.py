@@ -58,11 +58,18 @@ def _custom_help() -> List[Tuple[str, str]]:
     ]
 
 
-# ── tool-fragment pruning (shared logic with pop_command) ──────────────────
+# ── tool-fragment pruning ──────────────────────────────────────────────────
 # After surgical edits we may still leave behind orphaned tool calls or
-# returns. This pass cleans the tail in the same conservative manner as
-# pop_command's pruner. The duplication is deliberate — sibling plugins
-# don't depend on each other.
+# returns at the tail of history. This pass cleans them up so the next
+# turn doesn't get rejected by providers (notably Anthropic) that require
+# every ToolCallPart to have a matching ToolReturnPart and vice versa.
+#
+# The sibling /pop plugin (code_puppy/plugins/pop_command) has its own
+# parallel implementation of a similarly-named helper. The duplication is
+# deliberate — sibling plugins shouldn't import from each other — and the
+# two implementations differ: pop_command drops any tool-return-only
+# tail, while this one validates against the live set of call/return ids
+# so it only strips what's genuinely orphaned.
 
 
 def _collect_tool_ids(history: List[Any]) -> Tuple[Set[str], Set[str]]:
@@ -292,97 +299,9 @@ def _perform_prune(drop_indices: Set[int]) -> None:
 def _handle_prune_command(command: str) -> bool:
     tokens = command.split()
     sub = tokens[1].lower() if len(tokens) >= 2 else ""
-    if sub == "debug":
-        _emit_debug_report()
-        return True
     preview_only = sub == "preview"
     _launch_menu(preview_only=preview_only)
     return True
-
-
-def _emit_debug_report() -> None:
-    """Print a diagnostic dump of the same numbers the menu would use.
-
-    Helps figure out why context indicators look wrong without firing up
-    the TUI. Read-only — never mutates history.
-    """
-    from code_puppy.agents.agent_manager import get_current_agent
-
-    from code_puppy.plugins.prune.prune_model import (
-        annotate_context_window,
-        build_message_entries,
-    )
-
-    try:
-        agent = get_current_agent()
-    except Exception as exc:
-        emit_error(f"/prune debug: could not get current agent – {exc}")
-        return
-
-    raw_history: List[Any] = list(agent.get_message_history())
-    entries = build_message_entries(raw_history, agent)
-
-    # Probe each agent helper independently with explicit error reporting.
-    try:
-        ctx_raw = agent._get_model_context_length()
-        ctx_repr = f"{ctx_raw!r} (type={type(ctx_raw).__name__})"
-    except Exception as exc:
-        ctx_repr = f"<exception: {exc!r}>"
-
-    try:
-        overhead_raw = agent._estimate_context_overhead()
-        overhead_repr = f"{overhead_raw!r} (type={type(overhead_raw).__name__})"
-    except Exception as exc:
-        overhead_repr = f"<exception: {exc!r}>"
-
-    try:
-        model_name = agent.get_model_name()
-    except Exception as exc:
-        model_name = f"<exception: {exc!r}>"
-
-    budget = annotate_context_window(entries, raw_history, agent)
-
-    greens = sum(1 for e in entries if e.in_context is True)
-    reds = sum(1 for e in entries if e.in_context is False)
-    nones = sum(1 for e in entries if e.in_context is None)
-    token_sum = sum(e.tokens or 0 for e in entries)
-    none_tokens = sum(1 for e in entries if e.tokens is None)
-
-    avail = (
-        (budget.context_length or 0) - (budget.overhead_tokens or 0)
-        if budget.context_length is not None
-        else None
-    )
-
-    lines = [
-        ":mag: /prune debug",
-        f"  model:               {model_name}",
-        f"  raw history length:  {len(raw_history)} message(s)",
-        f"  entries built:       {len(entries)}",
-        f"  agent.ctx_length:    {ctx_repr}",
-        f"  agent.overhead:      {overhead_repr}",
-        f"  budget.context_len:  {budget.context_length}",
-        f"  budget.overhead:     {budget.overhead_tokens}",
-        f"  budget.used_tokens:  {budget.used_tokens}",
-        f"  budget.total_used:   {budget.total_used}",
-        f"  budget.pct_used:     {budget.percent_used}",
-        f"  budget.available:    {budget.available}",
-        f"  available_budget:    {avail}",
-        f"  sum(entry.tokens):   {token_sum}",
-        f"  entries w/ tokens=None: {none_tokens}",
-        f"  in_context green=●:  {greens}",
-        f"  in_context red=○:    {reds}",
-        f"  in_context none=·:   {nones}",
-    ]
-    if entries:
-        sample = entries[:3] + entries[-3:] if len(entries) > 6 else entries
-        lines.append("  sample entries (idx, role, tokens, in_context):")
-        for e in sample:
-            lines.append(
-                f"    #{e.history_index:>3}  {e.role:<12}  "
-                f"tokens={e.tokens}  in_context={e.in_context}"
-            )
-    emit_info("\n".join(lines))
 
 
 def _launch_menu(*, preview_only: bool) -> None:
@@ -404,7 +323,7 @@ def _launch_menu(*, preview_only: bool) -> None:
         build_message_entries,
     )
 
-    entries = build_message_entries(raw_history, agent)
+    entries = build_message_entries(raw_history)
     # Bail out when there's nothing the user can actually toggle.
     # Locked rows (system bundle or history[0]) are non-prunable, so an
     # all-locked list is the same as an empty conversation.

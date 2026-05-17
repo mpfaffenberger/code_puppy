@@ -277,43 +277,33 @@ class TestBuildMessageEntries:
         assert entries[0].role == "user"
 
     def test_no_synthetic_system_entry_is_injected(self):
-        """The synthetic sys row (built from ``agent.get_full_system_prompt``)
-        was removed because it created a duplicate at index 1 whenever the
-        first user message had the system prompt folded into it (e.g.
-        claude-code OAuth). The agent arg is accepted for back-compat but
-        the function must never inject a virtual sys row anymore.
+        """build_message_entries must never invent a synthetic sys row.
+
+        Earlier versions accepted an ``agent`` argument and synthesised a
+        sys row from ``agent.get_full_system_prompt()``, which produced a
+        duplicate at index 1 whenever the first user message already had
+        the system prompt folded into it (e.g. claude-code OAuth). The
+        agent argument is gone entirely now — the bug is impossible by
+        construction — but we keep this regression test to lock in the
+        "no synthetic sys row" contract.
         """
-        agent = MagicMock()
-        agent.get_full_system_prompt.return_value = "You are Rowsdower"
         history = [_user_msg("hi"), _assistant_text("hello!")]
-        entries = build_message_entries(history, agent)
+        entries = build_message_entries(history)
         # No synthetic system row at the top — just the real history.
         assert all(e.role != "system" for e in entries)
         assert entries[0].role == "user"
         assert entries[1].role == "assistant"
-        # And we never even asked the agent for its prompt.
-        agent.get_full_system_prompt.assert_not_called()
 
     def test_real_system_role_from_history_is_preserved(self):
         """When raw history contains a bundled system+user ModelRequest, the
         real sys entry is kept (and is the only sys entry — no synthetic).
         """
-        agent = MagicMock()
-        agent.get_full_system_prompt.return_value = "You are Rowsdower"
         history = [_system_plus_user_msg(), _assistant_text("hi")]
-        entries = build_message_entries(history, agent)
+        entries = build_message_entries(history)
         sys_entries = [e for e in entries if e.role == "system"]
         assert len(sys_entries) == 1
         # And it's the REAL one (positive history_index), not synthetic.
         assert sys_entries[0].history_index >= 0
-
-    def test_no_agent_means_no_synthetic_system_entry(self):
-        """Called without an agent: still no synthetic sys row (and no
-        crash) — same behavior as the agent-supplied case.
-        """
-        history = [_user_msg("hi")]
-        entries = build_message_entries(history)
-        assert all(e.role != "system" for e in entries)
 
 
 class TestThinkingPartExtraction:
@@ -848,40 +838,28 @@ class TestPruneMenuInit:
 
     def test_pure_tool_returns_hidden_from_rows(self):
         menu, entries, _ = _menu_with_history()
-        # Tool-return messages should not have a "message" row; they live
-        # underneath their parent's tool-call rows.
-        message_rows = [r for r in menu.rows if r.kind == "message"]
-        assert all(not entries[r.message_idx].is_pure_tool_return for r in message_rows)
-
-    def test_rows_are_all_messages(self):
-        """Granular tool-call sub-rows were removed — only message rows
-        should exist now. (Editing ModelResponse parts in place broke
-        Anthropic's thinking-block invariant.)
-        """
-        menu, _, _ = _menu_with_history()
-        assert all(r.kind == "message" for r in menu.rows)
+        # Tool-return messages must not appear as their own rows; they
+        # live underneath their parent assistant message's tool-call list.
+        assert all(not entries[r.message_idx].is_pure_tool_return for r in menu.rows)
 
     def test_rows_are_ordered_newest_first(self):
         """The newest message must be at the top of the list (row 0) so
         the cursor lands on the most recent context first."""
         menu, entries, _ = _menu_with_history()
-        message_rows = [r for r in menu.rows if r.kind == "message"]
-        # History indices on message rows should strictly decrease (newest
-        # → oldest) because pure-tool-return entries are filtered out.
-        history_idx_seq = [entries[r.message_idx].history_index for r in message_rows]
+        # History indices should strictly decrease (newest → oldest)
+        # because pure-tool-return entries are filtered out.
+        history_idx_seq = [entries[r.message_idx].history_index for r in menu.rows]
         assert history_idx_seq == sorted(history_idx_seq, reverse=True)
 
 
 class TestPruneMenuSelection:
     def test_toggle_message_adds_and_removes(self):
         menu, _, _ = _menu_with_history()
-        # Cursor on a message row by construction (first row is message)
-        first_msg_row = next(i for i, r in enumerate(menu.rows) if r.kind == "message")
-        menu.cursor = first_msg_row
+        menu.cursor = 0
         menu._toggle_current()
-        assert menu.rows[first_msg_row].message_idx in menu.selected_messages
+        assert menu.rows[0].message_idx in menu.selected_messages
         menu._toggle_current()
-        assert menu.rows[first_msg_row].message_idx not in menu.selected_messages
+        assert menu.rows[0].message_idx not in menu.selected_messages
 
     def test_system_row_is_not_toggleable(self):
         """Pressing space on a system row must be a no-op so the user
@@ -898,7 +876,7 @@ class TestPruneMenuSelection:
         sys_row_idx = next(
             i
             for i, r in enumerate(menu.rows)
-            if r.kind == "message" and menu.entries[r.message_idx].role == "system"
+            if menu.entries[r.message_idx].role == "system"
         )
         menu.cursor = sys_row_idx
         menu._toggle_current()
@@ -935,7 +913,7 @@ class TestPruneMenuSelection:
         idx0_row = next(
             i
             for i, r in enumerate(menu.rows)
-            if r.kind == "message" and menu.entries[r.message_idx].history_index == 0
+            if menu.entries[r.message_idx].history_index == 0
         )
         menu.cursor = idx0_row
         menu._toggle_current()
@@ -953,7 +931,7 @@ class TestPruneMenuSelection:
 
     def test_row_is_checked_returns_bool(self):
         menu, _, _ = _menu_with_history()
-        msg_row = next(r for r in menu.rows if r.kind == "message")
+        msg_row = menu.rows[0]
         assert menu._row_is_checked(msg_row) is False
         menu.selected_messages.add(msg_row.message_idx)
         assert menu._row_is_checked(msg_row) is True
@@ -962,11 +940,7 @@ class TestPruneMenuSelection:
         menu, _, _ = _menu_with_history()
         # Both tool calls in our fixture are side-effecting (shell + write).
         # Selecting any assistant message should trip the flag.
-        msg_row = next(
-            r
-            for r in menu.rows
-            if r.kind == "message" and menu.entries[r.message_idx].tool_calls
-        )
+        msg_row = next(r for r in menu.rows if menu.entries[r.message_idx].tool_calls)
         menu.selected_messages.add(msg_row.message_idx)
         assert menu._selection_has_side_effects() is True
 
@@ -974,7 +948,7 @@ class TestPruneMenuSelection:
 class TestPruneMenuBuildSelection:
     def test_maps_message_idx_to_history_index(self):
         menu, entries, _ = _menu_with_history()
-        first_msg_row = next(r for r in menu.rows if r.kind == "message")
+        first_msg_row = menu.rows[0]
         menu.selected_messages.add(first_msg_row.message_idx)
         sel = menu._build_selection()
         assert (
@@ -987,9 +961,7 @@ class TestPruneMenuBuildSelection:
         whole-message removal is the only path.
         """
         menu, _, _ = _menu_with_history()
-        menu.selected_messages.add(
-            next(r.message_idx for r in menu.rows if r.kind == "message")
-        )
+        menu.selected_messages.add(menu.rows[0].message_idx)
         sel = menu._build_selection()
         assert hasattr(sel, "history_indices_to_drop")
         assert not hasattr(sel, "tool_call_ids_to_drop")
@@ -1335,9 +1307,7 @@ class TestRenderListSmoke:
 
     def test_renders_with_selection(self):
         menu, _, _ = _menu_with_history()
-        menu.selected_messages.add(
-            next(r.message_idx for r in menu.rows if r.kind == "message")
-        )
+        menu.selected_messages.add(menu.rows[0].message_idx)
         flat = _flatten(render_list(menu))
         # Footer should reflect the selection count.
         assert "1 message" in flat
@@ -1355,8 +1325,7 @@ class TestRenderListSmoke:
 class TestRenderDetailSmoke:
     def test_message_detail(self):
         menu, _, _ = _menu_with_history()
-        # Cursor on the first message row
-        menu.cursor = next(i for i, r in enumerate(menu.rows) if r.kind == "message")
+        menu.cursor = 0
         flat = _flatten(render_detail(menu))
         assert "message" in flat
         assert "history index" in flat
@@ -1367,9 +1336,7 @@ class TestRenderDetailSmoke:
         """
         menu, _, _ = _menu_with_history()
         menu.cursor = next(
-            i
-            for i, r in enumerate(menu.rows)
-            if r.kind == "message" and menu.entries[r.message_idx].tool_calls
+            i for i, r in enumerate(menu.rows) if menu.entries[r.message_idx].tool_calls
         )
         flat = _flatten(render_detail(menu))
         assert "tool calls" in flat
@@ -1389,7 +1356,7 @@ class TestRenderDetailSmoke:
         menu.cursor = next(
             i
             for i, r in enumerate(menu.rows)
-            if r.kind == "message" and menu.entries[r.message_idx].role == "assistant"
+            if menu.entries[r.message_idx].role == "assistant"
         )
         flat = _flatten(render_detail(menu))
         assert "thinking block" in flat
@@ -1400,7 +1367,7 @@ class TestRenderDetailSmoke:
         menu, _, _ = _menu_with_history()
         # Select an assistant message containing a side-effecting tool call.
         for r in menu.rows:
-            if r.kind == "message" and menu.entries[r.message_idx].tool_calls:
+            if menu.entries[r.message_idx].tool_calls:
                 menu.selected_messages.add(r.message_idx)
                 menu.cursor = next(i for i, rr in enumerate(menu.rows) if rr is r)
                 break

@@ -61,7 +61,7 @@ class PruneMenu:
         # messages are hidden from the top level — they tag along with
         # whichever assistant message owns the matching ToolCallPart.
         self.rows: List[Row] = [
-            Row(kind="message", message_idx=msg_idx)
+            Row(message_idx=msg_idx)
             for msg_idx in range(len(entries) - 1, -1, -1)
             if not entries[msg_idx].is_pure_tool_return
         ]

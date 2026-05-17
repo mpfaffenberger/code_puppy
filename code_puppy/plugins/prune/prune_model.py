@@ -9,7 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Set
 
-# ── palette (matches pop_interactive's ipop_menu) ──────────────────────────
+# ── palette ────────────────────────────────────────────────────────────────
+# Style strings for prompt_toolkit's formatted-text tuples. Centralised here
+# so prune_menu.py and prune_render.py reference one source of truth.
 
 C_CURSOR = "bold fg:ansicyan"
 C_USER = "fg:ansigreen"
@@ -78,7 +80,6 @@ class MessageEntry:
     preview: str
     full_text: str
     tool_calls: List[ToolCallInfo] = field(default_factory=list)
-    is_pure_tool_return: bool = False
     tool_return_ids: List[str] = field(default_factory=list)
     # Thinking / chain-of-thought content from the model. These are
     # ``ThinkingPart`` instances that live inside a ``ModelResponse``
@@ -90,6 +91,15 @@ class MessageEntry:
     # Both default to None when no estimator is available.
     tokens: Optional[int] = None
     in_context: Optional[bool] = None
+
+    @property
+    def is_pure_tool_return(self) -> bool:
+        """True for messages whose only content is tool returns.
+
+        These tag along with their parent tool-calling message and are
+        never shown as standalone rows in the menu.
+        """
+        return self.role == "tool-return"
 
     @property
     def is_locked(self) -> bool:
@@ -128,15 +138,15 @@ class MessageEntry:
 class Row:
     """One visible row in the TUI list — always a message header.
 
-    Earlier versions of the menu also produced tool-call sub-rows so the
-    user could surgically remove a single ToolCallPart, but that path
-    required editing ``ModelResponse.parts`` in place, which violates
-    Anthropic's invariant that ``thinking`` / ``redacted_thinking``
-    blocks in the latest assistant message must remain byte-identical
-    to what the model returned. Full-entry-or-nothing is the safer rule.
+    A thin named wrapper around ``message_idx`` so call sites read as
+    ``row.message_idx`` rather than a bare int that needs context.
+    Earlier versions also produced tool-call sub-rows, but in-place
+    editing of ``ModelResponse.parts`` violates Anthropic's invariant
+    that ``thinking`` / ``redacted_thinking`` blocks in the latest
+    assistant message must remain byte-identical to what the model
+    returned, so the menu now operates on whole entries only.
     """
 
-    kind: str  # always "message" — kept as a field for future-proofing
     message_idx: int  # index into MessageEntry list (not history_index)
 
 
@@ -330,7 +340,6 @@ def _extract_message(message: Any) -> Optional[MessageEntry]:
             preview=short_str(preview_source, limit=80),
             full_text=text,
             tool_calls=[],
-            is_pure_tool_return=(role == "tool-return"),
             tool_return_ids=tool_return_ids,
         )
 
@@ -394,22 +403,18 @@ def _extract_message(message: Any) -> Optional[MessageEntry]:
     )
 
 
-def build_message_entries(
-    raw_history: List[Any], agent: Any = None
-) -> List[MessageEntry]:
+def build_message_entries(raw_history: List[Any]) -> List[MessageEntry]:
     """Turn pydantic-ai history into a list of MessageEntry, preserving order.
 
-    Pure-system messages in raw history are filtered out.
-    Tool-return-only messages stay in the list but are flagged so the menu
-    can hide them from the top level and surface them via the parent tool
-    calls instead.
+    Pure-system messages in raw history are filtered out. Tool-return-only
+    messages stay in the list but are flagged so the menu can hide them
+    from the top level and surface them via the parent tool calls instead.
 
-    The ``agent`` argument is accepted for backward compatibility with
-    callers/tests but is no longer used — the sys row (when shown) comes
-    exclusively from real history (e.g. a ``SystemPromptPart`` bundled in
-    ``history[0]``). This avoids the duplicate-at-index-1 problem caused
-    by injecting a synthetic sys row when the first user message already
-    has the system prompt folded into it (e.g. claude-code OAuth).
+    The sys row (when shown) comes exclusively from real history (e.g. a
+    ``SystemPromptPart`` bundled in ``history[0]``); no synthetic sys row
+    is ever injected. This avoids duplicate-at-index-1 issues with
+    transports that fold the system prompt into the first user message
+    (e.g. claude-code OAuth).
     """
     return_ids: Set[str] = set()
     try:
