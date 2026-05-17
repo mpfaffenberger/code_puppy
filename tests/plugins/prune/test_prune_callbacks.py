@@ -50,10 +50,10 @@ class TestCustomCommand:
 
 
 class TestCollectRemovedToolCallIds:
-    def test_includes_explicit_ids(self):
+    def test_empty_when_nothing_dropped(self):
         mod = _plugin_module()
-        ids = mod._collect_removed_tool_call_ids([], set(), {"a", "b"})
-        assert ids == {"a", "b"}
+        ids = mod._collect_removed_tool_call_ids([], set())
+        assert ids == set()
 
     def test_pulls_tool_call_ids_from_dropped_messages(self):
         mod = _plugin_module()
@@ -63,23 +63,12 @@ class TestCollectRemovedToolCallIds:
                 text=None, tool_name="create_file", tool_call_id="tc-x"
             ),
         ]
-        ids = mod._collect_removed_tool_call_ids(history, {1}, set())
+        ids = mod._collect_removed_tool_call_ids(history, {1})
         assert ids == {"tc-x"}
-
-    def test_unions_both_sources(self):
-        mod = _plugin_module()
-        history = [
-            _system_msg(),
-            _assistant_with_tool(
-                text=None, tool_name="create_file", tool_call_id="tc-x"
-            ),
-        ]
-        ids = mod._collect_removed_tool_call_ids(history, {1}, {"tc-explicit"})
-        assert ids == {"tc-x", "tc-explicit"}
 
     def test_ignores_out_of_range(self):
         mod = _plugin_module()
-        ids = mod._collect_removed_tool_call_ids([_system_msg()], {99}, set())
+        ids = mod._collect_removed_tool_call_ids([_system_msg()], {99})
         assert ids == set()
 
 
@@ -352,7 +341,7 @@ class TestPerformPrune:
 
 
 # ───────────────────────────────────────────────────────────────────────────
-# _handle_prune_command (dispatch + preview path)
+# _handle_prune_command (dispatch)
 # ───────────────────────────────────────────────────────────────────────────
 
 
@@ -405,27 +394,3 @@ class TestHandlePruneCommand:
             result = _plugin_module()._handle_custom_command("/prune", "prune")
         assert result is True
         mock_error.assert_called_once()
-
-    def test_preview_flag_parsed(self):
-        """`/prune preview` should hit the PruneMenu with preview_only=True."""
-        agent = MagicMock()
-        agent.get_message_history.return_value = [_system_msg(), _assistant_text("hi")]
-
-        fake_menu_instance = MagicMock()
-        fake_menu_instance.run.return_value = None  # user cancels
-
-        with (
-            patch.dict(
-                sys.modules,
-                {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
-            ),
-            patch(
-                "code_puppy.plugins.prune.prune_menu.PruneMenu",
-                return_value=fake_menu_instance,
-            ) as mock_menu,
-            patch("code_puppy.plugins.prune.register_callbacks.emit_info"),
-        ):
-            _plugin_module()._handle_custom_command("/prune preview", "prune")
-
-        _args, kwargs = mock_menu.call_args
-        assert kwargs.get("preview_only") is True

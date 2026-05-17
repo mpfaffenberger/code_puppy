@@ -2,14 +2,16 @@
 
 /prune opens a multi-select TUI of conversation history. Unlike /pop
 (which slices a contiguous tail), /prune lets the user cherry-pick
-arbitrary messages — and even individual tool calls inside messages —
-and rip them out.
+arbitrary whole messages and rip them out. Selection granularity is
+at the message level only — individual tool calls within a message
+cannot be removed in isolation; they always travel with their parent
+message (and their matching tool returns elsewhere in history are
+cascaded out via the orphan-cleanup pass).
 
 The system prompt is always preserved.
 
 Usage:
     /prune              Open interactive multi-select TUI
-    /prune preview      Open TUI but report changes without applying
 """
 
 from __future__ import annotations
@@ -53,7 +55,7 @@ def _custom_help() -> List[Tuple[str, str]]:
     return [
         (
             "prune",
-            "Multi-select pruner — cherry-pick messages and/or tool calls to remove",
+            "Multi-select pruner — cherry-pick whole messages to remove",
         )
     ]
 
@@ -147,15 +149,14 @@ def _prune_dangling_tool_fragments(history: List[Any]) -> Tuple[List[Any], int]:
 def _collect_removed_tool_call_ids(
     history: List[Any],
     drop_indices: Set[int],
-    drop_tool_call_ids: Set[str],
 ) -> Set[str]:
     """Compute the full set of tool_call_ids whose returns must also go.
 
-    Includes:
-      - all ToolCallPart ids living inside messages we're dropping wholesale
-      - the explicitly-flagged individual tool call ids
+    Collects every ToolCallPart id living inside the messages we're
+    dropping wholesale, so the matching ToolReturnPart fragments
+    elsewhere in history can be cascaded out as orphans.
     """
-    removed: Set[str] = set(drop_tool_call_ids)
+    removed: Set[str] = set()
     try:
         from pydantic_ai.messages import ModelResponse, ToolCallPart
     except Exception:
@@ -261,7 +262,7 @@ def _perform_prune(drop_indices: Set[int]) -> None:
 
     # First pass: figure out which tool_call_ids belonged to dropped
     # messages so we can cascade-drop their orphaned returns elsewhere.
-    orphan_call_ids = _collect_removed_tool_call_ids(history, drop_indices, set())
+    orphan_call_ids = _collect_removed_tool_call_ids(history, drop_indices)
 
     before_count = len(history)
 
@@ -314,14 +315,12 @@ def _perform_prune(drop_indices: Set[int]) -> None:
 
 
 def _handle_prune_command(command: str) -> bool:
-    tokens = command.split()
-    sub = tokens[1].lower() if len(tokens) >= 2 else ""
-    preview_only = sub == "preview"
-    _launch_menu(preview_only=preview_only)
+    del command  # /prune takes no arguments anymore
+    _launch_menu()
     return True
 
 
-def _launch_menu(*, preview_only: bool) -> None:
+def _launch_menu() -> None:
     from code_puppy.agents.agent_manager import get_current_agent
 
     try:
@@ -356,7 +355,7 @@ def _launch_menu(*, preview_only: bool) -> None:
         budget = ContextBudget()
 
     try:
-        menu = PruneMenu(entries=entries, preview_only=preview_only, budget=budget)
+        menu = PruneMenu(entries=entries, budget=budget)
     except ValueError as exc:
         emit_info(f"/prune: {exc}")
         return
@@ -369,13 +368,6 @@ def _launch_menu(*, preview_only: bool) -> None:
 
     if selection.is_empty:
         emit_info("/prune: nothing selected – history unchanged")
-        return
-
-    if preview_only:
-        msg_count = len(selection.history_indices_to_drop)
-        emit_info(
-            f"/prune preview: would remove {msg_count} message(s). Run /prune to apply."
-        )
         return
 
     _perform_prune(selection.history_indices_to_drop)

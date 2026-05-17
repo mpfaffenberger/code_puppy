@@ -133,7 +133,7 @@ class TestRenderBudgetLine:
             used_tokens=40, overhead_tokens=40, context_length=100, available=True
         )  # 80%
         out = render_budget_line(b)
-        assert out[0][0] == prune_model.C_FOOTER_PREVIEW
+        assert out[0][0] == prune_model.C_FOOTER_WARN
 
     def test_red_over_90(self):
         b = ContextBudget(
@@ -243,12 +243,6 @@ class TestRenderListSmoke:
         assert "legend:" in flat
         assert "in context" in flat
 
-    def test_preview_mode_changes_title(self):
-        menu, _, _ = _menu_with_history()
-        menu.preview_only = True
-        flat = _flatten(render_list(menu))
-        assert "preview" in flat
-
     def test_renders_with_selection(self):
         menu, _, _ = _menu_with_history()
         menu.selected_messages.add(menu.rows[0].message_idx)
@@ -300,7 +294,7 @@ class TestRenderDetailSmoke:
             _assistant_with_thinking(text="answer", thinking="reasoning here"),
         ]
         entries = build_message_entries(history)
-        menu = PruneMenu(entries=entries, preview_only=False)
+        menu = PruneMenu(entries=entries)
         # Put cursor on the assistant row.
         menu.cursor = next(
             i

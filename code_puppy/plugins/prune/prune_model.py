@@ -22,7 +22,7 @@ C_SHELL = "fg:ansired"
 C_DIM = "fg:ansibrightblack"
 C_HEADER = "dim cyan"
 C_FOOTER_OK = "fg:ansigreen"
-C_FOOTER_PREVIEW = "fg:ansiyellow"
+C_FOOTER_WARN = "fg:ansiyellow"
 C_CHECKED = "bold fg:ansired"
 C_IMPLIED = "fg:ansibrightblack"
 C_SYSTEM = "bold fg:ansicyan"
@@ -547,7 +547,7 @@ __all__ = [
     "C_CURSOR",
     "C_DIM",
     "C_FOOTER_OK",
-    "C_FOOTER_PREVIEW",
+    "C_FOOTER_WARN",
     "C_HEADER",
     "C_IMPLIED",
     "C_SHELL",

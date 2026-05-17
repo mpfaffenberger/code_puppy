@@ -48,14 +48,12 @@ class PruneMenu:
         self,
         entries: List[MessageEntry],
         *,
-        preview_only: bool,
         budget: Optional[ContextBudget] = None,
     ) -> None:
         if not entries:
             raise ValueError("PruneMenu requires at least one entry")
 
         self.entries = entries
-        self.preview_only = preview_only
         self.budget = budget or ContextBudget()
 
         # Build the visible row list NEWEST-FIRST. Pure tool-return

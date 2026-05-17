@@ -31,7 +31,7 @@ from ._helpers import (
 class TestPruneMenuInit:
     def test_rejects_empty_entries(self):
         with pytest.raises(ValueError):
-            PruneMenu(entries=[], preview_only=False)
+            PruneMenu(entries=[])
 
     def test_pure_tool_returns_hidden_from_rows(self):
         menu, entries, _ = _menu_with_history()
@@ -73,7 +73,7 @@ class TestPruneMenuSelection:
         ]
         entries = build_message_entries(history)
         budget = ContextBudget()
-        menu = PruneMenu(entries=entries, preview_only=False, budget=budget)
+        menu = PruneMenu(entries=entries, budget=budget)
         # Find the system row's index and put cursor on it.
         sys_row_idx = next(
             i
@@ -92,7 +92,7 @@ class TestPruneMenuSelection:
             _assistant_text("hi"),
         ]
         entries = build_message_entries(history)
-        menu = PruneMenu(entries=entries, preview_only=False)
+        menu = PruneMenu(entries=entries)
         menu._select_all()
         # Find system entry's msg_idx — it must be excluded.
         sys_msg_idx = next(i for i, e in enumerate(menu.entries) if e.role == "system")
@@ -109,7 +109,7 @@ class TestPruneMenuSelection:
             _assistant_text("hi"),
         ]
         entries = build_message_entries(history)
-        menu = PruneMenu(entries=entries, preview_only=False)
+        menu = PruneMenu(entries=entries)
         idx0_row = next(
             i
             for i, r in enumerate(menu.rows)
@@ -135,7 +135,7 @@ class TestPruneMenuSelection:
             _assistant_text("hi"),
         ]
         entries = build_message_entries(history)
-        menu = PruneMenu(entries=entries, preview_only=False)
+        menu = PruneMenu(entries=entries)
         bundle_row = next(
             i
             for i, r in enumerate(menu.rows)

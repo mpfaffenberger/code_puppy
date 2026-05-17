@@ -138,4 +138,4 @@ def _menu_with_history():
         _tool_return("tc2"),
     ]
     entries = build_message_entries(history)
-    return PruneMenu(entries=entries, preview_only=False), entries, history
+    return PruneMenu(entries=entries), entries, history

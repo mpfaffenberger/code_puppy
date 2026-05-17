@@ -15,7 +15,7 @@ from code_puppy.plugins.prune.prune_model import (
     C_CURSOR,
     C_DIM,
     C_FOOTER_OK,
-    C_FOOTER_PREVIEW,
+    C_FOOTER_WARN,
     C_HEADER,
     C_SHELL,
     C_TOOL,
@@ -145,7 +145,7 @@ def render_budget_line(budget: ContextBudget) -> List[tuple]:
     if pct < 70:
         style = C_FOOTER_OK
     elif pct < 90:
-        style = C_FOOTER_PREVIEW
+        style = C_FOOTER_WARN
     else:
         style = C_SHELL
 
@@ -201,14 +201,13 @@ def render_list(menu: Any) -> List[tuple]:
     """Render the left (history list) pane.
 
     Reads from the menu: entries, rows, viewport_top, _visible_rows,
-    cursor, selected_messages, preview_only, budget.
+    cursor, selected_messages, budget.
     """
     out: List[tuple] = []
-    title = "prune — preview" if menu.preview_only else "prune"
     out.append(
         (
             C_HEADER,
-            f" {title}   ↓/↑ move  space toggle  a all  c clear  enter confirm  q quit\n",
+            " prune   ↓/↑ move  space toggle  a all  c clear  enter confirm  q quit\n",
         )
     )
     out.append(("", " "))
@@ -237,12 +236,10 @@ def render_list(menu: Any) -> List[tuple]:
 
     msg_count = len(menu.selected_messages)
     out.append(("", "\n"))
-    footer_style = C_FOOTER_PREVIEW if menu.preview_only else C_FOOTER_OK
-    prefix = "preview: would remove" if menu.preview_only else "enter = remove"
     out.append(
         (
-            footer_style,
-            f" {prefix} {msg_count} message(s)\n",
+            C_FOOTER_OK,
+            f" enter = remove {msg_count} message(s)\n",
         )
     )
     out.extend(render_legend())
