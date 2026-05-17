@@ -30,6 +30,7 @@ from code_puppy.agents._history import (
     has_pending_tool_calls,
     hash_message,
     prune_interrupted_tool_calls,
+    sanitize_tool_call_ids,
 )
 from code_puppy.callbacks import (
     on_message_history_processor_end,
@@ -471,6 +472,13 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
         # reject it with a "prefill" error.
         while cleaned and isinstance(cleaned[-1], ModelResponse):
             cleaned.pop()
+
+        # Sanitize tool_call_ids that don't match Anthropic's required pattern.
+        # When switching from providers like Kimi (which may emit IDs with
+        # dots, colons, etc.) to Claude, those stale IDs cause a 400 from
+        # the Anthropic API.  This step is cheap and no-op when all IDs
+        # already conform.
+        cleaned = sanitize_tool_call_ids(cleaned)
 
         agent._message_history = cleaned
 
