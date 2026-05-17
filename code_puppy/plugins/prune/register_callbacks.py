@@ -59,17 +59,12 @@ def _custom_help() -> List[Tuple[str, str]]:
 
 
 # ── tool-fragment pruning ──────────────────────────────────────────────────
-# After surgical edits we may still leave behind orphaned tool calls or
-# returns at the tail of history. This pass cleans them up so the next
-# turn doesn't get rejected by providers (notably Anthropic) that require
-# every ToolCallPart to have a matching ToolReturnPart and vice versa.
-#
-# The sibling /pop plugin (code_puppy/plugins/pop_command) has its own
-# parallel implementation of a similarly-named helper. The duplication is
-# deliberate — sibling plugins shouldn't import from each other — and the
-# two implementations differ: pop_command drops any tool-return-only
-# tail, while this one validates against the live set of call/return ids
-# so it only strips what's genuinely orphaned.
+# After dropping selected messages, the tail of history may still hold
+# orphaned ToolCallPart or ToolReturnPart fragments. Providers (notably
+# Anthropic) require every ToolCallPart to have a matching
+# ToolReturnPart and vice versa, so we walk the tail and strip any
+# fragment whose ``tool_call_id`` has no live partner in the remaining
+# history.
 
 
 def _collect_tool_ids(history: List[Any]) -> Tuple[Set[str], Set[str]]:
@@ -180,6 +175,24 @@ def _collect_removed_tool_call_ids(
     return removed
 
 
+def _message_carries_system_prompt(message: Any) -> bool:
+    """True if ``message`` is a ModelRequest containing a SystemPromptPart.
+
+    Matches both a standalone system message and pydantic-ai's bundled
+    ``SystemPromptPart + UserPromptPart`` request.
+    """
+    try:
+        from pydantic_ai.messages import ModelRequest, SystemPromptPart
+    except Exception:
+        return False
+    if not isinstance(message, ModelRequest):
+        return False
+    for part in getattr(message, "parts", []) or []:
+        if isinstance(part, SystemPromptPart):
+            return True
+    return False
+
+
 def _message_has_orphan_tool_return(message: Any, orphan_call_ids: Set[str]) -> bool:
     """True if ``message`` is a ModelRequest carrying a ToolReturnPart
     whose ``tool_call_id`` is in ``orphan_call_ids``.
@@ -215,12 +228,10 @@ def _message_has_orphan_tool_return(message: Any, orphan_call_ids: Set[str]) -> 
 def _perform_prune(drop_indices: Set[int]) -> None:
     """Apply the prune selection to current agent history.
 
-    Whole-message removal only. Individual ToolCallPart / ToolReturnPart
-    surgery used to be supported, but editing a ``ModelResponse``'s parts
-    in place breaks Anthropic's invariant that ``thinking`` /
-    ``redacted_thinking`` blocks in the latest assistant message must
-    remain byte-identical to what the model returned. Full-entry-or-
-    nothing avoids that whole class of bug.
+    Operates on whole messages only: each index in ``drop_indices`` is
+    removed from history, any ToolReturnPart messages whose matching
+    ToolCallPart was dropped are cascade-removed, and orphaned
+    tool-call/return fragments at the tail are cleaned up.
     """
     from code_puppy.agents.agent_manager import get_current_agent
 
@@ -235,8 +246,14 @@ def _perform_prune(drop_indices: Set[int]) -> None:
         emit_warning("/prune: conversation history is empty – nothing to remove")
         return
 
-    # Defensive: never drop the system prompt (index 0).
-    drop_indices = {i for i in drop_indices if i != 0 and 0 <= i < len(history)}
+    # Defensive filter: ignore out-of-range indices and silently skip
+    # any message that carries a SystemPromptPart so the agent's
+    # identity can never be dropped.
+    drop_indices = {
+        i
+        for i in drop_indices
+        if 0 <= i < len(history) and not _message_carries_system_prompt(history[i])
+    }
 
     if not drop_indices:
         emit_info("/prune: nothing selected – history unchanged")

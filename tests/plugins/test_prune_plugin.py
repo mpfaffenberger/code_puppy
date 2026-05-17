@@ -189,17 +189,24 @@ class TestShortArgs:
 
 
 class TestMessageEntryIsLocked:
-    """The lock invariant must cover both transports that carry the
-    system prompt — bundled ``SystemPromptPart`` and first-user-text.
+    """The lock invariant fires on content (role == "system"), not
+    position. ``build_message_entries`` already assigns ``role='system'``
+    to any entry carrying a ``SystemPromptPart`` — including pydantic-
+    ai's bundled system+user request at ``history[0]`` — so the bundle
+    stays locked while a pure first-user message is now prunable.
     """
 
     def test_role_system_is_locked(self):
         entry = MessageEntry(history_index=5, role="system", preview="x", full_text="x")
         assert entry.is_locked is True
 
-    def test_history_index_0_is_locked_even_for_user_role(self):
+    def test_history_index_0_with_user_role_is_now_prunable(self):
+        """Non-Anthropic transports put a plain UserPromptPart at
+        history[0]; users must be allowed to prune it. Previously this
+        was locked by a position-based check.
+        """
         entry = MessageEntry(history_index=0, role="user", preview="x", full_text="x")
-        assert entry.is_locked is True
+        assert entry.is_locked is False
 
     def test_regular_user_entry_is_not_locked(self):
         entry = MessageEntry(history_index=3, role="user", preview="x", full_text="x")
@@ -210,6 +217,16 @@ class TestMessageEntryIsLocked:
             history_index=1, role="assistant", preview="x", full_text="x"
         )
         assert entry.is_locked is False
+
+    def test_history_index_0_with_system_role_remains_locked(self):
+        """Anthropic-style: pydantic-ai bundles SystemPromptPart +
+        UserPromptPart at history[0] and build_message_entries tags it
+        ``role='system'``. The bundle must stay locked.
+        """
+        entry = MessageEntry(
+            history_index=0, role="system", preview="x", full_text="x"
+        )
+        assert entry.is_locked is True
 
 
 class TestBuildMessageEntries:
@@ -896,20 +913,18 @@ class TestPruneMenuSelection:
         sys_msg_idx = next(i for i, e in enumerate(menu.entries) if e.role == "system")
         assert sys_msg_idx not in menu.selected_messages
 
-    def test_history_index_0_is_not_toggleable_even_when_role_user(self):
-        """Some transports (e.g. claude-code OAuth) fold the system prompt
-        into the first user message's text instead of using a
-        SystemPromptPart. In that case ``history[0]`` has ``role='user'``
-        but pruning it would still strip the agent's identity. The lock
-        invariant must cover this case via ``history_index == 0``.
+    def test_history_index_0_pure_user_message_is_toggleable(self):
+        """On non-Anthropic transports history[0] is a pure UserPromptPart
+        (the system prompt is carried out-of-band). The user must be
+        able to prune their first turn — previously this was locked by
+        a blunt index-0 check.
         """
         history = [
-            _user_msg("system prompt folded in here + first user turn"),
+            _user_msg("first user turn on a non-anthropic provider"),
             _assistant_text("hi"),
         ]
         entries = build_message_entries(history)
         menu = PruneMenu(entries=entries, preview_only=False)
-        # The first message in the menu rows maps to history_index 0.
         idx0_row = next(
             i
             for i, r in enumerate(menu.rows)
@@ -918,10 +933,35 @@ class TestPruneMenuSelection:
         menu.cursor = idx0_row
         menu._toggle_current()
         idx0_msg_idx = menu.rows[idx0_row].message_idx
-        assert idx0_msg_idx not in menu.selected_messages
-        # And select-all also skips it.
+        # New behavior: toggling the first user message DOES select it.
+        assert idx0_msg_idx in menu.selected_messages
+        # And select-all also picks it up.
+        menu._clear_all()
         menu._select_all()
-        assert idx0_msg_idx not in menu.selected_messages
+        assert idx0_msg_idx in menu.selected_messages
+
+    def test_history_index_0_system_bundle_remains_non_toggleable(self):
+        """Anthropic-style bundle (SystemPromptPart + UserPromptPart at
+        history[0]) must still be locked. The lock now keys off content
+        (role == "system") rather than position.
+        """
+        history = [
+            _system_plus_user_msg(),
+            _assistant_text("hi"),
+        ]
+        entries = build_message_entries(history)
+        menu = PruneMenu(entries=entries, preview_only=False)
+        bundle_row = next(
+            i
+            for i, r in enumerate(menu.rows)
+            if menu.entries[r.message_idx].role == "system"
+        )
+        menu.cursor = bundle_row
+        menu._toggle_current()
+        bundle_msg_idx = menu.rows[bundle_row].message_idx
+        assert bundle_msg_idx not in menu.selected_messages
+        menu._select_all()
+        assert bundle_msg_idx not in menu.selected_messages
 
     def test_clear_all(self):
         menu, _, _ = _menu_with_history()
@@ -1135,6 +1175,11 @@ class TestPerformPrune:
         mock_info.assert_called_once()
 
     def test_drops_system_prompt_index_defensively(self):
+        """Defensive content-based filter: any index whose message
+        carries a SystemPromptPart is silently dropped from the
+        selection, regardless of its position. Asking to prune the
+        system prompt is a no-op.
+        """
         agent = MagicMock()
         agent.get_message_history.return_value = [_system_msg(), _assistant_text("hi")]
         with (
@@ -1144,10 +1189,52 @@ class TestPerformPrune:
             ),
             patch("code_puppy.plugins.prune.register_callbacks.emit_info") as mock_info,
         ):
-            # Caller maliciously asked us to drop index 0 — should be a no-op.
             _plugin_module()._perform_prune({0})
         agent.set_message_history.assert_not_called()
         mock_info.assert_called_once()
+
+    def test_drops_bundled_system_plus_user_defensively(self):
+        """Anthropic-style bundle at history[0] must also be refused —
+        the content-based check sees the SystemPromptPart and bails.
+        """
+        agent = MagicMock()
+        agent.get_message_history.return_value = [
+            _system_plus_user_msg(),
+            _assistant_text("hi"),
+        ]
+        with (
+            patch.dict(
+                sys.modules,
+                {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
+            ),
+            patch("code_puppy.plugins.prune.register_callbacks.emit_info") as mock_info,
+        ):
+            _plugin_module()._perform_prune({0})
+        agent.set_message_history.assert_not_called()
+        mock_info.assert_called_once()
+
+    def test_pure_user_first_message_is_prunable(self):
+        """The whole point of removing the index-0 lock: on non-
+        Anthropic transports history[0] is a pure UserPromptPart and
+        the user must be allowed to drop it end-to-end.
+        """
+        first_user = _user_msg("first turn — non-anthropic provider")
+        reply = _assistant_text("sure")
+        followup = _user_msg("second turn")
+        agent = MagicMock()
+        agent.get_message_history.return_value = [first_user, reply, followup]
+        with (
+            patch.dict(
+                sys.modules,
+                {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
+            ),
+            patch("code_puppy.plugins.prune.register_callbacks.emit_success"),
+            patch("code_puppy.plugins.prune.register_callbacks.emit_info"),
+        ):
+            _plugin_module()._perform_prune({0})
+        agent.set_message_history.assert_called_once()
+        new_history = agent.set_message_history.call_args[0][0]
+        assert new_history == [reply, followup]
 
     def test_drops_message_and_cascades_matching_tool_return(self):
         """Dropping an assistant message should cascade-drop its orphaned

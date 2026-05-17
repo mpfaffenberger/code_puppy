@@ -11,7 +11,8 @@ Selection rules:
     * Tool returns (ModelRequest with ToolReturnPart) are not directly
       selectable — they tag along with whatever message owns the
       matching ToolCallPart.
-    * Locked rows (history[0] / role=system) cannot be toggled.
+    * Locked rows (role=system, i.e. messages carrying a
+      SystemPromptPart) cannot be toggled.
 
 Returns a PruneSelection describing which messages to remove. The
 caller owns the actual mutation.
@@ -88,11 +89,7 @@ class PruneMenu:
 
     def _toggle_current(self) -> None:
         row = self.rows[self.cursor]
-        # Locked rows (system bundle OR history[0] for transports that
-        # fold the system prompt into the first user message) are
-        # non-toggleable — pruning them would nuke the agent's identity.
-        # The defensive index-0 check in _perform_prune is belt; this is
-        # the suspenders.
+        # Locked rows carry a SystemPromptPart and are non-toggleable.
         if self.entries[row.message_idx].is_locked:
             return
         if row.message_idx in self.selected_messages:

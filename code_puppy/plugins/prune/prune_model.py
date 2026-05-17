@@ -103,23 +103,15 @@ class MessageEntry:
 
     @property
     def is_locked(self) -> bool:
-        """True when this entry must never be pruned.
+        """True when this entry carries a ``SystemPromptPart`` and so
+        must never be pruned.
 
-        Two cases qualify:
-
-        * ``role == "system"`` — a bundled ``SystemPromptPart`` lives
-          inside this request (e.g. pydantic-ai's default system+user
-          bundle at ``history[0]``).
-        * ``history_index == 0`` — the very first message in raw history
-          carries the system prompt no matter how it's transported.
-          Some providers (notably claude-code OAuth) fold the system
-          prompt into the first user message's text instead of using a
-          ``SystemPromptPart``; in that case the entry has
-          ``role == "user"`` but pruning it would still strip the
-          agent's identity. Locking ``history_index == 0`` covers both
-          transports with one invariant.
+        ``build_message_entries`` tags any request containing a
+        ``SystemPromptPart`` with ``role == "system"``, which covers
+        both a standalone system message and pydantic-ai's bundled
+        ``SystemPromptPart + UserPromptPart`` request.
         """
-        return self.history_index == 0 or self.role == "system"
+        return self.role == "system"
 
     @property
     def role_color(self) -> str:
@@ -136,15 +128,12 @@ class MessageEntry:
 
 @dataclass
 class Row:
-    """One visible row in the TUI list — always a message header.
+    """One visible row in the TUI list — always a whole-message header.
 
-    A thin named wrapper around ``message_idx`` so call sites read as
-    ``row.message_idx`` rather than a bare int that needs context.
-    Earlier versions also produced tool-call sub-rows, but in-place
-    editing of ``ModelResponse.parts`` violates Anthropic's invariant
-    that ``thinking`` / ``redacted_thinking`` blocks in the latest
-    assistant message must remain byte-identical to what the model
-    returned, so the menu now operates on whole entries only.
+    Thin named wrapper around ``message_idx`` so call sites read as
+    ``row.message_idx`` rather than a bare int that needs context. The
+    menu operates on whole entries only; individual tool calls within a
+    message are not separately selectable.
     """
 
     message_idx: int  # index into MessageEntry list (not history_index)
@@ -513,12 +502,10 @@ def annotate_context_window(
             entry.in_context = True
             system_tokens += entry.tokens
 
-    # Walk newest → oldest, marking in_context until the budget runs out.
-    # A real LLM context window is a CONTIGUOUS tail: once we hit a message
-    # that doesn't fit, every older message is also out, regardless of size.
-    # Without the `overflowed` latch, small older messages would slip in
-    # behind big ones that didn't fit, which doesn't match how truncation
-    # actually works.
+    # Walk newest → oldest, marking in_context until the budget runs
+    # out. The context window is a CONTIGUOUS tail: the ``overflowed``
+    # latch ensures that once any message fails to fit, every older
+    # message is also marked out-of-context, regardless of its size.
     available_budget = max(0, context_length - overhead - system_tokens)
     non_system_cumulative = 0
     out_of_context_total = 0
@@ -541,10 +528,10 @@ def annotate_context_window(
 
     in_context_total = system_tokens + non_system_cumulative
 
-    # ``used_tokens`` is what would actually be sent next turn, NOT the
-    # full conversation total. Without this, sessions that overflow show
-    # nonsense like "139% used" — the LLM silently drops older messages,
-    # so they don't really count against the budget.
+    # ``used_tokens`` reflects only the in-context tail (what would
+    # actually be sent next turn); messages that overflowed are
+    # reported separately via ``out_of_context_tokens`` so the budget
+    # percentage stays bounded at 100%.
     budget.used_tokens = in_context_total
     budget.overhead_tokens = overhead
     budget.context_length = context_length if context_length > 0 else None
