@@ -14,8 +14,9 @@ the terminal ends up bricked — see the Phase 3 fix-up pass.
 from __future__ import annotations
 
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable, Iterator, Optional
 
 from code_puppy.keymap import (
     cancel_agent_uses_signal,
@@ -388,9 +389,65 @@ def _listen_posix(
             pass
 
 
+# =============================================================================
+# Reentrant suspend context manager
+# =============================================================================
+#
+# Any code that wants exclusive ownership of stdin (prompt_toolkit
+# Applications, Rich Prompt.ask, raw input(), etc.) MUST wrap the call
+# in ``suspended_key_listener()``. Without this, two readers fight over
+# stdin -- prompt_toolkit will emit the dreaded "your terminal doesn't
+# support cursor position requests (CPR)" warning and arrow keys will
+# behave erratically because the key-listener thread eats half of them.
+#
+# The context manager is reentrant via a refcount, so nested usage
+# (e.g. ``get_user_approval_async`` -> ``arrow_select_async``) only
+# actually suspends the listener once and only resumes after the
+# outermost scope exits.
+
+_suspend_lock = threading.Lock()
+_suspend_depth = 0
+
+
+@contextmanager
+def suspended_key_listener(timeout: float = 1.0) -> Iterator[None]:
+    """Suspend the active key listener for the duration of the block.
+
+    Safe to use:
+      * When no listener is active (no-op).
+      * Nested -- only the outermost scope suspends/resumes.
+      * From sync OR async code (it's a plain ``contextmanager``).
+
+    Args:
+        timeout: Seconds to wait for the listener to release stdin.
+    """
+    global _suspend_depth
+    handle = get_active_handle()
+    is_outermost = False
+    with _suspend_lock:
+        _suspend_depth += 1
+        if _suspend_depth == 1 and handle is not None:
+            is_outermost = True
+    if is_outermost:
+        if not handle.suspend(timeout=timeout):
+            emit_warning(
+                "Could not suspend key listener within "
+                f"{timeout}s; input may behave erratically."
+            )
+    try:
+        yield
+    finally:
+        with _suspend_lock:
+            _suspend_depth -= 1
+            should_resume = _suspend_depth == 0 and handle is not None
+        if should_resume:
+            handle.resume()
+
+
 __all__ = [
     "KeyListenerHandle",
     "get_active_handle",
     "set_active_handle",
     "spawn_key_listener",
+    "suspended_key_listener",
 ]
