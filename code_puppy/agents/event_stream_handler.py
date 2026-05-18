@@ -178,9 +178,9 @@ async def event_stream_handler(
             from code_puppy.config import get_value
 
             try:
-                max_pause = float(get_value("max_pause_seconds") or 45.0)
+                max_pause = float(get_value("max_pause_seconds") or 180.0)
             except (TypeError, ValueError):
-                max_pause = 45.0
+                max_pause = 180.0
             resumed = await _pc.wait_if_paused(timeout=max_pause)
             if not resumed:
                 from code_puppy.messaging import emit_warning

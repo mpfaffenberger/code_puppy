@@ -44,10 +44,10 @@ Valid options: `ctrl+a`, `ctrl+b`, `ctrl+e`, `ctrl+f`, `ctrl+g`,
 > may be swallowed by tmux before reaching Code Puppy. Pick a key your
 > tmux doesn't capture — e.g. `ctrl+o` or `ctrl+g`.
 
-Tune the safety auto-resume timeout (default 45s):
+Tune the safety auto-resume timeout (default 180s):
 
 ```text
-/set max_pause_seconds 60
+/set max_pause_seconds 240
 ```
 
 ## Why a plugin?
