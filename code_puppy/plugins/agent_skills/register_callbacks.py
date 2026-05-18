@@ -125,11 +125,16 @@ _ALIASES = ("skill",)
 
 
 def _skills_command_help() -> List[Tuple[str, str]]:
-    """Advertise /skills in the /help menu."""
-    return [
+    """Advertise /skills (+ every individual skill) in the /help menu."""
+    from .skill_commands import skill_command_help
+
+    entries: List[Tuple[str, str]] = [
         ("skills", "Manage agent skills – browse, enable, disable, install"),
         ("skill", "Alias for /skills"),
     ]
+    # Append per-skill commands so they show up in /help & tab-completion.
+    entries.extend(skill_command_help())
+    return entries
 
 
 def _handle_skills_command(command: str, name: str) -> Optional[Any]:
@@ -146,7 +151,10 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
         /skills help     – Show skills command help
     """
     if name not in (_COMMAND_NAME, *_ALIASES):
-        return None
+        # Not the /skills meta-command — maybe it's an individual skill?
+        from .skill_commands import handle_skill_command
+
+        return handle_skill_command(command, name)
 
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
     from code_puppy.plugins.agent_skills.config import (
