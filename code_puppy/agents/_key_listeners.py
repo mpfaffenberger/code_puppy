@@ -429,11 +429,9 @@ def suspended_key_listener(timeout: float = 1.0) -> Iterator[None]:
         if _suspend_depth == 1 and handle is not None:
             is_outermost = True
     if is_outermost:
-        if not handle.suspend(timeout=timeout):
-            emit_warning(
-                "Could not suspend key listener within "
-                f"{timeout}s; input may behave erratically."
-            )
+        # Best-effort suspend; if it doesn't release in time we just
+        # carry on quietly rather than spamming the user with a warning.
+        handle.suspend(timeout=timeout)
     try:
         yield
     finally:
