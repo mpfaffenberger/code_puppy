@@ -14,6 +14,7 @@ import pytest
 from code_puppy.agents._diagnostics import (
     _emit_exception_chain,
     _emit_useful_attrs,
+    _is_mcp_teardown_noise,
     _needs_deep_diagnostics,
     emit_exception_diagnostics,
 )
@@ -149,6 +150,66 @@ class TestDeepPath:
         assert "Sub-exception 10" in rendered
         assert "Sub-exception 11" not in rendered
         assert "5 more sub-exception(s) omitted" in rendered
+
+
+class TestMcpTeardownNoise:
+    """AnyIO/MCP cleanup ``RuntimeError``s must not scream at the user."""
+
+    _CANCEL_SCOPE_MSG = (
+        "Attempted to exit a cancel scope that isn't the current "
+        "tasks's current cancel scope"
+    )
+
+    def test_classifier_flags_cancel_scope_runtime_error(self):
+        assert _is_mcp_teardown_noise(RuntimeError(self._CANCEL_SCOPE_MSG))
+
+    def test_classifier_flags_cross_task_cancel_scope(self):
+        assert _is_mcp_teardown_noise(
+            RuntimeError(
+                "Attempted to exit cancel scope in a different task than it "
+                "was entered in"
+            )
+        )
+
+    def test_classifier_flags_async_generator_gc(self):
+        assert _is_mcp_teardown_noise(
+            RuntimeError("async generator ignored GeneratorExit")
+        )
+
+    def test_classifier_ignores_non_runtime_errors(self):
+        assert not _is_mcp_teardown_noise(ValueError(self._CANCEL_SCOPE_MSG))
+
+    def test_classifier_ignores_real_runtime_errors(self):
+        assert not _is_mcp_teardown_noise(RuntimeError("database is on fire"))
+
+    def test_teardown_noise_suppresses_terminal_emit(self):
+        with patch("code_puppy.agents._diagnostics.emit_info") as mock_emit:
+            with patch("code_puppy.agents._diagnostics.log_error") as mock_log:
+                emit_exception_diagnostics(
+                    RuntimeError(self._CANCEL_SCOPE_MSG), group_id="g"
+                )
+
+        # Nothing user-visible — the actual agent result was fine.
+        mock_emit.assert_not_called()
+        # Still logged to file with the teardown-context hint.
+        mock_log.assert_called_once()
+        ctx = mock_log.call_args.kwargs.get("context") or mock_log.call_args.args[1]
+        assert "teardown noise" in ctx
+
+    def test_real_error_alongside_teardown_noise_still_surfaces(self):
+        """Per-leaf classification: real errors still emit even if noise exists."""
+        with patch("code_puppy.agents._diagnostics.emit_info") as mock_emit:
+            with patch("code_puppy.agents._diagnostics.log_error"):
+                emit_exception_diagnostics(
+                    RuntimeError(self._CANCEL_SCOPE_MSG), group_id="g"
+                )
+                emit_exception_diagnostics(
+                    RuntimeError("database is on fire"), group_id="g"
+                )
+
+        rendered = _rendered_lines(mock_emit.call_args_list)
+        assert "database is on fire" in rendered
+        assert "cancel scope" not in rendered.lower()
 
 
 class TestHelpers:
