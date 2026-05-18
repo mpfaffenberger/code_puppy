@@ -7,6 +7,7 @@ from typing import Any
 
 from code_puppy.callbacks import register_callback
 from code_puppy.command_line.command_registry import register_command
+from code_puppy.config import get_value
 from code_puppy.messaging import (
     emit_info,
     emit_success,
@@ -17,6 +18,23 @@ from code_puppy.messaging import (
 from . import state
 from .judge import GoalJudgement, judge_goal
 from .judge_config import JudgeConfig, get_enabled_judges_or_default, load_judges
+
+# Default cap on /goal iterations. Override per-user with:
+#   /set goal_max_iterations=<int>
+# Clamped to [1, 1000] in _get_goal_max_iterations to avoid pathological values.
+GOAL_MAX_ITERATIONS_DEFAULT = 10
+GOAL_MAX_ITERATIONS_FLOOR = 1
+GOAL_MAX_ITERATIONS_CEILING = 1000
+
+
+def _get_goal_max_iterations() -> int:
+    """Read the configured /goal iteration cap, with sane fallbacks."""
+    val = get_value("goal_max_iterations")
+    try:
+        n = int(val) if val else GOAL_MAX_ITERATIONS_DEFAULT
+    except (ValueError, TypeError):
+        n = GOAL_MAX_ITERATIONS_DEFAULT
+    return max(GOAL_MAX_ITERATIONS_FLOOR, min(n, GOAL_MAX_ITERATIONS_CEILING))
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +88,10 @@ def handle_goal_command(command: str) -> str | bool:
     emit_info(f"Goal: {prompt}")
     emit_info(
         "After each iteration, every enabled LLM judge will verify completion in parallel."
+    )
+    emit_info(
+        f"Max iterations: {_get_goal_max_iterations()} "
+        f"(change with /set goal_max_iterations=<int>)"
     )
     _emit_configured_judges_summary()
     return prompt
@@ -436,9 +458,19 @@ async def _on_interactive_turn_end(
             state.stop()
             return None
 
+        max_iters = _get_goal_max_iterations()
+        if loop_num >= max_iters:
+            _display_llm_judge(
+                f"🛑 GOAL STOPPED — Hit max iterations ({max_iters}). "
+                f"Raise the cap with /set goal_max_iterations=<int>.",
+                final=True,
+            )
+            state.stop()
+            return None
+
         state.get_state().remediation_notes = notes
         _display_llm_judge(
-            f"❌ GOAL INCOMPLETE — Retrying! (Loop #{loop_num})",
+            f"❌ GOAL INCOMPLETE — Retrying! (Loop #{loop_num}/{max_iters})",
             final=True,
         )
         return {

@@ -323,6 +323,9 @@ def get_config_keys():
         default_keys.append(f"banner_color_{banner_name}")
     # Add resume message count configuration
     default_keys.append("resume_message_count")
+    # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
+    # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
+    default_keys.append("goal_max_iterations")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
