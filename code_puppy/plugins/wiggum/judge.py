@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, RunContext, ToolOutput
+from pydantic_ai import Agent, RunContext, ToolOutput, UsageLimits
 
 from code_puppy.agents._history import stringify_part
 from code_puppy.agents.agent_manager import load_agent
@@ -26,6 +26,13 @@ from code_puppy.model_utils import prepare_prompt_for_model
 from code_puppy.tools.subagent_context import subagent_context
 
 from .judge_config import DEFAULT_JUDGE_PROMPT, JudgeConfig
+
+# Default cap on per-judge pydantic_ai requests. Judges are read-only and
+# shouldn't ever need this many round-trips — if one does, it's almost
+# certainly looping. 200 leaves plenty of headroom for inspection-heavy
+# verification (file reads + grep + a shell test run) without letting a
+# runaway judge burn the whole goal loop's token budget.
+GOAL_JUDGE_REQUEST_LIMIT = 200
 
 _READ_ONLY_TOOLS = {
     "list_files",
@@ -262,7 +269,10 @@ async def judge_goal(
     # they check is_subagent() + get_subagent_verbose() and skip rendering.
     try:
         with subagent_context(f"judge:{judge_config.name}"):
-            result = await judge_agent.run(prepared.user_prompt)
+            result = await judge_agent.run(
+                prepared.user_prompt,
+                usage_limits=UsageLimits(request_limit=GOAL_JUDGE_REQUEST_LIMIT),
+            )
         output = result.output
     except (asyncio.CancelledError, KeyboardInterrupt):
         # Propagate cancellation — the orchestrator handles cleanup.

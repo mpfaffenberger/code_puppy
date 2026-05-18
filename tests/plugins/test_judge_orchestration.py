@@ -536,8 +536,10 @@ async def test_judge_runs_inside_subagent_context(isolated_judges):
 
     saw_subagent_flag: list[bool] = []
 
-    async def fake_run(_user_prompt):
+    async def fake_run(_user_prompt, **_kwargs):
         # When the real judge_agent.run() executes, is_subagent() should be True.
+        # Accept arbitrary kwargs (e.g. usage_limits) so this stub keeps
+        # working as judge_goal grows new pydantic_ai run options.
         saw_subagent_flag.append(is_subagent())
 
         class _R:
