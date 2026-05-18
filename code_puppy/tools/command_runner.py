@@ -99,7 +99,11 @@ else:
 
 _AWAITING_USER_INPUT = threading.Event()
 
-_CONFIRMATION_LOCK = threading.Lock()
+# NOTE: The previous module-level ``_CONFIRMATION_LOCK`` was removed --
+# queueing of parallel approval prompts now lives inside
+# ``get_user_approval_async`` itself, so every caller (shell commands,
+# destructive-command guard, force-push guard, ...) benefits without
+# bolting on their own lock.
 
 # Track running shell processes so we can kill them on Ctrl-C from the UI
 _RUNNING_PROCESSES: Set[subprocess.Popen] = set()
@@ -1136,18 +1140,12 @@ async def run_shell_command(
     # Check if we're running as a sub-agent (skip confirmation and run silently)
     running_as_subagent = is_subagent()
 
-    confirmation_lock_acquired = False
-
     # Only ask for confirmation if we're in an interactive TTY, not in yolo mode,
     # and NOT running as a sub-agent (sub-agents run without user interaction)
     if not yolo_mode and not running_as_subagent and sys.stdin.isatty():
-        confirmation_lock_acquired = _CONFIRMATION_LOCK.acquire(blocking=False)
-        if not confirmation_lock_acquired:
-            return ShellCommandOutput(
-                success=False,
-                command=command,
-                error="Another command is currently awaiting confirmation",
-            )
+        # No local lock needed -- get_user_approval_async serializes
+        # parallel prompts internally so the 2nd, 3rd, 4th... destructive
+        # commands queue up cleanly instead of vanishing.
 
         # Get puppy name for personalized messages
         from code_puppy.config import get_puppy_name
@@ -1165,7 +1163,8 @@ async def run_shell_command(
             panel_content.append("📂 Working directory: ", style="dim")
             panel_content.append(cwd, style="dim cyan")
 
-        # Use the common approval function (async version)
+        # Use the common approval function (async version).
+        # Internal queueing means parallel calls wait their turn here.
         confirmed, user_feedback = await get_user_approval_async(
             title="Shell Command",
             content=panel_content,
@@ -1173,10 +1172,6 @@ async def run_shell_command(
             border_style="dim white",
             puppy_name=puppy_name,
         )
-
-        # Release lock after approval
-        if confirmation_lock_acquired:
-            _CONFIRMATION_LOCK.release()
 
         if not confirmed:
             if user_feedback:

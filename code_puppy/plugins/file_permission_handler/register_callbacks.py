@@ -13,14 +13,15 @@ from rich.text import Text as RichText
 
 from code_puppy.callbacks import register_callback
 from code_puppy.config import get_diff_context_lines, get_yolo_mode
-from code_puppy.messaging import emit_warning
 from code_puppy.tools.common import (
     _find_best_window,
     get_user_approval,
 )
 
-# Lock for preventing multiple simultaneous permission prompts
-_FILE_CONFIRMATION_LOCK = threading.Lock()
+# NOTE: The previous module-level ``_FILE_CONFIRMATION_LOCK`` was
+# removed -- queueing of parallel approval prompts now lives inside
+# ``get_user_approval`` itself, so multiple parallel file ops will line
+# up behind one another instead of being silently auto-rejected.
 
 # Thread-local storage for user feedback from permission prompts
 _thread_local = threading.local()
@@ -224,37 +225,23 @@ def prompt_for_file_permission(
     if yolo_mode:
         return True, None
 
-    # Try to acquire the lock to prevent multiple simultaneous prompts
-    confirmation_lock_acquired = _FILE_CONFIRMATION_LOCK.acquire(blocking=False)
-    if not confirmation_lock_acquired:
-        emit_warning(
-            "Another file operation is currently awaiting confirmation",
-            message_group=message_group,
-        )
-        return False, None
+    # Build panel content
+    panel_content = RichText()
+    panel_content.append("🔒 Requesting permission to ", style="bold yellow")
+    panel_content.append(operation, style="bold cyan")
+    panel_content.append(":\n", style="bold yellow")
+    panel_content.append("📄 ", style="dim")
+    panel_content.append(file_path, style="bold white")
 
-    try:
-        # Build panel content
-        panel_content = RichText()
-        panel_content.append("🔒 Requesting permission to ", style="bold yellow")
-        panel_content.append(operation, style="bold cyan")
-        panel_content.append(":\n", style="bold yellow")
-        panel_content.append("📄 ", style="dim")
-        panel_content.append(file_path, style="bold white")
-
-        # Use the common approval function
-        confirmed, user_feedback = get_user_approval(
-            title="File Operation",
-            content=panel_content,
-            preview=preview,
-            border_style="dim white",
-        )
-
-        return confirmed, user_feedback
-
-    finally:
-        if confirmation_lock_acquired:
-            _FILE_CONFIRMATION_LOCK.release()
+    # Use the common approval function.
+    # Internal queueing means parallel callers wait their turn here
+    # rather than getting silently auto-rejected.
+    return get_user_approval(
+        title="File Operation",
+        content=panel_content,
+        preview=preview,
+        border_style="dim white",
+    )
 
 
 def handle_edit_file_permission(

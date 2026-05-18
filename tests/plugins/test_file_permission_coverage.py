@@ -180,27 +180,64 @@ class TestPromptForFilePermission:
             assert ok is True
             assert fb is None
 
-    def test_lock_contention(self):
+    def test_parallel_prompts_queue_instead_of_auto_rejecting(self):
+        """Parallel callers should queue (FIFO) -- not get silently rejected.
+
+        Previously, a non-blocking ``threading.Lock`` in this plugin meant
+        the second/third/Nth simultaneous file-permission prompt was
+        auto-rejected with a warning. We now serialize them inside
+        ``get_user_approval``, so each call runs in turn.
+        """
+        import threading
+
         from code_puppy.plugins.file_permission_handler.register_callbacks import (
-            _FILE_CONFIRMATION_LOCK,
             prompt_for_file_permission,
         )
 
-        _FILE_CONFIRMATION_LOCK.acquire()
-        try:
-            with (
-                patch(
-                    "code_puppy.plugins.file_permission_handler.register_callbacks.get_yolo_mode",
-                    return_value=False,
-                ),
-                patch(
-                    "code_puppy.plugins.file_permission_handler.register_callbacks.emit_warning"
-                ),
-            ):
-                ok, fb = prompt_for_file_permission("f.txt", "edit")
-                assert ok is False
-        finally:
-            _FILE_CONFIRMATION_LOCK.release()
+        concurrent = [0]
+        max_concurrent = [0]
+        call_count = [0]
+        gate = threading.Lock()
+
+        def fake_impl(**kwargs):
+            with gate:
+                concurrent[0] += 1
+                max_concurrent[0] = max(max_concurrent[0], concurrent[0])
+                call_count[0] += 1
+            # Hold the "prompt" open briefly so a collision would show up.
+            import time
+
+            time.sleep(0.05)
+            with gate:
+                concurrent[0] -= 1
+            return True, None
+
+        # Patch the *inner* impl so the public wrapper's lock still runs.
+        with (
+            patch(
+                "code_puppy.plugins.file_permission_handler.register_callbacks.get_yolo_mode",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.tools.common._get_user_approval_impl",
+                side_effect=fake_impl,
+            ),
+        ):
+            threads = [
+                threading.Thread(
+                    target=lambda i=i: prompt_for_file_permission(f"f{i}.txt", "edit")
+                )
+                for i in range(5)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        assert call_count[0] == 5, f"expected 5 prompts, got {call_count[0]}"
+        assert max_concurrent[0] == 1, (
+            f"prompts should serialize, but {max_concurrent[0]} ran in parallel"
+        )
 
     def test_approved(self):
         from code_puppy.plugins.file_permission_handler.register_callbacks import (
