@@ -14,9 +14,16 @@ def _plugin_module():
 def test_goal_command_uses_banner_for_activation():
     module = _plugin_module()
 
+    fake_registry = type(
+        "FakeRegistry",
+        (),
+        {"judges": [], "enabled": lambda self: []},
+    )()
+
     with (
         patch.object(module, "_display_banner_message") as mock_banner,
         patch.object(module, "emit_info") as mock_info,
+        patch.object(module, "load_judges", return_value=fake_registry),
         patch.object(module.state, "start") as mock_start,
     ):
         result = module.handle_goal_command("/goal say hi")
@@ -28,8 +35,13 @@ def test_goal_command_uses_banner_for_activation():
         "🎯 ACTIVATED!",
         banner_name="llm_judge",
     )
-    # Goal: ..., "After each iteration...", "Configure judges..."
-    assert mock_info.call_count == 3
+    # Goal: ..., "After each iteration...",
+    # plus the judges-summary block (no judges configured + the /judges hint).
+    info_messages = [call.args[0] for call in mock_info.call_args_list]
+    assert any(msg.startswith("Goal:") for msg in info_messages)
+    assert any("After each iteration" in msg for msg in info_messages)
+    assert any("No judges configured" in msg for msg in info_messages)
+    assert any("/judges" in msg for msg in info_messages)
 
 
 def test_display_llm_judge_uses_shared_banner_helper():

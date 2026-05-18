@@ -16,7 +16,7 @@ from code_puppy.messaging import (
 
 from . import state
 from .judge import GoalJudgement, judge_goal
-from .judge_config import JudgeConfig, get_enabled_judges_or_default
+from .judge_config import JudgeConfig, get_enabled_judges_or_default, load_judges
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ def handle_goal_command(command: str) -> str | bool:
     emit_info(
         "After each iteration, every enabled LLM judge will verify completion in parallel."
     )
-    emit_info("Configure judges with /judges. (No judges configured = single default.)")
+    _emit_configured_judges_summary()
     return prompt
 
 
@@ -123,6 +123,33 @@ def handle_judges_command(command: str) -> bool:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _emit_configured_judges_summary() -> None:
+    """Show the user exactly which judges /goal will fan out to.
+
+    Previously we just told users to run /judges, which left people
+    wondering if they'd configured anything at all. Now we list the
+    enabled judges (and warn about disabled ones) so the state of the
+    world is obvious before the loop kicks off.
+    """
+    registry = load_judges()
+    enabled = registry.enabled()
+    disabled = [j for j in registry.judges if not j.enabled]
+
+    if enabled:
+        emit_info(f"Configured judges ({len(enabled)} enabled):")
+        for judge in enabled:
+            emit_info(f"  • {judge.name} ({judge.model})")
+        if disabled:
+            disabled_names = ", ".join(j.name for j in disabled)
+            emit_info(f"  (disabled: {disabled_names})")
+    else:
+        emit_info(
+            "No judges configured — falling back to a single default judge "
+            "using the implementor's model."
+        )
+    emit_info("Run /judges to add, edit, enable, or disable judges.")
 
 
 def _extract_prompt(command: str) -> str:
