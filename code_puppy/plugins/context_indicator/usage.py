@@ -10,7 +10,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 # Thresholds (fractions of context window). Match the visual indicator buckets:
-#   <30% green, 30-60% yellow, >60% red.
+#   <30% green, 30–<60% yellow, ≥60% red.
+# Boundaries are exclusive on the upper end: e.g. exactly 0.30 → yellow,
+# exactly 0.60 → red. Keep ``_format_usage_report`` legend in sync.
 GREEN_THRESHOLD = 0.30
 YELLOW_THRESHOLD = 0.60
 
@@ -58,9 +60,11 @@ def pick_indicator(proportion: float) -> str:
 def get_current_usage() -> Optional[ContextUsage]:
     """Compute current context-window usage for the active agent.
 
-    Returns ``None`` if anything goes sideways (no agent loaded yet, model
-    config missing, etc.). Caller should treat ``None`` as "hide the
-    indicator" — never crash the prompt over a stat.
+    Returns ``None`` whenever any required piece of data is unavailable —
+    missing agent, missing model config, or *any* exception while estimating
+    history/used/overhead/capacity. We deliberately do **not** fall back to
+    zero on partial failures: a misleading 🟢 indicator is worse than no
+    indicator at all (the prompt simply hides the badge).
     """
     try:
         from code_puppy.agents.agent_manager import get_current_agent
@@ -76,23 +80,11 @@ def get_current_usage() -> Optional[ContextUsage]:
 
     try:
         history = agent.get_message_history() or []
-    except Exception:
-        history = []
-
-    try:
         used = sum(agent.estimate_tokens_for_message(m) for m in history)
-    except Exception:
-        used = 0
-
-    try:
         overhead = agent._estimate_context_overhead()
-    except Exception:
-        overhead = 0
-
-    try:
         capacity = agent._get_model_context_length()
     except Exception:
-        capacity = 0
+        return None
 
     if capacity <= 0:
         return None

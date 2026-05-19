@@ -116,7 +116,7 @@ def _format_usage_report(usage: ContextUsage) -> str:
         f"  Messages : {usage.used_tokens:,} tokens\n"
         f"  Overhead : {usage.overhead_tokens:,} tokens (system prompt + tools)\n"
         f"  Total    : {usage.total_tokens:,} / {usage.capacity:,} tokens\n"
-        f"  Buckets  : 🟢 <30%   🟡 30–60%   🔴 >60%"
+        f"  Buckets  : 🟢 <30%   🟡 30–<60%   🔴 ≥60%"
     )
 
 

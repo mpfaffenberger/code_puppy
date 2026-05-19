@@ -79,9 +79,7 @@ def test_context_usage_proportion_and_percent():
 
 
 def test_context_usage_zero_capacity_safe():
-    usage = _usage_module().ContextUsage(
-        used_tokens=10, overhead_tokens=10, capacity=0
-    )
+    usage = _usage_module().ContextUsage(used_tokens=10, overhead_tokens=10, capacity=0)
     assert usage.proportion == 0.0
     assert usage.indicator == "🟢"
 
@@ -92,6 +90,31 @@ def test_context_usage_zero_capacity_safe():
 def test_get_current_usage_returns_none_when_agent_missing(stub_agent_manager):
     mod = _usage_module()
     stub_agent_manager.get_current_agent.side_effect = RuntimeError("nope")
+    assert mod.get_current_usage() is None
+
+
+def test_get_current_usage_returns_none_when_estimator_raises(stub_agent_manager):
+    """If *any* estimator blows up we hide the indicator rather than lying."""
+    mod = _usage_module()
+    fake_agent = MagicMock()
+    fake_agent.get_message_history.return_value = ["m1"]
+    fake_agent.estimate_tokens_for_message.side_effect = RuntimeError("boom")
+    fake_agent._estimate_context_overhead.return_value = 0
+    fake_agent._get_model_context_length.return_value = 10000
+    stub_agent_manager.get_current_agent.side_effect = None
+    stub_agent_manager.get_current_agent.return_value = fake_agent
+    assert mod.get_current_usage() is None
+
+
+def test_get_current_usage_returns_none_when_overhead_raises(stub_agent_manager):
+    mod = _usage_module()
+    fake_agent = MagicMock()
+    fake_agent.get_message_history.return_value = []
+    fake_agent.estimate_tokens_for_message.return_value = 0
+    fake_agent._estimate_context_overhead.side_effect = RuntimeError("boom")
+    fake_agent._get_model_context_length.return_value = 10000
+    stub_agent_manager.get_current_agent.side_effect = None
+    stub_agent_manager.get_current_agent.return_value = fake_agent
     assert mod.get_current_usage() is None
 
 
