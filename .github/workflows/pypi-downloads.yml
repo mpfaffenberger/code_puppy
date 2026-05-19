@@ -1,0 +1,69 @@
+name: PyPI Download Stats
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch PyPI stats
+        id: stats
+        run: |
+          STATS=$(curl -s -X POST 'https://sql-clickhouse.clickhouse.com:8443/?user=demo' \
+            --data-binary "SELECT
+              sumIf(count, date >= today() - 1) AS last_day,
+              sumIf(count, date >= today() - 7) AS last_week,
+              sumIf(count, date >= today() - 30) AS last_month,
+              sum(count) AS total
+            FROM pypi.pypi_downloads_per_day
+            WHERE project = 'code-puppy'
+            FORMAT JSONEachRow")
+
+          fmt() { LC_ALL=en_US.UTF-8 printf "%'d" "$1"; }
+
+          echo "last_day=$(fmt "$(echo "$STATS" | jq -r '.last_day')")" >> $GITHUB_OUTPUT
+          echo "last_week=$(fmt "$(echo "$STATS" | jq -r '.last_week')")" >> $GITHUB_OUTPUT
+          echo "last_month=$(fmt "$(echo "$STATS" | jq -r '.last_month')")" >> $GITHUB_OUTPUT
+          echo "total=$(fmt "$(echo "$STATS" | jq -r '.total')")" >> $GITHUB_OUTPUT
+
+      - name: Send Discord notification
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -sS -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "🐶 PyPI Download Stats — code-puppy",
+                "url": "https://clickpy.clickhouse.com/dashboard/code-puppy",
+                "color": 5793266,
+                "fields": [
+                  {
+                    "name": "Last 24h",
+                    "value": "${{ steps.stats.outputs.last_day }}",
+                    "inline": true
+                  },
+                  {
+                    "name": "Last 7 days",
+                    "value": "${{ steps.stats.outputs.last_week }}",
+                    "inline": true
+                  },
+                  {
+                    "name": "Last 30 days",
+                    "value": "${{ steps.stats.outputs.last_month }}",
+                    "inline": true
+                  },
+                  {
+                    "name": "All-time total",
+                    "value": "${{ steps.stats.outputs.total }}",
+                    "inline": false
+                  }
+                ],
+                "footer": {
+                  "text": "clickpy.clickhouse.com"
+                }
+              }]
+            }'
