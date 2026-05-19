@@ -1,6 +1,8 @@
 """
 Tests for Stackwright-specific fixes to code-puppy.
-These cover the two changes in CHANGES_FROM_UPSTREAM.md.
+
+Covers: MCP auto-enable on startup, ask_user_question JSON-string coercion.
+Local .code-puppy.json loading tests live in tests/mcp/test_local_config.py.
 """
 import json
 import os
@@ -10,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-# ── Fix 1: Auto-enable on startup ──────────────────────────────────────────
+# ── Auto-enable on startup ────────────────────────────────────────────────
 
 class TestAutoEnableOnStartup:
     """MCP servers with enabled=True should be active immediately after MCPManager init."""
@@ -97,134 +99,6 @@ class TestAutoEnableOnStartup:
         )
 
 
-# ── Fix 2: Local .code-puppy.json loading ──────────────────────────────────
-
-class TestLocalCodePuppyJson:
-    """Local .code-puppy.json should be loaded and registered as MCP servers."""
-
-    def test_load_local_config_array_format(self, tmp_path):
-        """mcpServers array format is parsed correctly."""
-        config = {
-            "mcpServers": [
-                {
-                    "name": "my-mcp",
-                    "command": "node",
-                    "args": ["server.js"],
-                    "autoStart": True,
-                    "workingDirectory": "${PROJECT_ROOT}/dist",
-                }
-            ]
-        }
-        config_file = tmp_path / ".code-puppy.json"
-        config_file.write_text(json.dumps(config))
-
-        with patch("os.getcwd", return_value=str(tmp_path)):
-            from code_puppy.config import load_local_mcp_config
-            result = load_local_mcp_config()
-
-        assert "my-mcp" in result
-        server = result["my-mcp"]
-        assert server["command"] == "node"
-        assert server["enabled"] is True  # autoStart mapped to enabled
-        assert "autoStart" not in server
-        assert str(tmp_path) in server["cwd"]  # workingDirectory mapped to cwd, PROJECT_ROOT expanded
-        assert "workingDirectory" not in server
-
-    def test_load_local_config_object_format(self, tmp_path):
-        """mcp_servers object format is parsed correctly."""
-        config = {
-            "mcp_servers": {
-                "obj-server": {
-                    "type": "stdio",
-                    "command": "python",
-                    "args": ["-m", "my_mcp"],
-                }
-            }
-        }
-        config_file = tmp_path / ".code-puppy.json"
-        config_file.write_text(json.dumps(config))
-
-        with patch("os.getcwd", return_value=str(tmp_path)):
-            from code_puppy.config import load_local_mcp_config
-            result = load_local_mcp_config()
-
-        assert "obj-server" in result
-        assert result["obj-server"]["command"] == "python"
-
-    def test_load_local_config_walks_up_dirs(self, tmp_path):
-        """Should find .code-puppy.json in a parent directory."""
-        config = {"mcpServers": [{"name": "parent-server", "command": "echo", "args": []}]}
-        (tmp_path / ".code-puppy.json").write_text(json.dumps(config))
-
-        subdir = tmp_path / "src" / "components"
-        subdir.mkdir(parents=True)
-
-        with patch("os.getcwd", return_value=str(subdir)):
-            from code_puppy.config import load_local_mcp_config
-            result = load_local_mcp_config()
-
-        assert "parent-server" in result
-
-    def test_load_local_config_returns_empty_when_not_found(self, tmp_path):
-        with patch("os.getcwd", return_value=str(tmp_path)):
-            from code_puppy.config import load_local_mcp_config
-            result = load_local_mcp_config()
-        assert result == {}
-
-    def test_project_root_expansion(self, tmp_path):
-        """${PROJECT_ROOT} should expand to the directory containing .code-puppy.json."""
-        config = {
-            "mcpServers": [{
-                "name": "srv",
-                "command": "node",
-                "args": ["${PROJECT_ROOT}/node_modules/.bin/mcp-server"],
-            }]
-        }
-        (tmp_path / ".code-puppy.json").write_text(json.dumps(config))
-
-        with patch("os.getcwd", return_value=str(tmp_path)):
-            from code_puppy.config import load_local_mcp_config
-            result = load_local_mcp_config()
-
-        assert str(tmp_path) in result["srv"]["args"][0]
-        assert "${PROJECT_ROOT}" not in result["srv"]["args"][0]
-
-    def test_manager_syncs_local_config(self, tmp_path):
-        """MCPManager should load servers from local .code-puppy.json into managed servers."""
-        local_config = {
-            "mcpServers": [{
-                "name": "local-server",
-                "command": "node",
-                "args": ["server.js"],
-                "autoStart": True,
-            }]
-        }
-        (tmp_path / ".code-puppy.json").write_text(json.dumps(local_config))
-
-        empty_global = tmp_path / "mcp_servers.json"
-        empty_global.write_text(json.dumps({"mcp_servers": {}}))
-
-        # Patch _persist and _load to prevent writing test servers to the real
-        # mcp_registry.json and loading stale entries from it.
-        with patch("code_puppy.config.MCP_SERVERS_FILE", str(empty_global)), \
-             patch("os.getcwd", return_value=str(tmp_path)), \
-             patch("code_puppy.mcp_.registry.ServerRegistry._persist"), \
-             patch("code_puppy.mcp_.registry.ServerRegistry._load"):
-            from code_puppy.mcp_.manager import MCPManager
-            manager = MCPManager()
-
-        # Local servers bypass the registry (ephemeral — not written to
-        # mcp_registry.json).  Check _managed_servers directly.
-        managed = next(
-            (s for s in manager._managed_servers.values()
-             if s.config.name == "local-server"),
-            None,
-        )
-        assert managed is not None
-        assert managed.is_enabled() is True
-
-
-# ── Fix 3: ask_user_question JSON-string coercion ──────────────────────────
 
 class TestAskUserQuestionJsonCoercion:
     """BeforeValidator in registration.py should coerce JSON strings to lists."""

@@ -659,14 +659,15 @@ class TestMCPManagerExtended:
                 assert "server1" in manager._managed_servers
                 assert "server2" in manager._managed_servers
 
-                # Servers with enabled=True (default) should start as RUNNING.
-                # Stackwright fix: auto-enable on startup — servers no longer
-                # require an explicit /mcp start command.
+                # Tracker state is STOPPED at init — no subprocess has been spawned.
+                # _initialize_servers() calls enable() so is_enabled() is True, but
+                # the tracker only advances to RUNNING via start_server() which also
+                # starts the actual subprocess and records start_time.
                 manager.status_tracker.set_status.assert_any_call(
-                    "server1", ServerState.RUNNING
+                    "server1", ServerState.STOPPED
                 )
                 manager.status_tracker.set_status.assert_any_call(
-                    "server2", ServerState.RUNNING
+                    "server2", ServerState.STOPPED
                 )
 
     def test_initialization_handles_server_creation_failures(self):

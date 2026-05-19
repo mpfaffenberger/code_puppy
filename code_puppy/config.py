@@ -389,25 +389,43 @@ def load_mcp_server_configs():
         return {}
 
 
+def _find_git_root(start: str) -> Optional[str]:
+    """Walk up from *start* looking for a .git directory.
+
+    Returns the path that contains .git, or None if not inside a git repo.
+    Stopping at the git root is more intuitive for monorepos than stopping
+    at $HOME — project-local config shouldn't bleed into unrelated repos.
+    """
+    current = start
+    while True:
+        if os.path.exists(os.path.join(current, ".git")):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:  # filesystem root
+            return None
+        current = parent
+
+
 def load_local_mcp_config() -> dict:
     """
     Load MCP server config from a project-local .code-puppy.json file.
 
-    Walks up from CWD to the user's home directory looking for .code-puppy.json.
+    Walks up from CWD to the git root (falling back to $HOME) looking for
+    .code-puppy.json. Stopping at the git root prevents config from one repo
+    from leaking into sibling repos in a monorepo layout.
+
     Supports two formats:
 
-      Array format (project-local):
+      Array format (VS Code-style):
         { "mcpServers": [{ "name": "...", "command": "...", "args": [...],
                           "autoStart": true, "workingDirectory": "..." }] }
 
-      Object format (same as mcp_servers.json):
+      Object format (native mcp_servers.json style):
         { "mcp_servers": { "name": { "command": "...", "args": [...] } } }
 
-    Returns a dict mapping server name -> config dict (normalised to object format).
-    workingDirectory and ${PROJECT_ROOT} are expanded to the directory containing
-    the .code-puppy.json file.
-
-    See: https://github.com/Per-Aspera-LLC/stackwright-pro (cherry-pick PR pending)
+    Returns a dict mapping server name -> config dict (normalised to object
+    format).  workingDirectory and ${PROJECT_ROOT} are expanded to the
+    directory containing the .code-puppy.json file.
     """
     home = os.path.expanduser("~")
     search_dir = os.path.abspath(os.getcwd())
@@ -415,7 +433,9 @@ def load_local_mcp_config() -> dict:
     config_file = None
     project_root = None
 
-    # Walk up directory tree stopping at home
+    # Prefer stopping at the git root; fall back to $HOME for non-git dirs.
+    stop_boundary = _find_git_root(search_dir) or home
+
     current = search_dir
     while True:
         candidate = os.path.join(current, ".code-puppy.json")
@@ -423,8 +443,10 @@ def load_local_mcp_config() -> dict:
             config_file = candidate
             project_root = current
             break
+        if current == stop_boundary:
+            break
         parent = os.path.dirname(current)
-        if parent == current or current == home:
+        if parent == current:  # filesystem root
             break
         current = parent
 

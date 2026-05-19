@@ -39,6 +39,7 @@ class ServerInfo:
     health: Optional[Dict[str, Any]] = None
     start_time: Optional[datetime] = None
     latency_ms: Optional[float] = None
+    is_local: bool = False  # True when loaded from .code-puppy.json (ephemeral)
 
 
 class MCPManager:
@@ -77,6 +78,9 @@ class MCPManager:
 
         # Active managed servers (server_id -> ManagedMCPServer)
         self._managed_servers: Dict[str, ManagedMCPServer] = {}
+
+        # IDs of servers loaded from .code-puppy.json (ephemeral / session-local)
+        self._local_server_ids: set = set()
 
         # Sync servers from mcp_servers.json into registry
         self.sync_from_config()
@@ -167,6 +171,19 @@ class MCPManager:
             logger.error(f"Failed to sync from mcp_servers.json: {e}")
             # Don't fail initialization if sync fails
 
+    def _load_local_server_configs(self) -> dict:
+        """Load and return raw server configs from a project-local .code-puppy.json.
+
+        Pure parsing step — no side effects, no I/O beyond reading the JSON file.
+        Returns an empty dict if no local config file is found.
+
+        Separated from sync_from_local_config() so it can be tested and mocked
+        independently of the manager registration machinery.
+        """
+        from code_puppy.config import load_local_mcp_config
+
+        return load_local_mcp_config()
+
     def sync_from_local_config(self) -> None:
         """Sync MCP servers from a project-local .code-puppy.json file.
 
@@ -182,15 +199,11 @@ class MCPManager:
 
         Calling registry.register() here would permanently pollute
         mcp_registry.json with project-local servers and test fixtures.
-
-        See: https://github.com/Per-Aspera-LLC/stackwright-pro (cherry-pick PR pending)
         """
         import uuid
 
         try:
-            from code_puppy.config import load_local_mcp_config
-
-            configs = load_local_mcp_config()
+            configs = self._load_local_server_configs()
             if not configs:
                 logger.debug("No local .code-puppy.json found or no servers defined")
                 return
@@ -221,6 +234,7 @@ class MCPManager:
                     )
                     if collision_id is not None:
                         del self._managed_servers[collision_id]
+                        self._local_server_ids.discard(collision_id)
                         logger.debug(f"Local config overrides global server: {name}")
 
                     # Add directly — bypasses registry._persist(), so nothing
@@ -230,6 +244,7 @@ class MCPManager:
                         managed_server.enable()
 
                     self._managed_servers[server_id] = managed_server
+                    self._local_server_ids.add(server_id)
                     # STOPPED: same reasoning as _initialize_servers() — no subprocess
                     # has started; tracker advances to RUNNING via start_server() only.
                     self.status_tracker.set_status(server_id, ServerState.STOPPED)
@@ -262,7 +277,6 @@ class MCPManager:
                 # are flagged active so get_servers_for_agent() returns them immediately
                 # on launch without requiring /mcp start.
                 # Servers with "enabled": false in mcp_servers.json remain disabled.
-                # See: https://github.com/Per-Aspera-LLC/stackwright-pro (cherry-pick PR pending)
                 if config.enabled:
                     managed_server.enable()
 
@@ -482,6 +496,7 @@ class MCPManager:
                     health=health_info,
                     start_time=summary.get("start_time"),
                     latency_ms=latency_ms,
+                    is_local=server_id in self._local_server_ids,
                 )
 
                 server_infos.append(server_info)
