@@ -11,6 +11,7 @@ hook; see :func:`code_puppy.callbacks.on_wrap_pydantic_agent`.
 
 from __future__ import annotations
 
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -38,7 +39,42 @@ from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory, make_model_settings
 
 _AGENT_RULE_FILES = ("AGENTS.md", "AGENT.md", "agents.md", "agent.md")
+_CLAUDE_FALLBACK_FILES = ("CLAUDE.md", "claude.md")
 _CODE_PUPPY_DIR = ".code_puppy"
+_AT_REF_RE = re.compile(r"^@(\S+)", re.MULTILINE)
+
+
+def _expand_at_references(text: str, base_dir: Path) -> str:
+    """Expand ``@path`` references in *text* one level deep.
+
+    Any line that starts with ``@<path>`` (no leading whitespace) is replaced
+    with the contents of the file at ``base_dir / path``.  Expansion is
+    intentionally **one level only** — references inside included files are
+    left as-is.  Missing files are left as their original ``@path`` token so
+    the agent can see something went wrong rather than silently losing content.
+    """
+
+    def _replacer(match: re.Match) -> str:
+        ref_path = base_dir / match.group(1)
+        if ref_path.is_file():
+            return ref_path.read_text(encoding="utf-8-sig").rstrip("\n")
+        return match.group(0)  # leave unknown refs intact
+
+    return _AT_REF_RE.sub(_replacer, text)
+
+
+def _read_rules_file(path: Path, source: str, max_chars: int) -> str:
+    """Read a rules file, expand ``@path`` references, then truncate.
+
+    Composes the two independent concerns applied to every rules file:
+    ``@ref`` expansion (one level deep, relative to the file's directory)
+    and per-file truncation so the combined system-prompt overhead stays
+    bounded. ``source`` labels the file in the truncation notice.
+    """
+    text = path.read_text(encoding="utf-8-sig")
+    expanded = _expand_at_references(text, base_dir=path.parent)
+    return _truncate_agents_md(expanded, source=source, max_chars=max_chars)
+
 
 # Re-export the default so callers that imported AGENTS_MD_MAX_CHARS from
 # here keep working. The *effective* cap on any given load is whatever
@@ -90,7 +126,7 @@ def _truncate_agents_md(content: str, source: str, max_chars: int) -> str:
 
 
 def load_puppy_rules() -> Optional[str]:
-    """Load AGENT(S).md from global config dir and/or the current project dir.
+    """Load agent rules from global config dir and/or the current project dir.
 
     Global rules (``~/.code_puppy/AGENTS.md``) come first; project-local rules
     are appended, allowing projects to override/extend global ones.
@@ -99,13 +135,16 @@ def load_puppy_rules() -> Optional[str]:
 
     1. ``.code_puppy/AGENTS.md`` (preferred — keeps root clean)
     2. ``./AGENTS.md`` (alternate location)
+    3. ``./CLAUDE.md`` (fallback when no AGENTS.md exists anywhere in project)
 
-    Each file is independently truncated via :func:`_truncate_agents_md` so
-    the combined system-prompt overhead stays bounded. The per-file cap is
-    resolved once per call via :func:`get_agents_md_max_chars` so a user
-    can raise (or lower) it with ``/set agents_md_max_chars=<int>``.
+    ``@path`` references on their own line are expanded one level deep from
+    the directory containing the rules file. Each file is then independently
+    truncated via :func:`_truncate_agents_md` so the combined system-prompt
+    overhead stays bounded. The per-file cap is resolved once per call via
+    :func:`get_agents_md_max_chars` so a user can raise (or lower) it with
+    ``/set agents_md_max_chars=<int>``.
 
-    Returns ``None`` if neither exists.
+    Returns ``None`` if no rules file is found.
     """
     max_chars = get_agents_md_max_chars()
 
@@ -113,8 +152,8 @@ def load_puppy_rules() -> Optional[str]:
     for name in _AGENT_RULE_FILES:
         candidate = Path(CONFIG_DIR) / name
         if candidate.exists():
-            global_rules = _truncate_agents_md(
-                candidate.read_text(encoding="utf-8-sig"),
+            global_rules = _read_rules_file(
+                candidate,
                 source=f"global {_friendly_path(candidate)}",
                 max_chars=max_chars,
             )
@@ -128,20 +167,32 @@ def load_puppy_rules() -> Optional[str]:
         for name in _AGENT_RULE_FILES:
             candidate = code_puppy_dir / name
             if candidate.exists():
-                project_rules = _truncate_agents_md(
-                    candidate.read_text(encoding="utf-8-sig"),
+                project_rules = _read_rules_file(
+                    candidate,
                     source=f"project {candidate}",
                     max_chars=max_chars,
                 )
                 break
 
-    # Priority 2: Fallback to project root
+    # Priority 2: Fallback to project root AGENTS.md
     if project_rules is None:
         for name in _AGENT_RULE_FILES:
             candidate = Path(name)
             if candidate.exists():
-                project_rules = _truncate_agents_md(
-                    candidate.read_text(encoding="utf-8-sig"),
+                project_rules = _read_rules_file(
+                    candidate,
+                    source=f"project {candidate}",
+                    max_chars=max_chars,
+                )
+                break
+
+    # Priority 3: CLAUDE.md fallback when no AGENTS.md exists in project
+    if project_rules is None:
+        for name in _CLAUDE_FALLBACK_FILES:
+            candidate = Path(name)
+            if candidate.exists():
+                project_rules = _read_rules_file(
+                    candidate,
                     source=f"project {candidate}",
                     max_chars=max_chars,
                 )
