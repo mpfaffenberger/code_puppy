@@ -4,6 +4,7 @@ import json
 import os
 import pathlib
 from typing import Optional
+from dataclasses import dataclass, field
 
 from code_puppy.session_storage import save_session
 
@@ -37,6 +38,35 @@ CONFIG_DIR = _get_xdg_dir("XDG_CONFIG_HOME", ".config")
 DATA_DIR = _get_xdg_dir("XDG_DATA_HOME", ".local/share")
 CACHE_DIR = _get_xdg_dir("XDG_CACHE_HOME", ".cache")
 STATE_DIR = _get_xdg_dir("XDG_STATE_HOME", ".local/state")
+
+# ── Project workspace ──────────────────────────────────────────────────────
+# A .code-puppy/ directory in or above CWD defines a project workspace.
+# When config.json inside it sets "projectOnly": true, global ~/.code_puppy/
+# is skipped entirely for agents, MCP servers, and plugins.
+PROJECT_WORKSPACE_DIR_NAME = ".code-puppy"
+
+
+@dataclass(frozen=True)
+class ProjectWorkspace:
+    """Resolved project workspace from a .code-puppy/ directory.
+
+    Attributes:
+        root_path: Absolute path to the directory *containing* .code-puppy/.
+        workspace_path: Absolute path to the .code-puppy/ directory itself.
+        project_only: When True, global ~/.code_puppy/ is skipped for agents,
+            MCP servers, plugins, and models.  Default is False (additive merge).
+        config: Raw parsed contents of config.json (empty dict if absent).
+    """
+
+    root_path: str
+    workspace_path: str
+    project_only: bool = False
+    config: dict = field(default_factory=dict)
+
+
+# Cached workspace — resolved once per process, invalidated on CWD change.
+_workspace_cache: Optional[ProjectWorkspace] = None
+_workspace_cache_cwd: Optional[str] = None
 
 # Configuration files (XDG_CONFIG_HOME)
 CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
@@ -398,6 +428,79 @@ def _find_git_root(start: str) -> Optional[str]:
         if parent == current:  # filesystem root
             return None
         current = parent
+
+
+def get_project_workspace() -> Optional[ProjectWorkspace]:
+    """Find the nearest .code-puppy/ project workspace directory.
+
+    Walks up from CWD to the git root (falling back to $HOME) looking for
+    a directory named .code-puppy/ (PROJECT_WORKSPACE_DIR_NAME).  Stopping
+    at the git root prevents config from one repo from leaking into sibling
+    repos in a monorepo layout.
+
+    If found, reads .code-puppy/config.json for settings (including the
+    ``projectOnly`` flag).  A workspace directory without config.json is
+    valid — it just uses defaults.
+
+    The result is cached per-process and invalidated when CWD changes.
+
+    Returns:
+        A ProjectWorkspace if found, or None.
+    """
+    global _workspace_cache, _workspace_cache_cwd
+
+    cwd = os.path.abspath(os.getcwd())
+
+    # Return cached result if CWD hasn't changed.
+    if _workspace_cache_cwd == cwd:
+        return _workspace_cache
+
+    home = os.path.expanduser("~")
+    stop_boundary = _find_git_root(cwd) or home
+
+    workspace: Optional[ProjectWorkspace] = None
+    current = cwd
+    while True:
+        candidate = os.path.join(current, PROJECT_WORKSPACE_DIR_NAME)
+        if os.path.isdir(candidate):
+            # Read config.json if it exists.
+            config: dict = {}
+            config_file = os.path.join(candidate, "config.json")
+            if os.path.isfile(config_file):
+                try:
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        config = json.load(f)
+                except Exception:
+                    pass  # Malformed config.json → treat as empty.
+
+            project_only = bool(config.get("projectOnly", False))
+            workspace = ProjectWorkspace(
+                root_path=current,
+                workspace_path=candidate,
+                project_only=project_only,
+                config=config,
+            )
+            break
+
+        if current == stop_boundary:
+            break
+        parent = os.path.dirname(current)
+        if parent == current:  # filesystem root
+            break
+        current = parent
+
+    _workspace_cache = workspace
+    _workspace_cache_cwd = cwd
+    return workspace
+
+
+def is_project_only() -> bool:
+    """Return True if the active project workspace has projectOnly enabled.
+
+    Convenience wrapper — returns False when there is no workspace at all.
+    """
+    ws = get_project_workspace()
+    return ws is not None and ws.project_only
 
 
 def load_local_mcp_config() -> dict:
@@ -1153,16 +1256,27 @@ def get_user_agents_directory() -> str:
 def get_project_agents_directory() -> Optional[str]:
     """Get the project-local agents directory path.
 
-    Looks for a .code_puppy/agents/ directory in the current working directory.
+    Checks for agents in the project workspace (.code-puppy/agents/) first,
+    falling back to the legacy .code_puppy/agents/ directory in CWD.
+
     Unlike get_user_agents_directory(), this does NOT create the directory
     if it doesn't exist -- the team must create it intentionally.
 
     Returns:
         Path to the project's agents directory if it exists, or None.
     """
-    project_agents_dir = os.path.join(os.getcwd(), ".code_puppy", "agents")
-    if os.path.isdir(project_agents_dir):
-        return project_agents_dir
+    # Prefer workspace-discovered agents directory.
+    ws = get_project_workspace()
+    if ws is not None:
+        ws_agents = os.path.join(ws.workspace_path, "agents")
+        if os.path.isdir(ws_agents):
+            return ws_agents
+
+    # Legacy fallback: .code_puppy/agents/ in CWD (underscore convention).
+    legacy_dir = os.path.join(os.getcwd(), ".code_puppy", "agents")
+    if os.path.isdir(legacy_dir):
+        return legacy_dir
+
     return None
 
 
