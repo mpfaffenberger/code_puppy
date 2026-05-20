@@ -41,24 +41,45 @@ from code_puppy.model_factory import ModelFactory, make_model_settings
 _AGENT_RULE_FILES = ("AGENTS.md", "AGENT.md", "agents.md", "agent.md")
 _CLAUDE_FALLBACK_FILES = ("CLAUDE.md", "claude.md")
 _CODE_PUPPY_DIR = ".code_puppy"
-_AT_REF_RE = re.compile(r"^@(\S+)", re.MULTILINE)
+_AT_REF_RE = re.compile(r"^@([^\s]+)\s*$", re.MULTILINE)
+
+
+def _resolve_at_ref(base_dir: Path, ref: str) -> Path | None:
+    """Resolve an ``@ref`` path, returning ``None`` if it escapes *base_dir*.
+
+    Rejects:
+    - absolute paths (e.g. ``@/etc/hostname``)
+    - parent traversal (e.g. ``@../../.env``)
+    - symlinks that resolve outside *base_dir*
+    """
+    if Path(ref).is_absolute():
+        return None
+    root = base_dir.resolve()
+    candidate = (base_dir / ref).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
 
 
 def _expand_at_references(text: str, base_dir: Path) -> str:
     """Expand ``@path`` references in *text* one level deep.
 
-    Any line that starts with ``@<path>`` (no leading whitespace) is replaced
-    with the contents of the file at ``base_dir / path``.  Expansion is
-    intentionally **one level only** — references inside included files are
-    left as-is.  Missing files are left as their original ``@path`` token so
-    the agent can see something went wrong rather than silently losing content.
+    Any line consisting solely of ``@<path>`` is replaced with the contents
+    of the file at ``base_dir / path``.  Expansion is intentionally **one
+    level only** — references inside included files are left as-is.
+
+    Paths are constrained to *base_dir* — absolute paths, ``..`` traversal,
+    and symlinks that escape the directory are left as their original token.
+    Missing files are also left intact so the agent can see what failed.
     """
 
     def _replacer(match: re.Match) -> str:
-        ref_path = base_dir / match.group(1)
-        if ref_path.is_file():
+        ref_path = _resolve_at_ref(base_dir, match.group(1))
+        if ref_path and ref_path.is_file():
             return ref_path.read_text(encoding="utf-8-sig").rstrip("\n")
-        return match.group(0)  # leave unknown refs intact
+        return match.group(0)  # leave unresolvable/unsafe refs intact
 
     return _AT_REF_RE.sub(_replacer, text)
 

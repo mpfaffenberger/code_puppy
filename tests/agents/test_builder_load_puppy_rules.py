@@ -612,6 +612,69 @@ class TestExpandAtReferences:
         assert result == "# A\n# B"
 
 
+class TestResolveAtRef:
+    """Tests for _resolve_at_ref() path containment."""
+
+    def test_absolute_path_rejected(self, tmp_path):
+        """Absolute @refs are rejected outright."""
+        from code_puppy.agents._builder import _resolve_at_ref
+
+        result = _resolve_at_ref(tmp_path, "/etc/hostname")
+        assert result is None
+
+    def test_parent_traversal_rejected(self, tmp_path):
+        """@../outside refs that escape base_dir are rejected."""
+        from code_puppy.agents._builder import _resolve_at_ref
+
+        # Create a file outside tmp_path to ensure the path would be valid
+        # if traversal were allowed
+        result = _resolve_at_ref(tmp_path, "../../.env")
+        assert result is None
+
+    def test_simple_traversal_rejected(self, tmp_path):
+        """@../file that resolves outside base_dir is rejected."""
+        from code_puppy.agents._builder import _resolve_at_ref
+
+        result = _resolve_at_ref(tmp_path, "../secret.txt")
+        assert result is None
+
+    def test_symlink_escape_rejected(self, tmp_path):
+        """Symlink pointing outside base_dir is rejected."""
+        from code_puppy.agents._builder import _resolve_at_ref
+
+        outside = tmp_path.parent / "outside.md"
+        outside.write_text("secret")
+        link = tmp_path / "link.md"
+        link.symlink_to(outside)
+
+        result = _resolve_at_ref(tmp_path, "link.md")
+        assert result is None
+
+    def test_valid_path_accepted(self, tmp_path):
+        """Normal relative path within base_dir resolves correctly."""
+        from code_puppy.agents._builder import _resolve_at_ref
+
+        f = tmp_path / "rules.md"
+        f.write_text("content")
+
+        result = _resolve_at_ref(tmp_path, "rules.md")
+        assert result == f.resolve()
+
+    def test_absolute_path_left_intact_in_expansion(self, tmp_path):
+        """Absolute @ref in expansion is left as-is in output."""
+        from code_puppy.agents._builder import _expand_at_references
+
+        result = _expand_at_references("@/etc/hostname", base_dir=tmp_path)
+        assert result == "@/etc/hostname"
+
+    def test_traversal_left_intact_in_expansion(self, tmp_path):
+        """Traversal @ref in expansion is left as-is in output."""
+        from code_puppy.agents._builder import _expand_at_references
+
+        result = _expand_at_references("@../../.env", base_dir=tmp_path)
+        assert result == "@../../.env"
+
+
 class TestClaudeMdFallback:
     """Tests for CLAUDE.md fallback when no AGENTS.md exists."""
 
