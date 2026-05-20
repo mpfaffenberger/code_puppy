@@ -144,10 +144,10 @@ class TestSkillDiscovery:
     """Tests for skill discovery module."""
 
     def setup_method(self):
-        clear_callbacks()
+        clear_callbacks("register_skills")
 
     def teardown_method(self):
-        clear_callbacks()
+        clear_callbacks("register_skills")
 
     def test_get_default_skill_directories(self):
         """Test default skill directories are correctly returned."""
