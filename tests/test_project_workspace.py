@@ -326,3 +326,204 @@ class TestProjectWorkspaceDataclass:
         ws = ProjectWorkspace(root_path="/a", workspace_path="/a/.code-puppy")
         assert ws.project_only is False
         assert ws.config == {}
+
+
+# ── MCP workspace integration ─────────────────────────────────────────────
+
+
+class TestMcpWorkspaceLoading:
+    """Tests for MCP config loading from workspace (Commit 2)."""
+
+    def setup_method(self):
+        _clear_workspace_cache()
+
+    def test_workspace_mcp_servers_json_loaded(self, tmp_path):
+        """mcp_servers.json in .code-puppy/ is preferred over config.json."""
+        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
+        ws_dir.mkdir()
+
+        mcp_config = {
+            "mcp_servers": {
+                "ws-server": {"command": "node", "args": ["server.js"]}
+            }
+        }
+        (ws_dir / "mcp_servers.json").write_text(json.dumps(mcp_config))
+
+        with patch("os.getcwd", return_value=str(tmp_path)):
+            from code_puppy.config import load_local_mcp_config
+
+            result = load_local_mcp_config()
+
+        assert "ws-server" in result
+        assert result["ws-server"]["command"] == "node"
+
+    def test_workspace_config_json_mcp_fallback(self, tmp_path):
+        """mcpServers in config.json used when no mcp_servers.json exists."""
+        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
+        ws_dir.mkdir()
+
+        config = {
+            "projectOnly": True,
+            "mcpServers": [
+                {"name": "cfg-server", "command": "echo", "args": ["hello"]}
+            ],
+        }
+        (ws_dir / "config.json").write_text(json.dumps(config))
+
+        with patch("os.getcwd", return_value=str(tmp_path)):
+            from code_puppy.config import load_local_mcp_config
+
+            result = load_local_mcp_config()
+
+        assert "cfg-server" in result
+        assert result["cfg-server"]["command"] == "echo"
+
+    def test_workspace_mcp_servers_json_preferred_over_config_json(self, tmp_path):
+        """Dedicated mcp_servers.json takes priority over config.json keys."""
+        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
+        ws_dir.mkdir()
+
+        # mcp_servers.json has "preferred-server"
+        (ws_dir / "mcp_servers.json").write_text(
+            json.dumps({"mcp_servers": {"preferred-server": {"command": "a"}}})
+        )
+        # config.json also has MCP config
+        (ws_dir / "config.json").write_text(
+            json.dumps({"mcpServers": [{"name": "config-server", "command": "b"}]})
+        )
+
+        with patch("os.getcwd", return_value=str(tmp_path)):
+            from code_puppy.config import load_local_mcp_config
+
+            result = load_local_mcp_config()
+
+        assert "preferred-server" in result
+        assert "config-server" not in result
+
+    def test_project_root_expanded_in_workspace_mcp(self, tmp_path):
+        """${PROJECT_ROOT} expands to the workspace root_path."""
+        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
+        ws_dir.mkdir()
+
+        config = {
+            "mcp_servers": {
+                "srv": {"command": "${PROJECT_ROOT}/bin/mcp"}
+            }
+        }
+        (ws_dir / "mcp_servers.json").write_text(json.dumps(config))
+
+        with patch("os.getcwd", return_value=str(tmp_path)):
+            from code_puppy.config import load_local_mcp_config
+
+            result = load_local_mcp_config()
+
+        assert result["srv"]["command"] == f"{tmp_path}/bin/mcp"
+
+    def test_legacy_code_puppy_json_still_works(self, tmp_path):
+        """Legacy .code-puppy.json file is loaded when no workspace exists."""
+        config = {
+            "mcpServers": [
+                {"name": "legacy-server", "command": "echo", "args": []}
+            ]
+        }
+        (tmp_path / ".code-puppy.json").write_text(json.dumps(config))
+
+        with patch("os.getcwd", return_value=str(tmp_path)):
+            from code_puppy.config import load_local_mcp_config
+
+            result = load_local_mcp_config()
+
+        assert "legacy-server" in result
+
+    def test_workspace_takes_priority_over_legacy_json(self, tmp_path):
+        """When both workspace and .code-puppy.json exist, workspace wins."""
+        # Workspace
+        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
+        ws_dir.mkdir()
+        (ws_dir / "mcp_servers.json").write_text(
+            json.dumps({"mcp_servers": {"ws-win": {"command": "ws"}}})
+        )
+        # Legacy file
+        (tmp_path / ".code-puppy.json").write_text(
+            json.dumps({"mcpServers": [{"name": "legacy-lose", "command": "leg"}]})
+        )
+
+        with patch("os.getcwd", return_value=str(tmp_path)):
+            from code_puppy.config import load_local_mcp_config
+
+            result = load_local_mcp_config()
+
+        assert "ws-win" in result
+        assert "legacy-lose" not in result
+
+
+class TestMcpProjectOnlyMode:
+    """Tests for projectOnly blocking global MCP config (Commit 2)."""
+
+    def setup_method(self):
+        _clear_workspace_cache()
+
+    def test_sync_from_config_skipped_in_project_only_mode(self, tmp_path):
+        """MCPManager.sync_from_config() is a no-op when projectOnly is true."""
+        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
+        ws_dir.mkdir()
+        (ws_dir / "config.json").write_text(json.dumps({"projectOnly": True}))
+
+        # Create a global config with a server that should NOT appear
+        global_mcp = tmp_path / "global_mcp_servers.json"
+        global_mcp.write_text(
+            json.dumps({
+                "mcp_servers": {
+                    "global-server": {"command": "global", "args": []}
+                }
+            })
+        )
+
+        with (
+            patch("os.getcwd", return_value=str(tmp_path)),
+            patch("code_puppy.config.MCP_SERVERS_FILE", str(global_mcp)),
+            patch("code_puppy.mcp_.registry.ServerRegistry._persist"),
+            patch("code_puppy.mcp_.registry.ServerRegistry._load"),
+        ):
+            from code_puppy.mcp_.manager import MCPManager
+
+            manager = MCPManager()
+
+        # Global server should NOT be in managed servers
+        global_found = any(
+            ms.config.name == "global-server"
+            for ms in manager._managed_servers.values()
+        )
+        assert not global_found, "Global server should be blocked by projectOnly"
+
+    def test_local_servers_still_load_in_project_only_mode(self, tmp_path):
+        """Local workspace servers are loaded even in projectOnly mode."""
+        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
+        ws_dir.mkdir()
+        (ws_dir / "config.json").write_text(json.dumps({"projectOnly": True}))
+        (ws_dir / "mcp_servers.json").write_text(
+            json.dumps({
+                "mcp_servers": {
+                    "local-only": {"command": "local", "args": []}
+                }
+            })
+        )
+
+        empty_global = tmp_path / "empty_global.json"
+        empty_global.write_text(json.dumps({"mcp_servers": {}}))
+
+        with (
+            patch("os.getcwd", return_value=str(tmp_path)),
+            patch("code_puppy.config.MCP_SERVERS_FILE", str(empty_global)),
+            patch("code_puppy.mcp_.registry.ServerRegistry._persist"),
+            patch("code_puppy.mcp_.registry.ServerRegistry._load"),
+        ):
+            from code_puppy.mcp_.manager import MCPManager
+
+            manager = MCPManager()
+
+        local_found = any(
+            ms.config.name == "local-only"
+            for ms in manager._managed_servers.values()
+        )
+        assert local_found, "Local workspace server should be loaded"
