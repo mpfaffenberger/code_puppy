@@ -139,14 +139,73 @@ def _load_user_plugins(user_plugins_dir: Path) -> list[str]:
     return loaded
 
 
+def _load_project_plugins(project_plugins_dir: Path) -> list[str]:
+    """Load project-local plugins from the .code-puppy/plugins/ workspace directory.
+
+    Same loading mechanism as _load_user_plugins() — each plugin is a directory
+    with a register_callbacks.py file.
+
+    Returns list of successfully loaded plugin names.
+    """
+    loaded = []
+
+    if not project_plugins_dir.exists() or not project_plugins_dir.is_dir():
+        return loaded
+
+    # Add project plugins directory to sys.path if not already there
+    project_plugins_str = str(project_plugins_dir)
+    if project_plugins_str not in sys.path:
+        sys.path.insert(0, project_plugins_str)
+
+    for item in project_plugins_dir.iterdir():
+        if (
+            item.is_dir()
+            and not item.name.startswith("_")
+            and not item.name.startswith(".")
+        ):
+            plugin_name = item.name
+            callbacks_file = item / "register_callbacks.py"
+
+            if callbacks_file.exists():
+                try:
+                    module_name = f"project_plugin_{plugin_name}.register_callbacks"
+                    spec = importlib.util.spec_from_file_location(
+                        module_name, callbacks_file
+                    )
+                    if spec is None or spec.loader is None:
+                        logger.warning(
+                            f"Could not create module spec for project plugin: {plugin_name}"
+                        )
+                        continue
+
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = module
+                    spec.loader.exec_module(module)
+                    loaded.append(plugin_name)
+
+                except ImportError as e:
+                    logger.warning(
+                        f"Failed to import callbacks from project plugin {plugin_name}: {e}"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Unexpected error loading project plugin {plugin_name}: {e}",
+                        exc_info=True,
+                    )
+
+    return loaded
+
+
 def load_plugin_callbacks() -> dict[str, list[str]]:
     """Dynamically load register_callbacks.py from all plugin sources.
 
     Loads plugins from:
-    1. Built-in plugins in the code_puppy/plugins/ directory
-    2. User plugins in ~/.code_puppy/plugins/
+    1. Built-in plugins in the code_puppy/plugins/ directory (always loaded)
+    2. User plugins in ~/.code_puppy/plugins/ (skipped in projectOnly mode)
+    3. Project plugins in .code-puppy/plugins/ (if workspace exists)
 
-    Returns dict with 'builtin' and 'user' keys containing lists of loaded plugin names.
+    Returns dict with 'builtin', 'user', and 'project' keys containing
+    lists of loaded plugin names.
 
     NOTE: This function is idempotent - calling it multiple times will only
     load plugins once. Subsequent calls return empty lists.
@@ -157,17 +216,34 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
     # so re-importing would cause duplicate registrations
     if _PLUGINS_LOADED:
         logger.debug("Plugins already loaded, skipping duplicate load")
-        return {"builtin": [], "user": []}
+        return {"builtin": [], "user": [], "project": []}
+
+    from code_puppy.config import get_project_workspace, is_project_only
 
     plugins_dir = Path(__file__).parent
 
-    result = {
+    # Builtin plugins always load — they are code-puppy internals.
+    result: dict[str, list[str]] = {
         "builtin": _load_builtin_plugins(plugins_dir),
-        "user": _load_user_plugins(USER_PLUGINS_DIR),
+        "user": [],
+        "project": [],
     }
 
+    # User plugins — skipped in projectOnly mode.
+    if not is_project_only():
+        result["user"] = _load_user_plugins(USER_PLUGINS_DIR)
+
+    # Project plugins — loaded from workspace .code-puppy/plugins/ if it exists.
+    ws = get_project_workspace()
+    if ws is not None:
+        project_plugins_dir = Path(ws.workspace_path) / "plugins"
+        result["project"] = _load_project_plugins(project_plugins_dir)
+
     _PLUGINS_LOADED = True
-    logger.debug(f"Loaded plugins: builtin={result['builtin']}, user={result['user']}")
+    logger.debug(
+        f"Loaded plugins: builtin={result['builtin']}, "
+        f"user={result['user']}, project={result['project']}"
+    )
 
     return result
 
