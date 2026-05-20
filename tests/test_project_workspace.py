@@ -527,3 +527,181 @@ class TestMcpProjectOnlyMode:
             for ms in manager._managed_servers.values()
         )
         assert local_found, "Local workspace server should be loaded"
+
+
+# ── Agent discovery isolation ──────────────────────────────────────────────
+
+
+class TestAgentDiscoveryProjectOnly:
+    """Tests for agent discovery respecting projectOnly (Commit 3)."""
+
+    def setup_method(self):
+        _clear_workspace_cache()
+
+    def test_discover_json_agents_skips_user_in_project_only(self, tmp_path):
+        """In projectOnly mode, user-level agents are NOT loaded."""
+        # Create workspace with projectOnly
+        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
+        ws_dir.mkdir()
+        (ws_dir / "config.json").write_text(json.dumps({"projectOnly": True}))
+
+        # Create a user-level agent
+        user_agents = tmp_path / "user_agents"
+        user_agents.mkdir()
+        user_agent = {
+            "name": "user-agent",
+            "description": "A user agent",
+            "system_prompt": "You are a user agent.",
+            "tools": [],
+        }
+        (user_agents / "user-agent.json").write_text(json.dumps(user_agent))
+
+        # Create a project-level agent in workspace
+        project_agents = ws_dir / "agents"
+        project_agents.mkdir()
+        project_agent = {
+            "name": "project-agent",
+            "description": "A project agent",
+            "system_prompt": "You are a project agent.",
+            "tools": [],
+        }
+        (project_agents / "project-agent.json").write_text(json.dumps(project_agent))
+
+        with (
+            patch("os.getcwd", return_value=str(tmp_path)),
+            patch("code_puppy.config.AGENTS_DIR", str(user_agents)),
+        ):
+            from code_puppy.agents.json_agent import discover_json_agents
+
+            agents = discover_json_agents()
+
+        assert "project-agent" in agents, "Project agent should be discovered"
+        assert "user-agent" not in agents, "User agent should be skipped in projectOnly"
+
+    def test_discover_json_agents_includes_user_without_project_only(self, tmp_path):
+        """Without projectOnly, both user and project agents are loaded."""
+        # Create workspace WITHOUT projectOnly
+        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
+        ws_dir.mkdir()
+        (ws_dir / "config.json").write_text(json.dumps({"projectOnly": False}))
+
+        # User agent
+        user_agents = tmp_path / "user_agents"
+        user_agents.mkdir()
+        user_agent = {
+            "name": "user-agent",
+            "description": "A user agent",
+            "system_prompt": "You are a user agent.",
+            "tools": [],
+        }
+        (user_agents / "user-agent.json").write_text(json.dumps(user_agent))
+
+        # Project agent
+        project_agents = ws_dir / "agents"
+        project_agents.mkdir()
+        project_agent = {
+            "name": "project-agent",
+            "description": "A project agent",
+            "system_prompt": "You are a project agent.",
+            "tools": [],
+        }
+        (project_agents / "project-agent.json").write_text(json.dumps(project_agent))
+
+        with (
+            patch("os.getcwd", return_value=str(tmp_path)),
+            patch("code_puppy.config.AGENTS_DIR", str(user_agents)),
+        ):
+            from code_puppy.agents.json_agent import discover_json_agents
+
+            agents = discover_json_agents()
+
+        assert "project-agent" in agents, "Project agent should be discovered"
+        assert "user-agent" in agents, "User agent should be discovered (additive)"
+
+    def test_project_agent_wins_on_collision(self, tmp_path):
+        """Project agent overrides user agent on name collision."""
+        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
+        ws_dir.mkdir()
+
+        # User agent with same name
+        user_agents = tmp_path / "user_agents"
+        user_agents.mkdir()
+        user_agent = {
+            "name": "shared-name",
+            "description": "User version",
+            "system_prompt": "User.",
+            "tools": [],
+        }
+        (user_agents / "shared-name.json").write_text(json.dumps(user_agent))
+
+        # Project agent with same name
+        project_agents = ws_dir / "agents"
+        project_agents.mkdir()
+        project_agent = {
+            "name": "shared-name",
+            "description": "Project version",
+            "system_prompt": "Project.",
+            "tools": [],
+        }
+        (project_agents / "shared-name.json").write_text(json.dumps(project_agent))
+
+        with (
+            patch("os.getcwd", return_value=str(tmp_path)),
+            patch("code_puppy.config.AGENTS_DIR", str(user_agents)),
+        ):
+            from code_puppy.agents.json_agent import discover_json_agents
+
+            agents = discover_json_agents()
+
+        assert "shared-name" in agents
+        # The path should be the project version
+        assert str(project_agents) in agents["shared-name"]
+
+
+class TestDiscoverAgentsProjectOnly:
+    """Tests for _discover_agents() builtin filtering in projectOnly mode (Commit 3)."""
+
+    def setup_method(self):
+        _clear_workspace_cache()
+
+    def test_code_puppy_agent_always_registered(self, tmp_path):
+        """The base code-puppy agent is always available, even in projectOnly."""
+        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
+        ws_dir.mkdir()
+        (ws_dir / "config.json").write_text(json.dumps({"projectOnly": True}))
+
+        with patch("os.getcwd", return_value=str(tmp_path)):
+            from code_puppy.agents.agent_manager import _AGENT_REGISTRY, _discover_agents
+
+            _discover_agents()
+
+        assert "code-puppy" in _AGENT_REGISTRY, "code-puppy must always be registered"
+
+    def test_builtin_agents_hidden_in_project_only(self, tmp_path):
+        """Builtin Python agents are NOT registered in projectOnly mode."""
+        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
+        ws_dir.mkdir()
+        (ws_dir / "config.json").write_text(json.dumps({"projectOnly": True}))
+
+        with patch("os.getcwd", return_value=str(tmp_path)):
+            from code_puppy.agents.agent_manager import _AGENT_REGISTRY, _discover_agents
+
+            _discover_agents()
+
+        # These are some known builtin agents that should NOT be available
+        builtin_names = {"security-auditor", "qa-kitten", "qa-expert", "python-reviewer"}
+        found_builtins = builtin_names & set(_AGENT_REGISTRY.keys())
+        assert not found_builtins, f"Builtin agents should be hidden in projectOnly: {found_builtins}"
+
+    def test_all_builtins_registered_without_project_only(self, tmp_path):
+        """Without projectOnly, builtin Python agents are registered normally."""
+        # No workspace at all
+        with patch("os.getcwd", return_value=str(tmp_path)):
+            from code_puppy.agents.agent_manager import _AGENT_REGISTRY, _discover_agents
+
+            _discover_agents()
+
+        # At minimum, code-puppy and some builtins should be there
+        assert "code-puppy" in _AGENT_REGISTRY
+        # Check at least one builtin exists (security-auditor is always present)
+        assert len(_AGENT_REGISTRY) > 1, "Multiple agents should be registered in normal mode"
