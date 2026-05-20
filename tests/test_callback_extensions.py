@@ -17,6 +17,7 @@ from code_puppy.callbacks import (
     clear_callbacks,
     on_agent_run_cancel,
     on_agent_run_context,
+    on_register_skills,
     on_should_skip_fallback_render,
     on_wrap_pydantic_agent,
     register_callback,
@@ -176,8 +177,24 @@ def test_new_phases_registered():
         "agent_run_context",
         "agent_run_cancel",
         "should_skip_fallback_render",
+        "register_skills",
     ):
         assert phase in _callbacks, f"Phase {phase!r} missing from _callbacks"
+
+
+def test_on_register_skills_collects_results():
+    clear_callbacks()
+
+    def cb_one():
+        return [{"name": "alpha", "skill_md": "# alpha"}]
+
+    def cb_two():
+        return [{"name": "beta", "skill_md": "# beta"}]
+
+    register_callback("register_skills", cb_one)
+    register_callback("register_skills", cb_two)
+
+    assert on_register_skills() == [cb_one(), cb_two()]
 
 
 # Guard: registering an unknown phase still raises.

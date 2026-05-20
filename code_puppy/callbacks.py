@@ -28,6 +28,7 @@ PhaseType = Literal[
     "register_tools",
     "register_agents",
     "register_model_type",
+    "register_skills",
     "get_model_system_prompt",
     "prepare_model_prompt",
     "agent_run_start",
@@ -75,6 +76,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_tools": [],
     "register_agents": [],
     "register_model_type": [],
+    "register_skills": [],
     "get_model_system_prompt": [],
     "prepare_model_prompt": [],
     "agent_run_start": [],
@@ -472,6 +474,24 @@ def on_register_model_types() -> List[Dict[str, Any]]:
     Example return: [{"type": "my_custom_type", "handler": create_my_custom_model}]
     """
     return _trigger_callbacks_sync("register_model_type")
+
+
+def on_register_skills() -> List[Dict[str, Any]]:
+    """Collect skill registrations from plugins.
+
+    Each callback should return a list of dicts with either:
+    - "name": str, "skill_md_path": str | Path
+    - "name": str, "skill_md": str
+    - "name": str, "frontmatter": dict, "body": str
+
+    Optional keys on every variant:
+    - "tags": list[str]
+    - "description": str
+    - "version": str
+    - "author": str
+    - "scripts_dir": str | Path
+    """
+    return _trigger_callbacks_sync("register_skills")
 
 
 def on_get_model_system_prompt(
