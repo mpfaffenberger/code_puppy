@@ -1,5 +1,5 @@
 """
-Tests for .code-puppy/ project workspace discovery and configuration.
+Tests for .code_puppy/ project workspace discovery and configuration.
 
 Covers get_project_workspace(), is_project_only(), and the updated
 get_project_agents_directory() that prefers workspace over legacy paths.
@@ -43,7 +43,7 @@ class TestGetProjectWorkspace:
         _clear_workspace_cache()
 
     def test_workspace_found_at_cwd(self, tmp_path):
-        """A .code-puppy/ dir in CWD is discovered."""
+        """A .code_puppy/ dir in CWD is discovered."""
         ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
         ws_dir.mkdir()
 
@@ -57,7 +57,7 @@ class TestGetProjectWorkspace:
         assert result.config == {}
 
     def test_workspace_found_in_parent(self, tmp_path):
-        """A .code-puppy/ dir in a parent is discovered from a nested CWD."""
+        """A .code_puppy/ dir in a parent is discovered from a nested CWD."""
         ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
         ws_dir.mkdir()
 
@@ -122,7 +122,7 @@ class TestGetProjectWorkspace:
         assert result.config == {}
 
     def test_returns_none_when_no_workspace(self, tmp_path):
-        """Returns None when no .code-puppy/ exists anywhere."""
+        """Returns None when no .code_puppy/ exists anywhere."""
         with patch("os.getcwd", return_value=str(tmp_path)):
             result = get_project_workspace()
 
@@ -131,7 +131,7 @@ class TestGetProjectWorkspace:
     def test_stops_at_git_root(self, tmp_path):
         """Walk-up stops at git root — workspace above .git is not found."""
         # Layout:
-        #   tmp_path/.code-puppy/       ← above git root, should NOT be found
+        #   tmp_path/.code_puppy/       ← above git root, should NOT be found
         #   tmp_path/repo/.git/
         #   tmp_path/repo/src/          ← CWD
         (tmp_path / PROJECT_WORKSPACE_DIR_NAME).mkdir()
@@ -196,8 +196,8 @@ class TestGetProjectWorkspace:
     def test_nearest_workspace_wins(self, tmp_path):
         """When nested workspaces exist, the nearest one wins."""
         # Layout:
-        #   tmp_path/.code-puppy/config.json  {"projectOnly": false}
-        #   tmp_path/sub/.code-puppy/config.json  {"projectOnly": true}
+        #   tmp_path/.code_puppy/config.json  {"projectOnly": false}
+        #   tmp_path/sub/.code_puppy/config.json  {"projectOnly": true}
         outer_ws = tmp_path / PROJECT_WORKSPACE_DIR_NAME
         outer_ws.mkdir()
         (outer_ws / "config.json").write_text(json.dumps({"projectOnly": False}))
@@ -255,7 +255,7 @@ class TestGetProjectAgentsDirectory:
         _clear_workspace_cache()
 
     def test_returns_workspace_agents_dir(self, tmp_path):
-        """Prefers .code-puppy/agents/ from the workspace."""
+        """Prefers .code_puppy/agents/ from the workspace."""
         ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
         agents_dir = ws_dir / "agents"
         agents_dir.mkdir(parents=True)
@@ -276,18 +276,32 @@ class TestGetProjectAgentsDirectory:
         assert result == str(legacy_dir)
 
     def test_workspace_preferred_over_legacy(self, tmp_path):
-        """When both workspace and legacy exist, workspace wins."""
-        # Workspace
-        ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
-        ws_agents = ws_dir / "agents"
+        """Workspace agents path wins over CWD-level legacy fallback.
+
+        Mocks get_project_workspace() to return a workspace at a
+        known parent path. The workspace agents dir should be returned
+        even though a separate CWD-level legacy dir also exists.
+        """
+        from code_puppy.config import ProjectWorkspace
+
+        # Workspace at a parent directory (found via mocked walk-up)
+        parent = tmp_path / "parent"
+        ws_path = parent / PROJECT_WORKSPACE_DIR_NAME
+        ws_agents = ws_path / "agents"
         ws_agents.mkdir(parents=True)
 
-        # Legacy
-        legacy_dir = tmp_path / ".code_puppy" / "agents"
-        legacy_dir.mkdir(parents=True)
+        # CWD-level legacy dir also exists — should NOT be returned
+        cwd = tmp_path / "sub"
+        cwd_legacy = cwd / ".code_puppy" / "agents"
+        cwd_legacy.mkdir(parents=True)
 
-        with patch("os.getcwd", return_value=str(tmp_path)):
-            result = get_project_agents_directory()
+        fake_ws = ProjectWorkspace(
+            root_path=str(parent),
+            workspace_path=str(ws_path),
+        )
+        with patch("code_puppy.config.get_project_workspace", return_value=fake_ws):
+            with patch("os.getcwd", return_value=str(cwd)):
+                result = get_project_agents_directory()
 
         assert result == str(ws_agents)
 
@@ -317,13 +331,13 @@ class TestProjectWorkspaceDataclass:
 
     def test_frozen(self):
         """ProjectWorkspace is immutable."""
-        ws = ProjectWorkspace(root_path="/a", workspace_path="/a/.code-puppy")
+        ws = ProjectWorkspace(root_path="/a", workspace_path="/a/.code_puppy")
         with pytest.raises(AttributeError):
             ws.project_only = True  # type: ignore[misc]
 
     def test_defaults(self):
         """Default values are correct."""
-        ws = ProjectWorkspace(root_path="/a", workspace_path="/a/.code-puppy")
+        ws = ProjectWorkspace(root_path="/a", workspace_path="/a/.code_puppy")
         assert ws.project_only is False
         assert ws.config == {}
 
@@ -338,7 +352,7 @@ class TestMcpWorkspaceLoading:
         _clear_workspace_cache()
 
     def test_workspace_mcp_servers_json_loaded(self, tmp_path):
-        """mcp_servers.json in .code-puppy/ is preferred over config.json."""
+        """mcp_servers.json in .code_puppy/ is preferred over config.json."""
         ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
         ws_dir.mkdir()
 
@@ -721,7 +735,7 @@ class TestPluginLoadingProjectOnly:
         plugins_mod._PLUGINS_LOADED = False
 
     def test_project_plugins_loaded_from_workspace(self, tmp_path):
-        """Plugins in .code-puppy/plugins/ are discovered and loaded."""
+        """Plugins in .code_puppy/plugins/ are discovered and loaded."""
         ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
         plugin_dir = ws_dir / "plugins" / "test_plugin"
         plugin_dir.mkdir(parents=True)
