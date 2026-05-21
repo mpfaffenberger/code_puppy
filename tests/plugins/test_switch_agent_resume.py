@@ -26,6 +26,8 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # MCP compatibility shim
 # pydantic_ai.mcp imports several mcp.client.* and mcp.shared.* submodules.
@@ -816,6 +818,34 @@ class TestCustomCommandHelp:
 class TestCallbackRegistration:
     """Verify that callbacks are registered at module import time."""
 
+    @pytest.fixture(autouse=True)
+    def _ensure_switch_agent_callbacks(self):
+        """Re-register callbacks that may have been cleared by clear_callbacks()."""
+        from code_puppy.callbacks import get_callbacks, register_callback
+        from code_puppy.plugins.switch_agent_resume.register_callbacks import (
+            _cleanup_orphaned_tty_sessions_async,
+            _handle_help,
+            _handle_switch_agent_callback,
+        )
+
+        if not any(
+            cb is _handle_switch_agent_callback
+            or getattr(cb, "__wrapped__", None) is _handle_switch_agent_callback
+            for cb in get_callbacks("custom_command")
+        ):
+            register_callback("custom_command", _handle_switch_agent_callback)
+        if not any(
+            cb is _handle_help or getattr(cb, "__wrapped__", None) is _handle_help
+            for cb in get_callbacks("custom_command_help")
+        ):
+            register_callback("custom_command_help", _handle_help)
+        if not any(
+            cb is _cleanup_orphaned_tty_sessions_async
+            or getattr(cb, "__wrapped__", None) is _cleanup_orphaned_tty_sessions_async
+            for cb in get_callbacks("startup")
+        ):
+            register_callback("startup", _cleanup_orphaned_tty_sessions_async)
+
     def test_custom_command_callback_registered(self):
         """_handle_switch_agent is registered for the 'custom_command' hook."""
         from code_puppy.callbacks import get_callbacks
@@ -851,6 +881,21 @@ class TestCallbackRegistration:
 
 class TestCleanupOrphanedTtySessions:
     """Tests for _cleanup_orphaned_tty_sessions in the switch_agent_resume plugin."""
+
+    @pytest.fixture(autouse=True)
+    def _ensure_cleanup_callback(self):
+        """Re-register the startup cleanup callback if cleared by another test."""
+        from code_puppy.callbacks import get_callbacks, register_callback
+        from code_puppy.plugins.switch_agent_resume.register_callbacks import (
+            _cleanup_orphaned_tty_sessions_async,
+        )
+
+        if not any(
+            cb is _cleanup_orphaned_tty_sessions_async
+            or getattr(cb, "__wrapped__", None) is _cleanup_orphaned_tty_sessions_async
+            for cb in get_callbacks("startup")
+        ):
+            register_callback("startup", _cleanup_orphaned_tty_sessions_async)
 
     def _import(self):
         from code_puppy.plugins.switch_agent_resume.register_callbacks import (
@@ -912,16 +957,14 @@ class TestCleanupOrphanedTtySessions:
         current_file = tty_sessions_dir / "dev_ttys001.txt"
         current_file.write_text("current-session")
 
-        # Create another terminal's file (TTY doesn't exist)
-        other_file = tty_sessions_dir / "dev_ttys099.txt"
+        # Create another terminal's file whose TTY path is guaranteed not to
+        # exist on any real system (decodes to /xfake/orphaned/test/device).
+        other_file = tty_sessions_dir / "xfake_orphaned_test_device.txt"
         other_file.write_text("other-session")
-
-        import os
 
         with (
             patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
             patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
-            patch.object(os.path, "exists", return_value=False),
         ):
             cleanup()
 
@@ -929,7 +972,7 @@ class TestCleanupOrphanedTtySessions:
         assert current_file.exists()
         assert current_file.read_text() == "current-session"
 
-        # Other terminal's file should be deleted
+        # Other terminal's file should be deleted (its fake path doesn't exist)
         assert not other_file.exists()
 
     def test_deletes_file_for_nonexistent_tty(self, tmp_path):
@@ -939,20 +982,14 @@ class TestCleanupOrphanedTtySessions:
         tty_sessions_dir = tmp_path / "tty_sessions"
         tty_sessions_dir.mkdir()
 
-        # Create session file for non-existent TTY
-        orphaned_file = tty_sessions_dir / "dev_ttys099.txt"
+        # Use a filename that decodes to a path guaranteed not to exist on
+        # any real system (/xfake/orphaned/session), so no mocking is needed.
+        orphaned_file = tty_sessions_dir / "xfake_orphaned_session.txt"
         orphaned_file.write_text("orphaned-session")
-
-        import os
-
-        def mock_exists(path):
-            # TTY device doesn't exist
-            return False
 
         with (
             patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
             patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
-            patch.object(os.path, "exists", side_effect=mock_exists),
         ):
             cleanup()
 
@@ -1107,45 +1144,40 @@ class TestCleanupOrphanedTtySessions:
         tty_sessions_dir = tmp_path / "tty_sessions"
         tty_sessions_dir.mkdir()
 
-        # Current terminal's file (should be preserved)
+        # Current terminal's file (should be preserved — skipped by name match)
         current_file = tty_sessions_dir / "dev_ttys001.txt"
         current_file.write_text("current-session")
 
-        # File with non-existent TTY (should be deleted)
-        orphaned_file = tty_sessions_dir / "dev_ttys099.txt"
+        # File whose decoded path (/xfake/orphaned) is guaranteed not to exist
+        # on any real system — deleted by the TTY-existence check, no mock needed.
+        orphaned_file = tty_sessions_dir / "xfake_orphaned.txt"
         orphaned_file.write_text("orphaned-session")
 
-        # Old file (should be deleted)
-        old_file = tty_sessions_dir / "dev_ttys098.txt"
+        # File whose decoded path (/dev/null) exists, but mtime is 8 days old
+        # — deleted by the age check.
+        old_file = tty_sessions_dir / "dev_null.txt"
         old_file.write_text("old-session")
         eight_days_ago = time.time() - (8 * 24 * 60 * 60)
         os.utime(old_file, (eight_days_ago, eight_days_ago))
 
-        # Recent file with existing TTY (should be preserved)
-        recent_file = tty_sessions_dir / "dev_ttys097.txt"
+        # File whose decoded path (/tmp) exists and mtime is recent — preserved.
+        recent_file = tty_sessions_dir / "tmp.txt"
         recent_file.write_text("recent-session")
-
-        def mock_exists(path):
-            # ttys099 doesn't exist, ttys098 exists (but is old), ttys097 exists
-            if "ttys099" in path:
-                return False
-            return True
 
         with (
             patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
             patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
-            patch.object(os.path, "exists", side_effect=mock_exists),
         ):
             cleanup()
 
         # Current terminal's file preserved
         assert current_file.exists()
 
-        # Orphaned file deleted (TTY doesn't exist)
+        # Orphaned file deleted (decoded TTY path doesn't exist)
         assert not orphaned_file.exists()
 
         # Old file deleted (> 7 days)
         assert not old_file.exists()
 
-        # Recent file with existing TTY preserved
+        # Recent file with existing TTY (/tmp) preserved
         assert recent_file.exists()

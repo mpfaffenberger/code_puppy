@@ -7,7 +7,7 @@ from typing import List
 import pytest
 
 from code_puppy.agents import _key_listeners
-from code_puppy.callbacks import _callbacks
+from code_puppy.callbacks import _callbacks, register_callback
 from code_puppy.messaging import (
     SteerAgentCommand,
     reset_message_bus,
@@ -28,7 +28,18 @@ def _fresh_state():
     suite-wide ``_callbacks`` dict is module-level global state). The plugin
     under test only mutates the bus, the controller, and the active handle;
     reset just those.
+
+    We also ensure the plugin's ``agent_pause_requested`` callback is
+    registered before each test.  ``tests/test_callbacks_extended.py`` calls
+    ``clear_callbacks()`` in its ``setup_method``, which wipes all callbacks;
+    since Python caches module imports the plugin won't re-register unless we
+    do it explicitly here.  ``register_callback`` deduplicates by function
+    identity so repeated calls are safe.
     """
+    # Re-register the pause callback if it was cleared by another test module.
+    if plugin._on_pause_requested not in _callbacks.get("agent_pause_requested", []):
+        register_callback("agent_pause_requested", plugin._on_pause_requested)
+
     reset_message_bus()
     reset_pause_controller()
     _key_listeners.set_active_handle(None)
