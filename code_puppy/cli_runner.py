@@ -26,7 +26,9 @@ from code_puppy.config import (
     COMMAND_HISTORY_FILE,
     ensure_config_exists,
     finalize_autosave_session,
+    get_current_autosave_session_name,
     initialize_command_history_file,
+    record_terminal_session,
     save_command_to_history,
 )
 from code_puppy.http_utils import find_available_port
@@ -517,6 +519,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_warning("Falling back to basic input without tab completion")
 
     # Autosave loading is now manual - use /autosave_load command
+
+    # Track this terminal's active session for /switch-agent auto-resume
+    record_terminal_session(get_current_autosave_session_name(), overwrite=False)
 
     # Auto-run tutorial on first startup
     try:
