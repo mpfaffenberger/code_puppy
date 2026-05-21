@@ -189,96 +189,115 @@ def _ensure_session_cache_loaded() -> None:
 
 
 def _discover_agents(message_group_id: Optional[str] = None):
-    """Dynamically discover all agent classes and JSON agents."""
+    """Dynamically discover all agent classes and JSON agents.
+
+    In projectOnly mode, only the base code-puppy agent and workspace
+    JSON agents are registered.  Builtin Python agents (security-auditor,
+    qa-kitten, etc.), pack sub-packages, and plugin-registered agents are
+    all skipped — the workspace defines the complete agent surface.
+    """
+    from code_puppy.config import is_project_only
+
     # Always clear the registry to force refresh
     _AGENT_REGISTRY.clear()
 
+    project_only = is_project_only()
+
     # 1. Discover Python agent classes in the agents package
+    #    Skipped in projectOnly mode EXCEPT for the base code-puppy agent.
     import code_puppy.agents as agents_package
 
-    # Iterate through all modules in the agents package
-    for _, modname, _ in pkgutil.iter_modules(agents_package.__path__):
-        if modname.startswith("_") or modname in [
-            "base_agent",
-            "json_agent",
-            "agent_manager",
-        ]:
-            continue
+    if project_only:
+        # Register only the base code-puppy agent as a fallback.
+        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
-        try:
-            # Import the module
-            module = importlib.import_module(f"code_puppy.agents.{modname}")
-
-            # Look for BaseAgent subclasses
-            for attr_name in dir(module):
-                attr = getattr(module, attr_name)
-                if (
-                    isinstance(attr, type)
-                    and issubclass(attr, BaseAgent)
-                    and attr not in [BaseAgent, JSONAgent]
-                ):
-                    # Create an instance to get the name
-                    agent_instance = attr()
-                    _AGENT_REGISTRY[agent_instance.name] = attr
-
-        except Exception as e:
-            # Skip problematic modules
-            emit_warning(
-                f"Warning: Could not load agent module {modname}: {e}",
-                message_group=message_group_id,
-            )
-            continue
-
-    # 1b. Discover agents in sub-packages (like 'pack')
-    for _, subpkg_name, ispkg in pkgutil.iter_modules(agents_package.__path__):
-        if not ispkg or subpkg_name.startswith("_"):
-            continue
-
-        try:
-            # Import the sub-package
-            subpkg = importlib.import_module(f"code_puppy.agents.{subpkg_name}")
-
-            # Iterate through modules in the sub-package
-            if not hasattr(subpkg, "__path__"):
+        _agent = CodePuppyAgent()
+        _AGENT_REGISTRY[_agent.name] = CodePuppyAgent
+    else:
+        # 1a. Discover top-level agent modules
+        for _, modname, _ in pkgutil.iter_modules(agents_package.__path__):
+            if modname.startswith("_") or modname in [
+                "base_agent",
+                "json_agent",
+                "agent_manager",
+            ]:
                 continue
 
-            for _, modname, _ in pkgutil.iter_modules(subpkg.__path__):
-                if modname.startswith("_"):
+            try:
+                # Import the module
+                module = importlib.import_module(f"code_puppy.agents.{modname}")
+
+                # Look for BaseAgent subclasses
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
+                    if (
+                        isinstance(attr, type)
+                        and issubclass(attr, BaseAgent)
+                        and attr not in [BaseAgent, JSONAgent]
+                    ):
+                        # Create an instance to get the name
+                        agent_instance = attr()
+                        _AGENT_REGISTRY[agent_instance.name] = attr
+
+            except Exception as e:
+                # Skip problematic modules
+                emit_warning(
+                    f"Warning: Could not load agent module {modname}: {e}",
+                    message_group=message_group_id,
+                )
+                continue
+
+        # 1b. Discover agents in sub-packages (like 'pack')
+        for _, subpkg_name, ispkg in pkgutil.iter_modules(agents_package.__path__):
+            if not ispkg or subpkg_name.startswith("_"):
+                continue
+
+            try:
+                # Import the sub-package
+                subpkg = importlib.import_module(f"code_puppy.agents.{subpkg_name}")
+
+                # Iterate through modules in the sub-package
+                if not hasattr(subpkg, "__path__"):
                     continue
 
-                try:
-                    # Import the submodule
-                    module = importlib.import_module(
-                        f"code_puppy.agents.{subpkg_name}.{modname}"
-                    )
+                for _, modname, _ in pkgutil.iter_modules(subpkg.__path__):
+                    if modname.startswith("_"):
+                        continue
 
-                    # Look for BaseAgent subclasses
-                    for attr_name in dir(module):
-                        attr = getattr(module, attr_name)
-                        if (
-                            isinstance(attr, type)
-                            and issubclass(attr, BaseAgent)
-                            and attr not in [BaseAgent, JSONAgent]
-                        ):
-                            # Create an instance to get the name
-                            agent_instance = attr()
-                            _AGENT_REGISTRY[agent_instance.name] = attr
+                    try:
+                        # Import the submodule
+                        module = importlib.import_module(
+                            f"code_puppy.agents.{subpkg_name}.{modname}"
+                        )
 
-                except Exception as e:
-                    emit_warning(
-                        f"Warning: Could not load agent {subpkg_name}.{modname}: {e}",
-                        message_group=message_group_id,
-                    )
-                    continue
+                        # Look for BaseAgent subclasses
+                        for attr_name in dir(module):
+                            attr = getattr(module, attr_name)
+                            if (
+                                isinstance(attr, type)
+                                and issubclass(attr, BaseAgent)
+                                and attr not in [BaseAgent, JSONAgent]
+                            ):
+                                # Create an instance to get the name
+                                agent_instance = attr()
+                                _AGENT_REGISTRY[agent_instance.name] = attr
 
-        except Exception as e:
-            emit_warning(
-                f"Warning: Could not load agent sub-package {subpkg_name}: {e}",
-                message_group=message_group_id,
-            )
-            continue
+                    except Exception as e:
+                        emit_warning(
+                            f"Warning: Could not load agent {subpkg_name}.{modname}: {e}",
+                            message_group=message_group_id,
+                        )
+                        continue
 
-    # 2. Discover JSON agents in user directory
+            except Exception as e:
+                emit_warning(
+                    f"Warning: Could not load agent sub-package {subpkg_name}: {e}",
+                    message_group=message_group_id,
+                )
+                continue
+
+    # 2. Discover JSON agents in user/project directories
+    #    (discover_json_agents() internally respects projectOnly)
     try:
         json_agents = discover_json_agents()
 
@@ -299,37 +318,38 @@ def _discover_agents(message_group_id: Optional[str] = None):
             message_group=message_group_id,
         )
 
-    # 3. Discover agents registered by plugins
-    try:
-        results = on_register_agents()
-        for result in results:
-            if result is None:
-                continue
-            # Each result should be a list of agent definitions
-            agents_list = result if isinstance(result, list) else [result]
-            for agent_def in agents_list:
-                if not isinstance(agent_def, dict) or "name" not in agent_def:
+    # 3. Discover agents registered by plugins (skipped in projectOnly mode)
+    if not project_only:
+        try:
+            results = on_register_agents()
+            for result in results:
+                if result is None:
                     continue
+                # Each result should be a list of agent definitions
+                agents_list = result if isinstance(result, list) else [result]
+                for agent_def in agents_list:
+                    if not isinstance(agent_def, dict) or "name" not in agent_def:
+                        continue
 
-                agent_name = agent_def["name"]
+                    agent_name = agent_def["name"]
 
-                # Support both class-based and JSON path-based registration
-                if "class" in agent_def:
-                    agent_class = agent_def["class"]
-                    if isinstance(agent_class, type) and issubclass(
-                        agent_class, BaseAgent
-                    ):
-                        _AGENT_REGISTRY[agent_name] = agent_class
-                elif "json_path" in agent_def:
-                    json_path = agent_def["json_path"]
-                    if isinstance(json_path, str):
-                        _AGENT_REGISTRY[agent_name] = json_path
+                    # Support both class-based and JSON path-based registration
+                    if "class" in agent_def:
+                        agent_class = agent_def["class"]
+                        if isinstance(agent_class, type) and issubclass(
+                            agent_class, BaseAgent
+                        ):
+                            _AGENT_REGISTRY[agent_name] = agent_class
+                    elif "json_path" in agent_def:
+                        json_path = agent_def["json_path"]
+                        if isinstance(json_path, str):
+                            _AGENT_REGISTRY[agent_name] = json_path
 
-    except Exception as e:
-        emit_warning(
-            f"Warning: Could not load plugin agents: {e}",
-            message_group=message_group_id,
-        )
+        except Exception as e:
+            emit_warning(
+                f"Warning: Could not load plugin agents: {e}",
+                message_group=message_group_id,
+            )
 
 
 def get_available_agents() -> Dict[str, str]:

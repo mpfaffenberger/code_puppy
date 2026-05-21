@@ -214,8 +214,8 @@ def discover_json_agents() -> Dict[str, str]:
     """Discover JSON agent files in the user's and project's agents directories.
 
     Searches two locations:
-    1. User agents directory (~/.code_puppy/agents/)
-    2. Project agents directory (<CWD>/.code_puppy/agents/) - if it exists
+    1. User agents directory (~/.code_puppy/agents/) — skipped in projectOnly mode
+    2. Project agents directory (.code-puppy/agents/ or legacy .code_puppy/agents/)
 
     Project agents take priority over user agents when names collide.
 
@@ -225,25 +225,27 @@ def discover_json_agents() -> Dict[str, str]:
     from code_puppy.config import (
         get_project_agents_directory,
         get_user_agents_directory,
+        is_project_only,
     )
 
     agents: Dict[str, str] = {}
 
-    # 1. Discover user-level agents first
-    user_agents_dir = Path(get_user_agents_directory())
-    if user_agents_dir.exists() and user_agents_dir.is_dir():
-        for json_file in user_agents_dir.glob("*.json"):
-            try:
-                agent = JSONAgent(str(json_file))
-                agents[agent.name] = str(json_file)
-            except Exception as e:
-                logger.debug(
-                    "Skipping invalid user agent file: %s (reason: %s: %s)",
-                    json_file,
-                    type(e).__name__,
-                    str(e),
-                )
-                continue
+    # 1. Discover user-level agents first (skipped in projectOnly mode)
+    if not is_project_only():
+        user_agents_dir = Path(get_user_agents_directory())
+        if user_agents_dir.exists() and user_agents_dir.is_dir():
+            for json_file in user_agents_dir.glob("*.json"):
+                try:
+                    agent = JSONAgent(str(json_file))
+                    agents[agent.name] = str(json_file)
+                except Exception as e:
+                    logger.debug(
+                        "Skipping invalid user agent file: %s (reason: %s: %s)",
+                        json_file,
+                        type(e).__name__,
+                        str(e),
+                    )
+                    continue
 
     # 2. Discover project-level agents (overrides user agents on name collision)
     project_agents_dir_str = get_project_agents_directory()
