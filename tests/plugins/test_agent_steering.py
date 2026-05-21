@@ -7,7 +7,7 @@ from typing import List
 import pytest
 
 from code_puppy.agents import _key_listeners
-from code_puppy.callbacks import _callbacks, register_callback
+from code_puppy.callbacks import get_callbacks, register_callback
 from code_puppy.messaging import (
     SteerAgentCommand,
     reset_message_bus,
@@ -21,7 +21,7 @@ from code_puppy.plugins.agent_steering import register_callbacks as plugin
 
 @pytest.fixture(autouse=True)
 def _fresh_state():
-    """Reset bus + controller + active handle; leave ``_callbacks`` alone.
+    """Reset bus + controller + active handle; re-register pause callback if cleared.
 
     Earlier versions of this fixture did ``clear_callbacks()`` + restore-from-
     snapshot, but that wiped plugin registrations other tests depend on (the
@@ -29,15 +29,11 @@ def _fresh_state():
     under test only mutates the bus, the controller, and the active handle;
     reset just those.
 
-    We also ensure the plugin's ``agent_pause_requested`` callback is
-    registered before each test.  ``tests/test_callbacks_extended.py`` calls
-    ``clear_callbacks()`` in its ``setup_method``, which wipes all callbacks;
-    since Python caches module imports the plugin won't re-register unless we
-    do it explicitly here.  ``register_callback`` deduplicates by function
-    identity so repeated calls are safe.
+    ``tests/test_callbacks_extended.py`` calls ``clear_callbacks()`` in
+    ``setup_method`` without restoring state afterward.  ``register_callback``
+    deduplicates by function identity, so calling it again here is safe.
     """
-    # Re-register the pause callback if it was cleared by another test module.
-    if plugin._on_pause_requested not in _callbacks.get("agent_pause_requested", []):
+    if plugin._on_pause_requested not in get_callbacks("agent_pause_requested"):
         register_callback("agent_pause_requested", plugin._on_pause_requested)
 
     reset_message_bus()
@@ -170,7 +166,7 @@ async def test_on_pause_requested_handles_prompt_exception(monkeypatch, bus_spy)
 
 def test_plugin_registers_exactly_one_callback():
     """Importing the plugin module registers ONLY ``agent_pause_requested``."""
-    assert plugin._on_pause_requested in _callbacks["agent_pause_requested"]
+    assert plugin._on_pause_requested in get_callbacks("agent_pause_requested")
     # The plugin must not own any custom_command / custom_command_help hooks.
     assert not hasattr(plugin, "_handle_custom_command"), (
         "_handle_custom_command should have been deleted in the cleanup"

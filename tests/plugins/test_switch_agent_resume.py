@@ -820,7 +820,11 @@ class TestCallbackRegistration:
 
     @pytest.fixture(autouse=True)
     def _ensure_switch_agent_callbacks(self):
-        """Re-register callbacks that may have been cleared by clear_callbacks()."""
+        """Re-register callbacks that may have been cleared by clear_callbacks().
+
+        Only catches ImportError — any other exception is a real bug and should
+        surface rather than being silenced.
+        """
         from code_puppy.callbacks import get_callbacks, register_callback
         from code_puppy.plugins.switch_agent_resume.register_callbacks import (
             _cleanup_orphaned_tty_sessions_async,
@@ -884,7 +888,11 @@ class TestCleanupOrphanedTtySessions:
 
     @pytest.fixture(autouse=True)
     def _ensure_cleanup_callback(self):
-        """Re-register the startup cleanup callback if cleared by another test."""
+        """Re-register the startup cleanup callback if cleared by another test.
+
+        Only catches ImportError — any other exception is a real bug and should
+        surface rather than being silenced.
+        """
         from code_puppy.callbacks import get_callbacks, register_callback
         from code_puppy.plugins.switch_agent_resume.register_callbacks import (
             _cleanup_orphaned_tty_sessions_async,
@@ -996,7 +1004,7 @@ class TestCleanupOrphanedTtySessions:
         assert not orphaned_file.exists()
 
     def test_deletes_file_older_than_7_days(self, tmp_path):
-        """Deletes files with mtime > 7 days old."""
+        """Deletes files with mtime > 7 days old, even when TTY device exists."""
         import os
         import time
 
@@ -1005,48 +1013,38 @@ class TestCleanupOrphanedTtySessions:
         tty_sessions_dir = tmp_path / "tty_sessions"
         tty_sessions_dir.mkdir()
 
-        # Create old session file
-        old_file = tty_sessions_dir / "dev_ttys099.txt"
+        # dev_null.txt decodes to /dev/null, which always exists on Unix.
+        # Using a real path means we don't need to mock os.path.exists.
+        old_file = tty_sessions_dir / "dev_null.txt"
         old_file.write_text("old-session")
 
         # Set mtime to 8 days ago
         eight_days_ago = time.time() - (8 * 24 * 60 * 60)
         os.utime(old_file, (eight_days_ago, eight_days_ago))
 
-        def mock_exists(path):
-            # TTY device exists (so age is the only criterion)
-            return True
-
         with (
             patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
             patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
-            patch.object(os.path, "exists", side_effect=mock_exists),
         ):
             cleanup()
 
         assert not old_file.exists()
 
     def test_keeps_file_newer_than_7_days(self, tmp_path):
-        """Preserves files newer than 7 days with existing TTY."""
-        import os
-
+        """Preserves files newer than 7 days when TTY device exists."""
         cleanup = self._import()
 
         tty_sessions_dir = tmp_path / "tty_sessions"
         tty_sessions_dir.mkdir()
 
-        # Create recent session file (just created, mtime is current)
-        recent_file = tty_sessions_dir / "dev_ttys099.txt"
+        # dev_null.txt decodes to /dev/null, which always exists on Unix.
+        # Using a real path means we don't need to mock os.path.exists.
+        recent_file = tty_sessions_dir / "dev_null.txt"
         recent_file.write_text("recent-session")
-
-        def mock_exists(path):
-            # TTY device exists and file is recent
-            return True
 
         with (
             patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
             patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
-            patch.object(os.path, "exists", side_effect=mock_exists),
         ):
             cleanup()
 
@@ -1091,7 +1089,6 @@ class TestCleanupOrphanedTtySessions:
 
     def test_handles_errors_gracefully(self, tmp_path):
         """Never crashes even if file deletion raises an exception."""
-        import os
         import pathlib
 
         cleanup = self._import()
@@ -1099,10 +1096,10 @@ class TestCleanupOrphanedTtySessions:
         tty_sessions_dir = tmp_path / "tty_sessions"
         tty_sessions_dir.mkdir()
 
-        # Create session files
-        file1 = tty_sessions_dir / "dev_ttys099.txt"
+        # Use fake paths guaranteed not to exist — no os.path.exists mock needed.
+        file1 = tty_sessions_dir / "xfake_errtest_one.txt"
         file1.write_text("session-1")
-        file2 = tty_sessions_dir / "dev_ttys098.txt"
+        file2 = tty_sessions_dir / "xfake_errtest_two.txt"
         file2.write_text("session-2")
 
         unlink_call_count = [0]
@@ -1114,16 +1111,11 @@ class TestCleanupOrphanedTtySessions:
                 raise PermissionError("Simulated error")
             # Second call succeeds (use original implementation)
 
-        def mock_exists(path):
-            # TTY devices don't exist
-            return False
-
         original_unlink = pathlib.Path.unlink
 
         with (
             patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
             patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
-            patch.object(os.path, "exists", side_effect=mock_exists),
             patch.object(pathlib.Path, "unlink", mock_unlink),
         ):
             cleanup()  # Should not crash

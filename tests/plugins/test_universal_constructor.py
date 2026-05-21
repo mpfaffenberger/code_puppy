@@ -664,7 +664,11 @@ class TestCallbackRegistration:
 
     @pytest.fixture(autouse=True)
     def _ensure_uc_callbacks(self):
-        """Re-register UC callbacks cleared by clear_callbacks() in other tests."""
+        """Re-register UC callbacks cleared by clear_callbacks() in other tests.
+
+        Only catches ImportError — any other exception is a real bug and should
+        surface rather than being silenced.
+        """
         from code_puppy.callbacks import get_callbacks, register_callback
         from code_puppy.plugins.universal_constructor.register_callbacks import (
             _on_startup,

@@ -847,7 +847,11 @@ class TestPluginCallbackRegistration:
 
     @pytest.fixture(autouse=True)
     def _ensure_foundry_callbacks(self):
-        """Re-register Azure Foundry callbacks cleared by clear_callbacks() in other tests."""
+        """Re-register Azure Foundry callbacks cleared by clear_callbacks() in other tests.
+
+        Only catches ImportError — any other exception is a real bug and should
+        surface rather than being silenced.
+        """
         from code_puppy.callbacks import get_callbacks, register_callback
         from code_puppy.plugins.azure_foundry.register_callbacks import (
             _custom_help,
