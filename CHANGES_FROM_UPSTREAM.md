@@ -48,7 +48,7 @@ validation. Invalid JSON strings pass through unchanged so pydantic produces a
 clear error. The JSON Schema exposed to the LLM is unchanged — pydantic's
 `BeforeValidator` is transparent to schema generation.
 
-## Fix 4: Project workspace with `.code-puppy/` directory and `projectOnly` isolation
+## Fix 4: Project workspace with `.code_puppy/` directory and `projectOnly` isolation
 
 **Files**: `code_puppy/config.py`, `code_puppy/mcp_/manager.py`,
 `code_puppy/agents/json_agent.py`, `code_puppy/agents/agent_manager.py`,
@@ -65,10 +65,10 @@ This prevented reproducible project-scoped AI agent environments and made
 it impossible for scaffolding tools to ship a self-contained agent config
 that wouldn't be contaminated by the developer's global settings.
 
-**Fix**: Unified `.code-puppy/` workspace directory with `projectOnly` flag:
+**Fix**: Unified `.code_puppy/` workspace directory with `projectOnly` flag:
 
 ```
-.code-puppy/
+.code_puppy/
   config.json       # { "projectOnly": true }
   mcp_servers.json  # Project MCP servers
   agents/           # JSON agent definitions
@@ -76,7 +76,7 @@ that wouldn't be contaminated by the developer's global settings.
 ```
 
 **`get_project_workspace()`** walks up from CWD to git root looking for
-`.code-puppy/` directory. Returns a frozen `ProjectWorkspace` dataclass
+`.code_puppy/` directory. Returns a frozen `ProjectWorkspace` dataclass
 with `root_path`, `workspace_path`, `project_only`, and `config` fields.
 Result is cached per-process, invalidated on CWD change.
 
@@ -88,12 +88,12 @@ Result is cached per-process, invalidated on CWD change.
 - Builtin plugins always load (they are code-puppy internals)
 
 **Default mode** (`projectOnly: false`): additive merge, local wins on collision.
-Existing behavior for users without a `.code-puppy/` directory is unchanged.
+Existing behavior for users without a `.code_puppy/` directory is unchanged.
 
 **Backward compat**: Legacy `.code-puppy.json` files and `.code_puppy/agents/`
-directories still work when no `.code-puppy/` workspace is found.
+directories still work when no `.code_puppy/` workspace is found.
 
-**Naming**: Uses `PROJECT_WORKSPACE_DIR_NAME = ".code-puppy"` constant — single
+**Naming**: Uses `PROJECT_WORKSPACE_DIR_NAME = ".code_puppy"` constant — single
 place to change after upstream naming discussion.
 
 Subsumes Fix 2 (local `.code-puppy.json`) which is now a legacy fallback path.

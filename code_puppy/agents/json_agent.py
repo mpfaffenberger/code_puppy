@@ -215,7 +215,7 @@ def discover_json_agents() -> Dict[str, str]:
 
     Searches two locations:
     1. User agents directory (~/.code_puppy/agents/) — skipped in projectOnly mode
-    2. Project agents directory (.code-puppy/agents/ or legacy .code_puppy/agents/)
+    2. Project agents directory (.code_puppy/agents/ or legacy .code_puppy/agents/)
 
     Project agents take priority over user agents when names collide.
 

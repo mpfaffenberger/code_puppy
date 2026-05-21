@@ -140,7 +140,7 @@ def _load_user_plugins(user_plugins_dir: Path) -> list[str]:
 
 
 def _load_project_plugins(project_plugins_dir: Path) -> list[str]:
-    """Load project-local plugins from the .code-puppy/plugins/ workspace directory.
+    """Load project-local plugins from the .code_puppy/plugins/ workspace directory.
 
     Same loading mechanism as _load_user_plugins() — each plugin is a directory
     with a register_callbacks.py file.
@@ -202,7 +202,7 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
     Loads plugins from:
     1. Built-in plugins in the code_puppy/plugins/ directory (always loaded)
     2. User plugins in ~/.code_puppy/plugins/ (skipped in projectOnly mode)
-    3. Project plugins in .code-puppy/plugins/ (if workspace exists)
+    3. Project plugins in .code_puppy/plugins/ (if workspace exists)
 
     Returns dict with 'builtin', 'user', and 'project' keys containing
     lists of loaded plugin names.
@@ -233,7 +233,7 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
     if not is_project_only():
         result["user"] = _load_user_plugins(USER_PLUGINS_DIR)
 
-    # Project plugins — loaded from workspace .code-puppy/plugins/ if it exists.
+    # Project plugins — loaded from workspace .code_puppy/plugins/ if it exists.
     ws = get_project_workspace()
     if ws is not None:
         project_plugins_dir = Path(ws.workspace_path) / "plugins"

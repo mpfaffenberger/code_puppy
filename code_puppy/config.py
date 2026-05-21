@@ -40,19 +40,19 @@ CACHE_DIR = _get_xdg_dir("XDG_CACHE_HOME", ".cache")
 STATE_DIR = _get_xdg_dir("XDG_STATE_HOME", ".local/state")
 
 # ── Project workspace ──────────────────────────────────────────────────────
-# A .code-puppy/ directory in or above CWD defines a project workspace.
+# A .code_puppy/ directory in or above CWD defines a project workspace.
 # When config.json inside it sets "projectOnly": true, global ~/.code_puppy/
 # is skipped entirely for agents, MCP servers, and plugins.
-PROJECT_WORKSPACE_DIR_NAME = ".code-puppy"
+PROJECT_WORKSPACE_DIR_NAME = ".code_puppy"
 
 
 @dataclass(frozen=True)
 class ProjectWorkspace:
-    """Resolved project workspace from a .code-puppy/ directory.
+    """Resolved project workspace from a .code_puppy/ directory.
 
     Attributes:
-        root_path: Absolute path to the directory *containing* .code-puppy/.
-        workspace_path: Absolute path to the .code-puppy/ directory itself.
+        root_path: Absolute path to the directory *containing* .code_puppy/.
+        workspace_path: Absolute path to the .code_puppy/ directory itself.
         project_only: When True, global ~/.code_puppy/ is skipped for agents,
             MCP servers, plugins, and models.  Default is False (additive merge).
         config: Raw parsed contents of config.json (empty dict if absent).
@@ -431,14 +431,14 @@ def _find_git_root(start: str) -> Optional[str]:
 
 
 def get_project_workspace() -> Optional[ProjectWorkspace]:
-    """Find the nearest .code-puppy/ project workspace directory.
+    """Find the nearest .code_puppy/ project workspace directory.
 
     Walks up from CWD to the git root (falling back to $HOME) looking for
-    a directory named .code-puppy/ (PROJECT_WORKSPACE_DIR_NAME).  Stopping
+    a directory named .code_puppy/ (PROJECT_WORKSPACE_DIR_NAME).  Stopping
     at the git root prevents config from one repo from leaking into sibling
     repos in a monorepo layout.
 
-    If found, reads .code-puppy/config.json for settings (including the
+    If found, reads .code_puppy/config.json for settings (including the
     ``projectOnly`` flag).  A workspace directory without config.json is
     valid — it just uses defaults.
 
@@ -550,7 +550,7 @@ def load_local_mcp_config() -> dict:
     Load MCP server config from the project workspace or a .code-puppy.json file.
 
     Resolution order:
-    1. If a .code-puppy/ workspace exists, check for mcp_servers.json inside it,
+    1. If a .code_puppy/ workspace exists, check for mcp_servers.json inside it,
        then fall back to mcpServers/mcp_servers keys in config.json.
     2. Otherwise, walk up from CWD to git root looking for a legacy
        .code-puppy.json file.
@@ -1294,7 +1294,7 @@ def get_user_agents_directory() -> str:
 def get_project_agents_directory() -> Optional[str]:
     """Get the project-local agents directory path.
 
-    Checks for agents in the project workspace (.code-puppy/agents/) first,
+    Checks for agents in the project workspace (.code_puppy/agents/) first,
     falling back to the legacy .code_puppy/agents/ directory in CWD.
 
     Unlike get_user_agents_directory(), this does NOT create the directory
