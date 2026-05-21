@@ -39,6 +39,7 @@ class ServerInfo:
     health: Optional[Dict[str, Any]] = None
     start_time: Optional[datetime] = None
     latency_ms: Optional[float] = None
+    is_local: bool = False  # True when loaded from .code-puppy.json (ephemeral)
 
 
 class MCPManager:
@@ -78,8 +79,14 @@ class MCPManager:
         # Active managed servers (server_id -> ManagedMCPServer)
         self._managed_servers: Dict[str, ManagedMCPServer] = {}
 
+        # IDs of servers loaded from .code-puppy.json (ephemeral / session-local)
+        self._local_server_ids: set = set()
+
         # Sync servers from mcp_servers.json into registry
         self.sync_from_config()
+
+        # Sync servers from project-local .code-puppy.json (wins on collision)
+        self.sync_from_local_config()
 
         # Load existing servers from registry
         self._initialize_servers()
@@ -89,18 +96,34 @@ class MCPManager:
     def sync_from_config(self) -> None:
         """Sync servers from mcp_servers.json into the registry.
 
-        This public method ensures that servers defined in the user's
-        configuration file are automatically registered with the manager.
-        It can be called during initialization or manually to reload
-        server configurations.
-
-        This is the single source of truth for syncing mcp_servers.json
-        into the registry, avoiding duplication with base_agent.py.
+        This method is the single authoritative sync from the user's
+        mcp_servers.json.  It adds/updates servers that appear in the file
+        AND removes registry entries that are no longer present, so that
+        mcp_registry.json never accumulates stale or dead entries.
         """
         try:
             from code_puppy.config import load_mcp_server_configs
 
             configs = load_mcp_server_configs()
+
+            # ── Prune: remove registry entries no longer in mcp_servers.json ──
+            # This prevents stale catalog entries from resurrecting on every
+            # MCPManager() init via registry._load().  Only remove entries
+            # that were originally synced from the file (i.e. have no explicit
+            # "id" field in their stored config — they were name-keyed).
+            desired_names = set(configs.keys()) if configs else set()
+            for existing_cfg in list(self.registry.list_all()):
+                if existing_cfg.name not in desired_names:
+                    try:
+                        self.registry.unregister(existing_cfg.id)
+                        logger.debug(
+                            f"Pruned server no longer in mcp_servers.json: {existing_cfg.name}"
+                        )
+                    except Exception as prune_err:
+                        logger.warning(
+                            f"Failed to prune stale server '{existing_cfg.name}': {prune_err}"
+                        )
+
             if not configs:
                 logger.debug("No servers found in mcp_servers.json")
                 return
@@ -114,7 +137,7 @@ class MCPManager:
                     server_config = ServerConfig(
                         id=conf.get("id", ""),  # Empty ID will be auto-generated
                         name=name,
-                        type=conf.get("type", "sse"),
+                        type=conf.get("type", "stdio"),
                         enabled=conf.get("enabled", True),
                         config=conf,
                     )
@@ -148,6 +171,99 @@ class MCPManager:
             logger.error(f"Failed to sync from mcp_servers.json: {e}")
             # Don't fail initialization if sync fails
 
+    def _load_local_server_configs(self) -> dict:
+        """Load and return raw server configs from a project-local .code-puppy.json.
+
+        Pure parsing step — no side effects, no I/O beyond reading the JSON file.
+        Returns an empty dict if no local config file is found.
+
+        Separated from sync_from_local_config() so it can be tested and mocked
+        independently of the manager registration machinery.
+        """
+        from code_puppy.config import load_local_mcp_config
+
+        return load_local_mcp_config()
+
+    def sync_from_local_config(self) -> None:
+        """Sync MCP servers from a project-local .code-puppy.json file.
+
+        Called after sync_from_config() so local config wins on name collision.
+        Supports both mcpServers array format and mcp_servers object format.
+
+        IMPORTANT — ephemeral by design:
+        Local servers are session-scoped.  They are added DIRECTLY to
+        _managed_servers and status_tracker, completely bypassing the
+        registry.  This means they are never written to mcp_registry.json
+        and do not persist across sessions.  Each new session reloads them
+        fresh from .code-puppy.json.
+
+        Calling registry.register() here would permanently pollute
+        mcp_registry.json with project-local servers and test fixtures.
+        """
+        import uuid
+
+        try:
+            configs = self._load_local_server_configs()
+            if not configs:
+                logger.debug("No local .code-puppy.json found or no servers defined")
+                return
+
+            synced_count = 0
+
+            for name, conf in configs.items():
+                try:
+                    # Generate a session-only ID — never stored on disk
+                    server_id = str(uuid.uuid4())
+                    server_config = ServerConfig(
+                        id=server_id,
+                        name=name,
+                        type=conf.get("type", "stdio"),
+                        enabled=conf.get("enabled", True),
+                        config=conf,
+                    )
+
+                    # Local config wins on name collision — evict any managed
+                    # server with the same name that was loaded from global config
+                    collision_id = next(
+                        (
+                            sid
+                            for sid, ms in self._managed_servers.items()
+                            if ms.config.name == name
+                        ),
+                        None,
+                    )
+                    if collision_id is not None:
+                        del self._managed_servers[collision_id]
+                        self._local_server_ids.discard(collision_id)
+                        logger.debug(f"Local config overrides global server: {name}")
+
+                    # Add directly — bypasses registry._persist(), so nothing
+                    # is written to mcp_registry.json
+                    managed_server = ManagedMCPServer(server_config)
+                    if server_config.enabled:
+                        managed_server.enable()
+
+                    self._managed_servers[server_id] = managed_server
+                    self._local_server_ids.add(server_id)
+                    # STOPPED: same reasoning as _initialize_servers() — no subprocess
+                    # has started; tracker advances to RUNNING via start_server() only.
+                    self.status_tracker.set_status(server_id, ServerState.STOPPED)
+
+                    synced_count += 1
+                    logger.debug(f"Loaded local server (ephemeral): {name}")
+
+                except Exception as e:
+                    logger.warning(f"Failed to load local server '{name}': {e}")
+                    continue
+
+            if synced_count > 0:
+                logger.info(
+                    f"Loaded {synced_count} ephemeral server(s) from local .code-puppy.json"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to sync from local .code-puppy.json: {e}")
+
     def _initialize_servers(self) -> None:
         """Initialize managed servers from registry configurations."""
         configs = self.registry.list_all()
@@ -156,10 +272,23 @@ class MCPManager:
         for config in configs:
             try:
                 managed_server = ManagedMCPServer(config)
+
+                # Apply enabled state from config — servers with enabled=True (the default)
+                # are flagged active so get_servers_for_agent() returns them immediately
+                # on launch without requiring /mcp start.
+                # Servers with "enabled": false in mcp_servers.json remain disabled.
+                if config.enabled:
+                    managed_server.enable()
+
                 self._managed_servers[config.id] = managed_server
 
-                # Update status tracker - always start as STOPPED
-                # Servers must be explicitly started with /mcp start
+                # Always STOPPED in the tracker: no subprocess has been spawned yet.
+                # get_servers_for_agent() gates on is_enabled() (set above), NOT on
+                # tracker state — so the server is available to pydantic-ai immediately.
+                # The tracker advances to RUNNING only via start_server(), which also
+                # spawns the subprocess and calls record_start_time().
+                # Setting RUNNING here would show "State: ✓ Run, Uptime: -" in
+                # /mcp status because record_start_time() was never called.
                 self.status_tracker.set_status(config.id, ServerState.STOPPED)
 
                 initialized_count += 1
@@ -396,6 +525,7 @@ class MCPManager:
                     health=health_info,
                     start_time=summary.get("start_time"),
                     latency_ms=latency_ms,
+                    is_local=server_id in self._local_server_ids,
                 )
 
                 server_infos.append(server_info)

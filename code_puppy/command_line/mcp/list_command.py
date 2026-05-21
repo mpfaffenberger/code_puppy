@@ -46,6 +46,7 @@ class ListCommand(MCPCommandBase):
             # Create table for server list
             table = Table(title="🔌 MCP Server Status Dashboard")
             table.add_column("Name", style="cyan", no_wrap=True)
+            table.add_column("Source", justify="center", no_wrap=True)
             table.add_column("Type", style="dim", no_wrap=True)
             table.add_column("State", justify="center")
             table.add_column("Enabled", justify="center")
@@ -55,6 +56,12 @@ class ListCommand(MCPCommandBase):
             for server in servers:
                 # Format state with appropriate color and icon
                 state_display = format_state_indicator(server.state)
+
+                # Format source: local (.code-puppy.json) vs global (mcp_servers.json)
+                if getattr(server, "is_local", False):
+                    source_display = "[yellow]📁 local[/yellow]"
+                else:
+                    source_display = "[dim]🌐 global[/dim]"
 
                 # Format enabled status
                 enabled_display = "✓" if server.enabled else "✗"
@@ -70,6 +77,7 @@ class ListCommand(MCPCommandBase):
 
                 table.add_row(
                     server.name,
+                    source_display,
                     server.type.upper(),
                     state_display,
                     Text(enabled_display, style=enabled_style),
