@@ -831,7 +831,25 @@ class TestAgentRunEnd:
 
 class TestCallbackRegistration:
     def test_callbacks_registered(self):
-        from code_puppy.callbacks import get_callbacks
+        from code_puppy.callbacks import get_callbacks, register_callback
+
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _custom_help,
+            _handle_custom_command,
+            _on_agent_run_end,
+            _on_agent_run_start,
+            _register_model_types,
+        )
+
+        # Re-register explicitly — other tests may have called clear_callbacks(),
+        # and Python's import cache means a bare `import` won't re-execute the
+        # module-scope register_callback() calls.  The dedup check in
+        # register_callback makes this safe even if they're already registered.
+        register_callback("custom_command_help", _custom_help)
+        register_callback("custom_command", _handle_custom_command)
+        register_callback("register_model_type", _register_model_types)
+        register_callback("agent_run_start", _on_agent_run_start)
+        register_callback("agent_run_end", _on_agent_run_end)
 
         assert len(get_callbacks("custom_command_help")) > 0
         assert len(get_callbacks("custom_command")) > 0

@@ -48,11 +48,27 @@ class RemoveCommand(MCPCommandBase):
                 suggest_similar_servers(self.manager, server_name, group_id=group_id)
                 return
 
-            # Actually remove the server
+            # Capture binding info BEFORE removal so we can report what got
+            # cleaned up. The manager itself wipes bindings inside
+            # remove_server(), but the user deserves to see it.
+            try:
+                from code_puppy.mcp_.agent_bindings import get_agents_for_server
+
+                bound_agents = get_agents_for_server(server_name)
+            except Exception:
+                bound_agents = []
+
+            # Actually remove the server (this also wipes bindings)
             success = self.manager.remove_server(server_id)
 
             if success:
                 emit_info(f"✓ Removed server: {server_name}", message_group=group_id)
+                if bound_agents:
+                    emit_info(
+                        f"  ✓ Also unbound from {len(bound_agents)} agent(s): "
+                        f"{', '.join(bound_agents)}",
+                        message_group=group_id,
+                    )
 
                 # Also remove from mcp_servers.json
                 from code_puppy.config import MCP_SERVERS_FILE

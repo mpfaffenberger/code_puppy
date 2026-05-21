@@ -1,11 +1,12 @@
-"""Agent run orchestration: streaming retries, signal/key cancellation, DBOS.
+"""Agent run orchestration: streaming retries, signal/key cancellation.
 
 Replaces the monolithic ``BaseAgent.run_with_mcp`` coroutine. Everything here
 is a free function; the agent is passed in explicitly. Integration points
 preserved verbatim:
 
-- DBOS workflow ID via ``SetWorkflowID(group_id)``
-- DBOS MCP toolset injection (temp ``_toolsets`` swap with try/finally restore)
+- Plugin-supplied async context managers wrap the run (see
+  ``on_agent_run_context``); used e.g. by the DBOS plugin to set a workflow
+  ID and swap MCP toolsets in/out.
 - Signal-vs-key-listener branch driven by ``cancel_agent_uses_signal()``
 - Windows terminal reset on graceful SIGINT
 - ``is_awaiting_user_input()`` guards interrupt handling
@@ -19,12 +20,12 @@ import asyncio
 import signal
 import threading
 import uuid
+from contextlib import AsyncExitStack
 from typing import Any, Callable, List, Optional, Sequence, Type, Union
 
 import httpcore
 import httpx
 import mcp
-from dbos import DBOS, SetWorkflowID
 from pydantic_ai import (
     BinaryContent,
     DocumentUrl,
@@ -52,6 +53,13 @@ except ImportError:  # pragma: no cover - 3.10 only
 
 from code_puppy.agents import _history, _key_listeners
 from code_puppy.agents._builder import build_pydantic_agent
+from code_puppy.agents._run_signals import (
+    drain_pause_state_on_cancel,
+    make_schedule_cancel,
+    make_schedule_pause,
+    prepare_queued_steer_injection,
+    reset_pause_state_at_run_start,
+)
 from code_puppy.agents._diagnostics import emit_exception_diagnostics
 from code_puppy.agents._non_streaming_render import (
     StreamingTextDetector,
@@ -60,19 +68,21 @@ from code_puppy.agents._non_streaming_render import (
 )
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
+    on_agent_exception,
+    on_agent_run_cancel,
+    on_agent_run_context,
     on_agent_run_end,
     on_agent_run_result,
     on_agent_run_start,
+    on_should_skip_fallback_render,
 )
 from code_puppy.config import (
     get_enable_streaming,
     get_max_hook_retries,
     get_message_limit,
-    get_use_dbos,
 )
 from code_puppy.keymap import cancel_agent_uses_signal
 from code_puppy.messaging import emit_error, emit_info, emit_warning
-from code_puppy.tools.agent_tools import _active_subagent_tasks
 from code_puppy.tools.command_runner import is_awaiting_user_input
 
 # ---- Streaming retry helpers ------------------------------------------------
@@ -284,6 +294,12 @@ async def run_with_mcp(
 ) -> Any:
     """Run ``agent`` against ``prompt`` with full MCP + cancellation support."""
 
+    # Scrub any stale PauseController state from a previously-cancelled run
+    # BEFORE we touch the prompt or build the agent. The controller is a
+    # process-wide singleton; without this guard a leftover steer queue
+    # would silently poison this run.
+    reset_pause_state_at_run_start()
+
     prompt = _sanitize_prompt(prompt)
     group_id = str(uuid.uuid4())
 
@@ -310,8 +326,9 @@ async def run_with_mcp(
             StreamingTextDetector(event_stream_handler) if use_streaming else None
         )
         stream_handler = detector if detector is not None else None
-        # DBOS renders its own output at construction time, so skip there.
-        skip_fallback_render = get_use_dbos()
+        # Plugins (e.g. DBOS) can render their own output and ask us to skip
+        # the non-streaming fallback render.
+        skip_fallback_render = on_should_skip_fallback_render(agent)
 
         @streaming_retry()
         async def _call() -> Any:
@@ -323,9 +340,65 @@ async def run_with_mcp(
                 **kwargs,
             )
 
-        result = await _call()
+        async def _call_with_exception_recovery() -> Any:
+            """Run ``_call`` and let plugins request one exception retry."""
+            try:
+                return await _call()
+            except Exception as exc:
+                hook_results = await on_agent_exception(
+                    exc,
+                    agent=agent,
+                    agent_name=agent.name,
+                    model_name=agent.get_model_name(),
+                )
+                retry_req = next(
+                    (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
+                    None,
+                )
+                if not retry_req:
+                    raise
 
-        for _ in range(get_max_hook_retries()):
+                retry_delay = retry_req.get("delay", 0.0)
+                if retry_delay:
+                    await asyncio.sleep(retry_delay)
+                return await _call()
+
+        result = await _call_with_exception_recovery()
+
+        # ``now``-mode steering injection lives in ``make_steer_history_processor``
+        # (fires before every model call). ``queue``-mode steers are drained
+        # between ``agent.run()`` calls below — additive, won't interrupt
+        # in-progress work.
+        async def _follow_up_run(follow_up_prompt: Any) -> Any:
+            @streaming_retry()
+            async def _call_follow_up() -> Any:
+                return await pydantic_agent.run(
+                    follow_up_prompt,
+                    message_history=agent._message_history,
+                    usage_limits=usage_limits,
+                    event_stream_handler=stream_handler,
+                    **kwargs,
+                )
+
+            return await _call_follow_up()
+
+        hook_retries_used = 0
+        queued_steers_used = 0
+        max_hook_retries = get_max_hook_retries()
+        max_queued_steers = 50  # safety cap to prevent runaway loops
+
+        while True:
+            # 1) Drain queue-mode steers FIRST (user-priority over hook retries).
+            if queued_steers_used < max_queued_steers:
+                steer_text = prepare_queued_steer_injection(agent, result)
+                if steer_text is not None:
+                    queued_steers_used += 1
+                    result = await _follow_up_run(steer_text)
+                    continue
+
+            # 2) Plugin-requested hook retry (cap matches original loop).
+            if hook_retries_used >= max_hook_retries:
+                break
             hook_results = await on_agent_run_result(
                 result,
                 agent_name=agent.name,
@@ -343,18 +416,8 @@ async def run_with_mcp(
             if hasattr(result, "all_messages"):
                 agent._message_history = list(result.all_messages())
             await asyncio.sleep(retry_delay)
-
-            @streaming_retry()
-            async def _retry_call() -> Any:
-                return await pydantic_agent.run(
-                    retry_prompt,
-                    message_history=agent._message_history,
-                    usage_limits=usage_limits,
-                    event_stream_handler=stream_handler,
-                    **kwargs,
-                )
-
-            result = await _retry_call()
+            result = await _follow_up_run(retry_prompt)
+            hook_retries_used += 1
 
         # Fallback render when streaming didn't surface any text to the user.
         if result is not None and should_render_fallback(
@@ -370,23 +433,13 @@ async def run_with_mcp(
                 agent._message_history
             )
 
-            use_dbos = get_use_dbos()
             mcp_servers = getattr(agent, "_mcp_servers", None) or []
-
-            if use_dbos and mcp_servers:
-                # DBOS path: inject MCP via the private _toolsets swap, then
-                # restore unconditionally so future runs aren't corrupted.
-                original_toolsets = pydantic_agent._toolsets
-                pydantic_agent._toolsets = original_toolsets + mcp_servers
-                try:
-                    with SetWorkflowID(group_id):
-                        return await _do_run(prompt_payload)
-                finally:
-                    pydantic_agent._toolsets = original_toolsets
-            elif use_dbos:
-                with SetWorkflowID(group_id):
-                    return await _do_run(prompt_payload)
-            else:
+            run_ctxs = on_agent_run_context(
+                agent, pydantic_agent, group_id, mcp_servers
+            )
+            async with AsyncExitStack() as stack:
+                for cm in run_ctxs:
+                    await stack.enter_async_context(cm)
                 return await _do_run(prompt_payload)
         except* UsageLimitExceeded as ule:
             emit_info(f"Usage limit exceeded: {ule}", group_id=group_id)
@@ -396,21 +449,33 @@ async def run_with_mcp(
                 group_id=group_id,
             )
         except* mcp.shared.exceptions.McpError as mcp_error:
-            emit_info(f"MCP server error: {mcp_error}", group_id=group_id)
-            emit_info("Try disabling any malfunctioning MCP servers", group_id=group_id)
+            # Already announced once by blocking_startup.py with a /mcp logs
+            # hint. Don't re-vomit the exception text — just give the user
+            # a single short, actionable nudge.
+            emit_info(
+                "An MCP server failed during this run. "
+                "Run [cyan]/mcp logs <name>[/cyan] for details, or unbind it "
+                "via [cyan]/agents → B[/cyan].",
+                group_id=group_id,
+            )
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                "McpError during agent run: %s", mcp_error
+            )
         except* asyncio.CancelledError:
             emit_info("Cancelled")
-            if get_use_dbos():
-                await DBOS.cancel_workflow_async(group_id)
+            drain_pause_state_on_cancel()
+            await on_agent_run_cancel(group_id)
         except* InterruptedError as ie:
             emit_info(f"Interrupted: {ie}")
-            if get_use_dbos():
-                await DBOS.cancel_workflow_async(group_id)
+            drain_pause_state_on_cancel()
+            await on_agent_run_cancel(group_id)
         except* Exception as other:
             unexpected = _collect_exceptions(
                 other,
-                lambda e: not isinstance(
-                    e, (asyncio.CancelledError, UsageLimitExceeded)
+                lambda e: (
+                    not isinstance(e, (asyncio.CancelledError, UsageLimitExceeded))
                 ),
             )
             for exc in unexpected:
@@ -420,8 +485,11 @@ async def run_with_mcp(
                 agent._message_history
             )
 
-    agent_task = asyncio.create_task(run_agent_task())
-
+    # Fire agent_run_start hooks BEFORE creating the agent task so plugins
+    # (e.g. token refresh, credential minting) can complete their work before
+    # any HTTP request leaves the building. Otherwise the ``await`` would
+    # yield control to the event loop and the agent task would race ahead
+    # with stale credentials. See issue #338.
     try:
         await on_agent_run_start(
             agent_name=agent.name,
@@ -432,27 +500,12 @@ async def run_with_mcp(
         # Hook failures never block the agent.
         pass
 
+    agent_task = asyncio.create_task(run_agent_task())
+
     loop = asyncio.get_running_loop()
 
-    def schedule_agent_cancel() -> None:
-        from code_puppy.tools.command_runner import _RUNNING_PROCESSES
-
-        if _RUNNING_PROCESSES:
-            emit_warning(
-                "Refusing to cancel Agent while a shell command is running — "
-                "press Ctrl+X to cancel the shell command."
-            )
-            return
-        if agent_task.done():
-            return
-        if _active_subagent_tasks:
-            emit_warning(
-                f"Cancelling {len(_active_subagent_tasks)} active subagent task(s)..."
-            )
-            for task in list(_active_subagent_tasks):
-                if not task.done():
-                    loop.call_soon_threadsafe(task.cancel)
-        loop.call_soon_threadsafe(agent_task.cancel)
+    schedule_agent_cancel = make_schedule_cancel(agent_task, loop)
+    schedule_agent_pause = make_schedule_pause(agent_task, loop)
 
     def keyboard_interrupt_handler(_sig, _frame):
         # Let input() handle its own KeyboardInterrupt if we're mid-prompt.
@@ -469,7 +522,7 @@ async def run_with_mcp(
 
     original_handler = None
     key_listener_stop_event: Optional[threading.Event] = None
-    key_listener_thread: Optional[threading.Thread] = None
+    key_listener_handle: Optional[_key_listeners.KeyListenerHandle] = None
 
     run_success = False
     run_error: Optional[BaseException] = None
@@ -478,14 +531,22 @@ async def run_with_mcp(
     try:
         if cancel_agent_uses_signal():
             original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
+            cancel_cb: Optional[Callable[[], None]] = None  # SIGINT owns cancel
         else:
             original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
-            key_listener_stop_event = threading.Event()
-            key_listener_thread = _key_listeners.spawn_key_listener(
-                key_listener_stop_event,
-                on_escape=lambda: None,  # Ctrl+X handled by command_runner
-                on_cancel_agent=schedule_agent_cancel,
-            )
+            cancel_cb = schedule_agent_cancel
+        # Always spawn a key listener — Ctrl+X (shell) and the pause-agent
+        # key both need it. The listener cheaply no-ops if stdin isn't a TTY.
+        key_listener_stop_event = threading.Event()
+        key_listener_handle = _key_listeners.spawn_key_listener(
+            key_listener_stop_event,
+            on_escape=lambda: None,  # Ctrl+X handled by command_runner
+            on_cancel_agent=cancel_cb,
+            on_pause_agent=schedule_agent_pause,
+        )
+        # Publish the handle so plugins (e.g. agent_steering) can suspend/
+        # resume the listener while they take over stdin.
+        _key_listeners.set_active_handle(key_listener_handle)
 
         result = await agent_task
         run_success = True
@@ -494,10 +555,12 @@ async def run_with_mcp(
     except asyncio.CancelledError:
         run_response_text = ""
         agent_task.cancel()
+        drain_pause_state_on_cancel()
     except KeyboardInterrupt:
         run_response_text = ""
         if not agent_task.done():
             agent_task.cancel()
+        drain_pause_state_on_cancel()
     except Exception as e:
         run_error = e
         raise
@@ -515,9 +578,13 @@ async def run_with_mcp(
         except Exception:
             pass
 
-        if key_listener_stop_event is not None:
+        if key_listener_handle is not None:
+            _key_listeners.set_active_handle(None)
+            key_listener_handle.stop()
+            key_listener_handle.thread.join(timeout=1.0)
+        elif key_listener_stop_event is not None:
+            # Handle is None (no TTY); just flip the stop event so any
+            # half-spawned bits unwind cleanly.
             key_listener_stop_event.set()
-        if key_listener_thread is not None:
-            key_listener_thread.join(timeout=1.0)
         if original_handler is not None:  # SIG_DFL is 0/falsy — explicit check!
             signal.signal(signal.SIGINT, original_handler)

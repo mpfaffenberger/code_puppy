@@ -143,10 +143,17 @@ class TestMessagingPackageExports:
             # Command types
             "CancelAgentCommand",
             "InterruptShellCommand",
+            "PauseAgentCommand",
+            "ResumeAgentCommand",
+            "SteerAgentCommand",
             "UserInputResponse",
             "ConfirmationResponse",
             "SelectionResponse",
             "AnyCommand",
+            # Pause controller (Phase 1 of pause/steer)
+            "PauseController",
+            "get_pause_controller",
+            "reset_pause_controller",
             # Message bus
             "MessageBus",
             "get_message_bus",

@@ -48,7 +48,6 @@ EXTRA_MODELS_FILE = os.path.join(DATA_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(DATA_DIR, "agents")
 SKILLS_DIR = os.path.join(DATA_DIR, "skills")
 CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
-_DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 
 # OAuth plugin model files (XDG_DATA_HOME)
 GEMINI_MODELS_FILE = os.path.join(DATA_DIR, "gemini_models.json")
@@ -61,19 +60,6 @@ AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
 
 # State files (XDG_STATE_HOME)
 COMMAND_HISTORY_FILE = os.path.join(STATE_DIR, "command_history.txt")
-DBOS_DATABASE_URL = os.environ.get(
-    "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
-)
-# DBOS enable switch is controlled solely via puppy.cfg using key 'enable_dbos'.
-# Default: True (DBOS enabled) unless explicitly disabled.
-
-
-def get_use_dbos() -> bool:
-    """Return True if DBOS should be used based on 'enable_dbos' (default True)."""
-    cfg_val = get_value("enable_dbos")
-    if cfg_val is None:
-        return True
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def get_subagent_verbose() -> bool:
@@ -263,7 +249,7 @@ def get_allow_recursion() -> bool:
     """
     val = get_value("allow_recursion")
     if val is None:
-        return True  # Default to False for safety
+        return True  # Default to True to allow recursion unless explicitly disabled
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
@@ -315,8 +301,8 @@ def get_config_keys():
         "frontend_emitter_max_recent_events",
         "frontend_emitter_queue_size",
     ]
-    # Add DBOS control key
-    default_keys.append("enable_dbos")
+    # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
+    # via the generic get_value API; intentionally not in default_keys.
     # Add pack agents control key
     default_keys.append("enable_pack_agents")
     # Add universal constructor control key
@@ -327,11 +313,19 @@ def get_config_keys():
     default_keys.append("enable_streaming")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
+    # Add max pause seconds configuration (used by pause/steer feature to
+    # auto-resume long pauses before SSE upstream times out).
+    default_keys.append("max_pause_seconds")
+    # Add pause-agent key configuration (companion to cancel_agent_key).
+    default_keys.append("pause_agent_key")
     # Add banner color keys
     for banner_name in DEFAULT_BANNER_COLORS:
         default_keys.append(f"banner_color_{banner_name}")
     # Add resume message count configuration
     default_keys.append("resume_message_count")
+    # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
+    # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
+    default_keys.append("goal_max_iterations")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -1369,11 +1363,6 @@ def set_http2(enabled: bool) -> None:
     set_config_value("http2", "true" if enabled else "false")
 
 
-def set_enable_dbos(enabled: bool) -> None:
-    """Enable DBOS via config (true enables, default false)."""
-    set_config_value("enable_dbos", "true" if enabled else "false")
-
-
 def get_message_limit(default: int = 1000) -> int:
     """
     Returns the user-configured message/request limit for the agent.
@@ -1668,6 +1657,8 @@ DEFAULT_BANNER_COLORS = {
     "mcp_tool_call": "dark_cyan",  # Teal - external MCP tool calls
     # User-initiated shell pass-through (! prefix) - distinct from agent's shell_command
     "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
+    # LLM Judge - goal-mode verdict (distinct from agent reasoning)
+    "llm_judge": "gold3",  # Gold - judicial authority / gavel
 }
 
 

@@ -401,8 +401,14 @@ async def run_question_tui(
     timeout_task = asyncio.create_task(timeout_checker())
     app_exception: BaseException | None = None
 
+    # Suspend the background key listener so prompt_toolkit has
+    # exclusive ownership of stdin -- otherwise the listener thread
+    # eats keystrokes and CPR replies (see _key_listeners.py).
+    from code_puppy.agents._key_listeners import suspended_key_listener
+
     try:
-        await app.run_async()
+        with suspended_key_listener():
+            await app.run_async()
     except BaseException as e:
         app_exception = e
     finally:

@@ -320,10 +320,28 @@ async def interactive_question_picker(
     state.timeout_seconds = timeout_seconds
     set_awaiting_user_input(True)
 
+    # Suspend the agent-runtime key listener (if any) so prompt_toolkit has
+    # exclusive ownership of stdin while the TUI is up. Without this, the
+    # listener's cbreak-mode reader races prompt_toolkit for every keystroke
+    # (arrows / space / enter / Ctrl+S) and roughly half get swallowed,
+    # forcing the user to mash keys multiple times. See agent_steering
+    # plugin for the same contract.
+    #
+    # Import locally to avoid a hard dependency on the agents package for
+    # callers that import this module standalone (e.g. demo_tui).
+    from code_puppy.agents._key_listeners import get_active_handle
+
+    key_listener = get_active_handle()
+    listener_suspended = False
+    if key_listener is not None:
+        listener_suspended = key_listener.suspend(timeout=1.0)
+
     try:
         from .tui_loop import run_question_tui
 
         # prompt_toolkit manages alt screen via full_screen=True
         return await run_question_tui(state)
     finally:
+        if listener_suspended and key_listener is not None:
+            key_listener.resume()
         set_awaiting_user_input(False)

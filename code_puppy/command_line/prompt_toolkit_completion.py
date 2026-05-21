@@ -512,6 +512,37 @@ class SlashCompleter(Completer):
             )
 
 
+def _strip_variation_selectors(text: str) -> str:
+    """Remove variation selectors (U+FE00-FE0F) from text.
+
+    These invisible characters modify emoji rendering but cause width
+    calculation mismatches between prompt_toolkit and terminal emulators.
+    """
+    return "".join(c for c in text if not (0xFE00 <= ord(c) <= 0xFE0F))
+
+
+def _normalize_emoji_spacing(text: str) -> str:
+    """Normalize emoji spacing for consistent terminal rendering.
+
+    Some emojis have East Asian Width 'N' (Neutral) which terminals render
+    inconsistently. This adds a space after such emojis to prevent
+    the following character from overlapping.
+    """
+    import unicodedata
+
+    result = []
+    text = _strip_variation_selectors(text)
+    for char in text:
+        result.append(char)
+        # Add padding after Neutral-width emoji to prevent overlap
+        if (
+            0x1F300 <= ord(char) <= 0x1FAFF
+            and unicodedata.east_asian_width(char) == "N"
+        ):
+            result.append(" ")  # Extra space buffer
+    return "".join(result)
+
+
 def get_prompt_with_active_model(base: str = ">>> "):
     from code_puppy.agents.agent_manager import get_current_agent
 
@@ -549,7 +580,7 @@ def get_prompt_with_active_model(base: str = ">>> "):
             ("bold", "🐶 "),
             ("class:puppy", f"{puppy}"),
             ("", " "),
-            ("class:agent", f"[{agent_display}] "),
+            ("class:agent", f"[{_normalize_emoji_spacing(agent_display)}] "),
             ("class:model", model_display + " "),
             ("class:cwd", "(" + str(cwd_display) + ") "),
             ("class:arrow", str(base)),
@@ -643,6 +674,7 @@ async def get_input_with_combined_completion(
         @bindings.add("c-enter", eager=True)
         def _(event):
             event.app.current_buffer.insert_text("\n")
+
     except Exception:
         pass
 

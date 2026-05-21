@@ -16,7 +16,7 @@ class TestGetCommandsHelp:
 
 
 class TestHandleShowCommand:
-    def _show_patches(self, effective_temp=0.7, global_temp=0.7, yolo=True, dbos=False):
+    def _show_patches(self, effective_temp=0.7, global_temp=0.7, yolo=True):
         """Return a context manager patching all lazy imports in handle_show_command."""
         mock_agent = MagicMock()
         mock_agent.display_name = "Test Agent"
@@ -41,7 +41,6 @@ class TestHandleShowCommand:
                 return_value=effective_temp,
             ),
             patch("code_puppy.config.get_default_agent", return_value="code-puppy"),
-            patch("code_puppy.config.get_use_dbos", return_value=dbos),
             patch("code_puppy.config.get_resume_message_count", return_value=50),
             patch(
                 "code_puppy.config.get_openai_reasoning_effort", return_value="medium"
@@ -75,14 +74,13 @@ class TestHandleShowCommand:
             patches[14],
             patches[15],
             patches[16],
-            patches[17],
         ):
             assert handle_show_command("/show") is True
 
     def test_show_effective_temp_none(self):
         from code_puppy.command_line.config_commands import handle_show_command
 
-        patches = self._show_patches(effective_temp=None, global_temp=None, dbos=True)
+        patches = self._show_patches(effective_temp=None, global_temp=None)
         with (
             patches[0],
             patches[1],
@@ -101,7 +99,6 @@ class TestHandleShowCommand:
             patches[14],
             patches[15],
             patches[16],
-            patches[17],
         ):
             assert handle_show_command("/show") is True
 

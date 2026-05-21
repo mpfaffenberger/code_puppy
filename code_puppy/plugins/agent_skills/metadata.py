@@ -116,7 +116,7 @@ def parse_skill_metadata(skill_path: Path) -> Optional[SkillMetadata]:
 
     skill_md_path = skill_path / "SKILL.md"
     if not skill_md_path.exists():
-        logger.warning(f"SKILL.md not found in skill directory: {skill_path}")
+        logger.debug(f"SKILL.md not found in skill directory: {skill_path}")
         return None
 
     try:
@@ -127,20 +127,20 @@ def parse_skill_metadata(skill_path: Path) -> Optional[SkillMetadata]:
 
     frontmatter = parse_yaml_frontmatter(content)
     if not frontmatter:
-        logger.warning(f"No valid frontmatter found in {skill_md_path}")
+        logger.debug(f"No valid frontmatter found in {skill_md_path}")
         return None
 
     # Required fields
     name = frontmatter.get("name")
     if not name:
-        logger.error(
+        logger.debug(
             f"'name' is required in frontmatter but not found in {skill_md_path}"
         )
         return None
 
     description = frontmatter.get("description")
     if not description:
-        logger.error(
+        logger.debug(
             f"'description' is required in frontmatter but not found in {skill_md_path}"
         )
         return None

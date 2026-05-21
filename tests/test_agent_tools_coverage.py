@@ -1,11 +1,13 @@
 """Additional coverage tests for agent_tools.py.
 
 This module focuses on testing uncovered code paths including:
-- _generate_dbos_workflow_id function
 - _get_subagent_sessions_dir function
 - Pydantic models (AgentInfo, ListAgentsOutput, AgentInvokeOutput)
 - register_list_agents tool execution
 - register_invoke_agent tool execution with various code paths
+
+DBOS workflow-id tests were removed when DBOS moved to a plugin; see
+``code_puppy/plugins/dbos_durable_exec/`` for plugin-level tests (Phase 4).
 """
 
 import tempfile
@@ -18,77 +20,10 @@ from code_puppy.tools.agent_tools import (
     AgentInfo,
     AgentInvokeOutput,
     ListAgentsOutput,
-    _generate_dbos_workflow_id,
     _get_subagent_sessions_dir,
     register_invoke_agent,
     register_list_agents,
 )
-
-
-class TestGenerateDBOSWorkflowId:
-    """Test suite for _generate_dbos_workflow_id function."""
-
-    def test_generates_unique_ids(self):
-        """Test that consecutive calls generate unique workflow IDs."""
-        ids = set()
-        for _ in range(10):
-            workflow_id = _generate_dbos_workflow_id("base-id")
-            ids.add(workflow_id)
-        # All IDs should be unique
-        assert len(ids) == 10
-
-    def test_format_includes_base_id(self):
-        """Test that generated ID includes the base ID."""
-        workflow_id = _generate_dbos_workflow_id("my-group")
-        assert workflow_id.startswith("my-group-wf-")
-
-    def test_format_includes_counter_suffix(self):
-        """Test that generated ID has the wf-N format."""
-        workflow_id = _generate_dbos_workflow_id("test")
-        parts = workflow_id.split("-")
-        # Format: test-wf-N
-        assert "wf" in parts
-        # Last part should be a number
-        assert parts[-1].isdigit()
-
-    def test_counter_is_incrementing(self):
-        """Test that the counter increments atomically."""
-        id1 = _generate_dbos_workflow_id("base")
-        id2 = _generate_dbos_workflow_id("base")
-        id3 = _generate_dbos_workflow_id("base")
-
-        # Extract counters
-        counter1 = int(id1.split("-")[-1])
-        counter2 = int(id2.split("-")[-1])
-        counter3 = int(id3.split("-")[-1])
-
-        # Counters should be strictly increasing
-        assert counter2 > counter1
-        assert counter3 > counter2
-
-    def test_different_base_ids_same_counter_sequence(self):
-        """Test that different base IDs share the same counter."""
-        id1 = _generate_dbos_workflow_id("alpha")
-        id2 = _generate_dbos_workflow_id("beta")
-
-        counter1 = int(id1.split("-")[-1])
-        counter2 = int(id2.split("-")[-1])
-
-        # Counter should still increment
-        assert counter2 == counter1 + 1
-
-    def test_empty_base_id(self):
-        """Test with empty base ID."""
-        workflow_id = _generate_dbos_workflow_id("")
-        assert workflow_id.startswith("-wf-")
-        # Should still have a counter
-        parts = workflow_id.split("-")
-        assert parts[-1].isdigit()
-
-    def test_complex_base_id(self):
-        """Test with complex base ID containing hyphens."""
-        workflow_id = _generate_dbos_workflow_id("invoke-agent-qa-expert-12345")
-        assert workflow_id.startswith("invoke-agent-qa-expert-12345-wf-")
 
 
 class TestGetSubagentSessionsDir:
@@ -810,25 +745,6 @@ class TestActiveSubagentTasks:
         # (This is testing the cleanup behavior)
         # In a fresh module load, it would be empty
         assert isinstance(_active_subagent_tasks, set)
-
-
-class TestDBOSWorkflowCounter:
-    """Test the DBOS workflow counter behavior."""
-
-    def test_counter_is_thread_safe_type(self):
-        """Test that the counter uses a thread-safe implementation."""
-        import itertools
-
-        from code_puppy.tools.agent_tools import _dbos_workflow_counter
-
-        # Should be an itertools.count object
-        assert isinstance(_dbos_workflow_counter, type(itertools.count()))
-
-    def test_generate_dbos_workflow_id_uses_counter(self):
-        """Test that workflow IDs use the atomic counter."""
-        # Generate several IDs and verify they're all unique
-        ids = [_generate_dbos_workflow_id("test") for _ in range(5)]
-        assert len(set(ids)) == 5  # All unique
 
 
 class TestSessionIdValidationInInvokeAgent:

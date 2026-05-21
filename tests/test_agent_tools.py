@@ -11,6 +11,7 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
 from code_puppy.tools.agent_tools import (
     _generate_session_hash_suffix,
     _load_session_history,
+    _sanitize_for_session_id,
     _save_session_history,
     _validate_session_id,
     register_invoke_agent,
@@ -111,6 +112,42 @@ class TestGenerateSessionHashSuffix:
         session_id = f"test-session-{suffix}"
         # Should not raise
         _validate_session_id(session_id)
+
+
+class TestSanitizeForSessionId:
+    """Test suite for _sanitize_for_session_id helper."""
+
+    def test_lowercases_capitalised_agent_name(self):
+        """Capitalised agent names get lowercased (the reported bug)."""
+        assert _sanitize_for_session_id("LPZ-Main-Coder") == "lpz-main-coder"
+
+    def test_already_kebab_case_passes_through(self):
+        assert _sanitize_for_session_id("qa-expert") == "qa-expert"
+
+    def test_underscores_become_hyphens(self):
+        assert _sanitize_for_session_id("my_agent_name") == "my-agent-name"
+
+    def test_spaces_become_hyphens(self):
+        assert _sanitize_for_session_id("My Agent Name") == "my-agent-name"
+
+    def test_special_chars_collapsed(self):
+        assert _sanitize_for_session_id("foo!!@@bar") == "foo-bar"
+
+    def test_leading_trailing_hyphens_stripped(self):
+        assert _sanitize_for_session_id("--foo--") == "foo"
+        assert _sanitize_for_session_id("__foo__") == "foo"
+
+    def test_empty_for_all_invalid(self):
+        assert _sanitize_for_session_id("!!!") == ""
+        assert _sanitize_for_session_id("") == ""
+
+    def test_result_passes_session_id_validation(self):
+        """Sanitized + hash suffix should always be a valid session_id."""
+        sanitized = _sanitize_for_session_id("LPZ-Main-Coder")
+        suffix = _generate_session_hash_suffix()
+        # Mirrors the production format
+        session_id = f"{sanitized}-session-{suffix}"
+        _validate_session_id(session_id)  # should not raise
 
 
 class TestSessionIdValidation:

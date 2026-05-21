@@ -47,6 +47,45 @@ VALID_CANCEL_KEYS: set[str] = {
 
 DEFAULT_CANCEL_AGENT_KEY: str = "ctrl+c"
 
+# Valid keys for pause_agent_key configuration.
+#
+# Excluded and why:
+#   ctrl+c  – SIGINT / cancel-agent key
+#   ctrl+d  – EOF (ambiguous in raw mode)
+#   ctrl+h  – backspace
+#   ctrl+i  – tab
+#   ctrl+j  – line-feed (Enter)
+#   ctrl+l  – some terminals intercept as clear-screen
+#   ctrl+m  – carriage-return (Enter)
+#   ctrl+q  – XON flow-control
+#   ctrl+s  – XOFF flow-control (can lock terminal)
+#   ctrl+z  – SIGTSTP (suspend)
+#   escape  – collides with ANSI escape sequences
+#
+# Note: ctrl+a and ctrl+b are tmux/screen prefix keys by default —
+# they work in raw mode but tmux may swallow them. Users who live
+# inside tmux should pick a key their tmux doesn't capture.
+VALID_PAUSE_KEYS: set[str] = {
+    "ctrl+a",
+    "ctrl+b",
+    "ctrl+e",
+    "ctrl+f",
+    "ctrl+g",
+    "ctrl+k",
+    "ctrl+n",
+    "ctrl+o",
+    "ctrl+p",
+    "ctrl+r",
+    "ctrl+t",
+    "ctrl+u",
+    "ctrl+v",
+    "ctrl+w",
+    "ctrl+x",
+    "ctrl+y",
+}
+
+DEFAULT_PAUSE_AGENT_KEY: str = "ctrl+t"
+
 
 class KeymapError(Exception):
     """Exception raised for keymap configuration errors."""
@@ -122,6 +161,67 @@ def get_cancel_agent_display_name() -> str:
         A formatted display name like "Ctrl+K".
     """
     key = get_cancel_agent_key()
+    if key.startswith("ctrl+"):
+        letter = key.split("+")[1].upper()
+        return f"Ctrl+{letter}"
+    return key.upper()
+
+
+# =============================================================================
+# Pause-agent key (Phase 3 of the pause/steer feature)
+# =============================================================================
+
+
+def get_pause_agent_key() -> str:
+    """Get the configured pause-agent key from config.
+
+    On Windows when launched via uvx, this swaps to ``ctrl+p`` for the same
+    reason ``get_cancel_agent_key`` swaps to ``ctrl+k`` (uvx captures some
+    keys before they reach Python).
+
+    Returns:
+        The configured key name (e.g. "ctrl+t"), or the default.
+    """
+    from code_puppy.config import get_value
+    from code_puppy.uvx_detection import should_use_alternate_cancel_key
+
+    if should_use_alternate_cancel_key():
+        return "ctrl+p"
+
+    key = get_value("pause_agent_key")
+    if key is None or key.strip() == "":
+        return DEFAULT_PAUSE_AGENT_KEY
+    return key.strip().lower()
+
+
+def validate_pause_agent_key() -> None:
+    """Validate the configured pause-agent key.
+
+    Raises:
+        KeymapError: If the configured key is not in ``VALID_PAUSE_KEYS``.
+    """
+    key = get_pause_agent_key()
+    if key not in VALID_PAUSE_KEYS:
+        valid_keys_str = ", ".join(sorted(VALID_PAUSE_KEYS))
+        raise KeymapError(
+            f"Invalid pause_agent_key '{key}' in puppy.cfg. "
+            f"Valid options are: {valid_keys_str}"
+        )
+
+
+def get_pause_agent_char_code() -> str:
+    """Get the character code for the configured pause-agent key."""
+    key = get_pause_agent_key()
+    if key not in KEY_CODES:
+        raise KeymapError(
+            f"Unknown pause key '{key}' - no character code mapping found."
+        )
+    return KEY_CODES[key]
+
+
+def get_pause_agent_display_name() -> str:
+    """Get a human-readable display name for the pause-agent key."""
+    key = get_pause_agent_key()
     if key.startswith("ctrl+"):
         letter = key.split("+")[1].upper()
         return f"Ctrl+{letter}"

@@ -30,6 +30,7 @@ from code_puppy.agents._history import (
     has_pending_tool_calls,
     hash_message,
     prune_interrupted_tool_calls,
+    sanitize_tool_call_ids,
 )
 from code_puppy.callbacks import (
     on_message_history_processor_end,
@@ -344,17 +345,19 @@ def compact(
             filtered, protected_tokens, model_name
         )
     else:
-        try:
-            result_messages, summarized_messages = _run_summarization_core(
-                filtered, protected_tokens, True, model_name
-            )
-        except Exception as e:
-            # Summarization blew up (model error, network, schema rejection,
-            # etc.). Don't just give up and let history balloon — fall back
-            # to truncation for *this* compaction cycle. The user's strategy
-            # preference is preserved for the next cycle.
-            _log_summarization_failure(
-                e, "↪️  Falling back to truncation for this compaction cycle."
+        # Route through the public summarize() so error handling, logging,
+        # and any future instrumentation stay in one place (DRY).
+        result_messages, summarized_messages = summarize(
+            filtered, protected_tokens, True, model_name
+        )
+        # If summarization failed gracefully (returned original messages
+        # with nothing dropped), fall back to truncation for this cycle.
+        # The user's strategy preference is preserved for the next cycle.
+        if not summarized_messages:
+            emit_warning(
+                "↪️  Summarization produced no compaction; "
+                "falling back to truncation for this cycle.",
+                message_group="token_context_status",
             )
             result_messages, summarized_messages = _truncate_with_dropped(
                 filtered, protected_tokens, model_name
@@ -469,6 +472,13 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
         # reject it with a "prefill" error.
         while cleaned and isinstance(cleaned[-1], ModelResponse):
             cleaned.pop()
+
+        # Sanitize tool_call_ids that don't match Anthropic's required pattern.
+        # When switching from providers like Kimi (which may emit IDs with
+        # dots, colons, etc.) to Claude, those stale IDs cause a 400 from
+        # the Anthropic API.  This step is cheap and no-op when all IDs
+        # already conform.
+        cleaned = sanitize_tool_call_ids(cleaned)
 
         agent._message_history = cleaned
 

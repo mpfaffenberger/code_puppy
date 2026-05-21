@@ -98,6 +98,7 @@
     "context_length": 262144,
     "supported_settings": ["temperature", "seed", "top_p", "max_tokens"]
   },
+
   "firepass-kimi-k2p5-turbo": {
     "type": "custom_openai",
     "provider": "firepass",
@@ -118,6 +119,17 @@
       "api_key": "$FIREWORKS_API_KEY"
     },
     "context_length": 262144,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  },
+  "crof-kimi-k2.5-lightning": {
+    "type": "custom_openai",
+    "provider": "crof",
+    "name": "kimi-k2.5-lightning",
+    "custom_endpoint": {
+      "url": "https://crof.ai/v1",
+      "api_key": "$CROF_API_KEY"
+    },
+    "context_length": 131072,
     "supported_settings": ["temperature", "seed", "top_p"]
   },
   "zai-glm-5-coding": {

@@ -654,6 +654,19 @@ class CustomServerForm:
                     f"\n  ✅ Successfully added custom server '{self.server_name}'!"
                 )
             emit_info(f"  Use '/mcp start {self.server_name}' to start the server.\n")
+
+            # Strict opt-in: prompt the user to bind this server to agents
+            # (skip on edits — bindings should already exist).
+            if not self.edit_mode:
+                try:
+                    from code_puppy.command_line.mcp_binding_menu import (
+                        prompt_bind_after_install_sync,
+                    )
+
+                    prompt_bind_after_install_sync(self.server_name)
+                except Exception:
+                    pass
+
             return True
 
         return False

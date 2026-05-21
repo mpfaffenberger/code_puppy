@@ -404,10 +404,12 @@ class TestBlockingMCPServerStdioExceptionGroup:
             assert server._init_error is inner_error
             assert server._initialized.is_set()
 
-            # emit_info should have been called with error details
+            # emit_info should have been called with a gentle hint
+            # pointing the user at /mcp logs (the verbose error text is
+            # intentionally suppressed and only logged at debug level).
             mock_emit.assert_called()
             call_args = str(mock_emit.call_args)
-            assert "Inner error" in call_args or "failed" in call_args.lower()
+            assert "test-server" in call_args or "/mcp logs" in call_args
 
     @pytest.mark.asyncio
     async def test_aenter_handles_regular_exception(self):

@@ -251,3 +251,54 @@ class TestRenderOption:
     def test_selected_not_cursor_styling(self):
         text = self._render(is_selected=True, is_cursor=False)
         assert "Test" in text
+
+
+class TestMarkupInjectionResistance:
+    """Regression tests: agent-supplied strings must never doom-loop the TUI.
+
+    Previously a header like '/agents-menu-integration' rendered as
+    '[/agents-menu-integration]' inside Rich markup, which Rich parsed as an
+    unmatched closing tag and raised MarkupError on every redraw.
+    """
+
+    def _state_with(self, *, header="Test", question_text="What?"):
+        opts = [QuestionOption(label="A"), QuestionOption(label="B")]
+        q = Question(
+            question=question_text, header=header, multi_select=False, options=opts
+        )
+        return QuestionUIState([q])
+
+    def test_header_with_slash_does_not_raise(self):
+        # The exact shape that caused Mike's doom loop.
+        state = self._state_with(header="/agents-menu-integration")
+        result = render_question_panel(state)
+        text = _strip_ansi(result.value)
+        # Header still appears, brackets are literal, and no error fallback fired.
+        assert "agents-menu-integration" in text
+        assert "render error" not in text
+
+    def test_header_with_unmatched_closing_tag_does_not_raise(self):
+        state = self._state_with(header="/red")
+        result = render_question_panel(state)
+        text = _strip_ansi(result.value)
+        assert "render error" not in text
+        assert "red" in text
+
+    def test_question_text_with_brackets_does_not_raise(self):
+        state = self._state_with(question_text="Choose [/foo] or bar?")
+        result = render_question_panel(state)
+        text = _strip_ansi(result.value)
+        assert "render error" not in text
+        assert "foo" in text and "bar" in text
+
+    def test_renderer_never_propagates_exceptions(self, monkeypatch):
+        # Force the inner renderer to blow up; outer guard must still return ANSI.
+        from code_puppy.tools.ask_user_question import renderers
+
+        def boom(*_a, **_kw):
+            raise RuntimeError("kaboom")
+
+        monkeypatch.setattr(renderers, "_render_question_panel_unsafe", boom)
+        state = self._state_with()
+        result = render_question_panel(state)  # must not raise
+        assert "render error" in _strip_ansi(result.value)

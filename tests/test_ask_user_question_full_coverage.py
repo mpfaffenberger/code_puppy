@@ -62,6 +62,8 @@ class TestAskUserQuestion:
             assert "sub-agent" in result.error
 
     def test_wiggum_blocked(self):
+        # Validation happens first now, so use a fully valid question payload
+        # (2-6 options) to actually reach the wiggum gate.
         with (
             patch(
                 "code_puppy.tools.ask_user_question.handler.is_subagent",
@@ -73,7 +75,13 @@ class TestAskUserQuestion:
             ),
         ):
             result = ask_user_question(
-                [{"question": "q", "header": "h", "options": [{"label": "a"}]}]
+                [
+                    {
+                        "question": "q",
+                        "header": "h",
+                        "options": [{"label": "a"}, {"label": "b"}],
+                    }
+                ]
             )
             assert "wiggum" in result.error.lower()
 
@@ -93,7 +101,13 @@ class TestAskUserQuestion:
             ),
         ):
             result = ask_user_question(
-                [{"question": "q", "header": "h", "options": [{"label": "a"}]}]
+                [
+                    {
+                        "question": "q",
+                        "header": "h",
+                        "options": [{"label": "a"}, {"label": "b"}],
+                    }
+                ]
             )
             assert "not running" in result.error
 

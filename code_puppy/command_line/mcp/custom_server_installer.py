@@ -188,6 +188,17 @@ def prompt_and_install_custom_server(manager) -> bool:
 
         emit_success(f"\n  ✅ Successfully added custom server '{server_name}'!")
         emit_info(f"  Use '/mcp start {server_name}' to start the server.\n")
+
+        # Strict opt-in: prompt the user to bind this server to agents.
+        try:
+            from code_puppy.command_line.mcp_binding_menu import (
+                prompt_bind_after_install_sync,
+            )
+
+            prompt_bind_after_install_sync(server_name)
+        except Exception as exc:
+            emit_warning(f"Bind prompt skipped: {exc}")
+
         return True
 
     except Exception as e:

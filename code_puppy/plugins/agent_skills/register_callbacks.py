@@ -58,7 +58,7 @@ def _get_skills_prompt_section() -> Optional[str]:
         if metadata:
             skills_metadata.append(metadata)
         else:
-            logger.warning(f"Failed to parse metadata for skill: {skill_info.name}")
+            logger.debug(f"Skipping skill with invalid metadata: {skill_info.name}")
 
     # 4. Build XML + guidance
     if not skills_metadata:
@@ -125,11 +125,16 @@ _ALIASES = ("skill",)
 
 
 def _skills_command_help() -> List[Tuple[str, str]]:
-    """Advertise /skills in the /help menu."""
-    return [
+    """Advertise /skills (+ every individual skill) in the /help menu."""
+    from .skill_commands import skill_command_help
+
+    entries: List[Tuple[str, str]] = [
         ("skills", "Manage agent skills – browse, enable, disable, install"),
         ("skill", "Alias for /skills"),
     ]
+    # Append per-skill commands so they show up in /help & tab-completion.
+    entries.extend(skill_command_help())
+    return entries
 
 
 def _handle_skills_command(command: str, name: str) -> Optional[Any]:
@@ -141,9 +146,15 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
         /skills install  – Browse & install from remote catalog
         /skills enable   – Enable skills integration globally
         /skills disable  – Disable skills integration globally
+        /skills toggle   – Toggle skills integration globally
+        /skills refresh  – Force skill re-discovery and refresh local cache
+        /skills help     – Show skills command help
     """
     if name not in (_COMMAND_NAME, *_ALIASES):
-        return None
+        # Not the /skills meta-command — maybe it's an individual skill?
+        from .skill_commands import handle_skill_command
+
+        return handle_skill_command(command, name)
 
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
     from code_puppy.plugins.agent_skills.config import (
@@ -151,7 +162,10 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
         get_skills_enabled,
         set_skills_enabled,
     )
-    from code_puppy.plugins.agent_skills.discovery import discover_skills
+    from code_puppy.plugins.agent_skills.discovery import (
+        discover_skills,
+        refresh_skill_cache,
+    )
     from code_puppy.plugins.agent_skills.metadata import parse_skill_metadata
     from code_puppy.plugins.agent_skills.skills_menu import show_skills_menu
 
@@ -220,9 +234,40 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
             emit_warning("\U0001f534 Skills integration disabled globally")
             return True
 
+        elif subcommand == "toggle":
+            new_state = not get_skills_enabled()
+            set_skills_enabled(new_state)
+            if new_state:
+                emit_success("✅ Skills integration enabled globally")
+            else:
+                emit_warning("🔴 Skills integration disabled globally")
+            return True
+
+        elif subcommand == "refresh":
+            refreshed = refresh_skill_cache()
+            valid_skills = [skill for skill in refreshed if skill.has_skill_md]
+            emit_success(
+                f"🔄 Refreshed skills cache: {len(refreshed)} discovered "
+                f"({len(valid_skills)} with SKILL.md)"
+            )
+            return True
+
+        elif subcommand == "help":
+            emit_info("Available /skills subcommands:")
+            emit_info("  /skills list     - List all installed skills")
+            emit_info("  /skills install  - Browse & install from catalog")
+            emit_info("  /skills enable   - Enable skills integration globally")
+            emit_info("  /skills disable  - Disable skills integration globally")
+            emit_info("  /skills toggle   - Toggle skills integration globally")
+            emit_info("  /skills refresh  - Refresh skill cache")
+            emit_info("  /skills          - Open interactive skills menu")
+            return True
+
         else:
             emit_error(f"Unknown subcommand: {subcommand}")
-            emit_info("Usage: /skills [list|install|enable|disable]")
+            emit_info(
+                "Usage: /skills [list|install|enable|disable|toggle|refresh|help]"
+            )
             return True
 
     # No subcommand – launch TUI menu

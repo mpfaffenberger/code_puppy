@@ -156,7 +156,7 @@ class TestPreviewDeleteFile:
         f = tmp_path / "f.txt"
         f.write_text("content")
         result = _preview_delete_file(str(f))
-        assert result is not None
+        assert result is None
 
     def test_not_found(self, tmp_path):
         from code_puppy.plugins.file_permission_handler.register_callbacks import (
@@ -180,27 +180,64 @@ class TestPromptForFilePermission:
             assert ok is True
             assert fb is None
 
-    def test_lock_contention(self):
+    def test_parallel_prompts_queue_instead_of_auto_rejecting(self):
+        """Parallel callers should queue (FIFO) -- not get silently rejected.
+
+        Previously, a non-blocking ``threading.Lock`` in this plugin meant
+        the second/third/Nth simultaneous file-permission prompt was
+        auto-rejected with a warning. We now serialize them inside
+        ``get_user_approval``, so each call runs in turn.
+        """
+        import threading
+
         from code_puppy.plugins.file_permission_handler.register_callbacks import (
-            _FILE_CONFIRMATION_LOCK,
             prompt_for_file_permission,
         )
 
-        _FILE_CONFIRMATION_LOCK.acquire()
-        try:
-            with (
-                patch(
-                    "code_puppy.plugins.file_permission_handler.register_callbacks.get_yolo_mode",
-                    return_value=False,
-                ),
-                patch(
-                    "code_puppy.plugins.file_permission_handler.register_callbacks.emit_warning"
-                ),
-            ):
-                ok, fb = prompt_for_file_permission("f.txt", "edit")
-                assert ok is False
-        finally:
-            _FILE_CONFIRMATION_LOCK.release()
+        concurrent = [0]
+        max_concurrent = [0]
+        call_count = [0]
+        gate = threading.Lock()
+
+        def fake_impl(**kwargs):
+            with gate:
+                concurrent[0] += 1
+                max_concurrent[0] = max(max_concurrent[0], concurrent[0])
+                call_count[0] += 1
+            # Hold the "prompt" open briefly so a collision would show up.
+            import time
+
+            time.sleep(0.05)
+            with gate:
+                concurrent[0] -= 1
+            return True, None
+
+        # Patch the *inner* impl so the public wrapper's lock still runs.
+        with (
+            patch(
+                "code_puppy.plugins.file_permission_handler.register_callbacks.get_yolo_mode",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.tools.common._get_user_approval_impl",
+                side_effect=fake_impl,
+            ),
+        ):
+            threads = [
+                threading.Thread(
+                    target=lambda i=i: prompt_for_file_permission(f"f{i}.txt", "edit")
+                )
+                for i in range(5)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        assert call_count[0] == 5, f"expected 5 prompts, got {call_count[0]}"
+        assert max_concurrent[0] == 1, (
+            f"prompts should serialize, but {max_concurrent[0]} ran in parallel"
+        )
 
     def test_approved(self):
         from code_puppy.plugins.file_permission_handler.register_callbacks import (
@@ -353,7 +390,7 @@ class TestGeneratePreviewFromOperationData:
         f = tmp_path / "f.txt"
         f.write_text("content")
         result = _generate_preview_from_operation_data(str(f), "delete", {})
-        assert result is not None
+        assert result is None
 
     def test_write(self, tmp_path):
         from code_puppy.plugins.file_permission_handler.register_callbacks import (
@@ -525,19 +562,15 @@ class TestWriteToFileExceptionBranch:
             assert _preview_write_to_file("f.txt", "content") is None
 
 
-class TestDeleteFileExceptionBranch:
-    def test_delete_file_general_exception(self, tmp_path):
+class TestDeleteFileNoPreview:
+    def test_delete_file_preview_is_always_empty(self, tmp_path):
         from code_puppy.plugins.file_permission_handler.register_callbacks import (
             _preview_delete_file,
         )
 
         f = tmp_path / "f.txt"
         f.write_text("content")
-        with patch(
-            "code_puppy.plugins.file_permission_handler.register_callbacks.get_diff_context_lines",
-            side_effect=RuntimeError("boom"),
-        ):
-            assert _preview_delete_file(str(f)) is None
+        assert _preview_delete_file(str(f)) is None
 
 
 class TestPreviewUnicodeEdgeCases:
@@ -590,7 +623,7 @@ class TestPreviewUnicodeEdgeCases:
         f = tmp_path / "f.txt"
         f.write_bytes(b"content \xed\xa0\x80")
         result = _preview_delete_file(str(f))
-        assert result is not None
+        assert result is None
 
     def test_replace_exception(self):
         from code_puppy.plugins.file_permission_handler.register_callbacks import (

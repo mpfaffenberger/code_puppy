@@ -196,6 +196,28 @@ class TestFilePermissions(unittest.TestCase):
         # Verify file still exists
         self.assertTrue(os.path.exists(self.test_file))
 
+    @patch("code_puppy.tools.file_modifications.emit_success")
+    @patch("code_puppy.tools.file_modifications._emit_diff_message")
+    @patch("code_puppy.callbacks.on_file_permission")
+    def test_delete_file_does_not_emit_diff(
+        self, mock_permission, mock_emit_diff, mock_emit_success
+    ):
+        """Test _delete_file reports deletion without diff output."""
+        mock_permission.return_value = [True]
+
+        context = MagicMock()
+        result = _delete_file(context, self.test_file)
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["changed"])
+        self.assertIn("deleted successfully", result["message"])
+        self.assertNotIn("diff", result)
+        mock_emit_diff.assert_not_called()
+        mock_emit_success.assert_called_once_with(
+            f"Deleted file: {self.test_file}", message_group=None
+        )
+        self.assertFalse(os.path.exists(self.test_file))
+
 
 if __name__ == "__main__":
     unittest.main()

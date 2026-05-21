@@ -3,6 +3,7 @@ import fnmatch
 import hashlib
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional, Tuple
@@ -17,6 +18,39 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
+
+# =============================================================================
+# Approval queueing locks
+# =============================================================================
+#
+# When multiple parallel tool calls request user approval simultaneously
+# (e.g. four ``rm -rf`` shell commands fired in parallel, or several
+# destructive file ops), we MUST serialize the prompts -- the user can
+# only answer one at a time, and prompt_toolkit can only own stdin once.
+#
+# These module-level locks turn ``get_user_approval`` /
+# ``get_user_approval_async`` into queues: callers wait their turn
+# instead of being silently auto-rejected. The async lock is created
+# lazily so it binds to whatever event loop is actually running.
+
+_APPROVAL_SYNC_LOCK = threading.Lock()
+_APPROVAL_ASYNC_LOCK: Optional[asyncio.Lock] = None
+_APPROVAL_ASYNC_LOCK_INIT_LOCK = threading.Lock()
+
+
+def _get_approval_async_lock() -> asyncio.Lock:
+    """Lazily create the global async approval lock.
+
+    Python 3.10+ ``asyncio.Lock()`` no longer binds to a loop at
+    construction time, so we can safely cache a single instance.
+    """
+    global _APPROVAL_ASYNC_LOCK
+    if _APPROVAL_ASYNC_LOCK is None:
+        with _APPROVAL_ASYNC_LOCK_INIT_LOCK:
+            if _APPROVAL_ASYNC_LOCK is None:
+                _APPROVAL_ASYNC_LOCK = asyncio.Lock()
+    return _APPROVAL_ASYNC_LOCK
+
 
 # Syntax highlighting imports for "syntax" diff mode
 try:
@@ -923,8 +957,14 @@ async def arrow_select_async(
     sys.stdout.flush()
     sys.stderr.flush()
 
-    # Run the app asynchronously
-    await app.run_async()
+    # Suspend the background key listener so prompt_toolkit has
+    # exclusive ownership of stdin -- otherwise CPR replies get eaten
+    # and arrow keys behave erratically (two readers, one stdin).
+    from code_puppy.agents._key_listeners import suspended_key_listener
+
+    with suspended_key_listener():
+        # Run the app asynchronously
+        await app.run_async()
 
     if result[0] is None:
         raise KeyboardInterrupt()
@@ -1013,8 +1053,12 @@ def arrow_select(message: str, choices: list[str]) -> str:
         )
     except RuntimeError as e:
         if "no running event loop" in str(e).lower():
-            # No event loop, safe to use app.run()
-            app.run()
+            # No event loop, safe to use app.run() -- but first suspend
+            # the background key listener so prompt_toolkit owns stdin.
+            from code_puppy.agents._key_listeners import suspended_key_listener
+
+            with suspended_key_listener():
+                app.run()
         else:
             # Re-raise if it's our error message
             raise
@@ -1034,6 +1078,10 @@ def get_user_approval(
 ) -> tuple[bool, str | None]:
     """Show a beautiful approval panel with arrow-key selector.
 
+    Wraps the implementation in a global threading lock so that parallel
+    callers (e.g. file operations from multiple tool threads) **queue**
+    their prompts rather than colliding on stdin.
+
     Args:
         title: Title for the panel (e.g., "File Operation", "Shell Command")
         content: Main content to display (Rich Text object or string)
@@ -1046,6 +1094,24 @@ def get_user_approval(
         - confirmed: True if approved, False if rejected
         - user_feedback: Optional feedback text if user provided it
     """
+    with _APPROVAL_SYNC_LOCK:
+        return _get_user_approval_impl(
+            title=title,
+            content=content,
+            preview=preview,
+            border_style=border_style,
+            puppy_name=puppy_name,
+        )
+
+
+def _get_user_approval_impl(
+    title: str,
+    content: Text | str,
+    preview: str | None = None,
+    border_style: str = "dim white",
+    puppy_name: str | None = None,
+) -> tuple[bool, str | None]:
+    """Inner implementation of get_user_approval (lock-free)."""
     import time
 
     from code_puppy.tools.command_runner import set_awaiting_user_input
@@ -1143,10 +1209,15 @@ def get_user_approval(
             confirmed = False
             emit_info("")
             emit_info(f"Tell {puppy_name} what to change:")
-            user_feedback = Prompt.ask(
-                "[bold green]➤[/bold green]",
-                default="",
-            ).strip()
+            # Rich's Prompt.ask reads stdin -- suspend the key listener
+            # so it doesn't fight us for keystrokes.
+            from code_puppy.agents._key_listeners import suspended_key_listener
+
+            with suspended_key_listener():
+                user_feedback = Prompt.ask(
+                    "[bold green]➤[/bold green]",
+                    default="",
+                ).strip()
 
             if not user_feedback:
                 user_feedback = None
@@ -1202,6 +1273,11 @@ async def get_user_approval_async(
 ) -> tuple[bool, str | None]:
     """Async version of get_user_approval - show a beautiful approval panel with arrow-key selector.
 
+    Wraps the implementation in a global async lock so that parallel
+    tool calls (e.g. several destructive shell commands fired in one
+    turn) **queue** their approval prompts instead of being silently
+    auto-rejected. The user gets one prompt at a time, in arrival order.
+
     Args:
         title: Title for the panel (e.g., "File Operation", "Shell Command")
         content: Main content to display (Rich Text object or string)
@@ -1214,7 +1290,24 @@ async def get_user_approval_async(
         - confirmed: True if approved, False if rejected
         - user_feedback: Optional feedback text if user provided it
     """
+    async with _get_approval_async_lock():
+        return await _get_user_approval_async_impl(
+            title=title,
+            content=content,
+            preview=preview,
+            border_style=border_style,
+            puppy_name=puppy_name,
+        )
 
+
+async def _get_user_approval_async_impl(
+    title: str,
+    content: Text | str,
+    preview: str | None = None,
+    border_style: str = "dim white",
+    puppy_name: str | None = None,
+) -> tuple[bool, str | None]:
+    """Inner implementation of get_user_approval_async (lock-free)."""
     from code_puppy.tools.command_runner import set_awaiting_user_input
 
     if puppy_name is None:

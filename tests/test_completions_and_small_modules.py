@@ -1,13 +1,14 @@
 """Tests for completions & small modules coverage.
 
 Covers missed lines in:
-- mcp_completion.py
 - skills_completion.py
 - file_path_completion.py
 - load_context_completion.py
 - model_switching.py
 - markdown_patches.py
 - error_logging.py
+
+Note: mcp_completion.py is covered in tests/command_line/test_mcp_completion.py
 """
 
 import os
@@ -16,122 +17,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from prompt_toolkit.document import Document
-
-# ── mcp_completion ──────────────────────────────────────────────────────
-
-
-class TestLoadServerNames:
-    """Cover lines 13-21 of mcp_completion.py."""
-
-    def test_load_server_names_success(self):
-        from code_puppy.command_line.mcp_completion import load_server_names
-
-        mock_server = MagicMock()
-        mock_server.name = "test-server"
-        mock_manager = MagicMock()
-        mock_manager.list_servers.return_value = [mock_server]
-
-        with patch(
-            "code_puppy.mcp_.manager.MCPManager",
-            return_value=mock_manager,
-        ):
-            result = load_server_names()
-        assert result == ["test-server"]
-
-    def test_load_server_names_exception(self):
-        from code_puppy.command_line.mcp_completion import load_server_names
-
-        with patch(
-            "code_puppy.mcp_.manager.MCPManager",
-            side_effect=Exception("boom"),
-        ):
-            result = load_server_names()
-        assert result == []
-
-
-class TestMCPCompleterGetServerNames:
-    """Cover lines 66-78 of mcp_completion.py."""
-
-    def test_get_server_names_caches(self):
-        from code_puppy.command_line.mcp_completion import MCPCompleter
-
-        completer = MCPCompleter()
-        with patch(
-            "code_puppy.command_line.mcp_completion.load_server_names",
-            return_value=["srv1"],
-        ):
-            result = completer._get_server_names()
-        assert result == ["srv1"]
-        # Second call uses cache (no patch needed)
-        assert completer._get_server_names() == ["srv1"]
-
-    def test_get_server_names_returns_empty_on_none_cache(self):
-        from code_puppy.command_line.mcp_completion import MCPCompleter
-
-        completer = MCPCompleter()
-        with patch(
-            "code_puppy.command_line.mcp_completion.load_server_names",
-            return_value=None,
-        ):
-            result = completer._get_server_names()
-        assert result == []
-
-
-class TestMCPCompleterGetCompletions:
-    """Cover lines 83-171 of mcp_completion.py."""
-
-    def setup_method(self):
-        from code_puppy.command_line.mcp_completion import MCPCompleter
-
-        self.completer = MCPCompleter()
-
-    def test_no_trigger(self):
-        doc = Document("hello")
-        assert list(self.completer.get_completions(doc, None)) == []
-
-    def test_no_space_after_trigger(self):
-        doc = Document("/mcp")
-        assert list(self.completer.get_completions(doc, None)) == []
-
-    def test_show_all_subcommands(self):
-        doc = Document("/mcp ")
-        completions = list(self.completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert "list" in names
-        assert "start" in names
-
-    def test_partial_subcommand(self):
-        doc = Document("/mcp st")
-        completions = list(self.completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert "start" in names
-        assert "stop" in names
-
-    def test_server_subcommand_space_shows_servers(self):
-        with patch.object(
-            self.completer, "_get_server_names", return_value=["my-server"]
-        ):
-            doc = Document("/mcp start ")
-            completions = list(self.completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert "my-server" in names
-
-    def test_server_subcommand_partial_server(self):
-        with patch.object(
-            self.completer, "_get_server_names", return_value=["my-server", "other"]
-        ):
-            doc = Document("/mcp start my")
-            completions = list(self.completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert "my-server" in names
-        assert "other" not in names
-
-    def test_general_subcommand_with_space_no_completions(self):
-        """General subcommands (like list) don't complete further args."""
-        doc = Document("/mcp list ")
-        completions = list(self.completer.get_completions(doc, None))
-        assert completions == []
-
 
 # ── skills_completion ───────────────────────────────────────────────────
 

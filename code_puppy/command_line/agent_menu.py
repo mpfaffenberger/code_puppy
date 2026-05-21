@@ -23,6 +23,8 @@ from code_puppy.agents import (
     get_current_agent,
     is_clone_agent_name,
 )
+from code_puppy.command_line.mcp_binding_menu import interactive_mcp_binding_menu
+from code_puppy.mcp_.agent_bindings import get_bound_servers
 from code_puppy.command_line.model_picker_completion import load_model_names
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
@@ -350,6 +352,8 @@ def _render_menu_panel(
     lines.append(("", "Select\n"))
     lines.append(("fg:ansibrightblack", "  P "))
     lines.append(("", "Pin model\n"))
+    lines.append(("fg:ansibrightblack", "  B "))
+    lines.append(("", "Bind MCP servers\n"))
     lines.append(("fg:ansibrightblack", "  C "))
     lines.append(("", "Clone\n"))
     lines.append(("fg:ansibrightblack", "  D "))
@@ -408,6 +412,22 @@ def _render_preview_panel(
         lines.append(("fg:ansiyellow", safe_pinned_model))
     else:
         lines.append(("fg:ansibrightblack", "default"))
+    lines.append(("", "\n\n"))
+
+    # MCP bindings summary
+    try:
+        bound = get_bound_servers(name)
+    except Exception:
+        bound = {}
+    lines.append(("bold", "MCP Servers: "))
+    if bound:
+        auto_count = sum(1 for opts in bound.values() if opts.get("auto_start"))
+        summary = f"{len(bound)} bound"
+        if auto_count:
+            summary += f" ({auto_count} auto-start)"
+        lines.append(("fg:ansigreen", summary))
+    else:
+        lines.append(("fg:ansibrightblack", "none bound (strict opt-in)"))
     lines.append(("", "\n\n"))
 
     # Description
@@ -574,6 +594,12 @@ async def interactive_agent_picker() -> Optional[str]:
             pending_action[0] = "pin"
             event.app.exit()
 
+    @kb.add("b")
+    def _(event):
+        if get_current_entry():
+            pending_action[0] = "bind"
+            event.app.exit()
+
     @kb.add("c")
     def _(event):
         if get_current_entry():
@@ -633,6 +659,12 @@ async def interactive_agent_picker() -> Optional[str]:
                     selected_model = await _select_pinned_model(entry[0])
                     if selected_model:
                         _apply_pinned_model(entry[0], selected_model)
+                continue
+
+            if pending_action[0] == "bind":
+                entry = get_current_entry()
+                if entry:
+                    await interactive_mcp_binding_menu(entry[0])
                 continue
 
             if pending_action[0] == "clone":

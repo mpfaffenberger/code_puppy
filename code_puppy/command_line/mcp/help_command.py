@@ -59,11 +59,7 @@ class HelpCommand(MCPCommandBase):
             help_lines.append(Text("Core Commands:", style="bold cyan"))
             help_lines.append(
                 Text("/mcp", style="cyan")
-                + Text("                    Show server status dashboard")
-            )
-            help_lines.append(
-                Text("/mcp list", style="cyan")
-                + Text("               List all registered servers")
+                + Text("                    List all registered servers")
             )
             help_lines.append(
                 Text("/mcp start", style="cyan")
@@ -92,10 +88,6 @@ class HelpCommand(MCPCommandBase):
             help_lines.append(
                 Text("/mcp status", style="cyan")
                 + Text(" [name]      Show detailed status (all servers or specific)")
-            )
-            help_lines.append(
-                Text("/mcp test", style="cyan")
-                + Text(" <name>        Test connectivity to a server")
             )
             help_lines.append(
                 Text("/mcp logs", style="cyan")

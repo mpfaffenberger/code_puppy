@@ -37,6 +37,18 @@ USEFUL_ATTRS = ("response", "body", "message", "detail", "errors")
 _MAX_CHAIN_DEPTH = 5
 _MAX_GROUP_LEAVES = 10
 
+# AnyIO / MCP teardown noise. These ``RuntimeError``s bubble out of MCP client
+# task-group cleanup (typically SSE/HTTP streams yielding inside a cancel
+# scope) *after* the underlying tool call has already succeeded and surfaced
+# its result to the user. They aren't actionable, the user can't fix them,
+# and showing them as ``Unexpected error:`` is straight-up misleading. We
+# still log to file for forensics; we just refuse to scream on the terminal.
+_MCP_TEARDOWN_SNIPPETS = (
+    "cancel scope",
+    "different task than it was entered in",
+    "async generator",  # "async generator ... was garbage collected"
+)
+
 
 def _safe_getattr(obj: Any, name: str) -> Any:
     """``getattr`` that never raises, even on hostile descriptors."""
@@ -104,6 +116,22 @@ def _needs_deep_diagnostics(exc: BaseException) -> bool:
     return any(trigger in msg for trigger in DIAGNOSTIC_TRIGGERS)
 
 
+def _is_mcp_teardown_noise(exc: BaseException) -> bool:
+    """Return True for benign AnyIO/MCP cleanup ``RuntimeError``s.
+
+    These fire *after* the agent run has already produced a result and
+    represent client-library plumbing failing to unwind cleanly. Surfacing
+    them as ``Unexpected error:`` confuses the user — the tool call worked.
+    """
+    if not isinstance(exc, RuntimeError):
+        return False
+    try:
+        msg = str(exc).lower()
+    except Exception:  # pragma: no cover - hostile __str__
+        return False
+    return any(snippet in msg for snippet in _MCP_TEARDOWN_SNIPPETS)
+
+
 def emit_exception_diagnostics(exc: BaseException, group_id: str) -> None:
     """Emit terminal diagnostics for ``exc``, bounded and defensive.
 
@@ -114,6 +142,22 @@ def emit_exception_diagnostics(exc: BaseException, group_id: str) -> None:
     Never raises. Worst-case failure is a slightly noisier terminal during an
     already-failed run.
     """
+    # MCP/AnyIO teardown artifacts: log quietly, do NOT shout on the terminal.
+    # The user already saw a successful result before cleanup tripped.
+    if _is_mcp_teardown_noise(exc):
+        try:
+            log_error(
+                exc,
+                context=(
+                    f"MCP/AnyIO teardown noise (suppressed from terminal, "
+                    f"group_id={group_id})"
+                ),
+                include_traceback=True,
+            )
+        except Exception:  # pragma: no cover - logging must not cascade
+            pass
+        return
+
     try:
         emit_info(f"Unexpected error: {exc}", group_id=group_id)
     except Exception:  # pragma: no cover - emit should never fail

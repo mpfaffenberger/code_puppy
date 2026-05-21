@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stackwright-puppy"
-version = "0.0.472.post4"
+version = "0.0.513.post0"
 description = "Stackwright-patched fork of code-puppy (MIT). Upstream: https://github.com/mpfaffenberger/code_puppy — cherry-pick PRs pending upstream review."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,17 +18,12 @@ dependencies = [
     "pydantic>=2.4.0",
     "python-dotenv>=1.0.0",
     "prompt-toolkit>=3.0.52",
-    "rapidfuzz>=3.13.0",
     "json-repair>=0.46.2",
     "pyfiglet>=0.8.post1",
+    "rapidfuzz>=3.13.0",
     "openai>=1.99.1",
     "ripgrep==14.1.0",
-    "tenacity>=8.2.0",
     "playwright>=1.40.0",
-    "dbos>=2.11.0",
-    "fastapi>=0.109.0",
-    "uvicorn[standard]>=0.27.0",
-    "websockets>=12.0",
     "termflow-md>=0.1.11",
     "Pillow>=10.0.0",
     "azure-identity>=1.15.0",
@@ -58,6 +53,7 @@ classifiers = [
 
 [project.optional-dependencies]
 bedrock = ["boto3>=1.35.0"]
+durable = ["dbos>=2.11.0"]
 
 [project.urls]
 repository = "https://github.com/Per-Aspera-LLC/stackwright-pro"
@@ -100,6 +96,7 @@ omit = ["code_puppy/main.py"]
 
 [tool.uv]
 python-preference = "only-managed"
+exclude-newer = "7 days"
 
 [dependency-groups]
 dev = [

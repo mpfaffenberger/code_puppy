@@ -25,72 +25,10 @@ def _test_reviewer_agent(module_path, class_name):
     assert len(prompt) > 0
 
 
-def test_c_reviewer():
-    _test_reviewer_agent("code_puppy.agents.agent_c_reviewer", "CReviewerAgent")
-
-
-def test_code_reviewer():
-    _test_reviewer_agent(
-        "code_puppy.agents.agent_code_reviewer", "CodeQualityReviewerAgent"
-    )
-
-
-def test_cpp_reviewer():
-    _test_reviewer_agent("code_puppy.agents.agent_cpp_reviewer", "CppReviewerAgent")
-
-
-def test_golang_reviewer():
-    _test_reviewer_agent(
-        "code_puppy.agents.agent_golang_reviewer", "GolangReviewerAgent"
-    )
-
-
-def test_javascript_reviewer():
-    _test_reviewer_agent(
-        "code_puppy.agents.agent_javascript_reviewer", "JavaScriptReviewerAgent"
-    )
-
-
-def test_python_reviewer():
-    _test_reviewer_agent(
-        "code_puppy.agents.agent_python_reviewer", "PythonReviewerAgent"
-    )
-
-
-def test_typescript_reviewer():
-    _test_reviewer_agent(
-        "code_puppy.agents.agent_typescript_reviewer", "TypeScriptReviewerAgent"
-    )
-
-
-def test_security_auditor():
-    _test_reviewer_agent(
-        "code_puppy.agents.agent_security_auditor", "SecurityAuditorAgent"
-    )
-
-
-def test_qa_expert():
-    _test_reviewer_agent("code_puppy.agents.agent_qa_expert", "QAExpertAgent")
-
-
 def test_qa_kitten():
     from code_puppy.agents.agent_qa_kitten import QualityAssuranceKittenAgent
 
     agent = QualityAssuranceKittenAgent()
-    tools = agent.get_available_tools()
-    assert isinstance(tools, list)
-    prompt = agent.get_system_prompt()
-    assert isinstance(prompt, str)
-
-
-def test_scheduler_agent():
-    _test_reviewer_agent("code_puppy.agents.agent_scheduler", "SchedulerAgent")
-
-
-def test_python_programmer():
-    from code_puppy.agents.agent_python_programmer import PythonProgrammerAgent
-
-    agent = PythonProgrammerAgent()
     tools = agent.get_available_tools()
     assert isinstance(tools, list)
     prompt = agent.get_system_prompt()
@@ -133,87 +71,11 @@ def test_planning_agent():
     assert len(prompt) > 100
 
 
-def test_prompt_reviewer_agent():
-    from code_puppy.agents.prompt_reviewer import PromptReviewerAgent
-
-    agent = PromptReviewerAgent()
-    tools = agent.get_available_tools()
-    assert isinstance(tools, list)
-    prompt = agent.get_system_prompt()
-    assert isinstance(prompt, str)
-    assert len(prompt) > 100
-
-
-# ---------------------------------------------------------------------------
-# Pack agents - get_system_prompt (1 uncovered line each)
-# ---------------------------------------------------------------------------
-
-
-def test_pack_bloodhound():
-    from code_puppy.agents.pack.bloodhound import BloodhoundAgent
-
-    agent = BloodhoundAgent()
-    with patch("code_puppy.agents.pack.bloodhound.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra prompt"]
-        prompt = agent.get_system_prompt()
-        assert "extra prompt" in prompt
-
-
 def test_code_puppy_prompt_allows_callback_additions():
     from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
     agent = CodePuppyAgent()
     with patch("code_puppy.agents.agent_code_puppy.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra"]
-        prompt = agent.get_system_prompt()
-        assert "extra" in prompt
-
-
-def test_pack_retriever():
-    from code_puppy.agents.pack.retriever import RetrieverAgent
-
-    agent = RetrieverAgent()
-    with patch("code_puppy.agents.pack.retriever.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra"]
-        prompt = agent.get_system_prompt()
-        assert "extra" in prompt
-
-
-def test_pack_shepherd():
-    from code_puppy.agents.pack.shepherd import ShepherdAgent
-
-    agent = ShepherdAgent()
-    with patch("code_puppy.agents.pack.shepherd.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra"]
-        prompt = agent.get_system_prompt()
-        assert "extra" in prompt
-
-
-def test_pack_terrier():
-    from code_puppy.agents.pack.terrier import TerrierAgent
-
-    agent = TerrierAgent()
-    with patch("code_puppy.agents.pack.terrier.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra"]
-        prompt = agent.get_system_prompt()
-        assert "extra" in prompt
-
-
-def test_pack_watchdog():
-    from code_puppy.agents.pack.watchdog import WatchdogAgent
-
-    agent = WatchdogAgent()
-    with patch("code_puppy.agents.pack.watchdog.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra"]
-        prompt = agent.get_system_prompt()
-        assert "extra" in prompt
-
-
-def test_pack_leader():
-    from code_puppy.agents.agent_pack_leader import PackLeaderAgent
-
-    agent = PackLeaderAgent()
-    with patch("code_puppy.agents.agent_pack_leader.callbacks") as mock_cb:
         mock_cb.on_load_prompt.return_value = ["extra"]
         prompt = agent.get_system_prompt()
         assert "extra" in prompt

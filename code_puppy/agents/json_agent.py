@@ -3,7 +3,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .base_agent import BaseAgent
 
@@ -55,6 +55,38 @@ class JSONAgent(BaseAgent):
             raise ValueError(
                 f"'system_prompt' must be a string or list in JSON agent config: {self.json_path}"
             )
+
+        # Validate optional mcp_servers field. Accept either:
+        #   - list[str]  -> shorthand, each defaults to auto_start=True
+        #   - dict[str, dict]  -> per-server options (e.g. {"auto_start": false})
+        # Anything else is a config error so users get a clear message.
+        if "mcp_servers" in self._config:
+            mcp_servers = self._config["mcp_servers"]
+            if isinstance(mcp_servers, list):
+                for entry in mcp_servers:
+                    if not isinstance(entry, str):
+                        raise ValueError(
+                            f"'mcp_servers' list entries must be strings (server names) in "
+                            f"JSON agent config: {self.json_path}"
+                        )
+            elif isinstance(mcp_servers, dict):
+                for server_name, opts in mcp_servers.items():
+                    if not isinstance(server_name, str):
+                        raise ValueError(
+                            f"'mcp_servers' keys must be strings in JSON agent config: "
+                            f"{self.json_path}"
+                        )
+                    if not isinstance(opts, dict):
+                        raise ValueError(
+                            f"'mcp_servers[{server_name!r}]' must be a dict of options "
+                            f'(e.g. {{"auto_start": true}}) in JSON agent config: '
+                            f"{self.json_path}"
+                        )
+            else:
+                raise ValueError(
+                    f"'mcp_servers' must be a list of names or a dict of "
+                    f"{{name: options}} in JSON agent config: {self.json_path}"
+                )
 
     @property
     def name(self) -> str:
@@ -126,6 +158,37 @@ class JSONAgent(BaseAgent):
     def get_tools_config(self) -> Optional[Dict]:
         """Get tool configuration from JSON config."""
         return self._config.get("tools_config")
+
+    def get_declared_mcp_bindings(self) -> Dict[str, Dict[str, Any]]:
+        """Return MCP bindings declared in the JSON config, normalized.
+
+        The ``mcp_servers`` field accepts two shapes for ergonomics:
+
+        * ``["serena", "puppeteer"]`` -- list shorthand; each entry
+          defaults to ``auto_start=True`` (matching the bindings menu's
+          default — the obvious intent when you list a server).
+        * ``{"serena": {"auto_start": true}, "puppeteer": {"auto_start": false}}``
+          -- explicit per-server options.
+
+        Both are normalized here to ``{name: {"auto_start": bool}}`` so the
+        rest of the system only ever deals with one shape. Returns ``{}``
+        when the field is absent.
+        """
+        raw = self._config.get("mcp_servers")
+        if raw is None:
+            return {}
+
+        normalized: Dict[str, Dict[str, Any]] = {}
+        if isinstance(raw, list):
+            for name in raw:
+                normalized[name] = {"auto_start": True}
+        elif isinstance(raw, dict):
+            for name, opts in raw.items():
+                normalized[name] = {
+                    "auto_start": bool(opts.get("auto_start", True)),
+                }
+        # Any other shape was rejected at validation time; defensive no-op.
+        return normalized
 
     def refresh_config(self) -> None:
         """Reload the agent configuration from disk.

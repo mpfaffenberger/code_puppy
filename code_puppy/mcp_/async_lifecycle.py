@@ -174,15 +174,41 @@ class AsyncServerLifecycleManager:
             logger.info(f"Server {server_id} lifecycle task cancelled")
             raise
         except Exception as e:
-            logger.error(f"Error in server {server_id} lifecycle: {e}", exc_info=True)
+            # Demoted from error+traceback to debug. The user-facing error is
+            # already emitted by blocking_startup.py with a /mcp logs hint;
+            # dumping a full traceback to the terminal here is just noise.
+            # Full traceback is still preserved at debug level.
+            logger.debug(f"Error in server {server_id} lifecycle: {e}", exc_info=True)
         finally:
             running_count = getattr(server, "_running_count", "N/A")
             logger.info(
                 f"Server {server_id} lifecycle ending, _running_count={running_count}"
             )
 
-            # Clean up the context
-            await exit_stack.aclose()
+            # Clean up the context.
+            #
+            # NOTE: pydantic-ai's MCP server uses reference counting on
+            # __aenter__/__aexit__. If the underlying anyio task group inside
+            # stdio_client was entered in a different task than this one
+            # (which can happen when refcount goes 0->1 in an agent task and
+            # 1->0 here at shutdown), aclose() raises:
+            #   RuntimeError: Attempted to exit cancel scope in a different
+            #                 task than it was entered in
+            # plus a BaseExceptionGroup. There's nothing useful we can do
+            # with these at shutdown time, and they spam the user's terminal
+            # via asyncio's default unhandled-exception hook. Swallow them.
+            try:
+                await exit_stack.aclose()
+            except (RuntimeError, BaseExceptionGroup) as e:
+                logger.debug(
+                    f"Server {server_id} cleanup raised (suppressed): {e}",
+                    exc_info=True,
+                )
+            except Exception as e:
+                logger.debug(
+                    f"Server {server_id} cleanup raised (suppressed): {e}",
+                    exc_info=True,
+                )
 
             running_count_after = getattr(server, "_running_count", "N/A")
             logger.info(
@@ -190,9 +216,12 @@ class AsyncServerLifecycleManager:
             )
 
             # Remove from managed servers
-            async with self._lock:
-                if server_id in self._servers:
-                    del self._servers[server_id]
+            try:
+                async with self._lock:
+                    if server_id in self._servers:
+                        del self._servers[server_id]
+            except Exception as e:
+                logger.debug(f"Error removing {server_id} from registry: {e}")
 
             logger.info(f"Server {server_id} lifecycle ended")
 

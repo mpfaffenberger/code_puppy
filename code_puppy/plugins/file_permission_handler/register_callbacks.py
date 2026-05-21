@@ -13,14 +13,15 @@ from rich.text import Text as RichText
 
 from code_puppy.callbacks import register_callback
 from code_puppy.config import get_diff_context_lines, get_yolo_mode
-from code_puppy.messaging import emit_warning
 from code_puppy.tools.common import (
     _find_best_window,
     get_user_approval,
 )
 
-# Lock for preventing multiple simultaneous permission prompts
-_FILE_CONFIRMATION_LOCK = threading.Lock()
+# NOTE: The previous module-level ``_FILE_CONFIRMATION_LOCK`` was
+# removed -- queueing of parallel approval prompts now lives inside
+# ``get_user_approval`` itself, so multiple parallel file ops will line
+# up behind one another instead of being silently auto-rejected.
 
 # Thread-local storage for user feedback from permission prompts
 _thread_local = threading.local()
@@ -193,35 +194,8 @@ def _preview_replace_in_file(
 
 
 def _preview_delete_file(file_path: str) -> str | None:
-    """Generate a preview diff for deleting a file without modifying it."""
-    try:
-        file_path = os.path.abspath(file_path)
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
-            return None
-
-        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            original = f.read()
-
-        # Sanitize any surrogate characters
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
-
-        diff_text = "".join(
-            difflib.unified_diff(
-                original.splitlines(keepends=True),
-                [],
-                fromfile=f"a/{os.path.basename(file_path)}",
-                tofile=f"b/{os.path.basename(file_path)}",
-                n=get_diff_context_lines(),
-            )
-        )
-        return diff_text
-    except Exception:
-        return None
+    """Whole-file deletes intentionally do not show content diffs."""
+    return None
 
 
 def prompt_for_file_permission(
@@ -251,37 +225,23 @@ def prompt_for_file_permission(
     if yolo_mode:
         return True, None
 
-    # Try to acquire the lock to prevent multiple simultaneous prompts
-    confirmation_lock_acquired = _FILE_CONFIRMATION_LOCK.acquire(blocking=False)
-    if not confirmation_lock_acquired:
-        emit_warning(
-            "Another file operation is currently awaiting confirmation",
-            message_group=message_group,
-        )
-        return False, None
+    # Build panel content
+    panel_content = RichText()
+    panel_content.append("🔒 Requesting permission to ", style="bold yellow")
+    panel_content.append(operation, style="bold cyan")
+    panel_content.append(":\n", style="bold yellow")
+    panel_content.append("📄 ", style="dim")
+    panel_content.append(file_path, style="bold white")
 
-    try:
-        # Build panel content
-        panel_content = RichText()
-        panel_content.append("🔒 Requesting permission to ", style="bold yellow")
-        panel_content.append(operation, style="bold cyan")
-        panel_content.append(":\n", style="bold yellow")
-        panel_content.append("📄 ", style="dim")
-        panel_content.append(file_path, style="bold white")
-
-        # Use the common approval function
-        confirmed, user_feedback = get_user_approval(
-            title="File Operation",
-            content=panel_content,
-            preview=preview,
-            border_style="dim white",
-        )
-
-        return confirmed, user_feedback
-
-    finally:
-        if confirmation_lock_acquired:
-            _FILE_CONFIRMATION_LOCK.release()
+    # Use the common approval function.
+    # Internal queueing means parallel callers wait their turn here
+    # rather than getting silently auto-rejected.
+    return get_user_approval(
+        title="File Operation",
+        content=panel_content,
+        preview=preview,
+        border_style="dim white",
+    )
 
 
 def handle_edit_file_permission(

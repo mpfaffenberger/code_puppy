@@ -1,20 +1,53 @@
-"""
-Renderer implementations for different UI modes.
+"""Renderer implementations for different UI modes.
 
 These renderers consume messages from the queue and display them
 appropriately for their respective interfaces.
+
+Pause-awareness
+---------------
+While ``PauseController.is_paused()`` is True, renderer output must be
+buffered (silenced visually) so background chatter (shell-command
+banners, MCP auto-start notes, sub-agent narration, etc.) doesn't trash
+the user's steering prompt. ``HUMAN_INPUT_REQUEST`` is the exception —
+those are blocking prompts and buffering them would deadlock the runtime.
+
+Two flush paths cover both wake-up modes:
+
+1. **Lazy flush**: the next ``_render_message`` after pause clears
+   drains the buffer first, preserving order.
+2. **Active flush**: a resume listener on ``PauseController`` calls
+   ``_flush_paused_buffer`` even when no new messages arrive after the
+   pause clears.
 """
 
 import asyncio
 import threading
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import List, Optional
 
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.markup import escape as escape_rich_markup
+from rich.text import Text
 
 from .message_queue import MessageQueue, MessageType, UIMessage
+
+# Threshold for emitting a ``[buffered N messages during pause]`` indicator
+# when the buffer is drained. Below this we stay silent; the user pressed
+# pause, output buffered, output flushed — no extra noise needed.
+_BUFFER_FLUSH_INDICATOR_THRESHOLD = 50
+
+
+def _flush_indicator(count: int) -> Text:
+    """Build the dim indicator emitted before draining a large buffer.
+
+    Returns a ``Text`` (not a markup string) so the square-bracketed body
+    isn't mis-parsed as a Rich markup tag and silently dropped.
+    """
+    return Text(
+        f"-- buffered {count} messages during pause --",
+        style="dim",
+    )
 
 
 class MessageRenderer(ABC):
@@ -70,86 +103,101 @@ class MessageRenderer(ABC):
                 sys.stderr.write(f"Error rendering message: {e}\n")
 
 
+def _classify_style(message: UIMessage) -> Optional[str]:
+    """Map a message's type to a Rich style string (or None for default).
+
+    Shared by both renderers so styling stays consistent and the file
+    isn't duplicating a chain of ``if`` branches.
+    """
+    style: Optional[str]
+    if message.type == MessageType.ERROR:
+        style = "bold red"
+    elif message.type == MessageType.WARNING:
+        style = "yellow"
+    elif message.type == MessageType.SUCCESS:
+        style = "green"
+    elif message.type == MessageType.TOOL_OUTPUT:
+        style = "blue"
+    elif message.type == MessageType.SYSTEM:
+        style = "dim"
+    else:
+        style = None
+
+    if isinstance(message.content, str) and (
+        "Current version:" in message.content or "Latest version:" in message.content
+    ):
+        style = "dim"
+
+    return style
+
+
+def _print_message(console: Console, message: UIMessage) -> None:
+    """Print ``message`` to ``console`` using the standard styling rules."""
+    style = _classify_style(message)
+    content = message.content
+    if isinstance(content, str):
+        if message.type == MessageType.AGENT_RESPONSE:
+            try:
+                console.print(Markdown(content))
+            except Exception:
+                console.print(escape_rich_markup(content))
+        elif style:
+            console.print(escape_rich_markup(content), style=style)
+        else:
+            console.print(escape_rich_markup(content))
+    else:
+        # Complex Rich objects (Tables, Markdown, Text, etc.) pass through.
+        console.print(content)
+
+    # Ensure output is immediately flushed to the terminal so messages
+    # don't get stuck waiting for the next user input.
+    if hasattr(console.file, "flush"):
+        console.file.flush()
+
+
 class InteractiveRenderer(MessageRenderer):
-    """Renderer for interactive CLI mode using Rich console.
+    """Async renderer for interactive CLI mode using Rich console.
 
     Note: This async-based renderer is not currently used in the codebase.
-    Interactive mode currently uses SynchronousInteractiveRenderer instead.
-    A future refactoring might consolidate these renderers.
+    Interactive mode currently uses ``SynchronousInteractiveRenderer`` instead.
+    Pause buffering is supplied here for safety with lazy-flush semantics only
+    (no resume-listener-driven flush — the sync renderer is the production
+    path and gets the full treatment).
     """
 
     def __init__(self, queue: MessageQueue, console: Optional[Console] = None):
         super().__init__(queue)
         self.console = console or Console()
+        self._paused_buffer: List[UIMessage] = []
+        self._buffer_lock = threading.Lock()
 
     async def render_message(self, message: UIMessage):
-        """Render a message using Rich console."""
-        # Handle human input requests
+        """Render a message, honoring the pause controller's buffering."""
         if message.type == MessageType.HUMAN_INPUT_REQUEST:
+            # NEVER buffer blocking prompts — that would deadlock the runtime.
             await self._handle_human_input_request(message)
             return
 
-        # Convert message type to appropriate Rich styling
-        if message.type == MessageType.ERROR:
-            style = "bold red"
-        elif message.type == MessageType.WARNING:
-            style = "yellow"
-        elif message.type == MessageType.SUCCESS:
-            style = "green"
-        elif message.type == MessageType.TOOL_OUTPUT:
-            style = "blue"
-        elif message.type == MessageType.AGENT_REASONING:
-            style = None
-        elif message.type == MessageType.PLANNED_NEXT_STEPS:
-            style = None
-        elif message.type == MessageType.AGENT_RESPONSE:
-            # Special handling for agent responses - they'll be rendered as markdown
-            style = None
-        elif message.type == MessageType.SYSTEM:
-            style = "dim"
-        else:
-            style = None
+        from code_puppy.messaging.pause_controller import get_pause_controller
 
-        # Make version messages dim regardless of message type
-        if isinstance(message.content, str):
-            if (
-                "Current version:" in message.content
-                or "Latest version:" in message.content
-            ):
-                style = "dim"
-
-        # Render the content
-        if isinstance(message.content, str):
-            if message.type == MessageType.AGENT_RESPONSE:
-                # Render agent responses as markdown
+        pc = get_pause_controller()
+        with self._buffer_lock:
+            if pc.is_paused():
+                self._paused_buffer.append(message)
+                return
+            pending = self._paused_buffer
+            self._paused_buffer = []
+            if len(pending) >= _BUFFER_FLUSH_INDICATOR_THRESHOLD:
                 try:
-                    markdown = Markdown(message.content)
-                    self.console.print(markdown)
+                    self.console.print(_flush_indicator(len(pending)))
                 except Exception:
-                    # Fallback to plain text if markdown parsing fails
-                    safe_content = escape_rich_markup(message.content)
-                    self.console.print(safe_content)
-            elif style:
-                # Escape Rich markup to prevent crashes from malformed tags
-                safe_content = escape_rich_markup(message.content)
-                self.console.print(safe_content, style=style)
-            else:
-                safe_content = escape_rich_markup(message.content)
-                self.console.print(safe_content)
-        else:
-            # For complex Rich objects (Tables, Markdown, Text, etc.)
-            self.console.print(message.content)
-
-        # Ensure output is immediately flushed to the terminal
-        # This fixes the issue where messages don't appear until user input
-        if hasattr(self.console.file, "flush"):
-            self.console.file.flush()
+                    pass
+            for msg in pending:
+                _print_message(self.console, msg)
+            _print_message(self.console, message)
 
     async def _handle_human_input_request(self, message: UIMessage):
         """Handle a human input request in async mode."""
-        # This renderer is not currently used in practice, but if it were:
-        # We would need async input handling here
-        # For now, just render as a system message
         safe_content = escape_rich_markup(str(message.content))
         self.console.print(f"[bold cyan]INPUT REQUESTED:[/bold cyan] {safe_content}")
         if hasattr(self.console.file, "flush"):
@@ -157,22 +205,17 @@ class InteractiveRenderer(MessageRenderer):
 
 
 class SynchronousInteractiveRenderer:
-    """
-    Synchronous renderer for interactive mode that doesn't require async.
+    """Synchronous renderer for interactive mode (production path).
 
-    This is useful for cases where we want immediate rendering without
-    the overhead of async message processing.
+    Responsibilities:
+    - Consumes messages from the queue in a background thread.
+    - Registers as a direct listener for immediate rendering on emit.
+    - Buffers all output while ``PauseController.is_paused()`` is True
+      and flushes (in order) on resume, both lazily (next message after
+      resume) and actively (via a resume listener).
 
-    Note: As part of the messaging system refactoring, we're keeping this class for now
-    as it's essential for the interactive mode to function properly. Future refactoring
-    could replace this with a simpler implementation that leverages the unified message
-    queue system more effectively, or potentially convert interactive mode to use
-    async/await consistently and use InteractiveRenderer instead.
-
-    Current responsibilities:
-    - Consumes messages from the queue in a background thread
-    - Renders messages to the console in real-time without requiring async code
-    - Registers as a direct listener to the message queue for immediate processing
+    ``HUMAN_INPUT_REQUEST`` is intentionally exempt from buffering since
+    those are blocking prompts the runtime is waiting on.
     """
 
     def __init__(self, queue: MessageQueue, console: Optional[Console] = None):
@@ -180,6 +223,8 @@ class SynchronousInteractiveRenderer:
         self.console = console or Console()
         self._running = False
         self._thread = None
+        self._paused_buffer: List[UIMessage] = []
+        self._buffer_lock = threading.Lock()
 
     def start(self):
         """Start the synchronous renderer in a background thread."""
@@ -187,22 +232,44 @@ class SynchronousInteractiveRenderer:
             return
 
         self._running = True
-        # Mark the queue as having an active renderer
         self.queue.mark_renderer_active()
-        # Add ourselves as a listener for immediate processing
         self.queue.add_listener(self._render_message)
+
+        # Register active-flush listener so we drain even when nothing else
+        # emits after the pause clears.
+        from code_puppy.messaging.pause_controller import get_pause_controller
+
+        try:
+            get_pause_controller().add_resume_listener(self._flush_paused_buffer)
+        except Exception:
+            # Never let listener registration take down the renderer.
+            pass
+
         self._thread = threading.Thread(target=self._consume_messages, daemon=True)
         self._thread.start()
 
     def stop(self):
-        """Stop the synchronous renderer."""
+        """Stop the synchronous renderer.
+
+        Order matters: stop the consume thread *before* the final flush so
+        no new messages slip into the buffer after we've drained it.
+        """
         self._running = False
-        # Mark the queue as having no active renderer
         self.queue.mark_renderer_inactive()
-        # Remove ourselves as a listener
         self.queue.remove_listener(self._render_message)
+
+        from code_puppy.messaging.pause_controller import get_pause_controller
+
+        try:
+            get_pause_controller().remove_resume_listener(self._flush_paused_buffer)
+        except Exception:
+            pass
+
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.0)
+
+        # Drain any stragglers — we're shutting down, don't silently lose them.
+        self._flush_paused_buffer()
 
     def _consume_messages(self):
         """Consume messages synchronously."""
@@ -217,66 +284,53 @@ class SynchronousInteractiveRenderer:
                 time.sleep(0.01)
 
     def _render_message(self, message: UIMessage):
-        """Render a message using Rich console."""
-        # Handle human input requests
+        """Render or buffer one message based on the PauseController state."""
         if message.type == MessageType.HUMAN_INPUT_REQUEST:
+            # Bypass the buffer — blocking prompt, buffering would deadlock.
             self._handle_human_input_request(message)
             return
 
-        # Convert message type to appropriate Rich styling
-        if message.type == MessageType.ERROR:
-            style = "bold red"
-        elif message.type == MessageType.WARNING:
-            style = "yellow"
-        elif message.type == MessageType.SUCCESS:
-            style = "green"
-        elif message.type == MessageType.TOOL_OUTPUT:
-            style = "blue"
-        elif message.type == MessageType.AGENT_REASONING:
-            style = None
-        elif message.type == MessageType.AGENT_RESPONSE:
-            # Special handling for agent responses - they'll be rendered as markdown
-            style = None
-        elif message.type == MessageType.SYSTEM:
-            style = "dim"
-        else:
-            style = None
+        from code_puppy.messaging.pause_controller import get_pause_controller
 
-        # Make version messages dim regardless of message type
-        if isinstance(message.content, str):
-            if (
-                "Current version:" in message.content
-                or "Latest version:" in message.content
-            ):
-                style = "dim"
+        pc = get_pause_controller()
 
-        # Render the content
-        if isinstance(message.content, str):
-            if message.type == MessageType.AGENT_RESPONSE:
-                # Render agent responses as markdown
+        # Hold the lock during the actual print so concurrent emitters (bus
+        # listener thread vs. consume thread vs. resume-listener flush) see
+        # a single serial ordering. Rich's console.print is microseconds-
+        # fast so contention is negligible.
+        with self._buffer_lock:
+            if pc.is_paused():
+                self._paused_buffer.append(message)
+                return
+            pending = self._paused_buffer
+            self._paused_buffer = []
+            if len(pending) >= _BUFFER_FLUSH_INDICATOR_THRESHOLD:
                 try:
-                    markdown = Markdown(message.content)
-                    self.console.print(markdown)
+                    self.console.print(_flush_indicator(len(pending)))
                 except Exception:
-                    # Fallback to plain text if markdown parsing fails
-                    safe_content = escape_rich_markup(message.content)
-                    self.console.print(safe_content)
-            elif style:
-                # Escape Rich markup to prevent crashes from malformed tags
-                # in shell output or other user-provided content
-                safe_content = escape_rich_markup(message.content)
-                self.console.print(safe_content, style=style)
-            else:
-                safe_content = escape_rich_markup(message.content)
-                self.console.print(safe_content)
-        else:
-            # For complex Rich objects (Tables, Markdown, Text, etc.)
-            self.console.print(message.content)
+                    pass
+            for buffered in pending:
+                _print_message(self.console, buffered)
+            _print_message(self.console, message)
 
-        # Ensure output is immediately flushed to the terminal
-        # This fixes the issue where messages don't appear until user input
-        if hasattr(self.console.file, "flush"):
-            self.console.file.flush()
+    def _render_message_immediate(self, message: UIMessage) -> None:
+        """Render bypassing the pause buffer. Public-ish for tests/teardown."""
+        _print_message(self.console, message)
+
+    def _flush_paused_buffer(self) -> None:
+        """Drain and render any buffered messages. Safe to call any time."""
+        with self._buffer_lock:
+            if not self._paused_buffer:
+                return
+            pending = self._paused_buffer
+            self._paused_buffer = []
+            if len(pending) >= _BUFFER_FLUSH_INDICATOR_THRESHOLD:
+                try:
+                    self.console.print(_flush_indicator(len(pending)))
+                except Exception:
+                    pass
+            for buffered in pending:
+                _print_message(self.console, buffered)
 
     def _handle_human_input_request(self, message: UIMessage):
         """Handle a human input request in interactive mode."""
@@ -287,25 +341,22 @@ class SynchronousInteractiveRenderer:
             )
             return
 
-        # Display the prompt - escape to prevent markup injection
         safe_content = escape_rich_markup(str(message.content))
         self.console.print(f"[bold cyan]{safe_content}[/bold cyan]")
         if hasattr(self.console.file, "flush"):
             self.console.file.flush()
 
-        # Get user input
         try:
-            # Use basic input for now - could be enhanced with prompt_toolkit later
             response = input(">>> ")
-
-            # Provide the response back to the queue
             from .message_queue import provide_prompt_response
 
             provide_prompt_response(prompt_id, response)
-
         except (EOFError, KeyboardInterrupt):
-            # Handle Ctrl+C or Ctrl+D
+            from .message_queue import provide_prompt_response
+
             provide_prompt_response(prompt_id, "")
         except Exception as e:
+            from .message_queue import provide_prompt_response
+
             self.console.print(f"[bold red]Error getting input: {e}[/bold red]")
             provide_prompt_response(prompt_id, "")

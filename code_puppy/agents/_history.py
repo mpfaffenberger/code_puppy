@@ -7,8 +7,10 @@ needed, already-resolved strings / tool dicts) in explicitly.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
+import re
 from typing import Any, Dict, List, Optional, Set
 
 import pydantic
@@ -271,3 +273,92 @@ def filter_huge_messages(
         m for m in messages if estimate_tokens_for_message(m, model_name) < 50000
     ]
     return prune_interrupted_tool_calls(filtered)
+
+
+# Anthropic's API requires tool_use IDs to match this pattern.
+# Other providers (Kimi, etc.) may generate IDs with dots, colons, etc.
+# that violate this constraint. When switching models mid-conversation,
+# those dirty IDs persist in the message history and cause 400 errors.
+_ANTHROPIC_TOOL_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+# Character-level replacement: swap any character NOT in the allowed set.
+_BAD_TOOL_ID_CHAR_RE = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def sanitize_tool_call_ids(
+    messages: List[ModelMessage],
+) -> List[ModelMessage]:
+    """Replace tool_call_ids that don't match Anthropic's required pattern.
+
+    Anthropic's API enforces ``^[a-zA-Z0-9_-]+$`` on ``tool_use.id`` fields.
+    Other providers (Kimi via Firepass, etc.) may generate IDs containing
+    dots, colons, or other characters. When switching from such a provider
+    to Claude mid-conversation, the stale IDs in the message history cause
+    a 400 rejection.
+
+    This function walks all message parts and replaces any non-conforming
+    ``tool_call_id`` with a sanitized version. A deterministic mapping
+    ensures tool-call ↔ tool-return pairs stay linked.
+
+    This is safe to run on every history-processor cycle; IDs that already
+    match the pattern pass through unchanged.
+    """
+    # Collect all non-conforming IDs and build a deterministic mapping.
+    bad_ids: Dict[str, str] = {}
+    for msg in messages:
+        for part in getattr(msg, "parts", []) or []:
+            tcid = getattr(part, "tool_call_id", None)
+            if tcid and not _ANTHROPIC_TOOL_ID_RE.match(tcid):
+                if tcid not in bad_ids:
+                    # Replace non-matching chars with '_' and append a short
+                    # hash suffix to avoid collisions from different dirty IDs
+                    # that sanitize to the same string.
+                    sanitized_base = _BAD_TOOL_ID_CHAR_RE.sub("_", tcid)
+                    collision_guard = format(abs(hash(tcid)) % (10**6), "06d")
+                    candidate = f"{sanitized_base}_{collision_guard}"
+                    # Belt-and-suspenders: ensure the candidate itself conforms.
+                    if not _ANTHROPIC_TOOL_ID_RE.match(candidate):
+                        candidate = f"tc_{collision_guard}"
+                    bad_ids[tcid] = candidate
+
+    if not bad_ids:
+        return messages
+
+    # Rebuild messages with sanitized IDs.
+    sanitized: List[ModelMessage] = []
+    for msg in messages:
+        parts = list(getattr(msg, "parts", []) or [])
+        needs_rebuild = False
+        new_parts: List[Any] = []
+        for part in parts:
+            tcid = getattr(part, "tool_call_id", None)
+            if tcid and tcid in bad_ids:
+                needs_rebuild = True
+                try:
+                    new_parts.append(
+                        dataclasses.replace(part, tool_call_id=bad_ids[tcid])
+                    )
+                except TypeError:
+                    # If dataclasses.replace fails (frozen, __slots__, etc.),
+                    # fall back to setattr.
+                    try:
+                        part.tool_call_id = bad_ids[tcid]  # type: ignore[misc]
+                        new_parts.append(part)
+                    except (AttributeError, TypeError):
+                        # Truly immutable — skip this part's ID fix.
+                        new_parts.append(part)
+            else:
+                new_parts.append(part)
+        if needs_rebuild:
+            try:
+                sanitized.append(dataclasses.replace(msg, parts=new_parts))
+            except TypeError:
+                # If message replacement fails, try mutating in place.
+                try:
+                    msg.parts = new_parts  # type: ignore[misc]
+                    sanitized.append(msg)
+                except (AttributeError, TypeError):
+                    sanitized.append(msg)
+        else:
+            sanitized.append(msg)
+
+    return sanitized

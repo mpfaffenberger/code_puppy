@@ -63,8 +63,16 @@ from .commands import (  # Base; Agent control; User interaction responses; Unio
     CancelAgentCommand,
     ConfirmationResponse,
     InterruptShellCommand,
+    PauseAgentCommand,
+    ResumeAgentCommand,
     SelectionResponse,
+    SteerAgentCommand,
     UserInputResponse,
+)
+from .pause_controller import (
+    PauseController,
+    get_pause_controller,
+    reset_pause_controller,
 )
 from .message_queue import (
     MessageQueue,
@@ -222,10 +230,17 @@ __all__ = [
     # Command types
     "CancelAgentCommand",
     "InterruptShellCommand",
+    "PauseAgentCommand",
+    "ResumeAgentCommand",
+    "SteerAgentCommand",
     "UserInputResponse",
     "ConfirmationResponse",
     "SelectionResponse",
     "AnyCommand",
+    # Pause controller
+    "PauseController",
+    "get_pause_controller",
+    "reset_pause_controller",
     # Message bus
     "MessageBus",
     "get_message_bus",

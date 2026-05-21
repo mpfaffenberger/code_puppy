@@ -240,6 +240,29 @@ def _perform_authentication() -> None:
         )
 
 
+def _reauthenticate_after_expired_oauth(model_name: str) -> Optional[str]:
+    """Run full Claude Code OAuth only for configured claude-code-* models."""
+    prefix = CLAUDE_CODE_OAUTH_CONFIG["prefix"]
+    if not model_name.startswith(prefix):
+        logger.debug(
+            "Skipping Claude Code OAuth flow for non-prefixed model: %s", model_name
+        )
+        return None
+
+    emit_warning(
+        "Claude Code OAuth refresh failed; launching the browser sign-in flow again."
+    )
+    _perform_authentication()
+
+    access_token = get_valid_access_token()
+    if access_token:
+        emit_success("Claude Code OAuth restored. Retrying the failed request…")
+        return access_token
+
+    emit_error("Claude Code OAuth reauthentication did not produce a usable token.")
+    return None
+
+
 def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if not name:
         return None
@@ -412,6 +435,9 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         verify=verify,
         timeout=180,
         http2=False,
+        oauth_reauthentication_callback=lambda: _reauthenticate_after_expired_oauth(
+            model_name
+        ),
     )
 
     anthropic_client = AsyncAnthropic(
@@ -419,6 +445,14 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         http_client=client,
         auth_token=api_key,
     )
+
+    def _update_runtime_token(access_token: str) -> None:
+        anthropic_client.auth_token = access_token
+        custom_endpoint = model_config.get("custom_endpoint")
+        if isinstance(custom_endpoint, dict):
+            custom_endpoint["api_key"] = access_token
+
+    client.set_token_update_callback(_update_runtime_token)
     patch_anthropic_client_messages(anthropic_client)
     # Fast mode wrapper sits outside cache-control injector and re-reads
     # the setting on every call so /claude-code-fast takes effect live.

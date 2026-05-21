@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from code_puppy.callbacks import clear_callbacks, register_callback
 from code_puppy.plugins.agent_skills.config import (
     add_skill_directory,
     get_disabled_skills,
@@ -142,6 +143,12 @@ def multi_skill_dir(tmp_path):
 class TestSkillDiscovery:
     """Tests for skill discovery module."""
 
+    def setup_method(self):
+        clear_callbacks()
+
+    def teardown_method(self):
+        clear_callbacks()
+
     def test_get_default_skill_directories(self):
         """Test default skill directories are correctly returned."""
         directories = get_default_skill_directories()
@@ -247,6 +254,96 @@ class TestSkillDiscovery:
 
         assert len(skills) == 0
         assert "Skill path is not a directory" in caplog.text
+
+    def test_discover_skills_includes_plugin_registered_skills(
+        self, tmp_path, monkeypatch
+    ):
+        from code_puppy.plugins.agent_skills import discovery as discovery_module
+
+        monkeypatch.setattr(
+            discovery_module,
+            "_PLUGIN_SKILLS_CACHE_DIR",
+            tmp_path / "plugin-cache",
+        )
+
+        register_callback(
+            "register_skills",
+            lambda: [
+                {
+                    "name": "plugin-skill",
+                    "frontmatter": {
+                        "description": "From plugin",
+                        "tags": ["plugin", "test"],
+                    },
+                    "body": "# plugin body",
+                }
+            ],
+        )
+
+        skills = discover_skills(directories=[tmp_path / "no-skills-here"])
+        plugin_skill = next(skill for skill in skills if skill.name == "plugin-skill")
+        assert plugin_skill.has_skill_md is True
+        assert (plugin_skill.path / "SKILL.md").exists()
+        content = (plugin_skill.path / "SKILL.md").read_text()
+        assert "name: plugin-skill" in content
+        assert "description: From plugin" in content
+
+    def test_filesystem_skill_wins_over_plugin_collision(self, tmp_path, monkeypatch):
+        from code_puppy.plugins.agent_skills import discovery as discovery_module
+
+        skills_root = tmp_path / "skills"
+        skills_root.mkdir()
+        local_skill = skills_root / "shared-skill"
+        local_skill.mkdir()
+        (local_skill / "SKILL.md").write_text(
+            "---\nname: shared-skill\ndescription: local\n---\n"
+        )
+
+        monkeypatch.setattr(
+            discovery_module,
+            "_PLUGIN_SKILLS_CACHE_DIR",
+            tmp_path / "plugin-cache",
+        )
+
+        register_callback(
+            "register_skills",
+            lambda: [
+                {
+                    "name": "shared-skill",
+                    "skill_md": "---\nname: shared-skill\ndescription: plugin\n---\n",
+                }
+            ],
+        )
+
+        skills = discover_skills(directories=[skills_root])
+        shared_skills = [skill for skill in skills if skill.name == "shared-skill"]
+        assert len(shared_skills) == 1
+        assert shared_skills[0].path == local_skill
+
+    def test_refresh_skill_cache_prunes_stale_plugin_cache(self, tmp_path, monkeypatch):
+        from code_puppy.plugins.agent_skills import discovery as discovery_module
+
+        plugin_cache_dir = tmp_path / "plugin-cache"
+        monkeypatch.setattr(
+            discovery_module, "_PLUGIN_SKILLS_CACHE_DIR", plugin_cache_dir
+        )
+
+        def register_current_skill():
+            return [{"name": "fresh-skill", "skill_md": "# fresh"}]
+
+        register_callback("register_skills", register_current_skill)
+
+        stale_dir = plugin_cache_dir / "old.module" / "stale-skill"
+        stale_dir.mkdir(parents=True)
+        (stale_dir / "SKILL.md").write_text("# stale")
+
+        refresh_skill_cache()
+
+        assert not stale_dir.exists()
+        fresh_skill_files = list(plugin_cache_dir.rglob("SKILL.md"))
+        assert len(fresh_skill_files) == 1
+        assert "fresh-skill" in str(fresh_skill_files[0])
+        assert fresh_skill_files[0].read_text() == "# fresh"
 
     def test_discover_skills_caching(self, tmp_path, monkeypatch):
         """Test that skill discovery uses caching correctly."""

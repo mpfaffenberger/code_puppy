@@ -87,6 +87,28 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
     - Proactive token refresh
     """
 
+    def __init__(
+        self,
+        *args: Any,
+        oauth_reauthentication_callback: Callable[[], str | None] | None = None,
+        token_update_callback: Callable[[str], None] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._oauth_reauthentication_callback = oauth_reauthentication_callback
+        self._token_update_callback = token_update_callback
+
+    def set_token_update_callback(self, callback: Callable[[str], None] | None) -> None:
+        self._token_update_callback = callback
+
+    def _notify_token_recovered(self, access_token: str) -> None:
+        if not self._token_update_callback:
+            return
+        try:
+            self._token_update_callback(access_token)
+        except Exception as exc:
+            logger.debug("Token update callback failed: %s", exc)
+
     def _get_jwt_age_seconds(self, token: str | None) -> float | None:
         """Decode a JWT and return its age in seconds.
 
@@ -300,7 +322,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         is_messages_endpoint = request.url.path.endswith("/v1/messages")
 
         # Proactive token refresh: check JWT age before every request
-        if not request.extensions.get("claude_oauth_refresh_attempted"):
+        if not request.extensions.get("claude_oauth_proactive_refresh_attempted"):
             try:
                 if self._should_refresh_token(request):
                     refreshed_token = self._refresh_claude_oauth_token()
@@ -316,7 +338,9 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                             headers=headers,
                             content=body_bytes,
                         )
-                        request.extensions["claude_oauth_refresh_attempted"] = True
+                        request.extensions[
+                            "claude_oauth_proactive_refresh_attempted"
+                        ] = True
             except Exception as exc:
                 logger.debug("Error during proactive token refresh check: %s", exc)
 
@@ -365,7 +389,12 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         if hasattr(rebuilt, "stream"):
                             request.stream = rebuilt.stream
                         if hasattr(rebuilt, "extensions"):
-                            request.extensions = rebuilt.extensions
+                            # Preserve caller-owned flags (notably oauth retry guards)
+                            # when httpx gives the rebuilt request fresh extensions.
+                            request.extensions = {
+                                **rebuilt.extensions,
+                                **request.extensions,
+                            }
 
                         # Update URL
                         request.url = url
@@ -407,13 +436,15 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         )
 
                 if is_auth_error:
-                    refreshed_token = self._refresh_claude_oauth_token()
-                    if refreshed_token:
-                        logger.info("Token refreshed successfully, retrying request")
+                    recovered_token = (
+                        self._recover_claude_oauth_token_after_auth_error()
+                    )
+                    if recovered_token:
+                        logger.info("Token recovered successfully, retrying request")
                         await response.aclose()
                         body_bytes = self._extract_body_bytes(request)
                         headers = dict(request.headers)
-                        self._update_auth_headers(headers, refreshed_token)
+                        self._update_auth_headers(headers, recovered_token)
                         retry_request = self.build_request(
                             method=request.method,
                             url=request.url,
@@ -427,7 +458,9 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                             retry_request, *args, **kwargs
                         )
                     else:
-                        logger.warning("Token refresh failed, returning original error")
+                        logger.warning(
+                            "Token recovery failed, returning original error"
+                        )
         except Exception as exc:
             logger.debug("Error during token refresh attempt: %s", exc)
 
@@ -598,6 +631,33 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             logger.debug("Error checking for Cloudflare error: %s", exc)
             return False
 
+    def _recover_claude_oauth_token_after_auth_error(self) -> str | None:
+        """Recover an OAuth token after the API rejected the current one.
+
+        First tries a refresh-token exchange. If that fails, an optional
+        provider-specific callback may run a full interactive OAuth flow.
+        """
+        refreshed_token = self._refresh_claude_oauth_token()
+        if refreshed_token:
+            return refreshed_token
+
+        if not self._oauth_reauthentication_callback:
+            return None
+
+        try:
+            reauthenticated_token = self._oauth_reauthentication_callback()
+        except Exception as exc:
+            logger.error("Exception during OAuth reauthentication: %s", exc)
+            return None
+
+        if not reauthenticated_token:
+            logger.warning("OAuth reauthentication returned no token")
+            return None
+
+        self._update_auth_headers(self.headers, reauthenticated_token)
+        self._notify_token_recovered(reauthenticated_token)
+        return reauthenticated_token
+
     def _refresh_claude_oauth_token(self) -> str | None:
         try:
             from code_puppy.plugins.claude_code_oauth.utils import refresh_access_token
@@ -606,6 +666,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             refreshed_token = refresh_access_token(force=True)
             if refreshed_token:
                 self._update_auth_headers(self.headers, refreshed_token)
+                self._notify_token_recovered(refreshed_token)
                 logger.info("Successfully refreshed Claude Code OAuth token")
             else:
                 logger.warning("Token refresh returned None")
