@@ -503,58 +503,11 @@ def is_project_only() -> bool:
     return ws is not None and ws.project_only
 
 
-def load_local_mcp_config() -> dict:
+def _parse_mcp_data(data: dict, project_root: str) -> dict:
+    """Parse MCP server config data from either format, expanding variables.
+
+    Shared by workspace and legacy .code-puppy.json loading paths.
     """
-    Load MCP server config from a project-local .code-puppy.json file.
-
-    Walks up from CWD to the git root (falling back to $HOME) looking for
-    .code-puppy.json. Stopping at the git root prevents config from one repo
-    from leaking into sibling repos in a monorepo layout.
-
-    Supports two formats:
-
-      Array format (VS Code-style):
-        { "mcpServers": [{ "name": "...", "command": "...", "args": [...],
-                          "autoStart": true, "workingDirectory": "..." }] }
-
-      Object format (native mcp_servers.json style):
-        { "mcp_servers": { "name": { "command": "...", "args": [...] } } }
-
-    Returns a dict mapping server name -> config dict (normalised to object
-    format).  workingDirectory and ${PROJECT_ROOT} are expanded to the
-    directory containing the .code-puppy.json file.
-    """
-    home = os.path.expanduser("~")
-    search_dir = os.path.abspath(os.getcwd())
-
-    config_file = None
-    project_root = None
-
-    # Prefer stopping at the git root; fall back to $HOME for non-git dirs.
-    stop_boundary = _find_git_root(search_dir) or home
-
-    current = search_dir
-    while True:
-        candidate = os.path.join(current, ".code-puppy.json")
-        if os.path.isfile(candidate):
-            config_file = candidate
-            project_root = current
-            break
-        if current == stop_boundary:
-            break
-        parent = os.path.dirname(current)
-        if parent == current:  # filesystem root
-            break
-        current = parent
-
-    if config_file is None:
-        return {}
-
-    try:
-        with open(config_file, "r", encoding="utf-8") as f:
-            data = json.loads(f.read())
-    except Exception:
-        return {}
 
     def expand(value):
         """Recursively expand ${PROJECT_ROOT} and env vars in strings."""
@@ -590,6 +543,91 @@ def load_local_mcp_config() -> dict:
             result[name] = expand(server_conf)
 
     return result
+
+
+def load_local_mcp_config() -> dict:
+    """
+    Load MCP server config from the project workspace or a .code-puppy.json file.
+
+    Resolution order:
+    1. If a .code-puppy/ workspace exists, check for mcp_servers.json inside it,
+       then fall back to mcpServers/mcp_servers keys in config.json.
+    2. Otherwise, walk up from CWD to git root looking for a legacy
+       .code-puppy.json file.
+
+    Stopping at the git root prevents config from one repo from leaking into
+    sibling repos in a monorepo layout.
+
+    Supports two formats:
+
+      Array format (VS Code-style):
+        { "mcpServers": [{ "name": "...", "command": "...", "args": [...],
+                          "autoStart": true, "workingDirectory": "..." }] }
+
+      Object format (native mcp_servers.json style):
+        { "mcp_servers": { "name": { "command": "...", "args": [...] } } }
+
+    Returns a dict mapping server name -> config dict (normalised to object
+    format).  workingDirectory and ${PROJECT_ROOT} are expanded to the
+    project root directory.
+    """
+    # ── Try workspace first ────────────────────────────────────────────
+    ws = get_project_workspace()
+    if ws is not None:
+        data = None
+        project_root = ws.root_path
+
+        # Prefer a dedicated mcp_servers.json in the workspace dir.
+        ws_mcp_file = os.path.join(ws.workspace_path, "mcp_servers.json")
+        if os.path.isfile(ws_mcp_file):
+            try:
+                with open(ws_mcp_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = None
+
+        # Fall back to mcpServers / mcp_servers keys in config.json.
+        if data is None and ws.config:
+            if "mcpServers" in ws.config or "mcp_servers" in ws.config:
+                data = ws.config
+
+        if data is not None:
+            return _parse_mcp_data(data, project_root)
+
+    # ── Legacy: walk up looking for .code-puppy.json ───────────────────
+    home = os.path.expanduser("~")
+    search_dir = os.path.abspath(os.getcwd())
+
+    config_file = None
+    project_root = None
+
+    # Prefer stopping at the git root; fall back to $HOME for non-git dirs.
+    stop_boundary = _find_git_root(search_dir) or home
+
+    current = search_dir
+    while True:
+        candidate = os.path.join(current, ".code-puppy.json")
+        if os.path.isfile(candidate):
+            config_file = candidate
+            project_root = current
+            break
+        if current == stop_boundary:
+            break
+        parent = os.path.dirname(current)
+        if parent == current:  # filesystem root
+            break
+        current = parent
+
+    if config_file is None:
+        return {}
+
+    try:
+        with open(config_file, "r", encoding="utf-8") as f:
+            data = json.loads(f.read())
+    except Exception:
+        return {}
+
+    return _parse_mcp_data(data, project_root)
 
 
 def _default_model_from_models_json():

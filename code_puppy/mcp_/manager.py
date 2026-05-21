@@ -100,9 +100,18 @@ class MCPManager:
         mcp_servers.json.  It adds/updates servers that appear in the file
         AND removes registry entries that are no longer present, so that
         mcp_registry.json never accumulates stale or dead entries.
+
+        When projectOnly mode is active, global config is skipped entirely.
         """
         try:
-            from code_puppy.config import load_mcp_server_configs
+            from code_puppy.config import is_project_only, load_mcp_server_configs
+
+            # In projectOnly mode, do not load global mcp_servers.json.
+            if is_project_only():
+                logger.debug(
+                    "projectOnly mode — skipping global mcp_servers.json"
+                )
+                return
 
             configs = load_mcp_server_configs()
 
