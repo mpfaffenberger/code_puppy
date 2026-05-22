@@ -662,21 +662,6 @@ class TestValidationResult:
 class TestCallbackRegistration:
     """Test that callbacks are properly registered."""
 
-    @pytest.fixture(autouse=True)
-    def _ensure_uc_callbacks(self):
-        """Re-register UC callbacks cleared by clear_callbacks() in other tests.
-
-        Only catches ImportError — any other exception is a real bug and should
-        surface rather than being silenced.
-        """
-        from code_puppy.callbacks import get_callbacks, register_callback
-        from code_puppy.plugins.universal_constructor.register_callbacks import (
-            _on_startup,
-        )
-
-        if _on_startup not in get_callbacks("startup"):
-            register_callback("startup", _on_startup)
-
     def test_startup_callback_registered(self):
         """Test that startup callback is registered."""
         from code_puppy.callbacks import get_callbacks

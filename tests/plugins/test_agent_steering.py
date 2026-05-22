@@ -7,7 +7,7 @@ from typing import List
 import pytest
 
 from code_puppy.agents import _key_listeners
-from code_puppy.callbacks import get_callbacks, register_callback
+from code_puppy.callbacks import _callbacks
 from code_puppy.messaging import (
     SteerAgentCommand,
     reset_message_bus,
@@ -21,21 +21,14 @@ from code_puppy.plugins.agent_steering import register_callbacks as plugin
 
 @pytest.fixture(autouse=True)
 def _fresh_state():
-    """Reset bus + controller + active handle; re-register pause callback if cleared.
+    """Reset bus + controller + active handle; leave ``_callbacks`` alone.
 
     Earlier versions of this fixture did ``clear_callbacks()`` + restore-from-
     snapshot, but that wiped plugin registrations other tests depend on (the
     suite-wide ``_callbacks`` dict is module-level global state). The plugin
     under test only mutates the bus, the controller, and the active handle;
     reset just those.
-
-    ``tests/test_callbacks_extended.py`` calls ``clear_callbacks()`` in
-    ``setup_method`` without restoring state afterward.  ``register_callback``
-    deduplicates by function identity, so calling it again here is safe.
     """
-    if plugin._on_pause_requested not in get_callbacks("agent_pause_requested"):
-        register_callback("agent_pause_requested", plugin._on_pause_requested)
-
     reset_message_bus()
     reset_pause_controller()
     _key_listeners.set_active_handle(None)
@@ -166,7 +159,7 @@ async def test_on_pause_requested_handles_prompt_exception(monkeypatch, bus_spy)
 
 def test_plugin_registers_exactly_one_callback():
     """Importing the plugin module registers ONLY ``agent_pause_requested``."""
-    assert plugin._on_pause_requested in get_callbacks("agent_pause_requested")
+    assert plugin._on_pause_requested in _callbacks["agent_pause_requested"]
     # The plugin must not own any custom_command / custom_command_help hooks.
     assert not hasattr(plugin, "_handle_custom_command"), (
         "_handle_custom_command should have been deleted in the cleanup"

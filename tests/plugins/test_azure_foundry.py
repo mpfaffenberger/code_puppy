@@ -845,27 +845,6 @@ class TestCreateAzureFoundryModel:
 class TestPluginCallbackRegistration:
     """Test that callbacks are properly registered on import."""
 
-    @pytest.fixture(autouse=True)
-    def _ensure_foundry_callbacks(self):
-        """Re-register Azure Foundry callbacks cleared by clear_callbacks() in other tests.
-
-        Only catches ImportError — any other exception is a real bug and should
-        surface rather than being silenced.
-        """
-        from code_puppy.callbacks import get_callbacks, register_callback
-        from code_puppy.plugins.azure_foundry.register_callbacks import (
-            _custom_help,
-            _handle_custom_command,
-            _register_model_types,
-        )
-
-        if _custom_help not in get_callbacks("custom_command_help"):
-            register_callback("custom_command_help", _custom_help)
-        if _handle_custom_command not in get_callbacks("custom_command"):
-            register_callback("custom_command", _handle_custom_command)
-        if _register_model_types not in get_callbacks("register_model_type"):
-            register_callback("register_model_type", _register_model_types)
-
     def test_callbacks_registered(self):
         """Test that importing the module registers callbacks."""
         # Import triggers callback registration (side effect is intentional)
