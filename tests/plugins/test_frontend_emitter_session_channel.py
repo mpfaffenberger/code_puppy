@@ -19,7 +19,9 @@ from unittest.mock import patch
 
 import pytest
 
-from code_puppy.plugins.frontend_emitter.session_context import current_emitter_session_id
+from code_puppy.plugins.frontend_emitter.session_context import (
+    current_emitter_session_id,
+)
 from code_puppy.plugins.frontend_emitter.emitter import (
     _recent_events,
     _subscriber_records,
@@ -50,15 +52,19 @@ def _drain(q: "asyncio.Queue[Dict[str, Any]]") -> List[Dict[str, Any]]:
 def _emitter_enabled_and_reset():
     """Ensure the emitter is enabled and state is clean for each test."""
     _reset_emitter_state()
-    with patch(
-        "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
-        return_value=True,
-    ), patch(
-        "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
-        return_value=1000,
-    ), patch(
-        "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_queue_size",
-        return_value=1000,
+    with (
+        patch(
+            "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
+            return_value=True,
+        ),
+        patch(
+            "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
+            return_value=1000,
+        ),
+        patch(
+            "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_queue_size",
+            return_value=1000,
+        ),
     ):
         yield
     _reset_emitter_state()
@@ -257,8 +263,7 @@ class TestMultiSessionIsolation:
         for sid, q in subscribers.items():
             events = _drain(q)
             assert len(events) == events_per_session, (
-                f"session {sid} got {len(events)} events, "
-                f"expected {events_per_session}"
+                f"session {sid} got {len(events)} events, expected {events_per_session}"
             )
             assert all(e["session_id"] == sid for e in events), (
                 f"CROSS-SESSION LEAK detected for {sid}: "
