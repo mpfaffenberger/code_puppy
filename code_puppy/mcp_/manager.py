@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
 
+from code_puppy.messaging import emit_warning
+
 from .async_lifecycle import get_lifecycle_manager
 from .managed_server import ManagedMCPServer, ServerConfig, ServerState
 from .registry import ServerRegistry
@@ -22,6 +24,42 @@ from .status_tracker import ServerStatusTracker
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Module-level dedupe set: ``(server_name, agent_name)`` pairs we've already
+# warned about for the "registered but not bound to this agent" orphan state.
+# Lives for the lifetime of the process — a fresh process resets it, which
+# matches "warn at most once per session per (server, agent) pair". Cleared
+# in tests via :func:`_reset_unbound_warning_cache`.
+_WARNED_UNBOUND: set = set()
+
+
+def _warn_unbound_server(server_name: str, agent_name: str) -> None:
+    """Warn once that a registered MCP server isn't bound to the current agent.
+
+    Companion to ``code_puppy.agents._builder._warn_missing_server``: that one
+    fires when an agent's binding points at a server that isn't installed;
+    this one fires when a server *is* installed (registered via
+    ``mcp_servers.json``) but no binding ties it to the agent currently
+    being built. Without this warning the server is silently skipped on
+    every agent build, which is the exact footgun users hit when they
+    hand-edit ``mcp_servers.json`` and expect ``enabled: true`` to mean
+    "live on next launch".
+    """
+    key = (server_name, agent_name)
+    if key in _WARNED_UNBOUND:
+        return
+    _WARNED_UNBOUND.add(key)
+    emit_warning(
+        f"MCP server '{server_name}' is registered in mcp_servers.json but "
+        f"not bound to agent '{agent_name}'. Run `/mcp start {server_name}` "
+        f"(which will auto-bind it) or `/agents` \u2192 B to manage bindings "
+        f"manually."
+    )
+
+
+def _reset_unbound_warning_cache() -> None:
+    """Clear the warn-once cache. Test hook only."""
+    _WARNED_UNBOUND.clear()
 
 
 @dataclass
@@ -272,6 +310,14 @@ class MCPManager:
                         managed_server.config.name,
                         agent_name,
                     )
+                    # Only warn for servers the user could actually use —
+                    # disabled / quarantined servers are skipped for other
+                    # reasons and the binding warning would be misleading.
+                    if (
+                        managed_server.is_enabled()
+                        and not managed_server.is_quarantined()
+                    ):
+                        _warn_unbound_server(managed_server.config.name, agent_name)
                     continue
                 # Only include enabled, non-quarantined servers
                 if managed_server.is_enabled() and not managed_server.is_quarantined():
