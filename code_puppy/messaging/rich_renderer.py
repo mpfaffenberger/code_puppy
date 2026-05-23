@@ -18,6 +18,8 @@ from rich.rule import Rule
 # Note: Syntax import removed - file content not displayed, only header
 from rich.table import Table
 
+from code_puppy.messaging.terminal_theme import current_code_theme
+
 from code_puppy.config import get_subagent_verbose
 from code_puppy.tools.common import format_diff_with_colors
 from code_puppy.tools.subagent_context import is_subagent
@@ -774,13 +776,13 @@ class RichConsoleRenderer:
         # Current reasoning
         self._console.print("[bold cyan]Current reasoning:[/bold cyan]")
         # Render reasoning as markdown
-        md = Markdown(msg.reasoning)
+        md = Markdown(msg.reasoning, code_theme=current_code_theme())
         self._console.print(md)
 
         # Next steps (if any)
         if msg.next_steps and msg.next_steps.strip():
             self._console.print("\n[bold cyan]Planned next steps:[/bold cyan]")
-            md_steps = Markdown(msg.next_steps)
+            md_steps = Markdown(msg.next_steps, code_theme=current_code_theme())
             self._console.print(md_steps)
 
         # Trailing newline for spinner separation
@@ -794,7 +796,7 @@ class RichConsoleRenderer:
 
         # Content (markdown or plain)
         if msg.is_markdown:
-            md = Markdown(msg.content)
+            md = Markdown(msg.content, code_theme=current_code_theme())
             self._console.print(md)
         else:
             self._console.print(msg.content)
@@ -826,7 +828,7 @@ class RichConsoleRenderer:
             msg.prompt[:200] + "..." if len(msg.prompt) > 200 else msg.prompt
         )
         self._console.print("[dim]Prompt:[/dim]")
-        md_prompt = Markdown(prompt_display)
+        md_prompt = Markdown(prompt_display, code_theme=current_code_theme())
         self._console.print(md_prompt)
 
     def _render_subagent_response(self, msg: SubAgentResponseMessage) -> None:
@@ -836,7 +838,7 @@ class RichConsoleRenderer:
         self._console.print(f"\n{banner} [bold cyan]{msg.agent_name}[/bold cyan]")
 
         # Render response as markdown
-        md = Markdown(msg.response)
+        md = Markdown(msg.response, code_theme=current_code_theme())
         self._console.print(md)
 
         # Footer with session info

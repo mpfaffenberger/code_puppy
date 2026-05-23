@@ -564,10 +564,12 @@ def _show_source_code(tool: UCToolInfo) -> None:
 
     try:
         source_code = Path(tool.source_path).read_text()
+        from code_puppy.messaging.terminal_theme import current_code_theme
+
         syntax = Syntax(
             source_code,
             "python",
-            theme="monokai",
+            theme=current_code_theme(),
             line_numbers=True,
             word_wrap=True,
         )

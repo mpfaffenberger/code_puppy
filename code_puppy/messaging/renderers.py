@@ -138,7 +138,9 @@ def _print_message(console: Console, message: UIMessage) -> None:
     if isinstance(content, str):
         if message.type == MessageType.AGENT_RESPONSE:
             try:
-                console.print(Markdown(content))
+                from code_puppy.messaging.terminal_theme import current_code_theme
+
+                console.print(Markdown(content, code_theme=current_code_theme()))
             except Exception:
                 console.print(escape_rich_markup(content))
         elif style:

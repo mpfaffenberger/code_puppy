@@ -171,11 +171,13 @@ class LogsCommand(MCPCommandBase):
             # Format log content with syntax highlighting
             log_content = "\n".join(log_lines)
 
+            from code_puppy.messaging.terminal_theme import current_code_theme
+
             # Create a panel with the logs
             syntax = Syntax(
                 log_content,
                 "log",
-                theme="monokai",
+                theme=current_code_theme(),
                 word_wrap=True,
                 line_numbers=False,
             )

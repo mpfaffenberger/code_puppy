@@ -38,6 +38,7 @@ __all__ = [
     "TerminalBackground",
     "detect_terminal_bg",
     "resolve_code_theme",
+    "current_code_theme",
 ]
 
 TerminalBackground = Literal["light", "dark"]
@@ -116,3 +117,19 @@ def resolve_code_theme(configured: Optional[str] = None) -> str:
         return configured.strip()
     bg = detect_terminal_bg()
     return "ansi_light" if bg == "light" else "ansi_dark"
+
+
+def current_code_theme() -> str:
+    """Convenience wrapper: read the ``code_theme`` config key and resolve.
+
+    Imports ``code_puppy.config`` lazily to avoid circular imports (config
+    already pulls in ``code_puppy.messaging``). Falls back to pure detection
+    if config isn't importable for any reason.
+    """
+    try:
+        from code_puppy.config import get_value
+
+        configured = get_value("code_theme")
+    except Exception:
+        configured = None
+    return resolve_code_theme(configured)
