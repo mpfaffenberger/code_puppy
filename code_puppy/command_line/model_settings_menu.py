@@ -359,6 +359,10 @@ class ModelSettingsMenu:
                 self._add_model_nav_hints(lines)
                 return lines
 
+            from code_puppy.model_descriptions import get_model_description
+
+            models_config = ModelFactory.load_config()
+
             # Only render models on the current page
             for i, model_name in enumerate(self.models_on_page):
                 absolute_index = self.page_start + i
@@ -381,6 +385,10 @@ class ModelSettingsMenu:
                     lines.append(("fg:ansicyan", " ⚙"))
 
                 lines.append(("", "\n"))
+
+                if is_selected:
+                    description = get_model_description(models_config, model_name)
+                    lines.append(("fg:ansiyellow italic", f"      {description}\n"))
 
             lines.append(("", "\n"))
             self._add_model_nav_hints(lines)

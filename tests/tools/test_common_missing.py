@@ -192,6 +192,12 @@ class TestFormatDiffWithColors:
 
 
 class TestGetUserApproval:
+    @pytest.fixture(autouse=True)
+    def _interactive_stdin(self):
+        with patch("code_puppy.tools.common.sys.stdin") as mock_stdin:
+            mock_stdin.isatty.return_value = True
+            yield mock_stdin
+
     @patch("code_puppy.tools.common.arrow_select", return_value="\u2713 Approve")
     @patch("code_puppy.tools.common.Console")
     @patch("code_puppy.tools.common.emit_info")
@@ -299,6 +305,12 @@ class TestGetUserApproval:
 
 
 class TestGetUserApprovalAsync:
+    @pytest.fixture(autouse=True)
+    def _interactive_stdin(self):
+        with patch("code_puppy.tools.common.sys.stdin") as mock_stdin:
+            mock_stdin.isatty.return_value = True
+            yield mock_stdin
+
     @pytest.mark.asyncio
     @patch("code_puppy.tools.common.arrow_select_async", return_value="\u2713 Approve")
     @patch("code_puppy.tools.common.Console")

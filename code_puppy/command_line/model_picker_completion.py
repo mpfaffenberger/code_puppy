@@ -22,11 +22,15 @@ from code_puppy.model_switching import set_model_and_reload_agent
 MODEL_PICKER_PAGE_SIZE = 15
 
 
-def load_model_names():
-    """Load model names from the config that's fetched from the endpoint."""
+def _load_models_config() -> dict:
     from code_puppy.model_factory import ModelFactory
 
-    models_config = ModelFactory.load_config()
+    return ModelFactory.load_config()
+
+
+def load_model_names():
+    """Load model names from the config that's fetched from the endpoint."""
+    models_config = _load_models_config()
     return list(models_config.keys())
 
 
@@ -74,6 +78,10 @@ class ModelNameCompleter(Completer):
         ].lstrip()
         start_position = -(len(text_after_trigger))
 
+        from code_puppy.model_descriptions import get_model_description
+
+        models_config = _load_models_config()
+
         # Filter model names based on what's typed after /model (case-insensitive)
         for model_name in self.model_names:
             if text_after_trigger and not query_matches_text(
@@ -81,11 +89,18 @@ class ModelNameCompleter(Completer):
             ):
                 continue  # Skip models that don't match the typed text
 
-            meta = (
-                "Model (selected)"
-                if model_name.lower() == get_active_model().lower()
-                else "Model"
-            )
+            description = get_model_description(models_config, model_name)
+            active_model_name = get_active_model()
+            if model_name.lower() == active_model_name.lower():
+                short = (
+                    description[:45] + "..." if len(description) > 48 else description
+                )
+                meta = f"✓ {short}"
+            else:
+                meta = (
+                    description[:48] + "..." if len(description) > 51 else description
+                )
+
             yield Completion(
                 model_name,
                 start_position=start_position,

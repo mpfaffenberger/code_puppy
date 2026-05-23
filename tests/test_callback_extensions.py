@@ -183,7 +183,7 @@ def test_new_phases_registered():
 
 
 def test_on_register_skills_collects_results():
-    clear_callbacks()
+    clear_callbacks("register_skills")
 
     def cb_one():
         return [{"name": "alpha", "skill_md": "# alpha"}]

@@ -9,11 +9,41 @@ import asyncio
 import inspect
 import os
 import subprocess
+from copy import deepcopy
 from unittest.mock import MagicMock
 
 import pytest
 
 from code_puppy import config as cp_config
+from code_puppy import callbacks as cp_callbacks
+
+
+def _ensure_builtin_plugin_callback_registrations() -> None:
+    """Re-register builtin plugin callbacks that tests assert are wired.
+
+    Some callback unit tests intentionally clear the global callback registry.
+    Importing a plugin module a second time does not re-run module-scope
+    registrations, so restore the key builtin registrations explicitly.
+    ``register_callback`` deduplicates, making this safe to call per test.
+    """
+    from code_puppy.plugins.agent_steering import register_callbacks as steering
+    from code_puppy.plugins.azure_foundry import register_callbacks as foundry
+    from code_puppy.plugins.claude_code_hooks import register_callbacks as hooks
+    from code_puppy.plugins.universal_constructor import register_callbacks as uc
+
+    cp_callbacks.register_callback(
+        "agent_pause_requested", steering._on_pause_requested
+    )
+    cp_callbacks.register_callback("custom_command_help", foundry._custom_help)
+    cp_callbacks.register_callback("custom_command", foundry._handle_custom_command)
+    cp_callbacks.register_callback("register_model_type", foundry._register_model_types)
+    # Keep hook callbacks registered for wiring tests, but do not let local
+    # ~/.code_puppy or project .claude hook configuration affect test runs.
+    hooks._hook_engine = None
+    cp_callbacks.register_callback("pre_tool_call", hooks.on_pre_tool_call_hook)
+    cp_callbacks.register_callback("post_tool_call", hooks.on_post_tool_call_hook)
+    cp_callbacks.register_callback("startup", uc._on_startup)
+
 
 # Integration test fixtures - only import if pexpect.spawn is available (Unix)
 # On Windows, pexpect doesn't have spawn attribute, so skip these imports
@@ -35,52 +65,58 @@ except (ImportError, AttributeError):
 
 
 @pytest.fixture(autouse=True)
-def isolate_config_between_tests(tmp_path_factory):
-    """Isolate config file changes between tests.
+def isolate_global_state_between_tests(tmp_path_factory):
+    """Isolate mutable global state between tests.
 
-    This prevents tests from modifying the user's real config file
-    (e.g., changing the selected model). Each test gets its own
-    temporary config file in a separate directory from tmp_path.
+    Tests must be deterministic locally and in CI. Do not seed test config from
+    the developer's real ``~/.code_puppy/puppy.cfg`` because user defaults such
+    as ``default_agent`` or ``compaction_threshold`` change expected defaults.
+    Also snapshot callback registrations so tests exercising callback mutation
+    cannot wipe plugin registrations needed by later tests.
     """
     import shutil
     import tempfile
 
-    # Save original config path
+    # Ensure lazy plugin imports are represented in the snapshot.
+    _ensure_builtin_plugin_callback_registrations()
+
+    # Save original config path and callback registry.
     original_config_file = cp_config.CONFIG_FILE
     original_config_dir = cp_config.CONFIG_DIR
+    original_callbacks = deepcopy(cp_callbacks._callbacks)
 
     # Create a completely separate temp directory for config isolation
-    # (not using tmp_path which tests may use for their own purposes)
+    # (not using tmp_path which tests may use for their own purposes).
     config_temp_dir = tempfile.mkdtemp(prefix="code_puppy_test_config_")
     temp_config_dir = os.path.join(config_temp_dir, ".code_puppy")
     os.makedirs(temp_config_dir, exist_ok=True)
     temp_config_file = os.path.join(temp_config_dir, "puppy.cfg")
 
-    # Copy existing config if it exists (so tests start with real settings)
-    if os.path.exists(original_config_file):
-        shutil.copy(original_config_file, temp_config_file)
-
-    # Redirect config to temp location
+    # Redirect config to an empty temp file so defaults are true product
+    # defaults, not the local developer's personal settings.
     cp_config.CONFIG_FILE = temp_config_file
     cp_config.CONFIG_DIR = temp_config_dir
 
-    # Clear model cache to ensure fresh state
+    # Clear model cache to ensure fresh state.
     cp_config.clear_model_cache()
-    # Clear session-local model cache (required for /model session sticky behavior)
+    # Clear session-local model cache (required for /model session sticky behavior).
     cp_config.reset_session_model()
 
     yield
 
-    # Restore original config paths
+    # Restore original config paths and callback registrations.
     cp_config.CONFIG_FILE = original_config_file
     cp_config.CONFIG_DIR = original_config_dir
+    cp_callbacks._callbacks.clear()
+    cp_callbacks._callbacks.update(original_callbacks)
+    _ensure_builtin_plugin_callback_registrations()
 
-    # Clear cache again after test
+    # Clear cache again after test.
     cp_config.clear_model_cache()
-    # Clear session-local model cache
+    # Clear session-local model cache.
     cp_config.reset_session_model()
 
-    # Clean up the temp directory
+    # Clean up the temp directory.
     try:
         shutil.rmtree(config_temp_dir)
     except Exception:

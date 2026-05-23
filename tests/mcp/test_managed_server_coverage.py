@@ -143,7 +143,7 @@ class TestManagedMCPServerInit:
             server = ManagedMCPServer(config)
 
         assert server._state == ServerState.STOPPED
-        assert server._enabled is False  # Always starts disabled
+        assert server._enabled is True  # Reflects ServerConfig.enabled (default True)
         assert server._quarantine_until is None
         assert server._start_time is None
         assert server._stop_time is None
@@ -201,6 +201,7 @@ class TestGetPydanticServer:
             id="test-id",
             name="test-server",
             type="sse",
+            enabled=False,
             config={"url": "http://localhost:8080"},
         )
 
@@ -208,7 +209,7 @@ class TestGetPydanticServer:
             mock_sse.return_value = MagicMock()
             server = ManagedMCPServer(config)
 
-        # Server starts disabled by default
+        # Explicitly disabled via ServerConfig.enabled=False
         assert server._enabled is False
 
         with pytest.raises(RuntimeError, match="disabled or quarantined"):
@@ -677,6 +678,7 @@ class TestEnableDisable:
             id="test-id",
             name="test-server",
             type="sse",
+            enabled=False,
             config={"url": "http://localhost:8080"},
         )
 
@@ -685,7 +687,7 @@ class TestEnableDisable:
             server = ManagedMCPServer(config)
 
         assert server._state == ServerState.STOPPED
-        assert server._enabled is False
+        assert server._enabled is False  # Explicitly disabled via config
 
         server.enable()
 
@@ -721,6 +723,7 @@ class TestEnableDisable:
             id="test-id",
             name="test-server",
             type="sse",
+            enabled=False,
             config={"url": "http://localhost:8080"},
         )
 
@@ -728,7 +731,7 @@ class TestEnableDisable:
             mock_sse.return_value = MagicMock()
             server = ManagedMCPServer(config)
 
-        assert server.is_enabled() is False
+        assert server.is_enabled() is False  # Explicitly disabled via config
         server.enable()
         assert server.is_enabled() is True
         server.disable()
@@ -806,6 +809,7 @@ class TestQuarantine:
             id="test-id",
             name="test-server",
             type="sse",
+            enabled=False,
             config={"url": "http://localhost:8080"},
         )
 
@@ -813,7 +817,7 @@ class TestQuarantine:
             mock_sse.return_value = MagicMock()
             server = ManagedMCPServer(config)
 
-        # Don't enable - stay disabled
+        # Explicitly disabled via config - stays disabled
         server._quarantine_until = datetime.now() - timedelta(seconds=1)
         server._state = ServerState.QUARANTINED
 
@@ -1014,6 +1018,7 @@ class TestGetStatus:
             id="test-id",
             name="test-server",
             type="sse",
+            enabled=False,
             config={"url": "http://localhost:8080"},
         )
 
@@ -1027,7 +1032,7 @@ class TestGetStatus:
         assert status["name"] == "test-server"
         assert status["type"] == "sse"
         assert status["state"] == "stopped"
-        assert status["enabled"] is False
+        assert status["enabled"] is False  # Explicitly disabled via config
         assert status["quarantined"] is False
         assert status["quarantine_remaining_seconds"] is None
         assert status["uptime_seconds"] is None

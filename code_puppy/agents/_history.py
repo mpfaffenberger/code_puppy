@@ -282,6 +282,9 @@ def filter_huge_messages(
 _ANTHROPIC_TOOL_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 # Character-level replacement: swap any character NOT in the allowed set.
 _BAD_TOOL_ID_CHAR_RE = re.compile(r"[^a-zA-Z0-9_-]")
+# LiteLLM smuggles Vertex/Gemini thoughtSignature blobs as
+# `<id>__thought__<base64-payload>` at the end of tool_call_id.
+_LITELLM_THOUGHT_RE = re.compile(r"__thought__[A-Za-z0-9+/=]+$")
 
 
 def sanitize_tool_call_ids(
@@ -307,6 +310,16 @@ def sanitize_tool_call_ids(
     for msg in messages:
         for part in getattr(msg, "parts", []) or []:
             tcid = getattr(part, "tool_call_id", None)
+            # Gemini's native API puts thoughtSignature on FunctionCall as a
+            # separate field. The OpenAI-compat schema has no such field, so
+            # LiteLLM smuggles it into tool_call_id: `<id>__thought__<base64>`.
+            # Gemini requires this to round-trip intact — even the `_<6digit>`
+            # collision-guard suffix below corrupts it and causes a 400 on the
+            # next tool turn. The collision guard isn't needed here anyway: the
+            # embedded signature makes each id globally unique. _LITELLM_THOUGHT_RE
+            # matches the exact suffix so only genuine carrier ids are exempted.
+            if tcid and _LITELLM_THOUGHT_RE.search(tcid):
+                continue
             if tcid and not _ANTHROPIC_TOOL_ID_RE.match(tcid):
                 if tcid not in bad_ids:
                     # Replace non-matching chars with '_' and append a short

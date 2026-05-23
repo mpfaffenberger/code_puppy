@@ -17,6 +17,7 @@ PhaseType = Literal[
     "run_shell_command",
     "load_model_config",
     "load_models_config",
+    "load_model_descriptions",
     "load_prompt",
     "agent_reload",
     "custom_command",
@@ -65,6 +66,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "run_shell_command": [],
     "load_model_config": [],
     "load_models_config": [],
+    "load_model_descriptions": [],
     "load_prompt": [],
     "agent_reload": [],
     "custom_command": [],
@@ -257,6 +259,19 @@ def on_load_models_config() -> List[Any]:
         List of model config dicts from all registered callbacks.
     """
     return _trigger_callbacks_sync("load_models_config")
+
+
+def on_load_model_descriptions() -> List[Any]:
+    """Trigger callbacks that provide description-only model overlays.
+
+    Plugins can return dictionaries mapping ``model_name -> description``.
+    These overlays are applied after config merges, so only missing
+    descriptions are injected and model configuration fields are untouched.
+
+    Returns:
+        List of description overlay dicts from all registered callbacks.
+    """
+    return _trigger_callbacks_sync("load_model_descriptions")
 
 
 def on_edit_file(*args, **kwargs) -> Any:

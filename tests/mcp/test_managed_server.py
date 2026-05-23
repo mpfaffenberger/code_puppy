@@ -10,6 +10,7 @@ import pytest
 from code_puppy.mcp_.managed_server import (
     ManagedMCPServer,
     ServerConfig,
+    ServerState,
     _expand_env_vars,
 )
 
@@ -164,3 +165,57 @@ def test_expand_env_vars_non_string():
     assert _expand_env_vars(3.14) == 3.14
     assert _expand_env_vars(True) is True
     assert _expand_env_vars(None) is None
+
+
+class TestManagedMCPServerEnableFromConfig:
+    """ManagedMCPServer._enabled should be initialised from ServerConfig.enabled.
+
+    Before this fix, __init__ hardcoded ``self._enabled = False`` regardless
+    of ``server_config.enabled``.  Every server therefore required an explicit
+    ``/mcp start`` command before ``get_servers_for_agent()`` would include it.
+    """
+
+    def _make_config(self, enabled: bool) -> ServerConfig:
+        return ServerConfig(
+            id="test-id",
+            name="test-server",
+            type="stdio",
+            enabled=enabled,
+            config={"command": "echo", "args": []},
+        )
+
+    def test_enabled_true_in_config_makes_server_enabled(self):
+        """ServerConfig(enabled=True) → is_enabled() is True right after construction."""
+        server = ManagedMCPServer(self._make_config(enabled=True))
+        assert server.is_enabled() is True
+
+    def test_enabled_false_in_config_makes_server_disabled(self):
+        """ServerConfig(enabled=False) → is_enabled() is False right after construction."""
+        server = ManagedMCPServer(self._make_config(enabled=False))
+        assert server.is_enabled() is False
+
+    def test_enabled_flag_and_tracker_state_are_independent(self):
+        """is_enabled() can be True while tracker state stays STOPPED.
+
+        The enabled flag gates get_servers_for_agent() — it makes the server
+        visible to pydantic-ai immediately on launch.  The tracker state only
+        advances to RUNNING after start_server() actually spawns a subprocess
+        and calls record_start_time().  Conflating the two caused
+        ``/mcp status`` to show ``State: ✓ Run, Uptime: -`` because
+        record_start_time() was never called.
+        """
+        server = ManagedMCPServer(self._make_config(enabled=True))
+        assert server.is_enabled() is True
+        # Internal _state is set in __init__ — it should still be STOPPED
+        assert server._state == ServerState.STOPPED
+
+    def test_enable_disable_still_work_as_runtime_overrides(self):
+        """enable()/disable() remain valid for explicit runtime control."""
+        server = ManagedMCPServer(self._make_config(enabled=False))
+        assert server.is_enabled() is False
+
+        server.enable()
+        assert server.is_enabled() is True
+
+        server.disable()
+        assert server.is_enabled() is False

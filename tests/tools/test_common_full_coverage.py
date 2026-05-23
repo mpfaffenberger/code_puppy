@@ -656,6 +656,12 @@ class TestArrowSelect:
 
 
 class TestGetUserApproval:
+    @pytest.fixture(autouse=True)
+    def _interactive_stdin(self):
+        with patch("code_puppy.tools.common.sys.stdin") as mock_stdin:
+            mock_stdin.isatty.return_value = True
+            yield mock_stdin
+
     def test_approve(self):
         from code_puppy.tools.common import get_user_approval
 
@@ -806,6 +812,12 @@ class TestGetUserApproval:
 
 
 class TestGetUserApprovalAsync:
+    @pytest.fixture(autouse=True)
+    def _interactive_stdin(self):
+        with patch("code_puppy.tools.common.sys.stdin") as mock_stdin:
+            mock_stdin.isatty.return_value = True
+            yield mock_stdin
+
     @pytest.mark.asyncio
     async def test_approve(self):
         from code_puppy.tools.common import get_user_approval_async

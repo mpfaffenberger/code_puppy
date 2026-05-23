@@ -18,8 +18,8 @@ if TYPE_CHECKING:
 def _coerce_questions_json_string(v: Any) -> Any:
     """Coerce a JSON-stringified array to a native list before pydantic validates it.
 
-    LLMs frequently pass the questions array as a JSON string (e.g. "[{...}]")
-    instead of a native list. pydantic_ai validates tool call arguments against
+    LLMs frequently pass the questions array as a JSON string (e.g. ``"[{...}]"``)
+    instead of a native list. pydantic-ai validates tool call arguments against
     the function signature before calling the handler — so the coercion must
     happen here, at the registration layer, before pydantic sees the value.
 
@@ -46,10 +46,9 @@ def register_ask_user_question(agent: Agent) -> None:
             Field(
                 description=(
                     "Array of question objects. Each question should include: "
-                    "'question' (string), 'header' (short string), "
-                    "optional 'multi_select' (boolean), and 'options' "
-                    "(array of option objects with 'label' and optional "
-                    "'description')."
+                    "'question' (string), 'header' (short string), optional "
+                    "'multi_select' (boolean), and 'options' (array of option "
+                    "objects with 'label' and optional 'description')."
                 )
             ),
         ],

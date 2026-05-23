@@ -130,8 +130,7 @@ class ManagedMCPServer:
             Union[MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP]
         ] = None
         self._state = ServerState.STOPPED
-        # Always start disabled - servers must be explicitly started with /mcp start
-        self._enabled = False
+        self._enabled = server_config.enabled
         self._quarantine_until: Optional[datetime] = None
         self._start_time: Optional[datetime] = None
         self._stop_time: Optional[datetime] = None

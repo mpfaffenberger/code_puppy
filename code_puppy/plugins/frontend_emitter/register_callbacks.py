@@ -289,6 +289,7 @@ def _sanitize_event_data(data: Any) -> Any:
             "args_delta": _truncate_string(args_delta, max_length=1000),
             "tool_call_id": _safe_getattr_str(data, "tool_call_id"),
             "tool_name": _safe_getattr_str(data, "tool_name"),
+            "tool_name_delta": _safe_getattr_str(data, "tool_name_delta"),
         }
 
     # 3. part-wrapping events (PartStartEvent / PartEndEvent / etc.) --
@@ -300,7 +301,17 @@ def _sanitize_event_data(data: Any) -> Any:
             inner = f"<{type_name}.part>"
         return {"type": type_name, "part": inner}
 
-    # 4. Anything with a usable content/text attribute on the top level
+    # 4. ToolCallPart payloads: preserve structured tool metadata for
+    #    downstream stream bridges (/ws/chat typed event parser).
+    if hasattr(data, "tool_name") and hasattr(data, "args"):
+        return {
+            "type": type_name,
+            "tool_call_id": _safe_getattr_str(data, "tool_call_id"),
+            "tool_name": _safe_getattr_str(data, "tool_name"),
+            "args": _sanitize_args(getattr(data, "args", {})),
+        }
+
+    # 5. Anything with a usable content/text attribute on the top level
     #    (e.g. fully-formed TextPart, ThinkingPart).
     if hasattr(data, "content"):
         return {

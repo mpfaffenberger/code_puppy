@@ -373,6 +373,39 @@ class TestSanitizeEventData:
         result = _sanitize_event_data(object())
         assert "object" in result
 
+    def test_tool_call_part_preserves_tool_metadata(self):
+        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+            _sanitize_event_data,
+        )
+
+        class _ToolCallPart:
+            tool_call_id = "tc_1"
+            tool_name = "list_files"
+            args = {"directory": "."}
+
+        result = _sanitize_event_data(_ToolCallPart())
+        assert isinstance(result, dict)
+        assert result["tool_call_id"] == "tc_1"
+        assert result["tool_name"] == "list_files"
+        assert result["args"] == {"directory": "."}
+
+    def test_tool_call_part_delta_preserves_name_delta(self):
+        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+            _sanitize_event_data,
+        )
+
+        class _ToolCallPartDelta:
+            tool_call_id = "tc_2"
+            tool_name = None
+            tool_name_delta = "run_shell_command"
+            args_delta = '{"command":"git status"}'
+
+        result = _sanitize_event_data(_ToolCallPartDelta())
+        assert isinstance(result, dict)
+        assert result["tool_call_id"] == "tc_2"
+        assert result["tool_name_delta"] == "run_shell_command"
+        assert result["args_delta"] == '{"command":"git status"}'
+
 
 class TestIsSuccessfulResult:
     def test_none(self):
