@@ -90,6 +90,15 @@ def handle_cd_command(command: str) -> bool:
         if os.path.isdir(target):
             os.chdir(target)
             emit_success(f"Changed directory to: {target}")
+            # Refresh the @file fuzzy index for the new cwd. Async/non-blocking;
+            # the prompt stays snappy and the next @completion sees fresh data.
+            try:
+                from code_puppy.command_line import file_index
+
+                file_index.reindex(target, blocking=False)
+            except Exception:
+                # Index is a nicety, not load-bearing. Never block /cd on it.
+                pass
             # Reload the agent so the system prompt and project-local
             # AGENT.md rules reflect the new working directory.  Without
             # this, the LLM keeps receiving stale path information for the
