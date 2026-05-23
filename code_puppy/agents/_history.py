@@ -126,6 +126,40 @@ def estimate_tokens_for_message(
     return _apply_multiplier(max(1, total), model_name)
 
 
+def _extract_tool_description(tool_obj: Any) -> str:
+    """Pull the human-readable description off a tool, regardless of shape.
+
+    Handles both pydantic-ai ``Tool`` objects (``.description`` /
+    ``.function_schema.description``) and bare callables (``__doc__``).
+    """
+    desc = getattr(tool_obj, "description", None)
+    if desc:
+        return desc
+    fs = getattr(tool_obj, "function_schema", None)
+    if fs is not None:
+        fs_desc = getattr(fs, "description", None)
+        if fs_desc:
+            return fs_desc
+    doc = getattr(tool_obj, "__doc__", None) or ""
+    # Skip the generic class-level docstring pydantic-ai's Tool exposes.
+    if doc and doc.strip().lower() == "a tool function for an agent.":
+        return ""
+    return doc or ""
+
+
+def _extract_tool_json_schema(tool_obj: Any) -> Optional[dict]:
+    """Pull the JSON schema off a tool, regardless of shape."""
+    fs = getattr(tool_obj, "function_schema", None)
+    if fs is not None:
+        schema = getattr(fs, "json_schema", None)
+        if isinstance(schema, dict):
+            return schema
+    schema = getattr(tool_obj, "schema", None)
+    if isinstance(schema, dict):
+        return schema
+    return None
+
+
 def estimate_context_overhead(
     system_prompt: str,
     pydantic_tools: Optional[Dict[str, Any]],
@@ -139,7 +173,10 @@ def estimate_context_overhead(
 
     Args:
         system_prompt: The already-resolved instruction/system prompt string.
-        pydantic_tools: The pydantic-ai agent's ``_tools`` dict, or ``None``.
+        pydantic_tools: A dict of ``{tool_name: tool_obj}``. ``tool_obj`` may be
+            a pydantic-ai ``Tool`` (has ``.description`` + ``.function_schema``)
+            or a bare callable (legacy shape — falls back to ``__doc__`` /
+            ``__annotations__``).
 
     Returns:
         Estimated total token overhead.
@@ -151,19 +188,18 @@ def estimate_context_overhead(
     if not pydantic_tools:
         return _apply_multiplier(total, model_name)
 
-    for tool_name, tool_func in pydantic_tools.items():
+    for tool_name, tool_obj in pydantic_tools.items():
         total += estimate_tokens(tool_name)
 
-        description = getattr(tool_func, "__doc__", None) or ""
+        description = _extract_tool_description(tool_obj)
         if description:
             total += estimate_tokens(description)
 
-        schema = getattr(tool_func, "schema", None)
+        schema = _extract_tool_json_schema(tool_obj)
         if schema is not None:
-            schema_str = json.dumps(schema) if isinstance(schema, dict) else str(schema)
-            total += estimate_tokens(schema_str)
+            total += estimate_tokens(json.dumps(schema))
         else:
-            annotations = getattr(tool_func, "__annotations__", None)
+            annotations = getattr(tool_obj, "__annotations__", None)
             if annotations:
                 total += estimate_tokens(str(annotations))
 

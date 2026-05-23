@@ -21,6 +21,7 @@ import pydantic_ai.models
 
 from code_puppy.agents._builder import (
     build_pydantic_agent,
+    build_tool_probe_for_agent,
     reload_mcp_servers,
 )
 from code_puppy.agents._compaction import summarize
@@ -43,6 +44,24 @@ should_retry_streaming_exception = should_retry_streaming
 __all__ = ["BaseAgent", "should_retry_streaming_exception"]
 
 
+def _extract_pydantic_agent_tools(pyd_agent: Any) -> Optional[Dict[str, Any]]:
+    """Return the registered tool dict for a pydantic-ai agent, or None.
+
+    Handles the modern shape (``agent._function_toolset.tools``) and falls
+    back to the legacy ``agent._tools`` attribute so older pydantic-ai
+    versions still work. Returns ``None`` when neither is populated.
+    """
+    if pyd_agent is None:
+        return None
+    fts = getattr(pyd_agent, "_function_toolset", None)
+    if fts is not None:
+        tools = getattr(fts, "tools", None)
+        if tools:
+            return tools
+    legacy = getattr(pyd_agent, "_tools", None)
+    return legacy or None
+
+
 class BaseAgent(ABC):
     """Abstract base for all Code Puppy agents."""
 
@@ -56,6 +75,11 @@ class BaseAgent(ABC):
         self._mcp_servers: List[Any] = []
         self.cur_model: Optional[pydantic_ai.models.Model] = None
         self.pydantic_agent: Any = None
+        # Cached probe agent used to count tool overhead before the real
+        # pydantic agent has been built. Keyed implicitly by ``_last_model_name``
+        # so model swaps invalidate it via ``_probe_model_name``.
+        self._tool_probe_agent: Any = None
+        self._probe_model_name: Optional[str] = None
 
     # ---- Abstract interface ------------------------------------------------
     @property
@@ -152,12 +176,29 @@ class BaseAgent(ABC):
         except Exception:
             resolved = system_prompt
 
-        tools = (
-            getattr(self.pydantic_agent, "_tools", None)
-            if self.pydantic_agent
-            else None
-        )
+        tools_source = self.pydantic_agent or self._get_tool_probe()
+        tools = _extract_pydantic_agent_tools(tools_source) if tools_source else None
         return estimate_context_overhead(resolved, tools, self.get_model_name())
+
+    def _get_tool_probe(self) -> Any:
+        """Lazily build (and cache) a tool-probe pydantic agent.
+
+        Used so context-window estimators can count tool docs/schemas even on a
+        fresh session, before the real pydantic agent has been constructed.
+        The probe is invalidated whenever the agent's effective model name
+        changes.
+        """
+        current_model = self.get_model_name()
+        if (
+            self._tool_probe_agent is not None
+            and self._probe_model_name == current_model
+        ):
+            return self._tool_probe_agent
+        probe = build_tool_probe_for_agent(self)
+        if probe is not None:
+            self._tool_probe_agent = probe
+            self._probe_model_name = current_model
+        return probe
 
     # ---- Orchestration (thin delegations) ---------------------------------
     def summarize_messages(
