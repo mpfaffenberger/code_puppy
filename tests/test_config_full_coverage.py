@@ -786,23 +786,23 @@ class TestPuppyToken:
 # ---------------------------------------------------------------------------
 class TestDiffColors:
     def test_default_addition_color(self):
+        # Default is now the ANSI name 'green' (was hex-coerced via
+        # _coerce_to_hex previously). Terminal palette decides actual pixels.
         cp_config.reset_value("highlight_addition_color")
-        assert cp_config.get_diff_addition_color() == "#0b1f0b"
+        assert cp_config.get_diff_addition_color() == "green"
 
     def test_set_addition_color(self):
-        # Rich color names are normalized to '#RRGGBB' hex on write so
-        # downstream renderers don't have to re-parse them.
+        # ANSI names are stored as-is (no more hex normalization).
         cp_config.set_diff_addition_color("green")
-        assert cp_config.get_diff_addition_color() == "#008000"
+        assert cp_config.get_diff_addition_color() == "green"
 
     def test_default_deletion_color(self):
         cp_config.reset_value("highlight_deletion_color")
-        assert cp_config.get_diff_deletion_color() == "#390e1a"
+        assert cp_config.get_diff_deletion_color() == "red"
 
     def test_set_deletion_color(self):
-        # Rich color names are normalized to '#RRGGBB' hex on write.
         cp_config.set_diff_deletion_color("red")
-        assert cp_config.get_diff_deletion_color() == "#800000"
+        assert cp_config.get_diff_deletion_color() == "red"
 
     def test_set_diff_highlight_style_noop(self):
         # Should not raise
@@ -814,9 +814,11 @@ class TestDiffColors:
 # ---------------------------------------------------------------------------
 class TestBannerColors:
     def test_get_default(self):
+        # 'thinking' banner default is now the ANSI name 'blue' (was
+        # 'deep_sky_blue4' in the 256-color era).
         cp_config.reset_value("banner_color_thinking")
         color = cp_config.get_banner_color("thinking")
-        assert color == "deep_sky_blue4"
+        assert color == "blue"
 
     def test_get_unknown_banner(self):
         assert cp_config.get_banner_color("nonexistent_banner") == "blue"
