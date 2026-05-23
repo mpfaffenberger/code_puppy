@@ -52,6 +52,28 @@ def _get_approval_async_lock() -> asyncio.Lock:
     return _APPROVAL_ASYNC_LOCK
 
 
+def _stdin_supports_interactive_approval() -> bool:
+    """Return True only when stdin can accept interactive approval input."""
+    stdin = getattr(sys, "stdin", None)
+    if stdin is None:
+        return False
+
+    isatty = getattr(stdin, "isatty", None)
+    if isatty is None:
+        return False
+
+    try:
+        return bool(isatty())
+    except Exception:
+        return False
+
+
+def _deny_noninteractive_approval(title: str) -> tuple[bool, None]:
+    """Fail closed when approval is requested without an interactive stdin."""
+    emit_warning(f"Approval for '{title}' rejected: stdin is not interactive.")
+    return False, None
+
+
 # Syntax highlighting imports for "syntax" diff mode
 try:
     from pygments import lex
@@ -1116,6 +1138,9 @@ def _get_user_approval_impl(
 
     from code_puppy.tools.command_runner import set_awaiting_user_input
 
+    if not _stdin_supports_interactive_approval():
+        return _deny_noninteractive_approval(title)
+
     if puppy_name is None:
         from code_puppy.config import get_puppy_name
 
@@ -1309,6 +1334,9 @@ async def _get_user_approval_async_impl(
 ) -> tuple[bool, str | None]:
     """Inner implementation of get_user_approval_async (lock-free)."""
     from code_puppy.tools.command_runner import set_awaiting_user_input
+
+    if not _stdin_supports_interactive_approval():
+        return _deny_noninteractive_approval(title)
 
     if puppy_name is None:
         from code_puppy.config import get_puppy_name
