@@ -608,6 +608,8 @@ async def get_input_with_combined_completion(
             UnpinCompleter(trigger="/unpin"),
             AgentCompleter(trigger="/agent"),
             AgentCompleter(trigger="/a"),
+            AgentCompleter(trigger="/switch-agent"),
+            AgentCompleter(trigger="/sa"),
             MCPCompleter(trigger="/mcp"),
             SkillsCompleter(trigger="/skills"),
             OllamaSetupCompleter(),
