@@ -37,20 +37,24 @@ from pydantic_ai.messages import (
 
 
 def _fireworks_key_available() -> bool:
-    """True if FIREWORKS_API_KEY is set via env OR in puppy.cfg."""
-    if os.environ.get("FIREWORKS_API_KEY"):
+    """True if SYNTHETIC_API_KEY is set via env OR in puppy.cfg.
+
+    Name kept for historical reasons; we now drive these tests through
+    ``synthetic-GLM-5.1`` since Fireworks deprecated the original route.
+    """
+    if os.environ.get("SYNTHETIC_API_KEY"):
         return True
     try:
         from code_puppy.model_factory import get_api_key
 
-        return bool(get_api_key("FIREWORKS_API_KEY"))
+        return bool(get_api_key("SYNTHETIC_API_KEY"))
     except Exception:
         return False
 
 
 pytestmark = pytest.mark.skipif(
     not _fireworks_key_available(),
-    reason="FIREWORKS_API_KEY not set (env or puppy.cfg); live compaction tests skipped.",
+    reason="SYNTHETIC_API_KEY not set (env or puppy.cfg); live compaction tests skipped.",
 )
 
 
@@ -216,7 +220,7 @@ def huge_history() -> List[ModelMessage]:
 
 @pytest.fixture
 def pinned_code_puppy_agent(monkeypatch):
-    """Fresh CodePuppyAgent pinned to firepass-kimi-k2p5-turbo.
+    """Fresh CodePuppyAgent pinned to synthetic-GLM-5.1.
 
     Uses monkeypatch to override the global model getter so we don't touch
     the user's on-disk config during the test run.
@@ -227,25 +231,23 @@ def pinned_code_puppy_agent(monkeypatch):
     from code_puppy.agents import base_agent as _base_agent_mod
     from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
+    test_model = "synthetic-GLM-5.1"
+
     # `from code_puppy.config import foo` captures a binding at import time, so
     # patching cp_config.foo alone doesnt propagate. Patch every site that
     # re-imports the model-name getters.
     for mod in (cp_config, _base_agent_mod):
         if hasattr(mod, "get_global_model_name"):
-            monkeypatch.setattr(
-                mod, "get_global_model_name", lambda: "firepass-kimi-k2p5-turbo"
-            )
+            monkeypatch.setattr(mod, "get_global_model_name", lambda: test_model)
         if hasattr(mod, "get_agent_pinned_model"):
-            monkeypatch.setattr(
-                mod, "get_agent_pinned_model", lambda _n: "firepass-kimi-k2p5-turbo"
-            )
+            monkeypatch.setattr(mod, "get_agent_pinned_model", lambda _n: test_model)
 
     # Summarization sub-agent has its own model resolver — patch it at the
     # dedicated summarization_model hook (the cleaner post-refactor path).
     monkeypatch.setattr(
         _sum_mod,
         "get_summarization_model_name",
-        lambda: "firepass-kimi-k2p5-turbo",
+        lambda: test_model,
     )
 
     # Disable MCP so the test doesn't try to connect to external MCP servers.
