@@ -194,24 +194,43 @@ class TestColorDictionaries:
     def test_addition_colors_structure(self):
         """Test structure and content of addition colors."""
         assert isinstance(ADDITION_COLORS, dict)
-        assert len(ADDITION_COLORS) > 10  # Should have many color options
+        # ANSI 16-slot vocabulary: small, deliberate palette. Previously
+        # asserted >10 when 256-color jewel-tones provided ~24 options.
+        assert len(ADDITION_COLORS) >= 3
 
+        _ALLOWED_ANSI = {
+            "black", "red", "green", "yellow",
+            "blue", "magenta", "cyan", "white",
+            "bright_black", "bright_red", "bright_green", "bright_yellow",
+            "bright_blue", "bright_magenta", "bright_cyan", "bright_white",
+            "default",
+        }
         for name, color in ADDITION_COLORS.items():
             assert isinstance(name, str)
             assert isinstance(color, str)
-            assert color.startswith("#")  # Should all be hex colors
-            assert len(color) == 7  # #RRGGBB format
+            assert color in _ALLOWED_ANSI, (
+                f"Addition color '{name}' = '{color}' is not an ANSI 16 name; "
+                f"this re-introduces palette lock-in."
+            )
 
     def test_deletion_colors_structure(self):
         """Test structure and content of deletion colors."""
         assert isinstance(DELETION_COLORS, dict)
-        assert len(DELETION_COLORS) > 10  # Should have many color options
+        assert len(DELETION_COLORS) >= 3
 
+        _ALLOWED_ANSI = {
+            "black", "red", "green", "yellow",
+            "blue", "magenta", "cyan", "white",
+            "bright_black", "bright_red", "bright_green", "bright_yellow",
+            "bright_blue", "bright_magenta", "bright_cyan", "bright_white",
+            "default",
+        }
         for name, color in DELETION_COLORS.items():
             assert isinstance(name, str)
             assert isinstance(color, str)
-            assert color.startswith("#")  # Should all be hex colors
-            assert len(color) == 7  # #RRGGBB format
+            assert color in _ALLOWED_ANSI, (
+                f"Deletion color '{name}' = '{color}' is not an ANSI 16 name."
+            )
 
     def test_color_names_are_readable(self):
         """Test that color names are human-readable."""
@@ -486,11 +505,11 @@ class TestColorMenuHandler:
     @patch("code_puppy.command_line.diff_menu._split_panel_selector")
     async def test_additions_color_menu(self, mock_selector):
         """Test additions color menu handling."""
-        mock_selector.return_value = "dark green"
+        mock_selector.return_value = "green"
 
         config = DiffConfiguration()
         # Use an actual color from ADDITION_COLORS so the marker will appear
-        config.current_add_color = ADDITION_COLORS["dark green"]  # "#0b3e0b"
+        config.current_add_color = ADDITION_COLORS["green"]
 
         await _handle_color_menu(config, "additions")
 
@@ -499,9 +518,11 @@ class TestColorMenuHandler:
         call_args = mock_selector.call_args
         assert "addition" in call_args[0][0].lower()  # Title should mention addition
 
-        # Should have more than 10 color choices
+        # ANSI palette is intentionally small; smoke-check there's a sensible
+        # number of choices (was ">10" when the palette was 256-color jewel
+        # tones; current ANSI vocabulary offers ~6 addition slots).
         choices = call_args[0][1]  # choices parameter
-        assert len(choices) > 10
+        assert len(choices) >= 3
 
         # Should include current color marker
         assert any("← current" in choice for choice in choices)
@@ -510,7 +531,7 @@ class TestColorMenuHandler:
     @patch("code_puppy.command_line.diff_menu._split_panel_selector")
     async def test_deletions_color_menu(self, mock_selector):
         """Test deletions color menu handling."""
-        mock_selector.return_value = "dark red"
+        mock_selector.return_value = "red"
 
         config = DiffConfiguration()
         config.current_del_color = "#oldred"
@@ -855,8 +876,8 @@ class TestIntegrationScenarios:
         )
 
         config = DiffConfiguration()
-        config.current_add_color = "#0b3e0b"  # "dark green" hex value
-        config.current_del_color = "#4a0f0f"  # "dark red" hex value
+        config.current_add_color = "green"
+        config.current_del_color = "red"
 
         # Generate preview for different languages
         for i in range(min(5, len(SUPPORTED_LANGUAGES))):

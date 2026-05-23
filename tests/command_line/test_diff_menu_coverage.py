@@ -449,7 +449,7 @@ class TestUpdatePreviewCallback:
 
         async def capture_selector(title, choices, on_change, get_preview, config=None):
             captured_callback[0] = on_change
-            return "dark green"  # Return a valid selection
+            return "green"  # Return a valid selection
 
         config = DiffConfiguration()
 
@@ -463,12 +463,12 @@ class TestUpdatePreviewCallback:
         assert captured_callback[0] is not None
 
         # Call the callback with a color choice
-        captured_callback[0]("dark green")
-        assert config.current_add_color == ADDITION_COLORS["dark green"]
+        captured_callback[0]("green")
+        assert config.current_add_color == ADDITION_COLORS["green"]
 
         # Test with " ← current" marker
-        captured_callback[0]("darker green ← current")
-        assert config.current_add_color == ADDITION_COLORS["darker green"]
+        captured_callback[0]("bright green ← current")
+        assert config.current_add_color == ADDITION_COLORS["bright green"]
 
     @pytest.mark.asyncio
     async def test_update_preview_sets_deletion_color(self):
@@ -477,7 +477,7 @@ class TestUpdatePreviewCallback:
 
         async def capture_selector(title, choices, on_change, get_preview, config=None):
             captured_callback[0] = on_change
-            return "dark red"
+            return "red"
 
         config = DiffConfiguration()
 
@@ -490,8 +490,8 @@ class TestUpdatePreviewCallback:
         assert captured_callback[0] is not None
 
         # Call the callback with a deletion color
-        captured_callback[0]("dark red")
-        assert config.current_del_color == DELETION_COLORS["dark red"]
+        captured_callback[0]("red")
+        assert config.current_del_color == DELETION_COLORS["red"]
 
     @pytest.mark.asyncio
     async def test_update_preview_with_unknown_color(self):
@@ -1011,7 +1011,7 @@ class TestColorMenuChoicesConstruction:
 
         config = DiffConfiguration()
         # Set current color to a known value from ADDITION_COLORS
-        config.current_add_color = ADDITION_COLORS["dark green"]
+        config.current_add_color = ADDITION_COLORS["green"]
 
         with patch(
             "code_puppy.command_line.diff_menu._split_panel_selector",
@@ -1023,7 +1023,7 @@ class TestColorMenuChoicesConstruction:
         # Should have a choice marked as current
         current_choices = [c for c in captured_choices[0] if "← current" in c]
         assert len(current_choices) == 1
-        assert "dark green" in current_choices[0]
+        assert "green" in current_choices[0]
 
     @pytest.mark.asyncio
     async def test_deletion_menu_includes_current_marker(self):
@@ -1036,7 +1036,7 @@ class TestColorMenuChoicesConstruction:
 
         config = DiffConfiguration()
         # Set current color to a known value from DELETION_COLORS
-        config.current_del_color = DELETION_COLORS["dark red"]
+        config.current_del_color = DELETION_COLORS["red"]
 
         with patch(
             "code_puppy.command_line.diff_menu._split_panel_selector",
@@ -1048,4 +1048,4 @@ class TestColorMenuChoicesConstruction:
         # Should have a choice marked as current
         current_choices = [c for c in captured_choices[0] if "← current" in c]
         assert len(current_choices) == 1
-        assert "dark red" in current_choices[0]
+        assert "red" in current_choices[0]

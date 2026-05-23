@@ -620,81 +620,36 @@ async def _split_panel_selector(
     return result[0]
 
 
+# Diff line-background colors offered by the interactive picker.
+#
+# ANSI 16-slot vocabulary only — the user's terminal palette controls the
+# actual pixels, so picker entries blend with whatever scheme the user runs
+# (Catppuccin, Solarized, Modus Vivendi/Operandi, Gruvbox, ...).
+#
+# Note: addition/deletion line color is *redundant* with the +/- glyphs
+# (WCAG 1.4.1: color is decoration, not the sole signal), so red/green is
+# defensible here even though red/green is CVD-hostile in isolation. Users
+# with red-green CVD still get correct diff semantics from the glyphs.
+#
+# Keys are the human-readable label shown in the picker; values are the
+# ANSI color names Rich consumes. The default ("green" / "red") matches
+# config._DEFAULT_DIFF_ADDITION / _DELETION.
 ADDITION_COLORS = {
-    # primary first (darkened)
-    "dark green": "#0b3e0b",
-    "darker green": "#0b1f0b",
-    "dark aqua": "#164952",
-    "deep teal": "#143f3c",
-    # blues (darkened)
-    "sky blue": "#406884",
-    "soft blue": "#315c78",
-    "steel blue": "#20394e",
-    "forest teal": "#124831",
-    "cool teal": "#1b4b54",
-    "marine aqua": "#275860",
-    "slate blue": "#304f69",
-    "deep steel": "#1e3748",
-    "shadow olive": "#2f3a15",
-    "deep moss": "#1f3310",
-    # G
-    "midnight spruce": "#0f3a29",
-    "shadow jade": "#0d4a3a",
-    # B
-    "abyss blue": "#0d2f4d",
-    "midnight fjord": "#133552",
-    # I
-    "dusky indigo": "#1a234d",
-    "nocturne indigo": "#161d3f",
-    # V
-    "midnight violet": "#2a1a3f",
-    "deep amethyst": "#3a2860",
+    "green": "green",
+    "bright green": "bright_green",
+    "cyan": "cyan",
+    "bright cyan": "bright_cyan",
+    "blue": "blue",
+    "bright blue": "bright_blue",
 }
 
 DELETION_COLORS = {
-    # primary first (darkened)
-    "dark red": "#4a0f0f",
-    # pinks / reds (darkened)
-    "pink": "#7f143b",
-    "soft red": "#741f3c",
-    "salmon": "#842848",
-    "rose": "#681c35",
-    "deep rose": "#4f1428",
-    # oranges (darkened)
-    "burnt orange": "#753b10",
-    "deep orange": "#5b2b0d",
-    # yellows (darkened)
-    "amber": "#69551c",
-    # reds (darkened)
-    "red": "#5d0b0b",
-    "ruby": "#5b141f",
-    "wine": "#390e1a",
-    # purples (darkened)
-    "purple": "#5a4284",
-    "soft purple": "#503977",
-    "violet": "#432758",
-    # ROYGBIV deletions (unchanged)
-    # R
-    "ember crimson": "#5a0e12",
-    "smoked ruby": "#4b0b16",
-    # O
-    "molten orange": "#70340c",
-    "baked amber": "#5c2b0a",
-    # Y
-    "burnt ochre": "#5a4110",
-    "tawny umber": "#4c3810",
-    # G
-    "swamp olive": "#3c3a14",
-    "bog green": "#343410",
-    # B
-    "dusky petrol": "#2a3744",
-    "warm slate": "#263038",
-    # I
-    "wine indigo": "#311b3f",
-    "mulberry dusk": "#3f1f52",
-    # V
-    "garnet plum": "#4a1e3a",
-    "dusky magenta": "#5a1f4c",
+    "red": "red",
+    "bright red": "bright_red",
+    "magenta": "magenta",
+    "bright magenta": "bright_magenta",
+    "yellow": "yellow",
+    "bright yellow": "bright_yellow",
 }
 
 
