@@ -106,10 +106,10 @@ class TestFormatBanner:
         """Banner should use the color from get_banner_color."""
         with patch(
             "code_puppy.command_line.shell_passthrough.get_banner_color",
-            return_value="medium_sea_green",
+            return_value="green",
         ):
             banner = _format_banner()
-            assert "medium_sea_green" in banner
+            assert "green" in banner
             assert "SHELL PASSTHROUGH" in banner
 
     def test_banner_name_constant(self):

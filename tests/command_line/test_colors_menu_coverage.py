@@ -45,9 +45,9 @@ class TestColorConfiguration:
 
     def test_set_current_banner_color(self):
         config = ColorConfiguration()
-        config.set_current_banner_color("red3")
+        config.set_current_banner_color("red")
         key = config.get_current_banner_key()
-        assert config.current_colors[key] == "red3"
+        assert config.current_colors[key] == "red"
 
     def test_next_banner(self):
         config = ColorConfiguration()

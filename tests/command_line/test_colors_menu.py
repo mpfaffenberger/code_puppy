@@ -88,51 +88,73 @@ class TestBannerSampleContent:
 
 
 class TestBannerColors:
-    """Test available banner colors."""
+    """Test available banner colors.
+
+    The picker palette is the ANSI 16-slot vocabulary so the user's terminal
+    theme controls the actual pixels. These tests assert each ANSI semantic
+    family is represented; specific compound names ("dodger blue",
+    "spring green", etc.) are intentionally NOT included — those would
+    bake in 256-color lock-in we explicitly avoid.
+    """
 
     def test_cool_colors_defined(self):
-        """Test that cool colors (blue, cyan, etc.) are defined."""
+        """Test that cool ANSI slots (blue, cyan) are defined."""
         cool_colors = [
             "blue",
-            "dark blue",
             "cyan",
-            "teal",
-            "dodger blue",
+            "bright blue",
+            "bright cyan",
         ]
         for color in cool_colors:
             assert color in BANNER_COLORS
 
     def test_warm_colors_defined(self):
-        """Test that warm colors (red, orange, etc.) are defined."""
+        """Test that warm ANSI slots (red, yellow) are defined."""
         warm_colors = [
             "red",
-            "orange",
+            "yellow",
+            "bright red",
+            "bright yellow",
         ]
         for color in warm_colors:
-            if color in BANNER_COLORS:  # Optional warm colors
-                assert BANNER_COLORS[color]
+            assert color in BANNER_COLORS
 
     def test_green_colors_defined(self):
-        """Test that green colors are defined."""
+        """Test that green ANSI slots are defined."""
         green_colors = [
             "green",
-            "dark green",
-            "sea green",
-            "spring green",
+            "bright green",
         ]
         for color in green_colors:
             assert color in BANNER_COLORS
 
     def test_purple_colors_defined(self):
-        """Test that purple colors are defined."""
+        """Test that magenta (purple-ish) ANSI slots are defined."""
         purple_colors = [
-            "purple",
-            "dark magenta",
-            "medium purple",
-            "dark violet",
+            "magenta",
+            "bright magenta",
         ]
         for color in purple_colors:
             assert color in BANNER_COLORS
+
+    def test_neutral_color_defined(self):
+        """Test that a neutral grey slot is defined."""
+        assert "grey" in BANNER_COLORS
+
+    def test_palette_uses_ansi_names_only(self):
+        """All palette values must be ANSI names (no truecolor hex, no 256-color names)."""
+        allowed_ansi = {
+            "black", "red", "green", "yellow",
+            "blue", "magenta", "cyan", "white",
+            "bright_black", "bright_red", "bright_green", "bright_yellow",
+            "bright_blue", "bright_magenta", "bright_cyan", "bright_white",
+            "default",
+        }
+        for label, value in BANNER_COLORS.items():
+            assert value in allowed_ansi, (
+                f"Banner color '{label}' = '{value}' is not an ANSI 16 name; "
+                f"this re-introduces palette lock-in."
+            )
 
     def test_colors_have_valid_values(self):
         """Test that all colors have non-empty string values."""

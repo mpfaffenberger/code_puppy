@@ -61,54 +61,35 @@ BANNER_SAMPLE_CONTENT = {
     "llm_judge": "🎯 Verdict: Complete ✅\nGoal verified — all tests pass.",
 }
 
-# Available background colors grouped by theme
+# Banner background colors offered by the interactive picker.
+#
+# ANSI 16-slot vocabulary only — the user's terminal palette (Catppuccin,
+# Solarized, Modus Vivendi/Operandi, Gruvbox, ...) controls the actual
+# pixels, so picker entries blend with whatever scheme the user runs.
+#
+# Notes:
+#   * `black` and `white` are omitted: they collide with terminal bg
+#     defaults on dark or light themes respectively.
+#   * `bright_*` variants are offered as a separate group; they read as
+#     more vivid backgrounds in most palettes.
+#   * Keys are the human-readable label shown in the picker; values are
+#     the ANSI color names Rich consumes.
 BANNER_COLORS = {
-    # Cool colors
+    # Base 8 ANSI colors
+    "red": "red",
+    "green": "green",
+    "yellow": "yellow",
     "blue": "blue",
-    "dark blue": "dark_blue",
-    "navy blue": "navy_blue",
-    "deep sky blue": "deep_sky_blue4",
-    "steel blue": "steel_blue",
-    "dodger blue": "dodger_blue3",
-    # Cyans & Teals
-    "dark cyan": "dark_cyan",
-    "cyan": "cyan4",
-    "teal": "dark_turquoise",
-    "aquamarine": "aquamarine1",
-    # Greens
-    "green": "green4",
-    "dark green": "dark_green",
-    "sea green": "dark_sea_green4",
-    "spring green": "spring_green4",
-    "chartreuse": "chartreuse4",
-    # Purples & Magentas
-    "purple": "purple",
-    "dark magenta": "dark_magenta",
-    "medium purple": "medium_purple4",
-    "dark violet": "dark_violet",
-    "plum": "plum4",
-    "orchid": "dark_orchid",
-    # Reds & Oranges
-    "red": "red3",
-    "dark red": "dark_red",
-    "indian red": "indian_red",
-    "orange red": "orange_red1",
-    "orange": "dark_orange3",
-    # Yellows & Golds
-    "gold": "gold3",
-    "dark goldenrod": "dark_goldenrod",
-    "olive": "dark_olive_green3",
-    # Grays
-    "grey30": "grey30",
-    "grey37": "grey37",
-    "grey42": "grey42",
-    "grey50": "grey50",
-    "grey58": "grey58",
-    "dark slate gray": "dark_slate_gray3",
-    # Pink tones
-    "hot pink": "hot_pink3",
-    "deep pink": "deep_pink4",
-    "pale violet red": "pale_violet_red1",
+    "magenta": "magenta",
+    "cyan": "cyan",
+    "grey": "bright_black",  # ANSI "bright black" == the grey slot
+    # Bright variants
+    "bright red": "bright_red",
+    "bright green": "bright_green",
+    "bright yellow": "bright_yellow",
+    "bright blue": "bright_blue",
+    "bright magenta": "bright_magenta",
+    "bright cyan": "bright_cyan",
 }
 
 

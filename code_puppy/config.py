@@ -1482,36 +1482,45 @@ def set_diff_deletion_color(color: str):
 # =============================================================================
 
 # Default banner colors (Rich color names)
-# A beautiful jewel-tone palette with semantic meaning:
-#   - Blues/Teals: Reading & navigation (calm, informational)
-#   - Warm tones: Actions & changes (edits, shell commands)
-#   - Purples: AI thinking & reasoning (the "brain" colors)
-#   - Greens: Completions & success
-#   - Neutrals: Search & listings
+# Banner background colors. ANSI base names only — the user's terminal
+# palette (Catppuccin, Solarized, Modus, Gruvbox, ...) decides the actual
+# pixels, so banners blend with whatever the user has chosen.
+#
+# Banner-color semantics are kept ("thinking is bluish", "file edits are
+# warm", "reasoning is purplish") but expressed in the ANSI 16-slot
+# vocabulary instead of the old 256-color jewel-tone names. Notes:
+#
+#   * No `bright_*` variants in defaults: brights tend to be highly
+#     saturated in most terminal palettes and read as garish backgrounds
+#     even on dark themes. Plain `red`/`blue`/etc. behave better as bg.
+#   * `black` and `white` are deliberately avoided: they collide with
+#     terminal background defaults on either dark or light themes.
+#   * Users can still override per-banner via `set_banner_color(...)` if
+#     they want a bright variant.
 DEFAULT_BANNER_COLORS = {
-    "thinking": "deep_sky_blue4",  # Sapphire - contemplation
-    "agent_response": "medium_purple4",  # Amethyst - main AI output
-    "shell_command": "dark_orange3",  # Amber - system commands
-    "read_file": "steel_blue",  # Steel - reading files
-    "edit_file": "dark_goldenrod",  # Gold - modifications (legacy)
-    "create_file": "dark_goldenrod",  # Gold - file creation
-    "replace_in_file": "dark_goldenrod",  # Gold - file modifications
-    "delete_snippet": "dark_goldenrod",  # Gold - snippet removal
-    "grep": "grey37",  # Silver - search results
-    "directory_listing": "dodger_blue2",  # Sky - navigation
-    "agent_reasoning": "dark_violet",  # Violet - deep thought
-    "invoke_agent": "deep_pink4",  # Ruby - agent invocation
-    "subagent_response": "sea_green3",  # Emerald - sub-agent success
-    "list_agents": "dark_slate_gray3",  # Slate - neutral listing
-    "universal_constructor": "dark_cyan",  # Teal - constructing tools
-    # Browser/Terminal tools - same color as edit_file (gold)
-    "terminal_tool": "dark_goldenrod",  # Gold - browser terminal operations
-    # MCP tools - distinct from builtin tools
-    "mcp_tool_call": "dark_cyan",  # Teal - external MCP tool calls
-    # User-initiated shell pass-through (! prefix) - distinct from agent's shell_command
-    "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
-    # LLM Judge - goal-mode verdict (distinct from agent reasoning)
-    "llm_judge": "gold3",  # Gold - judicial authority / gavel
+    "thinking": "blue",  # contemplation
+    "agent_response": "magenta",  # main AI output (purple-ish slot)
+    "shell_command": "yellow",  # system commands (warm)
+    "read_file": "blue",  # reading files
+    "edit_file": "yellow",  # modifications (warm)
+    "create_file": "yellow",  # file creation
+    "replace_in_file": "yellow",  # file modifications
+    "delete_snippet": "yellow",  # snippet removal
+    "grep": "bright_black",  # search results (neutral)
+    "directory_listing": "blue",  # navigation
+    "agent_reasoning": "magenta",  # deep thought
+    "invoke_agent": "red",  # agent invocation (attention)
+    "subagent_response": "green",  # sub-agent success
+    "list_agents": "cyan",  # neutral listing
+    "universal_constructor": "cyan",  # constructing tools
+    # Browser/Terminal tools - same color slot as edit_file
+    "terminal_tool": "yellow",  # browser terminal operations
+    # MCP tools - distinct slot from builtin tools (still cool-ish)
+    "mcp_tool_call": "cyan",  # external MCP tool calls
+    # User-initiated shell pass-through (! prefix) - distinct from agent's
+    "shell_passthrough": "green",  # user's own shell commands
+    # LLM Judge - goal-mode verdict
+    "llm_judge": "yellow",  # judicial authority / gavel
 }
 
 
@@ -1528,7 +1537,7 @@ def get_banner_color(banner_name: str) -> str:
     val = get_value(config_key)
     if val:
         return val
-    return DEFAULT_BANNER_COLORS.get(banner_name, "blue")
+        return DEFAULT_BANNER_COLORS.get(banner_name, "blue")
 
 
 def set_banner_color(banner_name: str, color: str):
