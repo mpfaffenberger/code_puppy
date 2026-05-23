@@ -8,7 +8,12 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 200000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p"
+    ],
+    "description": "\ud83d\ude80 Synthetic-hosted GLM-5.1. Strong general coding and analysis with big context."
   },
   "synthetic-GLM-5": {
     "type": "custom_openai",
@@ -19,7 +24,12 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 200000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p"
+    ],
+    "description": "\u26a1 Synthetic-hosted GLM-5. Fast coding helper for day-to-day tasks."
   },
   "synthetic-MiniMax-M2.5": {
     "type": "custom_openai",
@@ -30,7 +40,12 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 195000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p"
+    ],
+    "description": "\ud83e\udde9 Synthetic-hosted MiniMax M2.5. Useful alternative model for mixed workloads."
   },
   "synthetic-qwen3.5-397b": {
     "type": "custom_openai",
@@ -41,7 +56,12 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 262144,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p"
+    ],
+    "description": "\ud83e\udde0 Synthetic-hosted Qwen 3.5 397B. Big-model reasoning when you need extra depth."
   },
   "synthetic-Kimi-K2.5-Thinking": {
     "type": "custom_openai",
@@ -52,7 +72,12 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 256000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p"
+    ],
+    "description": "\ud83e\udd14 Synthetic-hosted Kimi K2.5 Thinking. Good for deliberate multi-step reasoning."
   },
   "synthetic-Kimi-K2.5-Thinking-NVFP4": {
     "type": "custom_openai",
@@ -63,7 +88,12 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 256000,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p"
+    ],
+    "description": "\u2699\ufe0f Synthetic-hosted Kimi K2.5 NVFP4. Optimized variant for efficient throughput."
   },
   "synthetic-NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4": {
     "type": "custom_openai",
@@ -74,7 +104,12 @@
       "api_key": "$SYN_API_KEY"
     },
     "context_length": 131072,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p"
+    ],
+    "description": "\ud83d\udee0\ufe0f Synthetic-hosted Nemotron 120B NVFP4. Balanced speed and capability for coding."
   },
   "wafer.ai-glm-5.1": {
     "type": "custom_openai",
@@ -85,7 +120,13 @@
       "api_key": "$WAFER_API_KEY"
     },
     "context_length": 200000,
-    "supported_settings": ["temperature", "seed", "top_p", "max_tokens"]
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p",
+      "max_tokens"
+    ],
+    "description": "\ud83c\udf10 Wafer pass-through GLM-5.1. Handy if you route traffic through Wafer."
   },
   "wafer.ai-Qwen3.5-397B-A17B": {
     "type": "custom_openai",
@@ -96,9 +137,14 @@
       "api_key": "$WAFER_API_KEY"
     },
     "context_length": 262144,
-    "supported_settings": ["temperature", "seed", "top_p", "max_tokens"]
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p",
+      "max_tokens"
+    ],
+    "description": "\ud83d\udcda Wafer pass-through Qwen3.5-397B. Large-context option via Wafer gateway."
   },
-
   "firepass-kimi-k2p5-turbo": {
     "type": "custom_openai",
     "provider": "firepass",
@@ -108,7 +154,12 @@
       "api_key": "$FIREWORKS_API_KEY"
     },
     "context_length": 262144,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p"
+    ],
+    "description": "\ud83d\udd25 Firepass Kimi K2.5 Turbo. Lower-latency Kimi route for quick responses."
   },
   "firepass-kimi-k2p6": {
     "type": "custom_openai",
@@ -119,7 +170,12 @@
       "api_key": "$FIREWORKS_API_KEY"
     },
     "context_length": 262144,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p"
+    ],
+    "description": "\ud83d\udd25 Firepass Kimi K2.6. Newer Kimi router variant with solid coding quality."
   },
   "crof-kimi-k2.5-lightning": {
     "type": "custom_openai",
@@ -130,48 +186,77 @@
       "api_key": "$CROF_API_KEY"
     },
     "context_length": 131072,
-    "supported_settings": ["temperature", "seed", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p"
+    ],
+    "description": "\u26a1 Crof Kimi K2.5 Lightning. Cost-aware and quick for iterative edits."
   },
   "zai-glm-5-coding": {
     "type": "zai_coding",
     "provider": "zai",
     "name": "glm-5",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "top_p"
+    ],
+    "description": "\u26a1 GLM-5 coding endpoint. Fast code generation and refactors without overthinking."
   },
   "zai-glm-5-api": {
     "type": "zai_api",
     "provider": "zai",
     "name": "glm-5",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "top_p"
+    ],
+    "description": "\ud83e\udd14 GLM-5 API variant. Better when you want richer reasoning behavior."
   },
   "zai-glm-5-turbo-coding": {
     "type": "zai_coding",
     "provider": "zai",
     "name": "glm-5-turbo",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "top_p"
+    ],
+    "description": "\ud83d\ude80 GLM-5 Turbo coding endpoint. Speed-first option for high-volume coding."
   },
   "zai-glm-5-turbo-api": {
     "type": "zai_api",
     "provider": "zai",
     "name": "glm-5-turbo",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "top_p"
+    ],
+    "description": "\ud83d\ude80 GLM-5 Turbo API endpoint. Fast general-purpose option with strong throughput."
   },
   "zai-glm-5.1-coding": {
     "type": "zai_coding",
     "provider": "zai",
     "name": "glm-5.1",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "top_p"
+    ],
+    "description": "\ud83c\udd95 GLM-5.1 coding endpoint. Latest coding-focused GLM flavor."
   },
   "zai-glm-5.1-api": {
     "type": "zai_api",
     "provider": "zai",
     "name": "glm-5.1",
     "context_length": 200000,
-    "supported_settings": ["temperature", "top_p"]
+    "supported_settings": [
+      "temperature",
+      "top_p"
+    ],
+    "description": "\ud83c\udd95 GLM-5.1 API endpoint. Latest general GLM option with broad capability."
   }
 }

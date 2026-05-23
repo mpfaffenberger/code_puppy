@@ -485,6 +485,43 @@ class ModelFactory:
                 f"Failed to load plugin models config: {exc}"
             )
 
+        # Final pass: apply description-only overlays from bundled + plugins.
+        # This avoids shallow update() calls clobbering remote model settings.
+        try:
+            from code_puppy.model_descriptions import apply_description_overlays
+
+            bundled_models = pathlib.Path(__file__).parent / "models.json"
+            with open(bundled_models, "r") as f:
+                bundled_config = json.load(f)
+
+            bundled_descriptions = {
+                name: (cfg.get("description") or "")
+                for name, cfg in bundled_config.items()
+                if isinstance(cfg, dict)
+            }
+
+            plugin_descriptions: dict[str, str] = {}
+            try:
+                from code_puppy.callbacks import on_load_model_descriptions
+
+                for result in on_load_model_descriptions():
+                    if isinstance(result, dict):
+                        plugin_descriptions.update(result)
+            except Exception as exc:
+                logging.getLogger(__name__).debug(
+                    f"Failed to load plugin model descriptions: {exc}"
+                )
+
+            apply_description_overlays(
+                config,
+                bundled_descriptions,
+                plugin_descriptions,
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                f"Failed to apply model description overlays: {exc}"
+            )
+
         return config
 
     @staticmethod

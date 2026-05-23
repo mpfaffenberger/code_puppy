@@ -11,7 +11,7 @@ class TestLoadModelNames:
         from code_puppy.command_line.model_picker_completion import load_model_names
 
         with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
+            "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}, "claude-3": {}},
         ):
             result = load_model_names()
@@ -51,7 +51,7 @@ class TestModelNameCompleter:
         from code_puppy.command_line.model_picker_completion import ModelNameCompleter
 
         with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
+            "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}},
         ):
             c = ModelNameCompleter(trigger="/model")
@@ -63,8 +63,11 @@ class TestModelNameCompleter:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
-                return_value={"gpt-4": {}, "claude-3": {}},
+                "code_puppy.command_line.model_picker_completion._load_models_config",
+                return_value={
+                    "gpt-4": {"description": "Fast all-round model"},
+                    "claude-3": {"description": "Deep reasoning model"},
+                },
             ),
             patch(
                 "code_puppy.command_line.model_picker_completion.get_active_model",
@@ -74,17 +77,42 @@ class TestModelNameCompleter:
             c = ModelNameCompleter(trigger="/model")
             completions = list(c.get_completions(self._make_doc("/model "), None))
             assert len(completions) == 2
-            # Check that the active model has "(selected)" meta
-            metas = {c.text: str(c.display_meta) for c in completions}
-            assert "selected" in metas["gpt-4"]
-            assert "selected" not in metas["claude-3"]
+            metas = {
+                completion.text: str(completion.display_meta)
+                for completion in completions
+            }
+            assert "✓" in metas["gpt-4"]
+            assert "Fast all-round model" in metas["gpt-4"]
+            assert "Deep reasoning model" in metas["claude-3"]
+
+    def test_uses_fallback_description_when_missing(self):
+        from code_puppy.command_line.model_picker_completion import ModelNameCompleter
+
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion._load_models_config",
+                return_value={"gpt-4": {}, "claude-3": {"description": ""}},
+            ),
+            patch(
+                "code_puppy.command_line.model_picker_completion.get_active_model",
+                return_value="gpt-4",
+            ),
+        ):
+            c = ModelNameCompleter(trigger="/model")
+            completions = list(c.get_completions(self._make_doc("/model "), None))
+            metas = {
+                completion.text: str(completion.display_meta)
+                for completion in completions
+            }
+            assert "No description available." in metas["gpt-4"]
+            assert "No description available." in metas["claude-3"]
 
     def test_filters_by_prefix(self):
         from code_puppy.command_line.model_picker_completion import ModelNameCompleter
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}, "claude-3": {}},
             ),
             patch(
@@ -163,7 +191,7 @@ class TestUpdateModelInInput:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -182,7 +210,7 @@ class TestUpdateModelInInput:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -205,7 +233,7 @@ class TestUpdateModelInInput:
         )
 
         with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
+            "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}},
         ):
             assert update_model_in_input("/model xyz") is None
@@ -216,7 +244,7 @@ class TestUpdateModelInInput:
         )
 
         with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
+            "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}},
         ):
             assert update_model_in_input("/m xyz") is None
@@ -228,7 +256,7 @@ class TestUpdateModelInInput:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -413,7 +441,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -436,7 +464,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -463,7 +491,7 @@ class TestGetInputWithModelCompletion:
         hfile = str(tmp_path / "history.txt")
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={},
             ),
             patch(
@@ -488,7 +516,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -515,7 +543,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -532,7 +560,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
