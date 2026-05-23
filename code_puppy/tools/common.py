@@ -553,17 +553,32 @@ def should_ignore_dir_path(path: str) -> bool:
 # ============================================================================
 
 # Token → ANSI color name mapping. Pure ANSI so that whatever palette the
-# user has loaded in their terminal (Catppuccin, Solarized, Gruvbox, a
-# high-contrast / color-blind preset, ...) is what actually shows up. No
-# truecolor hex, no "taste" — we trust the user's terminal.
+# user has loaded in their terminal (Catppuccin, Solarized, Gruvbox, Modus
+# Operandi/Vivendi, ...) is what actually shows up. No truecolor hex, no
+# "taste" — we trust the user's terminal.
+#
+# Color choices prioritize colorblind accessibility (WCAG 1.4.1):
+#   1. Bias toward the blue/yellow axis, which survives every common form
+#      of color vision deficiency (deuter-, prot-, trit-anopia).
+#   2. Avoid red/green as a primary contrast (CVD-hostile pair).
+#   3. Don't reuse the same color for unrelated token types. The previous
+#      map had `magenta` doing triple duty (Keyword, Number, Operator),
+#      collapsing three distinct semantic categories into one visual one.
+#   4. Let Operator fall back to `default` — the terminal's default fg
+#      has guaranteed contrast against the bg by construction, and most
+#      operators are syntactic noise that doesn't benefit from coloring.
+#
+# Note: line-level diff coloring still uses red/green, but that's defensible
+# because the +/- glyphs provide the primary signal; color is redundant
+# decoration there (satisfies WCAG 1.4.1).
 TOKEN_COLORS = {
-    Token.Keyword: "magenta",
+    Token.Keyword: "blue",
     Token.Name.Builtin: "cyan",
-    Token.Name.Function: "green",
+    Token.Name.Function: "bright_blue",
     Token.String: "yellow",
-    Token.Number: "magenta",
+    Token.Number: "bright_cyan",
     Token.Comment: "bright_black",
-    Token.Operator: "magenta",
+    Token.Operator: "default",
 }
 
 EXTENSION_TO_LEXER_NAME = {

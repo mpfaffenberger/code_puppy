@@ -39,6 +39,7 @@ __all__ = [
     "detect_terminal_bg",
     "resolve_code_theme",
     "current_code_theme",
+    "install_accessible_markdown_styles",
 ]
 
 TerminalBackground = Literal["light", "dark"]
@@ -117,6 +118,43 @@ def resolve_code_theme(configured: Optional[str] = None) -> str:
         return configured.strip()
     bg = detect_terminal_bg()
     return "ansi_light" if bg == "light" else "ansi_dark"
+
+
+def install_accessible_markdown_styles() -> None:
+    """Patch Rich's default ``markdown.code`` / ``markdown.kbd`` styles.
+
+    Rich ships ``markdown.code`` as ``bold cyan on black`` and
+    ``markdown.kbd`` as ``bold bright_yellow``. Both bake in specific ANSI
+    slots that can collide with the user's theme. Concrete failure mode:
+    Catppuccin Latte renders ANSI ``cyan`` as a greenish teal and ANSI
+    ``black`` as a soft grey, which together produce an unreadable
+    green-on-grey — catastrophic for users with red–green color vision
+    deficiency (deuteranopia / protanopia, ~8% of men).
+
+    The fix: replace both with ``Style(bold=True, reverse=True)``. Reverse
+    swaps the terminal's *own* foreground/background pair, which is
+    readable by construction (the user already chose a legible default).
+    No color slot is selected, so no theme can mismatch it. Bold provides
+    a redundant non-color signal that this region is code, satisfying
+    WCAG 1.4.1 ("use of color").
+
+    Idempotent. Mutates ``rich.themes.DEFAULT.styles`` directly so every
+    subsequently-created ``Console`` inherits the patched values without
+    each call site having to know.
+
+    Must be called *before* any ``rich.console.Console`` is instantiated
+    if you want existing-process consoles to pick up the new styles
+    (Consoles snapshot a reference to ``themes.DEFAULT`` at construction
+    time, but since they consult ``.styles`` lazily at render time,
+    mutating the dict in place propagates anyway). Practically: call from
+    package ``__init__.py``.
+    """
+    from rich import themes
+    from rich.style import Style
+
+    accessible = Style(bold=True, reverse=True)
+    themes.DEFAULT.styles["markdown.code"] = accessible
+    themes.DEFAULT.styles["markdown.kbd"] = accessible
 
 
 def current_code_theme() -> str:
