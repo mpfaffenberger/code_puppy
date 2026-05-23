@@ -8,7 +8,6 @@ from code_puppy.tools.common import (
     FILE_IGNORE_PATTERNS,
     IGNORE_PATTERNS,
     _find_best_window,
-    brighten_hex,
     generate_group_id,
     should_ignore_dir_path,
     should_ignore_path,
@@ -179,40 +178,6 @@ class TestCommonExtended:
             assert isinstance(result, bool)
 
     # ==================== Helper Utilities Tests ====================
-
-    def test_brighten_hex(self):
-        """Test hex color brightening function."""
-        # Test basic color brightening - actually it doesn't change with factor 0.5
-        # The function might have different behavior than expected
-        result = brighten_hex("#ff0000", 0.5)
-        assert result.startswith("#")
-        assert len(result) == 7
-
-        # Test no change (factor = 0)
-        result = brighten_hex("#ff0000", 0)
-        assert result.startswith("#")
-        assert len(result) == 7
-
-        # Test edge cases
-        result = brighten_hex("#ffffff", 1.0)  # Should cap at 255
-        assert result.startswith("#")
-        assert len(result) == 7
-
-        # Test lowercase handling
-        result = brighten_hex("FF0000", 0.5)
-        assert result.startswith("#")
-        assert len(result) == 7
-
-        # Test invalid input - brighten_hex has mixed error handling
-        result = brighten_hex("ff0000", 0.5)  # Missing # - handles gracefully
-        assert isinstance(result, str)
-
-        # Some invalid inputs do raise errors
-        with pytest.raises(ValueError):
-            brighten_hex("#ff00", 0.5)  # Too short
-
-        with pytest.raises(ValueError):
-            brighten_hex("#ff0000gg", 0.5)  # Invalid hex
 
     def test_generate_group_id(self):
         """Test group ID generation."""

@@ -1433,89 +1433,48 @@ def set_diff_highlight_style(style: str):
     pass
 
 
-# Defaults for diff highlight colors — single source of truth.
-_DEFAULT_DIFF_ADDITION_HEX = "#0b1f0b"  # darker green
-_DEFAULT_DIFF_DELETION_HEX = "#390e1a"  # wine
-
-
-def _coerce_to_hex(value: Optional[str], fallback: str) -> str:
-    """Normalize any color string to '#RRGGBB'.
-
-    Accepts:
-      - '#RRGGBB' hex strings (any case) — returned lowercased.
-      - Rich color names like 'green', 'orange1', 'bright_red'.
-      - 'rgb(r,g,b)' forms that Rich understands.
-
-    Anything Rich can't parse (including None/empty) falls back to ``fallback``.
-    This keeps downstream consumers like ``brighten_hex`` happy — they only
-    ever see a well-formed #RRGGBB string.
-    """
-    if not value:
-        return fallback
-    candidate = value.strip()
-    # Fast-path: already a valid #RRGGBB.
-    if (
-        len(candidate) == 7
-        and candidate.startswith("#")
-        and all(c in "0123456789abcdefABCDEF" for c in candidate[1:])
-    ):
-        return candidate.lower()
-    # Otherwise try Rich's parser (handles named colors, rgb(), etc.).
-    try:
-        from rich.color import Color  # local import keeps module import cheap
-
-        triplet = Color.parse(candidate).get_truecolor()
-        return f"#{triplet.red:02x}{triplet.green:02x}{triplet.blue:02x}"
-    except Exception:
-        return fallback
+# Defaults for diff highlight colors — ANSI color names so the user's
+# terminal palette governs how they actually render.
+_DEFAULT_DIFF_ADDITION = "green"
+_DEFAULT_DIFF_DELETION = "red"
 
 
 def get_diff_addition_color() -> str:
-    """Get the base color for diff additions, always as a valid '#RRGGBB' hex.
+    """Get the color for diff additions (ANSI name, hex, or any Rich color).
 
-    Falls back to the default darker green if the configured value is missing
-    or unparseable.
+    Falls back to ``"green"`` if unset. The value is returned verbatim so
+    Rich can interpret it per the user's terminal palette — we don't coerce
+    ANSI names into truecolor hex (that would silently override Catppuccin,
+    Solarized, etc.).
     """
-    return _coerce_to_hex(
-        get_value("highlight_addition_color"), _DEFAULT_DIFF_ADDITION_HEX
-    )
+    return get_value("highlight_addition_color") or _DEFAULT_DIFF_ADDITION
 
 
 def set_diff_addition_color(color: str):
     """Set the color for diff additions.
 
-    Accepts '#RRGGBB' hex, Rich color names ('green', 'bright_green', ...), or
-    'rgb(r,g,b)'. The value is normalized to '#RRGGBB' before being written so
-    downstream renderers never see a raw name.
+    Stored verbatim. Recommended values are ANSI names like ``"green"`` or
+    ``"bright_green"`` so the user's terminal theme stays in control.
     """
-    set_config_value(
-        "highlight_addition_color",
-        _coerce_to_hex(color, _DEFAULT_DIFF_ADDITION_HEX),
-    )
+    set_config_value("highlight_addition_color", color)
 
 
 def get_diff_deletion_color() -> str:
-    """Get the base color for diff deletions, always as a valid '#RRGGBB' hex.
+    """Get the color for diff deletions (ANSI name, hex, or any Rich color).
 
-    Falls back to the default wine if the configured value is missing or
-    unparseable.
+    Falls back to ``"red"`` if unset. The value is returned verbatim so
+    Rich can interpret it per the user's terminal palette.
     """
-    return _coerce_to_hex(
-        get_value("highlight_deletion_color"), _DEFAULT_DIFF_DELETION_HEX
-    )
+    return get_value("highlight_deletion_color") or _DEFAULT_DIFF_DELETION
 
 
 def set_diff_deletion_color(color: str):
     """Set the color for diff deletions.
 
-    Accepts '#RRGGBB' hex, Rich color names ('red', 'orange1', ...), or
-    'rgb(r,g,b)'. The value is normalized to '#RRGGBB' before being written so
-    downstream renderers never see a raw name.
+    Stored verbatim. Recommended values are ANSI names like ``"red"`` or
+    ``"bright_red"`` so the user's terminal theme stays in control.
     """
-    set_config_value(
-        "highlight_deletion_color",
-        _coerce_to_hex(color, _DEFAULT_DIFF_DELETION_HEX),
-    )
+    set_config_value("highlight_deletion_color", color)
 
 
 # =============================================================================

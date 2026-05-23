@@ -16,7 +16,6 @@ from unittest.mock import patch
 from code_puppy.tools.common import (
     DIR_IGNORE_PATTERNS,
     FILE_IGNORE_PATTERNS,
-    brighten_hex,
     format_diff_with_colors,
     generate_group_id,
     should_ignore_dir_path,
@@ -312,77 +311,6 @@ class TestDiffFormatting:
         assert result is not None
 
 
-class TestBrightenHex:
-    """Test hex color brightening function."""
-
-    def test_brighten_hex_basic(self):
-        """Test basic hex color brightening."""
-        result = brighten_hex("#000000", 0.2)
-        assert isinstance(result, str)
-        assert result.startswith("#")
-        assert len(result) == 7  # #RRGGBB format
-
-    def test_brighten_hex_white_unchanged(self):
-        """Test that white color is not brightened beyond limits."""
-        result = brighten_hex("#FFFFFF", 0.5)
-        assert isinstance(result, str)
-        assert result.startswith("#")
-
-    def test_brighten_hex_gray_becomes_lighter(self):
-        """Test that gray becomes lighter when brightened."""
-        original = "#808080"
-        result = brighten_hex(original, 0.3)
-        # Result should be a valid hex color
-        assert isinstance(result, str)
-        assert result.startswith("#")
-        assert len(result) == 7
-
-    def test_brighten_hex_zero_factor(self):
-        """Test brightening with zero factor (no change)."""
-        color = "#FF0000"
-        result = brighten_hex(color, 0.0)
-        # Should not change
-        assert isinstance(result, str)
-        assert result.startswith("#")
-
-    def test_brighten_hex_negative_factor(self):
-        """Test brightening with negative factor (darken)."""
-        color = "#FF0000"
-        result = brighten_hex(color, -0.2)
-        # Should return a valid hex color even with negative
-        assert isinstance(result, str)
-        assert result.startswith("#")
-
-    def test_brighten_hex_large_factor(self):
-        """Test brightening with large factor (cap at white)."""
-        color = "#808080"
-        result = brighten_hex(color, 10.0)
-        # Should cap at white
-        assert isinstance(result, str)
-        assert result.startswith("#")
-
-    def test_brighten_hex_various_colors(self):
-        """Test brightening various colors."""
-        colors = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF"]
-        for color in colors:
-            result = brighten_hex(color, 0.2)
-            assert isinstance(result, str)
-            assert result.startswith("#")
-            assert len(result) == 7
-
-    def test_brighten_hex_invalid_input_handling(self):
-        """Test that function handles invalid input gracefully."""
-        # The function might raise or handle differently
-        # Test what it actually does
-        try:
-            result = brighten_hex("invalid", 0.2)
-            # If it doesn't raise, it returned something
-            assert result is not None
-        except (ValueError, IndexError, TypeError):
-            # If it raises, that's also acceptable for invalid input
-            pass
-
-
 class TestIconesUniquePerMessageType:
     """Test console output uniqueness and consistency."""
 
@@ -394,7 +322,6 @@ class TestIconesUniquePerMessageType:
         assert should_ignore_dir_path is not None
         assert generate_group_id is not None
         assert format_diff_with_colors is not None
-        assert brighten_hex is not None
 
     def test_constants_have_values(self):
         """Test that module constants are defined."""
@@ -426,18 +353,6 @@ class TestEdgeCases:
         """Test path filtering with special characters."""
         result = should_ignore_path("file-with-dashes_and_underscores.txt")
         assert isinstance(result, bool)
-
-    def test_brighten_hex_with_lowercase(self):
-        """Test hex color with lowercase letters."""
-        result = brighten_hex("#abcdef", 0.2)
-        assert isinstance(result, str)
-        assert result.startswith("#")
-
-    def test_brighten_hex_with_uppercase(self):
-        """Test hex color with uppercase letters."""
-        result = brighten_hex("#ABCDEF", 0.2)
-        assert isinstance(result, str)
-        assert result.startswith("#")
 
     def test_group_id_with_empty_tool_name(self):
         """Test group ID generation with empty tool name."""

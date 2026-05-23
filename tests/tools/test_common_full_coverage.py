@@ -246,9 +246,9 @@ class TestGetTokenColor:
     def test_returns_default_for_unknown(self):
         from code_puppy.tools.common import _get_token_color
 
-        # Some random token type
+        # Some random token type — falls back to the terminal default.
         color = _get_token_color("SomeUnknownTokenType")
-        assert color == "#cccccc"
+        assert color == "default"
 
     def test_no_pygments(self):
         import code_puppy.tools.common as mod
@@ -257,7 +257,7 @@ class TestGetTokenColor:
         try:
             mod.PYGMENTS_AVAILABLE = False
             color = mod._get_token_color("anything")
-            assert color == "#cccccc"
+            assert color == "default"
         finally:
             mod.PYGMENTS_AVAILABLE = orig
 
@@ -340,54 +340,49 @@ class TestExtractFileExtensionFromDiff:
 
 
 # ---------------------------------------------------------------------------
-# brighten_hex
+# _brighten_ansi
 # ---------------------------------------------------------------------------
 
 
-class TestBrightenHex:
-    def test_no_change(self):
-        from code_puppy.tools.common import brighten_hex
+class TestBrightenAnsi:
+    @pytest.mark.parametrize(
+        "base,expected",
+        [
+            ("black", "bright_black"),
+            ("red", "bright_red"),
+            ("green", "bright_green"),
+            ("yellow", "bright_yellow"),
+            ("blue", "bright_blue"),
+            ("magenta", "bright_magenta"),
+            ("cyan", "bright_cyan"),
+            ("white", "bright_white"),
+            ("GREEN", "bright_green"),  # case-insensitive
+            ("  red  ", "bright_red"),  # whitespace tolerated
+        ],
+    )
+    def test_base_ansi_maps_to_bright(self, base, expected):
+        from code_puppy.tools.common import _brighten_ansi
 
-        result = brighten_hex("#808080", 0.0)
-        assert result == "#808080"
+        assert _brighten_ansi(base) == expected
 
-    def test_brighten(self):
-        from code_puppy.tools.common import brighten_hex
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "bright_red",  # already bright
+            "#ff8800",  # hex passthrough
+            "default",  # terminal default
+            "deep_sky_blue4",  # exotic Rich name
+        ],
+    )
+    def test_non_base_passthrough(self, value):
+        from code_puppy.tools.common import _brighten_ansi
 
-        result = brighten_hex("#808080", 0.5)
-        # Should be brighter
-        assert result.startswith("#")
-        assert len(result) == 7
+        assert _brighten_ansi(value) == value
 
-    def test_darken(self):
-        from code_puppy.tools.common import brighten_hex
+    def test_empty_string_passthrough(self):
+        from code_puppy.tools.common import _brighten_ansi
 
-        result = brighten_hex("#ffffff", -0.5)
-        assert result.startswith("#")
-
-    def test_clamp_max(self):
-        from code_puppy.tools.common import brighten_hex
-
-        result = brighten_hex("#ffffff", 1.0)
-        assert result == "#ffffff"  # clamped to 255
-
-    def test_clamp_min(self):
-        from code_puppy.tools.common import brighten_hex
-
-        result = brighten_hex("#000000", -1.0)
-        assert result == "#000000"
-
-    def test_invalid_hex(self):
-        from code_puppy.tools.common import brighten_hex
-
-        with pytest.raises(ValueError):
-            brighten_hex("#ff", 0.5)
-
-    def test_with_hash(self):
-        from code_puppy.tools.common import brighten_hex
-
-        result = brighten_hex("#102030", 0.18)
-        assert result.startswith("#")
+        assert _brighten_ansi("") == ""
 
 
 # ---------------------------------------------------------------------------

@@ -552,20 +552,19 @@ def should_ignore_dir_path(path: str) -> bool:
 # SYNTAX HIGHLIGHTING FOR DIFFS ("syntax" mode)
 # ============================================================================
 
-# Monokai color scheme - because we have taste 🎨
-TOKEN_COLORS = (
-    {
-        Token.Keyword: "#f92672" if PYGMENTS_AVAILABLE else "magenta",
-        Token.Name.Builtin: "#66d9ef" if PYGMENTS_AVAILABLE else "cyan",
-        Token.Name.Function: "#a6e22e" if PYGMENTS_AVAILABLE else "green",
-        Token.String: "#e6db74" if PYGMENTS_AVAILABLE else "yellow",
-        Token.Number: "#ae81ff" if PYGMENTS_AVAILABLE else "magenta",
-        Token.Comment: "#75715e" if PYGMENTS_AVAILABLE else "bright_black",
-        Token.Operator: "#f92672" if PYGMENTS_AVAILABLE else "magenta",
-    }
-    if PYGMENTS_AVAILABLE
-    else {}
-)
+# Token → ANSI color name mapping. Pure ANSI so that whatever palette the
+# user has loaded in their terminal (Catppuccin, Solarized, Gruvbox, a
+# high-contrast / color-blind preset, ...) is what actually shows up. No
+# truecolor hex, no "taste" — we trust the user's terminal.
+TOKEN_COLORS = {
+    Token.Keyword: "magenta",
+    Token.Name.Builtin: "cyan",
+    Token.Name.Function: "green",
+    Token.String: "yellow",
+    Token.Number: "magenta",
+    Token.Comment: "bright_black",
+    Token.Operator: "magenta",
+}
 
 EXTENSION_TO_LEXER_NAME = {
     ".py": "python",
@@ -627,21 +626,19 @@ def _get_lexer_for_extension(extension: str):
 
 
 def _get_token_color(token_type) -> str:
-    """Get color for a token type from our Monokai scheme.
+    """Get the ANSI color name for a Pygments token type.
 
-    Args:
-        token_type: Pygments token type
-
-    Returns:
-        Hex color string or color name
+    Returns ``"default"`` (i.e. the terminal's default foreground) for
+    unmatched tokens — this keeps prose / unknown tokens readable on both
+    light and dark backgrounds.
     """
     if not PYGMENTS_AVAILABLE:
-        return "#cccccc"
+        return "default"
 
     for ttype, color in TOKEN_COLORS.items():
         if token_type in ttype:
             return color
-    return "#cccccc"  # Default light-grey for unmatched tokens
+    return "default"
 
 
 def _highlight_code_line(code: str, bg_color: str | None, lexer) -> Text:
@@ -708,27 +705,34 @@ def _extract_file_extension_from_diff(diff_text: str) -> str:
 # COLOR PAIR OPTIMIZATION (for "highlighted" mode)
 # ============================================================================
 
+# ANSI base → bright variant. Used to pick a foreground marker color that
+# stays readable against the matching background block (e.g. the "+" on a
+# green-tinted added line uses bright_green for emphasis). Anything we don't
+# recognize — hex strings, exotic Rich names — is returned unchanged so the
+# user can still opt into custom values via config without us mangling them.
+_ANSI_BRIGHT_MAP = {
+    "black": "bright_black",
+    "red": "bright_red",
+    "green": "bright_green",
+    "yellow": "bright_yellow",
+    "blue": "bright_blue",
+    "magenta": "bright_magenta",
+    "cyan": "bright_cyan",
+    "white": "bright_white",
+}
 
-def brighten_hex(hex_color: str, factor: float) -> str:
+
+def _brighten_ansi(color: str) -> str:
+    """Return the bright ANSI counterpart of ``color`` if there is one.
+
+    For non-ANSI values (hex, ``bright_*`` already, ``default``, anything
+    exotic) the input is returned unchanged. The intent is to give marker
+    glyphs a touch more pop than the background — not to police what the
+    user configured.
     """
-    Darken a hex color by multiplying each RGB channel by `factor`.
-    factor=1.0 -> no change
-    factor=0.0 -> black
-    factor=0.18 -> good for diff backgrounds (recommended)
-    """
-    hex_color = hex_color.lstrip("#")
-    if len(hex_color) != 6:
-        raise ValueError(f"Expected #RRGGBB, got {hex_color!r}")
-
-    r = int(hex_color[0:2], 16)
-    g = int(hex_color[2:4], 16)
-    b = int(hex_color[4:6], 16)
-
-    r = max(0, min(255, int(r * (1 + factor))))
-    g = max(0, min(255, int(g * (1 + factor))))
-    b = max(0, min(255, int(b * (1 + factor))))
-
-    return f"#{r:02x}{g:02x}{b:02x}"
+    if not color:
+        return color
+    return _ANSI_BRIGHT_MAP.get(color.strip().lower(), color)
 
 
 def _format_diff_with_syntax_highlighting(
@@ -759,9 +763,9 @@ def _format_diff_with_syntax_highlighting(
     extension = _extract_file_extension_from_diff(diff_text)
     lexer = _get_lexer_for_extension(extension)
 
-    # Generate background colors from foreground colors
-    add_fg = brighten_hex(addition_color, 0.6)
-    del_fg = brighten_hex(deletion_color, 0.6)
+    # Marker foreground: brighten the base ANSI color so the +/- glyphs pop.
+    add_fg = _brighten_ansi(addition_color)
+    del_fg = _brighten_ansi(deletion_color)
 
     # Background colors for different line types
     # Context lines have no background (None) for clean, minimal diffs

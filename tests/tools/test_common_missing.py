@@ -124,20 +124,6 @@ class TestExtractFileExtension:
         assert ext == ".txt"  # fallback
 
 
-class TestBrightenHex:
-    def test_brighten(self):
-        from code_puppy.tools.common import brighten_hex
-
-        result = brighten_hex("#004400", 1.5)
-        assert result.startswith("#")
-
-    def test_invalid(self):
-        from code_puppy.tools.common import brighten_hex
-
-        with pytest.raises(ValueError):
-            brighten_hex("invalid", 1.5)
-
-
 class TestFormatDiffWithSyntaxHighlighting:
     def test_basic_diff(self):
         from code_puppy.tools.common import _format_diff_with_syntax_highlighting

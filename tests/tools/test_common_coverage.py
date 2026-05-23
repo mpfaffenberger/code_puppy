@@ -5,7 +5,7 @@ Target functions:
 - should_suppress_browser()
 - should_ignore_dir_path()
 - Syntax highlighting functions (_get_lexer_for_extension, _get_token_color, _highlight_code_line)
-- Diff utilities (brighten_hex, _extract_file_extension_from_diff, _format_diff_with_syntax_highlighting)
+- Diff utilities (_extract_file_extension_from_diff, _format_diff_with_syntax_highlighting)
 """
 
 import importlib.util
@@ -27,7 +27,6 @@ should_suppress_browser = common_module.should_suppress_browser
 should_ignore_dir_path = common_module.should_ignore_dir_path
 DIR_IGNORE_PATTERNS = common_module.DIR_IGNORE_PATTERNS
 FILE_IGNORE_PATTERNS = common_module.FILE_IGNORE_PATTERNS
-brighten_hex = common_module.brighten_hex
 _extract_file_extension_from_diff = common_module._extract_file_extension_from_diff
 _get_lexer_for_extension = common_module._get_lexer_for_extension
 _get_token_color = common_module._get_token_color
@@ -202,70 +201,6 @@ class TestShouldIgnoreDirPath:
 
 
 # =============================================================================
-# TESTS FOR brighten_hex()
-# =============================================================================
-
-
-class TestBrightenHex:
-    """Test the brighten_hex() function."""
-
-    def test_no_change_with_factor_zero(self):
-        """Test that factor=0 returns original color."""
-        result = brighten_hex("#808080", 0.0)
-        assert result == "#808080"
-
-    def test_brightens_color_with_positive_factor(self):
-        """Test that positive factor brightens the color."""
-        result = brighten_hex("#808080", 0.5)
-        # 0x80 = 128, 128 * 1.5 = 192 = 0xc0
-        assert result == "#c0c0c0"
-
-    def test_darkens_color_with_negative_factor(self):
-        """Test that negative factor darkens the color."""
-        result = brighten_hex("#808080", -0.5)
-        # 0x80 = 128, 128 * 0.5 = 64 = 0x40
-        assert result == "#404040"
-
-    def test_clamps_to_max_255(self):
-        """Test that values are clamped to max 255."""
-        result = brighten_hex("#ffffff", 1.0)
-        # 255 * 2 = 510, clamped to 255
-        assert result == "#ffffff"
-
-    def test_clamps_to_min_zero(self):
-        """Test that values are clamped to min 0."""
-        result = brighten_hex("#808080", -2.0)
-        # 128 * -1 would be negative, clamped to 0
-        assert result == "#000000"
-
-    def test_handles_without_hash_prefix(self):
-        """Test that colors without # prefix work."""
-        result = brighten_hex("808080", 0.0)
-        assert result == "#808080"
-
-    def test_handles_pure_black(self):
-        """Test brightening pure black."""
-        result = brighten_hex("#000000", 1.0)
-        # 0 * 2 = 0, stays black
-        assert result == "#000000"
-
-    def test_handles_pure_red(self):
-        """Test brightening pure red."""
-        result = brighten_hex("#ff0000", 0.0)
-        assert result == "#ff0000"
-
-    def test_raises_on_invalid_hex(self):
-        """Test that invalid hex raises ValueError."""
-        with pytest.raises(ValueError):
-            brighten_hex("#fff", 0.5)  # Too short
-
-    def test_raises_on_invalid_format(self):
-        """Test that invalid format raises ValueError."""
-        with pytest.raises(ValueError):
-            brighten_hex("notahex", 0.5)
-
-
-# =============================================================================
 # TESTS FOR _extract_file_extension_from_diff()
 # =============================================================================
 
@@ -416,11 +351,11 @@ class TestGetTokenColor:
 
     @pytest.mark.skipif(not PYGMENTS_AVAILABLE, reason="Pygments not available")
     def test_returns_default_for_unknown_token(self):
-        """Test returns default color for unknown token type."""
+        """Test returns terminal-default color for unknown token type."""
         from pygments.token import Token
 
         color = _get_token_color(Token.Generic)
-        assert color == "#cccccc"  # Default color
+        assert color == "default"  # Terminal-default foreground
 
 
 class TestHighlightCodeLine:
