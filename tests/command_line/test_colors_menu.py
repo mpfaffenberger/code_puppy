@@ -144,10 +144,22 @@ class TestBannerColors:
     def test_palette_uses_ansi_names_only(self):
         """All palette values must be ANSI names (no truecolor hex, no 256-color names)."""
         allowed_ansi = {
-            "black", "red", "green", "yellow",
-            "blue", "magenta", "cyan", "white",
-            "bright_black", "bright_red", "bright_green", "bright_yellow",
-            "bright_blue", "bright_magenta", "bright_cyan", "bright_white",
+            "black",
+            "red",
+            "green",
+            "yellow",
+            "blue",
+            "magenta",
+            "cyan",
+            "white",
+            "bright_black",
+            "bright_red",
+            "bright_green",
+            "bright_yellow",
+            "bright_blue",
+            "bright_magenta",
+            "bright_cyan",
+            "bright_white",
             "default",
         }
         for label, value in BANNER_COLORS.items():

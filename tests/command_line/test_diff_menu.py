@@ -199,10 +199,22 @@ class TestColorDictionaries:
         assert len(ADDITION_COLORS) >= 3
 
         _ALLOWED_ANSI = {
-            "black", "red", "green", "yellow",
-            "blue", "magenta", "cyan", "white",
-            "bright_black", "bright_red", "bright_green", "bright_yellow",
-            "bright_blue", "bright_magenta", "bright_cyan", "bright_white",
+            "black",
+            "red",
+            "green",
+            "yellow",
+            "blue",
+            "magenta",
+            "cyan",
+            "white",
+            "bright_black",
+            "bright_red",
+            "bright_green",
+            "bright_yellow",
+            "bright_blue",
+            "bright_magenta",
+            "bright_cyan",
+            "bright_white",
             "default",
         }
         for name, color in ADDITION_COLORS.items():
@@ -219,10 +231,22 @@ class TestColorDictionaries:
         assert len(DELETION_COLORS) >= 3
 
         _ALLOWED_ANSI = {
-            "black", "red", "green", "yellow",
-            "blue", "magenta", "cyan", "white",
-            "bright_black", "bright_red", "bright_green", "bright_yellow",
-            "bright_blue", "bright_magenta", "bright_cyan", "bright_white",
+            "black",
+            "red",
+            "green",
+            "yellow",
+            "blue",
+            "magenta",
+            "cyan",
+            "white",
+            "bright_black",
+            "bright_red",
+            "bright_green",
+            "bright_yellow",
+            "bright_blue",
+            "bright_magenta",
+            "bright_cyan",
+            "bright_white",
             "default",
         }
         for name, color in DELETION_COLORS.items():
