@@ -1537,7 +1537,7 @@ def get_banner_color(banner_name: str) -> str:
     val = get_value(config_key)
     if val:
         return val
-        return DEFAULT_BANNER_COLORS.get(banner_name, "blue")
+    return DEFAULT_BANNER_COLORS.get(banner_name, "blue")
 
 
 def set_banner_color(banner_name: str, color: str):
