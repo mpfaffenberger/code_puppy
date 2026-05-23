@@ -10,11 +10,11 @@ from dataclasses import dataclass
 from typing import Optional
 
 # Thresholds (fractions of context window). Match the visual indicator buckets:
-#   <30% green, 30–<60% yellow, ≥60% red.
+#   <30% green, 30–<65% yellow, ≥65% red.
 # Boundaries are exclusive on the upper end: e.g. exactly 0.30 → yellow,
-# exactly 0.60 → red. Keep ``_format_usage_report`` legend in sync.
+# exactly 0.65 → red. Keep ``_format_usage_report`` legend in sync.
 GREEN_THRESHOLD = 0.30
-YELLOW_THRESHOLD = 0.60
+YELLOW_THRESHOLD = 0.65
 
 GREEN_CIRCLE = "🟢"
 YELLOW_CIRCLE = "🟡"

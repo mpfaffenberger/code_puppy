@@ -33,6 +33,12 @@ def _emit_info(message: str) -> None:
     emit_info(message)
 
 
+def _emit_system_message(message: str) -> None:
+    from code_puppy.messaging import emit_system_message
+
+    emit_system_message(message)
+
+
 def _emit_error(message: str) -> None:
     from code_puppy.messaging import emit_error
 
@@ -87,11 +93,26 @@ def _install_prompt_patch() -> None:
     ptc.get_prompt_with_active_model = patched
 
 
+_LEGEND_TEXT = (
+    "Context indicator: 🟢 <30%   🟡 30–<65%   🔴 ≥65%  "
+    "(use /context for a detailed breakdown)"
+)
+
+
+def _announce_legend() -> None:
+    try:
+        _emit_system_message(_LEGEND_TEXT)
+    except Exception:
+        # Never crash startup over a banner line — fail gracefully per plugin rules.
+        pass
+
+
 def _on_startup() -> None:
     try:
         _install_prompt_patch()
     except Exception as exc:
         _emit_error(f"context_indicator: failed to install prompt patch — {exc}")
+    _announce_legend()
 
 
 # ---------------------------------------------------------------------------
@@ -106,17 +127,71 @@ def _custom_help() -> List[Tuple[str, str]]:
     ]
 
 
+# Bar glyphs — kept as module constants so the legend stays DRY.
+_BAR_GLYPH_OVERHEAD = "▒"  # system prompt + tool schema baseline
+_BAR_GLYPH_MESSAGES = "█"  # conversation tokens
+_BAR_GLYPH_EMPTY = "░"  # unused capacity
+_BAR_GLYPH_THRESHOLD = "┃"  # vertical marker for compaction trigger
+_BAR_WIDTH = 30
+
+
+def _render_usage_bar(usage: ContextUsage, threshold: float) -> str:
+    """Render the ASCII usage bar with three zones + a compaction marker.
+
+    Zones: overhead | messages | empty. The compaction-threshold marker
+    overwrites whichever cell it lands on (cosmetic; the underlying token
+    counts are unchanged).
+    """
+    capacity = max(1, usage.capacity)
+    overhead_cells = min(
+        _BAR_WIDTH, int(round(usage.overhead_tokens / capacity * _BAR_WIDTH))
+    )
+    total_cells = min(
+        _BAR_WIDTH, int(round(usage.total_tokens / capacity * _BAR_WIDTH))
+    )
+    # Guarantee messages cells start strictly after overhead cells.
+    message_cells = max(0, total_cells - overhead_cells)
+    empty_cells = _BAR_WIDTH - overhead_cells - message_cells
+
+    cells = (
+        [_BAR_GLYPH_OVERHEAD] * overhead_cells
+        + [_BAR_GLYPH_MESSAGES] * message_cells
+        + [_BAR_GLYPH_EMPTY] * empty_cells
+    )
+
+    threshold_clamped = max(0.0, min(1.0, threshold))
+    marker_idx = min(_BAR_WIDTH - 1, int(round(threshold_clamped * _BAR_WIDTH)))
+    cells[marker_idx] = _BAR_GLYPH_THRESHOLD
+    return "".join(cells)
+
+
+def _get_compaction_threshold() -> float:
+    """Fetch compaction threshold defensively; fall back to 0.85 on any error."""
+    try:
+        from code_puppy.config import get_compaction_threshold
+
+        return float(get_compaction_threshold())
+    except Exception:
+        return 0.85
+
+
 def _format_usage_report(usage: ContextUsage) -> str:
-    bar_width = 30
-    filled = min(bar_width, max(0, int(round(usage.proportion * bar_width))))
-    bar = "█" * filled + "░" * (bar_width - filled)
+    threshold = _get_compaction_threshold()
+    bar = _render_usage_bar(usage, threshold)
+    legend = (
+        f"  Legend   : {_BAR_GLYPH_OVERHEAD} overhead  "
+        f"{_BAR_GLYPH_MESSAGES} messages  "
+        f"{_BAR_GLYPH_EMPTY} free  "
+        f"{_BAR_GLYPH_THRESHOLD} compaction @ {threshold:.0%}"
+    )
     return (
         f"{usage.indicator} Context usage: {usage.percent:.1f}%\n"
         f"  [{bar}]\n"
+        f"{legend}\n"
         f"  Messages : {usage.used_tokens:,} tokens\n"
         f"  Overhead : {usage.overhead_tokens:,} tokens (system prompt + tools)\n"
         f"  Total    : {usage.total_tokens:,} / {usage.capacity:,} tokens\n"
-        f"  Buckets  : 🟢 <30%   🟡 30–<60%   🔴 ≥60%"
+        f"  Buckets  : 🟢 <30%   🟡 30–65%   🔴 ≥65%"
     )
 
 
@@ -144,6 +219,7 @@ register_callback("custom_command_help", _custom_help)
 
 
 __all__ = [
+    "_announce_legend",
     "_build_indicator_tuple",
     "_custom_help",
     "_format_usage_report",
