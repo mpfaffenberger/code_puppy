@@ -178,7 +178,13 @@ class BaseAgent(ABC):
 
         tools_source = self.pydantic_agent or self._get_tool_probe()
         tools = _extract_pydantic_agent_tools(tools_source) if tools_source else None
-        return estimate_context_overhead(resolved, tools, self.get_model_name())
+        mcp_servers = getattr(self, "_mcp_servers", None) or None
+        return estimate_context_overhead(
+            resolved,
+            tools,
+            self.get_model_name(),
+            mcp_servers=mcp_servers,
+        )
 
     def _get_tool_probe(self) -> Any:
         """Lazily build (and cache) a tool-probe pydantic agent.
@@ -222,8 +228,47 @@ class BaseAgent(ABC):
 
     # ---- MCP integration shims --------------------------------------------
     def update_mcp_tool_cache_sync(self) -> None:
-        """No-op. MCP token-overhead cache was deleted in the refactor;
-        retained so MCP start/stop commands don't need edits yet."""
+        """Best-effort warm of each MCP server's ``_cached_tools``.
+
+        Pydantic-ai caches MCP tool defs on each server after the first
+        ``list_tools()`` call. We piggy-back on that cache for context-window
+        overhead estimates (see ``_history._estimate_mcp_tool_tokens``).
+
+        Without this warm-up the cache stays empty until the first agent run,
+        so the ``/context`` badge under-reports MCP overhead right after
+        ``/mcp start``. Here we schedule ``list_tools()`` for any server that
+        looks running, but we never block and we swallow all errors — the
+        cache will eventually be populated by the agent run itself.
+        """
+        import asyncio
+
+        servers = getattr(self, "_mcp_servers", None) or []
+        if not servers:
+            return None
+
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            return None
+        if loop is None or not loop.is_running():
+            return None
+
+        async def _warm(server: Any) -> None:
+            try:
+                if getattr(server, "_cached_tools", None):
+                    return
+                if not getattr(server, "is_running", False):
+                    return
+                await server.list_tools()
+            except Exception:
+                # Cache stays empty; estimator handles that gracefully.
+                return
+
+        for server in servers:
+            try:
+                loop.create_task(_warm(server))
+            except Exception:
+                continue
         return None
 
     def reload_mcp_servers(self) -> List[Any]:

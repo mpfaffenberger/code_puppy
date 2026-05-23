@@ -222,6 +222,49 @@ class TestEstimateContextOverhead:
         boosted = estimate_context_overhead(prompt, None, model_name="opus-4-7")
         assert boosted == max(1, int(baseline * 1.35))
 
+    def test_mcp_servers_add_overhead(self):
+        class _FakeMcpTool:
+            def __init__(self, name, description, schema):
+                self.name = name
+                self.description = description
+                self.inputSchema = schema
+
+        class _FakeServer:
+            def __init__(self, prefix, tools):
+                self.tool_prefix = prefix
+                self._cached_tools = tools
+
+        servers = [
+            _FakeServer(
+                "weatherbot",
+                [
+                    _FakeMcpTool(
+                        "forecast",
+                        "Get the forecast for a city.",
+                        {
+                            "type": "object",
+                            "properties": {"city": {"type": "string"}},
+                            "required": ["city"],
+                        },
+                    ),
+                ],
+            )
+        ]
+        without_mcp = estimate_context_overhead("prompt", None)
+        with_mcp = estimate_context_overhead("prompt", None, mcp_servers=servers)
+        assert with_mcp > without_mcp
+
+    def test_mcp_servers_without_cached_tools_noop(self):
+        class _FakeServer:
+            tool_prefix = "x"
+            _cached_tools = None  # not yet populated by pydantic-ai
+
+        baseline = estimate_context_overhead("prompt", None)
+        with_empty = estimate_context_overhead(
+            "prompt", None, mcp_servers=[_FakeServer()]
+        )
+        assert with_empty == baseline
+
 
 # ---- prune_interrupted_tool_calls ------------------------------------------
 

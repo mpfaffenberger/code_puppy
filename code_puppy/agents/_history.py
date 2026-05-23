@@ -160,16 +160,57 @@ def _extract_tool_json_schema(tool_obj: Any) -> Optional[dict]:
     return None
 
 
+def _estimate_mcp_tool_tokens(mcp_servers: Optional[List[Any]]) -> int:
+    """Count tokens contributed by MCP toolsets' tool definitions.
+
+    Reads each server's ``_cached_tools`` (populated by pydantic-ai after the
+    first ``list_tools()`` call). Servers that haven't been queried yet show
+    up as zero — so the badge is conservative until the first turn, then
+    snaps to the real number. We deliberately don't trigger ``list_tools()``
+    here: this function must stay sync + side-effect-free.
+
+    Each ``mcp_types.Tool`` contributes its (prefixed) name, description, and
+    JSON input schema — the same three things pydantic-ai serializes into
+    the request payload.
+    """
+    if not mcp_servers:
+        return 0
+
+    total = 0
+    for server in mcp_servers:
+        cached = getattr(server, "_cached_tools", None)
+        if not cached:
+            continue
+        prefix = getattr(server, "tool_prefix", None) or ""
+        for mcp_tool in cached:
+            name = getattr(mcp_tool, "name", "") or ""
+            full_name = f"{prefix}_{name}" if prefix else name
+            if full_name:
+                total += estimate_tokens(full_name)
+            description = getattr(mcp_tool, "description", "") or ""
+            if description:
+                total += estimate_tokens(description)
+            schema = getattr(mcp_tool, "inputSchema", None)
+            if schema:
+                try:
+                    total += estimate_tokens(json.dumps(schema, sort_keys=True))
+                except (TypeError, ValueError):
+                    # Schema isn't JSON-serializable for some reason — fall
+                    # back to repr so we at least account for *something*.
+                    total += estimate_tokens(repr(schema))
+    return total
+
+
 def estimate_context_overhead(
     system_prompt: str,
     pydantic_tools: Optional[Dict[str, Any]],
     model_name: Optional[str] = None,
+    mcp_servers: Optional[List[Any]] = None,
 ) -> int:
     """Estimate fixed token overhead for the system prompt + tool definitions.
 
     The caller is responsible for resolving the system prompt for the active
-    model (e.g. via ``prepare_prompt_for_model``). MCP tool overhead is
-    deliberately ignored — it was guesswork anyway.
+    model (e.g. via ``prepare_prompt_for_model``).
 
     Args:
         system_prompt: The already-resolved instruction/system prompt string.
@@ -177,6 +218,9 @@ def estimate_context_overhead(
             a pydantic-ai ``Tool`` (has ``.description`` + ``.function_schema``)
             or a bare callable (legacy shape — falls back to ``__doc__`` /
             ``__annotations__``).
+        mcp_servers: Optional list of pydantic-ai MCP server toolsets. Each
+            server's ``_cached_tools`` (populated lazily by pydantic-ai) is
+            inspected for tool name/description/schema overhead.
 
     Returns:
         Estimated total token overhead.
@@ -185,23 +229,23 @@ def estimate_context_overhead(
     if system_prompt:
         total += estimate_tokens(system_prompt)
 
-    if not pydantic_tools:
-        return _apply_multiplier(total, model_name)
+    if pydantic_tools:
+        for tool_name, tool_obj in pydantic_tools.items():
+            total += estimate_tokens(tool_name)
 
-    for tool_name, tool_obj in pydantic_tools.items():
-        total += estimate_tokens(tool_name)
+            description = _extract_tool_description(tool_obj)
+            if description:
+                total += estimate_tokens(description)
 
-        description = _extract_tool_description(tool_obj)
-        if description:
-            total += estimate_tokens(description)
+            schema = _extract_tool_json_schema(tool_obj)
+            if schema is not None:
+                total += estimate_tokens(json.dumps(schema))
+            else:
+                annotations = getattr(tool_obj, "__annotations__", None)
+                if annotations:
+                    total += estimate_tokens(str(annotations))
 
-        schema = _extract_tool_json_schema(tool_obj)
-        if schema is not None:
-            total += estimate_tokens(json.dumps(schema))
-        else:
-            annotations = getattr(tool_obj, "__annotations__", None)
-            if annotations:
-                total += estimate_tokens(str(annotations))
+    total += _estimate_mcp_tool_tokens(mcp_servers)
 
     return _apply_multiplier(total, model_name)
 
