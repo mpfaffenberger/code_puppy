@@ -502,13 +502,16 @@ class SlashCompleter(Completer):
         # Sort all completions alphabetically
         all_completions.sort(key=lambda x: x["sort_key"])
 
-        # Yield the sorted completions
+        # Yield the sorted completions.
+        # Strip variation selectors (U+FE00-FE0F) from display strings to avoid
+        # width-calculation mismatches between prompt_toolkit and the terminal,
+        # which manifest as phantom spaces in the input line (e.g. /judges ⚖️).
         for completion in all_completions:
             yield Completion(
                 completion["text"],
                 start_position=start_position,
-                display=completion["display"],
-                display_meta=completion["meta"],
+                display=_strip_variation_selectors(completion["display"]),
+                display_meta=_strip_variation_selectors(completion["meta"]),
             )
 
 
