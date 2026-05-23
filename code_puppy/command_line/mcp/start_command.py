@@ -95,8 +95,16 @@ class StartCommand(MCPCommandBase):
                 # Reload the agent to pick up the newly enabled server
                 # NOTE: We don't block or wait - the server will be ready
                 # when the next prompt runs (pydantic-ai handles connection)
+                #
+                # Auto-bind to the current agent if not already bound. The
+                # user just typed `/mcp start <name>` -- that's an explicit
+                # opt-in. Without this, get_servers_for_agent() will silently
+                # filter the new server out of the rebuilt toolset and the
+                # user gets a cheerful "started" message with zero tools.
+                # See CPUP-ne1 for the gory details.
                 try:
                     agent = get_current_agent()
+                    self._ensure_binding(agent.name, server_name, group_id)
                     agent.reload_code_generation_agent()
                     # Clear MCP tool cache - it will be repopulated on next run
                     agent.update_mcp_tool_cache_sync()
@@ -115,3 +123,35 @@ class StartCommand(MCPCommandBase):
         except Exception as e:
             logger.error(f"Error starting server '{server_name}': {e}")
             emit_error(f"Failed to start server: {e}", message_group=group_id)
+
+    @staticmethod
+    def _ensure_binding(
+        agent_name: str, server_name: str, group_id: Optional[str]
+    ) -> None:
+        """Bind ``server_name`` to ``agent_name`` if not already bound.
+
+        Idempotent and best-effort: any binding-layer exception is logged
+        but never propagated, so a flaky bindings file can't break
+        ``/mcp start``. Emits a single ``emit_info`` line when a new
+        binding is created so the user can see the cause and effect.
+        """
+        try:
+            from code_puppy.mcp_.agent_bindings import is_bound, set_binding
+
+            if is_bound(agent_name, server_name):
+                return
+            set_binding(agent_name, server_name, auto_start=True)
+            emit_info(
+                Text.from_markup(
+                    f"[dim]Also bound '{server_name}' to agent "
+                    f"'{agent_name}' (use /agents \u2192 B to manage).[/dim]"
+                ),
+                message_group=group_id,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "Auto-bind failed for server '%s' on agent '%s': %s",
+                server_name,
+                agent_name,
+                exc,
+            )

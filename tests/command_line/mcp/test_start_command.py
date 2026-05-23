@@ -145,3 +145,119 @@ class TestStartCommand:
         ):
             start_cmd.manager.start_server_sync.return_value = True
             start_cmd.execute(["myserver"], group_id="g1")
+
+    # ---- Auto-bind behaviour (CPUP-ne1) -------------------------------
+
+    def _make_agent(self, name="code-puppy"):
+        agent = MagicMock()
+        agent.name = name
+        return agent
+
+    def test_auto_binds_when_unbound(self, start_cmd):
+        """`/mcp start` on an unbound server creates the binding."""
+        agent = self._make_agent()
+        with (
+            patch(
+                "code_puppy.command_line.mcp.start_command.find_server_id_by_name",
+                return_value="id1",
+            ),
+            patch("code_puppy.command_line.mcp.start_command.emit_info"),
+            patch("code_puppy.command_line.mcp.start_command.emit_success"),
+            patch(
+                "code_puppy.command_line.mcp.start_command.get_current_agent",
+                return_value=agent,
+            ),
+            patch(
+                "code_puppy.mcp_.agent_bindings.is_bound", return_value=False
+            ) as mock_is_bound,
+            patch("code_puppy.mcp_.agent_bindings.set_binding") as mock_set_binding,
+        ):
+            start_cmd.manager.start_server_sync.return_value = True
+            start_cmd.execute(["myserver"], group_id="g1")
+
+            mock_is_bound.assert_called_once_with("code-puppy", "myserver")
+            mock_set_binding.assert_called_once_with(
+                "code-puppy", "myserver", auto_start=True
+            )
+            agent.reload_code_generation_agent.assert_called_once()
+
+    def test_no_rebind_when_already_bound(self, start_cmd):
+        """Already-bound server triggers no set_binding call (idempotent)."""
+        agent = self._make_agent()
+        with (
+            patch(
+                "code_puppy.command_line.mcp.start_command.find_server_id_by_name",
+                return_value="id1",
+            ),
+            patch("code_puppy.command_line.mcp.start_command.emit_info"),
+            patch("code_puppy.command_line.mcp.start_command.emit_success"),
+            patch(
+                "code_puppy.command_line.mcp.start_command.get_current_agent",
+                return_value=agent,
+            ),
+            patch("code_puppy.mcp_.agent_bindings.is_bound", return_value=True),
+            patch("code_puppy.mcp_.agent_bindings.set_binding") as mock_set_binding,
+        ):
+            start_cmd.manager.start_server_sync.return_value = True
+            start_cmd.execute(["myserver"], group_id="g1")
+
+            mock_set_binding.assert_not_called()
+            agent.reload_code_generation_agent.assert_called_once()
+
+    def test_auto_bind_failure_does_not_break_start(self, start_cmd):
+        """A binding-layer exception is swallowed; reload still happens."""
+        agent = self._make_agent()
+        with (
+            patch(
+                "code_puppy.command_line.mcp.start_command.find_server_id_by_name",
+                return_value="id1",
+            ),
+            patch("code_puppy.command_line.mcp.start_command.emit_info"),
+            patch("code_puppy.command_line.mcp.start_command.emit_success"),
+            patch(
+                "code_puppy.command_line.mcp.start_command.get_current_agent",
+                return_value=agent,
+            ),
+            patch(
+                "code_puppy.mcp_.agent_bindings.is_bound",
+                side_effect=RuntimeError("bindings file corrupted"),
+            ),
+        ):
+            start_cmd.manager.start_server_sync.return_value = True
+            start_cmd.execute(["myserver"], group_id="g1")
+
+            # Reload still happened even though bind blew up.
+            agent.reload_code_generation_agent.assert_called_once()
+
+    def test_bind_runs_before_reload(self, start_cmd):
+        """set_binding must be called BEFORE reload, or reload sees stale state."""
+        agent = self._make_agent()
+        call_order: list[str] = []
+        agent.reload_code_generation_agent.side_effect = lambda: call_order.append(
+            "reload"
+        )
+
+        def fake_set(*_a, **_kw):
+            call_order.append("bind")
+
+        with (
+            patch(
+                "code_puppy.command_line.mcp.start_command.find_server_id_by_name",
+                return_value="id1",
+            ),
+            patch("code_puppy.command_line.mcp.start_command.emit_info"),
+            patch("code_puppy.command_line.mcp.start_command.emit_success"),
+            patch(
+                "code_puppy.command_line.mcp.start_command.get_current_agent",
+                return_value=agent,
+            ),
+            patch("code_puppy.mcp_.agent_bindings.is_bound", return_value=False),
+            patch("code_puppy.mcp_.agent_bindings.set_binding", side_effect=fake_set),
+        ):
+            start_cmd.manager.start_server_sync.return_value = True
+            start_cmd.execute(["myserver"], group_id="g1")
+
+            assert call_order == ["bind", "reload"], (
+                "binding must be persisted before agent reload so the rebuilt "
+                "toolset actually picks up the new server"
+            )
