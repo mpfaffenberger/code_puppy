@@ -49,7 +49,23 @@ def _warn_unbound_servers(server_names: List[str], agent_name: str) -> None:
     repeated agent builds don't re-spam the user, but a brand-new
     unbound server (e.g. just added to ``mcp_servers.json``) still gets
     surfaced.
+
+    Users who don't want to see the warning at all can silence it forever
+    via ``/mcp silence-warning`` — we honor that flag here and bail out
+    before any emit. We deliberately do *not* short-circuit before the
+    dedupe-cache update path either; silencing means "never warn", full
+    stop, including not polluting the warned-pairs cache.
     """
+    # Import lazily so this module stays importable without a config file
+    # present (e.g. early test bootstrap).
+    try:
+        from code_puppy.config import get_mcp_unbound_warning_silenced
+
+        if get_mcp_unbound_warning_silenced():
+            return
+    except Exception:  # pragma: no cover - defensive: never crash on a warn
+        pass
+
     # Filter out pairs we've already shouted about in this process.
     fresh = [n for n in server_names if (n, agent_name) not in _WARNED_UNBOUND]
     if not fresh:
@@ -57,13 +73,17 @@ def _warn_unbound_servers(server_names: List[str], agent_name: str) -> None:
     for name in fresh:
         _WARNED_UNBOUND.add((name, agent_name))
 
+    # Hint shown at the end of every variant of this warning. Single source
+    # of truth so the silence-instructions can't drift between branches.
+    silence_hint = "Silence this warning forever with `/mcp silence-warning`."
+
     if len(fresh) == 1:
         name = fresh[0]
         emit_warning(
             f"MCP server '{name}' is registered in mcp_servers.json but "
             f"not bound to agent '{agent_name}'. Run `/mcp start {name}` "
-            f"(which will auto-bind it) or `/agents` \u2192 B to manage "
-            f"bindings manually."
+            f"(auto-binds for this session only) or `/agents` \u2192 B to "
+            f"manage persistent bindings. {silence_hint}"
         )
         return
 
@@ -73,8 +93,9 @@ def _warn_unbound_servers(server_names: List[str], agent_name: str) -> None:
     emit_warning(
         f"{len(fresh)} MCP servers are registered in mcp_servers.json but "
         f"not bound to agent '{agent_name}':\n{bullet_lines}\n"
-        f"Run the suggested `/mcp start <name>` (auto-binds) or `/agents` "
-        f"\u2192 B to manage bindings manually."
+        f"Run the suggested `/mcp start <name>` (auto-binds for this session "
+        f"only) or `/agents` \u2192 B to manage persistent bindings. "
+        f"{silence_hint}"
     )
 
 

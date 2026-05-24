@@ -130,6 +130,30 @@ def set_universal_constructor_enabled(enabled: bool) -> None:
     set_value("enable_universal_constructor", "true" if enabled else "false")
 
 
+def get_mcp_unbound_warning_silenced() -> bool:
+    """Return True if the 'MCP server registered but not bound' warning is silenced.
+
+    When True, ``code_puppy.mcp_.manager._warn_unbound_servers`` skips emitting
+    its consolidated warning. Default False — the warning exists for a reason
+    (it surfaces hand-edits to ``mcp_servers.json`` that didn't get bound),
+    but power users who *know* about the unbound servers can silence the
+    nag via ``/mcp silence-warning``.
+    """
+    cfg_val = get_value("mcp_unbound_warning_silenced")
+    if cfg_val is None:
+        return False
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def set_mcp_unbound_warning_silenced(silenced: bool) -> None:
+    """Silence (or un-silence) the unbound-MCP-server warning.
+
+    Args:
+        silenced: True to silence forever, False to restore the warning.
+    """
+    set_value("mcp_unbound_warning_silenced", "true" if silenced else "false")
+
+
 def get_max_hook_retries() -> int:
     """Return the maximum number of plugin hook retries after an agent run.
 

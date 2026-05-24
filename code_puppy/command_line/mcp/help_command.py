@@ -102,6 +102,14 @@ class HelpCommand(MCPCommandBase):
                 + Text(" <name>      Remove/disable a server")
             )
             help_lines.append(
+                Text("/mcp silence-warning", style="cyan")
+                + Text("   Silence the 'registered but not bound' warning forever")
+            )
+            help_lines.append(
+                Text("/mcp unsilence-warning", style="cyan")
+                + Text(" Restore the 'registered but not bound' warning")
+            )
+            help_lines.append(
                 Text("/mcp help", style="cyan")
                 + Text("               Show this help message")
             )

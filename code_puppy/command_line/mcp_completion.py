@@ -49,6 +49,8 @@ class MCPCompleter(Completer):
             "stop-all": "Stop all MCP servers",
             "install": "Install MCP servers from a list",
             "search": "Search for available MCP servers",
+            "silence-warning": "Silence the 'registered but not bound' MCP warning forever",
+            "unsilence-warning": "Restore the 'registered but not bound' MCP warning",
             "help": "Show help for MCP commands",
         }
 
