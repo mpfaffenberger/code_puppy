@@ -162,6 +162,104 @@ class TestManagerFilter:
         assert len(servers) == 2
 
 
+class TestUnboundOrphanWarning:
+    """Hand-edited mcp_servers.json should produce a visible orphan warning.
+
+    Covers CPUP-6ym: a server registered via mcp_servers.json but with no
+    binding for the current agent used to be silently dropped on every
+    agent build with a logger.debug call no one would see. We now emit a
+    visible warning once per ``(server, agent)`` pair per process.
+    """
+
+    def _fresh_manager(self):
+        from code_puppy.mcp_ import manager as mgr_mod
+        from code_puppy.mcp_.manager import MCPManager
+
+        with (
+            patch.object(MCPManager, "sync_from_config"),
+            patch.object(MCPManager, "_initialize_servers"),
+        ):
+            manager = MCPManager()
+        mgr_mod._reset_unbound_warning_cache()
+        return manager, mgr_mod
+
+    def test_unbound_orphan_emits_warning(self, tmp_bindings):
+        manager, mgr_mod = self._fresh_manager()
+        manager._managed_servers = {"a": _fake_managed("nu")}
+
+        with patch.object(mgr_mod, "emit_warning") as mock_warn:
+            servers = manager.get_servers_for_agent(agent_name="python")
+
+        assert servers == []
+        assert mock_warn.call_count == 1
+        msg = mock_warn.call_args.args[0]
+        assert "'nu'" in msg
+        assert "'python'" in msg
+        assert "/mcp start nu" in msg
+
+    def test_warning_deduped_per_pair_per_process(self, tmp_bindings):
+        manager, mgr_mod = self._fresh_manager()
+        manager._managed_servers = {"a": _fake_managed("nu")}
+
+        with patch.object(mgr_mod, "emit_warning") as mock_warn:
+            for _ in range(5):
+                manager.get_servers_for_agent(agent_name="python")
+
+        assert mock_warn.call_count == 1
+
+    def test_distinct_pairs_each_warn_once(self, tmp_bindings):
+        manager, mgr_mod = self._fresh_manager()
+        manager._managed_servers = {
+            "a": _fake_managed("nu"),
+            "b": _fake_managed("mu"),
+        }
+
+        with patch.object(mgr_mod, "emit_warning") as mock_warn:
+            manager.get_servers_for_agent(agent_name="python")
+            manager.get_servers_for_agent(agent_name="python")
+            manager.get_servers_for_agent(agent_name="rust")
+
+        # 2 server-names x first python build (2) + first rust build (2) = 4.
+        # Second python build is fully deduped.
+        assert mock_warn.call_count == 4
+        seen_pairs = {
+            (call.args[0].split("'")[1], call.args[0].split("'")[3])
+            for call in mock_warn.call_args_list
+        }
+        assert seen_pairs == {
+            ("nu", "python"),
+            ("mu", "python"),
+            ("nu", "rust"),
+            ("mu", "rust"),
+        }
+
+    def test_disabled_or_quarantined_does_not_warn(self, tmp_bindings):
+        manager, mgr_mod = self._fresh_manager()
+
+        disabled = _fake_managed("disabled-srv")
+        disabled.is_enabled.return_value = False
+        quarantined = _fake_managed("quar-srv")
+        quarantined.is_quarantined.return_value = True
+        manager._managed_servers = {"d": disabled, "q": quarantined}
+
+        with patch.object(mgr_mod, "emit_warning") as mock_warn:
+            manager.get_servers_for_agent(agent_name="python")
+
+        mock_warn.assert_not_called()
+
+    def test_bound_server_does_not_warn(self, tmp_bindings):
+        manager, mgr_mod = self._fresh_manager()
+        manager._managed_servers = {"a": _fake_managed("nu")}
+
+        ab.set_binding("python", "nu")
+
+        with patch.object(mgr_mod, "emit_warning") as mock_warn:
+            servers = manager.get_servers_for_agent(agent_name="python")
+
+        assert len(servers) == 1
+        mock_warn.assert_not_called()
+
+
 def _fake_managed(name: str):
     """Tiny mock for ManagedMCPServer satisfying get_servers_for_agent."""
     from unittest.mock import MagicMock
