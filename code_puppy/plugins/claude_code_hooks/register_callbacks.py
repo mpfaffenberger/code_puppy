@@ -16,8 +16,6 @@ _SUBAGENT_NAMES = frozenset(
     {
         "pack_leader",
         "bloodhound",
-        "code-puppy",
-        "code_puppy",
         "retriever",
         "shepherd",
         "terrier",
