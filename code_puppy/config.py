@@ -1697,8 +1697,22 @@ def auto_save_session_if_enabled() -> bool:
             auto_saved=True,
         )
 
+        # Append conversation-wide TTFT + TG averages if we have any data.
+        stats_suffix = ""
+        try:
+            from code_puppy.agents.run_stats import AgentRunStats
+
+            avg_ttft, avg_gen = AgentRunStats.get_conversation_stats()
+            formatted = AgentRunStats.format_conversation_stats(avg_ttft, avg_gen)
+            if formatted:
+                stats_suffix = f" | {formatted}"
+        except Exception:
+            # Stats are decorative; never block the auto-save line on them.
+            pass
+
         emit_info(
-            f"🐾 Auto-saved session: {metadata.message_count} messages ({metadata.total_tokens} tokens)"
+            f"🐾 Auto-saved session: {metadata.message_count} messages "
+            f"({metadata.total_tokens} tokens){stats_suffix}"
         )
 
         return True
