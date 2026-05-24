@@ -856,23 +856,26 @@ class RichConsoleRenderer:
 
         # Build the header line with action and optional tool name
         # Escape user-controlled strings to prevent Rich markup injection
+        # Disable Rich's auto-highlighter on these prints — we already apply
+        # explicit markup, and the ReprHighlighter regexes mangle things like
+        # 'uuid-gen' (stops at the hyphen) and '0.00s' (no word boundary).
         header_parts = [f"\n{banner} 🔧 [bold cyan]{msg.action.upper()}[/bold cyan]"]
         if msg.tool_name:
             safe_tool_name = escape_rich_markup(msg.tool_name)
             header_parts.append(f" [dim]tool=[/dim][bold]{safe_tool_name}[/bold]")
-        self._console.print("".join(header_parts))
+        self._console.print("".join(header_parts), highlight=False)
 
         # Status indicator
         safe_summary = escape_rich_markup(msg.summary) if msg.summary else ""
         if msg.success:
-            self._console.print(f"[green]✓[/green] {safe_summary}")
+            self._console.print(f"[green]✓[/green] {safe_summary}", highlight=False)
         else:
-            self._console.print(f"[red]✗[/red] {safe_summary}")
+            self._console.print(f"[red]✗[/red] {safe_summary}", highlight=False)
 
         # Show details if present
         if msg.details:
             safe_details = escape_rich_markup(msg.details)
-            self._console.print(f"[dim]{safe_details}[/dim]")
+            self._console.print(f"[dim]{safe_details}[/dim]", highlight=False)
 
         # Trailing newline for spinner separation
         self._console.print()
