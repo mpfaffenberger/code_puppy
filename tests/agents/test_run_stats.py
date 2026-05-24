@@ -46,14 +46,30 @@ def test_format_conversation_stats_empty():
 
 def test_format_conversation_stats_both():
     out = AgentRunStats.format_conversation_stats(0.85, 72.3)
-    assert "avg TTFT 0.85s" in out
+    # Note the space before 's' -- intentional, so Rich's number highlighter
+    # can match the full decimal (digit must be followed by a non-word char).
+    assert "avg TTFT 0.85 s" in out
     assert "avg TG 72.3 t/s" in out
     assert "|" in out
 
 
 def test_format_conversation_stats_only_ttft():
     out = AgentRunStats.format_conversation_stats(0.42, None)
-    assert out == "avg TTFT 0.42s"
+    assert out == "avg TTFT 0.42 s"
+
+
+def test_format_conversation_stats_ttft_value_is_highlighter_friendly():
+    """Confirm Rich's ReprHighlighter matches the full decimal value."""
+    from rich.highlighter import ReprHighlighter
+    from rich.text import Text
+
+    out = AgentRunStats.format_conversation_stats(1.53, 86.4)
+    text = Text(out)
+    ReprHighlighter().highlight(text)
+    # Both decimal values should appear as 'repr.number' spans in full.
+    matched_substrings = {text.plain[s.start : s.end] for s in text.spans}
+    assert "1.53" in matched_substrings
+    assert "86.4" in matched_substrings
 
 
 def test_record_output_tokens_marks_first_token_time():

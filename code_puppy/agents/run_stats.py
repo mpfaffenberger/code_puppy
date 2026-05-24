@@ -191,10 +191,17 @@ class AgentRunStats:
     def format_conversation_stats(
         avg_ttft: Optional[float], avg_gen: Optional[float]
     ) -> str:
-        """Format conversation-wide averages as a compact suffix string."""
+        """Format conversation-wide averages as a compact suffix string.
+
+        Note: a space is intentionally inserted between the TTFT value and
+        its ``s`` unit so Rich's ReprHighlighter can match the full decimal
+        as a number. Without the space, ``1.53s`` gets clipped to ``1.``
+        because ``s`` is a word character and breaks the regex word boundary.
+        The gen-speed value already has a natural space before ``t/s``.
+        """
         parts = []
         if avg_ttft is not None and avg_ttft > 0:
-            parts.append(f"avg TTFT {avg_ttft:.2f}s")
+            parts.append(f"avg TTFT {avg_ttft:.2f} s")
         if avg_gen is not None and avg_gen > 0:
             parts.append(f"avg TG {avg_gen:,.1f} t/s")
         return " | ".join(parts)
