@@ -2,10 +2,6 @@ version = 1
 revision = 3
 requires-python = ">=3.11, <3.15"
 
-[options]
-exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
-exclude-newer-span = "P7D"
-
 [[package]]
 name = "annotated-doc"
 version = "0.0.4"
@@ -304,7 +300,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.518"
+version = "0.0.519"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
