@@ -219,19 +219,22 @@ class TestUnboundOrphanWarning:
             manager.get_servers_for_agent(agent_name="python")
             manager.get_servers_for_agent(agent_name="rust")
 
-        # 2 server-names x first python build (2) + first rust build (2) = 4.
-        # Second python build is fully deduped.
-        assert mock_warn.call_count == 4
-        seen_pairs = {
-            (call.args[0].split("'")[1], call.args[0].split("'")[3])
+        # One consolidated warning per fresh (agent, set-of-unbound-servers)
+        # batch: python's first build emits one block listing nu+mu, rust's
+        # first build emits one block listing nu+mu, python's second build
+        # is fully deduped. Total: 2 warning blocks.
+        assert mock_warn.call_count == 2
+        # Each emitted message should mention BOTH unbound servers and the
+        # specific agent it was built for.
+        for call in mock_warn.call_args_list:
+            msg = call.args[0]
+            assert "'nu'" in msg
+            assert "'mu'" in msg
+        agents_warned_about = [
+            "python" if "'python'" in call.args[0] else "rust"
             for call in mock_warn.call_args_list
-        }
-        assert seen_pairs == {
-            ("nu", "python"),
-            ("mu", "python"),
-            ("nu", "rust"),
-            ("mu", "rust"),
-        }
+        ]
+        assert sorted(agents_warned_about) == ["python", "rust"]
 
     def test_disabled_or_quarantined_does_not_warn(self, tmp_bindings):
         manager, mgr_mod = self._fresh_manager()

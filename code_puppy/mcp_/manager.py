@@ -33,27 +33,48 @@ logger = logging.getLogger(__name__)
 _WARNED_UNBOUND: set = set()
 
 
-def _warn_unbound_server(server_name: str, agent_name: str) -> None:
-    """Warn once that a registered MCP server isn't bound to the current agent.
+def _warn_unbound_servers(server_names: List[str], agent_name: str) -> None:
+    """Warn once, in a single consolidated block, about registered-but-unbound MCP servers.
 
     Companion to ``code_puppy.agents._builder._warn_missing_server``: that one
     fires when an agent's binding points at a server that isn't installed;
-    this one fires when a server *is* installed (registered via
-    ``mcp_servers.json``) but no binding ties it to the agent currently
-    being built. Without this warning the server is silently skipped on
+    this one fires when servers *are* installed (registered via
+    ``mcp_servers.json``) but no binding ties them to the agent currently
+    being built. Without this warning the servers are silently skipped on
     every agent build, which is the exact footgun users hit when they
     hand-edit ``mcp_servers.json`` and expect ``enabled: true`` to mean
     "live on next launch".
+
+    Dedupe is per ``(server_name, agent_name)`` pair per process so that
+    repeated agent builds don't re-spam the user, but a brand-new
+    unbound server (e.g. just added to ``mcp_servers.json``) still gets
+    surfaced.
     """
-    key = (server_name, agent_name)
-    if key in _WARNED_UNBOUND:
+    # Filter out pairs we've already shouted about in this process.
+    fresh = [n for n in server_names if (n, agent_name) not in _WARNED_UNBOUND]
+    if not fresh:
         return
-    _WARNED_UNBOUND.add(key)
+    for name in fresh:
+        _WARNED_UNBOUND.add((name, agent_name))
+
+    if len(fresh) == 1:
+        name = fresh[0]
+        emit_warning(
+            f"MCP server '{name}' is registered in mcp_servers.json but "
+            f"not bound to agent '{agent_name}'. Run `/mcp start {name}` "
+            f"(which will auto-bind it) or `/agents` \u2192 B to manage "
+            f"bindings manually."
+        )
+        return
+
+    bullet_lines = "\n".join(
+        f"  \u2022 '{name}'  \u2192  `/mcp start {name}`" for name in fresh
+    )
     emit_warning(
-        f"MCP server '{server_name}' is registered in mcp_servers.json but "
-        f"not bound to agent '{agent_name}'. Run `/mcp start {server_name}` "
-        f"(which will auto-bind it) or `/agents` \u2192 B to manage bindings "
-        f"manually."
+        f"{len(fresh)} MCP servers are registered in mcp_servers.json but "
+        f"not bound to agent '{agent_name}':\n{bullet_lines}\n"
+        f"Run the suggested `/mcp start <name>` (auto-binds) or `/agents` "
+        f"\u2192 B to manage bindings manually."
     )
 
 
@@ -298,6 +319,7 @@ class MCPManager:
                 bound_names = set()
 
         servers = []
+        unbound_to_warn: List[str] = []
 
         for server_id, managed_server in self._managed_servers.items():
             try:
@@ -317,7 +339,7 @@ class MCPManager:
                         managed_server.is_enabled()
                         and not managed_server.is_quarantined()
                     ):
-                        _warn_unbound_server(managed_server.config.name, agent_name)
+                        unbound_to_warn.append(managed_server.config.name)
                     continue
                 # Only include enabled, non-quarantined servers
                 if managed_server.is_enabled() and not managed_server.is_quarantined():
@@ -350,6 +372,11 @@ class MCPManager:
                     },
                 )
                 continue
+
+        # One consolidated warning per call beats N angry shouts — dedupe still
+        # happens inside _warn_unbound_servers per (server, agent) pair.
+        if unbound_to_warn and agent_name is not None:
+            _warn_unbound_servers(unbound_to_warn, agent_name)
 
         logger.debug(f"Returning {len(servers)} servers for agent use")
         return servers
