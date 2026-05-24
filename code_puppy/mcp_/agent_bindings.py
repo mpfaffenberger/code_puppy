@@ -41,6 +41,12 @@ BINDINGS_FILE = os.path.join(CONFIG_DIR, "mcp_agent_bindings.json")
 
 _EMPTY: Dict[str, Any] = {"bindings": {}}
 
+# In-memory bindings that live ONLY for the current process. Used by ephemeral
+# flows like ``/mcp start`` which should make a server visible to the current
+# agent right now without permanently editing ``mcp_agent_bindings.json``.
+# Same shape as the persisted bindings: ``{agent: {server: {"auto_start": bool}}}``.
+_session_bindings: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
 
 # ---------- low-level I/O ----------------------------------------------------
 
@@ -124,12 +130,18 @@ def get_bound_servers(agent_name: str) -> Dict[str, Dict[str, Any]]:
     """
     declared = _load_json_declared_bindings(agent_name)
     file_bindings = load_bindings().get(agent_name, {})
+    session = _session_bindings.get(agent_name, {})
 
-    # Merge: start with declarations, layer file on top so file wins.
+    # Merge with explicit precedence (lowest → highest):
+    #   declared (JSON config)  <  file (persistent)  <  session (in-memory)
+    # Session wins so the most recent user action (e.g. /mcp start xyz) is
+    # what the agent actually sees this run.
     merged: Dict[str, Dict[str, Any]] = {
         name: dict(opts) for name, opts in declared.items()
     }
     for name, opts in file_bindings.items():
+        merged[name] = dict(opts)
+    for name, opts in session.items():
         merged[name] = dict(opts)
     return merged
 
@@ -163,13 +175,52 @@ def set_binding(
     _write(data)
 
 
+def set_session_binding(
+    agent_name: str,
+    server_name: str,
+    auto_start: bool = True,
+) -> None:
+    """Bind ``server_name`` to ``agent_name`` for *this process only*.
+
+    Identical in shape to :func:`set_binding`, but writes to an in-memory
+    overlay instead of ``mcp_agent_bindings.json``. The binding vanishes
+    when the process exits, which is exactly what callers like
+    ``/mcp start`` want: "make this server visible right now, but don't
+    permanently rewire the agent."
+    """
+    agent_block = _session_bindings.setdefault(agent_name, {})
+    agent_block[server_name] = {"auto_start": bool(auto_start)}
+
+
+def remove_session_binding(agent_name: str, server_name: str) -> bool:
+    """Drop a session-only binding. Returns True if anything was removed."""
+    agent_block = _session_bindings.get(agent_name)
+    if not agent_block or server_name not in agent_block:
+        return False
+    del agent_block[server_name]
+    if not agent_block:
+        del _session_bindings[agent_name]
+    return True
+
+
+def clear_session_bindings() -> None:
+    """Wipe every session binding. Primarily useful for tests."""
+    _session_bindings.clear()
+
+
 def remove_binding(agent_name: str, server_name: str) -> bool:
-    """Unbind ``server_name`` from ``agent_name``. Returns True if removed."""
+    """Unbind ``server_name`` from ``agent_name``. Returns True if removed.
+
+    Removes from both the persistent file *and* the session overlay, so an
+    explicit "unbind" from the menu doesn't leave a ghost session binding
+    behind that silently re-enables the server.
+    """
+    session_removed = remove_session_binding(agent_name, server_name)
     data = _read()
     bindings = data.get("bindings", {})
     agent_block = bindings.get(agent_name)
     if not agent_block or server_name not in agent_block:
-        return False
+        return session_removed
     del agent_block[server_name]
     if not agent_block:
         del bindings[agent_name]

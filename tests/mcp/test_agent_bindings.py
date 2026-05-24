@@ -98,6 +98,43 @@ class TestBindingsRoundTrip:
         assert ab.rename_server_in_bindings("fs", "fs") == 0
 
 
+class TestSessionBindings:
+    """Session-only bindings (in-memory overlay used by /mcp start)."""
+
+    def test_set_session_binding_is_not_persisted(self, tmp_bindings):
+        ab.set_session_binding("python", "serena")
+        assert ab.is_bound("python", "serena") is True
+        # Crucial: nothing should have hit disk.
+        assert not tmp_bindings.exists()
+        assert ab.load_bindings() == {}
+
+    def test_session_binding_visible_via_get_bound_servers(self, tmp_bindings):
+        ab.set_session_binding("python", "serena")
+        assert ab.get_bound_servers("python") == {"serena": {"auto_start": True}}
+
+    def test_session_overrides_file_for_same_server(self, tmp_bindings):
+        ab.set_binding("python", "serena", auto_start=False)
+        ab.set_session_binding("python", "serena", auto_start=True)
+        # Session wins — most recent user intent.
+        assert ab.get_auto_start("python", "serena") is True
+
+    def test_clear_session_bindings_wipes_overlay(self, tmp_bindings):
+        ab.set_session_binding("python", "serena")
+        ab.clear_session_bindings()
+        assert ab.is_bound("python", "serena") is False
+
+    def test_remove_session_binding_returns_false_when_absent(self, tmp_bindings):
+        assert ab.remove_session_binding("python", "nope") is False
+
+    def test_remove_binding_also_clears_session_ghost(self, tmp_bindings):
+        # If a user explicitly unbinds via the menu, the session overlay must
+        # not silently re-enable the server.
+        ab.set_session_binding("python", "serena")
+        ab.set_binding("python", "serena")
+        assert ab.remove_binding("python", "serena") is True
+        assert ab.is_bound("python", "serena") is False
+
+
 class TestCorruptionResilience:
     def test_invalid_json_returns_empty(self, tmp_bindings):
         tmp_bindings.write_text("{not json")
@@ -196,6 +233,9 @@ class TestUnboundOrphanWarning:
         assert "'nu'" in msg
         assert "'python'" in msg
         assert "/mcp start nu" in msg
+        # The warning must advertise its own off-switch, otherwise users have
+        # no idea this is silenceable.
+        assert "/mcp silence-warning" in msg
 
     def test_warning_deduped_per_pair_per_process(self, tmp_bindings):
         manager, mgr_mod = self._fresh_manager()
@@ -235,6 +275,9 @@ class TestUnboundOrphanWarning:
             for call in mock_warn.call_args_list
         ]
         assert sorted(agents_warned_about) == ["python", "rust"]
+        # Multi-server variant must also mention the silence command.
+        for call in mock_warn.call_args_list:
+            assert "/mcp silence-warning" in call.args[0]
 
     def test_disabled_or_quarantined_does_not_warn(self, tmp_bindings):
         manager, mgr_mod = self._fresh_manager()
@@ -261,6 +304,52 @@ class TestUnboundOrphanWarning:
 
         assert len(servers) == 1
         mock_warn.assert_not_called()
+
+    def test_silence_flag_suppresses_warning(self, tmp_bindings):
+        """`/mcp silence-warning` (i.e. the config flag) kills the warning."""
+        manager, mgr_mod = self._fresh_manager()
+        manager._managed_servers = {"a": _fake_managed("nu")}
+
+        with (
+            patch.object(mgr_mod, "emit_warning") as mock_warn,
+            patch(
+                "code_puppy.config.get_mcp_unbound_warning_silenced",
+                return_value=True,
+            ),
+        ):
+            servers = manager.get_servers_for_agent(agent_name="python")
+
+        assert servers == []
+        mock_warn.assert_not_called()
+
+    def test_silence_flag_does_not_pollute_dedupe_cache(self, tmp_bindings):
+        """Silencing should not mark pairs as 'already warned' — unsilencing
+        later must restore the warning on the next build."""
+        manager, mgr_mod = self._fresh_manager()
+        manager._managed_servers = {"a": _fake_managed("nu")}
+
+        # First call: silenced, no warn, cache untouched.
+        with (
+            patch.object(mgr_mod, "emit_warning") as mock_warn,
+            patch(
+                "code_puppy.config.get_mcp_unbound_warning_silenced",
+                return_value=True,
+            ),
+        ):
+            manager.get_servers_for_agent(agent_name="python")
+        mock_warn.assert_not_called()
+
+        # Second call: un-silenced — warning must fire because the silenced
+        # path bailed before touching _WARNED_UNBOUND.
+        with (
+            patch.object(mgr_mod, "emit_warning") as mock_warn,
+            patch(
+                "code_puppy.config.get_mcp_unbound_warning_silenced",
+                return_value=False,
+            ),
+        ):
+            manager.get_servers_for_agent(agent_name="python")
+        assert mock_warn.call_count == 1
 
 
 def _fake_managed(name: str):
