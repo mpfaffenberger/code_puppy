@@ -319,6 +319,25 @@ def compact(
 
     strategy = get_compaction_strategy()
 
+    # Fire pre_compact hooks so Claude Code-style PreCompact hooks (and any
+    # other plugins) can observe / log compactions. Result is advisory.
+    try:
+        import asyncio
+
+        from code_puppy.callbacks import on_pre_compact
+
+        agent_name = getattr(agent, "name", "unknown") if agent else "unknown"
+        coro = on_pre_compact(agent_name, strategy, len(messages), total_tokens)
+        try:
+            asyncio.get_running_loop()
+            # Inside running loop — schedule but don't await (compact() is sync).
+            asyncio.ensure_future(coro)
+        except RuntimeError:
+            asyncio.run(coro)
+    except Exception:
+        # Hooks must never break compaction.
+        pass
+
     protected_tokens = get_protected_token_count()
     filtered = filter_huge_messages(messages, model_name)
 

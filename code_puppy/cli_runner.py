@@ -379,6 +379,12 @@ async def main():
             message_renderer.stop()
         if bus_renderer:
             bus_renderer.stop()
+        # session_end fires BEFORE shutdown so plugins can react to the
+        # session ending while the bus / agent state is still coherent.
+        try:
+            await callbacks.on_session_end()
+        except Exception:
+            pass
         await callbacks.on_shutdown()
 
 
