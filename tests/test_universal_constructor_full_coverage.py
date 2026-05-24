@@ -296,6 +296,39 @@ class TestHandleCallAction:
             assert result.success is True
 
     @pytest.mark.anyio
+    async def test_call_json_string_args_parsed_and_forwarded(self):
+        """tool_args may arrive as a JSON-encoded string from transports that
+        stringify nested objects (e.g. some tool-calling layers). The string
+        should be parsed transparently and forwarded as kwargs to the tool."""
+        captured = {}
+
+        def echo(**kwargs):
+            captured.update(kwargs)
+            return {"got": kwargs}
+
+        mock_registry = MagicMock()
+        mock_tool = MagicMock()
+        mock_tool.meta.enabled = True
+        mock_tool.source_path = None
+        mock_registry.get_tool.return_value = mock_tool
+        mock_registry.get_tool_function.return_value = echo
+        with (
+            patch(
+                "code_puppy.plugins.universal_constructor.registry.get_registry",
+                return_value=mock_registry,
+            ),
+            patch("code_puppy.tools.universal_constructor.get_message_bus"),
+        ):
+            result = await universal_constructor_impl(
+                MagicMock(),
+                "call",
+                tool_name="x",
+                tool_args='{"subject": "a knight", "pixel_grid": 64}',
+            )
+            assert result.success is True
+            assert captured == {"subject": "a knight", "pixel_grid": 64}
+
+    @pytest.mark.anyio
     async def test_call_type_error(self):
         mock_registry = MagicMock()
         mock_tool = MagicMock()

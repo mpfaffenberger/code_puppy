@@ -8,8 +8,10 @@ import os
 
 from code_puppy.command_line.agent_menu import interactive_agent_picker
 from code_puppy.command_line.command_registry import register_command
-from code_puppy.command_line.model_picker_completion import update_model_in_input
-from code_puppy.command_line.motd import print_motd
+from code_puppy.command_line.model_picker_completion import (
+    interactive_model_picker,
+    update_model_in_input,
+)
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import finalize_autosave_session
 from code_puppy.messaging import emit_error, emit_info
@@ -52,16 +54,24 @@ def handle_help_command(command: str) -> bool:
 )
 def handle_cd_command(command: str) -> bool:
     """Change directory or list current directory."""
-    # Use shlex.split to handle quoted paths properly
     import shlex
 
     from code_puppy.messaging import emit_error, emit_info, emit_success
 
     try:
-        tokens = shlex.split(command)
+        if os.name == "nt":
+            # Windows paths commonly use backslashes; POSIX shlex treats them as
+            # escape characters and corrupts valid paths (e.g., C:\foo\bar).
+            lexer = shlex.shlex(command, posix=False)
+            lexer.whitespace_split = True
+            lexer.commenters = ""
+            tokens = list(lexer)
+        else:
+            tokens = shlex.split(command)
     except ValueError:
-        # Fallback to simple split if shlex fails
-        tokens = command.split()
+        # Keep remaining text as one argument for better resilience.
+        tokens = command.split(maxsplit=1)
+
     if len(tokens) == 1:
         try:
             table = make_directory_table()
@@ -69,17 +79,31 @@ def handle_cd_command(command: str) -> bool:
         except Exception as e:
             emit_error(f"Error listing directory: {e}")
         return True
-    elif len(tokens) == 2:
-        dirname = tokens[1]
+
+    if len(tokens) >= 2:
+        # /cd takes one path argument; if tokenizer split extra whitespace,
+        # rejoin it so unquoted paths with spaces still have a chance.
+        dirname = " ".join(tokens[1:]).strip().strip("\"'")
         target = os.path.expanduser(dirname)
         if not os.path.isabs(target):
             target = os.path.join(os.getcwd(), target)
         if os.path.isdir(target):
             os.chdir(target)
             emit_success(f"Changed directory to: {target}")
+            # Refresh the @file fuzzy index for the new cwd. Async/non-blocking;
+            # the prompt stays snappy and the next @completion sees fresh data.
+            try:
+                from code_puppy.command_line import file_index
 
-            # Reload the agent to pick up new working directory context
-            # This ensures AGENTS.md is re-read and system prompt is updated
+                file_index.reindex(target, blocking=False)
+            except Exception:
+                # Index is a nicety, not load-bearing. Never block /cd on it.
+                pass
+            # Reload the agent to pick up new working directory context.
+            # This ensures AGENTS.md is re-read and the system prompt is
+            # updated -- without this, the PydanticAgent instructions stay
+            # baked in from construction time and keep serving stale paths
+            # for the remainder of the session.
             try:
                 from code_puppy.agents.agent_manager import get_current_agent
 
@@ -93,6 +117,7 @@ def handle_cd_command(command: str) -> bool:
         else:
             emit_error(f"Not a directory: {dirname}")
         return True
+
     return True
 
 
@@ -110,22 +135,6 @@ def handle_tools_command(command: str) -> bool:
 
     markdown_content = Markdown(tools_content)
     emit_info(markdown_content)
-    return True
-
-
-@register_command(
-    name="motd",
-    description="Show the latest message of the day (MOTD)",
-    usage="/motd",
-    category="core",
-)
-def handle_motd_command(command: str) -> bool:
-    """Show message of the day."""
-    try:
-        print_motd(force=True)
-    except Exception:
-        # Handle printing errors gracefully
-        pass
     return True
 
 
@@ -197,7 +206,7 @@ def handle_tutorial_command(command: str) -> bool:
         from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
 
         run_oauth_flow()
-        set_model_and_reload_agent("chatgpt-gpt-5.3-codex")
+        set_model_and_reload_agent("chatgpt-gpt-5.4")
     elif result == "claude":
         emit_info("🔐 Starting Claude Code OAuth flow...")
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (
@@ -205,7 +214,7 @@ def handle_tutorial_command(command: str) -> bool:
         )
 
         _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-6")
+        set_model_and_reload_agent("claude-code-claude-opus-4-7")
     elif result == "completed":
         emit_info("🎉 Tutorial complete! Happy coding!")
     elif result == "skipped":
@@ -412,95 +421,6 @@ def handle_agent_command(command: str) -> bool:
         return True
 
 
-async def interactive_model_picker() -> str | None:
-    """Show an interactive arrow-key selector to pick a model (async version).
-
-    Returns:
-        The selected model name, or None if cancelled
-    """
-    import asyncio
-    import sys
-
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.text import Text
-
-    from code_puppy.command_line.model_picker_completion import (
-        get_active_model,
-        load_model_names,
-    )
-    from code_puppy.tools.command_runner import set_awaiting_user_input
-    from code_puppy.tools.common import arrow_select_async
-
-    # Load available models
-    model_names = load_model_names()
-    current_model = get_active_model()
-
-    # Build choices with current model indicator
-    choices = []
-    for model_name in model_names:
-        if model_name == current_model:
-            choices.append(f"✓ {model_name} (current)")
-        else:
-            choices.append(f"  {model_name}")
-
-    # Create panel content
-    panel_content = Text()
-    panel_content.append("🤖 Select a model to use\n", style="bold cyan")
-    panel_content.append("Current model: ", style="dim")
-    panel_content.append(current_model, style="bold green")
-
-    # Display panel
-    panel = Panel(
-        panel_content,
-        title="[bold white]Model Selection[/bold white]",
-        border_style="cyan",
-        padding=(1, 2),
-    )
-
-    # Pause spinners BEFORE showing panel
-    set_awaiting_user_input(True)
-    await asyncio.sleep(0.3)  # Let spinners fully stop
-
-    local_console = Console()
-    emit_info("")
-    local_console.print(panel)
-    emit_info("")
-
-    # Flush output before prompt_toolkit takes control
-    sys.stdout.flush()
-    sys.stderr.flush()
-    await asyncio.sleep(0.1)
-
-    selected_model = None
-
-    try:
-        # Final flush
-        sys.stdout.flush()
-
-        # Show arrow-key selector (async version)
-        choice = await arrow_select_async(
-            "💭 Which model would you like to use?",
-            choices,
-        )
-
-        # Extract model name from choice (remove prefix and suffix)
-        if choice:
-            # Remove the "✓ " or "  " prefix and " (current)" suffix if present
-            selected_model = choice.strip().lstrip("✓").strip()
-            if selected_model.endswith(" (current)"):
-                selected_model = selected_model[:-10].strip()
-
-    except (KeyboardInterrupt, EOFError):
-        emit_error("Cancelled by user")
-        selected_model = None
-
-    finally:
-        set_awaiting_user_input(False)
-
-    return selected_model
-
-
 @register_command(
     name="model",
     description="Set active model",
@@ -678,91 +598,6 @@ def handle_mcp_command(command: str) -> bool:
 
 
 @register_command(
-    name="api",
-    description="Manage the Code Puppy API server",
-    usage="/api [start|stop|status]",
-    category="core",
-    detailed_help="Start, stop, or check status of the local FastAPI server for GUI integration.",
-)
-def handle_api_command(command: str) -> bool:
-    """Handle the /api command."""
-    import os
-    import signal
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    from code_puppy.config import STATE_DIR
-    from code_puppy.messaging import emit_error, emit_info, emit_success
-
-    parts = command.split()
-    subcommand = parts[1] if len(parts) > 1 else "status"
-
-    pid_file = Path(STATE_DIR) / "api_server.pid"
-
-    if subcommand == "start":
-        # Check if already running
-        if pid_file.exists():
-            try:
-                pid = int(pid_file.read_text().strip())
-                os.kill(pid, 0)  # Check if process exists
-                emit_info(f"API server already running (PID {pid})")
-                return True
-            except (OSError, ValueError):
-                pid_file.unlink(missing_ok=True)  # Stale PID file
-
-        # Start the server in background
-        emit_info("Starting API server on http://127.0.0.1:8765 ...")
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "code_puppy.api.main"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        pid_file.parent.mkdir(parents=True, exist_ok=True)
-        pid_file.write_text(str(proc.pid))
-        emit_success(f"API server started (PID {proc.pid})")
-        emit_info("Docs available at http://127.0.0.1:8765/docs")
-        return True
-
-    elif subcommand == "stop":
-        if not pid_file.exists():
-            emit_info("API server is not running")
-            return True
-
-        try:
-            pid = int(pid_file.read_text().strip())
-            os.kill(pid, signal.SIGTERM)
-            pid_file.unlink()
-            emit_success(f"API server stopped (PID {pid})")
-        except (OSError, ValueError) as e:
-            pid_file.unlink(missing_ok=True)
-            emit_error(f"Error stopping server: {e}")
-        return True
-
-    elif subcommand == "status":
-        if not pid_file.exists():
-            emit_info("API server is not running")
-            return True
-
-        try:
-            pid = int(pid_file.read_text().strip())
-            os.kill(pid, 0)  # Check if process exists
-            emit_success(f"API server is running (PID {pid})")
-            emit_info("URL: http://127.0.0.1:8765")
-            emit_info("Docs: http://127.0.0.1:8765/docs")
-        except (OSError, ValueError):
-            pid_file.unlink(missing_ok=True)
-            emit_info("API server is not running (stale PID file removed)")
-        return True
-
-    else:
-        emit_error(f"Unknown subcommand: {subcommand}")
-        emit_info("Usage: /api [start|stop|status]")
-        return True
-
-
-@register_command(
     name="generate-pr-description",
     description="Generate comprehensive PR description",
     usage="/generate-pr-description [@dir]",
@@ -803,64 +638,3 @@ def handle_generate_pr_description_command(command: str) -> str:
 
     # Return the prompt to be processed by the main chat system
     return pr_prompt
-
-
-@register_command(
-    name="wiggum",
-    description="Loop mode: re-run the same prompt when agent finishes (like Wiggum chasing donuts 🍩)",
-    usage="/wiggum <prompt>",
-    category="core",
-)
-def handle_wiggum_command(command: str) -> str | bool:
-    """Start wiggum loop mode.
-
-    When active, the agent will automatically re-run the same prompt
-    after completing, resetting context each time. Use Ctrl+C to stop.
-
-    Example:
-        /wiggum say hello world
-    """
-    from code_puppy.command_line.wiggum_state import start_wiggum
-    from code_puppy.messaging import emit_info, emit_success, emit_warning
-
-    # Extract the prompt after /wiggum
-    parts = command.split(maxsplit=1)
-    if len(parts) < 2 or not parts[1].strip():
-        emit_warning("Usage: /wiggum <prompt>")
-        emit_info("Example: /wiggum say hello world")
-        emit_info("This will repeatedly run 'say hello world' after each completion.")
-        emit_info("Press Ctrl+C to stop the loop.")
-        return True
-
-    prompt = parts[1].strip()
-
-    # Start wiggum mode
-    start_wiggum(prompt)
-    emit_success("🍩 WIGGUM MODE ACTIVATED!")
-    emit_info(f"Prompt: {prompt}")
-    emit_info("The agent will re-loop this prompt after each completion.")
-    emit_info("Press Ctrl+C to stop the wiggum loop.")
-
-    # Return the prompt to execute immediately
-    return prompt
-
-
-@register_command(
-    name="wiggum_stop",
-    description="Stop wiggum loop mode",
-    usage="/wiggum_stop",
-    aliases=["stopwiggum", "ws"],
-    category="core",
-)
-def handle_wiggum_stop_command(command: str) -> bool:
-    """Stop wiggum loop mode."""
-    from code_puppy.command_line.wiggum_state import is_wiggum_active, stop_wiggum
-    from code_puppy.messaging import emit_info, emit_success
-
-    if is_wiggum_active():
-        stop_wiggum()
-        emit_success("🍩 Wiggum mode stopped!")
-    else:
-        emit_info("Wiggum mode is not active.")
-
-    return True

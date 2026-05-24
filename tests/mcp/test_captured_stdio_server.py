@@ -878,8 +878,11 @@ class TestBlockingStartup:
 
             assert "The real error" in str(excinfo.value)
 
-            # Verify logging message used the unwrapped detail
+            # Verify the user-facing message is the gentle one-liner that
+            # points at /mcp logs — raw exception text is intentionally
+            # suppressed (it lives in the debug logs / per-server log file).
             args, _ = mock_emit.call_args
             message = args[0]
-            assert "The real error" in message
+            assert "/mcp logs" in message
+            assert "The real error" not in message
             assert "Group message" not in message

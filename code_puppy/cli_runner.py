@@ -12,11 +12,9 @@ import argparse
 import asyncio
 import os
 import sys
-import time
 import traceback
 from pathlib import Path
 
-from dbos import DBOS, DBOSConfig
 from rich.console import Console
 
 from code_puppy import __version__, callbacks, plugins
@@ -26,18 +24,20 @@ from code_puppy.command_line.clipboard import get_clipboard_manager
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
-    DBOS_DATABASE_URL,
     ensure_config_exists,
     finalize_autosave_session,
-    get_use_dbos,
+    get_current_autosave_session_name,
     initialize_command_history_file,
+    record_terminal_session,
     save_command_to_history,
 )
 from code_puppy.http_utils import find_available_port
 from code_puppy.keymap import (
     KeymapError,
     get_cancel_agent_display_name,
+    get_pause_agent_display_name,
     validate_cancel_agent_key,
+    validate_pause_agent_key,
 )
 from code_puppy.messaging import emit_info
 from code_puppy.terminal_utils import (
@@ -46,10 +46,60 @@ from code_puppy.terminal_utils import (
     reset_windows_terminal_ansi,
     reset_windows_terminal_full,
 )
-from code_puppy.tools.common import console
 from code_puppy.version_checker import default_version_mismatch_behavior
 
 plugins.load_plugin_callbacks()
+
+
+def _resume_session_from_path(raw_path: str) -> None:
+    """Restore agent message history from a saved .pkl session file.
+
+    Accepts any path (autosaves, contexts, somewhere weird on disk). We don't
+    care where it lives — we just decompose into (parent_dir, stem) and reuse
+    ``session_storage.load_session`` so we stay DRY.
+    """
+    from code_puppy.agents.agent_manager import get_current_agent
+    from code_puppy.messaging import emit_error, emit_success
+    from code_puppy.session_storage import load_session
+
+    session_path = Path(raw_path).expanduser().resolve()
+
+    if not session_path.exists():
+        emit_error(f"--resume: session file not found: {session_path}")
+        sys.exit(1)
+
+    if session_path.suffix != ".pkl":
+        emit_error(
+            f"--resume: expected a .pkl session file, got '{session_path.suffix}': {session_path}"
+        )
+        sys.exit(1)
+
+    try:
+        history = load_session(session_path.stem, session_path.parent)
+    except Exception as exc:
+        emit_error(f"--resume: failed to load session: {exc}")
+        sys.exit(1)
+
+    try:
+        agent = get_current_agent()
+        agent.set_message_history(history)
+    except Exception as exc:
+        emit_error(f"--resume: failed to attach history to agent: {exc}")
+        sys.exit(1)
+
+    # Rotate autosave id so we don't clobber the original file we just resumed.
+    try:
+        from code_puppy.config import rotate_autosave_id
+
+        rotate_autosave_id()
+    except Exception:
+        pass  # autosave rotation is best-effort
+
+    total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
+    emit_success(
+        f"✅ Resumed session: {len(history)} messages ({total_tokens} tokens)\n"
+        f"📁 From: {session_path}"
+    )
 
 
 async def main():
@@ -85,6 +135,13 @@ async def main():
         "-m",
         type=str,
         help="Specify which model to use (e.g., --model gpt-5)",
+    )
+    parser.add_argument(
+        "--resume",
+        "-r",
+        type=str,
+        metavar="PATH",
+        help="Resume a saved session from a .pkl file (e.g. ~/.code_puppy/contexts/foo.pkl)",
     )
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
@@ -166,6 +223,15 @@ async def main():
     # Validate cancel_agent_key configuration early
     try:
         validate_cancel_agent_key()
+    except KeymapError as e:
+        from code_puppy.messaging import emit_error
+
+        emit_error(str(e))
+        sys.exit(1)
+
+    # Validate pause_agent_key configuration early (Phase 3 of pause/steer)
+    try:
+        validate_pause_agent_key()
     except KeymapError as e:
         from code_puppy.messaging import emit_error
 
@@ -287,32 +353,8 @@ async def main():
 
     await callbacks.on_startup()
 
-    # Initialize DBOS if not disabled
-    if get_use_dbos():
-        # Append a Unix timestamp in ms to the version for uniqueness
-        dbos_app_version = os.environ.get(
-            "DBOS_APP_VERSION", f"{current_version}-{int(time.time() * 1000)}"
-        )
-        dbos_config: DBOSConfig = {
-            "name": "dbos-code-puppy",
-            "system_database_url": DBOS_DATABASE_URL,
-            "run_admin_server": False,
-            "conductor_key": os.environ.get(
-                "DBOS_CONDUCTOR_KEY"
-            ),  # Optional, if set in env, connect to conductor
-            "log_level": os.environ.get(
-                "DBOS_LOG_LEVEL", "ERROR"
-            ),  # Default to ERROR level to suppress verbose logs
-            "application_version": dbos_app_version,  # Match DBOS app version to Code Puppy version
-        }
-        try:
-            DBOS(config=dbos_config)
-            DBOS.launch()
-        except Exception as e:
-            emit_error(f"Error initializing DBOS: {e}")
-            sys.exit(1)
-    else:
-        pass
+    if args.resume:
+        _resume_session_from_path(args.resume)
 
     global shutdown_flag
     shutdown_flag = False
@@ -338,8 +380,6 @@ async def main():
         if bus_renderer:
             bus_renderer.stop()
         await callbacks.on_shutdown()
-        if get_use_dbos():
-            DBOS.destroy()
 
 
 async def interactive_mode(message_renderer, initial_command: str = None) -> None:
@@ -368,6 +408,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message(
         f"Press {cancel_key} during processing to cancel the current task or inference. Use Ctrl+X to interrupt running shell commands."
     )
+    pause_key = get_pause_agent_display_name()
+    emit_system_message(
+        f"Press {pause_key} during processing to pause the agent and inject a steering message."
+    )
     emit_system_message(
         "Use /autosave_load to manually load a previous autosave session."
     )
@@ -378,15 +422,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message(
         "!<command> to run shell commands directly (e.g., !git status)",
     )
-    try:
-        from code_puppy.command_line.motd import print_motd
-
-        print_motd(console, force=False)
-    except Exception as e:
-        from code_puppy.messaging import emit_warning
-
-        emit_warning(f"MOTD error: {e}")
-
     # Print truecolor warning LAST so it's the most visible thing on startup
     # Big ugly red box should be impossible to miss! 🔴
     print_truecolor_warning(display_console)
@@ -485,6 +520,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Autosave loading is now manual - use /autosave_load command
 
+    # Track this terminal's active session for /switch-agent auto-resume
+    record_terminal_session(get_current_autosave_session_name(), overwrite=False)
+
     # Auto-run tutorial on first startup
     try:
         from code_puppy.command_line.onboarding_wizard import should_show_onboarding
@@ -505,7 +543,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
 
                 run_oauth_flow()
-                set_model_name("chatgpt-gpt-5.3-codex")
+                set_model_name("chatgpt-gpt-5.4")
             elif result == "claude":
                 emit_info("🔐 Starting Claude Code OAuth flow...")
                 from code_puppy.plugins.claude_code_oauth.register_callbacks import (
@@ -513,7 +551,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
 
                 _perform_authentication()
-                set_model_name("claude-code-claude-opus-4-6")
+                set_model_name("claude-code-claude-opus-4-7")
             elif result == "completed":
                 emit_info("🎉 Tutorial complete! Happy coding!")
             elif result == "skipped":
@@ -559,23 +597,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Fall back to basic input if prompt_toolkit is not available
                 task = input(">>> ")
 
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, asyncio.CancelledError):
             # Handle Ctrl+C - cancel input and continue
             # Windows-specific: Reset terminal state after interrupt to prevent
             # the terminal from becoming unresponsive (can't type characters)
             reset_windows_terminal_full()
-            # Stop wiggum mode on Ctrl+C
-            from code_puppy.command_line.wiggum_state import (
-                is_wiggum_active,
-                stop_wiggum,
-            )
+            from code_puppy.callbacks import on_interactive_turn_cancel
             from code_puppy.messaging import emit_warning
 
-            if is_wiggum_active():
-                stop_wiggum()
-                emit_warning("\n🍩 Wiggum loop stopped!")
-            else:
-                emit_warning("\nInput cancelled")
+            await on_interactive_turn_cancel("", reason="Ctrl+C")
+            emit_warning("\nInput cancelled")
             continue
         except EOFError:
             # Handle Ctrl+D - exit the application
@@ -625,29 +656,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             # The renderer is stopped in the finally block of main().
             break
 
-        # Check for clear command (supports both `clear` and `/clear`)
-        if task.strip().lower() in ("clear", "/clear"):
-            from code_puppy.command_line.clipboard import get_clipboard_manager
-            from code_puppy.messaging import (
-                emit_info,
-                emit_system_message,
-                emit_warning,
-            )
-
-            agent = get_current_agent()
-            new_session_id = finalize_autosave_session()
-            agent.clear_message_history()
-            emit_warning("Conversation history cleared!")
-            emit_system_message("The agent will not remember previous interactions.")
-            emit_info(f"Auto-save session rotated to: {new_session_id}")
-
-            # Also clear pending clipboard images
-            clipboard_manager = get_clipboard_manager()
-            clipboard_count = clipboard_manager.get_pending_count()
-            clipboard_manager.clear_pending()
-            if clipboard_count > 0:
-                emit_info(f"Cleared {clipboard_count} pending clipboard image(s)")
-            continue
+        # Backward-compat: bare `clear` (no slash) is rewritten to `/clear`
+        # so the registered handler in session_commands is the single source
+        # of truth. The slash form is dispatched normally below.
+        if task.strip().lower() == "clear":
+            task = "/clear"
 
         # Parse attachments first so leading paths aren't misread as commands
         processed_for_commands = parse_prompt_attachments(task)
@@ -753,6 +766,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             # Write to the secret file for permanent history with timestamp
             save_command_to_history(task)
 
+            turn_result = None
+            turn_success = False
+            turn_error = None
+
             try:
                 # No need to get agent directly - use manager's run methods
 
@@ -773,17 +790,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         ensure_ctrl_c_disabled()
                     except ImportError:
                         pass
-                    # Stop wiggum mode on cancellation
-                    from code_puppy.command_line.wiggum_state import (
-                        is_wiggum_active,
-                        stop_wiggum,
-                    )
+                    from code_puppy.callbacks import on_interactive_turn_cancel
 
-                    if is_wiggum_active():
-                        stop_wiggum()
-                        from code_puppy.messaging import emit_warning
-
-                        emit_warning("🍩 Wiggum loop stopped due to cancellation")
+                    await on_interactive_turn_cancel(task, reason="cancellation")
                     continue
                 # Get the structured response
                 agent_response = result.output
@@ -805,6 +814,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 if hasattr(result, "all_messages"):
                     current_agent.set_message_history(list(result.all_messages()))
 
+                turn_result = result
+                turn_success = True
+
                 # Ensure console output is flushed before next prompt
                 # This fixes the issue where prompt doesn't appear after agent response
                 if hasattr(display_console.file, "flush"):
@@ -814,7 +826,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     0.1
                 )  # Brief pause to ensure all messages are rendered
 
-            except Exception:
+            except Exception as e:
+                turn_error = e
                 from code_puppy.messaging.queue_console import get_queue_console
 
                 get_queue_console().print_exception()
@@ -825,85 +838,94 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             auto_save_session_if_enabled()
 
             # ================================================================
-            # WIGGUM LOOP: Re-run prompt if wiggum mode is active
+            # CONTINUATION LOOP: plugins may request follow-up prompt runs.
             # ================================================================
-            from code_puppy.command_line.wiggum_state import (
-                get_wiggum_prompt,
-                increment_wiggum_count,
-                is_wiggum_active,
-                stop_wiggum,
+            from code_puppy.callbacks import (
+                on_interactive_turn_cancel,
+                on_interactive_turn_end,
             )
+            from code_puppy.messaging import emit_system_message
 
-            while is_wiggum_active():
-                wiggum_prompt = get_wiggum_prompt()
-                if not wiggum_prompt:
-                    stop_wiggum()
+            continuation_prompt = task
+            continuation_result = turn_result
+            continuation_success = turn_success
+            continuation_error = turn_error
+
+            while True:
+                continuation_requests = await on_interactive_turn_end(
+                    current_agent,
+                    continuation_prompt,
+                    continuation_result,
+                    success=continuation_success,
+                    error=continuation_error,
+                )
+                continuation = next(
+                    (r for r in continuation_requests if isinstance(r, dict)),
+                    None,
+                )
+                if not continuation:
                     break
 
-                # Increment and show debug message
-                loop_num = increment_wiggum_count()
-                from code_puppy.messaging import emit_system_message, emit_warning
+                next_prompt = str(continuation.get("prompt") or "").strip()
+                if not next_prompt:
+                    break
 
-                emit_warning(f"\n🍩 WIGGUM RELOOPING! (Loop #{loop_num})")
-                emit_system_message(f"Re-running prompt: {wiggum_prompt}")
+                if continuation.get("clear_context", False):
+                    new_session_id = finalize_autosave_session()
+                    current_agent.clear_message_history()
+                    emit_system_message(
+                        f"Context cleared. Session rotated to: {new_session_id}"
+                    )
 
-                # Reset context/history for fresh start
-                new_session_id = finalize_autosave_session()
-                current_agent.clear_message_history()
-                emit_system_message(
-                    f"Context cleared. Session rotated to: {new_session_id}"
-                )
+                delay = float(continuation.get("delay") or 0)
+                if delay > 0:
+                    await asyncio.sleep(delay)
 
-                # Small delay to let user see the debug message
-
-                await asyncio.sleep(0.5)
+                continuation_prompt = next_prompt
+                continuation_result = None
+                continuation_success = False
+                continuation_error = None
 
                 try:
-                    # Re-run the wiggum prompt
                     result, current_agent_task = await run_prompt_with_attachments(
                         current_agent,
-                        wiggum_prompt,
+                        next_prompt,
                         spinner_console=message_renderer.console,
                     )
 
                     if result is None:
-                        # Cancelled - stop wiggum mode
-                        emit_warning("Wiggum loop cancelled by user")
-                        stop_wiggum()
+                        await on_interactive_turn_cancel(
+                            next_prompt, reason="cancellation"
+                        )
                         break
 
-                    # Get the structured response
                     agent_response = result.output
-
-                    # Emit structured message for proper markdown rendering
                     response_msg = AgentResponseMessage(
                         content=agent_response,
                         is_markdown=True,
                     )
                     get_message_bus().emit(response_msg)
 
-                    # Update message history
                     if hasattr(result, "all_messages"):
                         current_agent.set_message_history(list(result.all_messages()))
 
-                    # Flush console
                     if hasattr(display_console.file, "flush"):
                         display_console.file.flush()
                     await asyncio.sleep(0.1)
 
-                    # Auto-save
                     auto_save_session_if_enabled()
+                    continuation_result = result
+                    continuation_success = True
 
                 except KeyboardInterrupt:
-                    emit_warning("\n🍩 Wiggum loop interrupted by Ctrl+C")
-                    stop_wiggum()
+                    await on_interactive_turn_cancel(next_prompt, reason="Ctrl+C")
                     break
                 except Exception as e:
-                    from code_puppy.messaging import emit_error
+                    continuation_error = e
+                    from code_puppy.messaging.queue_console import get_queue_console
 
-                    emit_error(f"Wiggum loop error: {e}")
-                    stop_wiggum()
-                    break
+                    get_queue_console().print_exception()
+                    auto_save_session_if_enabled()
 
             # Re-disable Ctrl+C if needed (uvx mode) - must be done after
             # each iteration as various operations may restore console mode
@@ -1065,8 +1087,6 @@ def main_entry():
     except KeyboardInterrupt:
         # Note: Using sys.stderr for crash output - messaging system may not be available
         sys.stderr.write(traceback.format_exc())
-        if get_use_dbos():
-            DBOS.destroy()
         return 0
     finally:
         # Reset terminal on Unix-like systems (not Windows)

@@ -742,7 +742,6 @@ class TestCompactCommand:
             {"role": "user", "content": "Hello"},
         ]
         mock_agent.estimate_tokens_for_message.return_value = 5
-        mock_agent.truncation.return_value = [{"role": "system", "content": "System"}]
 
         with (
             patch(
@@ -753,12 +752,16 @@ class TestCompactCommand:
                 "code_puppy.config.get_compaction_strategy", return_value="truncation"
             ),
             patch("code_puppy.config.get_protected_token_count", return_value=1000),
+            patch(
+                "code_puppy.agents._compaction.truncate",
+                return_value=[{"role": "system", "content": "System"}],
+            ) as mock_truncate,
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success"),
         ):
             result = handle_command("/compact")
             assert result is True
-            mock_agent.truncation.assert_called_once()
+            mock_truncate.assert_called_once()
 
 
 class TestReasoningCommand:
@@ -897,18 +900,6 @@ class TestAutosaveLoadCommand:
         """Test that /autosave_load returns special marker for async handling."""
         result = handle_command("/autosave_load")
         assert result == "__AUTOSAVE_LOAD__"
-
-
-class TestMotdCommand:
-    """Tests for /motd command."""
-
-    def test_motd_command_calls_print_motd(self):
-        """Test that /motd calls print_motd with force=True."""
-        # Patch where it's imported in core_commands
-        with patch("code_puppy.command_line.core_commands.print_motd") as mock_motd:
-            result = handle_command("/motd")
-            assert result is True
-            mock_motd.assert_called_once_with(force=True)
 
 
 class TestGetCommandsHelp:
@@ -1056,11 +1047,6 @@ class TestCommandRegistry:
         cmd = get_command("tools")
         assert cmd is not None
 
-    def test_motd_command_registered(self):
-        """Test that motd command is registered."""
-        cmd = get_command("motd")
-        assert cmd is not None
-
     def test_exit_command_registered(self):
         """Test that exit command is registered."""
         cmd = get_command("exit")
@@ -1155,7 +1141,7 @@ def test_m_command_case_sensitive_baseline():
     """Test that /m works with exact case (baseline)."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1182,7 +1168,7 @@ def test_m_command_case_insensitive_command():
     """Test that /M works (case-insensitive command)."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1209,7 +1195,7 @@ def test_m_command_case_insensitive_model_name():
     """Test that /m works with uppercase model name."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1236,7 +1222,7 @@ def test_model_command_case_insensitive_both():
     """Test that /MODEL works with uppercase model name."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1254,16 +1240,16 @@ def test_model_command_case_insensitive_both():
             update_model_in_input,
         )
 
-        result = update_model_in_input("/MODEL CLAUDE-4-5-SONNET")
+        result = update_model_in_input("/MODEL ZAI-GLM-5.1-API")
         assert result == ""  # Command and model stripped
-        mock_set_model.assert_called_once_with("claude-4-5-sonnet")
+        mock_set_model.assert_called_once_with("zai-glm-5.1-api")
 
 
 def test_model_command_mixed_case():
     """Test that /Model works with mixed case model name."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1290,7 +1276,7 @@ def test_model_command_with_hyphenated_case_insensitive():
     """Test case-insensitive matching with complex hyphenated model names."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1317,7 +1303,7 @@ def test_model_command_with_preserved_text():
     """Test that remaining text is preserved after model stripping."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1344,7 +1330,7 @@ def test_nonexistent_model_returns_none():
     """Test that nonexistent model returns None regardless of case."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1371,7 +1357,7 @@ def test_edge_case_empty_after_command():
     """Test edge case of just command with space."""
     test_models = [
         "gpt-5",
-        "claude-4-5-sonnet",
+        "zai-glm-5.1-api",
         "gemini-2.5-flash",
         "GLM-4.5-AIR-CODING",
     ]
@@ -1410,7 +1396,7 @@ def test_agent_command_alias_a_registered():
 def test_pin_model_command_case_insensitive_agent():
     """Test that /pin_model works with uppercase agent name."""
     test_agents = {"python_expert": "Python Expert", "code_reviewer": "Code Reviewer"}
-    test_models = ["gpt-5", "claude-4-5-sonnet"]
+    test_models = ["gpt-5", "zai-glm-5.1-api"]
 
     with (
         patch(
@@ -1512,7 +1498,7 @@ def test_pin_model_completion_case_insensitive_agent():
     from code_puppy.command_line.pin_command_completion import PinModelCompleter
 
     test_agents = ["python_expert", "Code_Reviewer", "JavaScript_Expert"]
-    test_models = ["gpt-5", "claude-4-5-sonnet"]
+    test_models = ["gpt-5", "zai-glm-5.1-api"]
 
     with (
         patch(
@@ -1540,7 +1526,7 @@ def test_pin_model_completion_case_insensitive_model():
     from code_puppy.command_line.pin_command_completion import PinModelCompleter
 
     test_agents = ["python_expert", "code_reviewer"]
-    test_models = ["gpt-5", "claude-4-5-sonnet"]
+    test_models = ["gpt-5", "zai-glm-5.1-api"]
 
     with (
         patch(

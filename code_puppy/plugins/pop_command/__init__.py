@@ -1,0 +1,1 @@
+"""/pop command plugin."""

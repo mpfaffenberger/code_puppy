@@ -17,6 +17,7 @@ PhaseType = Literal[
     "run_shell_command",
     "load_model_config",
     "load_models_config",
+    "load_model_descriptions",
     "load_prompt",
     "agent_reload",
     "custom_command",
@@ -28,15 +29,26 @@ PhaseType = Literal[
     "register_tools",
     "register_agents",
     "register_model_type",
+    "register_skills",
     "get_model_system_prompt",
+    "prepare_model_prompt",
     "agent_run_start",
     "agent_run_end",
+    "agent_run_result",
     "register_mcp_catalog_servers",
     "register_browser_types",
-    "get_motd",
     "register_model_providers",
     "message_history_processor_start",
     "message_history_processor_end",
+    "on_message",
+    "wrap_pydantic_agent",
+    "agent_run_context",
+    "agent_run_cancel",
+    "should_skip_fallback_render",
+    "pre_mcp_autostart",
+    "interactive_turn_end",
+    "interactive_turn_cancel",
+    "agent_pause_requested",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -54,6 +66,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "run_shell_command": [],
     "load_model_config": [],
     "load_models_config": [],
+    "load_model_descriptions": [],
     "load_prompt": [],
     "agent_reload": [],
     "custom_command": [],
@@ -65,15 +78,26 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_tools": [],
     "register_agents": [],
     "register_model_type": [],
+    "register_skills": [],
     "get_model_system_prompt": [],
+    "prepare_model_prompt": [],
     "agent_run_start": [],
     "agent_run_end": [],
+    "agent_run_result": [],
     "register_mcp_catalog_servers": [],
     "register_browser_types": [],
-    "get_motd": [],
     "register_model_providers": [],
     "message_history_processor_start": [],
     "message_history_processor_end": [],
+    "on_message": [],
+    "wrap_pydantic_agent": [],
+    "agent_run_context": [],
+    "agent_run_cancel": [],
+    "should_skip_fallback_render": [],
+    "pre_mcp_autostart": [],
+    "interactive_turn_end": [],
+    "interactive_turn_cancel": [],
+    "agent_pause_requested": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -235,6 +259,19 @@ def on_load_models_config() -> List[Any]:
         List of model config dicts from all registered callbacks.
     """
     return _trigger_callbacks_sync("load_models_config")
+
+
+def on_load_model_descriptions() -> List[Any]:
+    """Trigger callbacks that provide description-only model overlays.
+
+    Plugins can return dictionaries mapping ``model_name -> description``.
+    These overlays are applied after config merges, so only missing
+    descriptions are injected and model configuration fields are untouched.
+
+    Returns:
+        List of description overlay dicts from all registered callbacks.
+    """
+    return _trigger_callbacks_sync("load_model_descriptions")
 
 
 def on_edit_file(*args, **kwargs) -> Any:
@@ -432,7 +469,7 @@ def on_register_model_types() -> List[Dict[str, Any]]:
 
     This hook allows plugins to register custom model types that can be used
     in model configurations. Each callback should return a list of dicts with:
-    - "type": str - the model type name (e.g., "antigravity", "claude_code")
+    - "type": str - the model type name (e.g., "claude_code")
     - "handler": callable - function(model_name, model_config, config) -> model instance
 
     The handler function receives:
@@ -449,9 +486,27 @@ def on_register_model_types() -> List[Dict[str, Any]]:
                 "handler": create_my_custom_model,
             }]
 
-    Example return: [{"type": "antigravity", "handler": create_antigravity_model}]
+    Example return: [{"type": "my_custom_type", "handler": create_my_custom_model}]
     """
     return _trigger_callbacks_sync("register_model_type")
+
+
+def on_register_skills() -> List[Dict[str, Any]]:
+    """Collect skill registrations from plugins.
+
+    Each callback should return a list of dicts with either:
+    - "name": str, "skill_md_path": str | Path
+    - "name": str, "skill_md": str
+    - "name": str, "frontmatter": dict, "body": str
+
+    Optional keys on every variant:
+    - "tags": list[str]
+    - "description": str
+    - "version": str
+    - "author": str
+    - "scripts_dir": str | Path
+    """
+    return _trigger_callbacks_sync("register_skills")
 
 
 def on_get_model_system_prompt(
@@ -460,7 +515,7 @@ def on_get_model_system_prompt(
     """Allow plugins to provide custom system prompts for specific model types.
 
     This hook allows plugins to override the system prompt handling for custom
-    model types (like claude_code or antigravity models). Each callback receives
+    model types (like claude_code models). Each callback receives
     the model name and should return a dict if it handles that model type, or None.
 
     Args:
@@ -490,6 +545,52 @@ def on_get_model_system_prompt(
     """
     return _trigger_callbacks_sync(
         "get_model_system_prompt", model_name, default_system_prompt, user_prompt
+    )
+
+
+def on_prepare_model_prompt(
+    model_name: str,
+    system_prompt: str,
+    user_prompt: str,
+    prepend_system_to_user: bool = True,
+) -> List[Optional[Dict[str, Any]]]:
+    """Allow plugins to fully prepare the prompt (instructions + user prompt) for a model.
+
+    This is the hook fired from ``model_utils.prepare_prompt_for_model`` to let
+    plugins take over prompt preparation for specific model families (e.g.
+    claude-code OAuth models which need a hard-coded instruction string and
+    have the system prompt prepended to the user message).
+
+    Unlike ``get_model_system_prompt`` (which is used by augmenting plugins like
+    agent_skills), this hook is for plugins that want to *fully handle* the
+    prompt prep for a given model. The first callback returning ``handled=True``
+    wins; the rest are ignored.
+
+    Args:
+        model_name: The name of the model being used.
+        system_prompt: The default system prompt from the agent.
+        user_prompt: The user's prompt/message.
+        prepend_system_to_user: Whether the caller wants system prompt prepended
+            to the user prompt (only meaningful for plugins that manipulate the
+            user prompt, like claude-code).
+
+    Each callback should return a dict with:
+        - ``"handled"``: bool — True if this callback fully prepared the prompt.
+        - ``"instructions"``: str — the system prompt/instructions to use.
+        - ``"user_prompt"``: str — the (possibly modified) user prompt.
+        - ``"is_claude_code"``: bool — (optional) flag preserved on PreparedPrompt.
+
+    Or return ``None`` to indicate "I don't handle this model".
+
+    Returns:
+        List of results (dicts or ``None``) from registered callbacks.
+    """
+    return _trigger_callbacks_sync(
+        "prepare_model_prompt",
+        model_name,
+        system_prompt,
+        user_prompt,
+        prepend_system_to_user,
     )
 
 
@@ -564,6 +665,46 @@ async def on_agent_run_end(
     )
 
 
+async def on_agent_run_result(
+    result: Any,
+    agent_name: str,
+    model_name: str,
+) -> List[Any]:
+    """Trigger callbacks after an agent run returns a result.
+
+    Fires after ``pydantic_agent.run()`` completes successfully, **before**
+    the result is handed back to the caller.  Plugins can inspect the result
+    and request an automatic retry (e.g. when an upstream content-filter
+    produced a false-positive refusal).
+
+    Callback signature::
+
+        async def my_callback(result, agent_name: str, model_name: str)
+            -> dict | None
+
+    To request a retry, return a dict with::
+
+        {
+            "retry": True,
+            "prompt": "<message to send on retry>",
+            "delay": 1.0,          # optional, seconds before retry
+        }
+
+    Return ``None`` (or omit a return) to let the result pass through.
+    The first callback that returns a retry request wins; the agent
+    replays at most a small fixed number of times to prevent runaway loops.
+
+    Args:
+        result: The ``RunResult`` returned by ``pydantic_agent.run()``.
+        agent_name: Name of the agent that produced the result.
+        model_name: Name of the model that was used.
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return await _trigger_callbacks("agent_run_result", result, agent_name, model_name)
+
+
 def on_register_mcp_catalog_servers() -> List[Any]:
     """Trigger callbacks to register additional MCP catalog servers.
 
@@ -574,6 +715,31 @@ def on_register_mcp_catalog_servers() -> List[Any]:
         List of results from all registered callbacks (each should be a list of MCPServerTemplate).
     """
     return _trigger_callbacks_sync("register_mcp_catalog_servers")
+
+
+async def on_pre_mcp_autostart(agent_name: str, server_names: List[str]) -> List[Any]:
+    """Fire ``pre_mcp_autostart`` callbacks before bound MCP servers auto-start.
+
+    Plugins use this to refresh tokens, mint credentials, or do any other
+    one-shot prep work *before* the autostart loop calls
+    ``manager.start_server`` on each bound server. Errors in callbacks are
+    logged but do **not** abort autostart (matches existing convention).
+
+    Args:
+        agent_name: The agent whose bindings are about to be auto-started.
+        server_names: Names of servers (with ``auto_start=True``) about to start.
+            Lets the plugin short-circuit if it has nothing to do.
+    """
+    return await _trigger_callbacks("pre_mcp_autostart", agent_name, server_names)
+
+
+def on_pre_mcp_autostart_sync(agent_name: str, server_names: List[str]) -> List[Any]:
+    """Sync variant of :func:`on_pre_mcp_autostart` for non-async callers.
+
+    Coroutine callbacks are still awaited via ``asyncio.run`` when no loop
+    is currently running (see ``_trigger_callbacks_sync``).
+    """
+    return _trigger_callbacks_sync("pre_mcp_autostart", agent_name, server_names)
 
 
 def on_register_browser_types() -> List[Any]:
@@ -599,18 +765,6 @@ def on_register_browser_types() -> List[Any]:
         List of dicts from all registered callbacks.
     """
     return _trigger_callbacks_sync("register_browser_types")
-
-
-def on_get_motd() -> List[Any]:
-    """Trigger callbacks to get custom MOTD content.
-
-    Plugins can register callbacks that return a tuple of (message, version).
-    The last non-None result will be used as the MOTD.
-
-    Returns:
-        List of (message, version) tuples from registered callbacks.
-    """
-    return _trigger_callbacks_sync("get_motd")
 
 
 def on_register_model_providers() -> List[Any]:
@@ -690,3 +844,134 @@ def on_message_history_processor_end(
         messages_added,
         messages_filtered,
     )
+
+
+async def on_message(message_id: str, message: Any) -> List[Any]:
+    """Trigger callbacks when a message is emitted.
+
+    This is the global observation hook for the messaging system.
+    For per-message interception with pattern matching, use
+    messaging.interceptors.register_interceptor() instead.
+
+    This hook is for observation (logging, analytics, WebSocket forwarding),
+    while interceptors are for control (silencing, replacing, redirecting).
+
+    Args:
+        message_id: The well-known message identifier (e.g., "tool:edit_file:complete")
+        message: The full Pydantic BaseMessage model (or UIMessage for legacy)
+
+    Returns:
+        List of results from registered callbacks.
+    """
+    return await _trigger_callbacks("on_message", message_id, message)
+
+
+def on_wrap_pydantic_agent(
+    agent,
+    pydantic_agent,
+    *,
+    event_stream_handler=None,
+    message_group=None,
+    kind: str = "main",
+):
+    """Allow plugins to wrap the constructed pydantic agent.
+
+    Each callback receives ``(agent, pydantic_agent, event_stream_handler=...,
+    message_group=..., kind=...)``. ``kind`` is one of ``"main"`` (top-level
+    agent build) or ``"subagent"`` (invoke_agent tool). Plugins return a
+    wrapped agent (any object exposing the same ``.run()`` / ``.iter()``
+    interface) or ``None`` to leave the agent unchanged. The last non-``None``
+    result wins.
+
+    Returns the (possibly wrapped) agent. Always returns something — falls
+    back to the input ``pydantic_agent`` if no plugin handled it.
+    """
+    results = _trigger_callbacks_sync(
+        "wrap_pydantic_agent",
+        agent,
+        pydantic_agent,
+        event_stream_handler=event_stream_handler,
+        message_group=message_group,
+        kind=kind,
+    )
+    for r in reversed(results):
+        if r is not None:
+            return r
+    return pydantic_agent
+
+
+def on_agent_run_context(agent, pydantic_agent, group_id, mcp_servers) -> List[Any]:
+    """Collect async context managers that should wrap the ``pydantic_agent.run()`` call.
+
+    Each callback returns an async CM (with ``__aenter__``/``__aexit__``) or
+    ``None``. The caller composes all non-``None`` results via
+    ``contextlib.AsyncExitStack``.
+
+    Returns a list of async context managers (may be empty).
+    """
+    results = _trigger_callbacks_sync(
+        "agent_run_context", agent, pydantic_agent, group_id, mcp_servers
+    )
+    return [r for r in results if r is not None]
+
+
+async def on_agent_run_cancel(group_id: str) -> List[Any]:
+    """Fired when an agent run is cancelled or interrupted.
+
+    Plugins use this to cancel any external workflow tracking the run.
+    """
+    return await _trigger_callbacks("agent_run_cancel", group_id)
+
+
+def on_should_skip_fallback_render(agent) -> bool:
+    """Return True if any plugin requests skipping the non-streaming fallback render."""
+    results = _trigger_callbacks_sync("should_skip_fallback_render", agent)
+    return any(r is True for r in results)
+
+
+async def on_interactive_turn_end(
+    agent,
+    prompt: str,
+    result: Any = None,
+    *,
+    success: bool = True,
+    error: Optional[BaseException] = None,
+) -> List[Any]:
+    """Fired after an interactive prompt run completes.
+
+    Plugins may return a continuation request dict, for example::
+
+        {"prompt": "retry the task", "clear_context": True, "delay": 0.5}
+
+    The CLI owns execution; plugins own policy. Nice and not-gross.
+    """
+    return await _trigger_callbacks(
+        "interactive_turn_end",
+        agent,
+        prompt,
+        result,
+        success=success,
+        error=error,
+    )
+
+
+async def on_interactive_turn_cancel(
+    prompt: str, *, reason: str = "cancelled"
+) -> List[Any]:
+    """Fired when the active interactive prompt/loop is cancelled."""
+    return await _trigger_callbacks(
+        "interactive_turn_cancel",
+        prompt,
+        reason=reason,
+    )
+
+
+async def on_agent_pause_requested() -> List[Any]:
+    """Fired when the user presses the pause key while the agent is running.
+
+    Plugins are expected to handle the pause UX (collect steering input,
+    send ``PauseAgentCommand`` → ``SteerAgentCommand`` → ``ResumeAgentCommand``
+    via the message bus). Core does not provide a fallback UI; if no plugin
+    is registered, pressing the pause key is a no-op.
+    """
+    return await _trigger_callbacks("agent_pause_requested")

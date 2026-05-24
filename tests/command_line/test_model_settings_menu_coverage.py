@@ -213,18 +213,44 @@ class TestFormatValue:
 
 class TestRenderMainList:
     @patch(
+        "code_puppy.command_line.model_settings_menu.ModelFactory.load_config",
+        return_value={"m1": {"description": "First model desc"}, "m2": {}},
+    )
+    @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
     )
-    def test_render_models_view(self, mock_settings):
+    def test_render_models_view(self, mock_settings, mock_load_config):
         menu = _make_menu(models=["m1", "m2"])
         menu.view_mode = "models"
         lines = menu._render_main_list()
         text = "".join(t for _, t in lines)
         assert "Select a Model" in text
+        assert "First model desc" in text
 
+    @patch(
+        "code_puppy.command_line.model_settings_menu.ModelFactory.load_config",
+        return_value={"m1": {}},
+    )
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
+    def test_render_models_view_description_fallback(
+        self, mock_settings, mock_load_config
+    ):
+        menu = _make_menu(models=["m1"])
+        menu.view_mode = "models"
+        lines = menu._render_main_list()
+        text = "".join(t for _, t in lines)
+        assert "No description available." in text
+
+    @patch(
+        "code_puppy.command_line.model_settings_menu.ModelFactory.load_config",
+        return_value={"m1": {"description": "desc"}},
+    )
     @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings")
-    def test_render_models_with_settings(self, mock_settings):
+    def test_render_models_with_settings(self, mock_settings, mock_load_config):
         mock_settings.return_value = {"temperature": 0.5}
         menu = _make_menu(models=["m1"])
         menu.current_model_name = "m1"
@@ -240,10 +266,14 @@ class TestRenderMainList:
         assert "No models" in text
 
     @patch(
+        "code_puppy.command_line.model_settings_menu.ModelFactory.load_config",
+        return_value={"m0": {"description": "desc"}},
+    )
+    @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
     )
-    def test_render_models_pagination(self, mock_settings):
+    def test_render_models_pagination(self, mock_settings, mock_load_config):
         models = [f"m{i}" for i in range(MODELS_PER_PAGE + 5)]
         menu = _make_menu(models=models)
         lines = menu._render_main_list()
@@ -323,7 +353,7 @@ class TestRenderDetailsPanel:
         assert "Model Info" in text
         assert "gpt-5" in text
         assert "Currently active" in text
-        assert "Custom Settings" in text
+        assert "Effective Settings" in text
 
     @patch(
         "code_puppy.command_line.model_settings_menu.model_supports_setting",

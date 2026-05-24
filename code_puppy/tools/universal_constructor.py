@@ -8,7 +8,7 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext
@@ -138,7 +138,7 @@ async def universal_constructor_impl(
     context: RunContext,
     action: Literal["list", "call", "create", "update", "info"],
     tool_name: Optional[str] = None,
-    tool_args: Optional[dict] = None,
+    tool_args: Optional[Union[dict, str]] = None,
     python_code: Optional[str] = None,
     description: Optional[str] = None,
 ) -> UniversalConstructorOutput:
@@ -267,7 +267,7 @@ def _handle_list_action(context: RunContext) -> UniversalConstructorOutput:
 def _handle_call_action(
     context: RunContext,
     tool_name: Optional[str],
-    tool_args: Optional[dict],
+    tool_args: Optional[Union[dict, str]],
 ) -> UniversalConstructorOutput:
     """Handle the 'call' action - execute a UC tool.
 
@@ -276,7 +276,9 @@ def _handle_call_action(
     Args:
         context: The run context from pydantic-ai
         tool_name: Name of the tool to call (required)
-        tool_args: Arguments to pass to the tool function
+        tool_args: Arguments to pass to the tool function. Accepts either a
+            dict, or a JSON-encoded string (some model/transport layers
+            stringify nested objects in tool calls).
 
     Returns:
         UniversalConstructorOutput with call_result on success or error on failure
@@ -784,7 +786,7 @@ def register_universal_constructor(agent):
         context: RunContext,
         action: Literal["list", "call", "create", "update", "info"],
         tool_name: Optional[str] = None,
-        tool_args: Optional[dict] = None,
+        tool_args: Optional[Union[dict, str]] = None,
         python_code: Optional[str] = None,
         description: Optional[str] = None,
     ) -> UniversalConstructorOutput:
@@ -834,7 +836,9 @@ def register_universal_constructor(agent):
             tool_name: Name of the tool (required for call/update/info actions).
                 Supports namespaced format like "namespace.tool_name" for organization.
             tool_args: Dictionary of arguments to pass when calling a tool.
-                Only used with action="call".
+                Only used with action="call". Also accepts a JSON-encoded
+                string for compatibility with model/transport layers that
+                stringify nested objects in tool calls.
             python_code: Python source code defining the tool function.
                 Required for action="create" and action="update".
                 You have access to the FULL Python standard library plus any

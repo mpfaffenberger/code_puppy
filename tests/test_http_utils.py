@@ -306,7 +306,7 @@ class TestRetryingAsyncClientCerebras:
         from code_puppy.http_utils import RetryingAsyncClient
 
         # Cerebras model should ignore headers
-        client = RetryingAsyncClient(model_name="Cerebras-GLM-4.7")
+        client = RetryingAsyncClient(model_name="cerebras-test-model")
         assert client._ignore_retry_headers is True
         assert "cerebras" in client.model_name
 
@@ -329,7 +329,7 @@ class TestRetryingAsyncClientCerebras:
         for name in [
             "cerebras-glm",
             "CEREBRAS-GLM",
-            "Cerebras-GLM-4.7",
+            "Cerebras-test-model",
             "my-cerebras-model",
         ]:
             client = RetryingAsyncClient(model_name=name)

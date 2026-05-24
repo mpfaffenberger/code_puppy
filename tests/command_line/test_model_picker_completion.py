@@ -11,7 +11,7 @@ class TestLoadModelNames:
         from code_puppy.command_line.model_picker_completion import load_model_names
 
         with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
+            "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}, "claude-3": {}},
         ):
             result = load_model_names()
@@ -51,7 +51,7 @@ class TestModelNameCompleter:
         from code_puppy.command_line.model_picker_completion import ModelNameCompleter
 
         with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
+            "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}},
         ):
             c = ModelNameCompleter(trigger="/model")
@@ -63,8 +63,11 @@ class TestModelNameCompleter:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
-                return_value={"gpt-4": {}, "claude-3": {}},
+                "code_puppy.command_line.model_picker_completion._load_models_config",
+                return_value={
+                    "gpt-4": {"description": "Fast all-round model"},
+                    "claude-3": {"description": "Deep reasoning model"},
+                },
             ),
             patch(
                 "code_puppy.command_line.model_picker_completion.get_active_model",
@@ -74,17 +77,42 @@ class TestModelNameCompleter:
             c = ModelNameCompleter(trigger="/model")
             completions = list(c.get_completions(self._make_doc("/model "), None))
             assert len(completions) == 2
-            # Check that the active model has "(selected)" meta
-            metas = {c.text: str(c.display_meta) for c in completions}
-            assert "selected" in metas["gpt-4"]
-            assert "selected" not in metas["claude-3"]
+            metas = {
+                completion.text: str(completion.display_meta)
+                for completion in completions
+            }
+            assert "✓" in metas["gpt-4"]
+            assert "Fast all-round model" in metas["gpt-4"]
+            assert "Deep reasoning model" in metas["claude-3"]
+
+    def test_uses_fallback_description_when_missing(self):
+        from code_puppy.command_line.model_picker_completion import ModelNameCompleter
+
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion._load_models_config",
+                return_value={"gpt-4": {}, "claude-3": {"description": ""}},
+            ),
+            patch(
+                "code_puppy.command_line.model_picker_completion.get_active_model",
+                return_value="gpt-4",
+            ),
+        ):
+            c = ModelNameCompleter(trigger="/model")
+            completions = list(c.get_completions(self._make_doc("/model "), None))
+            metas = {
+                completion.text: str(completion.display_meta)
+                for completion in completions
+            }
+            assert "No description available." in metas["gpt-4"]
+            assert "No description available." in metas["claude-3"]
 
     def test_filters_by_prefix(self):
         from code_puppy.command_line.model_picker_completion import ModelNameCompleter
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}, "claude-3": {}},
             ),
             patch(
@@ -129,6 +157,13 @@ class TestFindMatchingModel:
 
         assert _find_matching_model("gpt", ["gpt-4", "claude-3"]) == "gpt-4"
 
+    def test_query_match_fallback(self):
+        from code_puppy.command_line.model_picker_completion import (
+            _find_matching_model,
+        )
+
+        assert _find_matching_model("4.1", ["gpt-4o", "gpt-4.1-mini"]) == "gpt-4.1-mini"
+
     def test_no_match(self):
         from code_puppy.command_line.model_picker_completion import (
             _find_matching_model,
@@ -156,7 +191,7 @@ class TestUpdateModelInInput:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -175,7 +210,7 @@ class TestUpdateModelInInput:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -198,7 +233,7 @@ class TestUpdateModelInInput:
         )
 
         with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
+            "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}},
         ):
             assert update_model_in_input("/model xyz") is None
@@ -209,7 +244,7 @@ class TestUpdateModelInInput:
         )
 
         with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
+            "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}},
         ):
             assert update_model_in_input("/m xyz") is None
@@ -221,7 +256,7 @@ class TestUpdateModelInInput:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -233,6 +268,170 @@ class TestUpdateModelInInput:
             assert "tell me a joke" in result
 
 
+class TestModelSelectionMenu:
+    def test_preselects_active_model_page(self):
+        from code_puppy.command_line.model_picker_completion import (
+            MODEL_PICKER_PAGE_SIZE,
+            ModelSelectionMenu,
+        )
+
+        models = [f"model-{i}" for i in range(MODEL_PICKER_PAGE_SIZE + 5)]
+        active_model = models[-1]
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value=active_model,
+        ):
+            menu = ModelSelectionMenu(models)
+
+        assert menu.selected_index == len(models) - 1
+        assert menu.page == 1
+        assert active_model in menu.models_on_page
+
+    def test_page_navigation_moves_selection_to_page_start(self):
+        from code_puppy.command_line.model_picker_completion import (
+            MODEL_PICKER_PAGE_SIZE,
+            ModelSelectionMenu,
+        )
+
+        models = [f"model-{i}" for i in range(MODEL_PICKER_PAGE_SIZE * 2 + 1)]
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(models)
+
+        menu._page_down()
+        assert menu.page == 1
+        assert menu.selected_index == MODEL_PICKER_PAGE_SIZE
+
+        menu._page_up()
+        assert menu.page == 0
+        assert menu.selected_index == 0
+
+    def test_move_down_keeps_selection_visible(self):
+        from code_puppy.command_line.model_picker_completion import (
+            MODEL_PICKER_PAGE_SIZE,
+            ModelSelectionMenu,
+        )
+
+        models = [f"model-{i}" for i in range(MODEL_PICKER_PAGE_SIZE + 1)]
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(models)
+
+        menu.selected_index = MODEL_PICKER_PAGE_SIZE - 1
+        menu.page = 0
+        menu._move_down()
+
+        assert menu.selected_index == MODEL_PICKER_PAGE_SIZE
+        assert menu.page == 1
+
+    def test_filter_keeps_current_model_selected_when_visible(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="claude-3-sonnet",
+        ):
+            menu = ModelSelectionMenu(
+                ["gpt-5-mini", "claude-3-sonnet", "claude-3-opus"]
+            )
+
+        menu._set_filter_text("claude")
+
+        assert menu.visible_model_names == ["claude-3-sonnet", "claude-3-opus"]
+        assert menu.selected_index == 0
+
+    def test_filter_resets_to_first_visible_match_when_selection_disappears(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="gpt-5-mini",
+        ):
+            menu = ModelSelectionMenu(
+                ["gpt-5-mini", "claude-3-sonnet", "claude-3-opus"]
+            )
+
+        menu._set_filter_text("opus")
+
+        assert menu.visible_model_names == ["claude-3-opus"]
+        assert menu.selected_index == 0
+
+    def test_accept_selection_returns_false_when_filter_has_no_matches(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["gpt-5-mini", "claude-3-sonnet"])
+
+        menu._set_filter_text("nope")
+
+        assert menu._accept_selection() is False
+        assert menu.result is None
+
+    def test_accept_selection_guards_invalid_selected_index(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["gpt-5-mini"])
+
+        menu.selected_index = 99
+
+        assert menu._accept_selection() is False
+        assert menu.result is None
+
+    def test_render_no_matches_mentions_filter_and_clear_shortcut(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["gpt-5-mini", "claude-3-sonnet"])
+
+        menu._set_filter_text("nope")
+
+        rendered = "".join(text for _, text in menu._render())
+
+        assert "No models match the current filter." in rendered
+        assert "Clear filter" in rendered
+
+
+class TestInteractiveModelPicker:
+    @pytest.mark.asyncio
+    async def test_sets_awaiting_user_input_around_picker(self):
+        from code_puppy.command_line.model_picker_completion import (
+            interactive_model_picker,
+        )
+
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion.ModelSelectionMenu.run_async",
+                return_value="gpt-4",
+            ) as mock_run,
+            patch(
+                "code_puppy.tools.command_runner.set_awaiting_user_input"
+            ) as mock_set,
+        ):
+            result = await interactive_model_picker()
+
+        assert result == "gpt-4"
+        mock_run.assert_called_once()
+        assert mock_set.call_args_list[0].args == (True,)
+        assert mock_set.call_args_list[-1].args == (False,)
+
+
 class TestGetInputWithModelCompletion:
     @pytest.mark.asyncio
     async def test_basic(self):
@@ -242,7 +441,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -265,7 +464,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -292,7 +491,7 @@ class TestGetInputWithModelCompletion:
         hfile = str(tmp_path / "history.txt")
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={},
             ),
             patch(
@@ -317,7 +516,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -344,7 +543,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -361,7 +560,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(

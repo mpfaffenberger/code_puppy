@@ -11,13 +11,6 @@
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/actions)
 [![Tests](https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge&logo=pytest)](https://github.com/mpfaffenberger/code_puppy/tests)
 
-[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5.2--Codex-orange?style=flat-square&logo=openai)](https://openai.com)
-[![Gemini](https://img.shields.io/badge/Google-Gemini-blue?style=flat-square&logo=google)](https://ai.google.dev/)
-[![Anthropic](https://img.shields.io/badge/Anthropic-Claude-orange?style=flat-square&logo=anthropic)](https://anthropic.com)
-[![Cerebras](https://img.shields.io/badge/Cerebras-GLM%204.7-red?style=flat-square)](https://cerebras.ai)
-[![Z.AI](https://img.shields.io/badge/Z.AI-GLM%204.7-purple?style=flat-square)](https://z.ai/)
-[![Synthetic](https://img.shields.io/badge/Synthetic-MINIMAX_M2.1-green?style=flat-square)](https://synthetic.new)
-
 [![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
 [![Pydantic AI](https://img.shields.io/badge/Pydantic-AI-success?style=for-the-badge)](https://github.com/pydantic/pydantic-ai)
 
@@ -81,6 +74,21 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 uvx code-puppy
 ```
+
+#### Optional: DBOS durable execution
+
+Code Puppy ships with an optional [DBOS](https://github.com/dbos-inc/dbos-transact-py)-backed
+durable-execution plugin that survives crashes and lets you resume long agent runs.
+It's **off by default in the dependency tree** — install the `durable` extra to opt in:
+
+```bash
+pip install "code-puppy[durable]"
+# or
+uv pip install "code-puppy[durable]"
+```
+
+Then toggle it from inside the app via `/dbos on` (and restart). Use `/dbos status`
+to check, `/dbos off` to disable.
 
 ## Changelog (By Kittylog!)
 
@@ -178,9 +186,25 @@ Please review this code for security issues." > .claude/commands/review.md
 - Ollama endpoint available
 
 ## Agent Rules
-We support AGENT.md files for defining coding standards and styles that your code should comply with. These rules can cover various aspects such as formatting, naming conventions, and even design guidelines.
+
+Code Puppy supports `AGENTS.md` files for defining coding standards, project conventions, and behavioral guidelines that the AI should follow. These rules can cover formatting, naming conventions, architectural patterns, and project-specific instructions.
 
 For examples and more information about agent rules, visit [https://agent.md](https://agent.md)
+
+### AGENTS.md Search Order
+
+Code Puppy loads rules from multiple locations, combining them in order:
+
+| Priority | Location | Purpose |
+|----------|----------|----------|
+| 1 | `~/.code_puppy/AGENTS.md` | Global rules (applied to all projects) |
+| 2 | `.code_puppy/AGENTS.md` | Project rules (preferred location) |
+| 3 | `./AGENTS.md` | Project rules (alternate location) |
+
+**Key behaviors:**
+- Global and project rules are **combined** (global first, then project)
+- `.code_puppy/` directory takes **precedence** over project root
+- All filename variants are supported: `AGENTS.md`, `AGENT.md`, `agents.md`, `agent.md`
 
 ## Using MCP Servers for External Tools
 
@@ -240,6 +264,47 @@ export CEREBRAS_API_KEY3=csk-...
 Then just use /model and tab to select your round-robin model!
 
 The `rotate_every` parameter controls how many requests are made to each model before rotating to the next one. In this example, the round-robin model will use each Qwen model for 5 consecutive requests before moving to the next model in the sequence.
+
+## Custom Model Timeouts
+
+For custom model endpoints (`custom_openai`, `custom_anthropic`, `custom_gemini`, `cerebras`), you can configure custom timeout values to handle slow or unreliable endpoints. The default timeout for these custom endpoint models is 180 seconds.
+
+**Note:** Other model types have different default timeouts:
+- ChatGPT/Codex models: 300 seconds (5 minutes)
+- Regular Anthropic models: 180 seconds
+- Gemini models: 180 seconds
+
+### Configuration
+Add a `timeout` field to your model configuration in `~/.code_puppy/extra_models.json`:
+
+```json
+{
+  "slow_model": {
+    "type": "custom_openai",
+    "name": "gpt-4",
+    "custom_endpoint": {
+      "url": "https://slow-endpoint.example.com/v1",
+      "api_key": "$API_KEY",
+      "timeout": 600
+    }
+  },
+  "fast_model": {
+    "type": "cerebras", 
+    "name": "llama3.1-8b",
+    "custom_endpoint": {
+      "url": "https://api.cerebras.ai/v1",
+      "api_key": "$CEREBRAS_API_KEY"
+    },
+    "timeout": 300
+  }
+}
+```
+
+The `timeout` value can be specified either:
+- Inside the `custom_endpoint` object (recommended for endpoint-specific timeouts)
+- At the top level of the model config (affects all custom endpoint types)
+
+Timeout values must be positive numbers (integers or floats) representing seconds. If no timeout is specified, the default 180-second timeout is used for custom endpoint models.
 
 ---
 

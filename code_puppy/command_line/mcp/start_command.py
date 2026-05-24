@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from rich.text import Text
 
+from code_puppy.mcp_.agent_bindings import is_bound, set_session_binding
 from code_puppy.messaging import emit_error, emit_info, emit_success
 
 from ...agents import get_current_agent
@@ -69,10 +70,43 @@ class StartCommand(MCPCommandBase):
             except Exception:
                 pass  # Default to unknown type if we can't determine it
 
+            # Resolve the *canonical* server name (config-file casing) so the
+            # binding we write matches what the manager/agent will look up later.
+            canonical_name = server_name
+            try:
+                for s in self.manager.list_servers():
+                    if s.id == server_id:
+                        canonical_name = s.name
+                        break
+            except Exception:
+                pass
+
             # Start the server (schedules async start in background)
             success = self.manager.start_server_sync(server_id)
 
             if success:
+                # Auto-bind the freshly-started server to the current agent
+                # for THIS SESSION ONLY. Persistent bindings still live in the
+                # /agents → B menu; /mcp start is intentionally ephemeral so
+                # users can try a server without permanently rewiring config.
+                # Do this BEFORE reloading the agent so the reload picks it up.
+                try:
+                    agent = get_current_agent()
+                    agent_name = getattr(agent, "name", None)
+                    if agent_name and not is_bound(agent_name, canonical_name):
+                        set_session_binding(agent_name, canonical_name)
+                        emit_info(
+                            Text.from_markup(
+                                f"🔗 Bound '{canonical_name}' to agent "
+                                f"'{agent_name}' [dim](this session only)[/dim]"
+                            ),
+                            message_group=group_id,
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Could not auto-bind '{canonical_name}' to current agent: {e}"
+                    )
+
                 if server_type == "stdio":
                     # Stdio servers start subprocess asynchronously
                     emit_success(
@@ -92,9 +126,9 @@ class StartCommand(MCPCommandBase):
                         message_group=group_id,
                     )
 
-                # Reload the agent to pick up the newly enabled server
-                # NOTE: We don't block or wait - the server will be ready
-                # when the next prompt runs (pydantic-ai handles connection)
+                # Reload the agent to pick up the newly enabled (and now bound)
+                # server. NOTE: We don't block or wait - the server will be ready
+                # when the next prompt runs (pydantic-ai handles connection).
                 try:
                     agent = get_current_agent()
                     agent.reload_code_generation_agent()

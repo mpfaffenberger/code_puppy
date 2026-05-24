@@ -45,10 +45,32 @@ def render_question_panel(
 ) -> ANSI:
     """Render the right panel with the current question.
 
+    Wraps the inner renderer in a guard so a Rich markup error in user-supplied
+    text can never doom-loop the TUI (the render callback is invoked on every
+    redraw, so an unhandled exception was previously fatal).
+
     Args:
         state: The current UI state
         colors: Optional cached RichColors instance. If None, fetches from config.
     """
+    try:
+        return _render_question_panel_unsafe(state, colors, available_width)
+    except Exception as exc:  # noqa: BLE001 - intentional: render must never crash
+        # Best-effort fallback. Escape everything; never re-enter Rich markup parsing.
+        buffer = io.StringIO()
+        Console(file=buffer, force_terminal=True, no_color=True).print(
+            f"[render error: {type(exc).__name__}: {exc}]",
+            markup=False,
+        )
+        return ANSI(buffer.getvalue())
+
+
+def _render_question_panel_unsafe(
+    state: QuestionUIState,
+    colors: RichColors | None,
+    available_width: int | None,
+) -> ANSI:
+    """Actual rendering implementation. Caller wraps this in a guard."""
     if colors is None:
         colors = get_rich_colors()
 
@@ -78,9 +100,16 @@ def render_question_panel(
     total = len(state.questions)
     pad = PANEL_CONTENT_PADDING  # Left padding for visual alignment
 
+    # Escape all user-supplied strings before they hit Rich markup. Without this,
+    # a header like '/foo' becomes '[/foo]' which Rich parses as an unmatched
+    # closing tag and raises MarkupError on every redraw (doom-loop).
+    # We escape the whole bracketed-decoration so both '[' and ']' are literal.
+    safe_header_decoration = rich_escape(f"[{question.header}]")
+    safe_question = rich_escape(question.question)
+
     # Header
     console.print(
-        f"{pad}[{colors.header}][{question.header}][/{colors.header}] "
+        f"{pad}[{colors.header}]{safe_header_decoration}[/{colors.header}] "
         f"[{colors.progress}]({q_num}/{total})[/{colors.progress}]"
     )
     console.print()
@@ -88,10 +117,10 @@ def render_question_panel(
     # Question text
     if question.multi_select:
         console.print(
-            f"{pad}[bold]? {question.question}[/bold] [dim](select multiple)[/dim]"
+            f"{pad}[bold]? {safe_question}[/bold] [dim](select multiple)[/dim]"
         )
     else:
-        console.print(f"{pad}[bold]? {question.question}[/bold]")
+        console.print(f"{pad}[bold]? {safe_question}[/bold]")
     console.print()
 
     # Render options

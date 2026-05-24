@@ -502,14 +502,48 @@ class SlashCompleter(Completer):
         # Sort all completions alphabetically
         all_completions.sort(key=lambda x: x["sort_key"])
 
-        # Yield the sorted completions
+        # Yield the sorted completions.
+        # Strip variation selectors (U+FE00-FE0F) from display strings to avoid
+        # width-calculation mismatches between prompt_toolkit and the terminal,
+        # which manifest as phantom spaces in the input line (e.g. /judges ⚖️).
         for completion in all_completions:
             yield Completion(
                 completion["text"],
                 start_position=start_position,
-                display=completion["display"],
-                display_meta=completion["meta"],
+                display=_strip_variation_selectors(completion["display"]),
+                display_meta=_strip_variation_selectors(completion["meta"]),
             )
+
+
+def _strip_variation_selectors(text: str) -> str:
+    """Remove variation selectors (U+FE00-FE0F) from text.
+
+    These invisible characters modify emoji rendering but cause width
+    calculation mismatches between prompt_toolkit and terminal emulators.
+    """
+    return "".join(c for c in text if not (0xFE00 <= ord(c) <= 0xFE0F))
+
+
+def _normalize_emoji_spacing(text: str) -> str:
+    """Normalize emoji spacing for consistent terminal rendering.
+
+    Some emojis have East Asian Width 'N' (Neutral) which terminals render
+    inconsistently. This adds a space after such emojis to prevent
+    the following character from overlapping.
+    """
+    import unicodedata
+
+    result = []
+    text = _strip_variation_selectors(text)
+    for char in text:
+        result.append(char)
+        # Add padding after Neutral-width emoji to prevent overlap
+        if (
+            0x1F300 <= ord(char) <= 0x1FAFF
+            and unicodedata.east_asian_width(char) == "N"
+        ):
+            result.append(" ")  # Extra space buffer
+    return "".join(result)
 
 
 def get_prompt_with_active_model(base: str = ">>> "):
@@ -549,7 +583,7 @@ def get_prompt_with_active_model(base: str = ">>> "):
             ("bold", "🐶 "),
             ("class:puppy", f"{puppy}"),
             ("", " "),
-            ("class:agent", f"[{agent_display}] "),
+            ("class:agent", f"[{_normalize_emoji_spacing(agent_display)}] "),
             ("class:model", model_display + " "),
             ("class:cwd", "(" + str(cwd_display) + ") "),
             ("class:arrow", str(base)),
@@ -557,11 +591,48 @@ def get_prompt_with_active_model(base: str = ">>> "):
     )
 
 
+def _left_justify_completion_menu(session: PromptSession) -> None:
+    """Pin the completion menu's `Float` to the left edge of the screen.
+
+    prompt_toolkit's default `PromptSession` layout attaches the completion
+    menu as a `Float(xcursor=True, ycursor=True, content=CompletionsMenu(...))`,
+    so the menu drifts horizontally with the cursor. We walk the layout,
+    find every `Float` whose content is a `CompletionsMenu` (or the
+    multi-column variant), and flip it to `left=0` / `xcursor=False` so the
+    menu always anchors to column 0 regardless of where the cursor sits.
+
+    Wrapped in a broad try/except: prompt_toolkit's internal layout layout
+    can shift between versions and we'd rather silently degrade to the
+    default positioning than crash the prompt.
+    """
+    try:
+        from prompt_toolkit.layout.containers import FloatContainer
+        from prompt_toolkit.layout.menus import (
+            CompletionsMenu,
+            MultiColumnCompletionsMenu,
+        )
+
+        menu_types = (CompletionsMenu, MultiColumnCompletionsMenu)
+        for node in session.layout.walk():
+            if not isinstance(node, FloatContainer):
+                continue
+            for float_obj in node.floats or []:
+                if isinstance(float_obj.content, menu_types):
+                    float_obj.xcursor = False
+                    float_obj.ycursor = True  # keep vertical anchoring
+                    float_obj.left = 0
+    except Exception:
+        pass
+
+
 async def get_input_with_combined_completion(
     prompt_str=">>> ", history_file: Optional[str] = None
 ) -> str:
     # Use SafeFileHistory to handle encoding errors gracefully on Windows
     history = SafeFileHistory(history_file) if history_file else None
+    # Build the base completer list, then bolt on any plugin completers.
+    from code_puppy.plugins.ollama_setup.completer import OllamaSetupCompleter
+
     completer = merge_completers(
         [
             FilePathCompleter(symbol="@"),
@@ -574,8 +645,11 @@ async def get_input_with_combined_completion(
             UnpinCompleter(trigger="/unpin"),
             AgentCompleter(trigger="/agent"),
             AgentCompleter(trigger="/a"),
+            AgentCompleter(trigger="/switch-agent"),
+            AgentCompleter(trigger="/sa"),
             MCPCompleter(trigger="/mcp"),
             SkillsCompleter(trigger="/skills"),
+            OllamaSetupCompleter(),
             SlashCompleter(),
         ]
     )
@@ -639,40 +713,54 @@ async def get_input_with_combined_completion(
         @bindings.add("c-enter", eager=True)
         def _(event):
             event.app.current_buffer.insert_text("\n")
+
     except Exception:
         pass
 
-    # Enter behavior depends on multiline mode
+    # Enter behavior depends on multiline mode AND completion-menu state.
+    # Priority order:
+    #   1. If the completion menu is open with a highlighted item, just
+    #      accept that completion and close the menu (don't submit). This
+    #      matches how editors like VSCode/Helix behave — Enter on a popup
+    #      = pick, not commit.
+    #   2. Multiline mode: insert a newline.
+    #   3. Default: submit the prompt.
     @bindings.add("enter", filter=~is_searching, eager=True)
     def _(event):
+        buffer = event.current_buffer
+        complete_state = buffer.complete_state
+        if complete_state and complete_state.current_completion is not None:
+            buffer.apply_completion(complete_state.current_completion)
+            return
         if multiline["enabled"]:
-            event.app.current_buffer.insert_text("\n")
+            buffer.insert_text("\n")
         else:
-            event.current_buffer.validate_and_handle()
+            buffer.validate_and_handle()
 
-    # Backspace/Delete: trigger completions after deletion
+    # Backspace/Delete: trigger completions after deletion.
     # By default, complete_while_typing only triggers on character insertion,
-    # not deletion. This fixes completions not reappearing after backspace.
+    # not deletion — so the menu vanishes the moment you backspace. We
+    # unconditionally restart completion after a delete and let each
+    # individual Completer decide whether it has anything to yield for the
+    # new buffer state (no-yield = menu naturally closes). This keeps `@`
+    # file completions, `/model <name>` sub-completions, etc. alive while
+    # editing — not just bare `/` slash commands.
+    def _restart_completion(buffer) -> None:
+        if buffer.text:
+            buffer.start_completion(select_first=False)
+
     @bindings.add("c-h", eager=True)  # Backspace (Ctrl+H)
     @bindings.add("backspace", eager=True)
     def handle_backspace_with_completion(event):
         buffer = event.app.current_buffer
-        # Perform the deletion first
         buffer.delete_before_cursor(count=1)
-        # Then trigger completion if text starts with '/'
-        text = buffer.text.lstrip()
-        if text.startswith("/"):
-            buffer.start_completion(select_first=False)
+        _restart_completion(buffer)
 
     @bindings.add("delete", eager=True)
     def handle_delete_with_completion(event):
         buffer = event.app.current_buffer
-        # Perform the deletion first
         buffer.delete(count=1)
-        # Then trigger completion if text starts with '/'
-        text = buffer.text.lstrip()
-        if text.startswith("/"):
-            buffer.start_completion(select_first=False)
+        _restart_completion(buffer)
 
     # Handle bracketed paste - smart detection for text vs images.
     # Most terminals (Windows included!) send Ctrl+V through bracketed paste.
@@ -801,6 +889,7 @@ async def get_input_with_combined_completion(
         key_bindings=bindings,
         input_processors=[AttachmentPlaceholderProcessor()],
     )
+    _left_justify_completion_menu(session)
     # If they pass a string, backward-compat: convert it to formatted_text
     if isinstance(prompt_str, str):
         from prompt_toolkit.formatted_text import FormattedText
@@ -817,6 +906,28 @@ async def get_input_with_combined_completion(
             "cwd": "bold ansibrightgreen",
             "arrow": "bold ansibrightblue",
             "attachment-placeholder": "italic ansicyan",
+            # ── Completion menu (pi-inspired minimal look) ────────────────
+            # Drop the chunky default highlight bar. Use terminal-default bg
+            # so the menu blends, then `ansibrightblack` for a soft "dim"
+            # look that stays readable on both light and dark themes (since
+            # ANSI bright-black gets remapped to a mid-grey by most terms).
+            "completion-menu": "bg:default fg:ansibrightblack",
+            "completion-menu.completion": "bg:default fg:ansibrightblack",
+            # Selection highlight: use cyan to match the puppy/model banner
+            # colors (green is already the `cwd` color, and the bright-green
+            # bold variant was way too loud — Mike's eyeballs filed a complaint).
+            # `noreverse` is critical: prompt_toolkit's default for this class
+            # is `fg:#888888 bg:#ffffff reverse`, which would otherwise swap
+            # our fg/bg and paint a chunky cyan block behind the left column.
+            "completion-menu.completion.current": "noreverse bg:default fg:ansibrightcyan bold",
+            # `display_meta` is the right-hand path column — same dim treatment,
+            # italicized to differentiate it from the primary column.
+            "completion-menu.meta.completion": "bg:default fg:ansibrightblack italic",
+            "completion-menu.meta.completion.current": "bg:default fg:ansicyan italic",
+            # Scrollbar — keep it subtle so it doesn't reintroduce a bar.
+            "completion-menu.multi-column-meta": "bg:default",
+            "scrollbar.background": "bg:default",
+            "scrollbar.button": "bg:ansibrightblack",
         }
     )
     text = await session.prompt_async(prompt_str, style=style)

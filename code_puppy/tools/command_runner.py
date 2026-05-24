@@ -99,7 +99,11 @@ else:
 
 _AWAITING_USER_INPUT = threading.Event()
 
-_CONFIRMATION_LOCK = threading.Lock()
+# NOTE: The previous module-level ``_CONFIRMATION_LOCK`` was removed --
+# queueing of parallel approval prompts now lives inside
+# ``get_user_approval_async`` itself, so every caller (shell commands,
+# destructive-command guard, force-push guard, ...) benefits without
+# bolting on their own lock.
 
 # Track running shell processes so we can kill them on Ctrl-C from the UI
 _RUNNING_PROCESSES: Set[subprocess.Popen] = set()
@@ -326,11 +330,27 @@ def _listen_for_ctrl_x_windows(
     stop_event: threading.Event,
     on_escape: Callable[[], None],
 ) -> None:
-    """Windows-specific Ctrl-X listener."""
+    """Windows-specific Ctrl-X listener.
+
+    Pause-aware: while the agent is paused (Ctrl+T steering), we stop
+    draining ``msvcrt.kbhit()`` so the steering editor can read input
+    cleanly. See the POSIX sibling for the gory details.
+    """
     import msvcrt
     import time
 
+    def _is_agent_paused() -> bool:
+        try:
+            from code_puppy.messaging.pause_controller import get_pause_controller
+
+            return get_pause_controller().is_paused()
+        except Exception:
+            return False
+
     while not stop_event.is_set():
+        if _is_agent_paused():
+            time.sleep(0.05)
+            continue
         try:
             if msvcrt.kbhit():
                 try:
@@ -364,10 +384,19 @@ def _listen_for_ctrl_x_posix(
     stop_event: threading.Event,
     on_escape: Callable[[], None],
 ) -> None:
-    """POSIX-specific Ctrl-X listener."""
+    """POSIX-specific Ctrl-X listener.
+
+    Pause-aware: while the ``PauseController`` is paused (Ctrl+T steering),
+    we drop cbreak mode and stop reading stdin so the steering prompt's
+    ``prompt_toolkit.Application`` can own the terminal cleanly. Without
+    this, every other keystroke typed into the steer editor gets eaten by
+    *this* listener's ``stdin.read(1)`` — the user sees half their input.
+    On resume we re-acquire cbreak and continue.
+    """
     import select
     import sys
     import termios
+    import time
     import tty
 
     stdin = sys.stdin
@@ -380,9 +409,50 @@ def _listen_for_ctrl_x_posix(
     except Exception:
         return
 
+    cbreak_active = False
+
+    def _enter_cbreak() -> None:
+        nonlocal cbreak_active
+        if not cbreak_active:
+            tty.setcbreak(fd)
+            cbreak_active = True
+
+    def _exit_cbreak() -> None:
+        nonlocal cbreak_active
+        if cbreak_active:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
+            except Exception:
+                pass
+            cbreak_active = False
+
+    def _is_agent_paused() -> bool:
+        """Lazy + exception-safe pause check — never crash the listener."""
+        try:
+            from code_puppy.messaging.pause_controller import get_pause_controller
+
+            return get_pause_controller().is_paused()
+        except Exception:
+            return False
+
     try:
-        tty.setcbreak(fd)
+        _enter_cbreak()
         while not stop_event.is_set():
+            # Pause hand-off: release stdin and park until the steer
+            # prompt finishes. Polling every 50ms keeps stop responsive.
+            if _is_agent_paused():
+                _exit_cbreak()
+                while _is_agent_paused() and not stop_event.is_set():
+                    time.sleep(0.05)
+                if stop_event.is_set():
+                    return
+                try:
+                    _enter_cbreak()
+                except Exception:
+                    # Couldn't re-acquire raw mode — bail rather than spin.
+                    return
+                continue
+
             try:
                 read_ready, _, _ = select.select([stdin], [], [], 0.05)
             except Exception:
@@ -400,7 +470,11 @@ def _listen_for_ctrl_x_posix(
                         "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
                     )
     finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
+        _exit_cbreak()
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
+        except Exception:
+            pass
 
 
 def _spawn_ctrl_x_key_listener(
@@ -1066,18 +1140,12 @@ async def run_shell_command(
     # Check if we're running as a sub-agent (skip confirmation and run silently)
     running_as_subagent = is_subagent()
 
-    confirmation_lock_acquired = False
-
     # Only ask for confirmation if we're in an interactive TTY, not in yolo mode,
     # and NOT running as a sub-agent (sub-agents run without user interaction)
     if not yolo_mode and not running_as_subagent and sys.stdin.isatty():
-        confirmation_lock_acquired = _CONFIRMATION_LOCK.acquire(blocking=False)
-        if not confirmation_lock_acquired:
-            return ShellCommandOutput(
-                success=False,
-                command=command,
-                error="Another command is currently awaiting confirmation",
-            )
+        # No local lock needed -- get_user_approval_async serializes
+        # parallel prompts internally so the 2nd, 3rd, 4th... destructive
+        # commands queue up cleanly instead of vanishing.
 
         # Get puppy name for personalized messages
         from code_puppy.config import get_puppy_name
@@ -1095,7 +1163,8 @@ async def run_shell_command(
             panel_content.append("📂 Working directory: ", style="dim")
             panel_content.append(cwd, style="dim cyan")
 
-        # Use the common approval function (async version)
+        # Use the common approval function (async version).
+        # Internal queueing means parallel calls wait their turn here.
         confirmed, user_feedback = await get_user_approval_async(
             title="Shell Command",
             content=panel_content,
@@ -1103,10 +1172,6 @@ async def run_shell_command(
             border_style="dim white",
             puppy_name=puppy_name,
         )
-
-        # Release lock after approval
-        if confirmation_lock_acquired:
-            _CONFIRMATION_LOCK.release()
 
         if not confirmed:
             if user_feedback:

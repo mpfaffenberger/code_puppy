@@ -142,6 +142,37 @@ class MessageQueue:
         except queue.Empty:
             return None
 
+    def drain(self, timeout: float = 1.0) -> bool:
+        """Best-effort wait for queued messages to render.
+
+        Call this immediately before reading from stdin (input(), safe_input,
+        prompt_toolkit, etc.) so that any previously-emitted ``emit_info`` /
+        ``emit_warning`` text has a chance to actually appear on screen
+        before the prompt steals the terminal. Without this, a prompt label
+        can show up *above* the message that was meant to introduce it.
+
+        Args:
+            timeout: Maximum seconds to wait for the queue to empty.
+
+        Returns:
+            True if the queue drained within the timeout, False otherwise.
+        """
+        import time
+
+        # Fast path: queue already empty. Do one short paint-pause so the
+        # daemon thread can finish rendering whatever it just dequeued.
+        if self._queue.empty():
+            time.sleep(0.05)
+            return True
+
+        deadline = time.monotonic() + max(0.0, timeout)
+        while time.monotonic() < deadline:
+            if self._queue.empty():
+                time.sleep(0.05)
+                return True
+            time.sleep(0.02)
+        return False
+
     async def get_async(self) -> UIMessage:
         """Get a message asynchronously."""
         # Lazy initialization of async queue and store event loop reference
@@ -344,13 +375,18 @@ def emit_prompt(prompt_text: str, timeout: float = None) -> str:
 
     Uses safe_input for cross-platform compatibility, especially on Windows
     where raw input() can fail after prompt_toolkit Applications.
+
+    The drain() inside safe_input ensures the prompt_text we just enqueued
+    actually renders before stdin is read — otherwise input() would race
+    ahead and the user would see a bare ``>>>`` with no question above it.
     """
     from code_puppy.command_line.utils import safe_input
     from code_puppy.messaging import emit_info
 
     emit_info(prompt_text)
 
-    # Use safe_input which resets Windows console state before reading
+    # safe_input drains the message queue before reading, so the prompt_text
+    # above is guaranteed to have hit the screen first.
     response = safe_input(">>> ")
     return response
 

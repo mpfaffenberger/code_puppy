@@ -59,11 +59,7 @@ class HelpCommand(MCPCommandBase):
             help_lines.append(Text("Core Commands:", style="bold cyan"))
             help_lines.append(
                 Text("/mcp", style="cyan")
-                + Text("                    Show server status dashboard")
-            )
-            help_lines.append(
-                Text("/mcp list", style="cyan")
-                + Text("               List all registered servers")
+                + Text("                    List all registered servers")
             )
             help_lines.append(
                 Text("/mcp start", style="cyan")
@@ -94,10 +90,6 @@ class HelpCommand(MCPCommandBase):
                 + Text(" [name]      Show detailed status (all servers or specific)")
             )
             help_lines.append(
-                Text("/mcp test", style="cyan")
-                + Text(" <name>        Test connectivity to a server")
-            )
-            help_lines.append(
                 Text("/mcp logs", style="cyan")
                 + Text(" <name> [limit] Show recent events (default limit: 10)")
             )
@@ -108,6 +100,14 @@ class HelpCommand(MCPCommandBase):
             help_lines.append(
                 Text("/mcp remove", style="cyan")
                 + Text(" <name>      Remove/disable a server")
+            )
+            help_lines.append(
+                Text("/mcp silence-warning", style="cyan")
+                + Text("   Silence the 'registered but not bound' warning forever")
+            )
+            help_lines.append(
+                Text("/mcp unsilence-warning", style="cyan")
+                + Text(" Restore the 'registered but not bound' warning")
             )
             help_lines.append(
                 Text("/mcp help", style="cyan")

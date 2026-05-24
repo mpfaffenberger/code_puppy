@@ -714,6 +714,9 @@ class TestKeyBindings:
         handler = self._find_handler(captured_bindings, "c-m")
         assert handler is not None
         event = MagicMock()
+        # No active completion menu — must explicitly be None, else the
+        # handler takes the "accept completion" branch instead of submitting.
+        event.current_buffer.complete_state = None
         # In default state, multiline is off
         handler(event)
         event.current_buffer.validate_and_handle.assert_called_once()
@@ -728,12 +731,15 @@ class TestKeyBindings:
         event.app.current_buffer.start_completion.assert_called_once()
 
     def test_backspace_without_slash(self, captured_bindings):
+        # Backspace now unconditionally restarts completion for any non-empty
+        # buffer text, so `@` file completions and `/model <name>` sub-
+        # completions stay alive while editing — not just bare `/` slash cmds.
         handler = self._find_handler(captured_bindings, "c-h")
         event = MagicMock()
         event.app.current_buffer.text = "hello"
         handler(event)
         event.app.current_buffer.delete_before_cursor.assert_called_once()
-        event.app.current_buffer.start_completion.assert_not_called()
+        event.app.current_buffer.start_completion.assert_called_once()
 
     def test_delete_with_slash(self, captured_bindings):
         handler = self._find_handler(captured_bindings, "delete")
@@ -1037,8 +1043,11 @@ class TestKeyBindings:
             f2_handler(event)  # Toggle multiline ON
 
         event2 = MagicMock()
+        # No active completion menu — otherwise the handler accepts
+        # the completion instead of inserting a newline.
+        event2.current_buffer.complete_state = None
         enter_handler(event2)  # Now enter should insert newline
-        event2.app.current_buffer.insert_text.assert_called_with("\n")
+        event2.current_buffer.insert_text.assert_called_with("\n")
 
 
 class TestAttachmentPlaceholderProcessorExtended:

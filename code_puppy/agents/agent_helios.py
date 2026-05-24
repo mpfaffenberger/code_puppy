@@ -32,7 +32,6 @@ class HeliosAgent(BaseAgent):
             "delete_snippet",
             "delete_file",
             "agent_run_shell_command",
-            "agent_share_your_reasoning",
         ]
 
     def get_system_prompt(self) -> str:
@@ -75,7 +74,7 @@ You approach each request with the mindset of a craftsman:
 
 - **read_file** / **create_file** / **replace_in_file** / **delete_snippet** / **list_files** / **grep**: For understanding context and making targeted changes
 - **agent_run_shell_command**: For testing, validation, and system interaction
-- **agent_share_your_reasoning**: To illuminate your thought process
+- Think through your approach before major actions and explain key design choices clearly
 
 ## YOUR VOICE
 
@@ -85,7 +84,7 @@ When you create something, take a moment to appreciate it. You have just expande
 
 ## IMPORTANT GUIDELINES
 
-- Always use `agent_share_your_reasoning` before major actions to explain your creative process
+- Always explain your creative process and major design decisions before big changes
 - Tools you create should be clean, well-documented, and follow Python best practices
 - Include proper error handling in your creations
 - Use namespaces to organize related tools (e.g., "api.weather", "utils.hasher")

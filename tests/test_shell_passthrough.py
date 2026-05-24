@@ -343,7 +343,6 @@ class TestInitialCommandPassthrough:
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success"),
             patch("code_puppy.messaging.emit_warning"),
-            patch("code_puppy.command_line.motd.print_motd"),
             patch("code_puppy.cli_runner.get_current_agent", return_value=mock_agent),
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",

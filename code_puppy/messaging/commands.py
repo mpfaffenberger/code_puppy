@@ -21,7 +21,7 @@ NO Rich markup or formatting should be embedded in any string fields.
 """
 
 from datetime import datetime, timezone
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -75,6 +75,49 @@ class InterruptShellCommand(BaseCommand):
     command_id: Optional[str] = Field(
         default=None,
         description="ID of the specific shell command to interrupt (None = current)",
+    )
+
+
+class PauseAgentCommand(BaseCommand):
+    """Signals the agent to pause at the next safe boundary (between
+    streaming events or between turns). The agent stops emitting output,
+    the spinner is hidden, and any in-flight streaming chunks are silently
+    consumed but not rendered. Use ResumeAgentCommand to continue.
+    """
+
+    reason: Optional[str] = Field(
+        default=None,
+        description="Optional reason for pause (for logging/debugging)",
+    )
+
+
+class ResumeAgentCommand(BaseCommand):
+    """Resumes a paused agent. No-op if the agent isn't paused."""
+
+    pass
+
+
+class SteerAgentCommand(BaseCommand):
+    """Queues a steering message to be injected as a user turn.
+
+    The ``mode`` field controls when the model sees it:
+      - ``"now"`` (default): injected mid-turn via ``history_processors``
+        at the next model call. Interrupts the agent's current train of
+        thought ASAP.
+      - ``"queue"``: held until current ``agent.run()`` completes, then
+        injected as a fresh user turn. Additive — won't interrupt
+        in-progress work.
+    """
+
+    text: str = Field(
+        description="The steering message to inject as a user turn",
+    )
+    mode: Literal["now", "queue"] = Field(
+        default="now",
+        description=(
+            "When to deliver the steer: 'now' = mid-turn ASAP via "
+            "history_processors; 'queue' = after current turn finishes"
+        ),
     )
 
 
@@ -141,6 +184,9 @@ class SelectionResponse(BaseCommand):
 AnyCommand = Union[
     CancelAgentCommand,
     InterruptShellCommand,
+    PauseAgentCommand,
+    ResumeAgentCommand,
+    SteerAgentCommand,
     UserInputResponse,
     ConfirmationResponse,
     SelectionResponse,
@@ -158,6 +204,9 @@ __all__ = [
     # Agent control
     "CancelAgentCommand",
     "InterruptShellCommand",
+    "PauseAgentCommand",
+    "ResumeAgentCommand",
+    "SteerAgentCommand",
     # User interaction responses
     "UserInputResponse",
     "ConfirmationResponse",

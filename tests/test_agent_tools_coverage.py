@@ -1,11 +1,13 @@
 """Additional coverage tests for agent_tools.py.
 
 This module focuses on testing uncovered code paths including:
-- _generate_dbos_workflow_id function
 - _get_subagent_sessions_dir function
 - Pydantic models (AgentInfo, ListAgentsOutput, AgentInvokeOutput)
 - register_list_agents tool execution
 - register_invoke_agent tool execution with various code paths
+
+DBOS workflow-id tests were removed when DBOS moved to a plugin; see
+``code_puppy/plugins/dbos_durable_exec/`` for plugin-level tests (Phase 4).
 """
 
 import tempfile
@@ -18,77 +20,10 @@ from code_puppy.tools.agent_tools import (
     AgentInfo,
     AgentInvokeOutput,
     ListAgentsOutput,
-    _generate_dbos_workflow_id,
     _get_subagent_sessions_dir,
     register_invoke_agent,
     register_list_agents,
 )
-
-
-class TestGenerateDBOSWorkflowId:
-    """Test suite for _generate_dbos_workflow_id function."""
-
-    def test_generates_unique_ids(self):
-        """Test that consecutive calls generate unique workflow IDs."""
-        ids = set()
-        for _ in range(10):
-            workflow_id = _generate_dbos_workflow_id("base-id")
-            ids.add(workflow_id)
-        # All IDs should be unique
-        assert len(ids) == 10
-
-    def test_format_includes_base_id(self):
-        """Test that generated ID includes the base ID."""
-        workflow_id = _generate_dbos_workflow_id("my-group")
-        assert workflow_id.startswith("my-group-wf-")
-
-    def test_format_includes_counter_suffix(self):
-        """Test that generated ID has the wf-N format."""
-        workflow_id = _generate_dbos_workflow_id("test")
-        parts = workflow_id.split("-")
-        # Format: test-wf-N
-        assert "wf" in parts
-        # Last part should be a number
-        assert parts[-1].isdigit()
-
-    def test_counter_is_incrementing(self):
-        """Test that the counter increments atomically."""
-        id1 = _generate_dbos_workflow_id("base")
-        id2 = _generate_dbos_workflow_id("base")
-        id3 = _generate_dbos_workflow_id("base")
-
-        # Extract counters
-        counter1 = int(id1.split("-")[-1])
-        counter2 = int(id2.split("-")[-1])
-        counter3 = int(id3.split("-")[-1])
-
-        # Counters should be strictly increasing
-        assert counter2 > counter1
-        assert counter3 > counter2
-
-    def test_different_base_ids_same_counter_sequence(self):
-        """Test that different base IDs share the same counter."""
-        id1 = _generate_dbos_workflow_id("alpha")
-        id2 = _generate_dbos_workflow_id("beta")
-
-        counter1 = int(id1.split("-")[-1])
-        counter2 = int(id2.split("-")[-1])
-
-        # Counter should still increment
-        assert counter2 == counter1 + 1
-
-    def test_empty_base_id(self):
-        """Test with empty base ID."""
-        workflow_id = _generate_dbos_workflow_id("")
-        assert workflow_id.startswith("-wf-")
-        # Should still have a counter
-        parts = workflow_id.split("-")
-        assert parts[-1].isdigit()
-
-    def test_complex_base_id(self):
-        """Test with complex base ID containing hyphens."""
-        workflow_id = _generate_dbos_workflow_id("invoke-agent-qa-expert-12345")
-        assert workflow_id.startswith("invoke-agent-qa-expert-12345-wf-")
 
 
 class TestGetSubagentSessionsDir:
@@ -508,7 +443,6 @@ class TestRegisterInvokeAgentExecution:
         mock_agent_config = MagicMock()
         mock_agent_config.get_model_name.return_value = "test-model"
         mock_agent_config.get_system_prompt.return_value = "Test"
-        mock_agent_config.load_puppy_rules.return_value = None
 
         set_context_calls = []
 
@@ -560,6 +494,240 @@ class TestRegisterInvokeAgentExecution:
             assert "original-parent" in set_context_calls
 
 
+class TestInvokeAgentPartialSessionSaveOnCrash:
+    """Issue: invoke_agent should save partial progress when the run blows up.
+
+    The BaseAgent wrapper's ``_message_history`` is mutated in place by the
+    ``make_history_processor(agent_config)`` callback that pydantic-ai invokes
+    before every model request. So on a mid-run crash, ``agent_config`` still
+    holds the last fully-committed turn and we want that written to the
+    session file rather than thrown away.
+    """
+
+    def _get_registered_invoke_agent(self):
+        mock_agent = MagicMock()
+        registered_func = None
+
+        def capture_tool(func):
+            nonlocal registered_func
+            registered_func = func
+            return func
+
+        mock_agent.tool = capture_tool
+        register_invoke_agent(mock_agent)
+        return registered_func
+
+    def _make_agent_config(self, partial_history):
+        cfg = MagicMock()
+        cfg.get_model_name.return_value = "test-model"
+        cfg.get_system_prompt.return_value = "Test"
+        cfg.get_message_history.return_value = partial_history
+        return cfg
+
+    @pytest.mark.asyncio
+    async def test_partial_history_saved_when_run_crashes(self):
+        invoke_agent = self._get_registered_invoke_agent()
+        partial = ["msg_from_loaded_session", "new_turn_1", "new_turn_2"]
+        mock_agent_config = self._make_agent_config(partial)
+
+        with (
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context",
+                return_value="parent",
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=mock_agent_config,
+            ),
+            # Force a crash *after* load_agent has run so agent_config is bound.
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._load_session_history",
+                return_value=["msg_from_loaded_session"],
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
+            patch("code_puppy.tools.agent_tools._save_session_history") as mock_save,
+        ):
+            mock_bus.return_value.emit = MagicMock()
+
+            result = await invoke_agent(
+                MagicMock(),
+                agent_name="test-agent",
+                prompt="do the thing",
+                session_id=None,
+            )
+
+        assert result.error is not None
+        # The seed + partial history should have triggered one save.
+        assert mock_save.call_count == 1
+        save_kwargs = mock_save.call_args.kwargs
+        assert save_kwargs["message_history"] == partial
+        assert save_kwargs["agent_name"] == "test-agent"
+        # Brand new session → initial_prompt recorded.
+        assert save_kwargs["initial_prompt"] == "do the thing"
+
+    @pytest.mark.asyncio
+    async def test_no_save_when_no_progress_beyond_loaded_history(self):
+        """If the crash happens before any new turns land, skip the save."""
+        invoke_agent = self._get_registered_invoke_agent()
+        # Same length as loaded → no new progress to persist.
+        loaded = ["m1", "m2"]
+        mock_agent_config = self._make_agent_config(list(loaded))
+
+        with (
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context",
+                return_value="parent",
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=mock_agent_config,
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._load_session_history",
+                return_value=loaded,
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
+            patch("code_puppy.tools.agent_tools._save_session_history") as mock_save,
+        ):
+            mock_bus.return_value.emit = MagicMock()
+
+            result = await invoke_agent(
+                MagicMock(),
+                agent_name="test-agent",
+                prompt="x",
+                session_id="existing-session-abc123",
+            )
+
+        assert result.error is not None
+        mock_save.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_save_failure_does_not_mask_original_error(self):
+        invoke_agent = self._get_registered_invoke_agent()
+        partial = ["a", "b", "c", "d"]
+        mock_agent_config = self._make_agent_config(partial)
+
+        with (
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context",
+                return_value="parent",
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=mock_agent_config,
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                side_effect=RuntimeError("original boom"),
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._load_session_history",
+                return_value=["a"],
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._save_session_history",
+                side_effect=OSError("disk full"),
+            ),
+        ):
+            mock_bus.return_value.emit = MagicMock()
+
+            # Must not raise despite the save blowing up.
+            result = await invoke_agent(
+                MagicMock(),
+                agent_name="test-agent",
+                prompt="x",
+                session_id=None,
+            )
+
+        assert result.error is not None
+        assert "original boom" in result.error
+
+    @pytest.mark.asyncio
+    async def test_load_agent_itself_crashes_no_save_attempted(self):
+        """agent_config is None if load_agent raises — don't blow up trying to read it."""
+        invoke_agent = self._get_registered_invoke_agent()
+
+        with (
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context",
+                return_value="parent",
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                side_effect=RuntimeError("agent gone"),
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._load_session_history",
+                return_value=[],
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
+            patch("code_puppy.tools.agent_tools._save_session_history") as mock_save,
+        ):
+            mock_bus.return_value.emit = MagicMock()
+
+            result = await invoke_agent(
+                MagicMock(),
+                agent_name="test-agent",
+                prompt="x",
+                session_id=None,
+            )
+
+        assert result.error is not None
+        mock_save.assert_not_called()
+
+
 class TestActiveSubagentTasks:
     """Test the _active_subagent_tasks tracking."""
 
@@ -577,25 +745,6 @@ class TestActiveSubagentTasks:
         # (This is testing the cleanup behavior)
         # In a fresh module load, it would be empty
         assert isinstance(_active_subagent_tasks, set)
-
-
-class TestDBOSWorkflowCounter:
-    """Test the DBOS workflow counter behavior."""
-
-    def test_counter_is_thread_safe_type(self):
-        """Test that the counter uses a thread-safe implementation."""
-        import itertools
-
-        from code_puppy.tools.agent_tools import _dbos_workflow_counter
-
-        # Should be an itertools.count object
-        assert isinstance(_dbos_workflow_counter, type(itertools.count()))
-
-    def test_generate_dbos_workflow_id_uses_counter(self):
-        """Test that workflow IDs use the atomic counter."""
-        # Generate several IDs and verify they're all unique
-        ids = [_generate_dbos_workflow_id("test") for _ in range(5)]
-        assert len(set(ids)) == 5  # All unique
 
 
 class TestSessionIdValidationInInvokeAgent:

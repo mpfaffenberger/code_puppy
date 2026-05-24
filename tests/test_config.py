@@ -296,6 +296,7 @@ class TestGetConfigKeys:
                 "banner_color_grep",
                 "banner_color_invoke_agent",
                 "banner_color_list_agents",
+                "banner_color_llm_judge",
                 "banner_color_mcp_tool_call",
                 "banner_color_read_file",
                 "banner_color_replace_in_file",
@@ -310,23 +311,28 @@ class TestGetConfigKeys:
                 "compaction_threshold",
                 "default_agent",
                 "diff_context_lines",
-                "enable_dbos",
                 "enable_pack_agents",
                 "enable_streaming",
                 "enable_universal_constructor",
                 "frontend_emitter_enabled",
                 "frontend_emitter_max_recent_events",
                 "frontend_emitter_queue_size",
+                "goal_max_iterations",
                 "http2",
                 "key1",
                 "key2",
+                "max_hook_retries",
+                "max_pause_seconds",
                 "max_saved_sessions",
                 "message_limit",
                 "model",
                 "openai_reasoning_effort",
+                "openai_reasoning_summary",
                 "openai_verbosity",
+                "pause_agent_key",
                 "protected_token_count",
                 "resume_message_count",
+                "summarization_model",
                 "temperature",
                 "yolo_mode",
             ]
@@ -355,6 +361,7 @@ class TestGetConfigKeys:
                 "banner_color_grep",
                 "banner_color_invoke_agent",
                 "banner_color_list_agents",
+                "banner_color_llm_judge",
                 "banner_color_mcp_tool_call",
                 "banner_color_read_file",
                 "banner_color_replace_in_file",
@@ -369,21 +376,26 @@ class TestGetConfigKeys:
                 "compaction_threshold",
                 "default_agent",
                 "diff_context_lines",
-                "enable_dbos",
                 "enable_pack_agents",
                 "enable_streaming",
                 "enable_universal_constructor",
                 "frontend_emitter_enabled",
                 "frontend_emitter_max_recent_events",
                 "frontend_emitter_queue_size",
+                "goal_max_iterations",
                 "http2",
+                "max_hook_retries",
+                "max_pause_seconds",
                 "max_saved_sessions",
                 "message_limit",
                 "model",
                 "openai_reasoning_effort",
+                "openai_reasoning_summary",
                 "openai_verbosity",
+                "pause_agent_key",
                 "protected_token_count",
                 "resume_message_count",
+                "summarization_model",
                 "temperature",
                 "yolo_mode",
             ]
@@ -689,11 +701,11 @@ class TestDefaultModelSelection:
     ):
         # When no model is stored in config, get_model_name should return the default model
         mock_get_value.return_value = None
-        mock_default_model.return_value = "synthetic-GLM-4.7"
+        mock_default_model.return_value = "synthetic-GLM-5.1"
 
         result = cp_config.get_global_model_name()
 
-        assert result == "synthetic-GLM-4.7"
+        assert result == "synthetic-GLM-5.1"
         mock_get_value.assert_called_once_with("model")
         mock_validate_model_exists.assert_not_called()
         mock_default_model.assert_called_once()
@@ -707,11 +719,11 @@ class TestDefaultModelSelection:
         # When stored model doesn't exist in models.json, should return default model
         mock_get_value.return_value = "invalid-model"
         mock_validate_model_exists.return_value = False
-        mock_default_model.return_value = "synthetic-GLM-4.7"
+        mock_default_model.return_value = "synthetic-GLM-5.1"
 
         result = cp_config.get_global_model_name()
 
-        assert result == "synthetic-GLM-4.7"
+        assert result == "synthetic-GLM-5.1"
         mock_get_value.assert_called_once_with("model")
         mock_validate_model_exists.assert_called_once_with("invalid-model")
         mock_default_model.assert_called_once()

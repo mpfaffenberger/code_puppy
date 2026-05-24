@@ -40,7 +40,7 @@ def test_tutorial_chatgpt_flow() -> None:
     assert result is True
     mock_reset.assert_called_once()
     mock_oauth.assert_called_once()
-    mock_set_model.assert_called_once_with("chatgpt-gpt-5.3-codex")
+    mock_set_model.assert_called_once_with("chatgpt-gpt-5.4")
 
 
 def test_tutorial_claude_flow() -> None:
@@ -63,7 +63,7 @@ def test_tutorial_claude_flow() -> None:
     assert result is True
     mock_reset.assert_called_once()
     mock_auth.assert_called_once()
-    mock_set_model.assert_called_once_with("claude-code-claude-opus-4-6")
+    mock_set_model.assert_called_once_with("claude-code-claude-opus-4-7")
 
 
 @pytest.mark.parametrize(

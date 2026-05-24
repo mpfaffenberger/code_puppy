@@ -23,12 +23,12 @@ from .logs_command import LogsCommand
 from .remove_command import RemoveCommand
 from .restart_command import RestartCommand
 from .search_command import SearchCommand
+from .silence_warning_command import SilenceWarningCommand, UnsilenceWarningCommand
 from .start_all_command import StartAllCommand
 from .start_command import StartCommand
 from .status_command import StatusCommand
 from .stop_all_command import StopAllCommand
 from .stop_command import StopCommand
-from .test_command import TestCommand
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -61,12 +61,13 @@ class MCPCommandHandler(MCPCommandBase):
             "stop-all": StopAllCommand(),
             "restart": RestartCommand(),
             "status": StatusCommand(),
-            "test": TestCommand(),
             "edit": EditCommand(),
             "remove": RemoveCommand(),
             "logs": LogsCommand(),
             "search": SearchCommand(),
             "install": InstallCommand(),
+            "silence-warning": SilenceWarningCommand(),
+            "unsilence-warning": UnsilenceWarningCommand(),
             "help": HelpCommand(),
         }
 

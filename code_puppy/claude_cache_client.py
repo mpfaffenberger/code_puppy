@@ -40,6 +40,35 @@ TOOL_PREFIX = "cp_"
 # User-Agent to send with Claude Code OAuth requests
 CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
+
+def _model_requires_thinking_summary(model_name):
+    # Anthropic's Opus 4.7 family rejects adaptive-thinking requests unless a
+    # 'display: summary' field is present alongside 'type: adaptive'. We check
+    # both naming conventions (opus-4-7 and 4-7-opus).
+    if not model_name:
+        return False
+    lower = model_name.lower()
+    return "opus-4-7" in lower or "4-7-opus" in lower
+
+
+def _enforce_thinking_display_summary(payload):
+    # Belt-and-suspenders wire-level enforcement of thinking.display='summary'
+    # for Opus 4.7 payloads. Mutates payload in place; returns True if a
+    # change was made. No-ops on non-matching models or payloads without a
+    # thinking dict.
+    if not isinstance(payload, dict):
+        return False
+    if not _model_requires_thinking_summary(payload.get("model")):
+        return False
+    thinking = payload.get("thinking")
+    if not isinstance(thinking, dict):
+        return False
+    if thinking.get("display") == "summarized":
+        return False
+    thinking["display"] = "summarized"
+    return True
+
+
 try:
     from anthropic import AsyncAnthropic
 except ImportError:  # pragma: no cover - optional dep
@@ -57,6 +86,28 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
     - URL modifications (adding ?beta=true)
     - Proactive token refresh
     """
+
+    def __init__(
+        self,
+        *args: Any,
+        oauth_reauthentication_callback: Callable[[], str | None] | None = None,
+        token_update_callback: Callable[[str], None] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._oauth_reauthentication_callback = oauth_reauthentication_callback
+        self._token_update_callback = token_update_callback
+
+    def set_token_update_callback(self, callback: Callable[[str], None] | None) -> None:
+        self._token_update_callback = callback
+
+    def _notify_token_recovered(self, access_token: str) -> None:
+        if not self._token_update_callback:
+            return
+        try:
+            self._token_update_callback(access_token)
+        except Exception as exc:
+            logger.debug("Token update callback failed: %s", exc)
 
     def _get_jwt_age_seconds(self, token: str | None) -> float | None:
         """Decode a JWT and return its age in seconds.
@@ -271,7 +322,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         is_messages_endpoint = request.url.path.endswith("/v1/messages")
 
         # Proactive token refresh: check JWT age before every request
-        if not request.extensions.get("claude_oauth_refresh_attempted"):
+        if not request.extensions.get("claude_oauth_proactive_refresh_attempted"):
             try:
                 if self._should_refresh_token(request):
                     refreshed_token = self._refresh_claude_oauth_token()
@@ -287,7 +338,9 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                             headers=headers,
                             content=body_bytes,
                         )
-                        request.extensions["claude_oauth_refresh_attempted"] = True
+                        request.extensions[
+                            "claude_oauth_proactive_refresh_attempted"
+                        ] = True
             except Exception as exc:
                 logger.debug("Error during proactive token refresh check: %s", exc)
 
@@ -336,7 +389,12 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         if hasattr(rebuilt, "stream"):
                             request.stream = rebuilt.stream
                         if hasattr(rebuilt, "extensions"):
-                            request.extensions = rebuilt.extensions
+                            # Preserve caller-owned flags (notably oauth retry guards)
+                            # when httpx gives the rebuilt request fresh extensions.
+                            request.extensions = {
+                                **rebuilt.extensions,
+                                **request.extensions,
+                            }
 
                         # Update URL
                         request.url = url
@@ -378,13 +436,15 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         )
 
                 if is_auth_error:
-                    refreshed_token = self._refresh_claude_oauth_token()
-                    if refreshed_token:
-                        logger.info("Token refreshed successfully, retrying request")
+                    recovered_token = (
+                        self._recover_claude_oauth_token_after_auth_error()
+                    )
+                    if recovered_token:
+                        logger.info("Token recovered successfully, retrying request")
                         await response.aclose()
                         body_bytes = self._extract_body_bytes(request)
                         headers = dict(request.headers)
-                        self._update_auth_headers(headers, refreshed_token)
+                        self._update_auth_headers(headers, recovered_token)
                         retry_request = self.build_request(
                             method=request.method,
                             url=request.url,
@@ -398,7 +458,9 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                             retry_request, *args, **kwargs
                         )
                     else:
-                        logger.warning("Token refresh failed, returning original error")
+                        logger.warning(
+                            "Token recovery failed, returning original error"
+                        )
         except Exception as exc:
             logger.debug("Error during token refresh attempt: %s", exc)
 
@@ -569,6 +631,33 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             logger.debug("Error checking for Cloudflare error: %s", exc)
             return False
 
+    def _recover_claude_oauth_token_after_auth_error(self) -> str | None:
+        """Recover an OAuth token after the API rejected the current one.
+
+        First tries a refresh-token exchange. If that fails, an optional
+        provider-specific callback may run a full interactive OAuth flow.
+        """
+        refreshed_token = self._refresh_claude_oauth_token()
+        if refreshed_token:
+            return refreshed_token
+
+        if not self._oauth_reauthentication_callback:
+            return None
+
+        try:
+            reauthenticated_token = self._oauth_reauthentication_callback()
+        except Exception as exc:
+            logger.error("Exception during OAuth reauthentication: %s", exc)
+            return None
+
+        if not reauthenticated_token:
+            logger.warning("OAuth reauthentication returned no token")
+            return None
+
+        self._update_auth_headers(self.headers, reauthenticated_token)
+        self._notify_token_recovered(reauthenticated_token)
+        return reauthenticated_token
+
     def _refresh_claude_oauth_token(self) -> str | None:
         try:
             from code_puppy.plugins.claude_code_oauth.utils import refresh_access_token
@@ -577,6 +666,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             refreshed_token = refresh_access_token(force=True)
             if refreshed_token:
                 self._update_auth_headers(self.headers, refreshed_token)
+                self._notify_token_recovered(refreshed_token)
                 logger.info("Successfully refreshed Claude Code OAuth token")
             else:
                 logger.warning("Token refresh returned None")
@@ -597,9 +687,37 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
         modified = False
 
-        # Minimal, deterministic strategy:
-        # Add cache_control only on the single most recent block:
-        # the last dict content block of the last message (if any).
+        # Anthropic supports up to 4 cache breakpoints.  We place them on
+        # the three most impactful, stable prefixes so that content which
+        # doesn't change between turns is independently cached:
+        #   1. System prompt  – static across the whole session
+        #   2. Tool definitions – static across the whole session
+        #   3. Last message    – caches the growing conversation prefix
+
+        # 1. System prompt
+        system = data.get("system")
+        if isinstance(system, list) and system:
+            last_sys = system[-1]
+            if isinstance(last_sys, dict) and "cache_control" not in last_sys:
+                last_sys["cache_control"] = {"type": "ephemeral"}
+                modified = True
+        elif isinstance(system, str) and system:
+            # Convert bare string to content-block list so we can attach
+            # cache_control (the Anthropic API accepts both formats).
+            data["system"] = [
+                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+            ]
+            modified = True
+
+        # 2. Tool definitions
+        tools = data.get("tools")
+        if isinstance(tools, list) and tools:
+            last_tool = tools[-1]
+            if isinstance(last_tool, dict) and "cache_control" not in last_tool:
+                last_tool["cache_control"] = {"type": "ephemeral"}
+                modified = True
+
+        # 3. Last message content block
         messages = data.get("messages")
         if isinstance(messages, list) and messages:
             last = messages[-1]
@@ -614,6 +732,12 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         last_block["cache_control"] = {"type": "ephemeral"}
                         modified = True
 
+        # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
+        # thinking dict. Enforce at the wire level so the request can't go
+        # out without it, regardless of upstream settings construction.
+        if _enforce_thinking_display_summary(data):
+            modified = True
+
         if not modified:
             return None
 
@@ -621,8 +745,34 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
 
 def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
-    """In-place cache_control injection on Anthropic messages.create payload."""
+    """In-place cache_control injection on Anthropic messages.create payload.
 
+    Places up to three cache breakpoints (Anthropic allows 4) on the most
+    valuable, stable prefixes:
+      1. System prompt  – never changes between turns
+      2. Tool defs      – never changes between turns
+      3. Last message   – caches the growing conversation prefix
+    """
+
+    # 1. System prompt
+    system = payload.get("system")
+    if isinstance(system, list) and system:
+        last_sys = system[-1]
+        if isinstance(last_sys, dict) and "cache_control" not in last_sys:
+            last_sys["cache_control"] = {"type": "ephemeral"}
+    elif isinstance(system, str) and system:
+        payload["system"] = [
+            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+        ]
+
+    # 2. Tool definitions
+    tools = payload.get("tools")
+    if isinstance(tools, list) and tools:
+        last_tool = tools[-1]
+        if isinstance(last_tool, dict) and "cache_control" not in last_tool:
+            last_tool["cache_control"] = {"type": "ephemeral"}
+
+    # 3. Last message content block
     messages = payload.get("messages")
     if isinstance(messages, list) and messages:
         last = messages[-1]
@@ -633,33 +783,16 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
                 if isinstance(last_block, dict) and "cache_control" not in last_block:
                     last_block["cache_control"] = {"type": "ephemeral"}
 
-    # No extra markers in production mode; keep payload clean.
-    # (Function kept for potential future use.)
-    return
+    # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
+    # thinking dict. Enforce here as well so the AsyncAnthropic client
+    # patch path matches the raw httpx path.
+    _enforce_thinking_display_summary(payload)
 
 
-def patch_anthropic_client_messages(client: Any) -> None:
-    """Monkey-patch AsyncAnthropic.messages.create to inject cache_control.
-
-    This operates at the highest level: just before Anthropic SDK serializes
-    the request into HTTP. That means no httpx / Pydantic shenanigans can
-    undo it.
-    """
-
-    if AsyncAnthropic is None or not isinstance(client, AsyncAnthropic):  # type: ignore[arg-type]
-        return
-
-    try:
-        messages_obj = getattr(client, "messages", None)
-        if messages_obj is None:
-            return
-        original_create: Callable[..., Any] = messages_obj.create
-    except Exception:  # pragma: no cover - defensive
-        return
+def _make_cache_wrapper(original_create: Callable[..., Any]) -> Callable[..., Any]:
+    """Create a wrapped version of messages.create that injects cache_control."""
 
     async def wrapped_create(*args: Any, **kwargs: Any):
-        # Anthropic messages.create takes a mix of positional/kw args.
-        # The payload is usually in kwargs for the Python SDK.
         if kwargs:
             _inject_cache_control_in_payload(kwargs)
         elif args:
@@ -669,4 +802,33 @@ def patch_anthropic_client_messages(client: Any) -> None:
 
         return await original_create(*args, **kwargs)
 
-    messages_obj.create = wrapped_create  # type: ignore[assignment]
+    return wrapped_create
+
+
+def patch_anthropic_client_messages(client: Any) -> None:
+    """Monkey-patch AsyncAnthropic messages.create to inject cache_control.
+
+    Patches both client.messages.create AND client.beta.messages.create
+    since pydantic-ai uses the beta endpoint.
+    """
+
+    if AsyncAnthropic is None or not isinstance(client, AsyncAnthropic):  # type: ignore[arg-type]
+        return
+
+    # Patch client.messages.create
+    try:
+        messages_obj = getattr(client, "messages", None)
+        if messages_obj is not None:
+            messages_obj.create = _make_cache_wrapper(messages_obj.create)  # type: ignore[assignment]
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+    # Patch client.beta.messages.create (used by pydantic-ai)
+    try:
+        beta_obj = getattr(client, "beta", None)
+        if beta_obj is not None:
+            beta_messages_obj = getattr(beta_obj, "messages", None)
+            if beta_messages_obj is not None:
+                beta_messages_obj.create = _make_cache_wrapper(beta_messages_obj.create)  # type: ignore[assignment]
+    except Exception:  # pragma: no cover - defensive
+        pass

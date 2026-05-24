@@ -86,12 +86,20 @@ class TestModelManagement:
         models_file = tmp_path / "models.json"
         mock_path.return_value = models_file
 
-        result = add_models_to_extra_config(["gpt-5.2", "gpt-5.2-codex"])
+        result = add_models_to_extra_config(
+            [
+                "gpt-5.5",
+                "gpt-5.2",
+                "gpt-5.2-codex",
+            ]
+        )
 
         assert result is True
         models = json.loads(models_file.read_text())
+        assert "chatgpt-gpt-5.5" in models
         assert "chatgpt-gpt-5.2" in models
         assert "chatgpt-gpt-5.2-codex" in models
+        assert models["chatgpt-gpt-5.5"]["supports_xhigh_reasoning"] is True
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.get_chatgpt_models_path")
     def test_add_models_with_context_settings(self, mock_path, tmp_path):
@@ -110,6 +118,7 @@ class TestModelManagement:
             == CHATGPT_OAUTH_CONFIG["default_context_length"]
         )
         assert "supported_settings" in model_config
+        assert "summary" in model_config["supported_settings"]
         assert "oauth_source" in model_config
 
     def test_add_models_spark_context_length(self, tmp_path):
@@ -129,6 +138,7 @@ class TestModelManagement:
                 spark_config = models["chatgpt-gpt-5.3-codex-spark"]
                 assert spark_config["context_length"] == 131000
                 assert spark_config["supports_xhigh_reasoning"] is True
+                assert "summary" in spark_config["supported_settings"]
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.get_chatgpt_models_path")
     def test_remove_chatgpt_models(self, mock_path, tmp_path):
@@ -167,6 +177,7 @@ class TestModelManagement:
         models = fetch_chatgpt_models("test_token", "test_account")
 
         # Required models are prepended if not in API response
+        assert "gpt-5.5" in models
         assert "gpt-5.4" in models
         assert "gpt-5.3-instant" in models
         assert "gpt-5.2" in models
@@ -290,7 +301,7 @@ class TestCustomCommands:
 
         assert result is True
         mock_oauth.assert_called_once()
-        mock_set_model.assert_called_once_with("chatgpt-gpt-5.3-codex")
+        mock_set_model.assert_called_once_with("chatgpt-gpt-5.4")
 
     @patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.load_stored_tokens")
     def test_handle_custom_command_status(self, mock_load):

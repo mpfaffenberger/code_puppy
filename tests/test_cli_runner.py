@@ -273,22 +273,6 @@ class TestTerminalReset:
         mock_reset_unix.assert_called_once()
 
 
-class TestDBOSIntegration:
-    """Test DBOS initialization and configuration."""
-
-    @patch("code_puppy.config.get_use_dbos")
-    def test_dbos_flag_can_be_checked(self, mock_get_use_dbos):
-        """Test that DBOS flag can be checked."""
-        from code_puppy.config import get_use_dbos
-
-        mock_get_use_dbos.return_value = True
-        result = get_use_dbos()
-        assert result is True
-        mock_get_use_dbos.return_value = False
-        result = get_use_dbos()
-        assert result is False
-
-
 class TestCancelAgentKeyValidation:
     """Test cancel agent key validation."""
 

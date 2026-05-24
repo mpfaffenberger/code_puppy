@@ -57,25 +57,6 @@ from code_puppy.tools.browser.browser_workflows import (
     register_read_workflow,
     register_save_workflow,
 )
-from code_puppy.tools.browser.terminal_command_tools import (
-    register_run_terminal_command,
-    register_send_terminal_keys,
-    register_wait_terminal_output,
-)
-from code_puppy.tools.browser.terminal_screenshot_tools import (
-    register_load_image,
-    register_terminal_compare_mockup,
-    register_terminal_read_output,
-    register_terminal_screenshot,
-)
-
-# Terminal automation tools
-from code_puppy.tools.browser.terminal_tools import (
-    register_check_terminal_server,
-    register_close_terminal,
-    register_open_terminal,
-    register_start_api_server,
-)
 from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
@@ -95,19 +76,7 @@ from code_puppy.tools.file_operations import (
     register_list_files,
     register_read_file,
 )
-
-# Scheduler tools
-from code_puppy.tools.scheduler_tools import (
-    register_scheduler_create_task,
-    register_scheduler_daemon_status,
-    register_scheduler_delete_task,
-    register_scheduler_list_tasks,
-    register_scheduler_run_task,
-    register_scheduler_start_daemon,
-    register_scheduler_stop_daemon,
-    register_scheduler_toggle_task,
-    register_scheduler_view_log,
-)
+from code_puppy.tools.image_tools import register_load_image
 from code_puppy.tools.skills_tools import (
     register_activate_skill,
     register_list_or_search_skills,
@@ -180,35 +149,13 @@ TOOL_REGISTRY = {
     "browser_save_workflow": register_save_workflow,
     "browser_list_workflows": register_list_workflows,
     "browser_read_workflow": register_read_workflow,
-    # Terminal Connection Tools
-    "terminal_check_server": register_check_terminal_server,
-    "terminal_open": register_open_terminal,
-    "terminal_close": register_close_terminal,
-    "start_api_server": register_start_api_server,
-    # Terminal Command Execution Tools
-    "terminal_run_command": register_run_terminal_command,
-    "terminal_send_keys": register_send_terminal_keys,
-    "terminal_wait_output": register_wait_terminal_output,
-    # Terminal Screenshot Tools
-    "terminal_screenshot_analyze": register_terminal_screenshot,
-    "terminal_read_output": register_terminal_read_output,
-    "terminal_compare_mockup": register_terminal_compare_mockup,
+    # Image loading (used by browser/QA agents and friends)
     "load_image_for_analysis": register_load_image,
     # Skills Tools
     "activate_skill": register_activate_skill,
     "list_or_search_skills": register_list_or_search_skills,
     # Universal Constructor
     "universal_constructor": register_universal_constructor,
-    # Scheduler Tools
-    "scheduler_list_tasks": register_scheduler_list_tasks,
-    "scheduler_create_task": register_scheduler_create_task,
-    "scheduler_delete_task": register_scheduler_delete_task,
-    "scheduler_toggle_task": register_scheduler_toggle_task,
-    "scheduler_daemon_status": register_scheduler_daemon_status,
-    "scheduler_start_daemon": register_scheduler_start_daemon,
-    "scheduler_stop_daemon": register_scheduler_stop_daemon,
-    "scheduler_run_task": register_scheduler_run_task,
-    "scheduler_view_log": register_scheduler_view_log,
 }
 
 # Tools that expand into multiple tools for backward compatibility.
@@ -217,6 +164,11 @@ TOOL_REGISTRY = {
 TOOL_EXPANSIONS: dict[str, list[str]] = {
     "edit_file": ["create_file", "replace_in_file", "delete_snippet"],
 }
+
+# Legacy tool names we silently ignore instead of warning about.
+# Keep this for truly removed tools only; backward-compatible tool aliases
+# that still work should stay in TOOL_REGISTRY.
+REMOVED_LEGACY_TOOLS: set[str] = set()
 
 
 def _load_plugin_tools() -> None:
@@ -314,9 +266,6 @@ def register_tools_for_agent(
 
     _load_plugin_tools()
 
-    # Pre-compute whether extended thinking is active to avoid repeated checks
-    skip_reasoning_tool = has_extended_thinking_active(model_name)
-
     # Expand compound tools (e.g. "edit_file" → three individual tools)
     expanded_tools: list[str] = []
     seen: set[str] = set()
@@ -342,6 +291,9 @@ def register_tools_for_agent(
             _register_uc_tool_wrapper(agent, uc_tool_name)
             continue
 
+        if tool_name in REMOVED_LEGACY_TOOLS:
+            continue
+
         if tool_name not in TOOL_REGISTRY:
             # Skip unknown tools with a warning instead of failing
             emit_warning(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
@@ -353,11 +305,6 @@ def register_tools_for_agent(
             and not get_universal_constructor_enabled()
         ):
             continue  # Skip UC if disabled in config
-
-        # Skip reasoning tool when extended thinking is active — the model
-        # already exposes its chain-of-thought via thinking blocks.
-        if tool_name == "agent_share_your_reasoning" and skip_reasoning_tool:
-            continue
 
         # Register the individual tool
         register_func = TOOL_REGISTRY[tool_name]

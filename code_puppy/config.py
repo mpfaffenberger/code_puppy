@@ -48,32 +48,18 @@ EXTRA_MODELS_FILE = os.path.join(DATA_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(DATA_DIR, "agents")
 SKILLS_DIR = os.path.join(DATA_DIR, "skills")
 CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
-_DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 
 # OAuth plugin model files (XDG_DATA_HOME)
 GEMINI_MODELS_FILE = os.path.join(DATA_DIR, "gemini_models.json")
 CHATGPT_MODELS_FILE = os.path.join(DATA_DIR, "chatgpt_models.json")
 CLAUDE_MODELS_FILE = os.path.join(DATA_DIR, "claude_models.json")
-ANTIGRAVITY_MODELS_FILE = os.path.join(DATA_DIR, "antigravity_models.json")
+COPILOT_MODELS_FILE = os.path.join(DATA_DIR, "copilot_models.json")
 
 # Cache files (XDG_CACHE_HOME)
 AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
 
 # State files (XDG_STATE_HOME)
 COMMAND_HISTORY_FILE = os.path.join(STATE_DIR, "command_history.txt")
-DBOS_DATABASE_URL = os.environ.get(
-    "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
-)
-# DBOS enable switch is controlled solely via puppy.cfg using key 'enable_dbos'.
-# Default: True (DBOS enabled) unless explicitly disabled.
-
-
-def get_use_dbos() -> bool:
-    """Return True if DBOS should be used based on 'enable_dbos' (default True)."""
-    cfg_val = get_value("enable_dbos")
-    if cfg_val is None:
-        return True
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def get_subagent_verbose() -> bool:
@@ -94,7 +80,6 @@ PACK_AGENT_NAMES = frozenset(
     [
         "pack-leader",
         "bloodhound",
-        "husky",
         "shepherd",
         "terrier",
         "watchdog",
@@ -109,7 +94,7 @@ UC_AGENT_NAMES = frozenset(["helios"])
 def get_pack_agents_enabled() -> bool:
     """Return True if pack agents are enabled (default False).
 
-    When False (default), pack agents (pack-leader, bloodhound, husky, shepherd,
+    When False (default), pack agents (pack-leader, bloodhound, shepherd,
     terrier, watchdog, retriever) are hidden from `list_agents` tool and `/agents`
     command. They cannot be invoked by other agents or selected by users.
 
@@ -143,6 +128,47 @@ def set_universal_constructor_enabled(enabled: bool) -> None:
         enabled: True to enable, False to disable
     """
     set_value("enable_universal_constructor", "true" if enabled else "false")
+
+
+def get_mcp_unbound_warning_silenced() -> bool:
+    """Return True if the 'MCP server registered but not bound' warning is silenced.
+
+    When True, ``code_puppy.mcp_.manager._warn_unbound_servers`` skips emitting
+    its consolidated warning. Default False — the warning exists for a reason
+    (it surfaces hand-edits to ``mcp_servers.json`` that didn't get bound),
+    but power users who *know* about the unbound servers can silence the
+    nag via ``/mcp silence-warning``.
+    """
+    cfg_val = get_value("mcp_unbound_warning_silenced")
+    if cfg_val is None:
+        return False
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def set_mcp_unbound_warning_silenced(silenced: bool) -> None:
+    """Silence (or un-silence) the unbound-MCP-server warning.
+
+    Args:
+        silenced: True to silence forever, False to restore the warning.
+    """
+    set_value("mcp_unbound_warning_silenced", "true" if silenced else "false")
+
+
+def get_max_hook_retries() -> int:
+    """Return the maximum number of plugin hook retries after an agent run.
+
+    When a plugin hook returns ``{"retry": True, ...}`` the agent re-runs.
+    This caps how many times that can happen to prevent runaway loops.
+    Defaults to 3.
+    """
+    val = get_value("max_hook_retries")
+    if val is None:
+        return 3
+    try:
+        n = int(val)
+        return max(1, n)  # At least 1 to avoid nonsensical values
+    except (ValueError, TypeError):
+        return 3
 
 
 def get_enable_streaming() -> bool:
@@ -247,7 +273,7 @@ def get_allow_recursion() -> bool:
     """
     val = get_value("allow_recursion")
     if val is None:
-        return True  # Default to False for safety
+        return True  # Default to True to allow recursion unless explicitly disabled
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
@@ -283,9 +309,11 @@ def get_config_keys():
         "compaction_strategy",
         "protected_token_count",
         "compaction_threshold",
+        "summarization_model",
         "message_limit",
         "allow_recursion",
         "openai_reasoning_effort",
+        "openai_reasoning_summary",
         "openai_verbosity",
         "auto_save_session",
         "max_saved_sessions",
@@ -297,21 +325,31 @@ def get_config_keys():
         "frontend_emitter_max_recent_events",
         "frontend_emitter_queue_size",
     ]
-    # Add DBOS control key
-    default_keys.append("enable_dbos")
+    # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
+    # via the generic get_value API; intentionally not in default_keys.
     # Add pack agents control key
     default_keys.append("enable_pack_agents")
     # Add universal constructor control key
     default_keys.append("enable_universal_constructor")
+    # Add hook retry limit key
+    default_keys.append("max_hook_retries")
     # Add streaming control key
     default_keys.append("enable_streaming")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
+    # Add max pause seconds configuration (used by pause/steer feature to
+    # auto-resume long pauses before SSE upstream times out).
+    default_keys.append("max_pause_seconds")
+    # Add pause-agent key configuration (companion to cancel_agent_key).
+    default_keys.append("pause_agent_key")
     # Add banner color keys
     for banner_name in DEFAULT_BANNER_COLORS:
         default_keys.append(f"banner_color_{banner_name}")
     # Add resume message count configuration
     default_keys.append("resume_message_count")
+    # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
+    # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
+    default_keys.append("goal_max_iterations")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -510,9 +548,9 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
             # For Anthropic/Claude models, include extended thinking settings
             if model_name.startswith("claude-") or model_name.startswith("anthropic-"):
                 base = ["temperature", "extended_thinking", "budget_tokens"]
-                # Opus 4-6 models also support the effort setting
-                lower = model_name.lower()
-                if "opus-4-6" in lower or "4-6-opus" in lower:
+                from code_puppy.model_utils import supports_adaptive_thinking
+
+                if supports_adaptive_thinking(model_name):
                     base.append("effort")
                 return setting in base
             return setting in ["temperature", "seed"]
@@ -581,6 +619,33 @@ def set_model_name(model: str):
     clear_model_cache()
 
 
+def get_summarization_model_name() -> str:
+    """Return the model used for compaction/summarization.
+
+    Reads the ``summarization_model`` config key. If unset (or empty),
+    falls back to :func:`get_global_model_name`, preserving legacy behavior
+    for users who haven't explicitly configured a separate summarizer.
+
+    Rationale: summarization is a different workload than main-agent chat —
+    it's one-shot, large-context, and best served by a cheap-and-fast or
+    long-context specialist model. Decoupling it from the global model lets
+    users pick the right tool without changing their main agent.
+    """
+    value = get_value("summarization_model")
+    if value:
+        return value
+    return get_global_model_name()
+
+
+def set_summarization_model_name(model: str) -> None:
+    """Persist the summarization model in the config file.
+
+    Pass an empty string to clear the setting and fall back to the global
+    model on subsequent calls to :func:`get_summarization_model_name`.
+    """
+    set_config_value("summarization_model", model or "")
+
+
 def get_puppy_token():
     """Returns the puppy_token from config, or None if not set."""
     return get_value("puppy_token")
@@ -609,6 +674,32 @@ def set_openai_reasoning_effort(value: str) -> None:
             f"Invalid reasoning effort '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
         )
     set_config_value("openai_reasoning_effort", normalized)
+
+
+def get_openai_reasoning_summary() -> str:
+    """Return the configured OpenAI reasoning summary mode.
+
+    Supported values:
+    - auto: let the provider decide the best summary style
+    - concise: shorter reasoning summaries
+    - detailed: fuller reasoning summaries
+    """
+    allowed_values = {"auto", "concise", "detailed"}
+    configured = (get_value("openai_reasoning_summary") or "detailed").strip().lower()
+    if configured not in allowed_values:
+        return "auto"
+    return configured
+
+
+def set_openai_reasoning_summary(value: str) -> None:
+    """Persist the OpenAI reasoning summary mode ensuring it remains valid."""
+    allowed_values = {"auto", "concise", "detailed"}
+    normalized = (value or "").strip().lower()
+    if normalized not in allowed_values:
+        raise ValueError(
+            f"Invalid reasoning summary '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
+        )
+    set_config_value("openai_reasoning_summary", normalized)
 
 
 def get_openai_verbosity() -> str:
@@ -691,7 +782,7 @@ def get_model_setting(
     """Get a specific setting for a model.
 
     Args:
-        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
         setting: The setting name (e.g., 'temperature', 'top_p', 'seed')
         default: Default value if not set
 
@@ -715,7 +806,7 @@ def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> 
     """Set a specific setting for a model.
 
     Args:
-        model_name: The model name (e.g., 'gpt-5', 'claude-4-5-sonnet')
+        model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
         setting: The setting name (e.g., 'temperature', 'seed')
         value: The value to set, or None to clear
     """
@@ -1190,11 +1281,6 @@ def set_http2(enabled: bool) -> None:
     set_config_value("http2", "true" if enabled else "false")
 
 
-def set_enable_dbos(enabled: bool) -> None:
-    """Enable DBOS via config (true enables, default false)."""
-    set_config_value("enable_dbos", "true" if enabled else "false")
-
-
 def get_message_limit(default: int = 1000) -> int:
     """
     Returns the user-configured message/request limit for the agent.
@@ -1371,44 +1457,89 @@ def set_diff_highlight_style(style: str):
     pass
 
 
+# Defaults for diff highlight colors — single source of truth.
+_DEFAULT_DIFF_ADDITION_HEX = "#0b1f0b"  # darker green
+_DEFAULT_DIFF_DELETION_HEX = "#390e1a"  # wine
+
+
+def _coerce_to_hex(value: Optional[str], fallback: str) -> str:
+    """Normalize any color string to '#RRGGBB'.
+
+    Accepts:
+      - '#RRGGBB' hex strings (any case) — returned lowercased.
+      - Rich color names like 'green', 'orange1', 'bright_red'.
+      - 'rgb(r,g,b)' forms that Rich understands.
+
+    Anything Rich can't parse (including None/empty) falls back to ``fallback``.
+    This keeps downstream consumers like ``brighten_hex`` happy — they only
+    ever see a well-formed #RRGGBB string.
+    """
+    if not value:
+        return fallback
+    candidate = value.strip()
+    # Fast-path: already a valid #RRGGBB.
+    if (
+        len(candidate) == 7
+        and candidate.startswith("#")
+        and all(c in "0123456789abcdefABCDEF" for c in candidate[1:])
+    ):
+        return candidate.lower()
+    # Otherwise try Rich's parser (handles named colors, rgb(), etc.).
+    try:
+        from rich.color import Color  # local import keeps module import cheap
+
+        triplet = Color.parse(candidate).get_truecolor()
+        return f"#{triplet.red:02x}{triplet.green:02x}{triplet.blue:02x}"
+    except Exception:
+        return fallback
+
+
 def get_diff_addition_color() -> str:
+    """Get the base color for diff additions, always as a valid '#RRGGBB' hex.
+
+    Falls back to the default darker green if the configured value is missing
+    or unparseable.
     """
-    Get the base color for diff additions.
-    Default: darker green
-    """
-    val = get_value("highlight_addition_color")
-    if val:
-        return val
-    return "#0b1f0b"  # Default to darker green
+    return _coerce_to_hex(
+        get_value("highlight_addition_color"), _DEFAULT_DIFF_ADDITION_HEX
+    )
 
 
 def set_diff_addition_color(color: str):
     """Set the color for diff additions.
 
-    Args:
-        color: Rich color markup (e.g., 'green', 'on_green', 'bright_green')
+    Accepts '#RRGGBB' hex, Rich color names ('green', 'bright_green', ...), or
+    'rgb(r,g,b)'. The value is normalized to '#RRGGBB' before being written so
+    downstream renderers never see a raw name.
     """
-    set_config_value("highlight_addition_color", color)
+    set_config_value(
+        "highlight_addition_color",
+        _coerce_to_hex(color, _DEFAULT_DIFF_ADDITION_HEX),
+    )
 
 
 def get_diff_deletion_color() -> str:
+    """Get the base color for diff deletions, always as a valid '#RRGGBB' hex.
+
+    Falls back to the default wine if the configured value is missing or
+    unparseable.
     """
-    Get the base color for diff deletions.
-    Default: wine
-    """
-    val = get_value("highlight_deletion_color")
-    if val:
-        return val
-    return "#390e1a"  # Default to wine
+    return _coerce_to_hex(
+        get_value("highlight_deletion_color"), _DEFAULT_DIFF_DELETION_HEX
+    )
 
 
 def set_diff_deletion_color(color: str):
     """Set the color for diff deletions.
 
-    Args:
-        color: Rich color markup (e.g., 'orange1', 'on_bright_yellow', 'red')
+    Accepts '#RRGGBB' hex, Rich color names ('red', 'orange1', ...), or
+    'rgb(r,g,b)'. The value is normalized to '#RRGGBB' before being written so
+    downstream renderers never see a raw name.
     """
-    set_config_value("highlight_deletion_color", color)
+    set_config_value(
+        "highlight_deletion_color",
+        _coerce_to_hex(color, _DEFAULT_DIFF_DELETION_HEX),
+    )
 
 
 # =============================================================================
@@ -1444,6 +1575,8 @@ DEFAULT_BANNER_COLORS = {
     "mcp_tool_call": "dark_cyan",  # Teal - external MCP tool calls
     # User-initiated shell pass-through (! prefix) - distinct from agent's shell_command
     "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
+    # LLM Judge - goal-mode verdict (distinct from agent reasoning)
+    "llm_judge": "gold3",  # Gold - judicial authority / gavel
 }
 
 
@@ -1593,8 +1726,76 @@ def get_diff_context_lines() -> int:
         return 6
 
 
+def get_terminal_tty() -> Optional[str]:
+    """Return the TTY device path for stdin, or None if unavailable.
+
+    This identifies the physical terminal so /switch-agent can resume the
+    last autosave session from the same terminal window across restarts.
+    """
+    try:
+        import sys
+
+        return os.ttyname(sys.stdin.fileno())
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def _is_valid_autosave_session_name(session_name: str) -> bool:
+    """Return True when a terminal marker names a safe autosave session."""
+    import re
+
+    return bool(re.fullmatch(r"auto_session_\d{8}_\d{6}", session_name))
+
+
+def _tty_session_path(tty: str) -> pathlib.Path:
+    """Return the per-TTY autosave session file path."""
+    tty_key = tty.replace("/", "_").lstrip("_")
+    return pathlib.Path(CACHE_DIR) / "tty_sessions" / f"{tty_key}.txt"
+
+
+def record_terminal_session(session_name: str, *, overwrite: bool = True) -> None:
+    """Persist the current autosave session name for this terminal.
+
+    Uses a dedicated file per TTY so concurrent terminals never clobber each
+    other. Terminal emulators usually assign a fresh TTY per window/tab, and TTY
+    reassignment while Code Puppy is running is rare, but possible after a
+    terminal closes and the OS later reuses the device name. This mapping is
+    therefore best-effort and silently no-ops when no TTY is available or when
+    filesystem writes fail. Set ``overwrite=False`` for startup markers so a
+    previous real session survives until a new session is saved.
+    """
+    tty = get_terminal_tty()
+    if not tty:
+        return
+    try:
+        session_file = _tty_session_path(tty)
+        if session_file.exists() and not overwrite:
+            return
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = session_file.with_suffix(".tmp")
+        tmp.write_text(session_name, encoding="utf-8")
+        tmp.replace(session_file)
+    except Exception:
+        pass
+
+
+def get_last_terminal_session() -> Optional[str]:
+    """Return the last autosave session recorded for this terminal."""
+    tty = get_terminal_tty()
+    if not tty:
+        return None
+    try:
+        session_name = _tty_session_path(tty).read_text(encoding="utf-8").strip()
+        if not session_name or not _is_valid_autosave_session_name(session_name):
+            return None
+        return session_name
+    except Exception:
+        return None
+
+
 def finalize_autosave_session() -> str:
     """Persist the current autosave snapshot and rotate to a fresh session."""
+    record_terminal_session(get_current_autosave_session_name())
     auto_save_session_if_enabled()
     return rotate_autosave_id()
 

@@ -16,6 +16,12 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
+from code_puppy.command_line.pagination import (
+    ensure_visible_page,
+    get_page_bounds,
+    get_total_pages,
+)
+from code_puppy.command_line.utils import safe_input
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.plugins.agent_skills.config import (
     add_skill_directory,
@@ -131,9 +137,10 @@ class SkillsMenu:
             return lines
 
         # Calculate pagination
-        total_pages = (len(self.skills) + PAGE_SIZE - 1) // PAGE_SIZE
-        start_idx = self.current_page * PAGE_SIZE
-        end_idx = min(start_idx + PAGE_SIZE, len(self.skills))
+        total_pages = get_total_pages(len(self.skills), PAGE_SIZE)
+        start_idx, end_idx = get_page_bounds(
+            self.current_page, len(self.skills), PAGE_SIZE
+        )
 
         # Render skills
         for i in range(start_idx, end_idx):
@@ -351,7 +358,12 @@ class SkillsMenu:
         def _(event):
             if self.selected_idx > 0:
                 self.selected_idx -= 1
-                self.current_page = self.selected_idx // PAGE_SIZE
+                self.current_page = ensure_visible_page(
+                    self.selected_idx,
+                    self.current_page,
+                    len(self.skills),
+                    PAGE_SIZE,
+                )
             self.update_display()
 
         @kb.add("down")
@@ -360,7 +372,12 @@ class SkillsMenu:
         def _(event):
             if self.selected_idx < len(self.skills) - 1:
                 self.selected_idx += 1
-                self.current_page = self.selected_idx // PAGE_SIZE
+                self.current_page = ensure_visible_page(
+                    self.selected_idx,
+                    self.current_page,
+                    len(self.skills),
+                    PAGE_SIZE,
+                )
             self.update_display()
 
         @kb.add("left")
@@ -374,7 +391,7 @@ class SkillsMenu:
         @kb.add("right")
         def _(event):
             """Next page."""
-            total_pages = (len(self.skills) + PAGE_SIZE - 1) // PAGE_SIZE
+            total_pages = get_total_pages(len(self.skills), PAGE_SIZE)
             if self.current_page < total_pages - 1:
                 self.current_page += 1
                 self.selected_idx = self.current_page * PAGE_SIZE
@@ -480,8 +497,6 @@ class SkillsMenu:
 
 def _prompt_for_directory() -> Optional[str]:
     """Prompt user for a directory path to add."""
-    from code_puppy.tools.common import safe_input
-
     try:
         print("\n" + "=" * 60)
         print("ADD SKILL DIRECTORY")
@@ -505,8 +520,6 @@ def _prompt_for_directory() -> Optional[str]:
 
 def _show_directories_menu() -> Optional[str]:
     """Show current directories and allow removal."""
-    from code_puppy.tools.common import safe_input
-
     try:
         dirs = get_skill_directories()
 

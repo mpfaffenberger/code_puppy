@@ -88,6 +88,18 @@ def safe_input(prompt_text: str = "") -> str:
     # Reset Windows console to normal mode before reading input
     _reset_windows_console()
 
+    # Drain the message queue so any preceding emit_info/emit_warning text
+    # actually paints to the terminal BEFORE we put up our prompt. Without
+    # this, the async render queue can lose the race against input() and
+    # the user sees a bare prompt with no context above it.
+    try:
+        from code_puppy.messaging.message_queue import get_global_queue
+
+        get_global_queue().drain(timeout=1.0)
+    except Exception:
+        # Never let a drain failure block input — fall through.
+        pass
+
     # Use standard input() - now that console is reset, it should work
     result = input(prompt_text)
     return result.strip() if result else ""

@@ -43,7 +43,7 @@ def test_cli_happy_path_interactive_flow(
     result.child.expect(r"Built-in Commands", timeout=30)
     cli_harness.wait_for_ready(result)
 
-    result.sendline("/model synthetic-GLM-4.7\r")
+    result.sendline("/model synthetic-GLM-5.1\r")
     result.child.expect(r"Active model set and loaded", timeout=30)
     cli_harness.wait_for_ready(result)
 

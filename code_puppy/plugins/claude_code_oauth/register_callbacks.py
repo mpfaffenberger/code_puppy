@@ -17,9 +17,20 @@ from urllib.parse import parse_qs, urlparse
 from code_puppy.callbacks import register_callback
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.model_switching import set_model_and_reload_agent
+from code_puppy.provider_identity import (
+    make_anthropic_provider,
+    resolve_provider_identity,
+)
 
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
 from .config import CLAUDE_CODE_OAUTH_CONFIG, get_token_storage_path
+from .fast_mode import (
+    FAST_SETTING_KEY,
+    ensure_fast_beta_header,
+    is_fast_mode_enabled,
+    patch_anthropic_client_fast_mode,
+)
+from .prompt_handler import prepare_claude_code_prompt
 from .utils import (
     OAuthContext,
     add_models_to_extra_config,
@@ -182,6 +193,10 @@ def _custom_help() -> List[Tuple[str, str]]:
             "Check Claude Code OAuth authentication status and configured models",
         ),
         ("claude-code-logout", "Remove Claude Code OAuth tokens and imported models"),
+        (
+            "claude-code-fast",
+            "Toggle fast mode (speed=fast + fast-mode beta) for the active Claude Code model",
+        ),
     ]
 
 
@@ -225,6 +240,29 @@ def _perform_authentication() -> None:
         )
 
 
+def _reauthenticate_after_expired_oauth(model_name: str) -> Optional[str]:
+    """Run full Claude Code OAuth only for configured claude-code-* models."""
+    prefix = CLAUDE_CODE_OAUTH_CONFIG["prefix"]
+    if not model_name.startswith(prefix):
+        logger.debug(
+            "Skipping Claude Code OAuth flow for non-prefixed model: %s", model_name
+        )
+        return None
+
+    emit_warning(
+        "Claude Code OAuth refresh failed; launching the browser sign-in flow again."
+    )
+    _perform_authentication()
+
+    access_token = get_valid_access_token()
+    if access_token:
+        emit_success("Claude Code OAuth restored. Retrying the failed request…")
+        return access_token
+
+    emit_error("Claude Code OAuth reauthentication did not produce a usable token.")
+    return None
+
+
 def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if not name:
         return None
@@ -237,7 +275,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 "Existing Claude Code tokens found. Continuing will overwrite them."
             )
         _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-6")
+        set_model_and_reload_agent("claude-code-claude-opus-4-7")
         return True
 
     if name == "claude-code-status":
@@ -264,6 +302,38 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
             emit_info("Run /claude-code-auth to begin the browser sign-in flow.")
         return True
 
+    if name == "claude-code-fast":
+        from code_puppy.config import (
+            get_global_model_name,
+            set_model_setting,
+        )
+
+        active_model = get_global_model_name() or ""
+        if not active_model.startswith(CLAUDE_CODE_OAUTH_CONFIG["prefix"]):
+            emit_warning(
+                "Fast mode only applies to Claude Code models. "
+                "Switch to a claude-code-* model first."
+            )
+            return True
+
+        currently_on = is_fast_mode_enabled(active_model)
+        new_value = not currently_on
+        # Config stores bools as string values; "true"/"false" round-trips cleanly
+        set_model_setting(active_model, FAST_SETTING_KEY, str(new_value).lower())
+
+        if new_value:
+            emit_success(f"Fast mode ENABLED for {active_model}")
+            emit_info(
+                "Injecting speed=fast into payloads and fast-mode-2026-02-01 beta header."
+            )
+        else:
+            emit_info(f"Fast mode DISABLED for {active_model}")
+
+        # Reload agent so the anthropic-beta header update (set at client
+        # construction time) takes effect. Payload side is live either way.
+        set_model_and_reload_agent(active_model, warn_on_pinned_mismatch=False)
+        return True
+
     if name == "claude-code-logout":
         token_path = get_token_storage_path()
         if token_path.exists():
@@ -288,17 +358,15 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
     """
     from anthropic import AsyncAnthropic
     from pydantic_ai.models.anthropic import AnthropicModel
-    from pydantic_ai.providers.anthropic import AnthropicProvider
 
     from code_puppy.claude_cache_client import (
         ClaudeCacheAsyncClient,
         patch_anthropic_client_messages,
     )
-    from code_puppy.config import get_effective_model_settings
     from code_puppy.http_utils import get_cert_bundle_path
     from code_puppy.model_factory import get_custom_config
 
-    url, headers, verify, api_key = get_custom_config(model_config)
+    url, headers, verify, api_key, timeout = get_custom_config(model_config)
 
     # Refresh token if this is from the plugin
     if model_config.get("oauth_source") == "claude-code-plugin":
@@ -315,9 +383,16 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         )
         return None
 
-    # Check if interleaved thinking is enabled (defaults to True for OAuth models)
-    effective_settings = get_effective_model_settings(model_name)
-    interleaved_thinking = effective_settings.get("interleaved_thinking", True)
+    # Check if interleaved thinking is enabled (defaults to True for OAuth models).
+    # NOTE: we read via get_all_model_settings (not get_effective_model_settings)
+    # because these are plugin-owned settings that aren't in the core
+    # supported_settings allowlist and would otherwise be filtered out.
+    # See fast_mode.FAST_SETTING_KEY for the full rationale.
+    from code_puppy.config import get_all_model_settings
+
+    per_model_settings = get_all_model_settings(model_name)
+    interleaved_thinking = per_model_settings.get("interleaved_thinking", True)
+    fast_enabled = bool(per_model_settings.get(FAST_SETTING_KEY, False))
 
     # Handle anthropic-beta header based on interleaved_thinking setting
     if "anthropic-beta" in headers:
@@ -345,6 +420,9 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         else:
             headers["anthropic-beta"] = CONTEXT_1M_BETA
 
+    # Fast mode: append fast-mode-2026-02-01 beta marker when enabled
+    ensure_fast_beta_header(headers, fast_enabled)
+
     # Use a dedicated client wrapper that injects cache_control on /v1/messages
     if verify is None:
         verify = get_cert_bundle_path()
@@ -357,6 +435,9 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         verify=verify,
         timeout=180,
         http2=False,
+        oauth_reauthentication_callback=lambda: _reauthenticate_after_expired_oauth(
+            model_name
+        ),
     )
 
     anthropic_client = AsyncAnthropic(
@@ -364,10 +445,24 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         http_client=client,
         auth_token=api_key,
     )
+
+    def _update_runtime_token(access_token: str) -> None:
+        anthropic_client.auth_token = access_token
+        custom_endpoint = model_config.get("custom_endpoint")
+        if isinstance(custom_endpoint, dict):
+            custom_endpoint["api_key"] = access_token
+
+    client.set_token_update_callback(_update_runtime_token)
     patch_anthropic_client_messages(anthropic_client)
+    # Fast mode wrapper sits outside cache-control injector and re-reads
+    # the setting on every call so /claude-code-fast takes effect live.
+    patch_anthropic_client_fast_mode(anthropic_client, model_name)
     anthropic_client.api_key = None
     anthropic_client.auth_token = api_key
-    provider = AnthropicProvider(anthropic_client=anthropic_client)
+    provider = make_anthropic_provider(
+        resolve_provider_identity(model_name, model_config),
+        anthropic_client=anthropic_client,
+    )
     return AnthropicModel(model_name=model_config["name"], provider=provider)
 
 
@@ -449,5 +544,6 @@ async def _on_agent_run_end(
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
 register_callback("register_model_type", _register_model_types)
+register_callback("prepare_model_prompt", prepare_claude_code_prompt)
 register_callback("agent_run_start", _on_agent_run_start)
 register_callback("agent_run_end", _on_agent_run_end)

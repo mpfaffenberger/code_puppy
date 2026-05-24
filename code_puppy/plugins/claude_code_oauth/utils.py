@@ -460,8 +460,14 @@ def filter_latest_claude_models(
     family_models: Dict[str, List[Tuple[str, int, int, int]]] = {}
 
     for model_name in models:
+        if model_name == "claude-opus-4-7":
+            family_models.setdefault("opus", []).append((model_name, 4, 7, 20250219))
+            continue
         if model_name == "claude-opus-4-6":
             family_models.setdefault("opus", []).append((model_name, 4, 6, 20260205))
+            continue
+        if model_name == "claude-sonnet-4-6":
+            family_models.setdefault("sonnet", []).append((model_name, 4, 6, 20250610))
             continue
         # Match pattern: claude-{family}-{major}-{minor}-{date}
         # Examples: claude-haiku-3-5-20241022, claude-sonnet-4-5-20250929
@@ -554,11 +560,17 @@ def _build_model_entry(model_name: str, access_token: str, context_length: int) 
         "extended_thinking",
         "budget_tokens",
         "interleaved_thinking",
+        "fast",
     ]
 
     # Opus 4-6 models support the effort setting
     lower = model_name.lower()
-    if "opus-4-6" in lower or "4-6-opus" in lower:
+    if (
+        "opus-4-6" in lower
+        or "4-6-opus" in lower
+        or "opus-4-7" in lower
+        or "4-7-opus" in lower
+    ):
         supported_settings.append("effort")
 
     return {

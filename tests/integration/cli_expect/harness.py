@@ -26,11 +26,8 @@ puppy_name = IntegrationPup
 owner_name = CodePuppyTester
 auto_save_session = true
 max_saved_sessions = 5
-model = synthetic-GLM-4.7
+model = synthetic-GLM-5.1
 enable_dbos = true
-"""
-
-MOTD_TEMPLATE: Final[str] = """2025-08-24
 """
 
 
@@ -278,7 +275,6 @@ class CliHarness:
         if write_config:
             # Write config to both XDG config dir and ~/.code_puppy for compatibility
             (config_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
-            (config_dir / "motd.txt").write_text(MOTD_TEMPLATE, encoding="utf-8")
             (code_puppy_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
 
         log_path = temp_home / f"cli_output_{uuid.uuid4().hex}.log"

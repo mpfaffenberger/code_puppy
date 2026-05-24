@@ -171,18 +171,18 @@ class TestRegisterToolsForAgent:
         ):
             register_tools_for_agent(agent, ["universal_constructor"])
 
-    def test_skip_reasoning_with_extended_thinking(self):
+    def test_skip_removed_reasoning_tool(self):
         from code_puppy.tools import register_tools_for_agent
 
         agent = MagicMock()
-        agent.tool_plain = lambda fn: fn
         with (
-            patch("code_puppy.tools.has_extended_thinking_active", return_value=True),
+            patch("code_puppy.tools.emit_warning") as mock_warn,
             patch(
                 "code_puppy.config.get_universal_constructor_enabled", return_value=True
             ),
         ):
             register_tools_for_agent(agent, ["agent_share_your_reasoning"])
+            mock_warn.assert_not_called()
 
     def test_uc_tool_prefix(self):
         from code_puppy.tools import register_tools_for_agent

@@ -1067,6 +1067,33 @@ class TestAddModelsToConfig:
             == CHATGPT_OAUTH_CONFIG["default_context_length"]
         )
         assert gpt4_config["oauth_source"] == "chatgpt-oauth-plugin"
+        assert gpt4_config["supported_settings"] == [
+            "reasoning_effort",
+            "summary",
+            "verbosity",
+        ]
+
+    @patch("code_puppy.plugins.chatgpt_oauth.utils.save_chatgpt_models")
+    @patch("code_puppy.plugins.chatgpt_oauth.utils.load_chatgpt_models")
+    def test_add_models_to_extra_config_gpt54_and_newer_support_xhigh(
+        self, mock_load, mock_save
+    ):
+        """Test GPT-5.4+ models expose xhigh reasoning in model settings."""
+        mock_load.return_value = {}
+        mock_save.return_value = True
+
+        result = add_models_to_extra_config(["gpt-5.5", "gpt-5.4"])
+
+        assert result is True
+        saved_config = mock_save.call_args[0][0]
+        for model_name in ("chatgpt-gpt-5.5", "chatgpt-gpt-5.4"):
+            model_config = saved_config[model_name]
+            assert model_config["supported_settings"] == [
+                "reasoning_effort",
+                "summary",
+                "verbosity",
+            ]
+            assert model_config["supports_xhigh_reasoning"] is True
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.save_chatgpt_models")
     @patch("code_puppy.plugins.chatgpt_oauth.utils.load_chatgpt_models")

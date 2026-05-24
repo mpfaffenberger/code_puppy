@@ -344,6 +344,7 @@ def exchange_code_for_tokens(
 # These are the known models that work with ChatGPT OAuth tokens
 # Based on codex-rs CLI and shell-scripts/codex-call.sh
 DEFAULT_CODEX_MODELS = [
+    "gpt-5.5",
     "gpt-5.4",
     "gpt-5.3-instant",
     "gpt-5.3-codex-spark",
@@ -356,6 +357,7 @@ DEFAULT_CODEX_MODELS = [
 # doesn't return them (e.g. newly launched, not yet in the API catalogue).
 # These are merged into whatever the endpoint returns.
 REQUIRED_CODEX_MODELS = [
+    "gpt-5.5",
     "gpt-5.4",
     "gpt-5.3-instant",
     "gpt-5.3-codex",
@@ -473,13 +475,18 @@ def add_models_to_extra_config(models: List[str]) -> bool:
         for model_name in models:
             prefixed = f"{CHATGPT_OAUTH_CONFIG['prefix']}{model_name}"
 
-            # Determine supported settings based on model type
-            # All GPT-5.x models support reasoning_effort and verbosity
-            supported_settings = ["reasoning_effort", "verbosity"]
+            # Determine supported settings based on model type.
+            # ChatGPT OAuth models use the Responses API, so they support
+            # reasoning effort, reasoning summaries, and text verbosity.
+            supported_settings = ["reasoning_effort", "summary", "verbosity"]
 
-            # Only codex models support xhigh reasoning effort
-            # Regular gpt-5.2 is capped at "high"
-            is_codex = "codex" in model_name.lower()
+            # xhigh reasoning is supported by codex models and GPT-5.4+ variants.
+            # Older non-codex GPT-5.x models like gpt-5.2 stay capped at "high".
+            normalized_model_name = model_name.lower()
+            supports_xhigh_reasoning = (
+                "codex" in normalized_model_name
+                or normalized_model_name.startswith(("gpt-5.4", "gpt-5.5"))
+            )
 
             chatgpt_models[prefixed] = {
                 "type": "chatgpt_oauth",
@@ -493,7 +500,7 @@ def add_models_to_extra_config(models: List[str]) -> bool:
                 ),
                 "oauth_source": "chatgpt-oauth-plugin",
                 "supported_settings": supported_settings,
-                "supports_xhigh_reasoning": is_codex,
+                "supports_xhigh_reasoning": supports_xhigh_reasoning,
             }
             added += 1
         if save_chatgpt_models(chatgpt_models):
