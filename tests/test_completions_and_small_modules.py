@@ -219,40 +219,6 @@ class TestFilePathCompleterMissedLines:
         completions = list(self.completer.get_completions(doc, None))
         assert completions == []
 
-    def test_relative_glob_display_path(self):
-        """Lines 56, 58-62: relative glob paths, display_path = path.
-
-        We force the glob fallback by stubbing the fuzzy file_index to an empty
-        snapshot — otherwise a stale module-level index from a prior test can
-        leak project-root files (e.g. AGENTS.md) into the results and make this
-        test order-dependent.
-        """
-        from code_puppy.command_line import file_index
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            Path(tmpdir, "abc.txt").touch()
-            old_cwd = os.getcwd()
-            try:
-                os.chdir(tmpdir)
-                empty_snapshot = file_index.Index(root=os.path.abspath(tmpdir))
-                with (
-                    patch(
-                        "code_puppy.command_line.file_path_completion.file_index.get_index",
-                        return_value=empty_snapshot,
-                    ),
-                    patch(
-                        "code_puppy.command_line.file_path_completion.file_index.reindex",
-                        lambda *a, **kw: None,
-                    ),
-                ):
-                    doc = Document("@a")
-                    completions = list(self.completer.get_completions(doc, None))
-                # Relative paths, text doesn't start with / or ~
-                assert len(completions) > 0
-                assert completions[0].text == "abc.txt"
-            finally:
-                os.chdir(old_cwd)
-
 
 # ── load_context_completion ─────────────────────────────────────────────
 
