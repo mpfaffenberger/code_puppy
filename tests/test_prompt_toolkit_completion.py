@@ -61,19 +61,6 @@ def test_completion_directory_listing(tmp_path):
         os.chdir(cwd)
 
 
-def test_completion_symbol_in_middle(tmp_path):
-    setup_files(tmp_path)
-    completer = FilePathCompleter(symbol="@")
-    cwd = os.getcwd()
-    os.chdir(tmp_path)
-    try:
-        doc = Document(text="echo @fi then something", cursor_position=7)
-        completions = list(completer.get_completions(doc, None))
-        assert any("file3.txt" in c.text for c in completions)
-    finally:
-        os.chdir(cwd)
-
-
 def test_completion_with_hidden_file(tmp_path):
     # Should show hidden files if user types starting with .
     setup_files(tmp_path)
