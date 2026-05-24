@@ -160,6 +160,30 @@ def set_universal_constructor_enabled(enabled: bool) -> None:
     set_value("enable_universal_constructor", "true" if enabled else "false")
 
 
+def get_mcp_unbound_warning_silenced() -> bool:
+    """Return True if the 'MCP server registered but not bound' warning is silenced.
+
+    When True, ``code_puppy.mcp_.manager._warn_unbound_servers`` skips emitting
+    its consolidated warning. Default False — the warning exists for a reason
+    (it surfaces hand-edits to ``mcp_servers.json`` that didn't get bound),
+    but power users who *know* about the unbound servers can silence the
+    nag via ``/mcp silence-warning``.
+    """
+    cfg_val = get_value("mcp_unbound_warning_silenced")
+    if cfg_val is None:
+        return False
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def set_mcp_unbound_warning_silenced(silenced: bool) -> None:
+    """Silence (or un-silence) the unbound-MCP-server warning.
+
+    Args:
+        silenced: True to silence forever, False to restore the warning.
+    """
+    set_value("mcp_unbound_warning_silenced", "true" if silenced else "false")
+
+
 def get_max_hook_retries() -> int:
     """Return the maximum number of plugin hook retries after an agent run.
 
@@ -1458,8 +1482,8 @@ def get_resume_message_count() -> int:
     val = get_value("resume_message_count")
     try:
         configured_value = int(val) if val else 50
-        # Enforce reasonable bounds: minimum 1, maximum 100
-        return max(1, min(configured_value, 100))
+        # Enforce reasonable bounds: minimum 0 (disabled), maximum 100
+        return max(0, min(configured_value, 100))
     except (ValueError, TypeError):
         return 50
 
@@ -1931,8 +1955,22 @@ def auto_save_session_if_enabled() -> bool:
             auto_saved=True,
         )
 
+        # Append conversation-wide TTFT + TG averages if we have any data.
+        stats_suffix = ""
+        try:
+            from code_puppy.agents.run_stats import AgentRunStats
+
+            avg_ttft, avg_gen = AgentRunStats.get_conversation_stats()
+            formatted = AgentRunStats.format_conversation_stats(avg_ttft, avg_gen)
+            if formatted:
+                stats_suffix = f" | {formatted}"
+        except Exception:
+            # Stats are decorative; never block the auto-save line on them.
+            pass
+
         emit_info(
-            f"🐾 Auto-saved session: {metadata.message_count} messages ({metadata.total_tokens} tokens)"
+            f"🐾 Auto-saved session: {metadata.message_count} messages "
+            f"({metadata.total_tokens} tokens){stats_suffix}"
         )
 
         return True

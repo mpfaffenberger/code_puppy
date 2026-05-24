@@ -55,8 +55,9 @@ def stub_agent_manager(monkeypatch):
         (0.299, "🟢"),
         (0.30, "🟡"),
         (0.45, "🟡"),
-        (0.599, "🟡"),
-        (0.60, "🔴"),
+        (0.60, "🟡"),
+        (0.649, "🟡"),
+        (0.65, "🔴"),
         (0.85, "🔴"),
         (1.50, "🔴"),
     ],
@@ -131,6 +132,11 @@ def test_get_current_usage_returns_none_when_capacity_zero(stub_agent_manager):
 
 
 def test_get_current_usage_computes_totals(stub_agent_manager):
+    """Aggregate overhead is sourced from the per-bucket breakdown.
+
+    We patch ``compute_overhead_breakdown`` so this test doesn't depend on
+    whatever ``AGENTS.md`` happens to live in the repo at test time.
+    """
     mod = _usage_module()
     fake_agent = MagicMock()
     fake_agent.get_message_history.return_value = ["m1", "m2", "m3"]
@@ -139,13 +145,121 @@ def test_get_current_usage_computes_totals(stub_agent_manager):
     fake_agent._get_model_context_length.return_value = 10000
     stub_agent_manager.get_current_agent.side_effect = None
     stub_agent_manager.get_current_agent.return_value = fake_agent
-    usage = mod.get_current_usage()
+
+    fake_breakdown = mod.OverheadBreakdown(
+        system_prompt_tokens=300,
+        agents_md_tokens=150,
+        pydantic_tools_tokens=50,
+        mcp_tokens=0,
+    )
+    with patch.object(mod, "compute_overhead_breakdown", return_value=fake_breakdown):
+        usage = mod.get_current_usage()
+
     assert usage is not None
     assert usage.used_tokens == 3000
+    # 300 + 150 + 50 + 0 == 500 → matches the legacy mock too.
     assert usage.overhead_tokens == 500
+    assert usage.system_prompt_tokens == 300
+    assert usage.agents_md_tokens == 150
+    assert usage.pydantic_tools_tokens == 50
+    assert usage.mcp_tokens == 0
     assert usage.capacity == 10000
     assert usage.total_tokens == 3500
     assert usage.indicator == "🟡"  # 35%
+
+
+def test_live_mcp_servers_for_uses_fresh_manager_state(monkeypatch):
+    """Live MCP lookup bypasses ``agent._mcp_servers`` so bind/unbind take
+    effect immediately in ``/context``.
+
+    We stub the manager to return a sentinel list and ensure the helper
+    prefers it over the (stale) cached list on the agent.
+    """
+    mod = _usage_module()
+    fresh_servers = [MagicMock(name="fresh-server")]
+    fake_manager = MagicMock()
+    fake_manager.get_servers_for_agent.return_value = fresh_servers
+
+    fake_mcp_module = MagicMock()
+    fake_mcp_module.get_mcp_manager = MagicMock(return_value=fake_manager)
+    monkeypatch.setitem(sys.modules, "code_puppy.mcp_", fake_mcp_module)
+
+    fake_config = MagicMock()
+    fake_config.get_value = MagicMock(return_value=None)
+    monkeypatch.setitem(sys.modules, "code_puppy.config", fake_config)
+
+    fake_agent = MagicMock()
+    fake_agent.name = "some-agent"
+    # The cached list is intentionally a stale stand-in — we shouldn't pick it.
+    fake_agent._mcp_servers = [MagicMock(name="stale-server")]
+
+    result = mod._live_mcp_servers_for(fake_agent)
+    assert result is fresh_servers
+    fake_manager.get_servers_for_agent.assert_called_once_with(agent_name="some-agent")
+
+
+def test_live_mcp_servers_for_respects_disable_flag(monkeypatch):
+    """When MCP is disabled globally we return ``None`` and don't poke the manager."""
+    mod = _usage_module()
+    fake_manager = MagicMock()
+    fake_mcp_module = MagicMock()
+    fake_mcp_module.get_mcp_manager = MagicMock(return_value=fake_manager)
+    monkeypatch.setitem(sys.modules, "code_puppy.mcp_", fake_mcp_module)
+
+    fake_config = MagicMock()
+    fake_config.get_value = MagicMock(return_value="true")
+    monkeypatch.setitem(sys.modules, "code_puppy.config", fake_config)
+
+    fake_agent = MagicMock()
+    fake_agent.name = "some-agent"
+    fake_agent._mcp_servers = []
+
+    assert mod._live_mcp_servers_for(fake_agent) is None
+    fake_manager.get_servers_for_agent.assert_not_called()
+
+
+def test_live_mcp_servers_for_falls_back_to_cached_on_error(monkeypatch):
+    mod = _usage_module()
+    fake_mcp_module = MagicMock()
+    fake_mcp_module.get_mcp_manager = MagicMock(side_effect=RuntimeError("boom"))
+    monkeypatch.setitem(sys.modules, "code_puppy.mcp_", fake_mcp_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "code_puppy.config",
+        MagicMock(get_value=MagicMock(return_value=None)),
+    )
+
+    cached = [MagicMock(name="cached")]
+    fake_agent = MagicMock()
+    fake_agent.name = "some-agent"
+    fake_agent._mcp_servers = cached
+
+    assert mod._live_mcp_servers_for(fake_agent) is cached
+
+
+def test_get_current_usage_falls_back_to_legacy_overhead_when_breakdown_empty(
+    stub_agent_manager,
+):
+    """If the breakdown comes back all-zero, the legacy aggregate wins.
+
+    This keeps the badge meaningful even if some breakdown bucket helper
+    explodes — better to show the old aggregate than to lie with zeros.
+    """
+    mod = _usage_module()
+    fake_agent = MagicMock()
+    fake_agent.get_message_history.return_value = []
+    fake_agent.estimate_tokens_for_message.return_value = 0
+    fake_agent._estimate_context_overhead.return_value = 777
+    fake_agent._get_model_context_length.return_value = 10000
+    stub_agent_manager.get_current_agent.side_effect = None
+    stub_agent_manager.get_current_agent.return_value = fake_agent
+
+    empty = mod.OverheadBreakdown(0, 0, 0, 0)
+    with patch.object(mod, "compute_overhead_breakdown", return_value=empty):
+        usage = mod.get_current_usage()
+
+    assert usage is not None
+    assert usage.overhead_tokens == 777
 
 
 # ---------------------------------------------------------------------------
@@ -263,3 +377,56 @@ def test_format_usage_report_includes_progress_bar():
     assert "70.0%" in report
     assert "█" in report
     assert "░" in report
+
+
+def test_format_usage_report_breaks_out_mcp_and_agents_md():
+    """When breakdown buckets are populated they each get their own line."""
+    module = _plugin_module()
+    usage = _usage_module().ContextUsage(
+        used_tokens=1000,
+        overhead_tokens=900,
+        capacity=10000,
+        system_prompt_tokens=300,
+        agents_md_tokens=200,
+        pydantic_tools_tokens=150,
+        mcp_tokens=250,
+    )
+    report = module._format_usage_report(usage)
+    assert "System prompt" in report
+    assert "AGENTS.md" in report
+    assert "Pydantic tools" in report
+    assert "MCP toolsets" in report
+    # Numbers show up with thousands separators.
+    assert "300" in report
+    assert "250" in report
+
+
+def test_format_usage_report_hides_empty_breakdown_buckets():
+    """Zero-valued buckets are hidden so the report stays clean."""
+    module = _plugin_module()
+    usage = _usage_module().ContextUsage(
+        used_tokens=1000,
+        overhead_tokens=300,
+        capacity=10000,
+        system_prompt_tokens=300,
+        agents_md_tokens=0,
+        pydantic_tools_tokens=0,
+        mcp_tokens=0,
+    )
+    report = module._format_usage_report(usage)
+    # Use the breakdown row prefix "└─" so we don't false-positive on the
+    # "AGENTS.md" / "MCP" mentions in the Overhead description line above.
+    assert "└─ System prompt" in report
+    assert "└─ AGENTS.md" not in report
+    assert "└─ MCP toolsets" not in report
+
+
+def test_format_usage_report_omits_breakdown_block_when_all_zero():
+    """Legacy ContextUsage with no breakdown fields renders cleanly."""
+    module = _plugin_module()
+    usage = _usage_module().ContextUsage(
+        used_tokens=1000, overhead_tokens=500, capacity=10000
+    )
+    report = module._format_usage_report(usage)
+    assert "└─" not in report
+    assert "Overhead" in report

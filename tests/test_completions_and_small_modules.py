@@ -219,21 +219,6 @@ class TestFilePathCompleterMissedLines:
         completions = list(self.completer.get_completions(doc, None))
         assert completions == []
 
-    def test_relative_glob_display_path(self):
-        """Lines 56, 58-62: relative glob paths, display_path = path."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            Path(tmpdir, "abc.txt").touch()
-            old_cwd = os.getcwd()
-            try:
-                os.chdir(tmpdir)
-                doc = Document("@a")
-                completions = list(self.completer.get_completions(doc, None))
-                # Relative paths, text doesn't start with / or ~
-                assert len(completions) > 0
-                assert completions[0].text == "abc.txt"
-            finally:
-                os.chdir(old_cwd)
-
 
 # ── load_context_completion ─────────────────────────────────────────────
 

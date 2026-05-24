@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
 
+from code_puppy.messaging import emit_warning
+
 from .async_lifecycle import get_lifecycle_manager
 from .managed_server import ManagedMCPServer, ServerConfig, ServerState
 from .registry import ServerRegistry
@@ -22,6 +24,84 @@ from .status_tracker import ServerStatusTracker
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Module-level dedupe set: ``(server_name, agent_name)`` pairs we've already
+# warned about for the "registered but not bound to this agent" orphan state.
+# Lives for the lifetime of the process — a fresh process resets it, which
+# matches "warn at most once per session per (server, agent) pair". Cleared
+# in tests via :func:`_reset_unbound_warning_cache`.
+_WARNED_UNBOUND: set = set()
+
+
+def _warn_unbound_servers(server_names: List[str], agent_name: str) -> None:
+    """Warn once, in a single consolidated block, about registered-but-unbound MCP servers.
+
+    Companion to ``code_puppy.agents._builder._warn_missing_server``: that one
+    fires when an agent's binding points at a server that isn't installed;
+    this one fires when servers *are* installed (registered via
+    ``mcp_servers.json``) but no binding ties them to the agent currently
+    being built. Without this warning the servers are silently skipped on
+    every agent build, which is the exact footgun users hit when they
+    hand-edit ``mcp_servers.json`` and expect ``enabled: true`` to mean
+    "live on next launch".
+
+    Dedupe is per ``(server_name, agent_name)`` pair per process so that
+    repeated agent builds don't re-spam the user, but a brand-new
+    unbound server (e.g. just added to ``mcp_servers.json``) still gets
+    surfaced.
+
+    Users who don't want to see the warning at all can silence it forever
+    via ``/mcp silence-warning`` — we honor that flag here and bail out
+    before any emit. We deliberately do *not* short-circuit before the
+    dedupe-cache update path either; silencing means "never warn", full
+    stop, including not polluting the warned-pairs cache.
+    """
+    # Import lazily so this module stays importable without a config file
+    # present (e.g. early test bootstrap).
+    try:
+        from code_puppy.config import get_mcp_unbound_warning_silenced
+
+        if get_mcp_unbound_warning_silenced():
+            return
+    except Exception:  # pragma: no cover - defensive: never crash on a warn
+        pass
+
+    # Filter out pairs we've already shouted about in this process.
+    fresh = [n for n in server_names if (n, agent_name) not in _WARNED_UNBOUND]
+    if not fresh:
+        return
+    for name in fresh:
+        _WARNED_UNBOUND.add((name, agent_name))
+
+    # Hint shown at the end of every variant of this warning. Single source
+    # of truth so the silence-instructions can't drift between branches.
+    silence_hint = "Silence this warning forever with `/mcp silence-warning`."
+
+    if len(fresh) == 1:
+        name = fresh[0]
+        emit_warning(
+            f"MCP server '{name}' is registered in mcp_servers.json but "
+            f"not bound to agent '{agent_name}'. Run `/mcp start {name}` "
+            f"(auto-binds for this session only) or `/agents` \u2192 B to "
+            f"manage persistent bindings. {silence_hint}"
+        )
+        return
+
+    bullet_lines = "\n".join(
+        f"  \u2022 '{name}'  \u2192  `/mcp start {name}`" for name in fresh
+    )
+    emit_warning(
+        f"{len(fresh)} MCP servers are registered in mcp_servers.json but "
+        f"not bound to agent '{agent_name}':\n{bullet_lines}\n"
+        f"Run the suggested `/mcp start <name>` (auto-binds for this session "
+        f"only) or `/agents` \u2192 B to manage persistent bindings. "
+        f"{silence_hint}"
+    )
+
+
+def _reset_unbound_warning_cache() -> None:
+    """Clear the warn-once cache. Test hook only."""
+    _WARNED_UNBOUND.clear()
 
 
 @dataclass
@@ -398,6 +478,7 @@ class MCPManager:
                 bound_names = set()
 
         servers = []
+        unbound_to_warn: List[str] = []
 
         for server_id, managed_server in self._managed_servers.items():
             try:
@@ -410,6 +491,14 @@ class MCPManager:
                         managed_server.config.name,
                         agent_name,
                     )
+                    # Only warn for servers the user could actually use —
+                    # disabled / quarantined servers are skipped for other
+                    # reasons and the binding warning would be misleading.
+                    if (
+                        managed_server.is_enabled()
+                        and not managed_server.is_quarantined()
+                    ):
+                        unbound_to_warn.append(managed_server.config.name)
                     continue
                 # Only include enabled, non-quarantined servers
                 if managed_server.is_enabled() and not managed_server.is_quarantined():
@@ -442,6 +531,11 @@ class MCPManager:
                     },
                 )
                 continue
+
+        # One consolidated warning per call beats N angry shouts — dedupe still
+        # happens inside _warn_unbound_servers per (server, agent) pair.
+        if unbound_to_warn and agent_name is not None:
+            _warn_unbound_servers(unbound_to_warn, agent_name)
 
         logger.debug(f"Returning {len(servers)} servers for agent use")
         return servers

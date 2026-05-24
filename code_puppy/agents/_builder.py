@@ -435,3 +435,43 @@ def build_pydantic_agent(
     agent.pydantic_agent = wrapped
     agent._code_generation_agent = wrapped
     return wrapped
+
+
+def build_tool_probe_for_agent(agent: Any) -> Optional[Any]:
+    """Build a stripped-down pydantic agent JUST for tool introspection.
+
+    Used by token-overhead estimators (e.g. the ``context_indicator`` plugin)
+    that need to count tool docs/schemas *before* the real agent has been
+    constructed. Skips MCP servers, history processors, instructions, and
+    plugin wrapping — only the registered pydantic-ai tools matter here.
+
+    Returns ``None`` if model resolution fails. The caller is responsible for
+    caching the result; this is a non-trivial construction even with the
+    shortcuts.
+    """
+    from code_puppy.tools import register_tools_for_agent
+
+    try:
+        models_config = ModelFactory.load_config()
+        model, resolved_model_name = load_model_with_fallback(
+            agent.get_model_name() or "",
+            models_config,
+            message_group=str(uuid.uuid4()),
+        )
+    except Exception:
+        return None
+
+    try:
+        probe = PydanticAgent(
+            model=model,
+            instructions="",
+            output_type=str,
+            retries=1,
+            toolsets=[],
+        )
+        register_tools_for_agent(
+            probe, agent.get_available_tools(), model_name=resolved_model_name
+        )
+    except Exception:
+        return None
+    return probe

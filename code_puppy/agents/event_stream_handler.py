@@ -105,6 +105,10 @@ async def event_stream_handler(
             pass  # Just consume events without rendering
         return
 
+    # NOTE: TTFT / gen-speed timing is now handled by callback hooks
+    # registered in ``messaging.spinner._stream_stats_hooks`` (agent_run_start +
+    # stream_event + agent_run_end). This handler stays focused on rendering.
+
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
     from termflow.render.style import RenderFeatures

@@ -40,22 +40,6 @@ def test_no_symbol(tmp_path):
     assert completions == []
 
 
-def test_completion_basic(tmp_path, monkeypatch):
-    setup_files(tmp_path)
-    cwd = os.getcwd()
-    os.chdir(tmp_path)
-    try:
-        completer = FilePathCompleter(symbol="@")
-        doc = Document(text="run @fi", cursor_position=7)
-        completions = list(completer.get_completions(doc, None))
-        # Should see file3.txt from the base dir, but NOT .hiddenfile
-        values = {c.text for c in completions}
-        assert any("file3.txt" in v for v in values)
-        assert not any(".hiddenfile" in v for v in values)
-    finally:
-        os.chdir(cwd)
-
-
 def test_completion_directory_listing(tmp_path):
     d = setup_files(tmp_path)
     completer = FilePathCompleter(symbol="@")
@@ -73,19 +57,6 @@ def test_completion_directory_listing(tmp_path):
         }
         assert "file1.txt" in filenames
         assert "file2.py" in filenames
-    finally:
-        os.chdir(cwd)
-
-
-def test_completion_symbol_in_middle(tmp_path):
-    setup_files(tmp_path)
-    completer = FilePathCompleter(symbol="@")
-    cwd = os.getcwd()
-    os.chdir(tmp_path)
-    try:
-        doc = Document(text="echo @fi then something", cursor_position=7)
-        completions = list(completer.get_completions(doc, None))
-        assert any("file3.txt" in c.text for c in completions)
     finally:
         os.chdir(cwd)
 

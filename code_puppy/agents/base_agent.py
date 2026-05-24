@@ -21,6 +21,7 @@ import pydantic_ai.models
 
 from code_puppy.agents._builder import (
     build_pydantic_agent,
+    build_tool_probe_for_agent,
     reload_mcp_servers,
 )
 from code_puppy.agents._compaction import summarize
@@ -43,6 +44,24 @@ should_retry_streaming_exception = should_retry_streaming
 __all__ = ["BaseAgent", "should_retry_streaming_exception"]
 
 
+def _extract_pydantic_agent_tools(pyd_agent: Any) -> Optional[Dict[str, Any]]:
+    """Return the registered tool dict for a pydantic-ai agent, or None.
+
+    Handles the modern shape (``agent._function_toolset.tools``) and falls
+    back to the legacy ``agent._tools`` attribute so older pydantic-ai
+    versions still work. Returns ``None`` when neither is populated.
+    """
+    if pyd_agent is None:
+        return None
+    fts = getattr(pyd_agent, "_function_toolset", None)
+    if fts is not None:
+        tools = getattr(fts, "tools", None)
+        if tools:
+            return tools
+    legacy = getattr(pyd_agent, "_tools", None)
+    return legacy or None
+
+
 class BaseAgent(ABC):
     """Abstract base for all Code Puppy agents."""
 
@@ -56,6 +75,11 @@ class BaseAgent(ABC):
         self._mcp_servers: List[Any] = []
         self.cur_model: Optional[pydantic_ai.models.Model] = None
         self.pydantic_agent: Any = None
+        # Cached probe agent used to count tool overhead before the real
+        # pydantic agent has been built. Keyed implicitly by ``_last_model_name``
+        # so model swaps invalidate it via ``_probe_model_name``.
+        self._tool_probe_agent: Any = None
+        self._probe_model_name: Optional[str] = None
 
     # ---- Abstract interface ------------------------------------------------
     @property
@@ -152,12 +176,35 @@ class BaseAgent(ABC):
         except Exception:
             resolved = system_prompt
 
-        tools = (
-            getattr(self.pydantic_agent, "_tools", None)
-            if self.pydantic_agent
-            else None
+        tools_source = self.pydantic_agent or self._get_tool_probe()
+        tools = _extract_pydantic_agent_tools(tools_source) if tools_source else None
+        mcp_servers = getattr(self, "_mcp_servers", None) or None
+        return estimate_context_overhead(
+            resolved,
+            tools,
+            self.get_model_name(),
+            mcp_servers=mcp_servers,
         )
-        return estimate_context_overhead(resolved, tools, self.get_model_name())
+
+    def _get_tool_probe(self) -> Any:
+        """Lazily build (and cache) a tool-probe pydantic agent.
+
+        Used so context-window estimators can count tool docs/schemas even on a
+        fresh session, before the real pydantic agent has been constructed.
+        The probe is invalidated whenever the agent's effective model name
+        changes.
+        """
+        current_model = self.get_model_name()
+        if (
+            self._tool_probe_agent is not None
+            and self._probe_model_name == current_model
+        ):
+            return self._tool_probe_agent
+        probe = build_tool_probe_for_agent(self)
+        if probe is not None:
+            self._tool_probe_agent = probe
+            self._probe_model_name = current_model
+        return probe
 
     # ---- Orchestration (thin delegations) ---------------------------------
     def summarize_messages(
@@ -181,8 +228,47 @@ class BaseAgent(ABC):
 
     # ---- MCP integration shims --------------------------------------------
     def update_mcp_tool_cache_sync(self) -> None:
-        """No-op. MCP token-overhead cache was deleted in the refactor;
-        retained so MCP start/stop commands don't need edits yet."""
+        """Best-effort warm of each MCP server's ``_cached_tools``.
+
+        Pydantic-ai caches MCP tool defs on each server after the first
+        ``list_tools()`` call. We piggy-back on that cache for context-window
+        overhead estimates (see ``_history._estimate_mcp_tool_tokens``).
+
+        Without this warm-up the cache stays empty until the first agent run,
+        so the ``/context`` badge under-reports MCP overhead right after
+        ``/mcp start``. Here we schedule ``list_tools()`` for any server that
+        looks running, but we never block and we swallow all errors — the
+        cache will eventually be populated by the agent run itself.
+        """
+        import asyncio
+
+        servers = getattr(self, "_mcp_servers", None) or []
+        if not servers:
+            return None
+
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            return None
+        if loop is None or not loop.is_running():
+            return None
+
+        async def _warm(server: Any) -> None:
+            try:
+                if getattr(server, "_cached_tools", None):
+                    return
+                if not getattr(server, "is_running", False):
+                    return
+                await server.list_tools()
+            except Exception:
+                # Cache stays empty; estimator handles that gracefully.
+                return
+
+        for server in servers:
+            try:
+                loop.create_task(_warm(server))
+            except Exception:
+                continue
         return None
 
     def reload_mcp_servers(self) -> List[Any]:

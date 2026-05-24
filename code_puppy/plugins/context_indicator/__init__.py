@@ -4,8 +4,8 @@ Shows a colored circle in the terminal prompt reflecting how full the current
 agent's message history is relative to the active model's context window:
 
 * 🟢 — under 30% used
-* 🟡 — 30%-60% used
-* 🔴 — over 60% used
+* 🟡 — 30%-65% used
+* 🔴 — over 65% used
 
 Also exposes a ``/context`` slash command for a detailed breakdown.
 """

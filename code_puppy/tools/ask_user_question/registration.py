@@ -56,4 +56,23 @@ def register_ask_user_question(agent: Agent) -> None:
         """Ask the user multiple related questions in an interactive TUI."""
         # Keep the external tool schema simple for provider compatibility.
         # The handler performs the real nested validation and normalization.
+        # Fire a Claude Code-style notification so plugins can react when the
+        # agent is awaiting user input.
+        try:
+            import asyncio as _asyncio
+
+            from code_puppy.callbacks import on_notification
+
+            _coro = on_notification(
+                "Agent is waiting for user input",
+                level="prompt",
+                context={"questions": questions},
+            )
+            try:
+                _asyncio.get_running_loop()
+                _asyncio.ensure_future(_coro)
+            except RuntimeError:
+                _asyncio.run(_coro)
+        except Exception:
+            pass
         return _ask_user_question_impl(questions)

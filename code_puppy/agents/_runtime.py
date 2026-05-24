@@ -75,6 +75,7 @@ from code_puppy.callbacks import (
     on_agent_run_result,
     on_agent_run_start,
     on_should_skip_fallback_render,
+    on_user_prompt_submit,
 )
 from code_puppy.config import (
     get_enable_streaming,
@@ -302,6 +303,19 @@ async def run_with_mcp(
 
     prompt = _sanitize_prompt(prompt)
     group_id = str(uuid.uuid4())
+
+    # Fire user_prompt_submit hooks BEFORE prompt is sent. Plugins (e.g. the
+    # claude_code_hooks bridge) may return a string to replace the prompt —
+    # this is how Claude Code-style ``UserPromptSubmit`` hooks inject
+    # additional context (project constitutions, domain nudges, etc.)
+    try:
+        submit_results = await on_user_prompt_submit(prompt, group_id)
+        for r in submit_results:
+            if isinstance(r, str) and r:
+                prompt = r
+    except Exception:
+        # Hook failures must never block the run.
+        pass
 
     if agent._code_generation_agent is None:
         build_pydantic_agent(agent)

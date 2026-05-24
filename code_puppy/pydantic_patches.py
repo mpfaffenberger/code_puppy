@@ -269,6 +269,9 @@ def patch_tool_call_callbacks() -> None:
                 except Exception:
                     tool_args = {"raw": call.args}
 
+            # Collected outside the try so it survives any callback exception.
+            hook_context_messages: list[str] = []
+
             # --- pre_tool_call (with blocking support) ---
             # Returns a string tool-result on block so pydantic-ai sees a clean
             # "BLOCKED: ..." message and the agent can react gracefully, without
@@ -280,6 +283,18 @@ def patch_tool_call_callbacks() -> None:
                 callback_results = await callbacks.on_pre_tool_call(
                     tool_name, tool_args
                 )
+
+                # Collect any non-blocking hook context messages (e.g. stdout
+                # from Claude Code-style PreToolUse hooks) so we can inject
+                # them into the tool's result and the model can actually see
+                # them. Without this, hook stdout is captured-and-lost.
+                for callback_result in callback_results:
+                    if isinstance(callback_result, dict) and not callback_result.get(
+                        "blocked"
+                    ):
+                        ctx_msg = callback_result.get("context_message")
+                        if isinstance(ctx_msg, str) and ctx_msg.strip():
+                            hook_context_messages.append(ctx_msg.strip())
 
                 for callback_result in callback_results:
                     if (
@@ -318,6 +333,19 @@ def patch_tool_call_callbacks() -> None:
                     approved=approved,
                     metadata=metadata,
                 )
+                # Prepend collected hook stdout (PreToolUse "additional
+                # context") so the model sees it as part of the tool result.
+                if hook_context_messages:
+                    prefix = (
+                        "\n\n".join(
+                            f"[hook context]\n{m}" for m in hook_context_messages
+                        )
+                        + "\n\n"
+                    )
+                    if isinstance(result, str):
+                        result = prefix + result
+                    else:
+                        result = prefix + str(result)
                 return result
             except Exception as exc:
                 error = exc

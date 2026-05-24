@@ -2,10 +2,6 @@ version = 1
 revision = 3
 requires-python = ">=3.11, <3.15"
 
-[options]
-exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
-exclude-newer-span = "P7D"
-
 [[package]]
 name = "annotated-doc"
 version = "0.0.4"
@@ -304,11 +300,12 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.514"
+version = "0.0.524"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "azure-identity" },
+    { name = "boto3" },
     { name = "httpx", extra = ["http2"] },
     { name = "json-repair" },
     { name = "mcp" },
@@ -349,6 +346,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = "==0.79.0" },
     { name = "azure-identity", specifier = ">=1.15.0" },
+    { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
