@@ -168,6 +168,10 @@ class RichConsoleRenderer:
     def _format_banner(self, banner_name: str, text: str) -> str:
         """Format a banner with its configured color.
 
+        Delegates to :func:`code_puppy.messaging.banner.format_banner` so all
+        banner-emitting code paths share the same formatting (including the
+        opt-in timestamp annotation and trailing-newline behavior).
+
         Args:
             banner_name: The banner identifier
             text: The banner text
@@ -175,8 +179,9 @@ class RichConsoleRenderer:
         Returns:
             Rich markup string for the banner
         """
-        color = self._get_banner_color(banner_name)
-        return f"[bold white on {color}] {text} [/bold white on {color}]"
+        from code_puppy.messaging.banner import format_banner
+
+        return format_banner(banner_name, text)
 
     def _should_suppress_subagent_output(self) -> bool:
         """Check if sub-agent output should be suppressed.

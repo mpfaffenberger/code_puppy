@@ -19,7 +19,8 @@ from rich.console import Console
 from rich.markup import escape
 from rich.text import Text
 
-from code_puppy.config import get_banner_color, get_subagent_verbose
+from code_puppy.config import get_subagent_verbose
+from code_puppy.messaging.banner import format_banner
 from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
 from code_puppy.tools.subagent_context import is_subagent
 
@@ -140,12 +141,13 @@ async def event_stream_handler(
         # Clear line and print newline before banner
         console.print(" " * 50, end="\r")
         console.print()  # Newline before banner
-        # Bold banner with configurable color and lightning bolt
-        thinking_color = get_banner_color("thinking")
+        # Bold banner with configurable color and lightning bolt. The banner
+        # markup (color, optional timestamp, optional trailing newline) is
+        # produced by the shared formatter so this stays in lockstep with
+        # every other banner-emitting code path.
+        banner_markup = format_banner("thinking", "THINKING")
         console.print(
-            Text.from_markup(
-                f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}] [dim]\u26a1 "
-            ),
+            Text.from_markup(f"{banner_markup} [dim]\u26a1 "),
             end="",
         )
         did_stream_anything = True
@@ -159,12 +161,8 @@ async def event_stream_handler(
         # Clear line and print newline before banner
         console.print(" " * 50, end="\r")
         console.print()  # Newline before banner
-        response_color = get_banner_color("agent_response")
-        console.print(
-            Text.from_markup(
-                f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
-            )
-        )
+        banner_markup = format_banner("agent_response", "AGENT RESPONSE")
+        console.print(Text.from_markup(banner_markup))
         did_stream_anything = True
 
     async for event in events:

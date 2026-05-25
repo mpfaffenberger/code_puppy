@@ -3,7 +3,7 @@ import datetime
 import json
 import os
 import pathlib
-from typing import Optional
+from typing import Any, Optional
 
 from code_puppy.session_storage import save_session
 
@@ -345,6 +345,14 @@ def get_config_keys():
     # Add banner color keys
     for banner_name in DEFAULT_BANNER_COLORS:
         default_keys.append(f"banner_color_{banner_name}")
+    # Add banner timestamp / spacing keys
+    default_keys.extend(
+        [
+            "banner_timestamps_enabled",
+            "banner_timestamp_format",
+            "banner_newline_after_tag",
+        ]
+    )
     # Add resume message count configuration
     default_keys.append("resume_message_count")
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
@@ -1630,6 +1638,93 @@ def reset_all_banner_colors():
     """Reset all banner colors to their defaults."""
     for name, color in DEFAULT_BANNER_COLORS.items():
         set_banner_color(name, color)
+
+
+# ---------------------------------------------------------------------------
+# Banner timestamp / spacing options
+# ---------------------------------------------------------------------------
+#
+# These three options live next to the banner colors because they share the
+# same domain: how banner tags are rendered. All three default to behavior
+# that matches Code Puppy historically -- timestamps off, no extra newline
+# -- so existing users see no change unless they opt in.
+
+DEFAULT_BANNER_TIMESTAMP_FORMAT = "%H:%M:%S"
+
+
+def _coerce_bool(raw: Any, default: bool) -> bool:
+    if raw is None:
+        return default
+    s = str(raw).strip().lower()
+    if s == "":
+        return default
+    return s in ("1", "true", "yes", "on")
+
+
+def get_banner_timestamps_enabled() -> bool:
+    """Whether banner tags should be followed by a dim ``[timestamp]``.
+
+    Default: False (preserves historical behavior).
+    """
+    return _coerce_bool(get_value("banner_timestamps_enabled"), False)
+
+
+def set_banner_timestamps_enabled(enabled: bool) -> None:
+    """Enable or disable banner timestamps."""
+    set_config_value("banner_timestamps_enabled", "true" if enabled else "false")
+
+
+def get_banner_timestamp_format() -> str:
+    """strftime format used for banner timestamps.
+
+    Default: ``%H:%M:%S``.
+    """
+    val = get_value("banner_timestamp_format")
+    if val is None or val == "":
+        return DEFAULT_BANNER_TIMESTAMP_FORMAT
+    return str(val)
+
+
+def set_banner_timestamp_format(fmt: str) -> None:
+    """Persist a strftime format for banner timestamps.
+
+    ``configparser`` uses ``%`` as its interpolation character, so any
+    literal ``%`` in the value must be doubled before writing. The escaping
+    is undone transparently by configparser on read.
+
+    Raises:
+        ValueError: if the format string contains no working strftime
+                    directives (Python silently passes unknown directives
+                    through as literals, which is almost never what callers
+                    actually want -- catching it here gives a clear error
+                    instead of a banner that displays garbage forever).
+    """
+    # Local import to avoid an import cycle: banner.py imports config.
+    from code_puppy.messaging.banner import is_valid_strftime_format
+
+    if not is_valid_strftime_format(fmt):
+        raise ValueError(
+            f"banner_timestamp_format {fmt!r} contains no working "
+            "strftime directives (e.g. %Y, %m, %d, %H, %M, %S)."
+        )
+    set_config_value("banner_timestamp_format", fmt.replace("%", "%%"))
+
+
+def get_banner_newline_after_tag() -> bool:
+    """Whether to append a newline after every banner tag.
+
+    When True, every banner sits alone on its line and the following content
+    drops to the next line -- matching the historical AGENT RESPONSE
+    convention for every banner.
+
+    Default: False (preserves historical behavior).
+    """
+    return _coerce_bool(get_value("banner_newline_after_tag"), False)
+
+
+def set_banner_newline_after_tag(enabled: bool) -> None:
+    """Enable or disable the trailing newline after banner tags."""
+    set_config_value("banner_newline_after_tag", "true" if enabled else "false")
 
 
 def get_current_autosave_id() -> str:
