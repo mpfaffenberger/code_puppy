@@ -248,7 +248,7 @@ def handle_exit_command(command: str) -> bool:
     name="agent",
     description="Switch to a different agent or show available agents",
     usage="/agent <name>, /a <name>",
-    aliases=["a"],
+    aliases=["a", "agents"],
     category="core",
 )
 def handle_agent_command(command: str) -> bool:
