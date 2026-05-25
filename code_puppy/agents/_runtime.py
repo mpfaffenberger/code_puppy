@@ -529,9 +529,17 @@ async def run_with_mcp(
 
     def graceful_sigint_handler(_sig, _frame):
         from code_puppy.keymap import get_cancel_agent_display_name
-        from code_puppy.terminal_utils import reset_windows_terminal_full
+        from code_puppy.terminal_utils import (
+            ensure_ctrl_c_disabled,
+            install_windows_ctrl_c_swallower,
+            reset_windows_terminal_full,
+        )
 
         reset_windows_terminal_full()
+        # On Windows+uvx, a SIGINT slipping through means a guard dropped.
+        # Re-arm both layers before continuing so the next Ctrl+C is a no-op.
+        ensure_ctrl_c_disabled()
+        install_windows_ctrl_c_swallower()
         emit_info(f"Use {get_cancel_agent_display_name()} to cancel the agent task.")
 
     original_handler = None
