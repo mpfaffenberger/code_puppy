@@ -249,29 +249,33 @@ class TestReloadAgentIfCurrent:
 
 
 class TestApplyPinnedModel:
-    @patch("code_puppy.command_line.agent_menu._reload_agent_if_current")
     @patch("code_puppy.command_line.agent_menu.emit_success")
     @patch("code_puppy.command_line.agent_menu.set_agent_pinned_model")
     @patch("code_puppy.agents.json_agent.discover_json_agents", return_value={})
-    def test_builtin_pin(self, mock_json, mock_set, mock_emit, mock_reload):
+    def test_builtin_pin(self, mock_json, mock_set, mock_emit):
+        from code_puppy.command_line.agent_menu import consume_pending_pin_reloads
+
+        consume_pending_pin_reloads()  # drain any prior state
         _apply_pinned_model("agent1", "gpt-4")
         mock_set.assert_called_with("agent1", "gpt-4")
         mock_emit.assert_called()
-        mock_reload.assert_called_with("agent1", "gpt-4")
+        # Reload is now deferred to the main loop via the pending queue
+        assert consume_pending_pin_reloads() == [("agent1", "gpt-4")]
 
-    @patch("code_puppy.command_line.agent_menu._reload_agent_if_current")
     @patch("code_puppy.command_line.agent_menu.emit_success")
     @patch("code_puppy.command_line.agent_menu.clear_agent_pinned_model")
     @patch("code_puppy.agents.json_agent.discover_json_agents", return_value={})
-    def test_builtin_unpin(self, mock_json, mock_clear, mock_emit, mock_reload):
+    def test_builtin_unpin(self, mock_json, mock_clear, mock_emit):
+        from code_puppy.command_line.agent_menu import consume_pending_pin_reloads
+
+        consume_pending_pin_reloads()  # drain any prior state
         _apply_pinned_model("agent1", "(unpin)")
         mock_clear.assert_called_with("agent1")
         mock_emit.assert_called()
-        mock_reload.assert_called_with("agent1", None)
+        assert consume_pending_pin_reloads() == [("agent1", None)]
 
-    @patch("code_puppy.command_line.agent_menu._reload_agent_if_current")
     @patch("code_puppy.command_line.agent_menu.emit_success")
-    def test_json_agent_pin(self, mock_emit, mock_reload):
+    def test_json_agent_pin(self, mock_emit):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump({"name": "test"}, f)
             f.flush()
@@ -285,9 +289,8 @@ class TestApplyPinnedModel:
             assert data["model"] == "claude-3"
         os.unlink(f.name)
 
-    @patch("code_puppy.command_line.agent_menu._reload_agent_if_current")
     @patch("code_puppy.command_line.agent_menu.emit_success")
-    def test_json_agent_unpin(self, mock_emit, mock_reload):
+    def test_json_agent_unpin(self, mock_emit):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump({"name": "test", "model": "gpt-4"}, f)
             f.flush()

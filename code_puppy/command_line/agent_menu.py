@@ -43,6 +43,49 @@ from code_puppy.tools.common import arrow_select_async
 
 PAGE_SIZE = 10  # Agents per page
 
+# ---------------------------------------------------------------------------
+# Deferred-reload queue
+# ---------------------------------------------------------------------------
+# ``interactive_agent_picker`` is intentionally executed inside a worker
+# thread + transient ``asyncio.run`` loop by callers (see
+# ``handle_agent_command`` and the ``switch_agent_resume`` plugin). That
+# transient loop dies as soon as the picker coroutine returns.
+#
+# If we trigger ``reload_code_generation_agent()`` from inside the picker,
+# its MCP autostart path schedules long-lived lifecycle tasks on the
+# transient loop. When ``asyncio.run`` enters cleanup it cancels and awaits
+# those tasks, which deadlock on anyio task-group / subprocess teardown ---
+# the worker future never completes and the main thread hangs in
+# ``future.result(timeout=300)``. Symptom: pressing Enter after pinning a
+# model freezes the whole app.
+#
+# Solution: queue the reload here and let the caller drain the queue on the
+# main event loop *after* ``future.result()`` returns. That way MCP tasks
+# live on the main loop where they belong.
+_PENDING_PIN_RELOADS: List[Tuple[str, Optional[str]]] = []
+
+
+def consume_pending_pin_reloads() -> List[Tuple[str, Optional[str]]]:
+    """Drain and return queued (agent_name, pinned_model) reload requests.
+
+    Callers MUST invoke this from the main event loop after the picker
+    worker future has completed, then call
+    :func:`apply_pending_pin_reload` for each tuple.
+    """
+    global _PENDING_PIN_RELOADS
+    pending = _PENDING_PIN_RELOADS
+    _PENDING_PIN_RELOADS = []
+    return pending
+
+
+def apply_pending_pin_reload(agent_name: str, pinned_model: Optional[str]) -> None:
+    """Reload the active agent if its pinned model changed during the picker.
+
+    Safe to call from the main event loop only. No-ops if the named agent
+    is not currently active.
+    """
+    _reload_agent_if_current(agent_name, pinned_model)
+
 
 def _sanitize_display_text(text: str) -> str:
     """Remove or replace characters that cause terminal rendering issues.
@@ -261,7 +304,11 @@ def _apply_pinned_model(agent_name: str, model_choice: str) -> None:
                 emit_success(f"Pinned '{model_choice}' to '{agent_name}'")
                 pinned_model = model_choice
 
-        _reload_agent_if_current(agent_name, pinned_model)
+        # Defer the reload to the main event loop --- doing it here would
+        # schedule MCP autostart tasks on the picker's transient asyncio
+        # loop and deadlock the worker on shutdown (see
+        # ``_PENDING_PIN_RELOADS`` for the gory details).
+        _PENDING_PIN_RELOADS.append((agent_name, pinned_model))
     except Exception as exc:
         emit_warning(f"Failed to apply pinned model: {exc}")
 

@@ -183,6 +183,20 @@ def _handle_switch_agent(command: str, name: str) -> object:
         except Exception:
             agent_name = None
 
+        # Drain any deferred pin-reloads queued from inside the picker.
+        # These MUST run here on the main loop --- doing them inside the
+        # picker's worker thread deadlocks MCP autostart on loop shutdown.
+        try:
+            from code_puppy.command_line.agent_menu import (
+                apply_pending_pin_reload,
+                consume_pending_pin_reloads,
+            )
+
+            for pin_agent, pin_model in consume_pending_pin_reloads():
+                apply_pending_pin_reload(pin_agent, pin_model)
+        except Exception:
+            pass
+
         if not agent_name:
             from code_puppy.messaging import emit_warning
 
