@@ -765,9 +765,39 @@ def register_list_files(agent):
         # No need to emit again here
         if warning:
             result.error = warning
-        if (len(result.content)) > 200000:
-            result.content = result.content[0:200000]
-            result.error = "Results truncated. This is a massive directory tree, recommend non-recursive calls to list_files"
+
+        # Context guard: if the listing is too chonky to dump straight into
+        # the agent's context window, spill it to a temp file and hand the
+        # agent a pointer instead. Keeps token usage sane on huge repos.
+        _LIST_FILES_CONTEXT_LIMIT = 20_000
+        if len(result.content) > _LIST_FILES_CONTEXT_LIMIT:
+            from tempfile import NamedTemporaryFile, gettempdir
+
+            # Pull the summary footer (last line of _list_files output) so the
+            # agent still gets the counts without reading the dump file.
+            summary_line = result.content.rstrip().rsplit("\n", 1)[-1]
+
+            spill = NamedTemporaryFile(
+                mode="w",
+                prefix="code_puppy_listing_",
+                suffix=".txt",
+                dir=gettempdir(),
+                delete=False,
+                encoding="utf-8",
+            )
+            try:
+                spill.write(result.content)
+            finally:
+                spill.close()
+
+            result.content = (
+                f"Directory listing for {directory} exceeded "
+                f"{_LIST_FILES_CONTEXT_LIMIT} chars ({len(result.content)} total).\n"
+                f"Full listing written to: {spill.name}\n"
+                f"Use read_file on that path (in chunks if needed) to inspect it, "
+                f"or call list_files again with recursive=False / a narrower directory.\n\n"
+                f"{summary_line}"
+            )
         return result
 
 
