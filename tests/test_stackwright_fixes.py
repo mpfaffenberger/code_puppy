@@ -4,15 +4,13 @@ Tests for Stackwright-specific fixes to code-puppy.
 Covers: MCP auto-enable on startup, ask_user_question JSON-string coercion.
 Local .code-puppy.json loading tests live in tests/mcp/test_local_config.py.
 """
-import json
-import os
-import tempfile
-from unittest.mock import MagicMock, patch
 
-import pytest
+import json
+from unittest.mock import patch
 
 
 # ── Auto-enable on startup ────────────────────────────────────────────────
+
 
 class TestAutoEnableOnStartup:
     """MCP servers with enabled=True should be active immediately after MCPManager init."""
@@ -51,24 +49,31 @@ class TestAutoEnableOnStartup:
     def test_manager_enables_servers_from_config(self, tmp_path):
         """MCPManager should auto-enable servers that have enabled=True in mcp_servers.json."""
         mcp_json = tmp_path / "mcp_servers.json"
-        mcp_json.write_text(json.dumps({
-            "mcp_servers": {
-                "my-server": {
-                    "type": "stdio",
-                    "command": "echo",
-                    "args": ["hi"],
-                    "enabled": True,
+        mcp_json.write_text(
+            json.dumps(
+                {
+                    "mcp_servers": {
+                        "my-server": {
+                            "type": "stdio",
+                            "command": "echo",
+                            "args": ["hi"],
+                            "enabled": True,
+                        }
+                    }
                 }
-            }
-        }))
+            )
+        )
 
         # Patch _persist and _load to prevent writing test servers to the real
         # mcp_registry.json and loading stale entries from it.
-        with patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_json)), \
-             patch("code_puppy.mcp_.manager.MCPManager.sync_from_local_config"), \
-             patch("code_puppy.mcp_.registry.ServerRegistry._persist"), \
-             patch("code_puppy.mcp_.registry.ServerRegistry._load"):
+        with (
+            patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_json)),
+            patch("code_puppy.mcp_.manager.MCPManager.sync_from_local_config"),
+            patch("code_puppy.mcp_.registry.ServerRegistry._persist"),
+            patch("code_puppy.mcp_.registry.ServerRegistry._load"),
+        ):
             from code_puppy.mcp_.manager import MCPManager
+
             manager = MCPManager()
 
         # my-server was synced through the registry (global config path)
@@ -78,8 +83,11 @@ class TestAutoEnableOnStartup:
         # Find the managed server — it must be enabled (flag) so that
         # get_servers_for_agent() returns it to pydantic-ai.
         managed = next(
-            (s for s in manager._managed_servers.values()
-             if s.config.name == "my-server"),
+            (
+                s
+                for s in manager._managed_servers.values()
+                if s.config.name == "my-server"
+            ),
             None,
         )
         assert managed is not None
@@ -92,12 +100,12 @@ class TestAutoEnableOnStartup:
         # /mcp status because record_start_time() was never called.
         # get_status() returns a ServerState enum; key is the server's UUID.
         from code_puppy.mcp_.managed_server import ServerState
+
         tracker_state = manager.status_tracker.get_status(managed.config.id)
         assert tracker_state == ServerState.STOPPED, (
             f"Expected tracker STOPPED, got {tracker_state} — "
             "start_server() is responsible for advancing to RUNNING"
         )
-
 
 
 class TestAskUserQuestionJsonCoercion:
@@ -108,6 +116,7 @@ class TestAskUserQuestionJsonCoercion:
         from code_puppy.tools.ask_user_question.registration import (
             _coerce_questions_json_string,
         )
+
         questions = [{"question": "q", "header": "h", "options": [{"label": "a"}]}]
         json_string = json.dumps(questions)
         result = _coerce_questions_json_string(json_string)
@@ -119,6 +128,7 @@ class TestAskUserQuestionJsonCoercion:
         from code_puppy.tools.ask_user_question.registration import (
             _coerce_questions_json_string,
         )
+
         questions = [{"question": "q", "header": "h", "options": [{"label": "a"}]}]
         result = _coerce_questions_json_string(questions)
         assert result is questions  # exact same object — no copy
@@ -128,6 +138,7 @@ class TestAskUserQuestionJsonCoercion:
         from code_puppy.tools.ask_user_question.registration import (
             _coerce_questions_json_string,
         )
+
         bad = "not-json"
         result = _coerce_questions_json_string(bad)
         assert result == bad
@@ -137,6 +148,7 @@ class TestAskUserQuestionJsonCoercion:
         from code_puppy.tools.ask_user_question.registration import (
             _coerce_questions_json_string,
         )
+
         assert _coerce_questions_json_string(None) is None
 
     def test_passthrough_dict(self):
@@ -144,6 +156,7 @@ class TestAskUserQuestionJsonCoercion:
         from code_puppy.tools.ask_user_question.registration import (
             _coerce_questions_json_string,
         )
+
         d = {"question": "q"}
         result = _coerce_questions_json_string(d)
         assert result is d
@@ -153,6 +166,7 @@ class TestAskUserQuestionJsonCoercion:
         from code_puppy.tools.ask_user_question.registration import (
             _coerce_questions_json_string,
         )
+
         result = _coerce_questions_json_string("[]")
         assert result == []
 
@@ -161,7 +175,14 @@ class TestAskUserQuestionJsonCoercion:
         from code_puppy.tools.ask_user_question.registration import (
             _coerce_questions_json_string,
         )
-        q = [{"question": "Which theme?", "header": "Theme", "options": [{"label": "A"}, {"label": "B"}]}]
+
+        q = [
+            {
+                "question": "Which theme?",
+                "header": "Theme",
+                "options": [{"label": "A"}, {"label": "B"}],
+            }
+        ]
         result = _coerce_questions_json_string(json.dumps(q))
         assert result == q
         assert len(result) == 1

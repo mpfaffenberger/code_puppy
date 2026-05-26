@@ -9,8 +9,6 @@ expansion, git-root boundary, and manager integration.
 import json
 from unittest.mock import patch
 
-import pytest
-
 
 # ── load_local_mcp_config() ────────────────────────────────────────────────
 
@@ -43,7 +41,9 @@ class TestLoadLocalMcpConfig:
         assert server["command"] == "node"
         assert server["enabled"] is True  # autoStart → enabled
         assert "autoStart" not in server
-        assert str(tmp_path) in server["cwd"]  # workingDirectory → cwd, ${PROJECT_ROOT} expanded
+        assert (
+            str(tmp_path) in server["cwd"]
+        )  # workingDirectory → cwd, ${PROJECT_ROOT} expanded
         assert "workingDirectory" not in server
 
     def test_object_format_parsed_correctly(self, tmp_path):
@@ -69,7 +69,9 @@ class TestLoadLocalMcpConfig:
 
     def test_walks_up_to_parent_directory(self, tmp_path):
         """Config file in a parent dir is discovered from a nested CWD."""
-        config = {"mcpServers": [{"name": "parent-server", "command": "echo", "args": []}]}
+        config = {
+            "mcpServers": [{"name": "parent-server", "command": "echo", "args": []}]
+        }
         (tmp_path / ".code-puppy.json").write_text(json.dumps(config))
 
         subdir = tmp_path / "src" / "components"
@@ -118,7 +120,9 @@ class TestLoadLocalMcpConfig:
         #   tmp_path/.code-puppy.json  ← above the git root, should NOT be found
         #   tmp_path/repo/.git/
         #   tmp_path/repo/src/         ← CWD
-        above_config = {"mcpServers": [{"name": "above-root", "command": "echo", "args": []}]}
+        above_config = {
+            "mcpServers": [{"name": "above-root", "command": "echo", "args": []}]
+        }
         (tmp_path / ".code-puppy.json").write_text(json.dumps(above_config))
 
         repo_root = tmp_path / "repo"
@@ -141,7 +145,9 @@ class TestLoadLocalMcpConfig:
         src_dir = repo_root / "src"
         src_dir.mkdir()
 
-        config = {"mcpServers": [{"name": "root-server", "command": "echo", "args": []}]}
+        config = {
+            "mcpServers": [{"name": "root-server", "command": "echo", "args": []}]
+        }
         (repo_root / ".code-puppy.json").write_text(json.dumps(config))
 
         with patch("os.getcwd", return_value=str(src_dir)):
@@ -187,7 +193,11 @@ class TestManagerSyncsLocalConfig:
 
         # Local servers bypass the registry — check _managed_servers directly
         managed = next(
-            (s for s in manager._managed_servers.values() if s.config.name == "local-server"),
+            (
+                s
+                for s in manager._managed_servers.values()
+                if s.config.name == "local-server"
+            ),
             None,
         )
         assert managed is not None
@@ -214,7 +224,11 @@ class TestManagerSyncsLocalConfig:
             manager = MCPManager()
 
         tracked_id = next(
-            (sid for sid, ms in manager._managed_servers.items() if ms.config.name == "tracked-server"),
+            (
+                sid
+                for sid, ms in manager._managed_servers.items()
+                if ms.config.name == "tracked-server"
+            ),
             None,
         )
         assert tracked_id is not None

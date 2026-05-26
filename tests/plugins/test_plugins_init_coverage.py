@@ -607,7 +607,7 @@ class TestLoadPluginCallbacks:
         try:
             result = load_plugin_callbacks()
             # Should return empty since plugins are "already loaded"
-            assert result == {"builtin": [], "user": []}
+            assert result == {"builtin": [], "user": [], "project": []}
         finally:
             plugins_module._PLUGINS_LOADED = original_loaded
 

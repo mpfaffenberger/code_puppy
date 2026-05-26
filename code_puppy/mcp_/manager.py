@@ -188,9 +188,7 @@ class MCPManager:
 
             # In projectOnly mode, do not load global mcp_servers.json.
             if is_project_only():
-                logger.debug(
-                    "projectOnly mode — skipping global mcp_servers.json"
-                )
+                logger.debug("projectOnly mode — skipping global mcp_servers.json")
                 return
 
             configs = load_mcp_server_configs()

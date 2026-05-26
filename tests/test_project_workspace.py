@@ -8,7 +8,6 @@ Bead: code_puppy-9id
 """
 
 import json
-import os
 from unittest.mock import patch
 
 import pytest
@@ -357,9 +356,7 @@ class TestMcpWorkspaceLoading:
         ws_dir.mkdir()
 
         mcp_config = {
-            "mcp_servers": {
-                "ws-server": {"command": "node", "args": ["server.js"]}
-            }
+            "mcp_servers": {"ws-server": {"command": "node", "args": ["server.js"]}}
         }
         (ws_dir / "mcp_servers.json").write_text(json.dumps(mcp_config))
 
@@ -419,11 +416,7 @@ class TestMcpWorkspaceLoading:
         ws_dir = tmp_path / PROJECT_WORKSPACE_DIR_NAME
         ws_dir.mkdir()
 
-        config = {
-            "mcp_servers": {
-                "srv": {"command": "${PROJECT_ROOT}/bin/mcp"}
-            }
-        }
+        config = {"mcp_servers": {"srv": {"command": "${PROJECT_ROOT}/bin/mcp"}}}
         (ws_dir / "mcp_servers.json").write_text(json.dumps(config))
 
         with patch("os.getcwd", return_value=str(tmp_path)):
@@ -436,9 +429,7 @@ class TestMcpWorkspaceLoading:
     def test_legacy_code_puppy_json_still_works(self, tmp_path):
         """Legacy .code-puppy.json file is loaded when no workspace exists."""
         config = {
-            "mcpServers": [
-                {"name": "legacy-server", "command": "echo", "args": []}
-            ]
+            "mcpServers": [{"name": "legacy-server", "command": "echo", "args": []}]
         }
         (tmp_path / ".code-puppy.json").write_text(json.dumps(config))
 
@@ -486,11 +477,9 @@ class TestMcpProjectOnlyMode:
         # Create a global config with a server that should NOT appear
         global_mcp = tmp_path / "global_mcp_servers.json"
         global_mcp.write_text(
-            json.dumps({
-                "mcp_servers": {
-                    "global-server": {"command": "global", "args": []}
-                }
-            })
+            json.dumps(
+                {"mcp_servers": {"global-server": {"command": "global", "args": []}}}
+            )
         )
 
         with (
@@ -516,11 +505,9 @@ class TestMcpProjectOnlyMode:
         ws_dir.mkdir()
         (ws_dir / "config.json").write_text(json.dumps({"projectOnly": True}))
         (ws_dir / "mcp_servers.json").write_text(
-            json.dumps({
-                "mcp_servers": {
-                    "local-only": {"command": "local", "args": []}
-                }
-            })
+            json.dumps(
+                {"mcp_servers": {"local-only": {"command": "local", "args": []}}}
+            )
         )
 
         empty_global = tmp_path / "empty_global.json"
@@ -537,8 +524,7 @@ class TestMcpProjectOnlyMode:
             manager = MCPManager()
 
         local_found = any(
-            ms.config.name == "local-only"
-            for ms in manager._managed_servers.values()
+            ms.config.name == "local-only" for ms in manager._managed_servers.values()
         )
         assert local_found, "Local workspace server should be loaded"
 
@@ -685,7 +671,10 @@ class TestDiscoverAgentsProjectOnly:
         (ws_dir / "config.json").write_text(json.dumps({"projectOnly": True}))
 
         with patch("os.getcwd", return_value=str(tmp_path)):
-            from code_puppy.agents.agent_manager import _AGENT_REGISTRY, _discover_agents
+            from code_puppy.agents.agent_manager import (
+                _AGENT_REGISTRY,
+                _discover_agents,
+            )
 
             _discover_agents()
 
@@ -698,27 +687,42 @@ class TestDiscoverAgentsProjectOnly:
         (ws_dir / "config.json").write_text(json.dumps({"projectOnly": True}))
 
         with patch("os.getcwd", return_value=str(tmp_path)):
-            from code_puppy.agents.agent_manager import _AGENT_REGISTRY, _discover_agents
+            from code_puppy.agents.agent_manager import (
+                _AGENT_REGISTRY,
+                _discover_agents,
+            )
 
             _discover_agents()
 
         # These are some known builtin agents that should NOT be available
-        builtin_names = {"security-auditor", "qa-kitten", "qa-expert", "python-reviewer"}
+        builtin_names = {
+            "security-auditor",
+            "qa-kitten",
+            "qa-expert",
+            "python-reviewer",
+        }
         found_builtins = builtin_names & set(_AGENT_REGISTRY.keys())
-        assert not found_builtins, f"Builtin agents should be hidden in projectOnly: {found_builtins}"
+        assert not found_builtins, (
+            f"Builtin agents should be hidden in projectOnly: {found_builtins}"
+        )
 
     def test_all_builtins_registered_without_project_only(self, tmp_path):
         """Without projectOnly, builtin Python agents are registered normally."""
         # No workspace at all
         with patch("os.getcwd", return_value=str(tmp_path)):
-            from code_puppy.agents.agent_manager import _AGENT_REGISTRY, _discover_agents
+            from code_puppy.agents.agent_manager import (
+                _AGENT_REGISTRY,
+                _discover_agents,
+            )
 
             _discover_agents()
 
         # At minimum, code-puppy and some builtins should be there
         assert "code-puppy" in _AGENT_REGISTRY
         # Check at least one builtin exists (security-auditor is always present)
-        assert len(_AGENT_REGISTRY) > 1, "Multiple agents should be registered in normal mode"
+        assert len(_AGENT_REGISTRY) > 1, (
+            "Multiple agents should be registered in normal mode"
+        )
 
 
 # ── Plugin loading ─────────────────────────────────────────────────────────
