@@ -173,9 +173,7 @@ def test_disabled_config_suppresses_notifications(monkeypatch, mod):
     asyncio.run(
         mod._on_pre_tool_call("ask_user_question", {"questions": [{"header": "q?"}]})
     )
-    asyncio.run(
-        mod._on_post_tool_call("ask_user_question", {}, None, 0)
-    )
+    asyncio.run(mod._on_post_tool_call("ask_user_question", {}, None, 0))
 
     assert sent == []
 
@@ -219,9 +217,7 @@ def test_pre_tool_call_notifies_for_interactive_tool(monkeypatch, mod):
     """T5: pre_tool_call sends 1 notification for ask_user_question."""
     _enable(mod, monkeypatch)
     sent = _stub_send(mod, monkeypatch)
-    asyncio.run(
-        mod._on_pre_tool_call("ask_user_question", {})
-    )
+    asyncio.run(mod._on_pre_tool_call("ask_user_question", {}))
     assert len(sent) == 1
     assert sent[0]["key"] == "interactive_tool"
 
@@ -242,9 +238,7 @@ def test_pre_tool_call_ignores_non_interactive_tool(monkeypatch, mod):
     """T7: non-interactive tool → 0 notifications."""
     _enable(mod, monkeypatch)
     sent = _stub_send(mod, monkeypatch)
-    asyncio.run(
-        mod._on_pre_tool_call("bash", {"command": "ls"})
-    )
+    asyncio.run(mod._on_pre_tool_call("bash", {"command": "ls"}))
     assert sent == []
 
 
@@ -257,12 +251,8 @@ def test_no_duplicate_pre_tool_and_run_end(monkeypatch, mod):
     """T8: pre_tool_call + post_tool_call + agent_run_end → exactly 1 notification."""
     _enable(mod, monkeypatch)
     sent = _stub_send(mod, monkeypatch)
-    asyncio.run(
-        mod._on_pre_tool_call("ask_user_question", {})
-    )
-    asyncio.run(
-        mod._on_post_tool_call("ask_user_question", {}, "answer", 100)
-    )
+    asyncio.run(mod._on_pre_tool_call("ask_user_question", {}))
+    asyncio.run(mod._on_post_tool_call("ask_user_question", {}, "answer", 100))
     mod._on_agent_run_end()
     assert len(sent) == 1, f"Expected 1, got {len(sent)}: {sent}"
 
@@ -271,9 +261,7 @@ def test_agent_run_end_suppressed_after_user_responded(monkeypatch, mod):
     """T9: post_tool_call sets flag → agent_run_end sends nothing."""
     _enable(mod, monkeypatch)
     sent = _stub_send(mod, monkeypatch)
-    asyncio.run(
-        mod._on_post_tool_call("ask_user_question", {}, "yes", 50)
-    )
+    asyncio.run(mod._on_post_tool_call("ask_user_question", {}, "yes", 50))
     mod._on_agent_run_end()
     assert sent == []
 
@@ -290,13 +278,9 @@ def test_two_interactive_tools_rate_limited(monkeypatch, mod):
     now = {"t": 1000.0}
     monkeypatch.setattr(mod.time, "time", lambda: now["t"])
 
-    asyncio.run(
-        mod._on_pre_tool_call("ask_user_question", {})
-    )
+    asyncio.run(mod._on_pre_tool_call("ask_user_question", {}))
     now["t"] += 0.5
-    asyncio.run(
-        mod._on_pre_tool_call("ask_user_question", {})
-    )
+    asyncio.run(mod._on_pre_tool_call("ask_user_question", {}))
     assert len(dispatched) == 1, f"Expected 1, got {len(dispatched)}"
 
 
@@ -321,9 +305,7 @@ def test_post_tool_call_non_interactive_leaves_flag_false(monkeypatch, mod):
     """T12: bash post_tool_call must not set the flag."""
     _enable(mod, monkeypatch)
     sent = _stub_send(mod, monkeypatch)
-    asyncio.run(
-        mod._on_post_tool_call("bash", {"command": "ls"}, "output", 10)
-    )
+    asyncio.run(mod._on_post_tool_call("bash", {"command": "ls"}, "output", 10))
     mod._on_agent_run_end()
     assert len(sent) == 1
     assert mod._user_interacted_this_run is False
