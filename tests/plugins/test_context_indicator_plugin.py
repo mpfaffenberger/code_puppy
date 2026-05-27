@@ -94,13 +94,11 @@ def test_get_current_usage_returns_none_when_agent_missing(stub_agent_manager):
     assert mod.get_current_usage() is None
 
 
-def test_get_current_usage_returns_none_when_estimator_raises(stub_agent_manager):
-    """If *any* estimator blows up we hide the indicator rather than lying."""
+def test_get_current_usage_returns_none_when_history_raises(stub_agent_manager):
+    """If reading message history blows up we hide the indicator rather than lying."""
     mod = _usage_module()
     fake_agent = MagicMock()
-    fake_agent.get_message_history.return_value = ["m1"]
-    fake_agent.estimate_tokens_for_message.side_effect = RuntimeError("boom")
-    fake_agent._estimate_context_overhead.return_value = 0
+    fake_agent.get_message_history.side_effect = RuntimeError("boom")
     fake_agent._get_model_context_length.return_value = 10000
     stub_agent_manager.get_current_agent.side_effect = None
     stub_agent_manager.get_current_agent.return_value = fake_agent
@@ -108,23 +106,23 @@ def test_get_current_usage_returns_none_when_estimator_raises(stub_agent_manager
 
 
 def test_get_current_usage_returns_none_when_overhead_raises(stub_agent_manager):
+    """If the breakdown computation explodes, we hide the badge."""
     mod = _usage_module()
     fake_agent = MagicMock()
     fake_agent.get_message_history.return_value = []
-    fake_agent.estimate_tokens_for_message.return_value = 0
-    fake_agent._estimate_context_overhead.side_effect = RuntimeError("boom")
     fake_agent._get_model_context_length.return_value = 10000
     stub_agent_manager.get_current_agent.side_effect = None
     stub_agent_manager.get_current_agent.return_value = fake_agent
-    assert mod.get_current_usage() is None
+    with patch.object(
+        mod, "compute_overhead_breakdown", side_effect=RuntimeError("boom")
+    ):
+        assert mod.get_current_usage() is None
 
 
 def test_get_current_usage_returns_none_when_capacity_zero(stub_agent_manager):
     mod = _usage_module()
     fake_agent = MagicMock()
     fake_agent.get_message_history.return_value = []
-    fake_agent.estimate_tokens_for_message.return_value = 0
-    fake_agent._estimate_context_overhead.return_value = 0
     fake_agent._get_model_context_length.return_value = 0
     stub_agent_manager.get_current_agent.side_effect = None
     stub_agent_manager.get_current_agent.return_value = fake_agent
@@ -134,30 +132,39 @@ def test_get_current_usage_returns_none_when_capacity_zero(stub_agent_manager):
 def test_get_current_usage_computes_totals(stub_agent_manager):
     """Aggregate overhead is sourced from the per-bucket breakdown.
 
-    We patch ``compute_overhead_breakdown`` so this test doesn't depend on
-    whatever ``AGENTS.md`` happens to live in the repo at test time.
+    Message token counts now go through the *local* raw estimator instead
+    of ``agent.estimate_tokens_for_message`` (which is patched by the
+    token_ratio_learner plugin and would bias the badge). We construct
+    fake messages with a single text part of known length so the raw
+    char/2.5 heuristic produces predictable counts.
     """
     mod = _usage_module()
-    fake_agent = MagicMock()
-    fake_agent.get_message_history.return_value = ["m1", "m2", "m3"]
-    fake_agent.estimate_tokens_for_message.side_effect = lambda m: 1000
-    fake_agent._estimate_context_overhead.return_value = 500
-    fake_agent._get_model_context_length.return_value = 10000
-    stub_agent_manager.get_current_agent.side_effect = None
-    stub_agent_manager.get_current_agent.return_value = fake_agent
 
-    fake_breakdown = mod.OverheadBreakdown(
-        system_prompt_tokens=300,
-        agents_md_tokens=150,
-        pydantic_tools_tokens=50,
-        mcp_tokens=0,
-    )
-    with patch.object(mod, "compute_overhead_breakdown", return_value=fake_breakdown):
-        usage = mod.get_current_usage()
+    # 2500 chars / 2.5 chars-per-token == 1000 raw tokens per message.
+    fake_messages = [MagicMock(parts=[MagicMock()]) for _ in range(3)]
+    with patch(
+        "code_puppy.agents._history.stringify_part",
+        return_value="x" * 2500,
+    ):
+        fake_agent = MagicMock()
+        fake_agent.get_message_history.return_value = fake_messages
+        fake_agent._get_model_context_length.return_value = 10000
+        stub_agent_manager.get_current_agent.side_effect = None
+        stub_agent_manager.get_current_agent.return_value = fake_agent
+
+        fake_breakdown = mod.OverheadBreakdown(
+            system_prompt_tokens=300,
+            agents_md_tokens=150,
+            pydantic_tools_tokens=50,
+            mcp_tokens=0,
+        )
+        with patch.object(
+            mod, "compute_overhead_breakdown", return_value=fake_breakdown
+        ):
+            usage = mod.get_current_usage()
 
     assert usage is not None
     assert usage.used_tokens == 3000
-    # 300 + 150 + 50 + 0 == 500 → matches the legacy mock too.
     assert usage.overhead_tokens == 500
     assert usage.system_prompt_tokens == 300
     assert usage.agents_md_tokens == 150
@@ -235,31 +242,6 @@ def test_live_mcp_servers_for_falls_back_to_cached_on_error(monkeypatch):
     fake_agent._mcp_servers = cached
 
     assert mod._live_mcp_servers_for(fake_agent) is cached
-
-
-def test_get_current_usage_falls_back_to_legacy_overhead_when_breakdown_empty(
-    stub_agent_manager,
-):
-    """If the breakdown comes back all-zero, the legacy aggregate wins.
-
-    This keeps the badge meaningful even if some breakdown bucket helper
-    explodes — better to show the old aggregate than to lie with zeros.
-    """
-    mod = _usage_module()
-    fake_agent = MagicMock()
-    fake_agent.get_message_history.return_value = []
-    fake_agent.estimate_tokens_for_message.return_value = 0
-    fake_agent._estimate_context_overhead.return_value = 777
-    fake_agent._get_model_context_length.return_value = 10000
-    stub_agent_manager.get_current_agent.side_effect = None
-    stub_agent_manager.get_current_agent.return_value = fake_agent
-
-    empty = mod.OverheadBreakdown(0, 0, 0, 0)
-    with patch.object(mod, "compute_overhead_breakdown", return_value=empty):
-        usage = mod.get_current_usage()
-
-    assert usage is not None
-    assert usage.overhead_tokens == 777
 
 
 # ---------------------------------------------------------------------------
