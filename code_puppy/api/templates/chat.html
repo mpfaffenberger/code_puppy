@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐶 Code Puppy Chat</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Marked.js for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    
+    <style>
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-connected {
+            background-color: #22c55e;
+            box-shadow: 0 0 8px #22c55e;
+        }
+        
+        .status-disconnected {
+            background-color: #ef4444;
+            box-shadow: 0 0 8px #ef4444;
+            animation: none;
+        }
+        
+        .status-thinking {
+            background-color: #f59e0b;
+            box-shadow: 0 0 8px #f59e0b;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .message-metadata {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            margin-top: 0.25rem;
+        }
+        
+        .tool-badge {
+            display: inline-block;
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            background-color: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+        }
+        
+        /* Markdown styling */
+        .markdown-content {
+            line-height: 1.6;
+        }
+        
+        .markdown-content pre {
+            background-color: #1e1e1e;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+        }
+        
+        .markdown-content code {
+            background-color: #1e1e1e;
+            padding: 0.125rem 0.25rem;
+            border-radius: 0.25rem;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .markdown-content pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        
+        .markdown-content ul, .markdown-content ol {
+            margin-left: 1.5rem;
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .markdown-content a {
+            color: #60a5fa;
+            text-decoration: underline;
+        }
+
+        /* Error blocks: wrap long unbroken text (URLs/JSON) */
+        .message-error {
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            white-space: normal;
+        }
+
+        .message-error pre {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+    </style>
+</head>
+<body class="h-full bg-gray-900 text-white overflow-hidden">
+    <div class="h-full flex flex-col">
+        <!-- Header -->
+        <header class="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between flex-shrink-0">
+            <div class="flex items-center space-x-3">
+                <span class="text-2xl">🐶</span>
+                <div>
+                    <h1 class="text-lg font-semibold text-gray-100">Code Puppy Chat</h1>
+                    <p class="text-xs text-gray-400" id="session-info">Connecting...</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-4">
+                <!-- Agent Selector -->
+                <div class="text-xs">
+                    <label for="agent-selector" class="text-gray-400">Agent:</label>
+                    <select id="agent-selector" 
+                            class="block mt-1 px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded text-blue-400 font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
+                            aria-label="Select agent">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                <!-- Model Selector -->
+                <div class="text-xs">
+                    <label for="model-selector" class="text-gray-400">Model:</label>
+                    <select id="model-selector" 
+                            class="block mt-1 px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded text-green-400 font-semibold focus:outline-none focus:border-green-500 cursor-pointer"
+                            aria-label="Select model">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                
+                <!-- Working Directory -->
+                <div class="text-xs">
+                    <div class="text-gray-400">Working Dir:</div>
+                    <div class="flex items-center space-x-1">
+                        <input type="text" id="working-dir-input" 
+                               placeholder="Enter directory path..."
+                               class="w-48 px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
+                               value="">
+                        <button id="btn-set-dir" 
+                                class="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded transition-colors">
+                            Set
+                        </button>
+                    </div>
+                    <div id="current-working-dir" class="font-semibold text-yellow-400 text-xs mt-1">Not set</div>
+                </div>
+                
+                <!-- Connection Status -->
+                <div class="flex items-center space-x-2">
+                    <div id="status-indicator" class="status-indicator status-disconnected"></div>
+                    <span id="status-text" class="text-sm text-gray-400">Disconnected</span>
+                </div>
+                
+                <!-- Controls -->
+                <div class="flex items-center space-x-2">
+                    <button id="btn-clear" 
+                            class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-700 rounded transition-colors">
+                        Clear
+                    </button>
+                    <a href="/" 
+                       class="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded transition-colors">
+                        Home
+                    </a>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Messages Container -->
+        <main class="flex-1 overflow-y-auto p-4 space-y-4" id="messages-container">
+            <!-- Messages will be dynamically inserted here -->
+        </main>
+        
+        <!-- Input Area -->
+        <footer class="bg-gray-800 border-t border-gray-700 p-4 flex-shrink-0">
+            <form id="message-form" class="flex space-x-2">
+                <input 
+                    type="text" 
+                    id="message-input" 
+                    placeholder="Type your message..." 
+                    class="flex-1 bg-gray-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    autocomplete="off"
+                />
+                <button 
+                    type="submit" 
+                    id="send-button"
+                    class="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    Send
+                </button>
+            </form>
+            <div class="mt-2 text-xs text-gray-500" id="typing-indicator"></div>
+        </footer>
+    </div>
+    
+    <script>
+        // Configuration
+        const CONFIG = {
+            wsUrl: `ws://${window.location.host}/ws/chat`,
+            sessionId: new URLSearchParams(window.location.search).get('session') || null
+        };
+        
+        // State
+        let socket = null;
+        let currentMessageElement = null;
+        let currentMessageId = null;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 5;
+        
+        // DOM Elements
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+        const sessionInfo = document.getElementById('session-info');
+        const agentSelector = document.getElementById('agent-selector');
+        const modelSelector = document.getElementById('model-selector');
+        const messagesContainer = document.getElementById('messages-container');
+        const messageForm = document.getElementById('message-form');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const btnClear = document.getElementById('btn-clear');
+        const typingIndicator = document.getElementById('typing-indicator');
+        const workingDirInput = document.getElementById('working-dir-input');
+        const btnSetDir = document.getElementById('btn-set-dir');
+        const currentWorkingDirEl = document.getElementById('current-working-dir');
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            connect();
+            setupEventListeners();
+        });
+        
+        function setupEventListeners() {
+            messageForm.addEventListener('submit', handleSendMessage);
+            btnClear.addEventListener('click', clearMessages);
+            btnSetDir.addEventListener('click', handleSetWorkingDirectory);
+            workingDirInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') handleSetWorkingDirectory();
+            });
+            agentSelector.addEventListener('change', handleAgentChange);
+            modelSelector.addEventListener('change', handleModelChange);
+        }
+
+        // Fetch available agents and models to populate dropdowns
+        async function loadAgentsAndModels() {
+            try {
+                const [agentsRes, modelsRes] = await Promise.all([
+                    fetch('/api/agents/'),
+                    fetch('/api/models/')
+                ]);
+                
+                if (agentsRes.ok) {
+                    const agents = await agentsRes.json();
+                    agentSelector.innerHTML = '';
+                    agents.forEach(a => {
+                        const opt = document.createElement('option');
+                        opt.value = a.name;
+                        opt.textContent = a.display_name || a.name;
+                        agentSelector.appendChild(opt);
+                    });
+                }
+                
+                if (modelsRes.ok) {
+                    const models = await modelsRes.json();
+                    modelSelector.innerHTML = '';
+                    models.forEach(m => {
+                        const opt = document.createElement('option');
+                        opt.value = m.name;
+                        opt.textContent = m.name;
+                        modelSelector.appendChild(opt);
+                    });
+                }
+            } catch (err) {
+                console.error('[UI] Failed to load agents/models:', err);
+            }
+        }
+        
+        function handleAgentChange() {
+            const agentName = agentSelector.value;
+            if (!agentName || !socket || socket.readyState !== WebSocket.OPEN) return;
+            console.log('[WebSocket] Switching agent to:', agentName);
+            socket.send(JSON.stringify({
+                type: 'switch_agent',
+                agent_name: agentName
+            }));
+        }
+        
+        function handleModelChange() {
+            const modelName = modelSelector.value;
+            if (!modelName || !socket || socket.readyState !== WebSocket.OPEN) return;
+            console.log('[WebSocket] Switching model to:', modelName);
+            socket.send(JSON.stringify({
+                type: 'switch_model',
+                model_name: modelName
+            }));
+        }
+        
+        function handleSetWorkingDirectory() {
+            const directory = workingDirInput.value.trim();
+            if (!directory) {
+                alert('Please enter a directory path');
+                return;
+            }
+            
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                console.log('[WebSocket] Setting working directory:', directory);
+                socket.send(JSON.stringify({
+                    type: 'set_working_directory',
+                    directory: directory
+                }));
+            } else {
+                alert('Not connected to server');
+            }
+        }
+        
+        // Update connection status
+        function setStatus(status) {
+            statusIndicator.className = 'status-indicator';
+            
+            switch (status) {
+                case 'connected':
+                    statusIndicator.classList.add('status-connected');
+                    statusText.textContent = 'Connected';
+                    sendButton.disabled = false;
+                    break;
+                case 'disconnected':
+                    statusIndicator.classList.add('status-disconnected');
+                    statusText.textContent = 'Disconnected';
+                    sendButton.disabled = true;
+                    break;
+                case 'thinking':
+                    statusIndicator.classList.add('status-thinking');
+                    statusText.textContent = 'Thinking...';
+                    break;
+            }
+        }
+        
+        // Connect to WebSocket
+        function connect() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                return;
+            }
+            
+            setStatus('disconnected');
+            
+            let wsUrl = CONFIG.wsUrl;
+            if (CONFIG.sessionId) {
+                wsUrl += `?session_id=${CONFIG.sessionId}`;
+            }
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = () => {
+                setStatus('connected');
+                reconnectAttempts = 0;
+                console.log('Connected to chat WebSocket');
+                loadAgentsAndModels();
+            };
+            
+            socket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    handleMessage(message);
+                } catch (e) {
+                    console.error('Failed to parse WebSocket message:', e);
+                }
+            };
+            
+            socket.onclose = (event) => {
+                setStatus('disconnected');
+                
+                if (!event.wasClean) {
+                    console.log('WebSocket connection lost');
+                    
+                    // Auto-reconnect with backoff
+                    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                        reconnectAttempts++;
+                        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+                        console.log(`Reconnecting in ${delay/1000}s (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+                        setTimeout(connect, delay);
+                    }
+                }
+            };
+            
+            socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        // Handle WebSocket messages
+        function handleMessage(message) {
+            console.log('Received message:', message);
+            
+            switch (message.type) {
+                case 'system':
+                    handleSystemMessage(message);
+                    break;
+                case 'working_directory_changed':
+                    handleWorkingDirectoryChanged(message);
+                    break;
+                case 'user_message':
+                    handleUserMessage(message);
+                    break;
+                case 'assistant_message_start':
+                    handleAssistantMessageStart(message);
+                    break;
+                case 'assistant_message_delta':
+                    handleAssistantMessageDelta(message);
+                    break;
+                case 'assistant_message_end':
+                    handleAssistantMessageEnd(message);
+                    break;
+                case 'tool_call':
+                    handleToolCall(message);
+                    break;
+                case 'tool_result':
+                    handleToolResult(message);
+                    break;
+                case 'response':
+                    handleFinalResponse(message);
+                    break;
+                case 'status':
+                    handleStatus(message);
+                    break;
+                case 'error':
+                    handleError(message);
+                    break;
+                case 'permission_request':
+                    handlePermissionRequest(message);
+                    break;
+                case 'agent_invoked':
+                    handleAgentInvoked(message);
+                    break;
+            }
+        }
+        
+        function handleSystemMessage(message) {
+            sessionInfo.textContent = message.content;
+            if (message.agent_name) {
+                agentSelector.value = message.agent_name;
+            }
+            if (message.model_name) {
+                modelSelector.value = message.model_name;
+            }
+            addSystemMessage(message.content);
+        }
+        
+        function handleWorkingDirectoryChanged(message) {
+            if (message.success) {
+                currentWorkingDirEl.textContent = message.directory;
+                currentWorkingDirEl.className = 'font-semibold text-green-400 text-xs mt-1';
+                addSystemMessage(`Working directory set to: ${message.directory}`);
+            } else {
+                currentWorkingDirEl.textContent = `Error: ${message.error}`;
+                currentWorkingDirEl.className = 'font-semibold text-red-400 text-xs mt-1';
+                addSystemMessage(`Failed to set working directory: ${message.error}`, 'error');
+            }
+        }
+        
+        function handleUserMessage(message) {
+            addUserMessage(message.content);
+        }
+        
+        function handleAssistantMessageStart(message) {
+            // Create new message element with metadata
+            const messageDiv = createMessageElement('assistant', message);
+            currentMessageElement = messageDiv;
+            currentMessageId = message.message_id;
+            
+            // Update current agent/model display
+            if (message.agent_name) {
+                agentSelector.value = message.agent_name;
+            }
+            if (message.model_name) {
+                modelSelector.value = message.model_name;
+            }
+        }
+        
+        function handleAssistantMessageDelta(message) {
+            if (currentMessageElement && message.message_id === currentMessageId) {
+                const contentDiv = currentMessageElement.querySelector('.message-content');
+                if (contentDiv) {
+                    // Append new content
+                    const currentContent = contentDiv.getAttribute('data-raw-content') || '';
+                    const newContent = currentContent + message.content;
+                    contentDiv.setAttribute('data-raw-content', newContent);
+                    
+                    // Render markdown
+                    contentDiv.innerHTML = marked.parse(newContent);
+                    
+                    // Update metadata if tool is now active
+                    if (message.tool_name) {
+                        updateMessageMetadata(currentMessageElement, message);
+                    }
+                }
+                
+                // Scroll to bottom
+                scrollToBottom();
+            }
+        }
+        
+        function handleAssistantMessageEnd(message) {
+            if (currentMessageElement && message.message_id === currentMessageId) {
+                // Mark as complete
+                currentMessageElement.classList.add('message-complete');
+                currentMessageElement = null;
+                currentMessageId = null;
+            }
+            setStatus('connected');
+        }
+        
+        function handleToolCall(message) {
+            addToolMessage('call', message);
+        }
+        
+        function handleToolResult(message) {
+            addToolMessage('result', message);
+        }
+        
+        function handleFinalResponse(message) {
+            if (message.done) {
+                setStatus('connected');
+                typingIndicator.textContent = '';
+                
+                // Update current agent/model if provided
+                if (message.agent_name) {
+                    agentSelector.value = message.agent_name;
+                }
+                if (message.model_name) {
+                    modelSelector.value = message.model_name;
+                }
+            }
+        }
+        
+        function handleStatus(message) {
+            if (message.status === 'thinking') {
+                setStatus('thinking');
+                typingIndicator.textContent = 'Thinking...';
+            }
+        }
+        
+        function handleError(message) {
+            console.error('Received error message:', message);
+            addErrorSystemMessage(message);
+            setStatus('connected');
+            typingIndicator.textContent = '';
+        }
+        
+        function handlePermissionRequest(message) {
+            console.log('[Permission] Request received:', message);
+            
+            const requestId = message.request_id;
+            const title = message.title || 'Permission Required';
+            const description = message.description || '';
+            const details = message.details || {};
+            const timeout = message.timeout_seconds || 300;
+            
+            // Create permission message bubble
+            const bubble = document.createElement('div');
+            bubble.className = 'message permission-message';
+            bubble.id = `permission-${requestId}`;
+            
+            const command = details.command || 'unknown command';
+            const cwd = details.cwd || 'current directory';
+            
+            bubble.innerHTML = `
+                <div class="bg-yellow-900/30 border-2 border-yellow-500/50 rounded-lg p-4 mb-4">
+                    <div class="flex items-start gap-3">
+                        <div class="text-3xl">⚠️</div>
+                        <div class="flex-1">
+                            <h3 class="text-yellow-300 font-bold text-lg mb-2">${title}</h3>
+                            <p class="text-gray-300 mb-3">${description}</p>
+                            <div class="bg-black/30 rounded p-3 mb-4 font-mono text-sm">
+                                <div class="text-gray-400 mb-1">Command:</div>
+                                <div class="text-green-400">${escapeHtml(command)}</div>
+                                <div class="text-gray-400 mt-2 mb-1">Working directory:</div>
+                                <div class="text-blue-400">${escapeHtml(cwd)}</div>
+                            </div>
+                            <div class="flex gap-3">
+                                <button onclick="approvePermission('${requestId}')" 
+                                        class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors">
+                                    ✅ Approve
+                                </button>
+                                <button onclick="denyPermission('${requestId}')" 
+                                        class="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition-colors">
+                                    ❌ Deny
+                                </button>
+                            </div>
+                            <div class="text-xs text-gray-500 mt-2">
+                                Timeout in ${timeout} seconds
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(bubble);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        function approvePermission(requestId) {
+            console.log('[Permission] Approving:', requestId);
+            const message = {
+                type: 'permission_response',
+                request_id: requestId,
+                approved: true
+            };
+            console.log('[Permission] Sending approval message:', JSON.stringify(message));
+            socket.send(JSON.stringify(message));
+            updatePermissionUI(requestId, true);
+        }
+        
+        function denyPermission(requestId) {
+            console.log('[Permission] Denying:', requestId);
+            const message = {
+                type: 'permission_response',
+                request_id: requestId,
+                approved: false
+            };
+            console.log('[Permission] Sending denial message:', JSON.stringify(message));
+            socket.send(JSON.stringify(message));
+            updatePermissionUI(requestId, false);
+        }
+        
+        function updatePermissionUI(requestId, approved) {
+            const bubble = document.getElementById(`permission-${requestId}`);
+            if (bubble) {
+                const decision = approved ? '✅ APPROVED' : '❌ DENIED';
+                const bgColor = approved ? 'bg-green-900/30 border-green-500/50' : 'bg-red-900/30 border-red-500/50';
+                bubble.querySelector('.bg-yellow-900\/30').className = `${bgColor} rounded-lg p-4`;
+                bubble.querySelector('.flex.gap-3').innerHTML = `
+                    <div class="text-lg font-bold ${approved ? 'text-green-300' : 'text-red-300'}">
+                        ${decision}
+                    </div>
+                `;
+            }
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Create message elements
+        function createMessageElement(type, message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message message-${type} p-4 rounded-lg ${
+                type === 'user' ? 'bg-blue-900 ml-12' : 'bg-gray-800 mr-12'
+            }`;
+            
+            // Header with metadata
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'flex items-center justify-between mb-2';
+            
+            const leftDiv = document.createElement('div');
+            leftDiv.className = 'flex items-center space-x-2';
+            
+            const icon = document.createElement('span');
+            icon.textContent = type === 'user' ? '👤' : '🤖';
+            leftDiv.appendChild(icon);
+            
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'font-semibold';
+            labelSpan.textContent = type === 'user' ? 'You' : (message.agent_name || 'Assistant');
+            leftDiv.appendChild(labelSpan);
+            
+            headerDiv.appendChild(leftDiv);
+            
+            // Metadata (agent, model, tool)
+            if (type === 'assistant' && (message.agent_name || message.model_name || message.tool_name)) {
+                const metadataDiv = document.createElement('div');
+                metadataDiv.className = 'message-metadata flex items-center space-x-2';
+                
+                if (message.agent_name) {
+                    const agentSpan = document.createElement('span');
+                    agentSpan.className = 'text-blue-400';
+                    agentSpan.textContent = `Agent: ${message.agent_name}`;
+                    metadataDiv.appendChild(agentSpan);
+                }
+                
+                if (message.model_name) {
+                    const modelSpan = document.createElement('span');
+                    modelSpan.className = 'text-green-400';
+                    modelSpan.textContent = `Model: ${message.model_name}`;
+                    metadataDiv.appendChild(modelSpan);
+                }
+                
+                if (message.tool_name) {
+                    const toolBadge = document.createElement('span');
+                    toolBadge.className = 'tool-badge';
+                    toolBadge.textContent = `🔧 ${message.tool_name}`;
+                    metadataDiv.appendChild(toolBadge);
+                }
+                
+                headerDiv.appendChild(metadataDiv);
+            }
+            
+            messageDiv.appendChild(headerDiv);
+            
+            // Content
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content markdown-content';
+            contentDiv.setAttribute('data-raw-content', '');
+            messageDiv.appendChild(contentDiv);
+            
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+            
+            return messageDiv;
+        }
+        
+        function updateMessageMetadata(messageElement, message) {
+            const metadataDiv = messageElement.querySelector('.message-metadata');
+            if (metadataDiv && message.tool_name) {
+                // Check if tool badge already exists
+                let toolBadge = metadataDiv.querySelector('.tool-badge');
+                if (!toolBadge) {
+                    toolBadge = document.createElement('span');
+                    toolBadge.className = 'tool-badge';
+                    metadataDiv.appendChild(toolBadge);
+                }
+                toolBadge.textContent = `🔧 ${message.tool_name}`;
+            }
+        }
+        
+        function addUserMessage(content) {
+            const messageDiv = createMessageElement('user', {});
+            const contentDiv = messageDiv.querySelector('.message-content');
+            contentDiv.textContent = content;
+        }
+        
+        function addSystemMessage(content, level = 'info') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message message-system p-3 rounded-lg text-center text-sm ${
+                level === 'error' ? 'bg-red-900 text-red-200' : 'bg-gray-700 text-gray-400'
+            }`;
+            messageDiv.textContent = content;
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        async function copyToClipboard(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (_err) {
+                // Fallback for older browsers / permissions
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'absolute';
+                textarea.style.left = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(textarea);
+                return ok;
+            }
+        }
+
+        function _actionRequiredText(actionRequired) {
+            switch (actionRequired) {
+                case 'switch_model':
+                    return 'Try switching to a different model using the dropdown above.';
+                case 'adjust_temperature':
+                    return 'Adjust temperature or disable extended thinking.';
+                case 'wait_or_switch_model':
+                    return 'Wait a moment, or switch to a different model.';
+                case 'check_credentials':
+                    return 'Check your API key configuration.';
+                case 'retry':
+                    return 'Retry in a moment.';
+                default:
+                    return 'Review details and try again.';
+            }
+        }
+
+        function addErrorSystemMessage(message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className =
+                'message message-system message-error p-3 rounded-lg text-sm bg-red-950/80 border border-red-500/70 text-red-50';
+
+            const row = document.createElement('div');
+            row.className = 'flex items-start justify-between gap-3';
+
+            const textCol = document.createElement('div');
+            textCol.className = 'min-w-0 flex-1';
+
+            const title = document.createElement('div');
+            title.className = 'font-semibold';
+            title.textContent = message.error_type
+                ? message.error_type.replaceAll('_', ' ').toUpperCase()
+                : 'ERROR';
+
+            const body = document.createElement('div');
+            body.className = 'mt-1';
+            body.textContent = message.error || 'An unknown error occurred';
+
+            textCol.appendChild(title);
+            textCol.appendChild(body);
+
+            if (message.action_required) {
+                const hint = document.createElement('div');
+                hint.className = 'mt-2 text-red-100/90';
+                hint.textContent = `Suggested action: ${_actionRequiredText(message.action_required)}`;
+                textCol.appendChild(hint);
+            }
+
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className =
+                'flex-shrink-0 px-2 py-1 text-xs bg-gray-900/70 hover:bg-gray-900 border border-gray-600 rounded transition-colors';
+            copyBtn.textContent = 'Copy';
+
+            const payload = JSON.stringify(message, null, 2);
+            copyBtn.addEventListener('click', async () => {
+                const ok = await copyToClipboard(payload);
+                copyBtn.textContent = ok ? 'Copied' : 'Copy failed';
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy';
+                }, 1500);
+            });
+
+            row.appendChild(textCol);
+            row.appendChild(copyBtn);
+            messageDiv.appendChild(row);
+
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+        
+        function addToolMessage(type, message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message message-tool p-3 rounded-lg bg-gray-700 mx-12';
+            
+            const icon = type === 'call' ? '🔧' : '✅';
+            const title = type === 'call' ? 'Tool Call' : 'Tool Result';
+            
+            let content = `<div class="flex items-center space-x-2 mb-2">
+                <span>${icon}</span>
+                <span class="font-semibold">${title}: ${message.tool_name}</span>
+            </div>`;
+            
+            // Add metadata
+            if (message.agent_name || message.model_name) {
+                content += '<div class="message-metadata flex items-center space-x-2 mb-2">';
+                if (message.agent_name) {
+                    content += `<span class="text-blue-400">Agent: ${message.agent_name}</span>`;
+                }
+                if (message.model_name) {
+                    content += `<span class="text-green-400">Model: ${message.model_name}</span>`;
+                }
+                content += '</div>';
+            }
+            
+            if (type === 'call' && message.args) {
+                content += `<pre class="text-xs bg-gray-800 p-2 rounded overflow-x-auto">${JSON.stringify(message.args, null, 2)}</pre>`;
+            } else if (type === 'result') {
+                // Stringify objects for display
+                let resultDisplay = message.result;
+                if (typeof resultDisplay === 'object' && resultDisplay !== null) {
+                    resultDisplay = JSON.stringify(resultDisplay, null, 2);
+                }
+                content += `<pre class="text-xs bg-gray-800 p-2 rounded overflow-x-auto whitespace-pre-wrap">${escapeHtml(resultDisplay)}</pre>`;
+                if (message.duration_ms) {
+                    content += `<div class="text-xs text-gray-500 mt-1">Duration: ${message.duration_ms.toFixed(1)}ms</div>`;
+                }
+            }
+            
+            messageDiv.innerHTML = content;
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+        
+        function handleAgentInvoked(message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message message-agent-invoked p-3 rounded-lg bg-purple-900/30 border border-purple-700 mx-12';
+            
+            let content = `<div class="flex items-center space-x-2 mb-2">
+                <span>🐕</span>
+                <span class="font-semibold text-purple-300">Invoking Agent: ${message.agent_name || 'Unknown'}</span>
+            </div>`;
+            
+            if (message.prompt_preview) {
+                content += `<div class="text-sm text-gray-400 mt-2 pl-6">
+                    <span class="text-gray-500">└─</span> "${escapeHtml(message.prompt_preview)}"
+                </div>`;
+            }
+            
+            if (message.timestamp) {
+                const time = new Date(message.timestamp * 1000).toLocaleTimeString();
+                content += `<div class="text-xs text-gray-500 mt-1">${time}</div>`;
+            }
+            
+            messageDiv.innerHTML = content;
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+        
+        function handleSendMessage(e) {
+            e.preventDefault();
+            
+            const content = messageInput.value.trim();
+            if (!content) return;
+            
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'message',
+                    content: content
+                }));
+                
+                messageInput.value = '';
+            }
+        }
+        
+        function clearMessages() {
+            messagesContainer.innerHTML = '';
+        }
+        
+        function scrollToBottom() {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        window.addEventListener('beforeunload', () => {
+            if (socket) {
+                socket.close();
+            }
+        });
+    </script>
+</body>
+</html>
