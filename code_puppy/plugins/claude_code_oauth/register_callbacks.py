@@ -275,7 +275,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 "Existing Claude Code tokens found. Continuing will overwrite them."
             )
         _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-7")
+        set_model_and_reload_agent("claude-code-claude-opus-4-8-long")
         return True
 
     if name == "claude-code-status":
