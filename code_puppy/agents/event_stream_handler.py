@@ -19,8 +19,10 @@ from rich.console import Console
 from rich.markup import escape
 from rich.text import Text
 
-from code_puppy.agents.thinking_stream_smoother import (
+from code_puppy.agents.smooth_stream import (
+    SmoothTermflowWriter,
     ThinkingStreamSmoother,
+    make_smooth_termflow_writer,
     make_thinking_smoother,
 )
 from code_puppy.config import get_banner_color, get_subagent_verbose
@@ -134,6 +136,23 @@ async def event_stream_handler(
     termflow_parsers: dict[int, TermflowParser] = {}
     termflow_renderers: dict[int, TermflowRenderer] = {}
     termflow_line_buffers: dict[int, str] = {}  # Buffer incomplete lines
+    # Optional smooth (typewriter) writers wrapping the console for text parts.
+    termflow_writers: dict[int, SmoothTermflowWriter] = {}
+
+    def _make_text_renderer(index: int) -> TermflowRenderer:
+        """Build a termflow renderer, optionally typed out smoothly."""
+        writer = make_smooth_termflow_writer(console.file)
+        if writer is not None:
+            writer.start()
+            termflow_writers[index] = writer
+            output = writer
+        else:
+            output = console.file
+        return TermflowRenderer(
+            output=output,
+            width=console.width,
+            features=RenderFeatures(clipboard=False),
+        )
 
     # Smooth-stream state for thinking parts. Each index maps to a smoother
     # (steady-rate drain) or lands in ``thinking_direct`` when smoothing is
@@ -247,11 +266,7 @@ async def event_stream_handler(
                 text_parts.add(event.index)
                 # Initialize termflow streaming for this text part
                 termflow_parsers[event.index] = TermflowParser()
-                termflow_renderers[event.index] = TermflowRenderer(
-                    output=console.file,
-                    width=console.width,
-                    features=RenderFeatures(clipboard=False),
-                )
+                termflow_renderers[event.index] = _make_text_renderer(event.index)
                 termflow_line_buffers[event.index] = ""
                 # Handle initial content if present
                 if part.content and part.content.strip():
@@ -380,6 +395,12 @@ async def event_stream_handler(
                         del termflow_parsers[event.index]
                         del termflow_renderers[event.index]
                         del termflow_line_buffers[event.index]
+
+                    # Drain any smooth typewriter writer to completion so the
+                    # full response has finished printing before we move on.
+                    writer = termflow_writers.pop(event.index, None)
+                    if writer is not None:
+                        await writer.close()
                 # For tool parts, clear the chunk counter line
                 elif event.index in tool_parts:
                     # Clear the chunk counter line by printing spaces and returning
@@ -412,8 +433,11 @@ async def event_stream_handler(
 
     # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)
 
-    # Drain any thinking smoothers that didn't see a PartEndEvent (e.g. the
+    # Drain any smoothers/writers that didn't see a PartEndEvent (e.g. the
     # stream ended abruptly) so we never lose buffered text or orphan tasks.
     for smoother in list(thinking_smoothers.values()):
         await smoother.close()
     thinking_smoothers.clear()
+    for writer in list(termflow_writers.values()):
+        await writer.close()
+    termflow_writers.clear()
