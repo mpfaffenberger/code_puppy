@@ -471,3 +471,84 @@ class TestStatusDisplay:
         assert hasattr(status_display, "start_time")
         assert hasattr(status_display, "last_update_time")
         assert hasattr(status_display, "last_token_count")
+
+
+class TestToolPauseExclusion:
+    """Tests that tool-execution time is excluded from the t/s calculation."""
+
+    @pytest.fixture
+    def status_display(self):
+        return StatusDisplay(console=MagicMock())
+
+    def test_pause_resume_accumulates_paused_total(self, status_display):
+        """Pausing then resuming should accumulate the elapsed tool time."""
+        with patch("code_puppy.status_display.time.time") as mock_time:
+            mock_time.side_effect = [100.0, 105.0]  # pause start, resume
+            status_display.pause_for_tool()
+            status_display.resume_after_tool()
+        assert status_display._paused_total == pytest.approx(5.0)
+        assert status_display._tool_pause_start is None
+
+    def test_pause_is_idempotent(self, status_display):
+        """A second pause while already paused must not move the start marker."""
+        with patch("code_puppy.status_display.time.time") as mock_time:
+            mock_time.side_effect = [100.0, 200.0]  # only first should be used
+            status_display.pause_for_tool()
+            status_display.pause_for_tool()
+        assert status_display._tool_pause_start == 100.0
+
+    def test_resume_without_pause_is_noop(self, status_display):
+        """Resuming when not paused should not crash or change state."""
+        status_display.resume_after_tool()
+        assert status_display._paused_total == 0.0
+        assert status_display._tool_pause_start is None
+
+    def test_current_paused_total_includes_in_progress(self, status_display):
+        """In-progress pauses should be reflected in the running total."""
+        with patch("code_puppy.status_display.time.time") as mock_time:
+            mock_time.side_effect = [100.0, 108.0]  # pause start, "now"
+            status_display.pause_for_tool()
+            assert status_display._current_paused_total() == pytest.approx(8.0)
+
+    def test_context_manager_excludes_tool_time(self, status_display):
+        """The tool_execution context manager should pause/resume cleanly."""
+        with patch("code_puppy.status_display.time.time") as mock_time:
+            mock_time.side_effect = [100.0, 103.0]
+            with status_display.tool_execution():
+                pass
+        assert status_display._paused_total == pytest.approx(3.0)
+        assert status_display._tool_pause_start is None
+
+    def test_rate_excludes_tool_time(self, status_display):
+        """Tool time inside an interval should not deflate the computed rate."""
+        # Baseline at t=100 with 0 tokens.
+        with patch("code_puppy.status_display.time.time") as mock_time:
+            mock_time.return_value = 100.0
+            status_display.update_token_count(0)
+
+        # A tool ran for 9s in the middle of the interval.
+        with patch("code_puppy.status_display.time.time") as mock_time:
+            mock_time.side_effect = [101.0, 110.0]  # tool start, tool end
+            status_display.pause_for_tool()
+            status_display.resume_after_tool()
+
+        # 10 tokens arrive at t=111. Active time = 11 - 9 paused = 2s => 5 t/s raw.
+        with patch("code_puppy.status_display.time.time") as mock_time:
+            mock_time.return_value = 111.0
+            status_display.token_count = 10
+            rate = status_display._calculate_rate()
+
+        assert rate == pytest.approx(5.0)
+
+    def test_final_stats_exclude_tool_time(self, status_display):
+        """The completion summary should report active time, not wall-clock."""
+        status_display.start_time = 1.0
+        status_display.token_count = 100
+        status_display._paused_total = 6.0  # 6 seconds spent in tools
+        with patch("code_puppy.status_display.time.time") as mock_time:
+            mock_time.return_value = 11.0  # 10s wall clock, 4s active
+            with patch("code_puppy.messaging.emit_info") as mock_emit:
+                status_display._emit_final_stats()
+        msg = mock_emit.call_args[0][0]
+        assert "in 4.0s" in msg
+        assert "25.0 t/s avg" in msg  # 100 tokens / 4s active
