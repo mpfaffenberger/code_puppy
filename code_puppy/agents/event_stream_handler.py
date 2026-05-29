@@ -19,6 +19,10 @@ from rich.console import Console
 from rich.markup import escape
 from rich.text import Text
 
+from code_puppy.agents.thinking_stream_smoother import (
+    ThinkingStreamSmoother,
+    make_thinking_smoother,
+)
 from code_puppy.config import get_banner_color, get_subagent_verbose
 from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
 from code_puppy.tools.subagent_context import is_subagent
@@ -131,6 +135,29 @@ async def event_stream_handler(
     termflow_renderers: dict[int, TermflowRenderer] = {}
     termflow_line_buffers: dict[int, str] = {}  # Buffer incomplete lines
 
+    # Smooth-stream state for thinking parts. Each index maps to a smoother
+    # (steady-rate drain) or lands in ``thinking_direct`` when smoothing is
+    # disabled and we should print deltas immediately.
+    thinking_smoothers: dict[int, ThinkingStreamSmoother] = {}
+    thinking_direct: set[int] = set()
+
+    def _emit_thinking(index: int, text: str) -> None:
+        """Render thinking text, smoothed via a per-part buffer when enabled."""
+        if not text:
+            return
+        smoother = thinking_smoothers.get(index)
+        if smoother is None and index not in thinking_direct:
+            smoother = make_thinking_smoother(console)
+            if smoother is not None:
+                smoother.start()
+                thinking_smoothers[index] = smoother
+            else:
+                thinking_direct.add(index)
+        if smoother is not None:
+            smoother.feed(text)
+        else:
+            console.print(f"[dim]{escape(text)}[/dim]", end="")
+
     async def _print_thinking_banner() -> None:
         """Print the THINKING banner with spinner pause and line clear."""
         nonlocal did_stream_anything
@@ -213,8 +240,7 @@ async def event_stream_handler(
                 # If there's initial content, print banner + content now
                 if part.content and part.content.strip():
                     await _print_thinking_banner()
-                    escaped = escape(part.content)
-                    console.print(f"[dim]{escaped}[/dim]", end="")
+                    _emit_thinking(event.index, part.content)
                     banner_printed.add(event.index)
             elif isinstance(part, TextPart):
                 streaming_parts.add(event.index)
@@ -281,12 +307,12 @@ async def event_stream_handler(
 
                             termflow_line_buffers[event.index] = buffer
                         else:
-                            # For thinking parts, stream immediately (dim)
+                            # For thinking parts, stream smoothly (dim) via a
+                            # rate-limited buffer so bursty deltas don't stutter.
                             if event.index not in banner_printed:
                                 await _print_thinking_banner()
                                 banner_printed.add(event.index)
-                            escaped = escape(delta.content_delta)
-                            console.print(f"[dim]{escaped}[/dim]", end="")
+                            _emit_thinking(event.index, delta.content_delta)
                 elif isinstance(delta, ToolCallPartDelta):
                     # For tool calls, estimate tokens from args_delta content
                     # args_delta contains the streaming JSON arguments
@@ -358,9 +384,14 @@ async def event_stream_handler(
                 elif event.index in tool_parts:
                     # Clear the chunk counter line by printing spaces and returning
                     console.print(" " * 50, end="\r")
-                # For thinking parts, just print newline
-                elif event.index in banner_printed:
-                    console.print()  # Final newline after streaming
+                # For thinking parts, drain the smoother then print newline
+                elif event.index in thinking_parts:
+                    smoother = thinking_smoothers.pop(event.index, None)
+                    if smoother is not None:
+                        await smoother.close()
+                    thinking_direct.discard(event.index)
+                    if event.index in banner_printed:
+                        console.print()  # Final newline after streaming
 
                 # Clean up token count and tool names
                 token_count.pop(event.index, None)
@@ -380,3 +411,9 @@ async def event_stream_handler(
                     resume_all_spinners()
 
     # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)
+
+    # Drain any thinking smoothers that didn't see a PartEndEvent (e.g. the
+    # stream ended abruptly) so we never lose buffered text or orphan tasks.
+    for smoother in list(thinking_smoothers.values()):
+        await smoother.close()
+    thinking_smoothers.clear()
