@@ -1864,6 +1864,31 @@ def set_smooth_thinking_stream(enabled: bool):
     set_config_value("smooth_thinking_stream", "true" if enabled else "false")
 
 
+def get_smooth_response_stream() -> bool:
+    """
+    Checks puppy.cfg for 'smooth_response_stream' (case-insensitive in value only).
+    Defaults to True if not set.
+    Allowed values for OFF: 0, '0', 'false', 'no', 'off' (all case-insensitive).
+    When enabled, the AGENT RESPONSE markdown is typed out one character at a
+    time at a steady rate instead of appearing line-by-line in bursts.
+    """
+    false_vals = {"0", "false", "no", "off"}
+    cfg_val = get_value("smooth_response_stream")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in false_vals:
+            return False
+    return True
+
+
+def set_smooth_response_stream(enabled: bool):
+    """Sets the smooth_response_stream configuration value.
+
+    Args:
+        enabled: Whether to type the AGENT RESPONSE stream out smoothly
+    """
+    set_config_value("smooth_response_stream", "true" if enabled else "false")
+
+
 def get_suppress_informational_messages() -> bool:
     """
     Checks puppy.cfg for 'suppress_informational_messages' (case-insensitive in value only).
