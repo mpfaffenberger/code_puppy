@@ -14,7 +14,6 @@ from pydantic_ai.models.openai import (
     OpenAIResponsesModel,
     OpenAIResponsesModelSettings,
 )
-from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.cerebras import CerebrasProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
@@ -56,25 +55,6 @@ def _load_plugin_model_providers():
 
 # Load plugin model providers at module initialization
 _load_plugin_model_providers()
-
-
-class PuppyCerebrasProvider(CerebrasProvider):
-    """Cerebras provider with strict tool definitions disabled.
-
-    Cerebras rejects requests where tools have mixed ``strict`` values
-    (e.g. ``wrong_api_format`` / GH007-style errors).  Disabling strict
-    tool definitions in the model profile prevents pydantic-ai from
-    sending ``strict`` at all, so Cerebras never sees mixed values.
-    """
-
-    def model_profile(self, model_name: str) -> ModelProfile | None:
-        profile = super().model_profile(model_name)
-        strict_off = OpenAIModelProfile(
-            openai_supports_strict_tool_definition=False,
-        )
-        if profile is not None:
-            return profile.update(strict_off)
-        return strict_off
 
 
 # Anthropic beta header required for 1M context window support.
@@ -849,12 +829,23 @@ class ModelFactory:
                 model_name="cerebras",
                 timeout=timeout if timeout is not None else 180,
             )
-            provider = PuppyCerebrasProvider(
+            provider = CerebrasProvider(
                 api_key=api_key,
                 http_client=client,
             )
 
-            return OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            # Cerebras rejects requests with mixed 'strict' values on tools.
+            # Disable strict tool definitions so pydantic-ai never sends the
+            # 'strict' field, avoiding wrong_api_format errors.
+            profile = OpenAIModelProfile(
+                openai_supports_strict_tool_definition=False,
+            )
+
+            return OpenAIChatModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=profile,
+            )
 
         elif model_type == "openrouter":
             # Get API key from config, which can be an environment variable reference or raw value

@@ -1190,7 +1190,7 @@ class TestCerebrasModel:
         with patch(
             "code_puppy.model_factory.create_async_client"
         ) as mock_create_client:
-            with patch("code_puppy.model_factory.PuppyCerebrasProvider"):
+            with patch("code_puppy.model_factory.CerebrasProvider"):
                 with patch("code_puppy.model_factory.OpenAIChatModel") as mock_model:
                     ModelFactory.get_model("cerebras-test", config)
                     mock_model.assert_called_once()
@@ -1235,7 +1235,7 @@ class TestCerebrasModel:
             with patch(
                 "code_puppy.model_factory.create_async_client"
             ) as mock_create_client:
-                with patch("code_puppy.model_factory.PuppyCerebrasProvider"):
+                with patch("code_puppy.model_factory.CerebrasProvider"):
                     with patch(
                         "code_puppy.model_factory.OpenAIChatModel"
                     ) as mock_model:
