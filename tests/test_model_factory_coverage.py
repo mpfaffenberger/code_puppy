@@ -1220,30 +1220,40 @@ class TestCerebrasModel:
             assert model is None
             mock_warn.assert_called()
 
-    def test_cerebras_zai_model_profile(self):
-        """Test ZaiCerebrasProvider model_profile for zai models."""
+    def test_cerebras_no_custom_endpoint(self):
+        """Test cerebras model without custom_endpoint uses env API key."""
+        from pydantic_ai.providers.cerebras import CerebrasProvider
+
         from code_puppy.model_factory import ModelFactory
 
         config = {
-            "zai-cerebras": {
+            "cerebras-direct": {
                 "type": "cerebras",
-                "name": "zai-qwen-coder",
-                "custom_endpoint": {
-                    "url": "https://api.cerebras.ai",
-                    "api_key": "cerebras-key",
-                },
+                "name": "llama-4-scout-17b",
             }
         }
 
-        # Need to mock at a lower level since CerebrasProvider validates http_client type
-        with patch("code_puppy.model_factory.create_async_client") as mock_create:
-            # Return None to skip actual client creation
-            mock_create.return_value = None
-            with patch("code_puppy.model_factory.CerebrasProvider"):
-                with patch("code_puppy.model_factory.OpenAIChatModel") as mock_model:
-                    ModelFactory.get_model("zai-cerebras", config)
-                    # Model should be created with provider
-                    mock_model.assert_called_once()
+        with patch.dict(os.environ, {"CEREBRAS_API_KEY": "test-key"}):
+            with patch(
+                "code_puppy.model_factory.create_async_client"
+            ) as mock_create_client:
+                # CerebrasProvider.__init__ validates http_client type,
+                # so stub it out to avoid TypeError with mock client.
+                with patch.object(
+                    CerebrasProvider, "__init__", lambda self, *a, **kw: None
+                ):
+                    with patch(
+                        "code_puppy.model_factory.OpenAIChatModel"
+                    ) as mock_model:
+                        ModelFactory.get_model("cerebras-direct", config)
+                        mock_model.assert_called_once()
+                        # Verify 3rd party header was added
+                        call_args = mock_create_client.call_args
+                        headers = call_args[1]["headers"]
+                        assert (
+                            headers.get("X-Cerebras-3rd-Party-Integration")
+                            == "code-puppy"
+                        )
 
 
 class TestOpenAICodexModels:

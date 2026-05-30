@@ -802,16 +802,37 @@ class ModelFactory:
             return model
         elif model_type == "cerebras":
 
-            class ZaiCerebrasProvider(CerebrasProvider):
+            class PuppyCerebrasProvider(CerebrasProvider):
+                """Cerebras provider with strict tool definitions disabled.
+
+                Cerebras rejects requests where tools have mixed 'strict' values
+                (see GH007-style errors).  Disabling strict tool definitions in the
+                model profile prevents pydantic-ai from sending 'strict' at all.
+                """
+
                 def model_profile(self, model_name: str) -> ModelProfile | None:
+                    from pydantic_ai.profiles.openai import OpenAIModelProfile
+
                     profile = super().model_profile(model_name)
-                    if model_name.startswith("zai"):
-                        from pydantic_ai.profiles.qwen import qwen_model_profile
+                    strict_off = OpenAIModelProfile(
+                        openai_supports_strict_tool_definition=False,
+                    )
+                    if profile is not None:
+                        return profile.update(strict_off)
+                    return strict_off
 
-                        profile = profile.update(qwen_model_profile("qwen-3-coder"))
-                    return profile
+            # Cerebras models may have a custom_endpoint (for proxy/custom URLs)
+            # or may use the default Cerebras endpoint with CEREBRAS_API_KEY.
+            custom_endpoint = model_config.get("custom_endpoint")
+            if custom_endpoint:
+                url, headers, verify, api_key, timeout = get_custom_config(model_config)
+            else:
+                # Default Cerebras setup: API key from env/config, no custom URL
+                api_key = get_api_key("CEREBRAS_API_KEY")
+                headers = {}
+                verify = get_cert_bundle_path()
+                timeout = None
 
-            url, headers, verify, api_key, timeout = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
                     f"API key is not set for Cerebras endpoint; skipping model '{model_config.get('name')}'."
@@ -828,11 +849,10 @@ class ModelFactory:
                 model_name="cerebras",
                 timeout=timeout if timeout is not None else 180,
             )
-            provider_args = dict(
+            provider = PuppyCerebrasProvider(
                 api_key=api_key,
                 http_client=client,
             )
-            provider = ZaiCerebrasProvider(**provider_args)
 
             return OpenAIChatModel(model_name=model_config["name"], provider=provider)
 
