@@ -243,16 +243,25 @@ def load_model_with_fallback(
     configured model. Raises ``ValueError`` only if nothing loads.
     """
     try:
-        return ModelFactory.get_model(
-            requested_model_name, models_config
-        ), requested_model_name
+        model_result = ModelFactory.get_model(requested_model_name, models_config)
+        if model_result is None:
+            # get_model returned None (e.g. missing API key) — treat as
+            # a failed load rather than silently accepting a dead model.
+            raise ValueError(
+                f"Model '{requested_model_name}' could not be loaded (returned None)."
+            )
+        return model_result, requested_model_name
     except ValueError as exc:
         available = list(models_config.keys())
         available_str = (
             ", ".join(sorted(available)) if available else "no configured models"
         )
+        # Include the real exception reason so users aren't misled by
+        # a generic "not found" when the model IS present but misconfigured.
+        reason = str(exc) if str(exc) else "unknown error"
         emit_warning(
-            f"Model '{requested_model_name}' not found. Available models: {available_str}",
+            f"Model '{requested_model_name}' failed to load: {reason}. "
+            f"Available models: {available_str}",
             message_group=message_group,
         )
 
