@@ -15,6 +15,7 @@ from pydantic_ai.models.openai import (
     OpenAIResponsesModelSettings,
 )
 from pydantic_ai.profiles import ModelProfile
+from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.cerebras import CerebrasProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
@@ -55,6 +56,25 @@ def _load_plugin_model_providers():
 
 # Load plugin model providers at module initialization
 _load_plugin_model_providers()
+
+
+class PuppyCerebrasProvider(CerebrasProvider):
+    """Cerebras provider with strict tool definitions disabled.
+
+    Cerebras rejects requests where tools have mixed ``strict`` values
+    (e.g. ``wrong_api_format`` / GH007-style errors).  Disabling strict
+    tool definitions in the model profile prevents pydantic-ai from
+    sending ``strict`` at all, so Cerebras never sees mixed values.
+    """
+
+    def model_profile(self, model_name: str) -> ModelProfile | None:
+        profile = super().model_profile(model_name)
+        strict_off = OpenAIModelProfile(
+            openai_supports_strict_tool_definition=False,
+        )
+        if profile is not None:
+            return profile.update(strict_off)
+        return strict_off
 
 
 # Anthropic beta header required for 1M context window support.
@@ -801,26 +821,6 @@ class ModelFactory:
             )
             return model
         elif model_type == "cerebras":
-
-            class PuppyCerebrasProvider(CerebrasProvider):
-                """Cerebras provider with strict tool definitions disabled.
-
-                Cerebras rejects requests where tools have mixed 'strict' values
-                (see GH007-style errors).  Disabling strict tool definitions in the
-                model profile prevents pydantic-ai from sending 'strict' at all.
-                """
-
-                def model_profile(self, model_name: str) -> ModelProfile | None:
-                    from pydantic_ai.profiles.openai import OpenAIModelProfile
-
-                    profile = super().model_profile(model_name)
-                    strict_off = OpenAIModelProfile(
-                        openai_supports_strict_tool_definition=False,
-                    )
-                    if profile is not None:
-                        return profile.update(strict_off)
-                    return strict_off
-
             # Cerebras models may have a custom_endpoint (for proxy/custom URLs)
             # or may use the default Cerebras endpoint with CEREBRAS_API_KEY.
             custom_endpoint = model_config.get("custom_endpoint")

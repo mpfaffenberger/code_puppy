@@ -1190,7 +1190,7 @@ class TestCerebrasModel:
         with patch(
             "code_puppy.model_factory.create_async_client"
         ) as mock_create_client:
-            with patch("code_puppy.model_factory.CerebrasProvider"):
+            with patch("code_puppy.model_factory.PuppyCerebrasProvider"):
                 with patch("code_puppy.model_factory.OpenAIChatModel") as mock_model:
                     ModelFactory.get_model("cerebras-test", config)
                     mock_model.assert_called_once()
@@ -1222,8 +1222,6 @@ class TestCerebrasModel:
 
     def test_cerebras_no_custom_endpoint(self):
         """Test cerebras model without custom_endpoint uses env API key."""
-        from pydantic_ai.providers.cerebras import CerebrasProvider
-
         from code_puppy.model_factory import ModelFactory
 
         config = {
@@ -1237,11 +1235,7 @@ class TestCerebrasModel:
             with patch(
                 "code_puppy.model_factory.create_async_client"
             ) as mock_create_client:
-                # CerebrasProvider.__init__ validates http_client type,
-                # so stub it out to avoid TypeError with mock client.
-                with patch.object(
-                    CerebrasProvider, "__init__", lambda self, *a, **kw: None
-                ):
+                with patch("code_puppy.model_factory.PuppyCerebrasProvider"):
                     with patch(
                         "code_puppy.model_factory.OpenAIChatModel"
                     ) as mock_model:
