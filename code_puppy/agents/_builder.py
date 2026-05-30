@@ -348,7 +348,7 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
         instructions += EXTENDED_THINKING_PROMPT_NOTE
 
     prepared = prepare_prompt_for_model(
-        agent.get_model_name(), instructions, "", prepend_system_to_user=False
+        resolved_model_name, instructions, "", prepend_system_to_user=False
     )
     return prepared.instructions
 
