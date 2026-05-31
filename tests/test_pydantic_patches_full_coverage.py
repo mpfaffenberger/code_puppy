@@ -143,6 +143,74 @@ class TestPatchToolCallCallbacks:
         # Just verify it doesn't crash
 
 
+class TestWritebackToolArgs:
+    """Unit tests for ``_writeback_tool_args``.
+
+    This is the bridge that makes pre_tool_call hook mutations actually visible
+    to the downstream tool. The previous behavior silently dropped them.
+    """
+
+    def _make_call(self, args):
+        call = MagicMock()
+        call.args = args
+        return call
+
+    def test_str_mode_reserializes_dict_to_json(self):
+        from code_puppy.pydantic_patches import _writeback_tool_args
+
+        call = self._make_call('{"content": "original"}')
+        tool_args = {"content": "mutated"}
+        _writeback_tool_args(call, tool_args, "str")
+        assert isinstance(call.args, str)
+        import json
+
+        assert json.loads(call.args) == {"content": "mutated"}
+
+    def test_dict_mode_assigns_dict_directly(self):
+        from code_puppy.pydantic_patches import _writeback_tool_args
+
+        original = {"x": 1}
+        call = self._make_call(original)
+        tool_args = {"x": 2}
+        _writeback_tool_args(call, tool_args, "dict")
+        assert call.args == {"x": 2}
+        assert call.args is tool_args
+
+    def test_none_mode_is_noop(self):
+        from code_puppy.pydantic_patches import _writeback_tool_args
+
+        call = self._make_call("\u00f1ot json at all")
+        _writeback_tool_args(call, {"would": "corrupt"}, None)
+        assert call.args == "\u00f1ot json at all"
+
+    def test_swallows_serialization_errors(self):
+        from code_puppy.pydantic_patches import _writeback_tool_args
+
+        call = self._make_call('{"a": 1}')
+        # A set is not JSON-serializable. Should not raise.
+        _writeback_tool_args(call, {"bad": {1, 2, 3}}, "str")
+        # Best effort: original args remain untouched on failure.
+        assert call.args == '{"a": 1}'
+
+    def test_unknown_mode_is_noop(self):
+        from code_puppy.pydantic_patches import _writeback_tool_args
+
+        call = self._make_call('{"a": 1}')
+        _writeback_tool_args(call, {"a": 2}, "something-else")
+        assert call.args == '{"a": 1}'
+
+    def test_str_mode_preserves_unicode(self):
+        """Emoji content (our motivating use case) must round-trip safely."""
+        from code_puppy.pydantic_patches import _writeback_tool_args
+
+        call = self._make_call('{"content": "old \\ud83d\\udc36"}')
+        tool_args = {"content": "clean ascii"}
+        _writeback_tool_args(call, tool_args, "str")
+        import json
+
+        assert json.loads(call.args) == {"content": "clean ascii"}
+
+
 class TestApplyAllPatches:
     def test_apply_all_patches(self):
         from code_puppy.pydantic_patches import apply_all_patches

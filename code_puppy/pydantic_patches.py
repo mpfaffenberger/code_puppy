@@ -175,6 +175,35 @@ def patch_tool_call_json_repair() -> None:
         pass  # Don't crash on patch failure
 
 
+def _writeback_tool_args(call: Any, tool_args: dict, mode: str | None) -> None:
+    """Persist pre_tool_call mutations of ``tool_args`` back onto ``call.args``.
+
+    pydantic-ai's ``ToolCallPart.args`` is usually a JSON *string* (what the
+    LLM emitted). The pre_tool_call hook contract gives plugins a *dict* view
+    to mutate. Without this writeback, mutations vanish before the real tool
+    runs and the model sees nothing changed.
+
+    Args:
+        call: The ``ToolCallPart`` (or compatible) whose ``args`` we update.
+        tool_args: The dict view that hooks may have mutated.
+        mode: ``"str"`` to re-serialize as JSON, ``"dict"`` to assign directly,
+              or ``None`` to skip (unparseable input — don't corrupt it).
+
+    Failures are swallowed: writeback must never block tool execution.
+    """
+    if mode is None:
+        return
+    try:
+        if mode == "str":
+            import json
+
+            call.args = json.dumps(tool_args)
+        elif mode == "dict":
+            call.args = tool_args
+    except Exception:
+        pass  # never block tool execution on writeback failure
+
+
 def patch_tool_call_callbacks() -> None:
     """Patch pydantic-ai tool handling to support callbacks and Claude Code tool names.
 
@@ -257,17 +286,34 @@ def patch_tool_call_callbacks() -> None:
         ):
             tool_name, call = _normalize_call_tool_name(call)
 
-            # Normalise args to a dict for the callback contract
+            # Normalise args to a dict for the callback contract.
+            #
+            # We also remember the *shape* of ``call.args`` so we can write
+            # mutations back in the same shape after pre_tool_call hooks run.
+            # Without this, hooks mutating ``tool_args`` in place have zero
+            # effect when ``call.args`` is a JSON string (the common case for
+            # LLM-emitted tool calls): ``json.loads`` returns a fresh dict and
+            # the original ``call.args`` string is what the tool actually sees.
+            #
+            # ``_args_writeback_mode`` values:
+            #   "str"  → re-serialize ``tool_args`` to JSON and assign
+            #   "dict" → assign the (possibly mutated) dict directly
+            #   None   → do not write back (unparseable / unknown shape)
             tool_args: dict = {}
+            _args_writeback_mode: str | None = None
             if isinstance(call.args, dict):
                 tool_args = call.args
+                _args_writeback_mode = "dict"
             elif isinstance(call.args, str):
                 try:
                     import json
 
                     tool_args = json.loads(call.args)
+                    _args_writeback_mode = "str"
                 except Exception:
                     tool_args = {"raw": call.args}
+                    # Unparseable: never write back, would corrupt the original.
+                    _args_writeback_mode = None
 
             # Collected outside the try so it survives any callback exception.
             hook_context_messages: list[str] = []
@@ -320,6 +366,11 @@ def patch_tool_call_callbacks() -> None:
                         return f"ERROR: {block_msg}\n\nThe hook policy prevented this tool from running. Please inform the user and do not retry this specific command."
             except Exception:
                 pass  # other errors don't block tool execution
+
+            # Persist pre_tool_call mutations back onto call.args so the
+            # downstream tool dispatch (and the conversation history) sees
+            # the modified args. See ``_writeback_tool_args`` for the why.
+            _writeback_tool_args(call, tool_args, _args_writeback_mode)
 
             start = time.perf_counter()
             error: Exception | None = None
