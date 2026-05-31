@@ -587,6 +587,111 @@ class TestToolPrefixing:
 
         assert result is None
 
+    def test_prefix_tool_names_in_history_tool_use_blocks(self):
+        """Historical tool_use blocks in messages must also be prefixed.
+
+        Otherwise the wire body is internally inconsistent (live tools array
+        is cp_-prefixed, history references aren't) and the Anthropic endpoint
+        silently stalls instead of erroring — the symptom that hosed
+        hermes_governance + claude_code_oauth interplay around skill_manage.
+        """
+        body = json.dumps(
+            {
+                "tools": [{"name": "skill_manage", "description": ""}],
+                "messages": [
+                    {"role": "user", "content": "hi"},
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": "calling tool"},
+                            {
+                                "type": "tool_use",
+                                "id": "toolu_1",
+                                "name": "skill_manage",
+                                "input": {"action": "list"},
+                            },
+                        ],
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "toolu_1",
+                                "content": "ok",
+                            }
+                        ],
+                    },
+                ],
+            }
+        ).encode()
+
+        result = ClaudeCacheAsyncClient._prefix_tool_names(body)
+        assert result is not None
+        data = json.loads(result)
+
+        # Live tools array prefixed
+        assert data["tools"][0]["name"] == f"{TOOL_PREFIX}skill_manage"
+
+        # Historical tool_use also prefixed (the actual bugfix)
+        history_tool_use = data["messages"][1]["content"][1]
+        assert history_tool_use["name"] == f"{TOOL_PREFIX}skill_manage"
+
+        # tool_result blocks are untouched (they reference by id, not name)
+        tool_result_block = data["messages"][2]["content"][0]
+        assert "name" not in tool_result_block
+
+    def test_prefix_tool_names_history_only_no_tools_array(self):
+        """If only history has unprefixed tool_use names, we still rewrite.
+
+        Defensive: covers the case where pydantic-ai's mutation has left
+        bare names in history but the live tools array happens to already
+        be prefixed (or absent).
+        """
+        body = json.dumps(
+            {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "t1",
+                                "name": "read_file",
+                                "input": {},
+                            }
+                        ],
+                    }
+                ],
+            }
+        ).encode()
+
+        result = ClaudeCacheAsyncClient._prefix_tool_names(body)
+        assert result is not None
+        data = json.loads(result)
+        assert data["messages"][0]["content"][0]["name"] == f"{TOOL_PREFIX}read_file"
+
+    def test_prefix_tool_names_history_already_prefixed_noop(self):
+        """All-prefixed history + empty tools → nothing to do, returns None."""
+        body = json.dumps(
+            {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "t1",
+                                "name": f"{TOOL_PREFIX}read_file",
+                                "input": {},
+                            }
+                        ],
+                    }
+                ],
+            }
+        ).encode()
+        assert ClaudeCacheAsyncClient._prefix_tool_names(body) is None
+
 
 class TestHeaderTransformation:
     """Test header transformation for Claude Code OAuth compatibility."""
