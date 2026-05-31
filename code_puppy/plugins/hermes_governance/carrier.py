@@ -110,10 +110,33 @@ def find_state(history: List[Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _build_carrier_message(state: Dict[str, Any]) -> Any:
-    from pydantic_ai.messages import ModelRequest, UserPromptPart
+def _build_carrier_part(state: Dict[str, Any]) -> Any:
+    from pydantic_ai.messages import UserPromptPart
 
-    return ModelRequest(parts=[UserPromptPart(content=_encode(state))])
+    return UserPromptPart(content=_encode(state))
+
+
+def _build_carrier_message(state: Dict[str, Any]) -> Any:
+    from pydantic_ai.messages import ModelRequest
+
+    return ModelRequest(parts=[_build_carrier_part(state)])
+
+
+def _is_model_request(msg: Any) -> bool:
+    """True if ``msg`` is a pydantic-ai ``ModelRequest`` (a user turn).
+
+    We do a duck-typed check (cls name) plus a fallback isinstance so this
+    works even if pydantic-ai's import path changes.
+    """
+    cls = type(msg).__name__
+    if cls == "ModelRequest":
+        return True
+    try:
+        from pydantic_ai.messages import ModelRequest  # local import
+
+        return isinstance(msg, ModelRequest)
+    except Exception:
+        return False
 
 
 def _strip_carriers(history: List[Any]) -> List[Any]:
@@ -153,11 +176,36 @@ def _strip_carriers(history: List[Any]) -> List[Any]:
 def write_state(history: List[Any], state: Dict[str, Any]) -> List[Any]:
     """Return a new history list with exactly one up-to-date carrier pinned last.
 
-    Removing any stale carrier and re-appending keeps the carrier in the
-    protected tail (most-recent messages survive compaction) and guarantees a
-    single source of truth.
+    The carrier is **merged into the last existing ``ModelRequest``** (user
+    turn) as an additional ``UserPromptPart`` whenever possible. Why: appending
+    a standalone ``ModelRequest`` produces two consecutive user messages in the
+    wire body (the real user turn + the carrier), which Claude Code OAuth's
+    endpoint silently stalls on — the actual root cause of the hermes +
+    claude-code-oauth hang.
+
+    Only when there's no existing ``ModelRequest`` to ride along with (e.g.
+    a freshly constructed agent with no user input yet) do we append a
+    standalone carrier message. That edge case is rare and harmless: the
+    consecutive-user issue only matters once a real user message is present.
+
+    Removing any stale carrier first guarantees a single source of truth and
+    keeps it in the protected tail (most-recent messages survive compaction).
     """
     cleaned = _strip_carriers(list(history))
+    carrier_part = _build_carrier_part(state)
+
+    # Find the last ModelRequest and attach the carrier as an extra part.
+    for idx in range(len(cleaned) - 1, -1, -1):
+        msg = cleaned[idx]
+        if _is_model_request(msg):
+            try:
+                msg.parts = list(getattr(msg, "parts", []) or []) + [carrier_part]
+                return cleaned
+            except Exception:
+                # Fall through to the append path below if we can't mutate.
+                break
+
+    # No user turn to ride along with — fall back to a standalone carrier.
     cleaned.append(_build_carrier_message(state))
     return cleaned
 
