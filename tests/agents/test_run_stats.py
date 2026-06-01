@@ -5,7 +5,6 @@ hooks that drive it (agent_run_start / stream_event / agent_run_end).
 """
 
 import time
-from unittest.mock import MagicMock
 
 import pytest
 
