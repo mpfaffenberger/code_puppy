@@ -53,7 +53,6 @@ from code_puppy.api.ws.schemas import (
     ServerConfigValue,
     ServerError,
     ServerMessage,
-    ServerResponse,
     ServerSessionMetaUpdated,
     ServerSessionRestored,
     ServerSessionSwitched,
@@ -201,6 +200,81 @@ def build_error_response_frames(
     return frames
 
 
+def build_assistant_text_stream_frames(
+    *,
+    response_text: str,
+    session_id: str,
+    agent_name: str | None = None,
+    model_name: str | None = None,
+    tokens: dict[str, Any] | None = None,
+    part_type: str = "text",
+    part_index: int = 0,
+    message_id: str | None = None,
+    timestamp: float | None = None,
+) -> list[
+    ServerAssistantMessageStart
+    | ServerAssistantMessageDelta
+    | ServerAssistantMessageEnd
+    | ServerStreamEnd
+]:
+    """Represent a complete assistant response using streaming-shaped frames.
+
+    The GUI protocol is streaming-only: assistant text must be rendered from
+    ``assistant_message_start``/``assistant_message_delta``/
+    ``assistant_message_end`` and finalized by ``stream_end``.  Some upstream
+    model clients return a complete response rather than true token deltas; this
+    helper adapts those complete responses to the same wire shape so the GUI has
+    one rendering path.
+
+    This intentionally emits a single full-content delta for non-streaming
+    upstream responses.  Artificial local chunking can be added later without
+    changing the protocol contract.
+    """
+    import time as time_module
+
+    now = timestamp if timestamp is not None else time_module.time()
+    msg_id = message_id or f"msg-{session_id}-{uuid.uuid4().hex}"
+    content = response_text or ""
+
+    return [
+        ServerAssistantMessageStart(
+            message_id=msg_id,
+            part_type=part_type,
+            part_index=part_index,
+            timestamp=now,
+            session_id=session_id,
+            agent_name=agent_name,
+            model_name=model_name,
+        ),
+        ServerAssistantMessageDelta(
+            message_id=msg_id,
+            content=content,
+            part_index=part_index,
+            session_id=session_id,
+            agent_name=agent_name,
+            model_name=model_name,
+        ),
+        ServerAssistantMessageEnd(
+            message_id=msg_id,
+            part_type=part_type,
+            part_index=part_index,
+            full_content=content,
+            timestamp=now,
+            session_id=session_id,
+            agent_name=agent_name,
+            model_name=model_name,
+        ),
+        ServerStreamEnd(
+            success=True,
+            total_length=len(content),
+            session_id=session_id,
+            agent_name=agent_name,
+            model_name=model_name,
+            tokens=tokens,
+        ),
+    ]
+
+
 def register_chat_endpoint(app: FastAPI) -> None:
     """Register the /ws/chat WebSocket endpoint."""
 
@@ -229,8 +303,8 @@ def register_chat_endpoint(app: FastAPI) -> None:
             {"type": "tool_result", "tool_name": "...", "result": "...", "success": true,
              "agent_name": "...", "model_name": "..."}
 
-            # Final response
-            {"type": "response", "content": "...", "done": true,
+            # Final stream marker
+            {"type": "stream_end", "success": true, "total_length": 123,
              "agent_name": "...", "model_name": "...", "tokens": {...}}
 
             # Errors
@@ -3268,21 +3342,19 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                         f"Sent thinking content ({len(thinking_text)} chars) for non-streaming model"
                                     )
 
-                                # Send the main response
-                                await send_typed(
-                                    ServerResponse(
-                                        content=response_text,
-                                        done=True,
-                                        session_id=session_id,
-                                        agent_name=agent.name
-                                        if agent
-                                        else "code-puppy",
-                                        model_name=agent.get_model_name()
-                                        if agent
-                                        else "unknown",
-                                        tokens=tokens_used,
-                                    )
-                                )
+                                # Adapt complete non-streaming upstream responses into
+                                # the streaming-only GUI protocol. Assistant text is no
+                                # longer delivered via legacy `response.content`.
+                                for frame in build_assistant_text_stream_frames(
+                                    response_text=response_text,
+                                    session_id=session_id,
+                                    agent_name=agent.name if agent else "code-puppy",
+                                    model_name=agent.get_model_name()
+                                    if agent
+                                    else "unknown",
+                                    tokens=tokens_used,
+                                ):
+                                    await send_typed(frame)
                             else:
                                 # B1 streaming: extract real tool results BEFORE stream_end
                                 # so the frontend session store is still alive when they arrive.
