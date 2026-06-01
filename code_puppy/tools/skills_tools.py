@@ -44,13 +44,8 @@ def register_activate_skill(agent):
     ) -> SkillActivateOutput:
         """Activate a skill by loading its full SKILL.md instructions."""
         # Import from plugin
-        from pathlib import Path
-
-        from code_puppy.plugins.agent_skills.config import (
-            get_skill_directories,
-            get_skills_enabled,
-        )
-        from code_puppy.plugins.agent_skills.discovery import discover_skills
+        from code_puppy.plugins.agent_skills.config import get_skills_enabled
+        from code_puppy.plugins.agent_skills.enabled_skills import iter_enabled_skills
         from code_puppy.plugins.agent_skills.metadata import (
             get_skill_resources,
             load_full_skill_content,
@@ -65,10 +60,17 @@ def register_activate_skill(agent):
                 error="Skills integration is disabled. Enable it with /set skills_enabled=true",
             )
 
-        # Discover skills
+        # Find skill by name among *enabled* skills only — disabled skills
+        # are intentionally invisible to activate_skill.
         try:
-            skill_dirs = [Path(d) for d in get_skill_directories()]
-            discovered = discover_skills(skill_dirs)
+            skill_path = next(
+                (
+                    info.path
+                    for info in iter_enabled_skills()
+                    if info.name == skill_name
+                ),
+                None,
+            )
         except Exception as e:
             logger.error(f"Failed to discover skills: {e}")
             return SkillActivateOutput(
@@ -78,19 +80,12 @@ def register_activate_skill(agent):
                 error=f"Failed to discover skills: {e}",
             )
 
-        # Find skill by name
-        skill_path = None
-        for skill_info in discovered:
-            if skill_info.name == skill_name and skill_info.has_skill_md:
-                skill_path = skill_info.path
-                break
-
         if not skill_path:
             return SkillActivateOutput(
                 skill_name=skill_name,
                 content="",
                 resources=[],
-                error=f"Skill '{skill_name}' not found. Use list_or_search_skills to see available skills.",
+                error=f"Skill '{skill_name}' not found or disabled. Use list_or_search_skills to see available skills.",
             )
 
         # Load full content
@@ -139,15 +134,13 @@ def register_list_or_search_skills(agent):
                    If None, returns all available skills.
         """
         # Import from plugin
-        from pathlib import Path
-
         from code_puppy.plugins.agent_skills.config import (
             get_disabled_skills,
-            get_skill_directories,
             get_skills_enabled,
         )
-        from code_puppy.plugins.agent_skills.discovery import discover_skills
-        from code_puppy.plugins.agent_skills.metadata import parse_skill_metadata
+        from code_puppy.plugins.agent_skills.enabled_skills import (
+            list_enabled_skill_metadata,
+        )
 
         # Check if skills enabled
         if not get_skills_enabled():
@@ -158,13 +151,14 @@ def register_list_or_search_skills(agent):
                 error="Skills integration is disabled. Enable it with /set skills_enabled=true",
             )
 
-        # Get disabled skills
+        # We still need disabled_skills for the SkillEntry.enabled flag below,
+        # even though the helper has already filtered them out of the list.
         disabled_skills = get_disabled_skills()
 
-        # Discover all skills
+        # Get enabled skills with metadata (disabled skills never get their
+        # frontmatter loaded — that's enforced inside the helper).
         try:
-            skill_dirs = [Path(d) for d in get_skill_directories()]
-            discovered = discover_skills(skill_dirs)
+            metadatas = list_enabled_skill_metadata()
         except Exception as e:
             logger.error(f"Failed to discover skills: {e}")
             return SkillListOutput(
@@ -174,28 +168,17 @@ def register_list_or_search_skills(agent):
                 error=f"Failed to discover skills: {e}",
             )
 
-        # Parse metadata for each skill
-        skills_list = []
-        for skill_info in discovered:
-            # Skip disabled skills
-            if skill_info.name in disabled_skills:
-                continue
-
-            # Only include skills with valid SKILL.md
-            if not skill_info.has_skill_md:
-                continue
-
-            metadata = parse_skill_metadata(skill_info.path)
-            if metadata:
-                skill_dict = {
-                    "name": metadata.name,
-                    "description": metadata.description,
-                    "path": str(metadata.path),
-                    "tags": metadata.tags,
-                    "version": metadata.version,
-                    "author": metadata.author,
-                }
-                skills_list.append(skill_dict)
+        skills_list = [
+            {
+                "name": m.name,
+                "description": m.description,
+                "path": str(m.path),
+                "tags": m.tags,
+                "version": m.version,
+                "author": m.author,
+            }
+            for m in metadatas
+        ]
 
         # Filter by query if provided
         if query:
