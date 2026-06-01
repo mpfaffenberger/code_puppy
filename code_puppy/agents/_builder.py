@@ -400,7 +400,13 @@ def build_pydantic_agent(
     # tool registry actually produced, and filter MCP to avoid name clashes.
     probe_agent = _new_pydantic_agent(toolsets=[])
     agent_tools = agent.get_available_tools()
-    register_tools_for_agent(probe_agent, agent_tools, model_name=resolved_model_name)
+    logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
+    register_tools_for_agent(
+        probe_agent,
+        agent_tools,
+        model_name=resolved_model_name,
+        agent_name=logical_agent_name,
+    )
 
     existing_tool_names: Set[str] = set(getattr(probe_agent, "_tools", {}) or {})
     filtered_mcp_servers = filter_conflicting_mcp_tools(
@@ -418,7 +424,10 @@ def build_pydantic_agent(
     # ``agent_run_context`` hook if their wrapper can't handle them directly.
     final_pydantic = _new_pydantic_agent(toolsets=filtered_mcp_servers)
     register_tools_for_agent(
-        final_pydantic, agent_tools, model_name=resolved_model_name
+        final_pydantic,
+        agent_tools,
+        model_name=resolved_model_name,
+        agent_name=logical_agent_name,
     )
 
     agent.cur_model = model

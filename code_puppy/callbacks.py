@@ -27,6 +27,7 @@ PhaseType = Literal[
     "post_tool_call",
     "stream_event",
     "register_tools",
+    "register_agent_tools",
     "register_agents",
     "register_model_type",
     "register_skills",
@@ -80,6 +81,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "post_tool_call": [],
     "stream_event": [],
     "register_tools": [],
+    "register_agent_tools": [],
     "register_agents": [],
     "register_model_type": [],
     "register_skills": [],
@@ -311,7 +313,15 @@ def on_agent_reload(*args, **kwargs) -> Any:
 
 
 def on_load_prompt():
-    return _trigger_callbacks_sync("load_prompt")
+    """Collect load_prompt fragments from plugins, dropping ``None`` results.
+
+    The documented hook contract is ``() -> str | None`` where ``None`` means
+    "skip me, I have nothing to contribute this turn." Filtering here keeps
+    every callsite (agent_code_puppy, agent_planning, agent_tools, ...) free
+    of the same defensive list comprehension.
+    """
+    results = _trigger_callbacks_sync("load_prompt")
+    return [r for r in results if r is not None]
 
 
 def on_custom_command_help() -> List[Any]:
@@ -458,6 +468,38 @@ def on_register_tools() -> List[Dict[str, Any]]:
     Example return: [{"name": "my_tool", "register_func": register_my_tool}]
     """
     return _trigger_callbacks_sync("register_tools")
+
+
+def on_register_agent_tools(agent_name: Optional[str] = None) -> List[str]:
+    """Collect tool names plugins want injected into an agent's tool list.
+
+    The companion to ``on_register_tools``: that hook *defines* tools and
+    drops them into ``TOOL_REGISTRY``. This hook tells ``register_tools_for_agent``
+    which of those tools should be added to a given agent's available list
+    on top of the agent's hardcoded ``get_available_tools()``.
+
+    Callback contract: ``(agent_name: str | None) -> list[str] | None``.
+    Return a list of tool names (matching keys in ``TOOL_REGISTRY``) to
+    advertise to that agent. Plugins that want universal availability can
+    ignore ``agent_name`` and always return the same list. Plugins that
+    want per-agent scoping can branch on it.
+
+    Returns a flat, deduplicated list of tool names from all callbacks.
+    """
+    results = _trigger_callbacks_sync("register_agent_tools", agent_name)
+    flat: List[str] = []
+    seen: set[str] = set()
+    for r in results:
+        if r is None:
+            continue
+        items = r if isinstance(r, list) else [r]
+        for item in items:
+            if not isinstance(item, str) or not item:
+                continue
+            if item not in seen:
+                seen.add(item)
+                flat.append(item)
+    return flat
 
 
 def on_register_agents() -> List[Dict[str, Any]]:
