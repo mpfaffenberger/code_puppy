@@ -72,22 +72,39 @@ def prepare_prompt_for_model(
                 is_claude_code=bool(result.get("is_claude_code", False)),
             )
 
-    # 2) Fall back to the legacy per-model system-prompt hook for plugins
-    #    that still register there.
+    # 2) Fall back to the legacy per-model system-prompt hook. Two flavours
+    #    of plugin live here:
+    #      * "taker-over" plugins return ``handled=True`` — first one wins
+    #        outright, exactly like ``prepare_model_prompt``.
+    #      * "augmenter" plugins (e.g. agent_skills) return ``handled=False``
+    #        with mutated ``instructions`` / ``user_prompt``. We thread those
+    #        mutations forward so the caller actually sees them, instead of
+    #        silently dropping every augmentation on the floor.
+    augmented_instructions = system_prompt
+    augmented_user_prompt = user_prompt
     for result in callbacks.on_get_model_system_prompt(
         model_name, system_prompt, user_prompt
     ):
-        if result and isinstance(result, dict) and result.get("handled"):
+        if not (result and isinstance(result, dict)):
+            continue
+        if result.get("handled"):
             return PreparedPrompt(
                 instructions=result.get("instructions", system_prompt),
                 user_prompt=result.get("user_prompt", user_prompt),
                 is_claude_code=bool(result.get("is_claude_code", False)),
             )
+        # Augmenter: carry its mutations forward. Last augmenter wins on
+        # collisions (YAGNI: there's exactly one augmenter today).
+        if "instructions" in result:
+            augmented_instructions = result["instructions"]
+        if "user_prompt" in result:
+            augmented_user_prompt = result["user_prompt"]
 
-    # 3) No plugin handled it — return the caller's prompts unchanged.
+    # 3) No taker-over plugin claimed it — return the (possibly augmented)
+    #    prompts.
     return PreparedPrompt(
-        instructions=system_prompt,
-        user_prompt=user_prompt,
+        instructions=augmented_instructions,
+        user_prompt=augmented_user_prompt,
         is_claude_code=False,
     )
 
