@@ -228,11 +228,37 @@ def patch_tool_call_callbacks() -> None:
 
         # Tool name prefix used by Claude Code OAuth - tools are prefixed on
         # outgoing requests, so we need to unprefix them when they come back.
+        # This prefix MUST only be stripped when a claude-code OAuth model is
+        # active. Stripping unconditionally would corrupt legitimate tool names
+        # that happen to begin with ``cp_`` when other model types are in use
+        # (e.g. ``custom_anthropic``, ``custom_openai``, etc.).
         TOOL_PREFIX = "cp_"
+        # Match the prefix used by the claude_code_oauth plugin's model name
+        # convention (see plugins/claude_code_oauth/prompt_handler.py).
+        _CLAUDE_CODE_MODEL_PREFIX = "claude-code"
+
+        def _is_claude_code_model_active() -> bool:
+            """Best-effort check: is the currently selected model a claude-code one?
+
+            Lazy-imported so this patch stays safe to apply before config is
+            initialised; any failure means "not claude-code" so we never
+            accidentally strip prefixes from non-claude-code tool names.
+            """
+            try:
+                from code_puppy.config import get_global_model_name
+
+                model_name = get_global_model_name() or ""
+                return model_name.startswith(_CLAUDE_CODE_MODEL_PREFIX)
+            except Exception:
+                return False
 
         def _normalize_tool_name(name: Any) -> Any:
-            """Strip the ``cp_`` prefix if present."""
-            if isinstance(name, str) and name.startswith(TOOL_PREFIX):
+            """Strip the ``cp_`` prefix if present (claude-code models only)."""
+            if (
+                isinstance(name, str)
+                and name.startswith(TOOL_PREFIX)
+                and _is_claude_code_model_active()
+            ):
                 return name[len(TOOL_PREFIX) :]
             return name
 
