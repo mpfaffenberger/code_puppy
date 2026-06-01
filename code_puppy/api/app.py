@@ -110,17 +110,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Shutdown: clean up all the things!
     logger.info("🐶 Code Puppy API shutting down, cleaning up...")
 
-    # 1. Close all PTY sessions
-    try:
-        from code_puppy.api.pty_manager import get_pty_manager
-
-        pty_manager = get_pty_manager()
-        await pty_manager.close_all()
-        logger.info("✓ All PTY sessions closed")
-    except Exception as e:
-        logger.error("Error closing PTY sessions: %s", e)
-
-    # 2. Shutdown session cache thread pool executor
+    # 1. Shutdown session cache thread pool executor
     try:
         from code_puppy.api.session_cache import shutdown_executor
 
@@ -129,7 +119,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.error("Error shutting down session cache executor: %s", e)
 
-    # 3. Shutdown ws_sessions thread pool executor
+    # 2. Shutdown ws_sessions thread pool executor
     try:
         from code_puppy.api.routers import ws_sessions
 
@@ -215,7 +205,7 @@ def create_app() -> FastAPI:
 
     app.include_router(protocol.router, prefix="/api/protocol", tags=["protocol"])
 
-    # WebSocket endpoints (events + terminal)
+    # WebSocket endpoints
     from code_puppy.api.websocket import setup_websocket
 
     setup_websocket(app)
@@ -239,48 +229,20 @@ def create_app() -> FastAPI:
         <h1 class="text-6xl mb-4">🐶</h1>
         <h2 class="text-3xl font-bold mb-8">Code Puppy</h2>
         <div class="space-x-4">
-            <a href="/terminal" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg text-lg font-semibold">
-                Open Terminal
-            </a>
             <a href="/chat" class="px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg text-lg font-semibold">
                 Open Chat
-            </a>
-            <a href="/sessions" class="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg text-lg font-semibold">
-                View Sessions
             </a>
             <a href="/docs" class="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-lg">
                 API Docs
             </a>
         </div>
         <p class="mt-8 text-gray-400">
-            WebSocket: ws://localhost:8765/ws/terminal
+            WebSocket: ws://localhost:8765/ws/chat
         </p>
     </div>
 </body>
 </html>
         """
-        )
-
-    @app.get("/terminal")
-    async def terminal_page():
-        """Serve the interactive terminal page."""
-        html_file = templates_dir / "terminal.html"
-        if html_file.exists():
-            return FileResponse(html_file, media_type="text/html")
-        return HTMLResponse(
-            content="<h1>Terminal template not found</h1>",
-            status_code=404,
-        )
-
-    @app.get("/sessions")
-    async def sessions_page():
-        """Serve the sessions monitoring page."""
-        html_file = templates_dir / "sessions.html"
-        if html_file.exists():
-            return FileResponse(html_file, media_type="text/html")
-        return HTMLResponse(
-            content="<h1>Sessions template not found</h1>",
-            status_code=404,
         )
 
     @app.get("/chat")

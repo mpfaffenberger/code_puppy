@@ -3,9 +3,7 @@
 Provides real-time communication channels:
 - /ws/events - Server-sent events stream
 - /ws/chat - Interactive chat with the agent
-- /ws/terminal - Interactive PTY terminal sessions
 - /ws/health - Simple health check endpoint
-- /ws/sessions - Real-time session monitoring
 
 This module is the thin entry point that registers all WebSocket endpoints.
 Each handler lives in its own module under `code_puppy.api.ws.*` for
@@ -20,8 +18,6 @@ from code_puppy.api.ws import (
     register_chat_endpoint,
     register_events_endpoint,
     register_health_endpoint,
-    register_sessions_endpoint,
-    register_terminal_endpoint,
 )
 
 # Re-export build_file_context_and_attachments for backward compatibility
@@ -44,8 +40,6 @@ def setup_websocket(app: FastAPI) -> None:
     """
     register_events_endpoint(app)
     register_chat_endpoint(app)
-    register_terminal_endpoint(app)
     register_health_endpoint(app)
-    register_sessions_endpoint(app)
 
-    logger.debug("All WebSocket endpoints registered")
+    logger.debug("WebSocket endpoints registered")
