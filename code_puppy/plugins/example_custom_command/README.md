@@ -39,37 +39,43 @@ code_puppy/plugins/example_custom_command/
 from code_puppy.callbacks import register_callback
 from code_puppy.messaging import emit_info
 
+# Optional dependency on the sibling ``customizable_commands`` plugin.
+# Returning a ``MarkdownCommandResult`` tells the dispatcher to forward
+# the wrapped content to the agent as a user prompt.
+try:
+    from code_puppy.plugins.customizable_commands.register_callbacks import (
+        MarkdownCommandResult,
+    )
+except ImportError:
+    MarkdownCommandResult = None
+
 # 1. Define help entries for your commands
 def _custom_help():
     return [
-        ("woof", "Emit a playful woof message (no model)"),
+        ("woof", "Ask the agent for a dog fact (or any prompt you tack on)"),
         ("echo", "Echo back your text (display only)"),
     ]
 
 # 2. Define command handler
 def _handle_custom_command(command: str, name: str):
-    """Handle custom commands.
-    
-    Args:
-        command: Full command string (e.g., "/woof something")
-        name: Command name without slash (e.g., "woof")
-        
-    Returns:
-        - None: Command not handled by this plugin
-        - True: Command handled successfully  
-        - str: Text to process as user input to the model
-    """
+    """Handle custom commands."""
     if name == "woof":
-        emit_info("🐶 Woof!")
-        return True  # Handled, don't invoke model
-        
+        parts = command.split(maxsplit=1)
+        prompt = parts[1] if len(parts) == 2 else "Tell me a dog fact"
+        emit_info(f"🐶 Woof! sending prompt: {prompt}")
+        # Forward to the agent when possible; otherwise degrade gracefully
+        # to display-only so the user still sees the echoed prompt.
+        if MarkdownCommandResult is not None:
+            return MarkdownCommandResult(prompt)
+        return prompt
+
     if name == "echo":
-        # Extract text after command name
+        # Display-only: dispatcher echoes the returned string and stops.
         parts = command.split(maxsplit=1)
         if len(parts) == 2:
-            return parts[1]  # Return as prompt to model
-        return ""  # Empty prompt
-        
+            return parts[1]
+        return ""
+
     return None  # Not our command
 
 # 3. Register callbacks
@@ -101,14 +107,15 @@ register_callback("custom_command", _handle_custom_command)
 **Description**: Display-only command that shows your text.
 
 **Behavior**:
-- Shows the text you provide
-- Returns it as input to the model
+- Shows the text you provide via `emit_info`
+- Does **not** send anything to the model — the dispatcher treats a bare
+  `str` return as display-only and short-circuits the REPL
 
 **Examples**:
 ```bash
 /echo Hello world
 # → Displays: "example plugin echo -> Hello world"
-# → Sends to model: "Hello world"
+# → No model round-trip
 ```
 
 ## Creating Your Own Plugin
@@ -167,8 +174,8 @@ Your `_handle_custom_command` function can return:
 |-------------|----------|
 | `None` | Command not recognized, try next plugin |
 | `True` | Command handled successfully, no model invocation |
-| `str` | String processed as user input to the model |
-| `MarkdownCommandResult(content)` | Special case for markdown commands |
+| `str` | Display-only message — dispatcher emits it and stops (agent NOT invoked) |
+| `MarkdownCommandResult(content)` | Forwards `content` to the agent as a user prompt |
 
 ## Best Practices
 
@@ -186,7 +193,7 @@ Your `_handle_custom_command` function can return:
 - **Don't use `@register_command`**: That's for built-in commands only
 - **Don't modify global state**: Use Code Puppy's config system
 - **Don't make blocking calls**: Keep commands fast and responsive
-- **Don't invoke the model directly**: Return strings instead
+- **Don't invoke the model directly**: return a `MarkdownCommandResult` and let the dispatcher forward it
 - **Don't duplicate built-in commands**: Check existing commands first
 
 ## Command Execution Order
