@@ -9,86 +9,136 @@ _CFG = "code_puppy.plugins.agent_skills.config"
 _DISC = "code_puppy.plugins.agent_skills.discovery"
 _META = "code_puppy.plugins.agent_skills.metadata"
 _PB = "code_puppy.plugins.agent_skills.prompt_builder"
+_ENABLED = "code_puppy.plugins.agent_skills.enabled_skills"
 
 
 class TestGetSkillsPromptSection:
-    def test_disabled(self):
+    def test_no_enabled_skills(self):
+        """Helper returns [] → no prompt section."""
         from code_puppy.plugins.agent_skills.register_callbacks import (
             _get_skills_prompt_section,
         )
 
-        with patch(f"{_CFG}.get_skills_enabled", return_value=False):
-            assert _get_skills_prompt_section() is None
-
-    def test_no_skills_discovered(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
-            _get_skills_prompt_section,
-        )
-
-        with (
-            patch(f"{_CFG}.get_skills_enabled", return_value=True),
-            patch(f"{_CFG}.get_skill_directories", return_value=["/fake"]),
-            patch(f"{_DISC}.discover_skills", return_value=[]),
-        ):
-            assert _get_skills_prompt_section() is None
-
-    def test_disabled_and_no_skill_md(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
-            _get_skills_prompt_section,
-        )
-
-        skill1 = MagicMock(name="disabled_skill", has_skill_md=True)
-        skill1.name = "disabled_skill"
-        skill2 = MagicMock(name="no_md", has_skill_md=False)
-        skill2.name = "no_md"
-
-        with (
-            patch(f"{_CFG}.get_skills_enabled", return_value=True),
-            patch(f"{_CFG}.get_skill_directories", return_value=["/fake"]),
-            patch(f"{_DISC}.discover_skills", return_value=[skill1, skill2]),
-            patch(f"{_CFG}.get_disabled_skills", return_value={"disabled_skill"}),
-            patch(f"{_META}.parse_skill_metadata", return_value=None),
-        ):
-            assert _get_skills_prompt_section() is None
-
-    def test_metadata_parse_fails(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
-            _get_skills_prompt_section,
-        )
-
-        skill = MagicMock(has_skill_md=True)
-        skill.name = "my_skill"
-
-        with (
-            patch(f"{_CFG}.get_skills_enabled", return_value=True),
-            patch(f"{_CFG}.get_skill_directories", return_value=["/fake"]),
-            patch(f"{_DISC}.discover_skills", return_value=[skill]),
-            patch(f"{_CFG}.get_disabled_skills", return_value=set()),
-            patch(f"{_META}.parse_skill_metadata", return_value=None),
-        ):
+        with patch(f"{_ENABLED}.list_enabled_skill_metadata", return_value=[]):
             assert _get_skills_prompt_section() is None
 
     def test_success(self):
+        """Helper returns metadata → prompt section built from it."""
         from code_puppy.plugins.agent_skills.register_callbacks import (
             _get_skills_prompt_section,
         )
 
-        skill = MagicMock(has_skill_md=True)
-        skill.name = "good_skill"
         metadata = MagicMock()
+
+        with (
+            patch(f"{_ENABLED}.list_enabled_skill_metadata", return_value=[metadata]),
+            patch(f"{_CFG}.get_frontmatter_in_system_prompt", return_value=True),
+            patch(f"{_PB}.build_available_skills_block", return_value="BLOCK"),
+            patch(f"{_PB}.build_skills_guidance", return_value="guidance"),
+        ):
+            result = _get_skills_prompt_section()
+            assert "BLOCK" in result
+            assert "guidance" in result
+
+    def test_frontmatter_disabled_returns_guidance_only(self):
+        """With frontmatter off, only the guidance one-liner is emitted —
+        the per-skill block is suppressed but the model is still told the
+        activate_skill / list_or_search_skills mechanism exists."""
+        from code_puppy.plugins.agent_skills.register_callbacks import (
+            _get_skills_prompt_section,
+        )
+
+        metadata = MagicMock()
+
+        with (
+            patch(f"{_ENABLED}.list_enabled_skill_metadata", return_value=[metadata]),
+            patch(f"{_CFG}.get_frontmatter_in_system_prompt", return_value=False),
+            patch(
+                f"{_PB}.build_available_skills_block", return_value="BLOCK"
+            ) as mock_block,
+            patch(f"{_PB}.build_skills_guidance", return_value="guidance"),
+        ):
+            result = _get_skills_prompt_section()
+
+        assert result == "guidance"
+        assert "BLOCK" not in result
+        # And critically: we never even built the block.
+        mock_block.assert_not_called()
+
+    def test_frontmatter_disabled_no_skills_returns_none(self):
+        """No skills + frontmatter off should still short-circuit to None;
+        don't advertise a mechanism that has nothing to find."""
+        from code_puppy.plugins.agent_skills.register_callbacks import (
+            _get_skills_prompt_section,
+        )
+
+        with (
+            patch(f"{_ENABLED}.list_enabled_skill_metadata", return_value=[]),
+            patch(f"{_CFG}.get_frontmatter_in_system_prompt", return_value=False),
+        ):
+            assert _get_skills_prompt_section() is None
+
+
+class TestEnabledSkillsHelper:
+    """Direct tests for the enabled_skills helper — guarantees we never
+    parse frontmatter for disabled skills."""
+
+    def test_skills_globally_disabled_yields_nothing(self):
+        from code_puppy.plugins.agent_skills.enabled_skills import (
+            list_enabled_skill_metadata,
+        )
+
+        with patch(f"{_CFG}.get_skills_enabled", return_value=False):
+            assert list_enabled_skill_metadata() == []
+
+    def test_disabled_skill_never_parses_frontmatter(self):
+        """The headline guarantee: parse_skill_metadata is NOT called for
+        a disabled skill."""
+        from code_puppy.plugins.agent_skills.enabled_skills import (
+            list_enabled_skill_metadata,
+        )
+
+        disabled = MagicMock(has_skill_md=True)
+        disabled.name = "disabled_one"
+        enabled = MagicMock(has_skill_md=True)
+        enabled.name = "enabled_one"
+
+        good_meta = MagicMock()
 
         with (
             patch(f"{_CFG}.get_skills_enabled", return_value=True),
             patch(f"{_CFG}.get_skill_directories", return_value=["/fake"]),
-            patch(f"{_DISC}.discover_skills", return_value=[skill]),
-            patch(f"{_CFG}.get_disabled_skills", return_value=set()),
-            patch(f"{_META}.parse_skill_metadata", return_value=metadata),
-            patch(f"{_PB}.build_available_skills_xml", return_value="<xml/>"),
-            patch(f"{_PB}.build_skills_guidance", return_value="guidance"),
+            patch(f"{_DISC}.discover_skills", return_value=[disabled, enabled]),
+            patch(f"{_CFG}.get_disabled_skills", return_value={"disabled_one"}),
+            patch(
+                f"{_META}.parse_skill_metadata", return_value=good_meta
+            ) as mock_parse,
         ):
-            result = _get_skills_prompt_section()
-            assert "<xml/>" in result
-            assert "guidance" in result
+            result = list_enabled_skill_metadata()
+
+        assert result == [good_meta]
+        # The disabled skill's path must NEVER reach parse_skill_metadata.
+        called_paths = [call.args[0] for call in mock_parse.call_args_list]
+        assert enabled.path in called_paths
+        assert disabled.path not in called_paths
+
+    def test_skill_without_skill_md_is_skipped(self):
+        from code_puppy.plugins.agent_skills.enabled_skills import (
+            list_enabled_skill_metadata,
+        )
+
+        no_md = MagicMock(has_skill_md=False)
+        no_md.name = "no_md"
+
+        with (
+            patch(f"{_CFG}.get_skills_enabled", return_value=True),
+            patch(f"{_CFG}.get_skill_directories", return_value=["/fake"]),
+            patch(f"{_DISC}.discover_skills", return_value=[no_md]),
+            patch(f"{_CFG}.get_disabled_skills", return_value=set()),
+            patch(f"{_META}.parse_skill_metadata") as mock_parse,
+        ):
+            assert list_enabled_skill_metadata() == []
+        mock_parse.assert_not_called()
 
 
 class TestInjectSkillsIntoPrompt:
@@ -270,6 +320,81 @@ class TestHandleSkillsCommand:
             assert _handle_skills_command("/skills toggle", "skills") is True
             mock_set.assert_called_once_with(True)
             mock_success.assert_called_once()
+
+    def test_skills_frontmatter_on(self):
+        from code_puppy.plugins.agent_skills.register_callbacks import (
+            _handle_skills_command,
+        )
+
+        with (
+            patch(f"{_CFG}.get_frontmatter_in_system_prompt", return_value=False),
+            patch(f"{_CFG}.set_frontmatter_in_system_prompt") as mock_set,
+            patch(f"{_MSG}.emit_success") as mock_success,
+        ):
+            assert _handle_skills_command("/skills frontmatter on", "skills") is True
+            mock_set.assert_called_once_with(True)
+            mock_success.assert_called_once()
+
+    def test_skills_frontmatter_off(self):
+        from code_puppy.plugins.agent_skills.register_callbacks import (
+            _handle_skills_command,
+        )
+
+        with (
+            patch(f"{_CFG}.get_frontmatter_in_system_prompt", return_value=True),
+            patch(f"{_CFG}.set_frontmatter_in_system_prompt") as mock_set,
+            patch(f"{_MSG}.emit_warning") as mock_warning,
+        ):
+            assert _handle_skills_command("/skills frontmatter off", "skills") is True
+            mock_set.assert_called_once_with(False)
+            mock_warning.assert_called_once()
+
+    def test_skills_frontmatter_toggle(self):
+        from code_puppy.plugins.agent_skills.register_callbacks import (
+            _handle_skills_command,
+        )
+
+        with (
+            patch(f"{_CFG}.get_frontmatter_in_system_prompt", return_value=True),
+            patch(f"{_CFG}.set_frontmatter_in_system_prompt") as mock_set,
+            patch(f"{_MSG}.emit_warning"),
+        ):
+            assert (
+                _handle_skills_command("/skills frontmatter toggle", "skills") is True
+            )
+            mock_set.assert_called_once_with(False)
+
+    def test_skills_frontmatter_no_arg_shows_state(self):
+        from code_puppy.plugins.agent_skills.register_callbacks import (
+            _handle_skills_command,
+        )
+
+        with (
+            patch(f"{_CFG}.get_frontmatter_in_system_prompt", return_value=True),
+            patch(f"{_CFG}.set_frontmatter_in_system_prompt") as mock_set,
+            patch(f"{_MSG}.emit_info") as mock_info,
+        ):
+            assert _handle_skills_command("/skills frontmatter", "skills") is True
+            mock_set.assert_not_called()
+            # Should mention current state in one of the emit_info calls.
+            assert "on" in str(mock_info.call_args_list).lower()
+
+    def test_skills_frontmatter_bogus_arg(self):
+        from code_puppy.plugins.agent_skills.register_callbacks import (
+            _handle_skills_command,
+        )
+
+        with (
+            patch(f"{_CFG}.get_frontmatter_in_system_prompt", return_value=True),
+            patch(f"{_CFG}.set_frontmatter_in_system_prompt") as mock_set,
+            patch(f"{_MSG}.emit_error") as mock_error,
+            patch(f"{_MSG}.emit_info"),
+        ):
+            assert (
+                _handle_skills_command("/skills frontmatter banana", "skills") is True
+            )
+            mock_set.assert_not_called()
+            mock_error.assert_called_once()
 
     def test_skills_help(self):
         from code_puppy.plugins.agent_skills.register_callbacks import (
