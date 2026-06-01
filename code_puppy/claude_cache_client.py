@@ -229,8 +229,27 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
     def _prefix_tool_names(body: bytes) -> bytes | None:
         """Prefix all tool names in the request body with TOOL_PREFIX.
 
-        This is required for Claude Code OAuth compatibility - tools must be
-        prefixed on outgoing requests and unprefixed on incoming responses.
+        Required for Claude Code OAuth compatibility: tools must be prefixed
+        on outgoing requests and unprefixed on incoming responses.
+
+        We have to prefix in TWO places, otherwise the wire body is internally
+        inconsistent and the API silently hangs (no 4xx, just no response):
+
+          1. ``data['tools']`` — the live tool catalog for this call.
+          2. ``data['messages'][*].content[*]`` ``tool_use`` blocks — the
+             *historical* tool calls echoed back to the model on every turn.
+
+        Why (2) matters: ``code_puppy.pydantic_patches`` strips the ``cp_``
+        prefix from ``call.tool_name`` in-place so pydantic-ai's dispatcher
+        can resolve it. That mutation is persisted into ``_message_history``,
+        so subsequent turns send back bare ``tool_use`` names while the live
+        ``tools`` array gets re-prefixed here. Anthropic's endpoint dislikes
+        the mismatch and the request stalls — especially visible with
+        dynamically-attached tools like ``skill_manage`` (hermes_governance's
+        escape hatch), where the agent loops forever trying to unlock the
+        budget gate.
+
+        Returns the new body bytes, or ``None`` if nothing changed.
         """
         try:
             data = json.loads(body.decode("utf-8"))
@@ -240,17 +259,37 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         if not isinstance(data, dict):
             return None
 
-        tools = data.get("tools")
-        if not isinstance(tools, list) or not tools:
-            return None
-
         modified = False
-        for tool in tools:
-            if isinstance(tool, dict) and "name" in tool:
-                name = tool["name"]
-                if name and not name.startswith(TOOL_PREFIX):
-                    tool["name"] = f"{TOOL_PREFIX}{name}"
-                    modified = True
+
+        # 1. Live tool catalog
+        tools = data.get("tools")
+        if isinstance(tools, list):
+            for tool in tools:
+                if isinstance(tool, dict) and "name" in tool:
+                    name = tool["name"]
+                    if name and not name.startswith(TOOL_PREFIX):
+                        tool["name"] = f"{TOOL_PREFIX}{name}"
+                        modified = True
+
+        # 2. Historical tool_use blocks embedded in message content
+        messages = data.get("messages")
+        if isinstance(messages, list):
+            for message in messages:
+                if not isinstance(message, dict):
+                    continue
+                content = message.get("content")
+                if not isinstance(content, list):
+                    continue
+                for block in content:
+                    if (
+                        isinstance(block, dict)
+                        and block.get("type") == "tool_use"
+                        and isinstance(block.get("name"), str)
+                    ):
+                        name = block["name"]
+                        if name and not name.startswith(TOOL_PREFIX):
+                            block["name"] = f"{TOOL_PREFIX}{name}"
+                            modified = True
 
         if not modified:
             return None
