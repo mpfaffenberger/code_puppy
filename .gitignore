@@ -45,3 +45,5 @@ code_puppy/bundled_skills/
 .claude/hooks/ts-hooks/dist/
 
 .json
+
+.maestro/*
