@@ -12,7 +12,6 @@ focused on wiring callbacks (SRP, and the file-size cap).
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
 from code_puppy.messaging import emit_info
@@ -25,34 +24,22 @@ _RESERVED_NAMES = {"skills", "skill"}
 
 
 def _iter_enabled_skills():
-    """Yield ``SkillMetadata`` for every enabled, valid skill."""
-    from .config import (
-        get_disabled_skills,
-        get_skill_directories,
-        get_skills_enabled,
-    )
-    from .discovery import discover_skills
-    from .metadata import parse_skill_metadata
+    """Yield ``SkillMetadata`` for every enabled, valid, non-reserved skill.
 
-    if not get_skills_enabled():
-        return
+    Delegates the disabled / has_skill_md filtering to
+    :func:`enabled_skills.iter_enabled_skill_metadata`, so disabled skills
+    never get their frontmatter loaded here either.
+    """
+    from .enabled_skills import iter_enabled_skill_metadata
 
-    disabled = get_disabled_skills()
-    skill_dirs = [Path(d) for d in get_skill_directories()]
-    for info in discover_skills(skill_dirs):
-        if not info.has_skill_md:
-            continue
-        if info.name in disabled:
-            continue
-        if info.name in _RESERVED_NAMES:
+    for meta in iter_enabled_skill_metadata():
+        if meta.name in _RESERVED_NAMES:
             logger.debug(
                 "Skipping skill %r: name collides with reserved slash command",
-                info.name,
+                meta.name,
             )
             continue
-        meta = parse_skill_metadata(info.path)
-        if meta is not None:
-            yield meta
+        yield meta
 
 
 def skill_command_help() -> List[Tuple[str, str]]:

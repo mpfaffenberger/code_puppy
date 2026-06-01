@@ -92,11 +92,16 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         *args: Any,
         oauth_reauthentication_callback: Callable[[], str | None] | None = None,
         token_update_callback: Callable[[str], None] | None = None,
+        apply_claude_code_prefix: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._oauth_reauthentication_callback = oauth_reauthentication_callback
         self._token_update_callback = token_update_callback
+        # The ``cp_`` tool-name prefix is a Claude Code OAuth quirk. Only the
+        # claude_code_oauth plugin should enable it; custom_anthropic and
+        # Anthropic-vanilla models keep tool names verbatim.
+        self._apply_claude_code_prefix = apply_claude_code_prefix
 
     def set_token_update_callback(self, callback: Callable[[str], None] | None) -> None:
         self._token_update_callback = callback
@@ -360,8 +365,11 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 # 2. Add ?beta=true query param
                 url = self._add_beta_query_param(url)
 
-                # 3. Prefix tool names in request body
-                if body_bytes:
+                # 3. Prefix tool names in request body (claude_code OAuth only).
+                # The ``cp_`` prefix is required by Anthropic's Claude Code OAuth
+                # endpoint, but vanilla Anthropic / custom_anthropic endpoints
+                # don't expect it — so this is opt-in via the constructor flag.
+                if body_bytes and self._apply_claude_code_prefix:
                     prefixed_body = self._prefix_tool_names(body_bytes)
                     if prefixed_body is not None:
                         body_bytes = prefixed_body

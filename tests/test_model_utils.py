@@ -10,7 +10,12 @@ import pytest
 
 # Importing register_callbacks triggers plugin registration at module scope.
 import code_puppy.plugins.claude_code_oauth.register_callbacks  # noqa: F401
-from code_puppy.callbacks import get_callbacks, register_callback
+from code_puppy.callbacks import (
+    clear_callbacks,
+    get_callbacks,
+    register_callback,
+    unregister_callback,
+)
 from code_puppy.model_utils import (
     PreparedPrompt,
     get_default_extended_thinking,
@@ -26,15 +31,39 @@ from code_puppy.plugins.claude_code_oauth.prompt_handler import (
 
 
 @pytest.fixture(autouse=True)
-def _ensure_claude_code_callback_registered():
-    """Other test modules call ``clear_callbacks()`` which wipes plugin regs.
+def _isolate_prompt_callbacks():
+    """Guarantee test isolation for prompt-related callback phases.
 
-    Re-register the claude-code ``prepare_model_prompt`` handler before each
-    test so the dispatcher has something to dispatch to.
+    Two problems we're solving at once:
+
+    1. Other test modules call ``clear_callbacks()`` which wipes plugin regs
+       — so we re-register the claude-code ``prepare_model_prompt`` handler
+       before each test so the dispatcher has something to dispatch to.
+    2. Other test modules (e.g. agent_skills) import their plugin's
+       ``register_callbacks`` which leaks an augmenter into the
+       ``get_model_system_prompt`` phase. Now that augmenters are actually
+       honored end-to-end, that leak would clobber tests expecting an
+       un-augmented prompt. Snapshot + restore both phases per test.
     """
+    snapshot_get = get_callbacks("get_model_system_prompt")  # returns a copy
+    snapshot_prepare = get_callbacks("prepare_model_prompt")  # returns a copy
+
+    # Start each test with a clean ``get_model_system_prompt`` slate so
+    # leaked augmenters from other modules can't pollute the assertions.
+    clear_callbacks("get_model_system_prompt")
+
     if prepare_claude_code_prompt not in get_callbacks("prepare_model_prompt"):
         register_callback("prepare_model_prompt", prepare_claude_code_prompt)
-    yield
+
+    try:
+        yield
+    finally:
+        clear_callbacks("get_model_system_prompt")
+        for cb in snapshot_get:
+            register_callback("get_model_system_prompt", cb)
+        clear_callbacks("prepare_model_prompt")
+        for cb in snapshot_prepare:
+            register_callback("prepare_model_prompt", cb)
 
 
 class TestIsClaudeCodeModel:
@@ -141,6 +170,70 @@ class TestPreparePromptForModel:
         assert hasattr(result, "instructions")
         assert hasattr(result, "user_prompt")
         assert hasattr(result, "is_claude_code")
+
+    def test_augmenter_callback_mutations_are_threaded_forward(self):
+        """Regression: augmenter plugins returning ``handled=False`` with
+        mutated ``instructions`` must have those mutations preserved in the
+        returned PreparedPrompt. agent_skills relies on this contract to
+        inject the available-skills block into the system prompt.
+        """
+
+        def _augmenter(model_name, default_system_prompt, user_prompt):
+            return {
+                "instructions": f"{default_system_prompt}\n\n## Available Skills\n- foo: bar",
+                "user_prompt": user_prompt,
+                "handled": False,
+            }
+
+        register_callback("get_model_system_prompt", _augmenter)
+        try:
+            result = prepare_prompt_for_model(
+                "gpt-4", "You are a helpful assistant.", "Hello"
+            )
+        finally:
+            # Belt + suspenders — the autouse fixture also restores state.
+            unregister_callback("get_model_system_prompt", _augmenter)
+
+        assert "## Available Skills" in result.instructions
+        assert "- foo: bar" in result.instructions
+        assert result.user_prompt == "Hello"
+        assert result.is_claude_code is False
+
+    def test_handled_true_short_circuits_remaining_augmenters(self):
+        """A ``handled=True`` result must win outright — later augmenters in
+        the chain shouldn't get a chance to mutate the prompt.
+        """
+        calls: list[str] = []
+
+        def _taker(model_name, default_system_prompt, user_prompt):
+            calls.append("taker")
+            return {
+                "instructions": "TAKEN OVER",
+                "user_prompt": user_prompt,
+                "handled": True,
+            }
+
+        def _augmenter(model_name, default_system_prompt, user_prompt):
+            calls.append("augmenter")
+            return {
+                "instructions": f"{default_system_prompt}\nAUGMENTED",
+                "user_prompt": user_prompt,
+                "handled": False,
+            }
+
+        # Register taker first so it appears first in the dispatch order.
+        register_callback("get_model_system_prompt", _taker)
+        register_callback("get_model_system_prompt", _augmenter)
+        try:
+            result = prepare_prompt_for_model("gpt-4", "orig", "hello")
+        finally:
+            unregister_callback("get_model_system_prompt", _taker)
+            unregister_callback("get_model_system_prompt", _augmenter)
+
+        assert result.instructions == "TAKEN OVER"
+        # Both callbacks still fire (the dispatcher collects all results),
+        # but only the taker's output is honored.
+        assert "taker" in calls
 
 
 class TestGetClaudeCodeInstructions:

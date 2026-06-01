@@ -68,6 +68,7 @@ class ContextUsage:
     agents_md_tokens: int = 0
     pydantic_tools_tokens: int = 0
     mcp_tokens: int = 0
+    kennel_memory_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -190,12 +191,20 @@ def _raw_tokens_for_mcp_servers(mcp_servers: Optional[List[Any]]) -> int:
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class OverheadBreakdown:
-    """Per-bucket overhead estimate. All values are RAW (no multiplier)."""
+    """Per-bucket overhead estimate. All values are RAW (no multiplier).
+
+    The buckets form an additive partition of ``total``: ``kennel_memory``
+    is *carved out* of the resolved system prompt (since that's where the
+    memory block actually lives at runtime), so summing all five fields
+    still equals the true overhead — just with the memory chunk surfaced
+    as its own line so users can see what the kennel is eating.
+    """
 
     system_prompt_tokens: int
     agents_md_tokens: int
     pydantic_tools_tokens: int
     mcp_tokens: int
+    kennel_memory_tokens: int = 0
 
     @property
     def total(self) -> int:
@@ -204,6 +213,7 @@ class OverheadBreakdown:
             + self.agents_md_tokens
             + self.pydantic_tools_tokens
             + self.mcp_tokens
+            + self.kennel_memory_tokens
         )
 
 
@@ -258,6 +268,26 @@ def _live_mcp_servers_for(agent):
     return getattr(agent, "_mcp_servers", None) or None
 
 
+def _kennel_memory_block() -> str:
+    """Return the kennel's current recall block, or an empty string.
+
+    We call the kennel retriever directly — same code path the prompt
+    assembly uses on ``load_prompt`` — so the token count we report here
+    matches the block actually shipped to the model. Returns ``""`` when
+    the kennel plugin isn't installed, is disabled, or has nothing to
+    surface this turn.
+    """
+    try:
+        from code_puppy.plugins.puppy_kennel.retriever import build_recall_block
+    except Exception:
+        return ""
+    try:
+        block = build_recall_block()
+    except Exception:
+        return ""
+    return block or ""
+
+
 def _agent_tools(agent):
     """Best-effort pydantic-tool dict for the agent (or ``None``)."""
     try:
@@ -290,12 +320,26 @@ def compute_overhead_breakdown(agent) -> OverheadBreakdown:
     """
     from code_puppy.agents._builder import load_puppy_rules
 
-    # System prompt (resolved for the active model).
+    # System prompt (resolved for the active model). NB: this already
+    # includes any ``load_prompt`` plugin fragments — most notably the
+    # kennel memory block — so we'll carve those out below to avoid
+    # double-counting.
     try:
         resolved = _resolved_system_prompt(agent)
         system_tokens = _raw_estimate_tokens(resolved)
     except Exception:
         system_tokens = 0
+
+    # Kennel memory block — carved out of the system prompt so it gets
+    # its own line in /context. Clamp the subtraction to zero in the
+    # paranoid case where the resolved prompt somehow doesn't contain the
+    # block (e.g. agent overrode get_system_prompt without calling
+    # ``on_load_prompt``).
+    try:
+        kennel_tokens = _raw_estimate_tokens(_kennel_memory_block())
+    except Exception:
+        kennel_tokens = 0
+    system_tokens = max(0, system_tokens - kennel_tokens)
 
     # AGENTS.md / puppy rules — separate bucket so users can see how much of
     # their context budget is being eaten by project rules.
@@ -323,6 +367,7 @@ def compute_overhead_breakdown(agent) -> OverheadBreakdown:
         agents_md_tokens=int(agents_md_tokens),
         pydantic_tools_tokens=int(pydantic_tools_tokens),
         mcp_tokens=int(mcp_tokens),
+        kennel_memory_tokens=int(kennel_tokens),
     )
 
 
@@ -373,4 +418,5 @@ def get_current_usage() -> Optional[ContextUsage]:
         agents_md_tokens=breakdown.agents_md_tokens,
         pydantic_tools_tokens=breakdown.pydantic_tools_tokens,
         mcp_tokens=breakdown.mcp_tokens,
+        kennel_memory_tokens=breakdown.kennel_memory_tokens,
     )

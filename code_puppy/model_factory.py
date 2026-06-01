@@ -14,7 +14,7 @@ from pydantic_ai.models.openai import (
     OpenAIResponsesModel,
     OpenAIResponsesModelSettings,
 )
-from pydantic_ai.profiles import ModelProfile
+from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.cerebras import CerebrasProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
@@ -801,17 +801,18 @@ class ModelFactory:
             )
             return model
         elif model_type == "cerebras":
+            # Cerebras models may have a custom_endpoint (for proxy/custom URLs)
+            # or may use the default Cerebras endpoint with CEREBRAS_API_KEY.
+            custom_endpoint = model_config.get("custom_endpoint")
+            if custom_endpoint:
+                url, headers, verify, api_key, timeout = get_custom_config(model_config)
+            else:
+                # Default Cerebras setup: API key from env/config, no custom URL
+                api_key = get_api_key("CEREBRAS_API_KEY")
+                headers = {}
+                verify = get_cert_bundle_path()
+                timeout = None
 
-            class ZaiCerebrasProvider(CerebrasProvider):
-                def model_profile(self, model_name: str) -> ModelProfile | None:
-                    profile = super().model_profile(model_name)
-                    if model_name.startswith("zai"):
-                        from pydantic_ai.profiles.qwen import qwen_model_profile
-
-                        profile = profile.update(qwen_model_profile("qwen-3-coder"))
-                    return profile
-
-            url, headers, verify, api_key, timeout = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
                     f"API key is not set for Cerebras endpoint; skipping model '{model_config.get('name')}'."
@@ -828,13 +829,23 @@ class ModelFactory:
                 model_name="cerebras",
                 timeout=timeout if timeout is not None else 180,
             )
-            provider_args = dict(
+            provider = CerebrasProvider(
                 api_key=api_key,
                 http_client=client,
             )
-            provider = ZaiCerebrasProvider(**provider_args)
 
-            return OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            # Cerebras rejects requests with mixed 'strict' values on tools.
+            # Disable strict tool definitions so pydantic-ai never sends the
+            # 'strict' field, avoiding wrong_api_format errors.
+            profile = OpenAIModelProfile(
+                openai_supports_strict_tool_definition=False,
+            )
+
+            return OpenAIChatModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=profile,
+            )
 
         elif model_type == "openrouter":
             # Get API key from config, which can be an environment variable reference or raw value

@@ -49,6 +49,7 @@ class FileIndex:
         self._current: Index = _EMPTY_INDEX
         self._lock = threading.Lock()
         self._build_thread: Optional[threading.Thread] = None
+        self._test_mode: bool = False
 
     # ----------------------------------------------------------------- public
 
@@ -63,6 +64,11 @@ class FileIndex:
             root: Directory to index. Defaults to ``os.getcwd()``.
             blocking: When True, wait for the build to finish (used in tests).
         """
+        # Skip reindexing in test mode unless explicitly blocking (tests
+        # can still force a rebuild if needed).
+        if self._test_mode and not blocking:
+            return
+
         target_root = os.path.abspath(root or os.getcwd())
 
         # Don't pile up redundant rebuilds — if one's already in flight, let it
@@ -87,8 +93,13 @@ class FileIndex:
             thread.join()
 
     def set_for_testing(self, root: str, paths: List[str]) -> None:
-        """Inject an index directly. Tests only — keeps subprocess out of unit tests."""
+        """Inject an index directly. Tests only — keeps subprocess out of unit tests.
+
+        Also enables test mode which suppresses automatic reindexing for the rest
+        of the test session until reset.
+        """
         self._current = _make_index(os.path.abspath(root), paths)
+        self._test_mode = True
 
     # ---------------------------------------------------------------- private
 

@@ -366,21 +366,24 @@ def test_format_usage_report_breaks_out_mcp_and_agents_md():
     module = _plugin_module()
     usage = _usage_module().ContextUsage(
         used_tokens=1000,
-        overhead_tokens=900,
+        overhead_tokens=1300,
         capacity=10000,
         system_prompt_tokens=300,
         agents_md_tokens=200,
         pydantic_tools_tokens=150,
         mcp_tokens=250,
+        kennel_memory_tokens=400,
     )
     report = module._format_usage_report(usage)
     assert "System prompt" in report
     assert "AGENTS.md" in report
+    assert "Kennel memory" in report
     assert "Pydantic tools" in report
     assert "MCP toolsets" in report
     # Numbers show up with thousands separators.
     assert "300" in report
     assert "250" in report
+    assert "400" in report
 
 
 def test_format_usage_report_hides_empty_breakdown_buckets():
@@ -394,6 +397,7 @@ def test_format_usage_report_hides_empty_breakdown_buckets():
         agents_md_tokens=0,
         pydantic_tools_tokens=0,
         mcp_tokens=0,
+        kennel_memory_tokens=0,
     )
     report = module._format_usage_report(usage)
     # Use the breakdown row prefix "└─" so we don't false-positive on the
@@ -401,6 +405,7 @@ def test_format_usage_report_hides_empty_breakdown_buckets():
     assert "└─ System prompt" in report
     assert "└─ AGENTS.md" not in report
     assert "└─ MCP toolsets" not in report
+    assert "└─ Kennel memory" not in report
 
 
 def test_format_usage_report_omits_breakdown_block_when_all_zero():
@@ -412,3 +417,108 @@ def test_format_usage_report_omits_breakdown_block_when_all_zero():
     report = module._format_usage_report(usage)
     assert "└─" not in report
     assert "Overhead" in report
+
+
+# ---------------------------------------------------------------------------
+# Kennel memory carve-out
+# ---------------------------------------------------------------------------
+def test_overhead_breakdown_carves_kennel_memory_out_of_system_prompt():
+    """Kennel memory tokens are subtracted from the system prompt bucket.
+
+    The resolved system prompt already contains the kennel recall block
+    (because ``load_prompt`` callbacks are folded into it at assembly
+    time). To avoid double-counting we report ``system_prompt = resolved
+    - kennel`` and surface ``kennel_memory`` as its own additive bucket.
+    """
+    mod = _usage_module()
+
+    # Pick lengths whose raw-token counts (len // 2.5) are easy to reason
+    # about: 1000 chars -> 400 tokens; 250 chars -> 100 tokens.
+    resolved_prompt = "S" * 1000
+    kennel_block = "P" * 250
+
+    fake_agent = MagicMock()
+    with (
+        patch.object(mod, "_resolved_system_prompt", return_value=resolved_prompt),
+        patch.object(mod, "_kennel_memory_block", return_value=kennel_block),
+        patch("code_puppy.agents._builder.load_puppy_rules", return_value=""),
+        patch.object(mod, "_agent_tools", return_value=None),
+        patch.object(mod, "_live_mcp_servers_for", return_value=None),
+    ):
+        breakdown = mod.compute_overhead_breakdown(fake_agent)
+
+    assert breakdown.kennel_memory_tokens == 100
+    # 400 (raw resolved) - 100 (kennel) == 300 tokens left in system prompt.
+    assert breakdown.system_prompt_tokens == 300
+    # Carve-out preserves additive total.
+    assert breakdown.total == 400
+
+
+def test_overhead_breakdown_kennel_zero_when_block_empty():
+    """No kennel plugin / empty recall block -> bucket is zero, system prompt unchanged."""
+    mod = _usage_module()
+    resolved_prompt = "S" * 1000  # 400 raw tokens
+
+    fake_agent = MagicMock()
+    with (
+        patch.object(mod, "_resolved_system_prompt", return_value=resolved_prompt),
+        patch.object(mod, "_kennel_memory_block", return_value=""),
+        patch("code_puppy.agents._builder.load_puppy_rules", return_value=""),
+        patch.object(mod, "_agent_tools", return_value=None),
+        patch.object(mod, "_live_mcp_servers_for", return_value=None),
+    ):
+        breakdown = mod.compute_overhead_breakdown(fake_agent)
+
+    assert breakdown.kennel_memory_tokens == 0
+    assert breakdown.system_prompt_tokens == 400
+    assert breakdown.total == 400
+
+
+def test_overhead_breakdown_kennel_clamps_when_block_larger_than_resolved():
+    """Defensive: kennel bigger than resolved prompt clamps system_prompt to 0.
+
+    Should never happen in practice (the kennel block is part of the
+    resolved prompt), but guard against custom agents that override
+    ``get_system_prompt`` and skip ``on_load_prompt``.
+    """
+    mod = _usage_module()
+    resolved_prompt = "S" * 100  # 40 raw tokens
+    kennel_block = "P" * 1000  # 400 raw tokens
+
+    fake_agent = MagicMock()
+    with (
+        patch.object(mod, "_resolved_system_prompt", return_value=resolved_prompt),
+        patch.object(mod, "_kennel_memory_block", return_value=kennel_block),
+        patch("code_puppy.agents._builder.load_puppy_rules", return_value=""),
+        patch.object(mod, "_agent_tools", return_value=None),
+        patch.object(mod, "_live_mcp_servers_for", return_value=None),
+    ):
+        breakdown = mod.compute_overhead_breakdown(fake_agent)
+
+    assert breakdown.system_prompt_tokens == 0
+    assert breakdown.kennel_memory_tokens == 400
+
+
+def test_kennel_memory_block_swallows_retriever_exceptions(monkeypatch):
+    """Retriever blowups must never break /context."""
+    mod = _usage_module()
+    fake_retriever = MagicMock()
+    fake_retriever.build_recall_block.side_effect = RuntimeError("db on fire")
+    monkeypatch.setitem(
+        sys.modules,
+        "code_puppy.plugins.puppy_kennel.retriever",
+        fake_retriever,
+    )
+    assert mod._kennel_memory_block() == ""
+
+
+def test_kennel_memory_block_returns_empty_when_retriever_missing(monkeypatch):
+    """Kennel plugin uninstalled -> empty string, no exception."""
+    mod = _usage_module()
+    # Force the import inside ``_kennel_memory_block`` to fail.
+    monkeypatch.setitem(
+        sys.modules,
+        "code_puppy.plugins.puppy_kennel.retriever",
+        None,
+    )
+    assert mod._kennel_memory_block() == ""

@@ -187,6 +187,7 @@ def _format_overhead_breakdown(usage: ContextUsage) -> str:
     rows = (
         ("System prompt", usage.system_prompt_tokens),
         ("AGENTS.md     ", usage.agents_md_tokens),
+        ("Kennel memory", usage.kennel_memory_tokens),
         ("Pydantic tools", usage.pydantic_tools_tokens),
         ("MCP toolsets  ", usage.mcp_tokens),
     )
@@ -212,7 +213,7 @@ def _format_usage_report(usage: ContextUsage) -> str:
         f"  [{bar}]\n"
         f"{legend}\n"
         f"  Messages : {usage.used_tokens:,} tokens\n"
-        f"  Overhead : {usage.overhead_tokens:,} tokens (system prompt + AGENTS.md + tools + MCP)"
+        f"  Overhead : {usage.overhead_tokens:,} tokens (system prompt + AGENTS.md + kennel memory + tools + MCP)"
         f"{breakdown_block}\n"
         f"  Total    : {usage.total_tokens:,} / {usage.capacity:,} tokens\n"
         f"  Buckets  : 🟢 <30%   🟡 30–65%   🔴 ≥65%"
