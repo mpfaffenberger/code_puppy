@@ -243,18 +243,44 @@ def load_model_with_fallback(
     configured model. Raises ``ValueError`` only if nothing loads.
     """
     try:
-        return ModelFactory.get_model(
-            requested_model_name, models_config
-        ), requested_model_name
+        model = ModelFactory.get_model(requested_model_name, models_config)
+        if model is None:
+            raise ValueError(
+                f"Model '{requested_model_name}' was found in configuration but "
+                f"could not be instantiated (handler returned None)."
+            )
+        return model, requested_model_name
     except ValueError as exc:
         available = list(models_config.keys())
         available_str = (
             ", ".join(sorted(available)) if available else "no configured models"
         )
-        emit_warning(
-            f"Model '{requested_model_name}' not found. Available models: {available_str}",
-            message_group=message_group,
-        )
+        # Distinguish between "key missing", "type unsupported", and "creation failed"
+        exc_msg = str(exc)
+        if "not found in configuration" in exc_msg:
+            emit_warning(
+                f"Model '{requested_model_name}' not found. Available models: {available_str}",
+                message_group=message_group,
+            )
+        elif "Unsupported model type" in exc_msg:
+            model_type = models_config.get(requested_model_name, {}).get("type", "?")
+            emit_warning(
+                f"Model type '{model_type}' is not supported (model '{requested_model_name}'). "
+                f"Available models: {available_str}",
+                message_group=message_group,
+            )
+        elif "could not be instantiated" in exc_msg:
+            emit_warning(
+                f"Model '{requested_model_name}' could not be instantiated. "
+                f"Available models: {available_str}",
+                message_group=message_group,
+            )
+        else:
+            emit_warning(
+                f"Model '{requested_model_name}' failed: {exc_msg}. "
+                f"Available models: {available_str}",
+                message_group=message_group,
+            )
 
         candidates: List[str] = []
         global_candidate = get_global_model_name()
