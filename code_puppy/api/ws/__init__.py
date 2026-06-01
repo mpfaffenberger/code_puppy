@@ -6,9 +6,7 @@ that attaches one WebSocket route to the FastAPI application.
 Modules:
     - chat_handler: Interactive chat with the Code Puppy agent (/ws/chat)
     - events_handler: Server-sent events stream (/ws/events)
-    - terminal_handler: Interactive PTY terminal (/ws/terminal)
     - health_handler: Simple health check (/ws/health)
-    - sessions_handler: Real-time session monitoring (/ws/sessions)
     - connection_manager: Singleton for broadcasting session updates
     - attachments: File attachment processing utilities
 """
@@ -17,14 +15,10 @@ from code_puppy.api.ws.chat_handler import register_chat_endpoint
 from code_puppy.api.ws.connection_manager import connection_manager
 from code_puppy.api.ws.events_handler import register_events_endpoint
 from code_puppy.api.ws.health_handler import register_health_endpoint
-from code_puppy.api.ws.sessions_handler import register_sessions_endpoint
-from code_puppy.api.ws.terminal_handler import register_terminal_endpoint
 
 __all__ = [
     "register_chat_endpoint",
     "register_events_endpoint",
-    "register_terminal_endpoint",
     "register_health_endpoint",
-    "register_sessions_endpoint",
     "connection_manager",
 ]
