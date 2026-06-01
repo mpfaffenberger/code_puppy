@@ -385,10 +385,13 @@ class ServerAssistantMessageEnd(_BaseMessage):
     """Marks the end of a streaming assistant message part.
 
     ``full_content`` contains the complete accumulated text for the part.
+    ``part_type`` mirrors ``assistant_message_start`` for GUI reducers that
+    route text/thinking/tool-call parts consistently.
     """
 
     type: Literal["assistant_message_end"] = "assistant_message_end"
     message_id: str
+    part_type: Optional[str] = None
     part_index: int
     full_content: str
     timestamp: float
