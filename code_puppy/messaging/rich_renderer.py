@@ -818,8 +818,13 @@ class RichConsoleRenderer:
             f"[dim]({session_type})[/dim]"
         )
 
-        # Session ID
+        # Invocation details
         self._console.print(f"[dim]Session:[/dim] [bold]{msg.session_id}[/bold]")
+        if msg.model_name:
+            safe_model_name = escape_rich_markup(msg.model_name)
+            self._console.print(
+                f"[dim]Requested model override:[/dim] [bold magenta]{safe_model_name}[/bold magenta]"
+            )
 
         # Prompt (truncated if too long, rendered as markdown)
         prompt_display = (

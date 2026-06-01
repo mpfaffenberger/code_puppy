@@ -11,8 +11,9 @@ DBOS workflow-id tests were removed when DBOS moved to a plugin; see
 """
 
 import tempfile
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -156,6 +157,7 @@ class TestPydanticModels:
             assert output.response == "This is the agent's response"
             assert output.agent_name == "test-agent"
             assert output.session_id == "session-abc123"
+            assert output.model_name is None
             assert output.error is None
 
         def test_create_error_response(self):
@@ -176,6 +178,7 @@ class TestPydanticModels:
                 agent_name="agent",
             )
             assert output.session_id is None
+            assert output.model_name is None
             assert output.error is None
 
         def test_serialization(self):
@@ -184,11 +187,13 @@ class TestPydanticModels:
                 response="Hello!",
                 agent_name="greeter",
                 session_id="session-123",
+                model_name="test-model",
             )
             data = output.model_dump()
             assert data["response"] == "Hello!"
             assert data["agent_name"] == "greeter"
             assert data["session_id"] == "session-123"
+            assert data["model_name"] == "test-model"
 
 
 class TestRegisterListAgentsExecution:
@@ -433,6 +438,213 @@ class TestRegisterInvokeAgentExecution:
             assert result.error is not None
             assert "nonexistent-model" in result.error
             assert mock_emit_error.called
+
+    @pytest.mark.asyncio
+    async def test_invoke_agent_uses_model_override_for_runtime(self):
+        """A supplied model_name should drive all model-specific run setup."""
+        invoke_agent = self._get_registered_invoke_agent()
+        mock_context = MagicMock()
+
+        mock_agent_config = MagicMock()
+
+        @contextmanager
+        def temporary_override(model_name):
+            yield
+
+        mock_agent_config.temporary_model_name_override.side_effect = temporary_override
+        mock_agent_config.get_model_name.return_value = "override-model"
+        mock_agent_config.get_full_system_prompt.return_value = "Test instructions"
+        mock_agent_config.get_available_tools.return_value = ["list_files"]
+
+        mock_result = MagicMock()
+        mock_result.output = "subagent response"
+        mock_result.all_messages.return_value = ["updated-history"]
+
+        mock_temp_agent = MagicMock()
+        mock_temp_agent.run = AsyncMock(return_value=mock_result)
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.agent_tools.generate_group_id",
+                    return_value="test-group",
+                )
+            )
+            mock_bus = stack.enter_context(
+                patch("code_puppy.tools.agent_tools.get_message_bus")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.agent_tools.get_session_context",
+                    return_value="parent",
+                )
+            )
+            stack.enter_context(
+                patch("code_puppy.tools.agent_tools.set_session_context")
+            )
+            stack.enter_context(patch("code_puppy.tools.agent_tools.emit_info"))
+            stack.enter_context(patch("code_puppy.tools.agent_tools.emit_success"))
+            stack.enter_context(
+                patch("code_puppy.tools.agent_tools._save_session_history")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.agents.agent_manager.load_agent",
+                    return_value=mock_agent_config,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.model_factory.ModelFactory.load_config",
+                    return_value={"default-model": {}, "override-model": {}},
+                )
+            )
+            mock_get_model = stack.enter_context(
+                patch("code_puppy.model_factory.ModelFactory.get_model")
+            )
+            mock_settings = stack.enter_context(
+                patch("code_puppy.model_factory.make_model_settings")
+            )
+            stack.enter_context(
+                patch("code_puppy.agents._builder.load_puppy_rules", return_value=None)
+            )
+            stack.enter_context(
+                patch("code_puppy.callbacks.on_load_prompt", return_value=[])
+            )
+            mock_prepare = stack.enter_context(
+                patch("code_puppy.model_utils.prepare_prompt_for_model")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.agents._builder.autostart_bound_servers_async",
+                    new=AsyncMock(),
+                )
+            )
+            stack.enter_context(
+                patch("code_puppy.config.get_value", return_value="true")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.agents._compaction.make_history_processor",
+                    return_value=lambda messages: messages,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.agent_tools.Agent", return_value=mock_temp_agent
+                )
+            )
+            mock_register_tools = stack.enter_context(
+                patch("code_puppy.tools.register_tools_for_agent")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.agent_tools.on_wrap_pydantic_agent",
+                    side_effect=lambda _cfg, agent, **_kwargs: agent,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.agent_tools.on_agent_run_context", return_value=[]
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.agent_tools._load_session_history",
+                    return_value=[],
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.agent_tools._generate_session_hash_suffix",
+                    return_value="abc123",
+                )
+            )
+
+            mock_bus.return_value.emit = MagicMock()
+            mock_prepare.return_value = MagicMock(
+                instructions="prepared instructions", user_prompt="prepared prompt"
+            )
+
+            result = await invoke_agent(
+                mock_context,
+                agent_name="test-agent",
+                prompt="Hello",
+                model_name="override-model",
+            )
+
+        assert result.response == "subagent response"
+        assert result.model_name == "override-model"
+        mock_agent_config.temporary_model_name_override.assert_called_once_with(
+            "override-model"
+        )
+        mock_get_model.assert_called_once_with(
+            "override-model", {"default-model": {}, "override-model": {}}
+        )
+        mock_prepare.assert_called_once()
+        assert mock_prepare.call_args.args[0] == "override-model"
+        mock_settings.assert_called_once_with("override-model")
+        assert mock_register_tools.call_args.kwargs["model_name"] == "override-model"
+
+    @pytest.mark.asyncio
+    async def test_invoke_agent_invalid_override_returns_error(self):
+        """Invalid explicit model overrides should fail, not silently fallback."""
+        invoke_agent = self._get_registered_invoke_agent()
+        mock_context = MagicMock()
+
+        mock_agent_config = MagicMock()
+
+        @contextmanager
+        def temporary_override(model_name):
+            yield
+
+        mock_agent_config.temporary_model_name_override.side_effect = temporary_override
+        mock_agent_config.get_model_name.return_value = "missing-model"
+
+        with (
+            patch(
+                "code_puppy.tools.agent_tools.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.agent_tools.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context",
+                return_value="parent",
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=mock_agent_config,
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value={"default-model": {}},
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._load_session_history", return_value=[]
+            ),
+            patch(
+                "code_puppy.tools.agent_tools._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
+        ):
+            mock_bus.return_value.emit = MagicMock()
+
+            result = await invoke_agent(
+                mock_context,
+                agent_name="test-agent",
+                prompt="Hello",
+                model_name="missing-model",
+            )
+
+        assert result.response is None
+        assert result.model_name == "missing-model"
+        assert result.error is not None
+        assert "missing-model" in result.error
+        mock_agent_config.temporary_model_name_override.assert_called_once_with(
+            "missing-model"
+        )
 
     @pytest.mark.asyncio
     async def test_invoke_agent_session_context_restored_on_error(self):

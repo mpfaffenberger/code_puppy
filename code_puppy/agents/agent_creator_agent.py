@@ -256,19 +256,23 @@ DONT USE THE TERMINAL TOOL TO RUN THE CODE WE WROTE UNLESS THE USER ASKS YOU TO.
 #### `list_agents()`
 Use this to list all available sub-agents that can be invoked
 
-#### `invoke_agent(agent_name: str, user_prompt: str, session_id: str | None = None)`
+#### `invoke_agent(agent_name: str, prompt: str, session_id: str | None = None, model_name: str | None = None)`
 Use this to invoke another agent with a specific prompt. This allows agents to delegate tasks to specialized sub-agents.
 
 Arguments:
 - agent_name (required): Name of the agent to invoke
-- user_prompt (required): The prompt to send to the invoked agent
+- prompt (required): The prompt to send to the invoked agent
 - session_id (optional): Kebab-case session identifier for conversation memory
   - Format: lowercase, numbers, hyphens only (e.g., "implement-oauth", "review-auth")
   - For NEW sessions: provide a base name - a SHA1 hash suffix is automatically appended for uniqueness
   - To CONTINUE a session: use the session_id from the previous invocation's response
   - If None (default): Auto-generates a unique session like "agent-name-session-a3f2b1"
+- model_name (optional): Configured model name to use for this invocation only
+  - Overrides the invoked agent's default/pinned model for this run
+  - Does not change global model settings or future invocations
+  - Use only when the user/project instructions specify model preferences or an escalation is warranted
 
-Returns: `{{response, agent_name, session_id, error}}`
+Returns: `{{response, agent_name, session_id, model_name, error}}`
 - **session_id in the response is the FULL ID** - use this to continue the conversation!
 
 Example usage:
@@ -276,14 +280,14 @@ Example usage:
 # Common case: one-off invocation (no memory needed)
 result = invoke_agent(
     agent_name="python-tutor", 
-    user_prompt="Explain how to use list comprehensions"
+    prompt="Explain how to use list comprehensions"
 )
 # result.session_id contains the auto-generated full ID
 
 # Multi-turn conversation: start with a base session_id
 result1 = invoke_agent(
     agent_name="code-reviewer", 
-    user_prompt="Review this authentication code",
+    prompt="Review this authentication code",
     session_id="auth-code-review"  # Hash suffix auto-appended
 )
 # result1.session_id is now "auth-code-review-a3f2b1" (or similar)
@@ -291,17 +295,32 @@ result1 = invoke_agent(
 # Continue the SAME conversation using session_id from the response
 result2 = invoke_agent(
     agent_name="code-reviewer",
-    user_prompt="Can you also check the authorization logic?",
+    prompt="Can you also check the authorization logic?",
     session_id=result1.session_id  # Use session_id from previous response!
 )
 
 # Independent task (different base name = different session)
 result3 = invoke_agent(
     agent_name="code-reviewer",
-    user_prompt="Review the payment processing code",
+    prompt="Review the payment processing code",
     session_id="payment-review"  # Gets its own unique hash suffix
 )
 # result3.session_id is different from result1.session_id
+
+# Per-call model override: use only real configured model names
+quick_review = invoke_agent(
+    agent_name="code-reviewer",
+    prompt="Cheap first pass: look for obvious issues only.",
+    model_name="<configured-fast-model-name>"
+)
+
+if quick_review.error or "uncertain" in (quick_review.response or "").lower():
+    deep_review = invoke_agent(
+        agent_name="code-reviewer",
+        prompt="Continue from the previous review and reason more deeply.",
+        session_id=quick_review.session_id,
+        model_name="<configured-strong-reasoning-model-name>"
+    )
 ```
 
 Best-practice guidelines for `invoke_agent`:
@@ -309,6 +328,7 @@ Best-practice guidelines for `invoke_agent`:
 • Clearly specify what you want the invoked agent to do
 • Be specific in your prompts to get better results
 • Avoid circular dependencies (don't invoke yourself!)
+• `model_name` is a temporary runtime override; omit it unless the task/user instructions justify a specific configured model
 • **Session management:**
   - Default behavior (session_id=None): Each invocation is independent with no memory
   - For NEW sessions: provide a human-readable base name like "review-oauth" - hash suffix is auto-appended
