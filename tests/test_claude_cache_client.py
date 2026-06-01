@@ -587,6 +587,21 @@ class TestToolPrefixing:
 
         assert result is None
 
+    def test_apply_claude_code_prefix_defaults_to_false(self):
+        """Default constructor must NOT opt into Claude Code OAuth prefixing.
+
+        This is the regression guard for the bug where custom_anthropic models
+        were having tool names mangled with ``cp_`` even though they're not
+        talking to the Claude Code OAuth endpoint.
+        """
+        client = ClaudeCacheAsyncClient()
+        assert client._apply_claude_code_prefix is False
+
+    def test_apply_claude_code_prefix_opt_in(self):
+        """Plugins (claude_code_oauth) opt in explicitly via constructor flag."""
+        client = ClaudeCacheAsyncClient(apply_claude_code_prefix=True)
+        assert client._apply_claude_code_prefix is True
+
 
 class TestHeaderTransformation:
     """Test header transformation for Claude Code OAuth compatibility."""
@@ -689,3 +704,110 @@ class TestUrlBetaParam:
 
         # Should be unchanged
         assert str(new_url).count("beta") == 1
+
+
+class TestSendAppliesPrefixConditionally:
+    """End-to-end: ``send()`` only prefixes tool names when the flag is on.
+
+    These tests are the actual regression guard for the bug: custom_anthropic
+    routes through ``ClaudeCacheAsyncClient`` without ``apply_claude_code_prefix``
+    set, so tool names sent over the wire must remain verbatim.
+    """
+
+    @pytest.mark.asyncio
+    async def test_send_does_not_prefix_when_flag_off(self):
+        """custom_anthropic path: tool names go out clean (no ``cp_`` prefix)."""
+        captured: dict = {}
+
+        async def fake_send(self, request, *args, **kwargs):
+            captured["body"] = bytes(request.content)
+            captured["url"] = str(request.url)
+            response = Mock(spec=httpx.Response)
+            response.status_code = 200
+            response.headers = {"content-type": "application/json"}
+            response._content = b"{}"
+            return response
+
+        with (
+            patch.object(httpx.AsyncClient, "send", new=fake_send),
+            patch.object(
+                ClaudeCacheAsyncClient,
+                "_check_stored_token_expiry",
+                return_value=False,
+            ),
+        ):
+            # Default: apply_claude_code_prefix=False (custom_anthropic case)
+            client = ClaudeCacheAsyncClient(
+                headers={"Authorization": "Bearer some_token"}
+            )
+            request = httpx.Request(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={"Authorization": "Bearer some_token"},
+                content=json.dumps(
+                    {
+                        "model": "claude-3-opus",
+                        "tools": [
+                            {"name": "read_file", "description": "read"},
+                            {"name": "edit_file", "description": "edit"},
+                        ],
+                        "messages": [{"role": "user", "content": "hi"}],
+                    }
+                ).encode(),
+            )
+
+            await client.send(request)
+
+        assert "body" in captured, "send did not run our fake transport"
+        sent = json.loads(captured["body"])
+        tool_names = [t["name"] for t in sent["tools"]]
+        assert tool_names == ["read_file", "edit_file"], (
+            f"custom_anthropic path must not prefix tool names, got {tool_names}"
+        )
+        assert TOOL_PREFIX not in captured["body"].decode("utf-8")
+
+    @pytest.mark.asyncio
+    async def test_send_does_prefix_when_flag_on(self):
+        """claude_code OAuth path: tool names get the ``cp_`` prefix."""
+        captured: dict = {}
+
+        async def fake_send(self, request, *args, **kwargs):
+            captured["body"] = bytes(request.content)
+            response = Mock(spec=httpx.Response)
+            response.status_code = 200
+            response.headers = {"content-type": "application/json"}
+            response._content = b"{}"
+            return response
+
+        with (
+            patch.object(httpx.AsyncClient, "send", new=fake_send),
+            patch.object(
+                ClaudeCacheAsyncClient,
+                "_check_stored_token_expiry",
+                return_value=False,
+            ),
+        ):
+            client = ClaudeCacheAsyncClient(
+                headers={"Authorization": "Bearer some_token"},
+                apply_claude_code_prefix=True,
+            )
+            request = httpx.Request(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={"Authorization": "Bearer some_token"},
+                content=json.dumps(
+                    {
+                        "model": "claude-3-opus",
+                        "tools": [
+                            {"name": "read_file", "description": "read"},
+                        ],
+                        "messages": [{"role": "user", "content": "hi"}],
+                    }
+                ).encode(),
+            )
+
+            await client.send(request)
+
+        sent = json.loads(captured["body"])
+        tool_names = [t["name"] for t in sent["tools"]]
+        assert tool_names == [f"{TOOL_PREFIX}read_file"]

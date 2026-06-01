@@ -217,3 +217,113 @@ class TestApplyAllPatches:
 
         # Should not raise
         apply_all_patches()
+
+
+class TestClaudeCodeToolPrefixGating:
+    """Regression guard: ``cp_`` stripping is gated on the active model type.
+
+    Before the fix, ``_normalize_tool_name`` stripped the prefix unconditionally,
+    which would corrupt legitimate tool names beginning with ``cp_`` whenever
+    a non-claude-code model (e.g. ``custom_anthropic``) was active.
+    """
+
+    def _install_patch(self):
+        """Install the tool-call patch and return the patched ToolManager class."""
+        from code_puppy.pydantic_patches import patch_tool_call_callbacks
+
+        patch_tool_call_callbacks()
+        from pydantic_ai._tool_manager import ToolManager
+
+        return ToolManager
+
+    def test_unprefix_when_claude_code_active(self):
+        ToolManager = self._install_patch()
+
+        seen_names: list = []
+
+        def fake_lookup(self, name):  # mimic _original_get_tool_def signature
+            seen_names.append(name)
+            return None
+
+        with (
+            patch(
+                "pydantic_ai._tool_manager.ToolManager.get_tool_def",
+                fake_lookup,
+            ),
+            patch(
+                "code_puppy.config.get_global_model_name",
+                return_value="claude-code-claude-opus-4-7",
+            ),
+        ):
+            # Re-apply patch so it captures our fake _original_get_tool_def
+            from code_puppy.pydantic_patches import patch_tool_call_callbacks
+
+            patch_tool_call_callbacks()
+            mgr = ToolManager.__new__(ToolManager)
+            ToolManager.get_tool_def(mgr, "cp_read_file")
+
+        assert seen_names == ["read_file"], (
+            f"claude-code active: prefix should be stripped, got {seen_names}"
+        )
+
+    def test_no_unprefix_when_custom_anthropic_active(self):
+        ToolManager = self._install_patch()
+
+        seen_names: list = []
+
+        def fake_lookup(self, name):
+            seen_names.append(name)
+            return None
+
+        with (
+            patch(
+                "pydantic_ai._tool_manager.ToolManager.get_tool_def",
+                fake_lookup,
+            ),
+            patch(
+                "code_puppy.config.get_global_model_name",
+                return_value="some-custom-anthropic-model",
+            ),
+        ):
+            from code_puppy.pydantic_patches import patch_tool_call_callbacks
+
+            patch_tool_call_callbacks()
+            mgr = ToolManager.__new__(ToolManager)
+            # A tool whose real name legitimately begins with ``cp_``
+            ToolManager.get_tool_def(mgr, "cp_read_file")
+
+        assert seen_names == ["cp_read_file"], (
+            f"non-claude-code: prefix must be preserved verbatim, got {seen_names}"
+        )
+
+    def test_no_unprefix_when_model_lookup_fails(self):
+        """If the model name can't be determined, default to NOT stripping.
+
+        Defensive default: it's better to fail a claude-code tool lookup than to
+        silently mangle a legitimately-prefixed tool name for another model.
+        """
+        ToolManager = self._install_patch()
+
+        seen_names: list = []
+
+        def fake_lookup(self, name):
+            seen_names.append(name)
+            return None
+
+        def boom():
+            raise RuntimeError("config not initialised")
+
+        with (
+            patch(
+                "pydantic_ai._tool_manager.ToolManager.get_tool_def",
+                fake_lookup,
+            ),
+            patch("code_puppy.config.get_global_model_name", side_effect=boom),
+        ):
+            from code_puppy.pydantic_patches import patch_tool_call_callbacks
+
+            patch_tool_call_callbacks()
+            mgr = ToolManager.__new__(ToolManager)
+            ToolManager.get_tool_def(mgr, "cp_read_file")
+
+        assert seen_names == ["cp_read_file"]
