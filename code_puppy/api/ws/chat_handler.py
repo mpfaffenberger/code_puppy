@@ -22,16 +22,13 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
 from code_puppy.api.db.queries import (
     update_session_working_directory,
-    write_error_message_to_sqlite,
     write_system_message_to_sqlite,
-    write_turn_to_sqlite,
 )
 from code_puppy.api.session_context import _validate_session_id, session_manager
 from code_puppy.api.ws.attachments import build_file_context_and_attachments
@@ -49,6 +46,13 @@ from code_puppy.api.ws.history_utils import (
     build_enhanced_history,
     estimate_total_tokens,
 )
+from code_puppy.api.ws.send_utils import WebSocketSender
+from code_puppy.api.ws.session_persistence import (
+    build_session_meta_payload,
+    build_session_update_payload,
+    persist_turn_to_sqlite,
+    resolve_agent_model_meta,
+)
 from code_puppy.api.ws.schemas import (
     PROTOCOL_VERSION,
     ClientMessage,
@@ -60,7 +64,6 @@ from code_puppy.api.ws.schemas import (
     ServerCommandResult,
     ServerConfigValue,
     ServerError,
-    ServerMessage,
     ServerSessionMetaUpdated,
     ServerSessionRestored,
     ServerSessionSwitched,
@@ -147,93 +150,15 @@ def register_chat_endpoint(app: FastAPI) -> None:
             "Chat WebSocket client connected (session_id param: %s)", session_id
         )
 
-        # Flag to track if WebSocket is still open
-        ws_closed = False
+        # WebSocketSender encapsulates sender.ws_closed, safe_send_json,
+        # persist_error_payload, send_typed, and send_typed_tool_lifecycle.
+        sender = WebSocketSender(websocket, session_id)
 
-        async def persist_error_payload(data: dict[str, Any]) -> None:
-            """Persist structured error frames so they survive reloads."""
-            if data.get("type") != "error" or not session_id:
-                return
-
-            try:
-                await write_error_message_to_sqlite(
-                    session_id=session_id,
-                    error=str(data.get("error") or "An unknown error occurred"),
-                    error_type=str(data.get("error_type") or "unknown"),
-                    technical_details=str(data.get("technical_details") or ""),
-                    action_required=data.get("action_required"),
-                    agent_name=(ctx.agent_name if ctx else ""),
-                    model_name=(ctx.model_name if ctx else ""),
-                    timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                )
-            except Exception:
-                logger.warning(
-                    "[WS:%s] Failed to persist error payload to SQLite",
-                    session_id,
-                    exc_info=True,
-                )
-
-        async def safe_send_json(data: dict) -> bool:
-            """Safely send JSON to WebSocket, returns False if connection is closed."""
-            nonlocal ws_closed
-            if ws_closed:
-                logger.debug(
-                    "[WS:%s] safe_send_json skipped (ws_closed=True): type=%s",
-                    session_id,
-                    data.get("type"),
-                )
-                return False
-
-            msg_type = data.get("type")
-            if msg_type in {
-                "error",
-                "response",
-                "assistant_message_start",
-                "assistant_message_end",
-            }:
-                # Keep this low-noise but useful for tracing request lifecycle
-                logger.debug(
-                    "[WS:%s] → send_json type=%s keys=%s",
-                    session_id,
-                    msg_type,
-                    sorted(list(data.keys())),
-                )
-                if msg_type == "error":
-                    logger.debug(
-                        "[WS:%s] error payload: error_type=%r action_required=%r error=%r",
-                        session_id,
-                        data.get("error_type"),
-                        data.get("action_required"),
-                        (data.get("error") or "")[:300],
-                    )
-
-            try:
-                if msg_type == "error":
-                    await persist_error_payload(data)
-                await websocket.send_json(data)
-                return True
-            except Exception as e:
-                logger.warning(
-                    "[WS:%s] send_json failed for type=%s: %s",
-                    session_id,
-                    msg_type,
-                    e,
-                    exc_info=True,
-                )
-                if "close message" in str(e).lower() or "closed" in str(e).lower():
-                    ws_closed = True
-                    logger.debug("WebSocket closed, stopping sends")
-                return False
-
-        async def send_typed(msg: ServerMessage) -> bool:
-            """Send a typed protocol message to the client."""
-            return await safe_send_json(msg.model_dump(exclude_none=True))
-
-        async def send_typed_tool_lifecycle(
-            msg: ServerToolCall | ServerToolResult,
-        ) -> bool:
-            """Send tool lifecycle frames to the client."""
-            return await send_typed(msg)
+        # Convenience aliases for call-site compatibility.
+        safe_send_json = sender.safe_send_json
+        send_typed = sender.send_typed
+        send_typed_tool_lifecycle = sender.send_typed_tool_lifecycle
+        persist_error_payload = sender.persist_error_payload
 
         ctx = None
         session_title = ""
@@ -289,6 +214,7 @@ def register_chat_endpoint(app: FastAPI) -> None:
                     # get_or_load_session checks in-memory first, then falls
                     # back to a fresh SQLite load. SQLite is the sole source of truth.
                     ctx = await session_manager.get_or_load_session(session_id)
+                    sender.ctx = ctx
                     if ctx is None:
                         # SQLite confirmed this session exists but load returned None.
                         # This is unexpected (DB race, corrupt row, or schema mismatch).
@@ -301,6 +227,7 @@ def register_chat_endpoint(app: FastAPI) -> None:
                             session_id,
                         )
                         ctx = await session_manager.create_session(session_id)
+                        sender.ctx = ctx
                     else:
                         # Update local state from loaded metadata
                         session_title = ctx.title
@@ -308,10 +235,12 @@ def register_chat_endpoint(app: FastAPI) -> None:
                         session_pinned = ctx.pinned
                 else:
                     ctx = await session_manager.create_session(session_id)
+                    sender.ctx = ctx
             except Exception as e:
                 logger.warning("SessionManager init failed, falling back: %s", e)
                 try:
                     ctx = await session_manager.create_session(session_id)
+                    sender.ctx = ctx
                 except Exception:
                     logger.error("SessionManager fallback also failed", exc_info=True)
                     await websocket.close(code=1011, reason="Session init failed")
@@ -650,6 +579,7 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                 session_pinned = False
 
                                 ctx = await session_manager.create_session(session_id)
+                                sender.ctx = ctx
                                 # Mark the new session as active
                                 await session_manager.mark_session_active(session_id)
                                 agent = ctx.agent
@@ -708,6 +638,7 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                     pass
 
                                 ctx = await session_manager.create_session(session_id)
+                                sender.ctx = ctx
                                 ctx.title = new_title
                                 ctx.working_directory = new_working_directory
                                 ctx.pinned = new_pinned
@@ -1229,7 +1160,7 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                 ready_event: asyncio.Event = None,
                             ):
                                 """Background task to drain events and send structured messages in real-time."""
-                                nonlocal collected_text, b1_streaming_used, ws_closed
+                                nonlocal collected_text, b1_streaming_used
                                 import time as time_module
 
                                 # Capture agent and model metadata at the start.
@@ -1360,7 +1291,7 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                 first_iteration = True
                                 while not stop_draining.is_set():
                                     # Exit if WebSocket is closed
-                                    if ws_closed:
+                                    if sender.ws_closed:
                                         logger.debug(
                                             "WebSocket closed, exiting drain loop"
                                         )
@@ -2302,7 +2233,7 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                                 "close message" in error_msg
                                                 or "closed" in error_msg
                                             ):
-                                                ws_closed = True
+                                                sender.ws_closed = True
                                                 logger.debug(
                                                     "WebSocket closed during streaming, stopping drain"
                                                 )
@@ -3502,18 +3433,8 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                     # Title is stored only in the meta file, not in the filename
                                     session_name = session_id
 
-                                    # Wrap each message with metadata for complete session information.
-                                    # Chain `or` fallbacks: agent.name can be "" before the agent
-                                    # object is fully configured, so we cascade to context defaults.
-                                    agent_name_meta = (
-                                        (agent.name if agent else "")
-                                        or ctx.agent_name
-                                        or "code-puppy"
-                                    )
-                                    model_name_meta = (
-                                        (agent.get_model_name() if agent else "")
-                                        or ctx.model_name
-                                        or "unknown"
+                                    agent_name_meta, model_name_meta = resolve_agent_model_meta(
+                                        agent=agent, ctx=ctx
                                     )
 
                                     enhanced_history = build_enhanced_history(
@@ -3536,65 +3457,43 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                         enhanced_history, agent
                                     )
 
-                                    # Write to SQLite for FE read path
-                                    try:
-                                        import datetime as _dt_mod
-
-                                        _now_iso = _dt_mod.datetime.now(
-                                            _dt_mod.timezone.utc
-                                        ).isoformat()
-                                        await write_turn_to_sqlite(
-                                            session_id=session_id,
-                                            enhanced_history=enhanced_history,
-                                            title=session_title,
-                                            working_directory=session_working_directory,
-                                            pinned=session_pinned,
-                                            agent_name=agent_name,
-                                            model_name=model_name,
-                                            total_tokens=total_tokens,
-                                            updated_at=_now_iso,
-                                            created_at=ctx.created_at.isoformat(),
-                                            ctx=ctx,
-                                        )
-                                    except Exception as _db_exc:
-                                        logger.debug(
-                                            "SQLite turn write skipped (DB not available): %s",
-                                            _db_exc,
-                                        )
+                                    await persist_turn_to_sqlite(
+                                        session_id=session_id,
+                                        enhanced_history=enhanced_history,
+                                        title=session_title,
+                                        working_directory=session_working_directory,
+                                        pinned=session_pinned,
+                                        agent_name=agent_name,
+                                        model_name=model_name,
+                                        total_tokens=total_tokens,
+                                        created_at_iso=ctx.created_at.isoformat(),
+                                        ctx=ctx,
+                                    )
 
                                     # Send session metadata update to client
-                                    await websocket.send_json(
-                                        {
-                                            "type": "session_meta",
-                                            "session_id": session_id,
-                                            "session_name": session_name,
-                                            "total_tokens": total_tokens,
-                                            "message_count": message_count,
-                                            "title": session_title,
-                                            "working_directory": session_working_directory,
-                                            "agent_name": agent_name,
-                                            "model_name": model_name,
-                                        }
+                                    await safe_send_json(
+                                        build_session_meta_payload(
+                                            session_id=session_id,
+                                            session_name=session_name,
+                                            total_tokens=total_tokens,
+                                            message_count=message_count,
+                                            title=session_title,
+                                            working_directory=session_working_directory,
+                                            agent_name=agent_name,
+                                            model_name=model_name,
+                                        )
                                     )
 
                                     # Broadcast session update to session monitoring clients
-                                    session_update_data = {
-                                        "session_id": session_id,
-                                        "session_name": session_name,
-                                        "title": session_title,
-                                        "working_directory": session_working_directory,
-                                        "timestamp": datetime.datetime.now().isoformat(),
-                                        "message_count": message_count,
-                                        "total_tokens": total_tokens,
-                                        "auto_saved": True,
-                                        "pickle_path": "",
-                                        "metadata_path": "",
-                                        "action": "created"
-                                        if message_count == 1
-                                        else "updated",
-                                    }
                                     await connection_manager.broadcast_session_update(
-                                        session_update_data
+                                        build_session_update_payload(
+                                            session_id=session_id,
+                                            session_name=session_name,
+                                            title=session_title,
+                                            working_directory=session_working_directory,
+                                            message_count=message_count,
+                                            total_tokens=total_tokens,
+                                        )
                                     )
                             except Exception as save_err:
                                 logger.warning(
@@ -3646,7 +3545,7 @@ def register_chat_endpoint(app: FastAPI) -> None:
                 except Exception as e:
                     logger.error("Chat WebSocket error: %s", e, exc_info=True)
                     # Don't try to send error if websocket is already closed
-                    if ws_closed:
+                    if sender.ws_closed:
                         break
                     try:
                         _err_msg = ServerError(
@@ -3662,7 +3561,7 @@ def register_chat_endpoint(app: FastAPI) -> None:
                         break
 
         except WebSocketDisconnect:
-            ws_closed = True
+            sender.ws_closed = True
             logger.debug("Chat WebSocket client disconnected")
         except Exception as e:
             logger.error("Chat WebSocket error: %s", e, exc_info=True)
