@@ -75,8 +75,33 @@ def _expand_at_references(text: str, base_dir: Path) -> str:
 
     def _replacer(match: re.Match) -> str:
         ref_path = _resolve_at_ref(base_dir, match.group(1))
-        if ref_path and ref_path.is_file():
+        if not ref_path:
+            return match.group(0)
+
+        if ref_path.is_file():
             return ref_path.read_text(encoding="utf-8-sig").rstrip("\n")
+            
+        if ref_path.is_dir():
+            code_puppy_dir = ref_path / _CODE_PUPPY_DIR
+            if code_puppy_dir.is_dir():
+                for name in _AGENT_RULE_FILES:
+                    candidate = code_puppy_dir / name
+                    if candidate.is_file():
+                        return candidate.read_text(encoding="utf-8-sig").rstrip("\n")
+            for name in _AGENT_RULE_FILES:
+                candidate = ref_path / name
+                if candidate.is_file():
+                    return candidate.read_text(encoding="utf-8-sig").rstrip("\n")
+            for name in _CLAUDE_FALLBACK_FILES:
+                candidate = ref_path / name
+                if candidate.is_file():
+                    return candidate.read_text(encoding="utf-8-sig").rstrip("\n")
+
+        for ext in (".md", ".txt"):
+            candidate = ref_path.parent / f"{ref_path.name}{ext}"
+            if candidate.is_file():
+                return candidate.read_text(encoding="utf-8-sig").rstrip("\n")
+
         return match.group(0)  # leave unresolvable/unsafe refs intact
 
     return _AT_REF_RE.sub(_replacer, text)
