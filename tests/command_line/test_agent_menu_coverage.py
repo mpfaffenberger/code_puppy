@@ -141,53 +141,212 @@ class TestNormalizeModelChoice:
 
 
 class TestSelectPinnedModel:
-    @pytest.mark.asyncio
-    @patch("code_puppy.command_line.agent_menu.arrow_select_async")
-    @patch(
-        "code_puppy.command_line.agent_menu.load_model_names", return_value=["m1", "m2"]
-    )
-    @patch(
-        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
-    )
-    async def test_success(self, mock_pin, mock_load, mock_select):
-        mock_select.return_value = "  m1"
-        result = await _select_pinned_model("agent1")
-        assert result == "m1"
+    """Tests for the reused ``ModelSelectionMenu`` integration in
+    ``_select_pinned_model``.
+
+    The refactor swapped the legacy ``arrow_select_async`` flat-list
+    picker for the shared ``ModelSelectionMenu`` (the same picker used
+    by ``/model``), parameterised with an ``(unpin)`` sentinel. These
+    tests mock the picker so the test environment never starts a real
+    TUI; the legacy ``arrow_select_async`` fallback is still exercised
+    by the ``EOFError`` tests so we keep the graceful-degradation
+    behaviour.
+    """
 
     @pytest.mark.asyncio
-    @patch(
-        "code_puppy.command_line.agent_menu.arrow_select_async",
-        side_effect=KeyboardInterrupt,
-    )
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
     @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=["m1"])
     @patch(
         "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
     )
-    async def test_cancelled(self, mock_pin, mock_load, mock_select):
+    async def test_picker_returns_model(self, mock_pin, mock_load, mock_menu_cls):
+        """Picker returns a model name -> that name flows through."""
+        mock_menu_cls.return_value.run_async = AsyncMock(return_value="m1")
         result = await _select_pinned_model("agent1")
-        assert result is None
+        assert result == "m1"
+        mock_menu_cls.assert_called_once()
+        # The (unpin) sentinel is in extra_options.
+        kwargs = mock_menu_cls.call_args.kwargs
+        assert ("(unpin)", "Reset to default model") in kwargs["extra_options"]
 
     @pytest.mark.asyncio
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
+    @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=["m1"])
     @patch(
-        "code_puppy.command_line.agent_menu.load_model_names",
-        side_effect=Exception("fail"),
+        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
     )
-    async def test_load_error(self, mock_load):
+    async def test_picker_returns_unpin_sentinel(
+        self, mock_pin, mock_load, mock_menu_cls
+    ):
+        """Picker returns '(unpin)' -> that literal string flows through."""
+        mock_menu_cls.return_value.run_async = AsyncMock(return_value="(unpin)")
+        result = await _select_pinned_model("agent1")
+        assert result == "(unpin)"
+
+    @pytest.mark.asyncio
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
+    @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=["m1"])
+    @patch(
+        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
+    )
+    async def test_picker_cancelled(self, mock_pin, mock_load, mock_menu_cls):
+        """Picker returns None -> _select_pinned_model returns None."""
+        mock_menu_cls.return_value.run_async = AsyncMock(return_value=None)
         result = await _select_pinned_model("agent1")
         assert result is None
 
     @pytest.mark.asyncio
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
+    @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=["m1"])
+    @patch(
+        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
+    )
+    async def test_picker_keyboard_interrupt(self, mock_pin, mock_load, mock_menu_cls):
+        """KeyboardInterrupt from the picker is swallowed -> None."""
+        mock_menu_cls.return_value.run_async = AsyncMock(side_effect=KeyboardInterrupt)
+        result = await _select_pinned_model("agent1")
+        assert result is None
+
+    @pytest.mark.asyncio
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
+    @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=["m1"])
+    @patch(
+        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
+    )
+    async def test_picker_generic_exception(self, mock_pin, mock_load, mock_menu_cls):
+        """A generic exception from the picker is swallowed -> None."""
+        mock_menu_cls.return_value.run_async = AsyncMock(side_effect=Exception("boom"))
+        result = await _select_pinned_model("agent1")
+        assert result is None
+
+    @pytest.mark.asyncio
+    @patch("code_puppy.command_line.agent_menu.arrow_select_async")
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
+    @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=["m1"])
+    @patch(
+        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
+    )
+    async def test_picker_eof_falls_back_to_legacy_picker_model(
+        self, mock_pin, mock_load, mock_menu_cls, mock_legacy
+    ):
+        """EOFError from the picker falls back to ``arrow_select_async``."""
+        mock_menu_cls.return_value.run_async = AsyncMock(side_effect=EOFError)
+        mock_legacy.return_value = "  m1"
+        result = await _select_pinned_model("agent1")
+        assert result == "m1"
+        mock_legacy.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("code_puppy.command_line.agent_menu.arrow_select_async")
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
+    @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=["m1"])
+    @patch(
+        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
+    )
+    async def test_picker_eof_falls_back_to_legacy_picker_unpin(
+        self, mock_pin, mock_load, mock_menu_cls, mock_legacy
+    ):
+        """EOFError + legacy unpin choice -> '(unpin)'."""
+        mock_menu_cls.return_value.run_async = AsyncMock(side_effect=EOFError)
+        mock_legacy.return_value = " (unpin)"
+        result = await _select_pinned_model("agent1")
+        assert result == "(unpin)"
+
+    @pytest.mark.asyncio
+    @patch("code_puppy.command_line.agent_menu.arrow_select_async")
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
+    @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=["m1"])
+    @patch(
+        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
+    )
+    async def test_picker_eof_legacy_keyboard_interrupt(
+        self, mock_pin, mock_load, mock_menu_cls, mock_legacy
+    ):
+        """EOFError + legacy KeyboardInterrupt -> None (cancelled)."""
+        mock_menu_cls.return_value.run_async = AsyncMock(side_effect=EOFError)
+        mock_legacy.side_effect = KeyboardInterrupt
+        result = await _select_pinned_model("agent1")
+        assert result is None
+
+    @pytest.mark.asyncio
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
     @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=[])
     @patch(
         "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
     )
-    async def test_empty_models(self, mock_pin, mock_load):
-        with patch(
-            "code_puppy.command_line.agent_menu.arrow_select_async",
-            return_value="✓ (unpin)",
-        ):
-            result = await _select_pinned_model("agent1")
-        assert result == "(unpin)"
+    async def test_empty_models_no_pin_returns_none_without_picker(
+        self, mock_pin, mock_load, mock_menu_cls
+    ):
+        """No models and no pin -> returns None without launching the picker."""
+        result = await _select_pinned_model("agent1")
+        assert result is None
+        mock_menu_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
+    @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=[])
+    @patch(
+        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value="m1"
+    )
+    async def test_empty_models_with_pin_still_opens_picker(
+        self, mock_pin, mock_load, mock_menu_cls
+    ):
+        """Empty model list BUT the agent has a pin -> picker is still
+        shown so the user can unpin. Picker cancels -> None."""
+        mock_menu_cls.return_value.run_async = AsyncMock(return_value=None)
+        result = await _select_pinned_model("agent1")
+        assert result is None
+        mock_menu_cls.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
+    @patch(
+        "code_puppy.command_line.agent_menu.load_model_names",
+        side_effect=Exception("fail"),
+    )
+    async def test_load_error(self, mock_load, mock_menu_cls):
+        """load_model_names failure -> None without launching the picker."""
+        result = await _select_pinned_model("agent1")
+        assert result is None
+        mock_menu_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
+    @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=["m1"])
+    @patch(
+        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
+    )
+    async def test_picker_constructed_with_unpin_sentinel_when_no_pin(
+        self, mock_pin, mock_load, mock_menu_cls
+    ):
+        """When the agent has no pin, current_model is the
+        "(unpin)" sentinel (NOT ``None`` and NOT the global
+        active model). Without this, the picker would falsely
+        label the global active model "(pinned)"."""
+        mock_menu_cls.return_value.run_async = AsyncMock(return_value="m1")
+        await _select_pinned_model("agent1")
+        kwargs = mock_menu_cls.call_args.kwargs
+        assert kwargs["active_label"] == "(pinned)"
+        assert kwargs["current_model"] == "(unpin)"
+        assert "Pin a model for 'agent1'" in kwargs["title"]
+        assert kwargs["model_names"] == ["m1"]
+
+    @pytest.mark.asyncio
+    @patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu")
+    @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=["m1"])
+    @patch(
+        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value="m1"
+    )
+    async def test_picker_constructed_with_actual_pin_when_pinned(
+        self, mock_pin, mock_load, mock_menu_cls
+    ):
+        """When the agent IS pinned, current_model is the pin
+        itself (NOT the "(unpin)" sentinel)."""
+        mock_menu_cls.return_value.run_async = AsyncMock(return_value="m1")
+        await _select_pinned_model("agent1")
+        kwargs = mock_menu_cls.call_args.kwargs
+        assert kwargs["active_label"] == "(pinned)"
+        assert kwargs["current_model"] == "m1"
 
 
 # --------------- _reload_agent_if_current ---------------

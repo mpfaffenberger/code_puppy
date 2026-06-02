@@ -2,6 +2,10 @@
 
 Provides a split-panel interface for browsing and selecting agents
 with live preview of agent details.
+
+TODO: split the agent-menu TUI, the picker glue, and the legacy
+EOFError fallback helpers into separate submodules to get under
+the 600-line cap. Tracked as a follow-up.
 """
 
 import asyncio
@@ -185,7 +189,13 @@ def _build_model_picker_choices(
     pinned_model: Optional[str],
     model_names: List[str],
 ) -> List[str]:
-    """Build model picker choices with pinned/unpin indicators."""
+    """LEGACY: build model picker choices with pinned/unpin indicators.
+
+    Used ONLY by the ``EOFError`` fallback path in
+    ``_select_pinned_model`` (when the new ``ModelSelectionMenu`` cannot
+    start a real TUI -- e.g. in tests or non-interactive terminals).
+    The primary pin flow uses ``ModelSelectionMenu``.
+    """
     choices = ["✓ (unpin)" if not pinned_model else "  (unpin)"]
 
     for model_name in model_names:
@@ -198,7 +208,13 @@ def _build_model_picker_choices(
 
 
 def _normalize_model_choice(choice: str) -> str:
-    """Normalize a picker choice into a model name or '(unpin)' string."""
+    """LEGACY: normalise a picker choice into a model name or ``(unpin)`` string.
+
+    Used ONLY by the ``EOFError`` fallback path in
+    ``_select_pinned_model`` (when the new ``ModelSelectionMenu`` cannot
+    start a real TUI -- e.g. in tests or non-interactive terminals).
+    The primary pin flow uses ``ModelSelectionMenu``.
+    """
     cleaned = choice.strip()
     if cleaned.startswith("✓"):
         cleaned = cleaned.lstrip("✓").strip()
@@ -208,7 +224,20 @@ def _normalize_model_choice(choice: str) -> str:
 
 
 async def _select_pinned_model(agent_name: str) -> Optional[str]:
-    """Prompt for a model to pin to the agent."""
+    """Prompt for a model to pin to the agent.
+
+    Uses the shared, searchable, paginated ``ModelSelectionMenu`` (the
+    same picker used by ``/model``), parameterised with an ``(unpin)``
+    sentinel at the top so the user can clear a pin from the same
+    menu. Returns the picked model name, the literal string
+    ``"(unpin)"`` to clear the pin, or ``None`` if the user cancelled.
+
+    On ``EOFError`` (e.g. running in a non-TTY test environment) we
+    fall back to the legacy flat-list picker so behaviour degrades
+    gracefully.
+    """
+    from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
     try:
         model_names = load_model_names() or []
     except Exception as exc:
@@ -216,21 +245,49 @@ async def _select_pinned_model(agent_name: str) -> Optional[str]:
         return None
 
     pinned_model = _get_pinned_model(agent_name)
-    choices = _build_model_picker_choices(pinned_model, model_names)
-    if not choices:
+    if not model_names and not pinned_model:
+        # Nothing to choose from and nothing to clear.
         emit_warning("No models available to pin.")
         return None
 
+    menu = ModelSelectionMenu(
+        model_names=model_names,
+        title=f" 📌 Pin a model for '{agent_name}'",
+        # When the agent has no pin, point at the "(unpin)" sentinel
+        # so the picker highlights the CURRENT state (no pin /
+        # default) instead of the GLOBAL active model. Without this
+        # the picker would falsely label some random model
+        # "(pinned)" -- factually wrong.
+        current_model=pinned_model or "(unpin)",
+        extra_options=[("(unpin)", "Reset to default model")],
+        active_label="(pinned)",
+    )
+
     try:
-        choice = await arrow_select_async(
-            f"Select a model to pin for '{agent_name}'",
-            choices,
-        )
+        return await menu.run_async()
+    except EOFError:
+        # Non-interactive fallback -- keeps the legacy flat-list picker
+        # alive for tests and odd terminals.
+        choices = _build_model_picker_choices(pinned_model, model_names)
+        if not choices:
+            emit_warning("No models available to pin.")
+            return None
+        try:
+            choice = await arrow_select_async(
+                f"Select a model to pin for '{agent_name}'",
+                choices,
+            )
+        except KeyboardInterrupt:
+            emit_info("Model pinning cancelled")
+            return None
+        return _normalize_model_choice(choice)
     except KeyboardInterrupt:
         emit_info("Model pinning cancelled")
         return None
-
-    return _normalize_model_choice(choice)
+    except Exception as exc:
+        # Last-ditch: never crash the agent menu over a pin picker.
+        emit_warning(f"Model picker failed: {exc}")
+        return None
 
 
 def _reload_agent_if_current(

@@ -15,7 +15,7 @@ import concurrent.futures
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -26,6 +26,7 @@ from code_puppy.command_line.config_commands import (
     handle_reasoning_command,
     handle_set_command,
     handle_unpin_command,
+    _resolve_agent,
 )
 
 
@@ -379,6 +380,349 @@ class TestPinModelCommand:
                 assert result is True
 
                 mock_warning.assert_called_once()
+
+    # ----------------------------------------------------------------
+    # Interactive picker path (2-arg form: /pin_model <agent>)
+    # ----------------------------------------------------------------
+    #
+    # The 2-arg form reuses the friendly ModelSelectionMenu instead
+    # of the bare flat-list picker. The ThreadPoolExecutor +
+    # asyncio.run pattern is the production mechanism, so we patch
+    # ``ModelSelectionMenu`` (the class) so the test never starts a
+    # real TUI: ``run_async`` is an ``AsyncMock`` that returns the
+    # value the test wants the picker to "select".
+
+    def _patch_picker(self, mock_menu_cls, return_value):
+        """Configure a ModelSelectionMenu mock to return a value
+        from its run_async() coroutine."""
+        mock_menu_cls.return_value.run_async = AsyncMock(return_value=return_value)
+        return mock_menu_cls
+
+    def _patch_get_current_agent(self, agent_name="other"):
+        """Mock get_current_agent so the reload branch never touches
+        a real agent."""
+        mock_agent = MagicMock()
+        mock_agent.name = agent_name
+        return patch("code_puppy.agents.get_current_agent", return_value=mock_agent)
+
+    def test_pin_model_picker_selects_model_pins_it(self):
+        """``/pin_model <agent>`` (2 tokens) launches the picker; if
+        it returns a model name, the model is pinned (via
+        set_agent_pinned_model for built-in agents)."""
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion.ModelSelectionMenu"
+            ) as mock_menu_cls,
+            patch(
+                "code_puppy.command_line.model_picker_completion.load_model_names",
+                return_value=["gpt-4", "claude-3"],
+            ),
+            patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={"code-puppy": "Default agent"},
+            ),
+            patch("code_puppy.config.get_agent_pinned_model", return_value=None),
+            patch("code_puppy.config.set_agent_pinned_model") as mock_pin,
+            patch("code_puppy.messaging.emit_success") as mock_success,
+            self._patch_get_current_agent(),
+        ):
+            self._patch_picker(mock_menu_cls, "gpt-4")
+            result = handle_pin_model_command("/pin_model code-puppy")
+
+        assert result is True
+        # The picker was constructed with the (unpin) sentinel.
+        kwargs = mock_menu_cls.call_args.kwargs
+        assert ("(unpin)", "Reset to default model") in kwargs["extra_options"]
+        assert kwargs["active_label"] == "(pinned)"
+        # The selected model was persisted.
+        mock_pin.assert_called_once_with("code-puppy", "gpt-4")
+        mock_success.assert_called()
+
+    def test_pin_model_picker_selects_unpin_delegates_to_unpin_command(self):
+        """If the picker returns the ``(unpin)`` sentinel, the slash
+        command must delegate to ``handle_unpin_command``."""
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion.ModelSelectionMenu"
+            ) as mock_menu_cls,
+            patch(
+                "code_puppy.command_line.model_picker_completion.load_model_names",
+                return_value=["gpt-4"],
+            ),
+            patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={"code-puppy": "Default agent"},
+            ),
+            patch("code_puppy.config.get_agent_pinned_model", return_value="gpt-4"),
+            patch(
+                "code_puppy.command_line.config_commands.handle_unpin_command",
+                return_value=True,
+            ) as mock_unpin,
+            patch("code_puppy.messaging.emit_info"),
+            self._patch_get_current_agent(),
+        ):
+            self._patch_picker(mock_menu_cls, "(unpin)")
+            result = handle_pin_model_command("/pin_model code-puppy")
+
+        assert result is True
+        mock_unpin.assert_called_once()
+        # The delegated call uses the resolved (case-correct) agent name.
+        assert "code-puppy" in mock_unpin.call_args.args[0]
+
+    def test_pin_model_picker_cancelled_emits_info(self):
+        """If the picker returns None, no pin happens and a
+        'cancelled' info message is emitted."""
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion.ModelSelectionMenu"
+            ) as mock_menu_cls,
+            patch(
+                "code_puppy.command_line.model_picker_completion.load_model_names",
+                return_value=["gpt-4"],
+            ),
+            patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={"code-puppy": "Default agent"},
+            ),
+            patch("code_puppy.config.get_agent_pinned_model", return_value=None),
+            patch("code_puppy.config.set_agent_pinned_model") as mock_pin,
+            patch("code_puppy.messaging.emit_info") as mock_info,
+            self._patch_get_current_agent(),
+        ):
+            self._patch_picker(mock_menu_cls, None)
+            result = handle_pin_model_command("/pin_model code-puppy")
+
+        assert result is True
+        mock_pin.assert_not_called()
+        # Some emit_info call mentions "cancelled" (case-insensitive).
+        cancelled = any(
+            "cancel" in str(call).lower() for call in mock_info.call_args_list
+        )
+        assert cancelled, (
+            f"Expected a 'cancelled' info call, got {mock_info.call_args_list}"
+        )
+
+    def test_pin_model_unknown_agent_does_not_launch_picker(self):
+        """``/pin_model <unknown-agent>`` must not launch the picker;
+        it should emit the 'agent not found' error like the
+        3-arg path."""
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion.ModelSelectionMenu"
+            ) as mock_menu_cls,
+            patch(
+                "code_puppy.command_line.model_picker_completion.load_model_names",
+                return_value=["gpt-4"],
+            ),
+            patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={"code-puppy": "Default agent"},
+            ),
+            patch("code_puppy.messaging.emit_error") as mock_error,
+        ):
+            result = handle_pin_model_command("/pin_model unknown-agent")
+
+        assert result is True
+        mock_menu_cls.assert_not_called()
+        # The error message should mention the unknown agent.
+        assert any("unknown-agent" in str(call) for call in mock_error.call_args_list)
+
+    def test_pin_model_no_args_lists_everything_without_chooser(self):
+        """``/pin_model`` (1 token) must NOT launch an agent chooser
+        (per the locked plan). It just lists available models +
+        agents."""
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion.ModelSelectionMenu"
+            ) as mock_menu_cls,
+            patch(
+                "code_puppy.command_line.model_picker_completion.load_model_names",
+                return_value=["gpt-4"],
+            ),
+            patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={"code-puppy": "Default agent"},
+            ),
+            patch("code_puppy.messaging.emit_warning") as mock_warning,
+            patch("code_puppy.messaging.emit_info") as mock_info,
+        ):
+            result = handle_pin_model_command("/pin_model")
+
+        assert result is True
+        mock_menu_cls.assert_not_called()
+        # Usage warning is shown.
+        mock_warning.assert_called()
+        # Both models and agents are listed in the help block.
+        info_strs = [str(c) for c in mock_info.call_args_list]
+        assert any("gpt-4" in s for s in info_strs)
+        assert any("code-puppy" in s for s in info_strs)
+
+    def test_pin_model_three_args_unchanged(self):
+        """The original 3-arg form still works: ``/pin_model <agent> <model>``
+        pins directly without launching the picker."""
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion.ModelSelectionMenu"
+            ) as mock_menu_cls,
+            patch(
+                "code_puppy.command_line.model_picker_completion.load_model_names",
+                return_value=["gpt-4"],
+            ),
+            patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={"code-puppy": "Default agent"},
+            ),
+            patch("code_puppy.config.set_agent_pinned_model") as mock_pin,
+            patch("code_puppy.messaging.emit_success"),
+            self._patch_get_current_agent(),
+        ):
+            result = handle_pin_model_command("/pin_model code-puppy gpt-4")
+
+        assert result is True
+        mock_menu_cls.assert_not_called()
+        mock_pin.assert_called_once_with("code-puppy", "gpt-4")
+
+    def test_pin_model_picker_timeout_does_not_hang(self):
+        """Regression for the "executor.shutdown hangs on TimeoutError"
+        cleanup. If ``future.result(timeout=300)`` raises
+        ``concurrent.futures.TimeoutError``, the slash command must
+        (a) emit a warning, (b) return True, AND (c) shut the
+        executor down WITHOUT waiting for the still-running
+        picker future -- otherwise the user is stuck for the full
+        picker lifetime. We mock the executor via the stdlib
+        ``concurrent.futures`` module (the slash command does
+        ``import concurrent.futures`` at the top of the inner
+        function, so the local-import lookup resolves to the
+        patched class)."""
+        import concurrent.futures as _cf
+
+        with (
+            patch("code_puppy.command_line.model_picker_completion.ModelSelectionMenu"),
+            patch(
+                "code_puppy.command_line.model_picker_completion.load_model_names",
+                return_value=["gpt-4"],
+            ),
+            patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={"code-puppy": "Default agent"},
+            ),
+            patch("code_puppy.config.get_agent_pinned_model", return_value=None),
+            patch("code_puppy.messaging.emit_warning") as mock_warn,
+            patch(
+                "code_puppy.tools.command_runner.set_awaiting_user_input"
+            ) as mock_set,
+            patch.object(_cf, "ThreadPoolExecutor") as mock_executor_cls,
+        ):
+            mock_executor = MagicMock()
+            mock_future = MagicMock()
+            mock_future.result.side_effect = _cf.TimeoutError()
+            mock_executor.submit.return_value = mock_future
+            mock_executor_cls.return_value = mock_executor
+
+            result = handle_pin_model_command("/pin_model code-puppy")
+
+        assert result is True
+        # We emitted a timeout warning.
+        warn_strs = [str(c) for c in mock_warn.call_args_list]
+        assert any("timed out" in s.lower() for s in warn_strs), (
+            f"Expected a 'timed out' warning; got: {warn_strs!r}"
+        )
+        # The executor was shut down with wait=False -- NOT the
+        # blocking default. This is the regression: the OLD code
+        # used ``with ThreadPoolExecutor() as executor:`` and the
+        # ``__exit__`` would have called ``shutdown(wait=True)``,
+        # blocking the caller for the full picker lifetime.
+        mock_executor.shutdown.assert_called()
+        for call in mock_executor.shutdown.call_args_list:
+            assert call.kwargs.get("wait") is False or (
+                len(call.args) >= 1 and call.args[0] is False
+            ), f"Expected shutdown(wait=False); got: {call!r}"
+        # set_awaiting_user_input was toggled off in the finally.
+        assert any(c.args == (False,) for c in mock_set.call_args_list)
+
+
+class TestResolveAgent:
+    """Tests for the ``_resolve_agent`` helper used by both
+    ``/pin_model`` paths."""
+
+    def test_resolves_builtin_agent_lowercase(self):
+        with (
+            patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={"code-puppy": "Default agent"},
+            ),
+        ):
+            assert _resolve_agent("code-puppy") == ("code-puppy", False)
+
+    def test_resolves_builtin_agent_case_insensitive(self):
+        """``_resolve_agent`` is case-insensitive on the input,
+        case-preserving on the output -- matches the agent manager's
+        canonical name."""
+        with (
+            patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={"code-puppy": "Default agent"},
+            ),
+        ):
+            assert _resolve_agent("CODE-PUPPY") == ("code-puppy", False)
+
+    def test_resolves_json_agent(self):
+        with (
+            patch(
+                "code_puppy.agents.json_agent.discover_json_agents",
+                return_value={"my-json-agent": "/path/to/agent.json"},
+            ),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={},
+            ),
+        ):
+            assert _resolve_agent("my-json-agent") == ("my-json-agent", True)
+
+    def test_json_agent_takes_precedence_over_builtin(self):
+        """When the same name (case-insensitive) is in BOTH the
+        JSON and built-in lists, JSON wins. This matches the
+        pin flow's prior behaviour."""
+        with (
+            patch(
+                "code_puppy.agents.json_agent.discover_json_agents",
+                return_value={"dup-name": "/path.json"},
+            ),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={"dup-name": "Built-in"},
+            ),
+        ):
+            assert _resolve_agent("dup-name") == ("dup-name", True)
+
+    def test_returns_none_for_unknown(self):
+        with (
+            patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={"code-puppy": "Default agent"},
+            ),
+        ):
+            assert _resolve_agent("nonexistent") is None
+
+    def test_returns_none_for_empty_input(self):
+        with (
+            patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
+            patch(
+                "code_puppy.agents.agent_manager.get_agent_descriptions",
+                return_value={},
+            ),
+        ):
+            assert _resolve_agent("") is None
 
 
 class TestUnpinCommand:
