@@ -2,9 +2,13 @@
 
 This module contains @register_command decorated handlers that are automatically
 discovered by the command registry system.
+
+TODO: split into per-command submodules to get under the 600-line cap
+(handle_pin_model_command alone is ~280 lines). Tracked as a follow-up.
 """
 
 import json
+from typing import Optional
 
 from code_puppy.command_line.command_registry import register_command
 from code_puppy.config import get_config_keys
@@ -274,6 +278,60 @@ def _get_json_agents_pinned_to_model(model_name: str) -> list:
     return pinned
 
 
+def _resolve_agent(name_input: str) -> Optional[tuple]:
+    """Resolve an agent name (case-insensitive) to a canonical name.
+
+    Looks up JSON agents first, then built-in agents, returning the
+    case-preserved name as the agent manager knows it. Used by
+    ``handle_pin_model_command`` (both the picker and the 3-arg
+    path) to avoid duplicating the lookup-and-not-found listing.
+
+    Returns ``(resolved_name, is_json_agent)`` on success, or
+    ``None`` if the agent is unknown.
+    """
+    from code_puppy.agents.agent_manager import get_agent_descriptions
+    from code_puppy.agents.json_agent import discover_json_agents
+
+    target = (name_input or "").lower()
+    if not target:
+        return None
+
+    json_agents = discover_json_agents()
+    for name in json_agents:
+        if name.lower() == target:
+            return (name, True)
+
+    builtin_agents = get_agent_descriptions()
+    for name in builtin_agents:
+        if name.lower() == target:
+            return (name, False)
+
+    return None
+
+
+def _emit_agent_not_found(name_input: str) -> None:
+    """Emit the "agent not found" error + listing of available agents.
+
+    Used by both pin_model paths whenever ``_resolve_agent`` returns
+    ``None``.
+    """
+    from code_puppy.agents.agent_manager import get_agent_descriptions
+    from code_puppy.agents.json_agent import discover_json_agents
+    from code_puppy.messaging import emit_error, emit_info
+
+    emit_error(f"Agent '{name_input}' not found")
+    builtin_agents = get_agent_descriptions()
+    if builtin_agents:
+        emit_info("Available built-in agents:")
+        for name, desc in builtin_agents.items():
+            emit_info(f"  {name} - {desc}")
+    json_agents = discover_json_agents()
+    if json_agents:
+        emit_info("\nAvailable JSON agents:")
+        for name, path in json_agents.items():
+            emit_info(f"  {name} ({path})")
+
+
 @register_command(
     name="pin_model",
     description="Pin a specific model to an agent",
@@ -281,21 +339,63 @@ def _get_json_agents_pinned_to_model(model_name: str) -> list:
     category="config",
 )
 def handle_pin_model_command(command: str) -> bool:
-    """Pin a specific model to an agent."""
+    """Pin a specific model to an agent.
+
+    Usage:
+        ``/pin_model``             -- list available models and agents
+        ``/pin_model <agent>``     -- launch the friendly picker for that
+        agent (reusing the same ``ModelSelectionMenu`` used by ``/model``)
+        ``/pin_model <agent> <model>`` -- pin directly (or ``(unpin)``)
+    """
     from code_puppy.agents.json_agent import discover_json_agents
     from code_puppy.command_line.model_picker_completion import load_model_names
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     tokens = command.split()
 
-    if len(tokens) != 3:
-        emit_warning("Usage: /pin_model <agent-name> <model-name>")
+    def _apply_pin_and_reload_inline(
+        agent_name: str,
+        model_name: str,
+        is_json_agent: bool,
+        json_agent_paths: dict,
+    ) -> None:
+        """Persist the pin and reload the current agent if applicable.
 
-        # Show available models and agents
+        Used by both the direct 3-arg path and the picker 2-arg path.
+        Reloads inline because the slash command runs on the main
+        thread -- it does NOT need ``_PENDING_PIN_RELOADS``.
+        """
+        if is_json_agent:
+            agent_file_path = json_agent_paths[agent_name]
+            with open(agent_file_path, "r", encoding="utf-8") as f:
+                agent_config = json.load(f)
+            agent_config["model"] = model_name
+            with open(agent_file_path, "w", encoding="utf-8") as f:
+                json.dump(agent_config, f, indent=2, ensure_ascii=False)
+        else:
+            from code_puppy.config import set_agent_pinned_model
+
+            set_agent_pinned_model(agent_name, model_name)
+
+        emit_success(f"Model '{model_name}' pinned to agent '{agent_name}'")
+
+        from code_puppy.agents import get_current_agent
+
+        current_agent = get_current_agent()
+        if current_agent.name == agent_name:
+            try:
+                if is_json_agent and hasattr(current_agent, "refresh_config"):
+                    current_agent.refresh_config()
+                current_agent.reload_code_generation_agent()
+                emit_info(f"Active agent reloaded with pinned model '{model_name}'")
+            except Exception as reload_error:
+                emit_warning(f"Pinned model applied but reload failed: {reload_error}")
+
+    def _list_available_models_and_agents() -> None:
+        """Print the help/listing block (used for the no-args case)."""
         available_models = load_model_names()
         json_agents = discover_json_agents()
 
-        # Get built-in agents
         from code_puppy.agents.agent_manager import get_agent_descriptions
 
         builtin_agents = get_agent_descriptions()
@@ -313,15 +413,148 @@ def handle_pin_model_command(command: str) -> bool:
             emit_info("\nAvailable JSON agents:")
             for agent_name, agent_path in json_agents.items():
                 emit_info(f"  {agent_name} ({agent_path})")
+
+    def _run_picker_for_agent(agent_name_input: str) -> bool:
+        """Launch the friendly picker for the given agent.
+
+        Reuses the ``ModelSelectionMenu`` parameterised with an
+        ``(unpin)`` sentinel. Runs the async picker via the proven
+        ``ThreadPoolExecutor`` + ``asyncio.run`` pattern from
+        ``handle_model_command``. We come back to the main thread
+        after ``future.result()`` returns, so the reload runs inline
+        (no deferred-reload queue needed).
+        """
+        import asyncio
+        import concurrent.futures
+
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+        from code_puppy.config import get_agent_pinned_model
+        from code_puppy.tools.command_runner import set_awaiting_user_input
+
+        resolved = _resolve_agent(agent_name_input)
+        if resolved is None:
+            _emit_agent_not_found(agent_name_input)
+            return True
+        resolved_name, is_json_agent = resolved
+
+        # Resolve the current pinned model for this agent.
+        if is_json_agent:
+            try:
+                json_agents = discover_json_agents()
+                with open(json_agents[resolved_name], "r", encoding="utf-8") as f:
+                    _cfg = json.load(f)
+                pinned_model = _cfg.get("model")
+            except Exception:
+                pinned_model = None
+        else:
+            try:
+                pinned_model = get_agent_pinned_model(resolved_name)
+            except Exception:
+                pinned_model = None
+
+        # Load the model list (best-effort).
+        try:
+            model_names = load_model_names() or []
+        except Exception as exc:
+            emit_warning(f"Failed to load models: {exc}")
+            return True
+
+        menu = ModelSelectionMenu(
+            model_names=model_names,
+            title=f" 📌 Pin a model for '{resolved_name}'",
+            # When the agent has no pin, point at the "(unpin)"
+            # sentinel so the picker highlights the CURRENT state
+            # (no pin / default) instead of the GLOBAL active
+            # model. Without this, the picker would falsely label
+            # some random model "(pinned)" -- factually wrong.
+            current_model=pinned_model or "(unpin)",
+            extra_options=[("(unpin)", "Reset to default model")],
+            active_label="(pinned)",
+        )
+
+        # Run the async picker from this sync context. We avoid
+        # the ``with ThreadPoolExecutor() as executor:`` context
+        # manager so we can call ``shutdown(wait=False)`` on the
+        # timeout / error path -- otherwise ``__exit__`` would
+        # hang on ``shutdown(wait=True)`` waiting for the still-
+        # running picker future.
+        selected: Optional[str] = None
+        executor: Optional[concurrent.futures.ThreadPoolExecutor] = None
+        set_awaiting_user_input(True)
+        try:
+            executor = concurrent.futures.ThreadPoolExecutor()
+            try:
+                future = executor.submit(lambda: asyncio.run(menu.run_async()))
+                try:
+                    selected = future.result(timeout=300)
+                except concurrent.futures.TimeoutError:
+                    emit_warning("Model picker timed out")
+                    # Future is still running -- don't block on
+                    # shutdown or the user is stuck for the full
+                    # picker lifetime.
+                    executor.shutdown(wait=False)
+                    executor = None
+                    return True
+                except Exception as exc:
+                    emit_warning(f"Model picker failed: {exc}")
+                    executor.shutdown(wait=False)
+                    executor = None
+                    return True
+            finally:
+                # Normal blocking shutdown so the thread pool
+                # cleans up. ``shutdown`` is NOT idempotent in the
+                # sense we need: calling it a second time with
+                # ``wait=True`` WOULD block on the still-running
+                # future. The reason this is safe is the
+                # ``executor = None`` assignments on the error
+                # paths above -- they make this ``finally`` skip
+                # the second ``shutdown`` call entirely.
+                if executor is not None:
+                    executor.shutdown(wait=True)
+        finally:
+            set_awaiting_user_input(False)
+
+        if not selected:
+            emit_info("Model selection cancelled")
+            return True
+
+        if selected == "(unpin)":
+            return handle_unpin_command(f"/unpin {resolved_name}")
+
+        if selected not in model_names:
+            emit_error(f"Model '{selected}' not found")
+            return True
+
+        try:
+            _apply_pin_and_reload_inline(
+                resolved_name,
+                selected,
+                is_json_agent,
+                discover_json_agents(),
+            )
+        except Exception as e:
+            emit_error(f"Failed to pin model to agent '{resolved_name}': {e}")
         return True
 
-    agent_name = tokens[1].lower()
+    # --- Main dispatch ---------------------------------------------------
+    # 1-arg: launch the friendly picker for the named agent.
+    if len(tokens) == 2:
+        return _run_picker_for_agent(tokens[1])
+
+    # 0-arg OR >2-arg: original "list everything" behaviour.
+    if len(tokens) != 3:
+        emit_warning("Usage: /pin_model <agent-name> <model-name>")
+        _list_available_models_and_agents()
+        return True
+
     model_name = tokens[2]
 
-    # Handle special case: (unpin) option (case-insensitive)
+    # Handle special case: (unpin) option (case-insensitive).
+    # The original behaviour delegated to ``/unpin`` without an
+    # agent existence check (unpin on a non-existent agent is a
+    # no-op), so we keep that contract here.
     if model_name.lower() == "(unpin)":
-        # Delegate to unpin command
-        return handle_unpin_command(f"/unpin {agent_name}")
+        return handle_unpin_command(f"/unpin {tokens[1].lower()}")
 
     # Check if model exists
     available_models = load_model_names()
@@ -330,74 +563,19 @@ def handle_pin_model_command(command: str) -> bool:
         emit_warning(f"Available models: {', '.join(available_models)}")
         return True
 
-    # Check if this is a JSON agent or a built-in Python agent
+    # Case-insensitive agent lookup via the shared helper.
+    resolved = _resolve_agent(tokens[1])
+    if resolved is None:
+        _emit_agent_not_found(tokens[1])
+        return True
+    agent_name, is_json_agent = resolved
     json_agents = discover_json_agents()
 
-    # Get list of available built-in agents
-    from code_puppy.agents.agent_manager import get_agent_descriptions
-
-    builtin_agents = get_agent_descriptions()
-
-    is_json_agent = agent_name in json_agents
-    is_builtin_agent = agent_name in builtin_agents
-
-    if not is_json_agent and not is_builtin_agent:
-        emit_error(f"Agent '{agent_name}' not found")
-
-        # Show available agents
-        if builtin_agents:
-            emit_info("Available built-in agents:")
-            for name, desc in builtin_agents.items():
-                emit_info(f"  {name} - {desc}")
-
-        if json_agents:
-            emit_info("\nAvailable JSON agents:")
-            for name, path in json_agents.items():
-                emit_info(f"  {name} ({path})")
-        return True
-
-    # Handle different agent types
     try:
-        if is_json_agent:
-            # Handle JSON agent - modify the JSON file
-            agent_file_path = json_agents[agent_name]
-
-            with open(agent_file_path, "r", encoding="utf-8") as f:
-                agent_config = json.load(f)
-
-            # Set the model
-            agent_config["model"] = model_name
-
-            # Save the updated configuration
-            with open(agent_file_path, "w", encoding="utf-8") as f:
-                json.dump(agent_config, f, indent=2, ensure_ascii=False)
-
-        else:
-            # Handle built-in Python agent - store in config
-            from code_puppy.config import set_agent_pinned_model
-
-            set_agent_pinned_model(agent_name, model_name)
-
-        emit_success(f"Model '{model_name}' pinned to agent '{agent_name}'")
-
-        # If this is the current agent, refresh it so the prompt updates immediately
-        from code_puppy.agents import get_current_agent
-
-        current_agent = get_current_agent()
-        if current_agent.name == agent_name:
-            try:
-                if is_json_agent and hasattr(current_agent, "refresh_config"):
-                    current_agent.refresh_config()
-                current_agent.reload_code_generation_agent()
-                emit_info(f"Active agent reloaded with pinned model '{model_name}'")
-            except Exception as reload_error:
-                emit_warning(f"Pinned model applied but reload failed: {reload_error}")
-
-        return True
-
+        _apply_pin_and_reload_inline(agent_name, model_name, is_json_agent, json_agents)
     except Exception as e:
         emit_error(f"Failed to pin model to agent '{agent_name}': {e}")
-        return True
+    return True
 
 
 @register_command(

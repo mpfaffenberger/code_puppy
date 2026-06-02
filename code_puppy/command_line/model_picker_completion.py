@@ -11,6 +11,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 
+from code_puppy.agents._key_listeners import suspended_key_listener
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
     get_page_bounds,
@@ -224,13 +225,43 @@ def update_model_in_input(text: str) -> Optional[str]:
 
 
 class ModelSelectionMenu:
-    """Paginated interactive model picker for the /model command."""
+    """Paginated interactive model picker.
 
-    def __init__(self, model_names: Optional[list[str]] = None):
+    Used by ``/model`` and reused (with ``extra_options``) by the model
+    pinning flows in the agent menu and the ``/pin_model`` slash command.
+
+    The defaults are tuned so ``ModelSelectionMenu()`` reproduces the
+    legacy ``/model`` picker output byte-for-byte.
+    """
+
+    def __init__(
+        self,
+        model_names: Optional[list[str]] = None,
+        *,
+        title: str = " 🤖 Select Active Model",
+        current_model: Optional[str] = None,
+        extra_options: Optional[list[tuple[str, str]]] = None,
+        active_label: str = "(active)",
+    ):
         self.model_names = (
             list(model_names) if model_names is not None else load_model_names()
         )
-        self.current_model = get_active_model()
+        # ``current_model`` falls back to ``get_active_model()`` so the
+        # ``/model`` default behaviour is preserved when nothing is passed.
+        self.current_model = (
+            current_model if current_model is not None else get_active_model()
+        )
+        self.title = title
+        self.active_label = active_label
+        # Sentinel rows pinned at the top of the list, e.g.
+        # ``[("(unpin)", "Reset to default model")]``. Selecting one
+        # makes ``run_async`` return the value (e.g. ``"(unpin)"``).
+        self.extra_options: list[tuple[str, str]] = list(extra_options or [])
+        # Cached value -> description map. Used by ``_render`` to
+        # classify rows as sentinel vs. model WITHOUT relying on the
+        # (filtered) absolute index -- that misclassified real models
+        # as sentinels when the filter hid the sentinel rows.
+        self._extra_option_descriptions: dict[str, str] = dict(self.extra_options)
         self.filter_text = ""
         self.selected_index = 0
         self.page = 0
@@ -238,6 +269,11 @@ class ModelSelectionMenu:
         self.result: Optional[str] = None
         self.pending_credentials_edit: Optional[str] = None
 
+        # Pre-select ``current_model`` if it's a visible row. This
+        # covers both MODEL rows and SENTINEL rows (the pin flows
+        # pass ``current_model = pinned or "(unpin)"`` so the
+        # (unpin) sentinel gets pre-selected when the agent has no
+        # pin, instead of falling back to the global active model).
         if self.current_model in self.visible_model_names:
             self.selected_index = self.visible_model_names.index(self.current_model)
             self.page = get_page_for_index(self.selected_index, self.page_size)
@@ -265,14 +301,54 @@ class ModelSelectionMenu:
         return self.visible_model_names[self.page_start : self.page_end]
 
     @property
+    def extra_option_values(self) -> list[str]:
+        """Return just the sentinel values from ``extra_options``."""
+        return [value for value, _ in self.extra_options]
+
+    @property
+    def extra_option_descriptions(self) -> dict[str, str]:
+        """Map sentinel value -> description for rendering.
+
+        Returns the cached dict built once in ``__init__`` so we don't
+        rebuild it on every ``_render()`` call.
+        """
+        return self._extra_option_descriptions
+
+    @property
     def visible_model_names(self) -> list[str]:
+        """Return selectable entries: sentinel rows first, then models.
+
+        Ordering is always ``matched sentinels`` (sentinels whose
+        VALUE matches the filter, in the order given in
+        ``extra_options``) followed by ``matched models`` (models
+        whose name matches the filter, in the order given in
+        ``model_names``). When there is no filter, all sentinels
+        and all models are returned.
+
+        IMPORTANT: the index of a row in this list is NOT a
+        reliable way to tell whether it is a sentinel. When the
+        filter hides some sentinel rows, real model rows slide
+        into low indices and the index-based classification used
+        by the old buggy code misclassified them. Callers that
+        need to know whether a value is a sentinel MUST check
+        ``value in self._extra_option_descriptions`` -- the value
+        membership test, not the (filtered) index.
+
+        When ``extra_options`` is empty (the default), the result
+        is identical to the original ``/model`` picker behaviour.
+        """
+        extras = self.extra_option_values
         if not self.filter_text:
-            return self.model_names
-        return [
+            return list(extras) + list(self.model_names)
+        matched_extras = [
+            value for value in extras if query_matches_text(self.filter_text, value)
+        ]
+        matched_models = [
             model_name
             for model_name in self.model_names
             if query_matches_text(self.filter_text, model_name)
         ]
+        return matched_extras + matched_models
 
     def _get_selected_model_name(self) -> Optional[str]:
         if 0 <= self.selected_index < len(self.visible_model_names):
@@ -340,7 +416,7 @@ class ModelSelectionMenu:
             self.selected_index = self.page_start
 
     def _render(self):
-        lines = [("bold cyan", " 🤖 Select Active Model")]
+        lines = [("bold cyan", self.title)]
         filter_label = self.filter_text or "type to filter"
         lines.append(("fg:ansibrightblack", f"\n  Filter: {filter_label}"))
         if self.total_pages > 1:
@@ -367,18 +443,54 @@ class ModelSelectionMenu:
             lines.append(("", "Exit\n"))
             return lines
 
-        lines.append(("fg:ansibrightblack", f"\n  Current: {self.current_model}\n\n"))
+        # The "Current:" header. When ``current_model`` is a sentinel
+        # value (e.g. the pin flow passes ``"(unpin)"`` to mean
+        # "no pin / default"), printing the raw sentinel would be
+        # confusing -- show a friendly label instead.
+        if self.current_model in self._extra_option_descriptions:
+            current_header = "(no pin / default)"
+        else:
+            current_header = self.current_model
+        lines.append(("fg:ansibrightblack", f"\n  Current: {current_header}\n\n"))
 
-        for offset, model_name in enumerate(self.models_on_page):
+        for offset, value in enumerate(self.models_on_page):
             absolute_index = self.page_start + offset
             is_selected = absolute_index == self.selected_index
-            is_current = model_name == self.current_model
+            # Classify by VALUE membership, not by (filtered)
+            # absolute index. When the filter hides the sentinel
+            # rows, real model rows slide into low indices and would
+            # otherwise be misclassified as sentinels -- losing
+            # their active/pinned label.
+            is_sentinel = value in self._extra_option_descriptions
 
             prefix = " › " if is_selected else "   "
             style = "fg:ansiwhite bold" if is_selected else "fg:ansibrightblack"
-            lines.append((style, f"{prefix}{model_name}"))
-            if is_current:
-                lines.append(("fg:ansigreen", " (active)"))
+            lines.append((style, f"{prefix}{value}"))
+            if is_sentinel:
+                # Sentinel row -- show its description (e.g.
+                # "(unpin)  Reset to default model"). These are
+                # actions, not models, so we never append the
+                # ``active_label`` (e.g. "(pinned)" would read
+                # "(unpin) (pinned)" which is nonsense).
+                #
+                # If the sentinel value is the CURRENT state
+                # (pin flows pass ``current_model = pinned or
+                # "(unpin)"``), mark it with a "(current)" suffix
+                # so the user can see the existing state without
+                # needing to read the header.
+                if value == self.current_model:
+                    lines.append(("fg:ansigreen", " (current)"))
+                description = self._extra_option_descriptions.get(value, "")
+                if description:
+                    lines.append(("fg:ansibrightblack", f"  {description}"))
+            elif (
+                value == self.current_model
+                and self.current_model not in self._extra_option_descriptions
+            ):
+                # Model row that matches the current model.
+                # Guarded so we don't double-label a row whose
+                # value happens to coincide with a sentinel value.
+                lines.append(("fg:ansigreen", f" {self.active_label}"))
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
@@ -531,7 +643,28 @@ class ModelSelectionMenu:
                 key_bindings=kb,
                 full_screen=False,
             )
-            await app.run_async()
+            # Suspend the background key listener for the duration of
+            # this picker iteration. ``suspended_key_listener()`` is a
+            # reentrant context manager that is a no-op when no
+            # listener is active, so this is safe in tests and in
+            # flows that don't spawn a listener (e.g. legacy
+            # ``/model``). When the listener IS active (the agent pin
+            # flow, the ``/pin_model`` slash command, or a re-entrant
+            # picker run after credential editing), suspending it
+            # gives prompt_toolkit exclusive ownership of stdin --
+            # otherwise arrow keys behave erratically and
+            # prompt_toolkit emits "your terminal doesn't support
+            # cursor position requests (CPR)".
+            #
+            # We enter the suspension INSIDE the ``while True`` loop
+            # so each picker iteration (including the ones
+            # restarted by credential editing) gets its own
+            # clean listener suspension; we also exit it BEFORE
+            # ``_edit_credentials_for_model`` runs so the
+            # credential prompt isn't held under a stale listener
+            # suspension.
+            with suspended_key_listener():
+                await app.run_async()
 
             # Exit alternate screen buffer
             sys.stdout.write("\033[?1049l")  # Exit alternate buffer
