@@ -36,7 +36,7 @@ from code_puppy.messaging import (
     get_session_context,
     set_session_context,
 )
-from code_puppy.tools.common import generate_group_id
+from code_puppy.tools.common import atomic_write_text, generate_group_id
 from code_puppy.tools.subagent_context import subagent_context
 
 # Set to track active subagent invocation tasks
@@ -142,10 +142,13 @@ def _save_session_history(
 
     sessions_dir = _get_subagent_sessions_dir()
 
-    # Save pickle file with message history
+    # Save pickle file with message history (atomic: write a temp file then
+    # replace, so a crash mid-write can't corrupt an existing session pickle)
     pkl_path = sessions_dir / f"{session_id}.pkl"
-    with open(pkl_path, "wb") as f:
+    tmp_pkl = pkl_path.with_suffix(".tmp")
+    with open(tmp_pkl, "wb") as f:
         pickle.dump(message_history, f)
+    tmp_pkl.replace(pkl_path)
 
     # Save or update txt file with metadata
     txt_path = sessions_dir / f"{session_id}.txt"
@@ -158,8 +161,7 @@ def _save_session_history(
             "created_at": datetime.now().isoformat(),
             "message_count": len(message_history),
         }
-        with open(txt_path, "w") as f:
-            json.dump(metadata, f, indent=2)
+        atomic_write_text(str(txt_path), json.dumps(metadata, indent=2))
     elif txt_path.exists():
         # Update message count on subsequent saves
         try:
@@ -167,8 +169,7 @@ def _save_session_history(
                 metadata = json.load(f)
             metadata["message_count"] = len(message_history)
             metadata["last_updated"] = datetime.now().isoformat()
-            with open(txt_path, "w") as f:
-                json.dump(metadata, f, indent=2)
+            atomic_write_text(str(txt_path), json.dumps(metadata, indent=2))
         except Exception:
             pass  # If we can't update metadata, no big deal
 

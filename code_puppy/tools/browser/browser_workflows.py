@@ -7,7 +7,7 @@ from pydantic_ai import RunContext
 
 from code_puppy import config
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
-from code_puppy.tools.common import generate_group_id
+from code_puppy.tools.common import atomic_write_text, generate_group_id
 
 
 def get_workflows_directory() -> Path:
@@ -59,8 +59,7 @@ async def save_workflow(name: str, content: str) -> Dict[str, Any]:
         workflow_path = workflows_dir / safe_name
 
         # Write the workflow content
-        with open(workflow_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        atomic_write_text(str(workflow_path), content)
 
         emit_success(
             f"Workflow saved successfully: {workflow_path}",

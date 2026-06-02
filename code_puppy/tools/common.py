@@ -3,6 +3,7 @@ import fnmatch
 import hashlib
 import os
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -1479,6 +1480,74 @@ async def _get_user_approval_async_impl(
         pass
 
     return confirmed, user_feedback
+
+
+def atomic_write_text(
+    file_path: str,
+    content: str,
+    *,
+    encoding: str = "utf-8",
+) -> None:
+    """Atomically write text to file_path (write-temp + os.replace).
+
+    A crash / Ctrl-C / SIGKILL mid-write can never truncate the target:
+    the original is untouched until the atomic rename. Preserves the
+    target's permission bits when it already exists, resolves symlinks so
+    the link itself isn't clobbered, and keeps the temp file in the SAME
+    directory so os.replace stays on one filesystem (atomic).
+
+    Always fsyncs the file (and best-effort fsyncs the containing directory)
+    so the write is durable across power loss; the directory fsync is
+    silently skipped where unsupported (e.g. Windows).
+
+    Behavior notes / caveats:
+    - On POSIX a read-only (0o444) target CAN be overwritten as long as its
+      directory is writable, because rename depends on directory perms, not
+      the file's mode (vim ``:w!`` semantics); the original mode is preserved.
+      This differs from Windows, where os.replace over a read-only target
+      raises PermissionError.
+    - Each write replaces the inode, so any HARDLINKS are broken: other
+      hardlinked names keep the OLD content (they are not updated in place).
+    """
+    # Resolve symlinks so we update the real file and keep the link intact.
+    target = os.path.realpath(file_path)
+
+    dir_name = os.path.dirname(target) or "."
+    os.makedirs(dir_name, exist_ok=True)
+
+    # Preserve the original permission bits if the target already exists.
+    mode = None
+    try:
+        mode = os.stat(target).st_mode
+    except OSError:
+        mode = None
+
+    fd, tmp = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding=encoding) as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        if mode is not None:
+            os.chmod(tmp, mode)
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+    # Best-effort: fsync the directory so the rename is durable too.
+    # Unsupported on some platforms (e.g. Windows) -- swallow gracefully.
+    try:
+        dir_fd = os.open(dir_name, os.O_DIRECTORY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except (OSError, AttributeError):
+        pass  # directory fsync unsupported -- file content is still durable
 
 
 def _find_best_window(
