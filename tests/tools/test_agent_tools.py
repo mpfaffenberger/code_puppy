@@ -87,6 +87,24 @@ class TestSaveSessionHistory:
             meta = json.load(f)
         assert meta["message_count"] == 2
 
+    def test_save_leaves_no_orphan_tmp(self, tmp_path):
+        """Atomic metadata writes must not leak *.tmp into the sessions dir."""
+        from code_puppy.tools.agent_tools import _save_session_history
+
+        with patch(
+            "code_puppy.tools.agent_tools._get_subagent_sessions_dir",
+            return_value=tmp_path,
+        ):
+            # First save (creates metadata) + a second save (updates it).
+            _save_session_history("my-session", ["msg1"], "agent", "hello")
+            _save_session_history("my-session", ["msg1", "msg2"], "agent")
+        orphans = [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+        assert orphans == []
+        # And the metadata still round-trips correctly.
+        with open(tmp_path / "my-session.txt") as f:
+            meta = json.load(f)
+        assert meta["message_count"] == 2
+
     def test_save_invalid_session_id(self):
         from code_puppy.tools.agent_tools import _save_session_history
 
