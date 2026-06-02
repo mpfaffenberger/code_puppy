@@ -1949,6 +1949,8 @@ def load_api_keys_to_environment():
     """
     from pathlib import Path
 
+    # Static base list of well-known keys (always considered, even if no
+    # model currently references them).
     api_key_names = [
         "OPENAI_API_KEY",
         "GEMINI_API_KEY",
@@ -1960,6 +1962,19 @@ def load_api_keys_to_environment():
         "OPENROUTER_API_KEY",
         "ZAI_API_KEY",
     ]
+
+    # Dynamically include every env var referenced by a configured model
+    # (e.g. FIREWORKS_API_KEY / WAFER_API_KEY / CROF_API_KEY for local custom
+    # providers). Without this, such keys saved in puppy.cfg never hydrate into
+    # os.environ at startup. Best-effort: never let discovery break startup.
+    try:
+        from code_puppy.provider_credentials import all_required_env_vars
+
+        for env_var in all_required_env_vars():
+            if env_var not in api_key_names:
+                api_key_names.append(env_var)
+    except Exception:
+        pass
 
     # Step 1: Load from .env file if it exists (highest priority)
     # Look for .env in current working directory

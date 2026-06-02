@@ -1,4 +1,6 @@
 import os
+import sys
+import logging
 from typing import Iterable, Optional
 
 from prompt_toolkit import Application, PromptSession
@@ -18,6 +20,15 @@ from code_puppy.command_line.pagination import (
 from code_puppy.config import get_global_model_name
 from code_puppy.list_filtering import query_matches_text
 from code_puppy.model_switching import set_model_and_reload_agent
+from code_puppy.provider_credentials import (
+    credential_display,
+    credential_hint,
+    required_env_var_for_model,
+    save_credential,
+)
+from code_puppy.command_line.utils import safe_input
+
+logger = logging.getLogger(__name__)
 
 MODEL_PICKER_PAGE_SIZE = 15
 
@@ -225,6 +236,7 @@ class ModelSelectionMenu:
         self.page = 0
         self.page_size = MODEL_PICKER_PAGE_SIZE
         self.result: Optional[str] = None
+        self.pending_credentials_edit: Optional[str] = None
 
         if self.current_model in self.visible_model_names:
             self.selected_index = self.visible_model_names.index(self.current_model)
@@ -383,9 +395,42 @@ class ModelSelectionMenu:
         lines.append(("", "Clear filter\n"))
         lines.append(("fg:ansigreen", "  Enter  "))
         lines.append(("", "Select model\n"))
+        lines.append(("fg:cyan", "  e  "))
+        lines.append(("", "Edit credentials\n"))
         lines.append(("fg:ansiyellow", "  Esc  "))
         lines.append(("", "Cancel\n"))
         return lines
+
+    def _edit_credentials_for_model(self, model_name: str) -> None:
+        """Prompt user to edit the credential for a specific model.
+
+        Looks up the required env var for the model via the merged config
+        and then lets the user update it (or skip).
+        """
+        env_var = required_env_var_for_model(model_name)
+        if not env_var:
+            logger.warning("No env var found for model: %s", model_name)
+            return
+        status = credential_display(env_var)
+        hint = credential_hint(env_var)
+        logger.info(
+            "Editing credential %s for model %s (status: %s)",
+            env_var,
+            model_name,
+            status,
+        )
+        print(f"\n🔑 {model_name} credential: {env_var} ({status})")
+        if hint:
+            print(f"   {hint}")
+        try:
+            value = safe_input("   New value (or Enter to skip): ")
+            if value:
+                save_credential(env_var, value)
+                print(f"✅ Saved {env_var}")
+                logger.info("Saved credential %s for model %s", env_var, model_name)
+        except (KeyboardInterrupt, EOFError):
+            logger.info("Credential editing cancelled by user")
+            print("\n⚠️ Credential editing cancelled")
 
     async def run_async(self) -> Optional[str]:
         control = FormattedTextControl(lambda: self._render())
@@ -438,6 +483,21 @@ class ModelSelectionMenu:
             refresh()
             event.app.invalidate()
 
+        @kb.add("e")
+        def _(event):
+            """Edit credentials for the selected model."""
+            selected = self._get_selected_model_name()
+            if not selected:
+                logger.debug("No model selected for credential editing")
+                return
+            env_var = required_env_var_for_model(selected)
+            if not env_var:
+                logger.debug("No env var required for model: %s", selected)
+                return
+            logger.info("User requested credential edit for model: %s", selected)
+            self.pending_credentials_edit = selected
+            event.app.exit()
+
         @kb.add("<any>")
         def _(event):
             if not event.data or not event.data.isprintable():
@@ -458,13 +518,35 @@ class ModelSelectionMenu:
             self.result = None
             event.app.exit()
 
-        app = Application(
-            layout=Layout(Window(content=control, wrap_lines=True)),
-            key_bindings=kb,
-            full_screen=False,
-        )
-        await app.run_async()
-        return self.result
+        while True:
+            # Enter alternate screen buffer for this session
+            sys.stdout.write("\033[?1049h")  # Enter alternate buffer
+            sys.stdout.write("\033[2J\033[H")  # Clear and home
+            sys.stdout.flush()
+
+            # Create a fresh Application each iteration — reusing a
+            # prompt_toolkit Application after exit() is unreliable
+            app = Application(
+                layout=Layout(Window(content=control, wrap_lines=True)),
+                key_bindings=kb,
+                full_screen=False,
+            )
+            await app.run_async()
+
+            # Exit alternate screen buffer
+            sys.stdout.write("\033[?1049l")  # Exit alternate buffer
+            sys.stdout.flush()
+
+            # Handle credential editing outside the event loop
+            if self.pending_credentials_edit:
+                model_name = self.pending_credentials_edit
+                self.pending_credentials_edit = None
+                logger.info("Editing credentials for model: %s", model_name)
+                self._edit_credentials_for_model(model_name)
+                logger.info("Credential edit completed, restarting application")
+                continue  # Restart the application
+
+            return self.result
 
 
 def _build_legacy_picker_choices(
