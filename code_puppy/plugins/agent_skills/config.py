@@ -151,9 +151,7 @@ def set_frontmatter_in_system_prompt(enabled: bool) -> None:
         enabled: True to inject frontmatter, False to skip it.
     """
     set_value("frontmatter_in_system_prompt", "true" if enabled else "false")
-    logger.info(
-        f"Frontmatter in system prompt {'enabled' if enabled else 'disabled'}"
-    )
+    logger.info(f"Frontmatter in system prompt {'enabled' if enabled else 'disabled'}")
 
 
 def get_disabled_skills() -> Set[str]:
