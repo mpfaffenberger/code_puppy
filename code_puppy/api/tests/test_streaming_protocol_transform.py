@@ -1,6 +1,9 @@
 """Tests for streaming-only assistant response protocol adaptation."""
 
-from code_puppy.api.ws.chat_handler import build_assistant_text_stream_frames
+from code_puppy.api.ws.response_frames import (
+    build_assistant_text_stream_frames,
+    build_error_response_frames,
+)
 
 
 def _dump_frames(**kwargs):
@@ -91,3 +94,30 @@ def test_complete_response_transform_preserves_part_type_for_thinking_parts():
     assert frames[2]["part_type"] == "thinking"
     assert frames[2]["part_index"] == 1
     assert frames[3]["type"] == "stream_end"
+
+
+def test_error_after_partial_stream_emits_stream_end_then_error():
+    frames = build_error_response_frames(
+        RuntimeError("backend unavailable"),
+        collected_text=["partial output"],
+        session_id="WS_session_test",
+    )
+
+    assert frames[0]["type"] == "stream_end"
+    assert frames[0]["success"] is False
+    assert frames[1]["type"] == "error"
+    assert frames[1]["session_id"] == "WS_session_test"
+
+
+def test_response_frames_import_does_not_eagerly_load_chat_handler():
+    import importlib
+    import sys
+
+    sys.modules.pop("code_puppy.api.ws", None)
+    sys.modules.pop("code_puppy.api.ws.chat_handler", None)
+    sys.modules.pop("code_puppy.api.ws.response_frames", None)
+
+    module = importlib.import_module("code_puppy.api.ws.response_frames")
+
+    assert module is not None
+    assert "code_puppy.api.ws.chat_handler" not in sys.modules
