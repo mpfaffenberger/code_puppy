@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     result = plugins.load_plugin_callbacks()
     logger.info(
-        f"✓ Loaded plugins: builtin={result['builtin']}, user={result['user']}, external={result['external']}"
+        f"✓ Loaded plugins: builtin={result.get('builtin', [])}, user={result.get('user', [])}, external={result.get('external', [])}"
     )
 
     # Initialise shared SQLite database
