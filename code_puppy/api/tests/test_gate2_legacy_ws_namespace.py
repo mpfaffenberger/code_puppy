@@ -1,20 +1,34 @@
-"""Gate 2 smoke tests for puppy-desk migration safety.
-
-These tests ensure the legacy WS snapshot exists while the active WebSocket
-registration still exposes the original `/ws/chat` route and does not expose a
-migration side-route yet.
-"""
+"""Post-cleanup WebSocket namespace tests for puppy-desk migration."""
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 
 
-def test_setup_websocket_keeps_existing_chat_route_and_no_migration_route():
-    from code_puppy.api.websocket import setup_websocket
+def test_setup_websocket_keeps_existing_chat_route_and_no_extra_routes(monkeypatch):
+    import code_puppy.api.websocket as websocket_module
+
+    def _register_chat(app):
+        @app.websocket("/ws/chat")
+        async def _chat(_ws: WebSocket):
+            return None
+
+    def _register_events(app):
+        @app.websocket("/ws/events")
+        async def _events(_ws: WebSocket):
+            return None
+
+    def _register_health(app):
+        @app.websocket("/ws/health")
+        async def _health(_ws: WebSocket):
+            return None
+
+    monkeypatch.setattr(websocket_module, "register_chat_endpoint", _register_chat)
+    monkeypatch.setattr(websocket_module, "register_events_endpoint", _register_events)
+    monkeypatch.setattr(websocket_module, "register_health_endpoint", _register_health)
 
     app = FastAPI()
-    setup_websocket(app)
+    websocket_module.setup_websocket(app)
 
     websocket_paths = {
         getattr(route, "path", None)
@@ -23,6 +37,8 @@ def test_setup_websocket_keeps_existing_chat_route_and_no_migration_route():
     }
 
     assert "/ws/chat" in websocket_paths
+    assert "/ws/events" in websocket_paths
+    assert "/ws/health" in websocket_paths
     assert "/ws/terminal" not in websocket_paths
     assert "/ws/sessions" not in websocket_paths
     assert "/ws/chat-migration" not in websocket_paths
@@ -30,13 +46,6 @@ def test_setup_websocket_keeps_existing_chat_route_and_no_migration_route():
     assert "/ws/chat-v2" not in websocket_paths
 
 
-def test_legacy_ws_snapshot_namespace_exists_without_route_registration():
-    import code_puppy.api.ws.legacy as legacy_ws
-
-    legacy_dir = Path(legacy_ws.__file__).parent
-
-    assert legacy_ws.LEGACY_SNAPSHOT_PURPOSE == "puppy-desk-gate2-reference-copy"
-    assert (legacy_dir / "chat_handler.py").is_file()
-    assert (legacy_dir / "schemas.py").is_file()
-    assert (legacy_dir / "runtime" / "session_runtime_manager.py").is_file()
-    assert (legacy_dir / "README.md").is_file()
+def test_legacy_ws_snapshot_removed_after_cleanup():
+    ws_dir = Path(__file__).resolve().parents[1] / "ws"
+    assert not (ws_dir / "legacy").exists()

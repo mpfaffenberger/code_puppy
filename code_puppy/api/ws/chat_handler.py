@@ -33,7 +33,6 @@ from code_puppy.api.db.queries import (
     write_system_message_to_sqlite,
     write_turn_to_sqlite,
 )
-from code_puppy.api.error_parser import parse_api_error as _legacy_parse_api_error
 from code_puppy.api.session_context import _validate_session_id, session_manager
 from code_puppy.api.ws.attachments import build_file_context_and_attachments
 from code_puppy.api.ws.background_save import (
@@ -41,6 +40,15 @@ from code_puppy.api.ws.background_save import (
     save_agent_result_in_background,
 )
 from code_puppy.api.ws.connection_manager import connection_manager
+from code_puppy.api.ws.response_frames import (
+    build_assistant_text_stream_frames,
+    build_error_response_frames,
+    parse_api_error,
+)
+from code_puppy.api.ws.history_utils import (
+    build_enhanced_history,
+    estimate_total_tokens,
+)
 from code_puppy.api.ws.schemas import (
     PROTOCOL_VERSION,
     ClientMessage,
@@ -66,7 +74,6 @@ from code_puppy.api.ws.schemas import (
 )
 from code_puppy.config import get_global_model_name
 from code_puppy.messaging.bus import get_message_bus
-from code_puppy.model_errors import normalize_model_error as _normalize_model_error
 from code_puppy.session_storage import generate_heuristic_title
 from code_puppy.tools.command_runner import (
     cleanup_session_process_tracking,
@@ -94,185 +101,6 @@ except ImportError:
 _ClientMessageAdapter = TypeAdapter(ClientMessage)
 
 logger = logging.getLogger(__name__)
-
-# === TOOL-CALL-PARITY BRANCH LOADED ===
-logger.warning(
-    "🐕 CHAT_HANDLER LOADED FROM TOOL-CALL-PARITY BRANCH - ToolReturnPart fix active!"
-)
-print("🐕 CHAT_HANDLER LOADED FROM TOOL-CALL-PARITY BRANCH", flush=True)
-
-
-# ---------------------------------------------------------------------------
-# WebSocket error frame helpers  (see fix/orphaned-tool-use-id-history)
-# ---------------------------------------------------------------------------
-
-_UNKNOWN_ERROR_TYPE = "unknown_error"
-_TOOL_HISTORY_ERROR_TYPE = "tool_history_error"
-
-_CODE_TO_ERROR_TYPE: dict = {
-    "rate_limit_or_overloaded": "rate_limit",
-    "backend_unavailable": "server_error",
-    "auth_error": "auth_error",
-    "quota_exceeded": "quota_exceeded",
-    "content_blocked": "content_blocked",
-    "invalid_tool_history": _TOOL_HISTORY_ERROR_TYPE,
-}
-
-
-def parse_api_error(exc: Exception) -> dict:
-    """Convert an agent-run exception into a structured frontend error dict.
-
-    Wraps ``normalize_model_error`` for primary classification (including the
-    new ``invalid_tool_history`` code for Anthropic HTTP 400 tool-mismatch
-    errors), falling back to the legacy ``_legacy_parse_api_error`` for all
-    other categories so existing behaviour is unchanged.
-
-    Returns:
-        Dict with keys: user_message, error_type, technical_details, action_required.
-    """
-    norm = _normalize_model_error(exc)
-    if norm.code in _CODE_TO_ERROR_TYPE:
-        error_type = _CODE_TO_ERROR_TYPE[norm.code]
-        user_message = norm.user_message or str(exc)
-        action_required = error_type in ("rate_limit", "quota_exceeded")
-        return {
-            "user_message": user_message,
-            "error_type": error_type,
-            "technical_details": repr(exc),
-            "action_required": action_required,
-        }
-    # Fall back to legacy parser for unclassified errors
-    return _legacy_parse_api_error(exc)
-
-
-def has_streamed_content(collected_text) -> bool:
-    """Return True when the client has already received streaming output chunks.
-
-    Args:
-        collected_text: List of text chunks accumulated during the agent run.
-            Elements may be None or empty strings.
-
-    Returns:
-        True if at least one chunk has substantive (non-whitespace) content.
-    """
-    return any((chunk or "").strip() for chunk in collected_text)
-
-
-def build_error_response_frames(
-    agent_error: Exception,
-    collected_text,
-    session_id: str,
-) -> list:
-    """Build the ordered WebSocket frames to send when an agent error occurs.
-
-    When streaming output was already delivered to the client, a ``stream_end``
-    frame (``success=False``) is prepended so the frontend can exit its
-    streaming state before processing the error frame.  Without this handshake
-    the frontend hangs indefinitely waiting for a ``stream_end`` that never
-    arrives.
-
-    Args:
-        agent_error: The exception raised by the agent run.
-        collected_text: Accumulated streaming chunks from the current turn.
-        session_id: The WebSocket session identifier.
-
-    Returns:
-        List of JSON-serialisable dicts to send to the client in order.
-    """
-    frames: list[dict] = []
-    if has_streamed_content(collected_text):
-        frames.append(
-            ServerStreamEnd(
-                success=False,
-                session_id=session_id,
-            ).model_dump(exclude_none=True)
-        )
-    parsed = parse_api_error(agent_error)
-    frames.append(
-        ServerError(
-            error=parsed["user_message"],
-            error_type=parsed["error_type"],
-            technical_details=parsed["technical_details"],
-            action_required=parsed.get("action_required"),
-            session_id=session_id,
-        ).model_dump(exclude_none=True)
-    )
-    return frames
-
-
-def build_assistant_text_stream_frames(
-    *,
-    response_text: str,
-    session_id: str,
-    agent_name: str | None = None,
-    model_name: str | None = None,
-    tokens: dict[str, Any] | None = None,
-    part_type: str = "text",
-    part_index: int = 0,
-    message_id: str | None = None,
-    timestamp: float | None = None,
-) -> list[
-    ServerAssistantMessageStart
-    | ServerAssistantMessageDelta
-    | ServerAssistantMessageEnd
-    | ServerStreamEnd
-]:
-    """Represent a complete assistant response using streaming-shaped frames.
-
-    The GUI protocol is streaming-only: assistant text must be rendered from
-    ``assistant_message_start``/``assistant_message_delta``/
-    ``assistant_message_end`` and finalized by ``stream_end``.  Some upstream
-    model clients return a complete response rather than true token deltas; this
-    helper adapts those complete responses to the same wire shape so the GUI has
-    one rendering path.
-
-    This intentionally emits a single full-content delta for non-streaming
-    upstream responses.  Artificial local chunking can be added later without
-    changing the protocol contract.
-    """
-    import time as time_module
-
-    now = timestamp if timestamp is not None else time_module.time()
-    msg_id = message_id or f"msg-{session_id}-{uuid.uuid4().hex}"
-    content = response_text or ""
-
-    return [
-        ServerAssistantMessageStart(
-            message_id=msg_id,
-            part_type=part_type,
-            part_index=part_index,
-            timestamp=now,
-            session_id=session_id,
-            agent_name=agent_name,
-            model_name=model_name,
-        ),
-        ServerAssistantMessageDelta(
-            message_id=msg_id,
-            content=content,
-            part_index=part_index,
-            session_id=session_id,
-            agent_name=agent_name,
-            model_name=model_name,
-        ),
-        ServerAssistantMessageEnd(
-            message_id=msg_id,
-            part_type=part_type,
-            part_index=part_index,
-            full_content=content,
-            timestamp=now,
-            session_id=session_id,
-            agent_name=agent_name,
-            model_name=model_name,
-        ),
-        ServerStreamEnd(
-            success=True,
-            total_length=len(content),
-            session_id=session_id,
-            agent_name=agent_name,
-            model_name=model_name,
-            tokens=tokens,
-        ),
-    ]
 
 
 def register_chat_endpoint(app: FastAPI) -> None:
@@ -3688,136 +3516,25 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                         or "unknown"
                                     )
 
-                                    def _extract_message_timestamp(
-                                        raw_msg: Any, default_ts: str
-                                    ) -> str:
-                                        """Best-effort extraction of an existing timestamp for a message.
+                                    enhanced_history = build_enhanced_history(
+                                        history,
+                                        agent_name_meta=agent_name_meta,
+                                        model_name_meta=model_name_meta,
+                                        original_user_message=original_user_message,
+                                        attachment_metadata=attachment_metadata,
+                                    )
 
-                                        This is important for WebSocket sessions where history may
-                                        already contain older messages. We don't want to overwrite
-                                        their original timestamps every time we auto-save.
-
-                                        Precedence:
-                                        1. If the message is a dict with a numeric epoch 'timestamp',
-                                           convert to ISO.
-                                        2. If the message is a dict with an ISO-ish 'timestamp' str,
-                                           reuse it as-is.
-                                        3. If the message is a dict with 'ts', reuse it.
-                                        4. If the message object has a 'timestamp' attribute, try that.
-                                        5. Fall back to the provided default_ts ("now" for new messages).
-                                        """
-                                        # Dict-based histories (e.g. CLI format or older WS formats)
-                                        if isinstance(raw_msg, dict):
-                                            ts_val = raw_msg.get("timestamp")
-
-                                            # Epoch seconds
-                                            if isinstance(ts_val, (int, float)):
-                                                try:
-                                                    return (
-                                                        datetime.datetime.fromtimestamp(
-                                                            ts_val
-                                                        ).isoformat()
-                                                    )
-                                                except Exception:
-                                                    pass
-
-                                            # Already an ISO string
-                                            if isinstance(ts_val, str) and ts_val:
-                                                return ts_val
-
-                                            # Our enhanced WS wrapper sometimes uses 'ts'
-                                            ts_field = raw_msg.get("ts")
-                                            if isinstance(ts_field, str) and ts_field:
-                                                return ts_field
-
-                                        # Pydantic / custom objects that carry a timestamp attribute
-                                        try:
-                                            attr_ts = getattr(
-                                                raw_msg, "timestamp", None
-                                            )
-                                            if isinstance(attr_ts, (int, float)):
-                                                return datetime.datetime.fromtimestamp(
-                                                    attr_ts
-                                                ).isoformat()
-                                            if isinstance(attr_ts, str) and attr_ts:
-                                                return attr_ts
-                                        except Exception:
-                                            pass
-
-                                        # Fallback: use provided default
-                                        return default_ts
-
-                                    # Create enhanced history: list of dicts with message + metadata
-                                    # Each entry: {'msg': <original pydantic-ai message>, 'agent': str, 'model': str, 'ts': str}
-                                    enhanced_history = []
-                                    for idx, msg in enumerate(history):
-                                        # Check if already wrapped (for idempotency). If the wrapper
-                                        # already has a 'ts', leave it untouched so older sessions
-                                        # keep their original per-message timestamps.
-                                        if (
-                                            isinstance(msg, dict)
-                                            and "msg" in msg
-                                            and "agent" in msg
-                                        ):
-                                            enhanced_history.append(msg)
-                                        else:
-                                            # Use existing timestamp if present; otherwise compute a default now()
-                                            current_timestamp = (
-                                                datetime.datetime.now().isoformat()
-                                            )
-                                            msg_ts = _extract_message_timestamp(
-                                                msg, current_timestamp
-                                            )
-                                            wrapper = {
-                                                "msg": msg,
-                                                "agent": agent_name_meta,
-                                                "model": model_name_meta,
-                                                "ts": msg_ts,
-                                            }
-
-                                            # Add clean_content and attachments to the user message we just processed.
-                                            # clean_content is only needed when attachments were injected into content
-                                            # (file blocks like --- File: auth.ts ---). Without attachments, content
-                                            # is already the user's words (FE strips [Session Context:] as fallback).
-                                            is_user_message_just_processed = (
-                                                idx == len(history) - 2
-                                                and len(history) >= 2
-                                                and attachment_metadata  # only needed when file content was injected
-                                            )
-
-                                            if is_user_message_just_processed:
-                                                wrapper["clean_content"] = (
-                                                    original_user_message
-                                                )
-                                                wrapper["attachments"] = (
-                                                    attachment_metadata
-                                                )
-                                                logger.debug(
-                                                    "Added UI metadata to user message: %d attachment(s), "
-                                                    "clean_content length: %d",
-                                                    len(attachment_metadata),
-                                                    len(original_user_message),
-                                                )
-
-                                            enhanced_history.append(wrapper)
+                                    if attachment_metadata and len(history) >= 2:
+                                        logger.debug(
+                                            "Added UI metadata to user message: %d attachment(s), clean_content length: %d",
+                                            len(attachment_metadata),
+                                            len(original_user_message),
+                                        )
 
                                     message_count = len(enhanced_history)
-                                    total_tokens = 0
-                                    try:
-                                        for item in enhanced_history:
-                                            msg_obj = (
-                                                item["msg"]
-                                                if isinstance(item, dict)
-                                                and "msg" in item
-                                                else item
-                                            )
-                                            total_tokens += (
-                                                agent.estimate_tokens_for_message(
-                                                    msg_obj
-                                                )
-                                            )
-                                    except Exception:
-                                        total_tokens = 0
+                                    total_tokens = estimate_total_tokens(
+                                        enhanced_history, agent
+                                    )
 
                                     # Write to SQLite for FE read path
                                     try:
