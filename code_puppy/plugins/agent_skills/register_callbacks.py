@@ -115,12 +115,14 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
     """Handle /skills and /skill slash commands.
 
     Sub-commands:
-        /skills              – Launch interactive TUI menu
-        /skills list         – Quick text list of all skills
-        /skills install      – Browse & install from remote catalog
-        /skills frontmatter  – Toggle frontmatter injection into system prompt
-        /skills refresh      – Force skill re-discovery and refresh local cache
-        /skills help         – Show skills command help
+        /skills          – Launch interactive TUI menu
+        /skills list     – Quick text list of all skills
+        /skills install  – Browse & install from remote catalog
+        /skills enable   – Enable skills integration globally
+        /skills disable  – Disable skills integration globally
+        /skills toggle   – Toggle skills integration globally
+        /skills refresh  – Force skill re-discovery and refresh local cache
+        /skills help     – Show skills command help
     """
     if name not in (_COMMAND_NAME, *_ALIASES):
         # Not the /skills meta-command — maybe it's an individual skill?
@@ -132,7 +134,9 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
     from code_puppy.plugins.agent_skills.config import (
         get_disabled_skills,
         get_frontmatter_in_system_prompt,
+        get_skills_enabled,
         set_frontmatter_in_system_prompt,
+        set_skills_enabled,
     )
     from code_puppy.plugins.agent_skills.discovery import (
         discover_skills,
@@ -149,6 +153,7 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
         if subcommand == "list":
             disabled_skills = get_disabled_skills()
             skills = discover_skills()
+            enabled = get_skills_enabled()
 
             if not skills:
                 emit_info("No skills found.")
@@ -157,7 +162,9 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
                 emit_info("  - ./skills/")
                 return True
 
-            emit_info("\U0001f6e0\ufe0f Skills")
+            emit_info(
+                f"\U0001f6e0\ufe0f Skills (integration: {'enabled' if enabled else 'disabled'})"
+            )
             emit_info(f"Found {len(skills)} skill(s):\n")
 
             for skill in skills:
@@ -191,6 +198,25 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
             )
 
             run_skills_install_menu()
+            return True
+
+        elif subcommand == "enable":
+            set_skills_enabled(True)
+            emit_success("\u2705 Skills integration enabled globally")
+            return True
+
+        elif subcommand == "disable":
+            set_skills_enabled(False)
+            emit_warning("\U0001f534 Skills integration disabled globally")
+            return True
+
+        elif subcommand == "toggle":
+            new_state = not get_skills_enabled()
+            set_skills_enabled(new_state)
+            if new_state:
+                emit_success("✅ Skills integration enabled globally")
+            else:
+                emit_warning("🔴 Skills integration disabled globally")
             return True
 
         elif subcommand == "frontmatter":
@@ -241,6 +267,9 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
             emit_info("Available /skills subcommands:")
             emit_info("  /skills list     - List all installed skills")
             emit_info("  /skills install  - Browse & install from catalog")
+            emit_info("  /skills enable   - Enable skills integration globally")
+            emit_info("  /skills disable  - Disable skills integration globally")
+            emit_info("  /skills toggle   - Toggle skills integration globally")
             emit_info(
                 "  /skills frontmatter [on|off|toggle] - Toggle skill list injection into system prompt"
             )
@@ -250,7 +279,9 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
 
         else:
             emit_error(f"Unknown subcommand: {subcommand}")
-            emit_info("Usage: /skills [list|install|frontmatter|refresh|help]")
+            emit_info(
+                "Usage: /skills [list|install|enable|disable|toggle|frontmatter|refresh|help]"
+            )
             return True
 
     # No subcommand – launch TUI menu

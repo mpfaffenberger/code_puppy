@@ -59,6 +59,10 @@ def test_prompt_section_skips_invalid_skill_metadata_quietly(
         from code_puppy.plugins.agent_skills import register_callbacks
 
         monkeypatch.setattr(
+            "code_puppy.plugins.agent_skills.config.get_skills_enabled",
+            lambda: True,
+        )
+        monkeypatch.setattr(
             "code_puppy.plugins.agent_skills.config.get_disabled_skills",
             lambda: set(),
         )

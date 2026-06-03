@@ -44,11 +44,21 @@ def register_activate_skill(agent):
     ) -> SkillActivateOutput:
         """Activate a skill by loading its full SKILL.md instructions."""
         # Import from plugin
+        from code_puppy.plugins.agent_skills.config import get_skills_enabled
         from code_puppy.plugins.agent_skills.enabled_skills import iter_enabled_skills
         from code_puppy.plugins.agent_skills.metadata import (
             get_skill_resources,
             load_full_skill_content,
         )
+
+        # Check if skills enabled
+        if not get_skills_enabled():
+            return SkillActivateOutput(
+                skill_name=skill_name,
+                content="",
+                resources=[],
+                error="Skills integration is disabled. Enable it with /set skills_enabled=true",
+            )
 
         # Find skill by name among *enabled* skills only — disabled skills
         # are intentionally invisible to activate_skill.
@@ -124,10 +134,22 @@ def register_list_or_search_skills(agent):
                    If None, returns all available skills.
         """
         # Import from plugin
-        from code_puppy.plugins.agent_skills.config import get_disabled_skills
+        from code_puppy.plugins.agent_skills.config import (
+            get_disabled_skills,
+            get_skills_enabled,
+        )
         from code_puppy.plugins.agent_skills.enabled_skills import (
             list_enabled_skill_metadata,
         )
+
+        # Check if skills enabled
+        if not get_skills_enabled():
+            return SkillListOutput(
+                skills=[],
+                total_count=0,
+                query=query,
+                error="Skills integration is disabled. Enable it with /set skills_enabled=true",
+            )
 
         # We still need disabled_skills for the SkillEntry.enabled flag below,
         # even though the helper has already filtered them out of the list.

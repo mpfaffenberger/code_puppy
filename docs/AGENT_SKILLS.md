@@ -385,23 +385,20 @@ Agent Skills can be configured through Code Puppy's configuration system.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `frontmatter_in_system_prompt` | boolean | `false` | Inject skill `name`+`description` list into the system prompt. When off, the model still discovers skills via the `list_or_search_skills` / `activate_skill` tools — saves tokens. |
+| `skills_enabled` | boolean | `true` | Globally enable/disable skills integration |
 | `skill_directories` | JSON list | `["~/.code_puppy/skills", "./skills"]` | Directories to scan for skills |
 | `disabled_skills` | JSON list | `[]` | List of skill names to disable |
-
-> **Note:** There is no global on/off flag. To turn skills off wholesale,
-> either disable each skill via `disabled_skills`, or remove the
-> `agent_skills` plugin entirely. The previous `skills_enabled` knob was
-> redundant with these mechanisms and has been removed.
 
 ### Setting Configuration Values
 
 Use the `/set` command to configure skills:
 
 ```
-# Stop injecting the skill list into the system prompt (saves tokens —
-# the model can still discover/activate skills via tools).
-/set frontmatter_in_system_prompt = false
+# Disable skills integration entirely
+/set skills_enabled = false
+
+# Enable skills integration
+/set skills_enabled = true
 
 # Add a custom skill directory
 /set skill_directories = "[\"/path/to/skills\", \"~/.code_puppy/skills\"]"
@@ -438,7 +435,7 @@ Settings are stored in `~/.code_puppy/puppy.cfg`:
 
 ```ini
 [puppy]
-frontmatter_in_system_prompt = false
+skills_enabled = true
 skill_directories = ["/home/user/.code_puppy/skills", "./skills"]
 disabled_skills = ["deprecated-skill"]
 ```

@@ -102,23 +102,45 @@ def remove_skill_directory(path: str) -> bool:
         return False
 
 
+def get_skills_enabled() -> bool:
+    """Check if skills integration is globally enabled.
+
+    Returns:
+        True if skills are globally enabled, False otherwise.
+        Reads from 'skills_enabled' config key (default: True).
+    """
+    cfg_val = get_value("skills_enabled")
+    if cfg_val is None:
+        return True  # Enabled by default
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def set_skills_enabled(enabled: bool) -> None:
+    """Enable or disable skills integration globally.
+
+    Args:
+        enabled: True to enable, False to disable.
+    """
+    set_value("skills_enabled", "true" if enabled else "false")
+    logger.info(f"Skills integration {'enabled' if enabled else 'disabled'}")
+
+
 def get_frontmatter_in_system_prompt() -> bool:
     """Check if skill frontmatter is injected into the system prompt.
 
-    When enabled, each enabled skill's ``name`` + ``description``
+    When enabled (default), each enabled skill's ``name`` + ``description``
     (parsed from the SKILL.md frontmatter) is appended to the system prompt
-    so the model can see what skills are available. When disabled (default),
-    the model has no built-in awareness of skills but can still discover /
-    activate them via the ``list_or_search_skills`` and ``activate_skill``
-    tools.
+    so the model can see what skills are available. When disabled, the model
+    has no built-in awareness of skills but can still discover / activate
+    them via the ``list_or_search_skills`` and ``activate_skill`` tools.
 
     Returns:
         True if frontmatter is loaded into the system prompt, False otherwise.
-        Reads from ``frontmatter_in_system_prompt`` config key (default: False).
+        Reads from ``frontmatter_in_system_prompt`` config key (default: True).
     """
     cfg_val = get_value("frontmatter_in_system_prompt")
     if cfg_val is None:
-        return False  # Disabled by default
+        return True  # Enabled by default
     return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 
