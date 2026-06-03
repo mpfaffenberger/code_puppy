@@ -26,26 +26,10 @@ def _register_and_get(register_func):
 
 class TestActivateSkill:
     @pytest.mark.anyio
-    async def test_disabled(self):
-        fn = _register_and_get(register_activate_skill)
-        ctx = MagicMock()
-        with patch(
-            "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-            return_value=False,
-        ):
-            result = await fn(ctx, skill_name="test")
-            assert result.error is not None
-            assert "disabled" in result.error
-
-    @pytest.mark.anyio
     async def test_discovery_error(self):
         fn = _register_and_get(register_activate_skill)
         ctx = MagicMock()
         with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
             patch(
                 "code_puppy.plugins.agent_skills.config.get_skill_directories",
                 side_effect=Exception("boom"),
@@ -63,10 +47,6 @@ class TestActivateSkill:
         fn = _register_and_get(register_activate_skill)
         ctx = MagicMock()
         with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
             patch(
                 "code_puppy.plugins.agent_skills.config.get_skill_directories",
                 return_value=[],
@@ -88,10 +68,6 @@ class TestActivateSkill:
         mock_skill.has_skill_md = True
         mock_skill.path = "/path"
         with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
             patch(
                 "code_puppy.plugins.agent_skills.config.get_skill_directories",
                 return_value=[],
@@ -118,10 +94,6 @@ class TestActivateSkill:
         mock_skill.path = "/path"
         with (
             patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
                 "code_puppy.plugins.agent_skills.config.get_skill_directories",
                 return_value=[],
             ),
@@ -146,25 +118,10 @@ class TestActivateSkill:
 
 class TestListOrSearchSkills:
     @pytest.mark.anyio
-    async def test_disabled(self):
-        fn = _register_and_get(register_list_or_search_skills)
-        ctx = MagicMock()
-        with patch(
-            "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-            return_value=False,
-        ):
-            result = await fn(ctx)
-            assert result.error is not None
-
-    @pytest.mark.anyio
     async def test_discovery_error(self):
         fn = _register_and_get(register_list_or_search_skills)
         ctx = MagicMock()
         with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
             patch(
                 "code_puppy.plugins.agent_skills.config.get_disabled_skills",
                 return_value=set(),
@@ -193,10 +150,6 @@ class TestListOrSearchSkills:
         mock_meta.version = "1.0"
         mock_meta.author = "me"
         with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
             patch(
                 "code_puppy.plugins.agent_skills.config.get_disabled_skills",
                 return_value=set(),
@@ -236,10 +189,6 @@ class TestListOrSearchSkills:
         mock_meta.author = "me"
         with (
             patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
                 "code_puppy.plugins.agent_skills.config.get_disabled_skills",
                 return_value=set(),
             ),
@@ -276,10 +225,6 @@ class TestListOrSearchSkills:
         mock_meta.version = "1.0"
         mock_meta.author = "me"
         with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
             patch(
                 "code_puppy.plugins.agent_skills.config.get_disabled_skills",
                 return_value=set(),
@@ -318,10 +263,6 @@ class TestListOrSearchSkills:
         mock_meta.author = "me"
         with (
             patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
                 "code_puppy.plugins.agent_skills.config.get_disabled_skills",
                 return_value=set(),
             ),
@@ -359,10 +300,6 @@ class TestListOrSearchSkills:
         mock_meta.author = "me"
         with (
             patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
                 "code_puppy.plugins.agent_skills.config.get_disabled_skills",
                 return_value=set(),
             ),
@@ -395,10 +332,6 @@ class TestListOrSearchSkills:
         no_md_skill.has_skill_md = False
         with (
             patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
                 "code_puppy.plugins.agent_skills.config.get_disabled_skills",
                 return_value={"disabled_one"},
             ),
@@ -424,10 +357,6 @@ class TestListOrSearchSkills:
         mock_skill.has_skill_md = True
         mock_skill.path = "/path"
         with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
             patch(
                 "code_puppy.plugins.agent_skills.config.get_disabled_skills",
                 return_value=set(),

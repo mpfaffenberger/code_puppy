@@ -46,9 +46,7 @@ class SkillsCompleter(Completer):
         self.subcommands = {
             "list": "List all installed skills",
             "install": "Browse & install from catalog",
-            "enable": "Enable skills integration globally",
-            "disable": "Disable skills integration globally",
-            "toggle": "Toggle skills system on/off",
+            "frontmatter": "Toggle skill frontmatter injection into system prompt",
             "refresh": "Refresh skill cache",
             "help": "Show skills help",
         }

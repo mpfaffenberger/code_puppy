@@ -83,14 +83,6 @@ class TestEnabledSkillsHelper:
     """Direct tests for the enabled_skills helper — guarantees we never
     parse frontmatter for disabled skills."""
 
-    def test_skills_globally_disabled_yields_nothing(self):
-        from code_puppy.plugins.agent_skills.enabled_skills import (
-            list_enabled_skill_metadata,
-        )
-
-        with patch(f"{_CFG}.get_skills_enabled", return_value=False):
-            assert list_enabled_skill_metadata() == []
-
     def test_disabled_skill_never_parses_frontmatter(self):
         """The headline guarantee: parse_skill_metadata is NOT called for
         a disabled skill."""
@@ -106,7 +98,6 @@ class TestEnabledSkillsHelper:
         good_meta = MagicMock()
 
         with (
-            patch(f"{_CFG}.get_skills_enabled", return_value=True),
             patch(f"{_CFG}.get_skill_directories", return_value=["/fake"]),
             patch(f"{_DISC}.discover_skills", return_value=[disabled, enabled]),
             patch(f"{_CFG}.get_disabled_skills", return_value={"disabled_one"}),
@@ -131,7 +122,6 @@ class TestEnabledSkillsHelper:
         no_md.name = "no_md"
 
         with (
-            patch(f"{_CFG}.get_skills_enabled", return_value=True),
             patch(f"{_CFG}.get_skill_directories", return_value=["/fake"]),
             patch(f"{_DISC}.discover_skills", return_value=[no_md]),
             patch(f"{_CFG}.get_disabled_skills", return_value=set()),
@@ -215,7 +205,6 @@ class TestHandleSkillsCommand:
         with (
             patch(f"{_CFG}.get_disabled_skills", return_value=set()),
             patch(f"{_DISC}.discover_skills", return_value=[]),
-            patch(f"{_CFG}.get_skills_enabled", return_value=True),
             patch(f"{_MSG}.emit_info"),
         ):
             assert _handle_skills_command("/skills list", "skills") is True
@@ -235,7 +224,6 @@ class TestHandleSkillsCommand:
         with (
             patch(f"{_CFG}.get_disabled_skills", return_value=set()),
             patch(f"{_DISC}.discover_skills", return_value=[skill]),
-            patch(f"{_CFG}.get_skills_enabled", return_value=True),
             patch(f"{_META}.parse_skill_metadata", return_value=metadata),
             patch(f"{_MSG}.emit_info"),
         ):
@@ -254,7 +242,6 @@ class TestHandleSkillsCommand:
         with (
             patch(f"{_CFG}.get_disabled_skills", return_value={"dis_skill"}),
             patch(f"{_DISC}.discover_skills", return_value=[skill]),
-            patch(f"{_CFG}.get_skills_enabled", return_value=False),
             patch(f"{_META}.parse_skill_metadata", return_value=metadata),
             patch(f"{_MSG}.emit_info"),
         ):
@@ -271,7 +258,6 @@ class TestHandleSkillsCommand:
         with (
             patch(f"{_CFG}.get_disabled_skills", return_value=set()),
             patch(f"{_DISC}.discover_skills", return_value=[skill]),
-            patch(f"{_CFG}.get_skills_enabled", return_value=True),
             patch(f"{_META}.parse_skill_metadata", return_value=None),
             patch(f"{_MSG}.emit_info"),
         ):
@@ -284,42 +270,6 @@ class TestHandleSkillsCommand:
 
         with patch(f"{_SKILLS_INSTALL}.run_skills_install_menu"):
             assert _handle_skills_command("/skills install", "skills") is True
-
-    def test_skills_enable(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
-            _handle_skills_command,
-        )
-
-        with (
-            patch(f"{_CFG}.set_skills_enabled"),
-            patch(f"{_MSG}.emit_success"),
-        ):
-            assert _handle_skills_command("/skills enable", "skills") is True
-
-    def test_skills_disable(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
-            _handle_skills_command,
-        )
-
-        with (
-            patch(f"{_CFG}.set_skills_enabled"),
-            patch(f"{_MSG}.emit_warning"),
-        ):
-            assert _handle_skills_command("/skills disable", "skills") is True
-
-    def test_skills_toggle(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
-            _handle_skills_command,
-        )
-
-        with (
-            patch(f"{_CFG}.get_skills_enabled", return_value=False),
-            patch(f"{_CFG}.set_skills_enabled") as mock_set,
-            patch(f"{_MSG}.emit_success") as mock_success,
-        ):
-            assert _handle_skills_command("/skills toggle", "skills") is True
-            mock_set.assert_called_once_with(True)
-            mock_success.assert_called_once()
 
     def test_skills_frontmatter_on(self):
         from code_puppy.plugins.agent_skills.register_callbacks import (
@@ -436,7 +386,7 @@ class TestHandleSkillsCommand:
             patch(f"{_MSG}.emit_info") as mock_info,
         ):
             assert _handle_skills_command("/skills bogus", "skills") is True
-            assert "toggle" in str(mock_info.call_args)
+            assert "Usage:" in str(mock_info.call_args)
             assert "help" in str(mock_info.call_args)
 
     def test_skills_no_subcommand_launches_menu(self):

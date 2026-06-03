@@ -10,11 +10,11 @@ from code_puppy.callbacks import clear_callbacks, register_callback
 from code_puppy.plugins.agent_skills.config import (
     add_skill_directory,
     get_disabled_skills,
+    get_frontmatter_in_system_prompt,
     get_skill_directories,
-    get_skills_enabled,
     remove_skill_directory,
+    set_frontmatter_in_system_prompt,
     set_skill_disabled,
-    set_skills_enabled,
 )
 from code_puppy.plugins.agent_skills.discovery import (
     SkillInfo,
@@ -882,8 +882,8 @@ class TestSkillsConfig:
         assert result is False
         assert "Failed to remove skill directory" in caplog.text
 
-    def test_get_skills_enabled_default(self, monkeypatch):
-        """Test getting skills enabled flag with default (no config)."""
+    def test_get_frontmatter_in_system_prompt_default_is_false(self, monkeypatch):
+        """Frontmatter injection defaults to OFF when no config value is set."""
 
         def mock_get_value(key):
             return None
@@ -891,7 +891,7 @@ class TestSkillsConfig:
         monkeypatch.setattr(
             "code_puppy.plugins.agent_skills.config.get_value", mock_get_value
         )
-        assert get_skills_enabled() is True
+        assert get_frontmatter_in_system_prompt() is False
 
     @pytest.mark.parametrize(
         "value,expected",
@@ -902,14 +902,16 @@ class TestSkillsConfig:
             ("yes", True),
             ("on", True),
             ("false", False),
-            ("False", False),
             ("0", False),
             ("no", False),
             ("off", False),
+            ("banana", False),  # garbage -> falsey
         ],
     )
-    def test_get_skills_enabled_various_values(self, value, expected, monkeypatch):
-        """Test getting skills enabled flag with various config values."""
+    def test_get_frontmatter_in_system_prompt_various_values(
+        self, value, expected, monkeypatch
+    ):
+        """Frontmatter flag parses the same truthy/falsey strings as other bool flags."""
 
         def mock_get_value(key):
             return value
@@ -917,33 +919,25 @@ class TestSkillsConfig:
         monkeypatch.setattr(
             "code_puppy.plugins.agent_skills.config.get_value", mock_get_value
         )
-        assert get_skills_enabled() == expected
+        assert get_frontmatter_in_system_prompt() == expected
 
-    def test_set_skills_enabled_true(self, monkeypatch):
-        """Test setting skills enabled to True."""
+    def test_set_frontmatter_in_system_prompt_true(self, monkeypatch):
         calls = []
-
-        def mock_set_value(key, value):
-            calls.append((key, value))
-
         monkeypatch.setattr(
-            "code_puppy.plugins.agent_skills.config.set_value", mock_set_value
+            "code_puppy.plugins.agent_skills.config.set_value",
+            lambda k, v: calls.append((k, v)),
         )
-        set_skills_enabled(True)
-        assert calls == [("skills_enabled", "true")]
+        set_frontmatter_in_system_prompt(True)
+        assert calls == [("frontmatter_in_system_prompt", "true")]
 
-    def test_set_skills_enabled_false(self, monkeypatch):
-        """Test setting skills enabled to False."""
+    def test_set_frontmatter_in_system_prompt_false(self, monkeypatch):
         calls = []
-
-        def mock_set_value(key, value):
-            calls.append((key, value))
-
         monkeypatch.setattr(
-            "code_puppy.plugins.agent_skills.config.set_value", mock_set_value
+            "code_puppy.plugins.agent_skills.config.set_value",
+            lambda k, v: calls.append((k, v)),
         )
-        set_skills_enabled(False)
-        assert calls == [("skills_enabled", "false")]
+        set_frontmatter_in_system_prompt(False)
+        assert calls == [("frontmatter_in_system_prompt", "false")]
 
     def test_get_disabled_skills_default(self, monkeypatch):
         """Test getting disabled skills with default (none disabled)."""

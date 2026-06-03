@@ -49,7 +49,8 @@ class TestSkillsCompleter:
         names = [c.text for c in result]
         assert "list" in names
         assert "install" in names
-        assert "enable" in names
+        assert "frontmatter" in names
+        assert "refresh" in names
 
     def test_partial_subcommand(self):
         result = self._get_completions("/skills li")

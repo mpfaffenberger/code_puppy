@@ -27,10 +27,8 @@ from code_puppy.plugins.agent_skills.config import (
     add_skill_directory,
     get_disabled_skills,
     get_skill_directories,
-    get_skills_enabled,
     remove_skill_directory,
     set_skill_disabled,
-    set_skills_enabled,
 )
 from code_puppy.plugins.agent_skills.discovery import (
     SkillInfo,
@@ -55,7 +53,6 @@ class SkillsMenu:
         self.skills: List[SkillInfo] = []
         self.disabled_skills: List[str] = []
         self.skill_directories: List[Path] = []
-        self.skills_enabled = False
 
         # State management
         self.selected_idx = 0
@@ -75,7 +72,6 @@ class SkillsMenu:
             self.skills = discover_skills()
             self.disabled_skills = get_disabled_skills()
             self.skill_directories = get_skill_directories()
-            self.skills_enabled = get_skills_enabled()
         except Exception as e:
             emit_error(f"Failed to refresh skills data: {e}")
 
@@ -118,10 +114,8 @@ class SkillsMenu:
         """Render the skill list panel."""
         lines = []
 
-        # Header with status
-        status_color = "fg:ansigreen" if self.skills_enabled else "fg:ansired"
-        status_text = "ENABLED" if self.skills_enabled else "DISABLED"
-        lines.append((status_color, f" Skills: {status_text}"))
+        # Header
+        lines.append(("fg:ansicyan bold", " Skills"))
         lines.append(("", "\n\n"))
 
         if not self.skills:
@@ -188,9 +182,7 @@ class SkillsMenu:
         lines.append(("fg:ansibrightblack", "←/→ "))
         lines.append(("", "Page\n"))
         lines.append(("fg:ansigreen", "  Enter  "))
-        lines.append(("", "Toggle  "))
-        lines.append(("fg:ansicyan", "  t  "))
-        lines.append(("", "Toggle System\n"))
+        lines.append(("", "Toggle skill\n"))
         lines.append(("fg:ansimagenta", "  Ctrl+A  "))
         lines.append(("", "Add Dir  "))
         lines.append(("fg:ansiyellow", "  Ctrl+D  "))
@@ -402,15 +394,6 @@ class SkillsMenu:
             """Toggle skill enabled/disabled."""
             self._toggle_current_skill()
             self.result = "changed"
-
-        @kb.add("t")
-        def _(event):
-            """Toggle skills system on/off."""
-            new_state = not self.skills_enabled
-            set_skills_enabled(new_state)
-            self.skills_enabled = new_state
-            self.result = "changed"
-            self.update_display()
 
         @kb.add("r")
         def _(event):
@@ -679,8 +662,6 @@ def handle_skills_command(args: list[str]) -> bool:
             emit_error("Usage: /skills disable <skill-name>")
             return False
         return _disable_skill(args[1])
-    elif command == "toggle":
-        return _toggle_skills_integration()
     elif command == "refresh":
         return _refresh_skills()
     elif command == "help":
@@ -752,24 +733,6 @@ def _disable_skill(skill_name: str) -> bool:
         return False
 
 
-def _toggle_skills_integration() -> bool:
-    """Toggle skills integration on/off."""
-    try:
-        current = get_skills_enabled()
-        new_state = not current
-        set_skills_enabled(new_state)
-
-        if new_state:
-            emit_success("Skills integration has been enabled.")
-        else:
-            emit_warning("Skills integration has been disabled.")
-
-        return True
-    except Exception as e:
-        emit_error(f"Failed to toggle skills integration: {e}")
-        return False
-
-
 def _refresh_skills() -> bool:
     """Refresh the skill cache."""
     try:
@@ -789,6 +752,5 @@ def _show_help() -> None:
     emit_info("  /skills list              - List all skills")
     emit_info("  /skills enable <name>     - Enable a skill")
     emit_info("  /skills disable <name>    - Disable a skill")
-    emit_info("  /skills toggle            - Toggle skills integration")
     emit_info("  /skills refresh           - Refresh skill cache")
     emit_info("  /skills help              - Show this help")

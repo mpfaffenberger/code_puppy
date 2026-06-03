@@ -33,15 +33,10 @@ def iter_enabled_skill_metadata(
     Frontmatter is only read for skills that survive the disabled check —
     so this function is also the cheapest way to ask "what's actually live?".
 
-    If skills integration is globally disabled, yields nothing.
-
     Args:
         directories: Optional explicit list of directories to scan. Defaults
             to the configured + default skill directories (the standard path).
     """
-    if not _config.get_skills_enabled():
-        return
-
     if directories is None:
         directories = [Path(d) for d in _config.get_skill_directories()]
 
@@ -72,9 +67,6 @@ def iter_enabled_skills(
     Useful when a caller only needs the path/name (e.g. to load the full
     ``SKILL.md`` body) and doesn't want to pay the YAML-parse cost.
     """
-    if not _config.get_skills_enabled():
-        return
-
     if directories is None:
         directories = [Path(d) for d in _config.get_skill_directories()]
 
