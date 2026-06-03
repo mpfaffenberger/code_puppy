@@ -204,6 +204,7 @@ def register_chat_endpoint(app: FastAPI) -> None:
             # Generate new timestamp-based session ID
             session_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             session_id = f"WS_session_{session_timestamp}"
+            sender.session_id = session_id
             logger.debug("Generated new session ID: %s", session_id)
 
         try:
@@ -574,6 +575,7 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                 await session_manager.mark_session_inactive(session_id)
 
                                 session_id = new_session_id
+                                sender.session_id = session_id
                                 session_title = ""
                                 session_working_directory = ""
                                 session_pinned = False
@@ -607,6 +609,7 @@ def register_chat_endpoint(app: FastAPI) -> None:
                             await session_manager.mark_session_inactive(session_id)
 
                             session_id = new_session_id
+                            sender.session_id = session_id
 
                             # Try loading via SessionManager (checks in-memory first, then SQLite)
                             loaded_ctx = await session_manager.get_or_load_session(
@@ -2534,6 +2537,20 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                     # Run the agent in its own task so it can be cancelled independently.
                                     # Suppress duplicate emitter lifecycle callbacks only during the
                                     # run_with_mcp execution window (pre/post_tool_call hooks fire there).
+                                    # Wire the emitter ContextVar so events
+                                    # emitted by register_callbacks are tagged
+                                    # with this session and reach our subscriber.
+                                    try:
+                                        from code_puppy.plugins.frontend_emitter.session_context import (
+                                            current_emitter_session_id,
+                                        )
+
+                                        _emitter_token = current_emitter_session_id.set(
+                                            session_id
+                                        )
+                                    except ImportError:
+                                        _emitter_token = None
+
                                     set_suppress_emitter_tool_events(True)
                                     active_agent_task = asyncio.create_task(
                                         agent.run_with_mcp(
@@ -2785,6 +2802,19 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                     # End suppression scope once run_with_mcp window ends,
                                     # including completion/cancel/background handoff paths.
                                     set_suppress_emitter_tool_events(False)
+                                    # Reset emitter ContextVar so stale session_id
+                                    # doesn't leak into unrelated coroutines.
+                                    if _emitter_token is not None:
+                                        try:
+                                            from code_puppy.plugins.frontend_emitter.session_context import (
+                                                current_emitter_session_id,
+                                            )
+
+                                            current_emitter_session_id.reset(
+                                                _emitter_token
+                                            )
+                                        except ImportError:
+                                            pass
                                     # Clear session context for prompt generation
                                     clear_session_working_directory()
 
@@ -3433,8 +3463,8 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                     # Title is stored only in the meta file, not in the filename
                                     session_name = session_id
 
-                                    agent_name_meta, model_name_meta = resolve_agent_model_meta(
-                                        agent=agent, ctx=ctx
+                                    agent_name_meta, model_name_meta = (
+                                        resolve_agent_model_meta(agent=agent, ctx=ctx)
                                     )
 
                                     enhanced_history = build_enhanced_history(

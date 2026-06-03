@@ -61,6 +61,10 @@ class WebSocketSender:
     def session_id(self) -> str:
         return self._session_id
 
+    @session_id.setter
+    def session_id(self, value: str) -> None:
+        self._session_id = value
+
     # -- persistence helper --------------------------------------------------
 
     async def persist_error_payload(self, data: dict[str, Any]) -> None:
