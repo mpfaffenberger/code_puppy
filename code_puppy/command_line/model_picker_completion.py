@@ -395,7 +395,7 @@ class ModelSelectionMenu:
         lines.append(("", "Clear filter\n"))
         lines.append(("fg:ansigreen", "  Enter  "))
         lines.append(("", "Select model\n"))
-        lines.append(("fg:cyan", "  e  "))
+        lines.append(("fg:cyan", "  Ctrl+E  "))
         lines.append(("", "Edit credentials\n"))
         lines.append(("fg:ansiyellow", "  Esc  "))
         lines.append(("", "Cancel\n"))
@@ -483,7 +483,7 @@ class ModelSelectionMenu:
             refresh()
             event.app.invalidate()
 
-        @kb.add("e")
+        @kb.add("c-e")
         def _(event):
             """Edit credentials for the selected model."""
             selected = self._get_selected_model_name()
