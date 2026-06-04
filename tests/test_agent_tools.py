@@ -1,5 +1,6 @@
 """Tests for agent tools functionality."""
 
+import inspect
 import json
 import tempfile
 from pathlib import Path
@@ -15,6 +16,7 @@ from code_puppy.tools.agent_tools import (
     _save_session_history,
     _validate_session_id,
     register_invoke_agent,
+    register_invoke_agent_with_model,
     register_list_agents,
 )
 
@@ -37,6 +39,44 @@ class TestAgentTools:
 
         # Register the tool - this should not raise an exception
         register_invoke_agent(mock_agent)
+
+    def test_invoke_agent_with_model_tool(self):
+        """Test that invoke_agent_with_model tool registers correctly."""
+        mock_agent = MagicMock()
+
+        register_invoke_agent_with_model(mock_agent)
+
+    def test_invoke_agent_schema_omits_model_name(self):
+        """Default invoke_agent should not advertise model override."""
+        registered_func = None
+        mock_agent = MagicMock()
+
+        def capture_tool(func):
+            nonlocal registered_func
+            registered_func = func
+            return func
+
+        mock_agent.tool = capture_tool
+        register_invoke_agent(mock_agent)
+
+        signature = inspect.signature(registered_func)
+        assert "model_name" not in signature.parameters
+
+    def test_invoke_agent_with_model_requires_model_name(self):
+        """Explicit override tool should require model_name."""
+        registered_func = None
+        mock_agent = MagicMock()
+
+        def capture_tool(func):
+            nonlocal registered_func
+            registered_func = func
+            return func
+
+        mock_agent.tool = capture_tool
+        register_invoke_agent_with_model(mock_agent)
+
+        parameter = inspect.signature(registered_func).parameters["model_name"]
+        assert parameter.default is inspect.Signature.empty
 
     def test_invoke_agent_includes_prompt_additions(self):
         """Test that invoke_agent includes prompt additions like file permission handling."""

@@ -86,7 +86,6 @@ Important rules:
 - Read existing files before modifying them
 - Prefer replace_in_file over create_file. Keep diffs small (100-300 lines).
 {r["loop_rule"]}
-- When invoking sub-agents, you may pass model_name to use a specific configured model for that invocation only. Use it only when the user/project instructions specify model preferences or when escalating a failed/complex subtask; do not change the global model just to run a sub-agent.
 - Continue autonomously unless user input is definitively required
 """
         # NOTE: runtime ``load_prompt`` fragments (plugin-injected notes such

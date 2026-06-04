@@ -1,6 +1,10 @@
 from code_puppy.callbacks import on_register_agent_tools, on_register_tools
 from code_puppy.messaging import emit_warning
-from code_puppy.tools.agent_tools import register_invoke_agent, register_list_agents
+from code_puppy.tools.agent_tools import register_list_agents
+from code_puppy.tools.subagent_invocation import (
+    register_invoke_agent,
+    register_invoke_agent_with_model,
+)
 from code_puppy.tools.ask_user_question import register_ask_user_question
 
 # Browser automation tools
@@ -77,6 +81,7 @@ from code_puppy.tools.file_operations import (
     register_read_file,
 )
 from code_puppy.tools.image_tools import register_load_image
+from code_puppy.tools.model_tools import register_list_available_models
 from code_puppy.tools.skills_tools import (
     register_activate_skill,
     register_list_or_search_skills,
@@ -88,6 +93,8 @@ TOOL_REGISTRY = {
     # Agent Tools
     "list_agents": register_list_agents,
     "invoke_agent": register_invoke_agent,
+    "invoke_agent_with_model": register_invoke_agent_with_model,
+    "list_available_models": register_list_available_models,
     # File Operations
     "list_files": register_list_files,
     "read_file": register_read_file,

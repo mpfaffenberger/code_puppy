@@ -256,8 +256,8 @@ DONT USE THE TERMINAL TOOL TO RUN THE CODE WE WROTE UNLESS THE USER ASKS YOU TO.
 #### `list_agents()`
 Use this to list all available sub-agents that can be invoked
 
-#### `invoke_agent(agent_name: str, prompt: str, session_id: str | None = None, model_name: str | None = None)`
-Use this to invoke another agent with a specific prompt. This allows agents to delegate tasks to specialized sub-agents.
+#### `invoke_agent(agent_name: str, prompt: str, session_id: str | None = None)`
+Use this to invoke another agent with a specific prompt using that agent's configured model. This allows agents to delegate tasks to specialized sub-agents.
 
 Arguments:
 - agent_name (required): Name of the agent to invoke
@@ -267,10 +267,15 @@ Arguments:
   - For NEW sessions: provide a base name - a SHA1 hash suffix is automatically appended for uniqueness
   - To CONTINUE a session: use the session_id from the previous invocation's response
   - If None (default): Auto-generates a unique session like "agent-name-session-a3f2b1"
-- model_name (optional): Configured model name to use for this invocation only
-  - Overrides the invoked agent's default/pinned model for this run
-  - Does not change global model settings or future invocations
-  - Use only when the user/project instructions specify model preferences or an escalation is warranted
+
+#### Model override tools for power-user agents
+Normal agents should use `invoke_agent` only. Add `list_available_models` and `invoke_agent_with_model` only for agents that intentionally route work across models, such as judge, planner, or orchestrator agents.
+
+#### `list_available_models()`
+Discover valid configured model aliases for explicit model overrides. It returns safe metadata only.
+
+#### `invoke_agent_with_model(agent_name: str, prompt: str, model_name: str, session_id: str | None = None)`
+Invoke a sub-agent with an explicit one-call model override. `model_name` is required and should be an alias returned by `list_available_models`. Prefer `invoke_agent` for normal delegation.
 
 Returns: `{{response, agent_name, session_id, model_name, error}}`
 - **session_id in the response is the FULL ID** - use this to continue the conversation!
@@ -307,20 +312,8 @@ result3 = invoke_agent(
 )
 # result3.session_id is different from result1.session_id
 
-# Per-call model override: use only real configured model names
-quick_review = invoke_agent(
-    agent_name="code-reviewer",
-    prompt="Cheap first pass: look for obvious issues only.",
-    model_name="<configured-fast-model-name>"
-)
-
-if quick_review.error or "uncertain" in (quick_review.response or "").lower():
-    deep_review = invoke_agent(
-        agent_name="code-reviewer",
-        prompt="Continue from the previous review and reason more deeply.",
-        session_id=quick_review.session_id,
-        model_name="<configured-strong-reasoning-model-name>"
-    )
+# Power-user agents only: first discover real configured model aliases,
+# then pass one returned alias to invoke_agent_with_model(..., model_name=...).
 ```
 
 Best-practice guidelines for `invoke_agent`:
@@ -328,7 +321,7 @@ Best-practice guidelines for `invoke_agent`:
 • Clearly specify what you want the invoked agent to do
 • Be specific in your prompts to get better results
 • Avoid circular dependencies (don't invoke yourself!)
-• `model_name` is a temporary runtime override; omit it unless the task/user instructions justify a specific configured model
+• Use `invoke_agent` for normal delegation; only agents intentionally granted `list_available_models` and `invoke_agent_with_model` can perform per-call model overrides
 • **Session management:**
   - Default behavior (session_id=None): Each invocation is independent with no memory
   - For NEW sessions: provide a human-readable base name like "review-oauth" - hash suffix is auto-appended
@@ -364,6 +357,8 @@ Available templates for tools:
 - `agent_run_shell_command`: Standard shell command execution
 - `list_agents`: Standard agent listing operations
 - `invoke_agent`: Standard agent invocation operations
+- `invoke_agent_with_model`: Explicit model-override agent invocation for power-user orchestrators
+- `list_available_models`: Safe model alias discovery for model-override workflows
 
 Each agent you create should only include templates for tools it actually uses. The `replace_in_file` tool template
 should always include its detailed usage instructions when selected.
