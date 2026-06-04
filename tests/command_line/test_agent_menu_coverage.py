@@ -10,10 +10,8 @@ import pytest
 from code_puppy.command_line.agent_menu import (
     PAGE_SIZE,
     _apply_pinned_model,
-    _build_model_picker_choices,
     _get_agent_entries,
     _get_pinned_model,
-    _normalize_model_choice,
     _reload_agent_if_current,
     _render_menu_panel,
     _render_preview_panel,
@@ -108,62 +106,27 @@ class TestGetPinnedModel:
             assert _get_pinned_model("agent1") is None
 
 
-# --------------- _build_model_picker_choices ---------------
-
-
-class TestBuildModelPickerChoices:
-    def test_no_pinned_model(self):
-        choices = _build_model_picker_choices(None, ["m1", "m2"])
-        assert choices[0] == "✓ (unpin)"
-        assert any("m1" in c for c in choices)
-
-    def test_with_pinned_model(self):
-        choices = _build_model_picker_choices("m1", ["m1", "m2"])
-        assert choices[0] == "  (unpin)"
-        assert any("m1" in c and "pinned" in c for c in choices)
-
-
-# --------------- _normalize_model_choice ---------------
-
-
-class TestNormalizeModelChoice:
-    def test_plain(self):
-        assert _normalize_model_choice("  gpt-4") == "gpt-4"
-
-    def test_with_checkmark(self):
-        assert _normalize_model_choice("✓ gpt-4 (pinned)") == "gpt-4"
-
-    def test_unpin(self):
-        assert _normalize_model_choice("✓ (unpin)") == "(unpin)"
-
-
 # --------------- _select_pinned_model ---------------
 
 
 class TestSelectPinnedModel:
     @pytest.mark.asyncio
-    @patch("code_puppy.command_line.agent_menu.arrow_select_async")
+    @patch("code_puppy.command_line.agent_menu.ModelSelectionMenu")
     @patch(
         "code_puppy.command_line.agent_menu.load_model_names", return_value=["m1", "m2"]
     )
-    @patch(
-        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
-    )
-    async def test_success(self, mock_pin, mock_load, mock_select):
-        mock_select.return_value = "  m1"
+    async def test_success(self, mock_load, mock_menu_cls):
+        mock_menu_cls.return_value.run_async = AsyncMock(return_value="m1")
         result = await _select_pinned_model("agent1")
         assert result == "m1"
+        # The /model picker is reused, with the unpin sentinel prepended.
+        assert mock_menu_cls.call_args.kwargs["model_names"] == ["(unpin)", "m1", "m2"]
 
     @pytest.mark.asyncio
-    @patch(
-        "code_puppy.command_line.agent_menu.arrow_select_async",
-        side_effect=KeyboardInterrupt,
-    )
+    @patch("code_puppy.command_line.agent_menu.ModelSelectionMenu")
     @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=["m1"])
-    @patch(
-        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
-    )
-    async def test_cancelled(self, mock_pin, mock_load, mock_select):
+    async def test_cancelled(self, mock_load, mock_menu_cls):
+        mock_menu_cls.return_value.run_async = AsyncMock(return_value=None)
         result = await _select_pinned_model("agent1")
         assert result is None
 
@@ -177,17 +140,14 @@ class TestSelectPinnedModel:
         assert result is None
 
     @pytest.mark.asyncio
+    @patch("code_puppy.command_line.agent_menu.ModelSelectionMenu")
     @patch("code_puppy.command_line.agent_menu.load_model_names", return_value=[])
-    @patch(
-        "code_puppy.command_line.agent_menu.get_agent_pinned_model", return_value=None
-    )
-    async def test_empty_models(self, mock_pin, mock_load):
-        with patch(
-            "code_puppy.command_line.agent_menu.arrow_select_async",
-            return_value="✓ (unpin)",
-        ):
-            result = await _select_pinned_model("agent1")
+    async def test_empty_models(self, mock_load, mock_menu_cls):
+        mock_menu_cls.return_value.run_async = AsyncMock(return_value="(unpin)")
+        result = await _select_pinned_model("agent1")
+        # Unpin stays available even with no models configured.
         assert result == "(unpin)"
+        assert mock_menu_cls.call_args.kwargs["model_names"] == ["(unpin)"]
 
 
 # --------------- _reload_agent_if_current ---------------
