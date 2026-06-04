@@ -412,13 +412,11 @@ def register_invoke_agent(agent):
             if puppy_rules:
                 instructions += f"\n\n{puppy_rules}"
 
-            # Apply prompt additions (like file permission handling) to temporary agents
-            from code_puppy import callbacks
+            # NOTE: ``load_prompt`` fragments (file-permission handling, kennel
+            # memory, ...) are already baked into ``get_full_system_prompt``
+            # via BaseAgent, so we must NOT append them again here — doing so
+            # double-injected them for class-based agents.
             from code_puppy.model_utils import prepare_prompt_for_model
-
-            prompt_additions = callbacks.on_load_prompt()
-            if len(prompt_additions):
-                instructions += "\n" + "\n".join(prompt_additions)
 
             # Handle claude-code models: swap instructions, and prepend system prompt only on first message
             prepared = prepare_prompt_for_model(

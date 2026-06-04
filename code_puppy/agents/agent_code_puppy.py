@@ -2,7 +2,6 @@
 
 from code_puppy.config import get_owner_name, get_puppy_name
 
-from .. import callbacks
 from .base_agent import BaseAgent
 
 
@@ -89,8 +88,9 @@ Important rules:
 {r["loop_rule"]}
 - Continue autonomously unless user input is definitively required
 """
-
-        prompt_additions = callbacks.on_load_prompt()
-        if len(prompt_additions):
-            result += "\n".join(prompt_additions)
+        # NOTE: runtime ``load_prompt`` fragments (plugin-injected notes such
+        # as environment context, file-permission rules, memory recall, ...)
+        # are intentionally NOT appended here — they're injected fresh at
+        # runtime by ``BaseAgent.get_full_system_prompt`` so they never get
+        # baked into a cloned/persisted agent definition.
         return result

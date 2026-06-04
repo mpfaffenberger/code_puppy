@@ -658,7 +658,12 @@ def clone_agent(agent_name: str) -> Optional[str]:
                     agent_instance.display_name, clone_index
                 ),
                 "description": agent_instance.description,
-                "system_prompt": agent_instance.get_full_system_prompt(),
+                # Persist the AUTHORED prompt only. ``get_full_system_prompt``
+                # would bake in runtime ``load_prompt`` fragments (live
+                # timestamp/CWD, kennel memory, ...) and the instance identity
+                # ID — all of which must be (re)injected fresh at runtime, not
+                # frozen into a static clone definition.
+                "system_prompt": agent_instance.get_system_prompt(),
                 "tools": _filter_available_tools(agent_instance.get_available_tools()),
             }
 

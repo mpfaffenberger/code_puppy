@@ -128,7 +128,24 @@ class BaseAgent(ABC):
         )
 
     def get_full_system_prompt(self) -> str:
-        return self.get_system_prompt() + self.get_identity_prompt()
+        """Assemble the runtime system prompt.
+
+        Layered as: authored prompt (``get_system_prompt``) + per-turn
+        ``load_prompt`` plugin fragments + this instance's identity.
+
+        The ``load_prompt`` fragments (live timestamp/CWD, file-permission
+        rules, kennel memory, ...) and the identity ID are *runtime* concerns.
+        They live here — not in ``get_system_prompt`` — so they're recomputed
+        fresh every run and never get persisted into static agent definitions
+        (e.g. when an agent is cloned to JSON). See ``clone_agent``.
+        """
+        from code_puppy import callbacks
+
+        prompt = self.get_system_prompt()
+        prompt_additions = callbacks.on_load_prompt()
+        if prompt_additions:
+            prompt += "\n" + "\n".join(prompt_additions)
+        return prompt + self.get_identity_prompt()
 
     # ---- Message history (plain dict-level access) ------------------------
     def get_message_history(self) -> List[Any]:
