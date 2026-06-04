@@ -85,3 +85,62 @@ class TestCoerceQuestionsJsonString:
         result = _coerce_questions_json_string(json.dumps(q))
         assert result == q
         assert len(result) == 1
+
+
+class TestToolSchemaConstraints:
+    """Verify the JSON schema includes all constraints for LLM guidance."""
+
+    def test_schema_includes_all_maxlength_constraints(self):
+        """Schema should include maxLength for all string fields."""
+        from pydantic_ai import Agent
+
+        from code_puppy.tools.ask_user_question.constants import (
+            MAX_DESCRIPTION_LENGTH,
+            MAX_HEADER_LENGTH,
+            MAX_LABEL_LENGTH,
+            MAX_OPTIONS_PER_QUESTION,
+            MAX_QUESTION_LENGTH,
+            MAX_QUESTIONS_PER_CALL,
+            MIN_OPTIONS_PER_QUESTION,
+        )
+        from code_puppy.tools.ask_user_question.registration import (
+            register_ask_user_question,
+        )
+
+        agent = Agent("test")
+        register_ask_user_question(agent)
+
+        # Get the schema from the registered tool
+        toolset = agent._function_toolset
+        tool = toolset.tools["ask_user_question"]
+        schema = tool.function_schema.json_schema
+
+        # Check questions array constraints
+        questions_schema = schema["properties"]["questions"]
+        assert questions_schema["minItems"] == 1
+        assert questions_schema["maxItems"] == MAX_QUESTIONS_PER_CALL
+
+        # Check question object constraints
+        question_schema = questions_schema["items"]
+        assert (
+            question_schema["properties"]["question"]["maxLength"]
+            == MAX_QUESTION_LENGTH
+        )
+        assert question_schema["properties"]["header"]["maxLength"] == MAX_HEADER_LENGTH
+        assert "question" in question_schema["required"]
+        assert "header" in question_schema["required"]
+        assert "options" in question_schema["required"]
+
+        # Check options array constraints
+        options_schema = question_schema["properties"]["options"]
+        assert options_schema["minItems"] == MIN_OPTIONS_PER_QUESTION
+        assert options_schema["maxItems"] == MAX_OPTIONS_PER_QUESTION
+
+        # Check option object constraints
+        option_schema = options_schema["items"]
+        assert option_schema["properties"]["label"]["maxLength"] == MAX_LABEL_LENGTH
+        assert (
+            option_schema["properties"]["description"]["maxLength"]
+            == MAX_DESCRIPTION_LENGTH
+        )
+        assert "label" in option_schema["required"]

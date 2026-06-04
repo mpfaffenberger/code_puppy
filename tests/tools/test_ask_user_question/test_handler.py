@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from code_puppy.command_line.wiggum_state import start_wiggum, stop_wiggum
+from code_puppy.tools.ask_user_question.constants import MAX_HEADER_LENGTH
 from code_puppy.tools.ask_user_question.handler import (
     ask_user_question,
     is_interactive,
@@ -89,19 +90,21 @@ class TestAskUserQuestionValidation:
         assert result.answers == []
 
     def test_header_too_long(self) -> None:
-        """Header over 60 chars should return validation error."""
+        """Header over MAX_HEADER_LENGTH chars should return validation error."""
         result = ask_user_question(
             [
                 {
                     "question": "Which database?",
-                    "header": "A" * 61,  # exceeds MAX_HEADER_LENGTH=60
+                    "header": "A" * (MAX_HEADER_LENGTH + 1),
                     "options": [{"label": "A"}, {"label": "B"}],
                 }
             ]
         )
         assert result.error is not None
         # The error message includes the constraint info
-        assert "60" in result.error or "header" in result.error.lower()
+        assert (
+            str(MAX_HEADER_LENGTH) in result.error or "header" in result.error.lower()
+        )
 
     def test_too_few_options(self) -> None:
         """Less than 2 options should return validation error."""
