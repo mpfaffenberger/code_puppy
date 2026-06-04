@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-
 import pytest
 
 from code_puppy.api.ws.send_utils import WebSocketSender
-
 
 # ---------------------------------------------------------------------------
 # Helpers

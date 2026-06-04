@@ -129,8 +129,14 @@ async def test_load_from_sqlite_session_not_in_db():
     db_mock = _make_db_mock(None)
 
     with (
-        patch("code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=False)),
-        patch("code_puppy.api.db.queries.get_active_messages", new=AsyncMock(return_value=[])),
+        patch(
+            "code_puppy.api.db.queries.session_exists",
+            new=AsyncMock(return_value=False),
+        ),
+        patch(
+            "code_puppy.api.db.queries.get_active_messages",
+            new=AsyncMock(return_value=[]),
+        ),
         patch("code_puppy.api.db.connection.get_db", return_value=db_mock),
     ):
         result = await mgr._load_from_sqlite("test-session")
@@ -160,7 +166,9 @@ async def test_load_from_sqlite_get_active_messages_raises_returns_none():
     mgr = _make_fresh_manager()
 
     with (
-        patch("code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)),
+        patch(
+            "code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)
+        ),
         patch(
             "code_puppy.api.db.queries.get_active_messages",
             new=AsyncMock(side_effect=RuntimeError("db locked")),
@@ -187,15 +195,22 @@ async def test_load_from_sqlite_all_null_pydantic_json_returns_empty_history():
     db_mock = _make_db_mock(_make_session_row())
 
     with (
-        patch("code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)),
-        patch("code_puppy.api.db.queries.get_active_messages", new=AsyncMock(return_value=rows)),
+        patch(
+            "code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)
+        ),
+        patch(
+            "code_puppy.api.db.queries.get_active_messages",
+            new=AsyncMock(return_value=rows),
+        ),
         patch("code_puppy.api.db.connection.get_db", return_value=db_mock),
     ):
         result = await mgr._load_from_sqlite("test-session")
 
     assert result is not None, "Should return (messages, meta) not None"
     messages, meta = result
-    assert messages == [], "Empty history expected when all rows have NULL pydantic_json"
+    assert messages == [], (
+        "Empty history expected when all rows have NULL pydantic_json"
+    )
 
 
 @pytest.mark.asyncio
@@ -211,8 +226,13 @@ async def test_load_from_sqlite_mixed_null_and_valid_rows():
     db_mock = _make_db_mock(_make_session_row())
 
     with (
-        patch("code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)),
-        patch("code_puppy.api.db.queries.get_active_messages", new=AsyncMock(return_value=rows)),
+        patch(
+            "code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)
+        ),
+        patch(
+            "code_puppy.api.db.queries.get_active_messages",
+            new=AsyncMock(return_value=rows),
+        ),
         patch("code_puppy.api.db.connection.get_db", return_value=db_mock),
     ):
         result = await mgr._load_from_sqlite("test-session")
@@ -237,8 +257,13 @@ async def test_load_from_sqlite_valid_rows_parsed_correctly():
     db_mock = _make_db_mock(_make_session_row())
 
     with (
-        patch("code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)),
-        patch("code_puppy.api.db.queries.get_active_messages", new=AsyncMock(return_value=rows)),
+        patch(
+            "code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)
+        ),
+        patch(
+            "code_puppy.api.db.queries.get_active_messages",
+            new=AsyncMock(return_value=rows),
+        ),
         patch("code_puppy.api.db.connection.get_db", return_value=db_mock),
     ):
         result = await mgr._load_from_sqlite("test-session")
@@ -264,8 +289,13 @@ async def test_load_from_sqlite_malformed_pydantic_json_skipped(caplog):
     db_mock = _make_db_mock(_make_session_row())
 
     with (
-        patch("code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)),
-        patch("code_puppy.api.db.queries.get_active_messages", new=AsyncMock(return_value=rows)),
+        patch(
+            "code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)
+        ),
+        patch(
+            "code_puppy.api.db.queries.get_active_messages",
+            new=AsyncMock(return_value=rows),
+        ),
         patch("code_puppy.api.db.connection.get_db", return_value=db_mock),
         caplog.at_level(logging.WARNING, logger="code_puppy.api.session_context"),
     ):
@@ -293,8 +323,13 @@ async def test_load_from_sqlite_metadata_populated():
     db_mock = _make_db_mock(session_row)
 
     with (
-        patch("code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)),
-        patch("code_puppy.api.db.queries.get_active_messages", new=AsyncMock(return_value=[])),
+        patch(
+            "code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)
+        ),
+        patch(
+            "code_puppy.api.db.queries.get_active_messages",
+            new=AsyncMock(return_value=[]),
+        ),
         patch("code_puppy.api.db.connection.get_db", return_value=db_mock),
     ):
         result = await mgr._load_from_sqlite("test-session")
@@ -314,8 +349,13 @@ async def test_load_from_sqlite_no_session_row_gives_empty_meta():
     db_mock = _make_db_mock(None)  # cursor.fetchone() → None
 
     with (
-        patch("code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)),
-        patch("code_puppy.api.db.queries.get_active_messages", new=AsyncMock(return_value=[])),
+        patch(
+            "code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)
+        ),
+        patch(
+            "code_puppy.api.db.queries.get_active_messages",
+            new=AsyncMock(return_value=[]),
+        ),
         patch("code_puppy.api.db.connection.get_db", return_value=db_mock),
     ):
         result = await mgr._load_from_sqlite("test-session")
@@ -335,8 +375,13 @@ async def test_load_from_sqlite_sessions_table_query_fails_gives_empty_meta():
     failing_db.execute = AsyncMock(side_effect=RuntimeError("table locked"))
 
     with (
-        patch("code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)),
-        patch("code_puppy.api.db.queries.get_active_messages", new=AsyncMock(return_value=[])),
+        patch(
+            "code_puppy.api.db.queries.session_exists", new=AsyncMock(return_value=True)
+        ),
+        patch(
+            "code_puppy.api.db.queries.get_active_messages",
+            new=AsyncMock(return_value=[]),
+        ),
         patch("code_puppy.api.db.connection.get_db", return_value=failing_db),
     ):
         result = await mgr._load_from_sqlite("test-session")
@@ -390,7 +435,10 @@ async def test_load_session_happy_path_sets_history_and_registers_context():
 
     with (
         patch("code_puppy.api.session_context.load_agent", return_value=agent_mock),
-        patch("code_puppy.api.session_context.get_global_model_name", return_value="gpt-4o"),
+        patch(
+            "code_puppy.api.session_context.get_global_model_name",
+            return_value="gpt-4o",
+        ),
     ):
         ctx = await mgr.load_session("my-chat-session")
 
@@ -414,7 +462,10 @@ async def test_load_session_registers_context_in_sessions_dict():
 
     with (
         patch("code_puppy.api.session_context.load_agent", return_value=agent_mock),
-        patch("code_puppy.api.session_context.get_global_model_name", return_value="gpt-4o"),
+        patch(
+            "code_puppy.api.session_context.get_global_model_name",
+            return_value="gpt-4o",
+        ),
     ):
         ctx = await mgr.load_session("registered-session")
 
@@ -436,8 +487,14 @@ async def test_load_session_unknown_agent_falls_back_to_code_puppy():
         return fallback_agent
 
     with (
-        patch("code_puppy.api.session_context.load_agent", side_effect=_load_agent_side_effect),
-        patch("code_puppy.api.session_context.get_global_model_name", return_value="gpt-4o"),
+        patch(
+            "code_puppy.api.session_context.load_agent",
+            side_effect=_load_agent_side_effect,
+        ),
+        patch(
+            "code_puppy.api.session_context.get_global_model_name",
+            return_value="gpt-4o",
+        ),
     ):
         ctx = await mgr.load_session("fallback-session")
 
@@ -455,8 +512,13 @@ async def test_load_session_valid_created_at_parsed():
     mgr._load_from_sqlite = AsyncMock(return_value=([], db_meta))
 
     with (
-        patch("code_puppy.api.session_context.load_agent", return_value=_make_agent_mock()),
-        patch("code_puppy.api.session_context.get_global_model_name", return_value="gpt-4o"),
+        patch(
+            "code_puppy.api.session_context.load_agent", return_value=_make_agent_mock()
+        ),
+        patch(
+            "code_puppy.api.session_context.get_global_model_name",
+            return_value="gpt-4o",
+        ),
     ):
         ctx = await mgr.load_session("dated-session")
 
@@ -474,8 +536,13 @@ async def test_load_session_malformed_created_at_falls_back_to_now():
     before = datetime.now(timezone.utc)
 
     with (
-        patch("code_puppy.api.session_context.load_agent", return_value=_make_agent_mock()),
-        patch("code_puppy.api.session_context.get_global_model_name", return_value="gpt-4o"),
+        patch(
+            "code_puppy.api.session_context.load_agent", return_value=_make_agent_mock()
+        ),
+        patch(
+            "code_puppy.api.session_context.get_global_model_name",
+            return_value="gpt-4o",
+        ),
     ):
         ctx = await mgr.load_session("bad-date-session")
 
@@ -493,8 +560,13 @@ async def test_load_session_empty_created_at_falls_back_to_now():
     before = datetime.now(timezone.utc)
 
     with (
-        patch("code_puppy.api.session_context.load_agent", return_value=_make_agent_mock()),
-        patch("code_puppy.api.session_context.get_global_model_name", return_value="gpt-4o"),
+        patch(
+            "code_puppy.api.session_context.load_agent", return_value=_make_agent_mock()
+        ),
+        patch(
+            "code_puppy.api.session_context.get_global_model_name",
+            return_value="gpt-4o",
+        ),
     ):
         ctx = await mgr.load_session("empty-date-session")
 
