@@ -37,21 +37,14 @@ from code_puppy.api.ws.background_save import (
     save_agent_result_in_background,
 )
 from code_puppy.api.ws.connection_manager import connection_manager
-from code_puppy.api.ws.response_frames import (
-    build_assistant_text_stream_frames,
-    build_error_response_frames,
-    parse_api_error,
-)
 from code_puppy.api.ws.history_utils import (
     build_enhanced_history,
     estimate_total_tokens,
 )
-from code_puppy.api.ws.send_utils import WebSocketSender
-from code_puppy.api.ws.session_persistence import (
-    build_session_meta_payload,
-    build_session_update_payload,
-    persist_turn_to_sqlite,
-    resolve_agent_model_meta,
+from code_puppy.api.ws.response_frames import (
+    build_assistant_text_stream_frames,
+    build_error_response_frames,
+    parse_api_error,
 )
 from code_puppy.api.ws.schemas import (
     PROTOCOL_VERSION,
@@ -74,6 +67,13 @@ from code_puppy.api.ws.schemas import (
     ServerToolResult,
     ServerUserMessage,
     ServerWorkingDirectoryChanged,
+)
+from code_puppy.api.ws.send_utils import WebSocketSender
+from code_puppy.api.ws.session_persistence import (
+    build_session_meta_payload,
+    build_session_update_payload,
+    persist_turn_to_sqlite,
+    resolve_agent_model_meta,
 )
 from code_puppy.config import get_global_model_name
 from code_puppy.messaging.bus import get_message_bus

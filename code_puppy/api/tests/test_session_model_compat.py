@@ -4,7 +4,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from code_puppy.api.session_context import SessionContext, SessionManager, _apply_session_model
+from code_puppy.api.session_context import (
+    SessionContext,
+    SessionManager,
+    _apply_session_model,
+)
 
 
 class LegacyAgentWithoutSetter:

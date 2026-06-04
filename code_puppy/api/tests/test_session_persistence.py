@@ -8,7 +8,6 @@ from code_puppy.api.ws.session_persistence import (
     resolve_agent_model_meta,
 )
 
-
 # ---------------------------------------------------------------------------
 # resolve_agent_model_meta
 # ---------------------------------------------------------------------------
