@@ -408,6 +408,94 @@ class TestModelSelectionMenu:
         assert "Clear filter" in rendered
 
 
+def _key_tuple(binding) -> tuple:
+    """Normalise a prompt_toolkit binding's keys into plain strings.
+
+    Control keys / special keys are ``Keys`` enum members whose ``.value`` is
+    the canonical string ('c-e', '<any>', ...); literal characters are plain
+    strings already.
+    """
+    return tuple(getattr(k, "value", k) for k in binding.keys)
+
+
+async def _capture_key_bindings(menu):
+    """Run the menu with the prompt_toolkit Application stubbed out and return
+    the KeyBindings object the menu registered.
+
+    The real bindings are built *inside* ``run_async`` and handed to a fresh
+    ``Application``; we intercept that Application so nothing interactive ever
+    launches.
+    """
+    from code_puppy.command_line import model_picker_completion
+
+    captured = {}
+
+    class _FakeApp:
+        def __init__(self, *args, **kwargs):
+            captured["kb"] = kwargs.get("key_bindings")
+
+        async def run_async(self):  # no-op: exit immediately, result stays None
+            return None
+
+        def exit(self, *args, **kwargs):
+            pass
+
+        def invalidate(self):
+            pass
+
+    with patch.object(model_picker_completion, "Application", _FakeApp):
+        await menu.run_async()
+
+    return captured["kb"]
+
+
+class TestModelSelectionMenuKeybindings:
+    """Footgun guard: editing credentials must NOT shadow type-to-filter.
+
+    The edit-credentials action should live on Ctrl+E ('c-e'). If plain 'e' is
+    bound to it, the more-specific binding wins over the '<any>' filter handler
+    and you can never type the letter 'e' to filter models (deepseek,
+    claude-code, byteplus, ... all contain 'e').
+    """
+
+    @pytest.mark.asyncio
+    async def test_edit_credentials_bound_to_ctrl_e(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["deepseek", "claude-code", "byteplus"])
+
+        kb = await _capture_key_bindings(menu)
+        all_keys = [_key_tuple(b) for b in kb.bindings]
+
+        assert ("c-e",) in all_keys, (
+            f"edit-credentials must be bound to Ctrl+E; bound keys: {all_keys}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_plain_e_not_bound_so_it_reaches_filter(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["deepseek", "claude-code", "byteplus"])
+
+        kb = await _capture_key_bindings(menu)
+        all_keys = [_key_tuple(b) for b in kb.bindings]
+
+        # The '<any>' handler must still be present to do the filtering.
+        assert ("<any>",) in all_keys, f"missing type-to-filter handler: {all_keys}"
+        # Plain 'e' must NOT be bound, or it shadows '<any>' and breaks filtering.
+        assert ("e",) not in all_keys, (
+            f"plain 'e' is bound and shadows type-to-filter; bound keys: {all_keys}"
+        )
+
+
 class TestInteractiveModelPicker:
     @pytest.mark.asyncio
     async def test_sets_awaiting_user_input_around_picker(self):

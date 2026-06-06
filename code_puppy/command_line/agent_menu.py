@@ -25,7 +25,10 @@ from code_puppy.agents import (
 )
 from code_puppy.command_line.mcp_binding_menu import interactive_mcp_binding_menu
 from code_puppy.mcp_.agent_bindings import get_bound_servers
-from code_puppy.command_line.model_picker_completion import load_model_names
+from code_puppy.command_line.model_picker_completion import (
+    ModelSelectionMenu,
+    load_model_names,
+)
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
     get_page_bounds,
@@ -39,7 +42,6 @@ from code_puppy.config import (
 )
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
-from code_puppy.tools.common import arrow_select_async
 
 PAGE_SIZE = 10  # Agents per page
 
@@ -181,56 +183,16 @@ def _get_pinned_model(agent_name: str) -> Optional[str]:
     return None
 
 
-def _build_model_picker_choices(
-    pinned_model: Optional[str],
-    model_names: List[str],
-) -> List[str]:
-    """Build model picker choices with pinned/unpin indicators."""
-    choices = ["✓ (unpin)" if not pinned_model else "  (unpin)"]
-
-    for model_name in model_names:
-        if model_name == pinned_model:
-            choices.append(f"✓ {model_name} (pinned)")
-        else:
-            choices.append(f"  {model_name}")
-
-    return choices
-
-
-def _normalize_model_choice(choice: str) -> str:
-    """Normalize a picker choice into a model name or '(unpin)' string."""
-    cleaned = choice.strip()
-    if cleaned.startswith("✓"):
-        cleaned = cleaned.lstrip("✓").strip()
-    if cleaned.endswith(" (pinned)"):
-        cleaned = cleaned[: -len(" (pinned)")].strip()
-    return cleaned
-
-
 async def _select_pinned_model(agent_name: str) -> Optional[str]:
-    """Prompt for a model to pin to the agent."""
+    """Prompt for a model to pin to the agent, reusing the /model picker."""
     try:
         model_names = load_model_names() or []
     except Exception as exc:
         emit_warning(f"Failed to load models: {exc}")
         return None
 
-    pinned_model = _get_pinned_model(agent_name)
-    choices = _build_model_picker_choices(pinned_model, model_names)
-    if not choices:
-        emit_warning("No models available to pin.")
-        return None
-
-    try:
-        choice = await arrow_select_async(
-            f"Select a model to pin for '{agent_name}'",
-            choices,
-        )
-    except KeyboardInterrupt:
-        emit_info("Model pinning cancelled")
-        return None
-
-    return _normalize_model_choice(choice)
+    # Prepend the "(unpin)" sentinel that _apply_pinned_model already understands.
+    return await ModelSelectionMenu(model_names=["(unpin)"] + model_names).run_async()
 
 
 def _reload_agent_if_current(
