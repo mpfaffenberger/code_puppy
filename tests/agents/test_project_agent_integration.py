@@ -155,8 +155,7 @@ class TestProjectAgentIntegration:
         ):
             agents = discover_json_agents()
 
-        # NOTE: Current implementation uses os.getcwd(), so it should NOT find
-        # the agent from nested directories (would need to walk up to find .code_puppy)
-        # This test documents current behavior - may need updating if we add
-        # parent directory searching later
-        assert "nested-agent" not in agents
+        # Walk-up discovery: the implementation walks from CWD up to the git root
+        # looking for .code_puppy/. From a nested subdirectory, it should find the
+        # agent defined in the parent project's .code_puppy/agents/ directory.
+        assert "nested-agent" in agents
