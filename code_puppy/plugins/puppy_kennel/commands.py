@@ -17,12 +17,31 @@ from __future__ import annotations
 
 from typing import Any
 
-from code_puppy.messaging import emit_info, emit_success, emit_warning
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
 from . import kennel
 from .config import DB_PATH
 from .state import is_enabled, set_enabled
 from .wings import default_recall_scope, detect_cwd
+
+
+def _reload_current_agent() -> None:
+    """Rebuild the active agent so its tool list reflects the new kennel state.
+
+    Toggling memory on/off changes what ``register_agent_tools`` advertises,
+    but the live agent has already baked its tools in at construction time.
+    Without a reload, ``/kennel disable`` would leave the kennel tools
+    dangling on the agent (and ``/kennel enable`` wouldn't add them back)
+    until the next natural reload. Fail soft — toggling persisted fine
+    even if the reload trips.
+    """
+    try:
+        from code_puppy.agents.agent_manager import get_current_agent
+
+        get_current_agent().reload_code_generation_agent()
+    except Exception as exc:  # noqa: BLE001
+        emit_error(f"Could not reload agent after kennel toggle: {exc!r}")
+
 
 _COMMAND = "kennel"
 _HELP_LINES: tuple[tuple[str, str], ...] = (
@@ -81,6 +100,7 @@ def _cmd_enable() -> bool:
     except Exception as exc:  # noqa: BLE001
         emit_warning(f"Could not persist enabled state: {exc!r}")
         return True
+    _reload_current_agent()
     emit_success("Puppy Kennel memory ENABLED. New runs will be recorded and recalled.")
     return True
 
@@ -94,6 +114,7 @@ def _cmd_disable() -> bool:
     except Exception as exc:  # noqa: BLE001
         emit_warning(f"Could not persist disabled state: {exc!r}")
         return True
+    _reload_current_agent()
     emit_success(
         "Puppy Kennel memory DISABLED. Existing drawers remain on disk; "
         "recording and recall are paused. Run /kennel enable to resume."
