@@ -344,6 +344,19 @@ Would keep the system message plus the 19 most recent messages, removing older o
 
 This is useful for managing context length when you have a long conversation history but only need the most recent interactions.
 
+### Rewind Conversation Turns
+```bash
+/rewind [turns]
+```
+Removes the most recent completed conversation turn(s) from the active model history. Unlike `/truncate`, rewind removes whole user-started turns, including assistant responses, tool calls, tool results, attachments, and other stored message parts that would be sent to the model again.
+
+```bash
+/rewind
+/rewind 2
+```
+
+Use this when a recent prompt or response poisons the context, exceeds the model window, or needs to be forgotten before the next request. The system prompt is always preserved.
+
 ## Available Agents
 
 ### Code-Puppy 🐶 (Default)
