@@ -18,6 +18,7 @@ from . import commands, kennel, tools
 from .config import DISABLED
 from .recorder import record_run_end
 from .retriever import build_recall_block
+from .state import is_enabled
 
 
 def _initialize_once() -> bool:
@@ -74,7 +75,15 @@ def _advertise_tools_to_agent(agent_name: str | None = None) -> list[str]:
 
     Agnostic to ``agent_name`` for now: memory is universally useful, no
     agent currently has a reason to opt out. If that changes, branch here.
+
+    When the kennel is toggled off via ``/kennel disable``, we advertise
+    NO tools — the agent shouldn't see (and definitely shouldn't try to
+    call) memory tools that will just bounce with ``DISABLED_TOOL_ERROR``.
+    The slash command pairs this with an agent reload so the tool list
+    actually shrinks/grows live.
     """
+    if not is_enabled():
+        return []
     return list(_KENNEL_TOOL_NAMES)
 
 
