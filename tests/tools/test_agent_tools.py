@@ -1,5 +1,6 @@
 """Tests for code_puppy/tools/agent_tools.py - 100% coverage."""
 
+import contextlib
 import json
 import pickle
 from unittest.mock import MagicMock, patch
@@ -297,3 +298,64 @@ class TestRegisterInvokeAgent:
         ):
             result = await captured["fn"](ctx, agent_name="nonexistent", prompt="hi")
         assert result.error is not None
+
+    @pytest.mark.asyncio
+    async def test_configured_model_that_cannot_initialize_fails_clearly(self):
+        import contextvars
+
+        from code_puppy.tools.agent_tools import register_invoke_agent
+
+        agent = MagicMock()
+        captured = {}
+        agent.tool = lambda fn: (captured.update({"fn": fn}), fn)[-1]
+        register_invoke_agent(agent)
+
+        fake_agent_config = MagicMock()
+        fake_agent_config.temporary_model_name_override.return_value = (
+            contextlib.nullcontext()
+        )
+        fake_agent_config.get_model_name.return_value = "expired-model"
+        fake_agent_config.get_message_history.return_value = []
+
+        fake_browser_var = contextvars.ContextVar("fake_browser")
+        browser_token = fake_browser_var.set("y")
+
+        ctx = MagicMock()
+        with (
+            patch("code_puppy.tools.agent_tools.generate_group_id", return_value="grp"),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch("code_puppy.tools.agent_tools.get_message_bus"),
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context", return_value=None
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch(
+                "code_puppy.tools.browser.browser_manager.set_browser_session",
+                return_value=browser_token,
+            ),
+            patch(
+                "code_puppy.tools.browser.browser_manager._browser_session_var",
+                fake_browser_var,
+            ),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=fake_agent_config,
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value={"expired-model": {"type": "openai", "name": "gpt-nope"}},
+            ),
+            patch("code_puppy.model_factory.ModelFactory.get_model", return_value=None),
+        ):
+            result = await captured["fn"](
+                ctx,
+                agent_name="reviewer",
+                prompt="hi",
+                model_name="expired-model",
+            )
+
+        assert result.response is None
+        assert result.model_name == "expired-model"
+        assert result.error is not None
+        assert "could not be initialized" in result.error

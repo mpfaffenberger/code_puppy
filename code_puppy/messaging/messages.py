@@ -278,6 +278,10 @@ class SubAgentInvocationMessage(BaseMessage):
     message_count: int = Field(
         default=0, description="Number of messages in history (for continuation)"
     )
+    model_name: Optional[str] = Field(
+        default=None,
+        description="Optional per-invocation model override requested for this sub-agent run",
+    )
 
 
 class SubAgentResponseMessage(BaseMessage):
