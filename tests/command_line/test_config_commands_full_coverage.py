@@ -175,10 +175,13 @@ class TestHandleVerbosityCommand:
 
 
 class TestHandleSetCommand:
-    def test_no_args_shows_help(self):
+    def test_no_args_launches_menu(self):
         from code_puppy.command_line.config_commands import handle_set_command
 
-        with patch("code_puppy.messaging.emit_warning"):
+        with patch(
+            "code_puppy.command_line.set_menu.interactive_set_picker",
+            return_value=None,
+        ):
             assert handle_set_command("/set") is True
 
     def test_equals_syntax(self):

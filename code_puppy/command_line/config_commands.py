@@ -5,9 +5,10 @@ discovered by the command registry system.
 """
 
 import json
+from typing import Optional
 
 from code_puppy.command_line.command_registry import register_command
-from code_puppy.config import get_config_keys
+from code_puppy.command_line.config_apply import apply_setting
 
 
 # Import get_commands_help from command_handler to avoid circular imports
@@ -171,21 +172,18 @@ def handle_verbosity_command(command: str) -> bool:
 
 @register_command(
     name="set",
-    description="Set puppy config (e.g., /set yolo_mode true)",
-    usage="/set <key> <value>",
+    description="Set puppy config (e.g., /set yolo_mode true) or launch interactive menu",
+    usage="/set [key [value]]",
     category="config",
 )
 def handle_set_command(command: str) -> bool:
-    """Set configuration values."""
-    from rich.text import Text
-
-    from code_puppy.config import set_config_value
+    """Set configuration values, or launch the interactive picker."""
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     tokens = command.split(None, 2)
     argstr = command[len("/set") :].strip()
-    key = None
-    value = None
+    key: Optional[str] = None
+    value: Optional[str] = None
     if "=" in argstr:
         key, value = argstr.split("=", 1)
         key = key.strip()
@@ -197,64 +195,83 @@ def handle_set_command(command: str) -> bool:
         key = tokens[1]
         value = ""
     else:
-        config_keys = get_config_keys()
-        if "compaction_strategy" not in config_keys:
-            config_keys.append("compaction_strategy")
-        session_help = (
-            "\n[yellow]Session Management[/yellow]"
-            "\n  [cyan]auto_save_session[/cyan]    Auto-save chat after every response (true/false)"
-        )
-        keymap_help = (
-            "\n[yellow]Keyboard Shortcuts[/yellow]"
-            "\n  [cyan]cancel_agent_key[/cyan]     Key to cancel agent tasks (ctrl+c, ctrl+k, or ctrl+q)"
-        )
-        emit_warning(
-            Text.from_markup(
-                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]{session_help}{keymap_help}"
-            )
-        )
+        # No arguments -- launch the interactive config menu
+        _launch_interactive_set_menu()
         return True
-    if key:
-        # Check if we're toggling DBOS enablement
-        if key == "enable_dbos":
-            emit_info(
-                Text.from_markup(
-                    "[yellow]⚠️ DBOS configuration changed. Please restart Code Puppy for this change to take effect.[/yellow]"
-                )
-            )
 
-        # Validate cancel_agent_key before setting
-        if key == "cancel_agent_key":
-            from code_puppy.keymap import VALID_CANCEL_KEYS
+    if not key:
+        emit_error("You must supply a key.")
+        return True
 
-            normalized_value = value.strip().lower()
-            if normalized_value not in VALID_CANCEL_KEYS:
-                emit_error(
-                    f"Invalid cancel_agent_key '{value}'. Valid options: {', '.join(sorted(VALID_CANCEL_KEYS))}"
-                )
-                return True
-            value = normalized_value  # Use normalized value
-            emit_info(
-                Text.from_markup(
-                    "[yellow]⚠️ cancel_agent_key changed. Please restart Code Puppy for this change to take effect.[/yellow]"
-                )
-            )
+    result = apply_setting(key, value or "", reload_agent=True)
+    if not result.ok:
+        emit_error(result.error or "Failed to apply setting.")
+        return True
 
-        set_config_value(key, value)
-        emit_success(f'Set {key} = "{value}" in puppy.cfg!')
+    from code_puppy.command_line.set_menu_values import is_sensitive_key, mask_value
 
-        # Reload the current agent to pick up the new config
+    display = (
+        mask_value(result.value_after or "")
+        if is_sensitive_key(key)
+        else result.value_after
+    )
+    emit_success(f'Set {key} = "{display}" in puppy.cfg!')
+    # Restart notices (warning) and the reload-success/failure signal
+    # are independent: a restart-required key like ``enable_dbos``
+    # should still report whether the live agent reload happened. The
+    # original ``/set`` always emitted "Agent reloaded with updated
+    # config" alongside the restart notice; preserve that contract.
+    if result.warning:
+        emit_warning(result.warning)
+    if result.reload_error:
+        emit_warning(result.reload_error)
+    else:
+        emit_info("Agent reloaded with updated config")
+    return True
+
+
+def _launch_interactive_set_menu() -> None:
+    """Run the picker in a worker thread and drain any queued messages.
+
+    The picker owns the terminal while prompt_toolkit is active, so it
+    can't safely emit messages itself; instead it returns them in
+    ``PickerResult.pending_messages`` and we emit them here on the
+    main thread once the picker has fully exited.
+    """
+    import asyncio
+    import concurrent.futures
+
+    from code_puppy.command_line.set_menu import interactive_set_picker
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+
+    _LEVEL_EMITTERS = {
+        "info": emit_info,
+        "success": emit_success,
+        "warning": emit_warning,
+        "error": emit_error,
+    }
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(lambda: asyncio.run(interactive_set_picker()))
+        result = future.result(timeout=300)  # 5 min timeout
+
+    if result is None:
+        return
+    for level, message in result.pending_messages:
+        emitter = _LEVEL_EMITTERS.get(level, emit_info)
+        emitter(message)
+
+    # Coalesce all agent reloads into a single one at the end, but only
+    # when the user actually changed something. Failures here mirror the
+    # behaviour of the per-key path: warn, don't crash.
+    if result.changed_settings:
         from code_puppy.agents import get_current_agent
 
         try:
-            current_agent = get_current_agent()
-            current_agent.reload_code_generation_agent()
+            get_current_agent().reload_code_generation_agent()
             emit_info("Agent reloaded with updated config")
         except Exception as reload_error:
             emit_warning(f"Config saved but agent reload failed: {reload_error}")
-    else:
-        emit_error("You must supply a key.")
-    return True
 
 
 def _get_json_agents_pinned_to_model(model_name: str) -> list:

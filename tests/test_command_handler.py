@@ -316,21 +316,16 @@ def test_bare_slash_shows_current_model():
         mocks["emit_info"].stop()
 
 
-def test_set_no_args_prints_usage():
-    mocks = setup_messaging_mocks()
-    mock_emit_warning = mocks["emit_warning"].start()
-
-    try:
-        with patch("code_puppy.config.get_config_keys", return_value=["foo", "bar"]):
-            result = handle_command("/set")
-            assert result is True
-            mock_emit_warning.assert_called()
-            assert any(
-                "Usage" in str(call) and "Config keys" in str(call)
-                for call in mock_emit_warning.call_args_list
-            )
-    finally:
-        mocks["emit_warning"].stop()
+def test_set_no_args_launches_menu():
+    """`/set` with no args used to print a usage-help wall; it now
+    launches the interactive picker. The picker is mocked to None so
+    the test just verifies the dispatcher wires through to it."""
+    with patch(
+        "code_puppy.command_line.set_menu.interactive_set_picker",
+        return_value=None,
+    ):
+        result = handle_command("/set")
+        assert result is True
 
 
 def test_set_missing_key_errors():
