@@ -6,6 +6,10 @@ Covers the .code_puppy/ directory feature (PUP-34):
 - Backwards compatibility with root AGENTS.md
 - Combining global + project rules
 - Edge cases (dir is file, empty dir, etc.)
+
+Also covers:
+- @file reference expansion (one level deep)
+- CLAUDE.md fallback when no AGENTS.md exists
 """
 
 from unittest.mock import patch
@@ -192,3 +196,223 @@ class TestLoadPuppyRulesCodePuppyDir:
             result = load_puppy_rules()
 
         assert result == "# Global only"
+
+
+class TestExpandAtReferences:
+    """Tests for _expand_at_references() — @file inclusion."""
+
+    def test_expands_at_reference(self, tmp_path):
+        """@filename on its own line is replaced with file contents."""
+        from code_puppy.agents._builder import _expand_at_references
+
+        included = tmp_path / "rules.md"
+        included.write_text("# Included content")
+
+        result = _expand_at_references("@rules.md", base_dir=tmp_path)
+        assert result == "# Included content"
+
+    def test_expands_at_reference_in_context(self, tmp_path):
+        """@ref surrounded by other text replaces only the @ref line."""
+        from code_puppy.agents._builder import _expand_at_references
+
+        included = tmp_path / "extra.md"
+        included.write_text("extra stuff")
+
+        text = "before\n@extra.md\nafter"
+        result = _expand_at_references(text, base_dir=tmp_path)
+        assert result == "before\nextra stuff\nafter"
+
+    def test_missing_at_reference_left_intact(self, tmp_path):
+        """Unknown @ref is left as-is so the agent can see it failed."""
+        from code_puppy.agents._builder import _expand_at_references
+
+        result = _expand_at_references("@nonexistent.md", base_dir=tmp_path)
+        assert result == "@nonexistent.md"
+
+    def test_only_one_level_deep(self, tmp_path):
+        """@refs inside included files are NOT expanded (one level only)."""
+        from code_puppy.agents._builder import _expand_at_references
+
+        nested = tmp_path / "nested.md"
+        nested.write_text("# nested")
+        included = tmp_path / "included.md"
+        included.write_text("@nested.md")
+
+        result = _expand_at_references("@included.md", base_dir=tmp_path)
+        # Should contain the literal text of included.md, NOT expand @nested.md
+        assert result == "@nested.md"
+
+    def test_at_ref_with_subdirectory_path(self, tmp_path):
+        """@subdir/file.md resolves relative to base_dir."""
+        from code_puppy.agents._builder import _expand_at_references
+
+        subdir = tmp_path / "rules"
+        subdir.mkdir()
+        (subdir / "dev.md").write_text("# dev rules")
+
+        result = _expand_at_references("@rules/dev.md", base_dir=tmp_path)
+        assert result == "# dev rules"
+
+    def test_at_ref_not_expanded_mid_line(self, tmp_path):
+        """@ref mid-line (not at line start) is NOT expanded."""
+        from code_puppy.agents._builder import _expand_at_references
+
+        included = tmp_path / "rules.md"
+        included.write_text("should not appear")
+
+        result = _expand_at_references("see @rules.md for details", base_dir=tmp_path)
+        assert result == "see @rules.md for details"
+
+    def test_multiple_at_references(self, tmp_path):
+        """Multiple @refs in the same file are all expanded."""
+        from code_puppy.agents._builder import _expand_at_references
+
+        (tmp_path / "a.md").write_text("# A")
+        (tmp_path / "b.md").write_text("# B")
+
+        result = _expand_at_references("@a.md\n@b.md", base_dir=tmp_path)
+        assert result == "# A\n# B"
+
+
+class TestResolveAtRef:
+    """Tests for _resolve_at_ref() path containment."""
+
+    def test_absolute_path_rejected(self, tmp_path):
+        """Absolute @refs are rejected outright."""
+        from code_puppy.agents._builder import _resolve_at_ref
+
+        result = _resolve_at_ref(tmp_path, "/etc/hostname")
+        assert result is None
+
+    def test_parent_traversal_rejected(self, tmp_path):
+        """@../outside refs that escape base_dir are rejected."""
+        from code_puppy.agents._builder import _resolve_at_ref
+
+        # Create a file outside tmp_path to ensure the path would be valid
+        # if traversal were allowed
+        result = _resolve_at_ref(tmp_path, "../../.env")
+        assert result is None
+
+    def test_simple_traversal_rejected(self, tmp_path):
+        """@../file that resolves outside base_dir is rejected."""
+        from code_puppy.agents._builder import _resolve_at_ref
+
+        result = _resolve_at_ref(tmp_path, "../secret.txt")
+        assert result is None
+
+    def test_symlink_escape_rejected(self, tmp_path):
+        """Symlink pointing outside base_dir is rejected."""
+        from code_puppy.agents._builder import _resolve_at_ref
+
+        outside = tmp_path.parent / "outside.md"
+        outside.write_text("secret")
+        link = tmp_path / "link.md"
+        link.symlink_to(outside)
+
+        result = _resolve_at_ref(tmp_path, "link.md")
+        assert result is None
+
+    def test_valid_path_accepted(self, tmp_path):
+        """Normal relative path within base_dir resolves correctly."""
+        from code_puppy.agents._builder import _resolve_at_ref
+
+        f = tmp_path / "rules.md"
+        f.write_text("content")
+
+        result = _resolve_at_ref(tmp_path, "rules.md")
+        assert result == f.resolve()
+
+    def test_absolute_path_left_intact_in_expansion(self, tmp_path):
+        """Absolute @ref in expansion is left as-is in output."""
+        from code_puppy.agents._builder import _expand_at_references
+
+        result = _expand_at_references("@/etc/hostname", base_dir=tmp_path)
+        assert result == "@/etc/hostname"
+
+    def test_traversal_left_intact_in_expansion(self, tmp_path):
+        """Traversal @ref in expansion is left as-is in output."""
+        from code_puppy.agents._builder import _expand_at_references
+
+        result = _expand_at_references("@../../.env", base_dir=tmp_path)
+        assert result == "@../../.env"
+
+
+class TestClaudeMdFallback:
+    """Tests for CLAUDE.md fallback when no AGENTS.md exists."""
+
+    @pytest.fixture
+    def temp_project(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        return tmp_path
+
+    @pytest.fixture
+    def mock_config_dir(self, tmp_path):
+        config_dir = tmp_path / "global_config"
+        config_dir.mkdir()
+        return config_dir
+
+    def test_falls_back_to_claude_md(self, temp_project, mock_config_dir):
+        """CLAUDE.md is loaded when no AGENTS.md exists anywhere."""
+        from code_puppy.agents._builder import load_puppy_rules
+
+        (temp_project / "CLAUDE.md").write_text("# Claude fallback")
+
+        with patch("code_puppy.agents._builder.CONFIG_DIR", str(mock_config_dir)):
+            result = load_puppy_rules()
+
+        assert result == "# Claude fallback"
+
+    def test_agents_md_takes_priority_over_claude_md(
+        self, temp_project, mock_config_dir
+    ):
+        """AGENTS.md wins over CLAUDE.md when both exist."""
+        from code_puppy.agents._builder import load_puppy_rules
+
+        (temp_project / "AGENTS.md").write_text("# Agents wins")
+        (temp_project / "CLAUDE.md").write_text("# Claude loses")
+
+        with patch("code_puppy.agents._builder.CONFIG_DIR", str(mock_config_dir)):
+            result = load_puppy_rules()
+
+        assert result == "# Agents wins"
+        assert "Claude loses" not in (result or "")
+
+    def test_claude_md_not_loaded_when_code_puppy_agents_md_exists(
+        self, temp_project, mock_config_dir
+    ):
+        """.code_puppy/AGENTS.md prevents CLAUDE.md fallback."""
+        from code_puppy.agents._builder import load_puppy_rules
+
+        code_puppy_dir = temp_project / ".code_puppy"
+        code_puppy_dir.mkdir()
+        (code_puppy_dir / "AGENTS.md").write_text("# Preferred rules")
+        (temp_project / "CLAUDE.md").write_text("# Should not load")
+
+        with patch("code_puppy.agents._builder.CONFIG_DIR", str(mock_config_dir)):
+            result = load_puppy_rules()
+
+        assert result == "# Preferred rules"
+        assert "Should not load" not in (result or "")
+
+    def test_claude_md_with_at_references(self, temp_project, mock_config_dir):
+        """@refs in CLAUDE.md are expanded."""
+        from code_puppy.agents._builder import load_puppy_rules
+
+        rules_dir = temp_project / ".claude" / "rules"
+        rules_dir.mkdir(parents=True)
+        (rules_dir / "developer.md").write_text("# Dev rules")
+        (temp_project / "CLAUDE.md").write_text("@.claude/rules/developer.md")
+
+        with patch("code_puppy.agents._builder.CONFIG_DIR", str(mock_config_dir)):
+            result = load_puppy_rules()
+
+        assert result == "# Dev rules"
+
+    def test_no_rules_anywhere_returns_none(self, temp_project, mock_config_dir):
+        """Returns None when neither AGENTS.md nor CLAUDE.md exist."""
+        from code_puppy.agents._builder import load_puppy_rules
+
+        with patch("code_puppy.agents._builder.CONFIG_DIR", str(mock_config_dir)):
+            result = load_puppy_rules()
+
+        assert result is None
