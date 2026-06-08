@@ -188,6 +188,7 @@ def handle_tutorial_command(command: str) -> bool:
     import concurrent.futures
 
     from code_puppy.command_line.onboarding_wizard import (
+        require_model_setup_if_needed,
         reset_onboarding,
         run_onboarding_wizard,
     )
@@ -219,6 +220,10 @@ def handle_tutorial_command(command: str) -> bool:
         emit_info("🎉 Tutorial complete! Happy coding!")
     elif result == "skipped":
         emit_info("⏭️ Tutorial skipped. Run /tutorial anytime!")
+
+    # If the user didn't go the OAuth route they have no model yet -> require
+    # an explicit /add_model.
+    require_model_setup_if_needed(result)
 
     return True
 
