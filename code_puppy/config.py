@@ -354,6 +354,8 @@ def get_config_keys():
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
     # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
     default_keys.append("goal_max_iterations")
+    # Add dangerous command guard disable (skips force push and destructive command guards)
+    default_keys.append("disable_dangerous_command_guard")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -1224,6 +1226,30 @@ def get_grep_output_verbose():
     """
     true_vals = {"1", "true", "yes", "on"}
     cfg_val = get_value("grep_output_verbose")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    return False
+
+
+def get_disable_dangerous_command_guard() -> bool:
+    """
+    Checks puppy.cfg for 'disable_dangerous_command_guard' (case-insensitive in value only).
+    Defaults to False (guards enabled) if not set.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
+
+    When False (default): Both force push guard and destructive command guard are active.
+    When True: Both guards are bypassed - commands execute without prompts.
+
+      Use with caution!
+
+    This setting disables:
+    - Force push guard (git push --force, git push -f, etc.)
+    - Destructive command guard (rm -rf, docker system prune, etc.)
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("disable_dangerous_command_guard")
     if cfg_val is not None:
         if str(cfg_val).strip().lower() in true_vals:
             return True

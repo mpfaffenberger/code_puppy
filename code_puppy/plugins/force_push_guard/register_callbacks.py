@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 from rich.text import Text
 
 from code_puppy.callbacks import register_callback
+from code_puppy.config import get_disable_dangerous_command_guard
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.plugins.force_push_guard.detector import detect_force_push
 
@@ -46,6 +47,10 @@ async def force_push_guard_callback(
         None if the command is safe to proceed or user approved it.
         Dict with blocked=True if a force push was detected and rejected.
     """
+    # Check if dangerous command guards are disabled
+    if get_disable_dangerous_command_guard():
+        return None
+
     match = detect_force_push(command)
     if match is None:
         return None
