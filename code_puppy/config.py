@@ -198,6 +198,10 @@ _model_validation_cache = {}
 _default_model_cache = None
 _default_vision_model_cache = None
 
+# One-shot guard so we don't spam the "no model configured" warning on every
+# call to get_global_model_name() (which happens a LOT).
+_warned_no_model = False
+
 
 def ensure_config_exists():
     """
@@ -350,6 +354,8 @@ def get_config_keys():
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
     # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
     default_keys.append("goal_max_iterations")
+    # Add dangerous command guard disable (skips force push and destructive command guards)
+    default_keys.append("disable_dangerous_command_guard")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -408,10 +414,13 @@ def load_mcp_server_configs():
 
 
 def _default_model_from_models_json():
-    """Load the default model name from models.json.
+    """Load the default model name from the merged models config.
 
-    Returns the first model in models.json as the default.
-    Falls back to ``gpt-5`` if the file cannot be read.
+    Returns the first available model as the default, or ``None`` when no
+    models are configured at all (e.g. empty ``models.json`` and no
+    ``extra_models.json`` / OAuth model files). Returning ``None`` lets
+    callers detect the "no model available" state and warn the user instead
+    of silently pointing at a model that doesn't exist.
     """
     global _default_model_cache
 
@@ -423,15 +432,16 @@ def _default_model_from_models_json():
 
         models_config = ModelFactory.load_config()
         if models_config:
-            # Use first model in models.json as default
+            # Use first model in the merged config as default
             first_key = next(iter(models_config))
             _default_model_cache = first_key
             return first_key
-        _default_model_cache = "gpt-5"
-        return "gpt-5"
     except Exception:
-        _default_model_cache = "gpt-5"
-        return "gpt-5"
+        pass
+
+    # No models configured anywhere. Don't cache None so that adding a model
+    # later (e.g. via /add_model) is picked up without a full cache clear.
+    return None
 
 
 def _default_vision_model_from_models_json() -> str:
@@ -502,9 +512,12 @@ def _validate_model_exists(model_name: str) -> bool:
 def clear_model_cache():
     """Clear the model validation cache. Call this when models.json changes."""
     global _model_validation_cache, _default_model_cache, _default_vision_model_cache
+    global _warned_no_model
     _model_validation_cache.clear()
     _default_model_cache = None
     _default_vision_model_cache = None
+    # Re-arm the "no model" warning so a fresh config state can warn again.
+    _warned_no_model = False
 
 
 def reset_session_model():
@@ -561,17 +574,42 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
         return True
 
 
+def _warn_no_model_available() -> None:
+    """Emit a one-time warning when no model is configured.
+
+    Called from :func:`get_global_model_name` when neither the stored model,
+    nor any bundled/extra/OAuth model is available. Guarded so we only nag the
+    user once per process instead of on every single resolution.
+    """
+    global _warned_no_model
+    if _warned_no_model:
+        return
+    _warned_no_model = True
+    try:
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(
+            "\u26a0\ufe0f  No model is configured! Code Puppy can't talk to an LLM "
+            "until you add one.\n"
+            "   \u2022 Run /add_model to pick a model + API key, or\n"
+            "   \u2022 Run /tutorial and choose Claude Code or ChatGPT OAuth."
+        )
+    except Exception:
+        # Messaging may not be wired up yet (very early startup) - never crash.
+        pass
+
+
 def get_global_model_name():
-    """Return a valid model name for Code Puppy to use.
+    """Return the model name for Code Puppy to use, or ``None`` if unset.
 
     Uses session-local caching so that model changes in other terminals
     don't affect this running instance. The file is only read once at startup.
 
     1. If _SESSION_MODEL is set, return it (session cache)
     2. Otherwise, look at ``model`` in *puppy.cfg*
-    3. If that value exists **and** is present in *models.json*, use it
-    4. Otherwise return the first model listed in *models.json*
-    5. As a last resort fall back to ``claude-4-0-sonnet``
+    3. If that value exists **and** is a known model, use it
+    4. Otherwise return the first available model from the merged config
+    5. If no model is available anywhere, warn once and return ``None``
 
     The result is cached in _SESSION_MODEL for subsequent calls.
     """
@@ -590,8 +628,16 @@ def get_global_model_name():
             _SESSION_MODEL = stored_model
             return _SESSION_MODEL
 
-    # Either no stored model or it's not valid – choose default from models.json
-    _SESSION_MODEL = _default_model_from_models_json()
+    # Either no stored model or it's not valid – choose default from the
+    # merged models config.
+    default_model = _default_model_from_models_json()
+    if default_model is None:
+        # Nothing available anywhere. Warn (once) and leave the session model
+        # uninitialized so a later /add_model can take effect immediately.
+        _warn_no_model_available()
+        return None
+
+    _SESSION_MODEL = default_model
     return _SESSION_MODEL
 
 
@@ -1180,6 +1226,30 @@ def get_grep_output_verbose():
     """
     true_vals = {"1", "true", "yes", "on"}
     cfg_val = get_value("grep_output_verbose")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    return False
+
+
+def get_disable_dangerous_command_guard() -> bool:
+    """
+    Checks puppy.cfg for 'disable_dangerous_command_guard' (case-insensitive in value only).
+    Defaults to False (guards enabled) if not set.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
+
+    When False (default): Both force push guard and destructive command guard are active.
+    When True: Both guards are bypassed - commands execute without prompts.
+
+      Use with caution!
+
+    This setting disables:
+    - Force push guard (git push --force, git push -f, etc.)
+    - Destructive command guard (rm -rf, docker system prune, etc.)
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("disable_dangerous_command_guard")
     if cfg_val is not None:
         if str(cfg_val).strip().lower() in true_vals:
             return True
@@ -1839,6 +1909,56 @@ def set_suppress_thinking_messages(enabled: bool):
     set_config_value("suppress_thinking_messages", "true" if enabled else "false")
 
 
+def get_smooth_thinking_stream() -> bool:
+    """
+    Checks puppy.cfg for 'smooth_thinking_stream' (case-insensitive in value only).
+    Defaults to True if not set.
+    Allowed values for OFF: 0, '0', 'false', 'no', 'off' (all case-insensitive).
+    When enabled, THINKING block deltas are buffered and drained to the
+    console at a steady, consistent rate instead of being printed in bursts.
+    """
+    false_vals = {"0", "false", "no", "off"}
+    cfg_val = get_value("smooth_thinking_stream")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in false_vals:
+            return False
+    return True
+
+
+def set_smooth_thinking_stream(enabled: bool):
+    """Sets the smooth_thinking_stream configuration value.
+
+    Args:
+        enabled: Whether to smooth the THINKING stream output
+    """
+    set_config_value("smooth_thinking_stream", "true" if enabled else "false")
+
+
+def get_smooth_response_stream() -> bool:
+    """
+    Checks puppy.cfg for 'smooth_response_stream' (case-insensitive in value only).
+    Defaults to True if not set.
+    Allowed values for OFF: 0, '0', 'false', 'no', 'off' (all case-insensitive).
+    When enabled, the AGENT RESPONSE markdown is typed out one character at a
+    time at a steady rate instead of appearing line-by-line in bursts.
+    """
+    false_vals = {"0", "false", "no", "off"}
+    cfg_val = get_value("smooth_response_stream")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in false_vals:
+            return False
+    return True
+
+
+def set_smooth_response_stream(enabled: bool):
+    """Sets the smooth_response_stream configuration value.
+
+    Args:
+        enabled: Whether to type the AGENT RESPONSE stream out smoothly
+    """
+    set_config_value("smooth_response_stream", "true" if enabled else "false")
+
+
 def get_suppress_informational_messages() -> bool:
     """
     Checks puppy.cfg for 'suppress_informational_messages' (case-insensitive in value only).
@@ -1899,6 +2019,8 @@ def load_api_keys_to_environment():
     """
     from pathlib import Path
 
+    # Static base list of well-known keys (always considered, even if no
+    # model currently references them).
     api_key_names = [
         "OPENAI_API_KEY",
         "GEMINI_API_KEY",
@@ -1910,6 +2032,19 @@ def load_api_keys_to_environment():
         "OPENROUTER_API_KEY",
         "ZAI_API_KEY",
     ]
+
+    # Dynamically include every env var referenced by a configured model
+    # (e.g. FIREWORKS_API_KEY / WAFER_API_KEY / CROF_API_KEY for local custom
+    # providers). Without this, such keys saved in puppy.cfg never hydrate into
+    # os.environ at startup. Best-effort: never let discovery break startup.
+    try:
+        from code_puppy.provider_credentials import all_required_env_vars
+
+        for env_var in all_required_env_vars():
+            if env_var not in api_key_names:
+                api_key_names.append(env_var)
+    except Exception:
+        pass
 
     # Step 1: Load from .env file if it exists (highest priority)
     # Look for .env in current working directory

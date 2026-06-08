@@ -30,7 +30,11 @@ from code_puppy.messaging import (  # Structured messaging types
     emit_warning,
     get_message_bus,
 )
-from code_puppy.tools.common import _find_best_window, generate_group_id
+from code_puppy.tools.common import (
+    _find_best_window,
+    atomic_write_text,
+    generate_group_id,
+)
 
 
 def _create_rejection_response(file_path: str) -> Dict[str, Any]:
@@ -245,8 +249,7 @@ def _delete_snippet_from_file(
                 n=get_diff_context_lines(),
             )
         )
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(modified)
+        atomic_write_text(file_path, modified)
         return {
             "success": True,
             "path": file_path,
@@ -340,8 +343,7 @@ def _replace_in_file(
                 n=get_diff_context_lines(),
             )
         )
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(modified)
+        atomic_write_text(file_path, modified)
         return {
             "success": True,
             "path": file_path,
@@ -398,8 +400,7 @@ def _write_to_file(
         diff_text = "".join(diff_lines)
 
         os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        atomic_write_text(file_path, content)
 
         action = "overwritten" if exists else "created"
         return {

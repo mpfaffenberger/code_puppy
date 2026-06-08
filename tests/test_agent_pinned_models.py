@@ -83,6 +83,31 @@ class TestAgentPinnedModels:
         # Clean up
         clear_agent_pinned_model(agent_name)
 
+    def test_runtime_model_override_wins_over_pinned_model(self):
+        """Temporary runtime overrides should beat pinned/default models."""
+        agent = CodePuppyAgent()
+        agent_name = agent.name
+
+        set_agent_pinned_model(agent_name, "pinned-model")
+        try:
+            agent.set_runtime_model_name_override("override-model")
+            assert agent.get_model_name() == "override-model"
+
+            agent.set_runtime_model_name_override(None)
+            assert agent.get_model_name() == "pinned-model"
+        finally:
+            clear_agent_pinned_model(agent_name)
+
+    def test_temporary_model_name_override_restores_previous_value(self):
+        """Scoped overrides should restore the previous runtime override."""
+        agent = CodePuppyAgent()
+        agent.set_runtime_model_name_override("outer-model")
+
+        with agent.temporary_model_name_override("inner-model"):
+            assert agent.get_model_name() == "inner-model"
+
+        assert agent.get_model_name() == "outer-model"
+
     def test_different_agents_different_models(self):
         """Test that different agents can have different pinned models."""
         agent1_name = "agent-one"

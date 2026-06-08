@@ -26,8 +26,26 @@ puppy_name = IntegrationPup
 owner_name = CodePuppyTester
 auto_save_session = true
 max_saved_sessions = 5
-model = synthetic-GLM-5.1
+model = lilac-zai-org-glm-5.1
 enable_dbos = true
+"""
+
+# models.json now ships empty, so integration tests provision their model the
+# same way a real user would: via ~/.code_puppy/extra_models.json. This is the
+# "lilac synthetic GLM-5.1" model used for live LLM coverage.
+EXTRA_MODELS_TEMPLATE: Final[str] = """{
+  "lilac-zai-org-glm-5.1": {
+    "type": "custom_openai",
+    "provider": "lilac",
+    "name": "zai-org/glm-5.1",
+    "custom_endpoint": {
+      "url": "https://api.getlilac.com/v1",
+      "api_key": "$LILAC_API_KEY"
+    },
+    "context_length": 202800,
+    "supported_settings": ["temperature", "seed", "top_p"]
+  }
+}
 """
 
 
@@ -276,6 +294,14 @@ class CliHarness:
             # Write config to both XDG config dir and ~/.code_puppy for compatibility
             (config_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
             (code_puppy_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
+
+        # Provision the lilac model into extra_models.json since models.json
+        # ships EMPTY — without this the spawned CLI resolves the active model
+        # to [None]. Written UNCONDITIONALLY (idempotent) so that reused-home
+        # spawns (write_config=False) can never end up "model not added".
+        extra_models_path = code_puppy_dir / "extra_models.json"
+        if not extra_models_path.exists():
+            extra_models_path.write_text(EXTRA_MODELS_TEMPLATE, encoding="utf-8")
 
         log_path = temp_home / f"cli_output_{uuid.uuid4().hex}.log"
         cmd_args = ["code-puppy"] + (args or [])

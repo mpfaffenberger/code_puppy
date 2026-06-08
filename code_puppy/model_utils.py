@@ -72,22 +72,39 @@ def prepare_prompt_for_model(
                 is_claude_code=bool(result.get("is_claude_code", False)),
             )
 
-    # 2) Fall back to the legacy per-model system-prompt hook for plugins
-    #    that still register there.
+    # 2) Fall back to the legacy per-model system-prompt hook. Two flavours
+    #    of plugin live here:
+    #      * "taker-over" plugins return ``handled=True`` — first one wins
+    #        outright, exactly like ``prepare_model_prompt``.
+    #      * "augmenter" plugins (e.g. agent_skills) return ``handled=False``
+    #        with mutated ``instructions`` / ``user_prompt``. We thread those
+    #        mutations forward so the caller actually sees them, instead of
+    #        silently dropping every augmentation on the floor.
+    augmented_instructions = system_prompt
+    augmented_user_prompt = user_prompt
     for result in callbacks.on_get_model_system_prompt(
         model_name, system_prompt, user_prompt
     ):
-        if result and isinstance(result, dict) and result.get("handled"):
+        if not (result and isinstance(result, dict)):
+            continue
+        if result.get("handled"):
             return PreparedPrompt(
                 instructions=result.get("instructions", system_prompt),
                 user_prompt=result.get("user_prompt", user_prompt),
                 is_claude_code=bool(result.get("is_claude_code", False)),
             )
+        # Augmenter: carry its mutations forward. Last augmenter wins on
+        # collisions (YAGNI: there's exactly one augmenter today).
+        if "instructions" in result:
+            augmented_instructions = result["instructions"]
+        if "user_prompt" in result:
+            augmented_user_prompt = result["user_prompt"]
 
-    # 3) No plugin handled it — return the caller's prompts unchanged.
+    # 3) No taker-over plugin claimed it — return the (possibly augmented)
+    #    prompts.
     return PreparedPrompt(
-        instructions=system_prompt,
-        user_prompt=user_prompt,
+        instructions=augmented_instructions,
+        user_prompt=augmented_user_prompt,
         is_claude_code=False,
     )
 
@@ -97,8 +114,8 @@ def supports_adaptive_thinking(
 ) -> bool:
     """Return whether a model should default to adaptive thinking.
 
-    Opus 4-6, Opus 4-7, and Sonnet 4-6 models support adaptive thinking.
-    Checks both the alias/key and the real model ID to handle Bedrock-style
+    Opus 4-6, Opus 4-7, Opus 4-8, and Sonnet 4-6 models support adaptive
+    thinking. Checks both the alias/key and the real model ID to handle Bedrock-style
     names like ``us.anthropic.claude-opus-4-7``.
 
     Args:
@@ -115,6 +132,8 @@ def supports_adaptive_thinking(
         "4-6-opus",
         "opus-4-7",
         "4-7-opus",
+        "opus-4-8",
+        "4-8-opus",
         "sonnet-4-6",
         "4-6-sonnet",
     )
@@ -126,8 +145,8 @@ def get_default_extended_thinking(
 ) -> str:
     """Return the default extended_thinking mode for an Anthropic model.
 
-    Opus 4-6, Opus 4-7, and Sonnet 4-6 models default to ``"adaptive"``
-    thinking; all other Anthropic models default to ``"enabled"``.
+    Opus 4-6, Opus 4-7, Opus 4-8, and Sonnet 4-6 models default to
+    ``"adaptive"`` thinking; all other Anthropic models default to ``"enabled"``.
 
     Args:
         model_name: The model alias/key (e.g. ``"bedrock-opus-4-7"``).
@@ -147,10 +166,13 @@ def should_use_anthropic_thinking_summary(
 ) -> bool:
     """Return whether Anthropic adaptive thinking should request summary display.
 
-    Anthropic's newer Opus 4.7 models require ``display: \"summarized\"`` alongside
-    ``thinking={"type": "adaptive"}``.
+    Anthropic's newer Opus 4.7 and 4.8 models require ``display: \"summarized\"``
+    alongside ``thinking={"type": "adaptive"}``.
     """
     candidates = [model_name.lower()]
     if actual_model_id:
         candidates.append(actual_model_id.lower())
-    return any("opus-4-7" in c or "4-7-opus" in c for c in candidates)
+    return any(
+        "opus-4-7" in c or "4-7-opus" in c or "opus-4-8" in c or "4-8-opus" in c
+        for c in candidates
+    )

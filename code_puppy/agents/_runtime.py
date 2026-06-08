@@ -494,6 +494,12 @@ async def run_with_mcp(
             )
             for exc in unexpected:
                 emit_exception_diagnostics(exc, group_id=group_id)
+            # Re-raise so the outer handler in run_with_mcp can propagate
+            # (or re-raise) the exception to the caller. Silently returning
+            # None (the implicit return after a bare except*) would mask all
+            # errors and make run_with_mcp() indistinguishable from success.
+            if unexpected:
+                raise unexpected[0] from other
         finally:
             agent._message_history = _history.prune_interrupted_tool_calls(
                 agent._message_history

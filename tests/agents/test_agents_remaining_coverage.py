@@ -75,10 +75,27 @@ def test_code_puppy_prompt_allows_callback_additions():
     from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
     agent = CodePuppyAgent()
-    with patch("code_puppy.agents.agent_code_puppy.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra"]
-        prompt = agent.get_system_prompt()
+    # ``load_prompt`` fragments now live in get_full_system_prompt (BaseAgent),
+    # not in the authored get_system_prompt.
+    with patch("code_puppy.callbacks.on_load_prompt", return_value=["extra"]):
+        prompt = agent.get_full_system_prompt()
         assert "extra" in prompt
+
+
+def test_code_puppy_authored_prompt_excludes_runtime_additions():
+    """Authored prompt must NOT contain load_prompt fragments or the identity.
+
+    Regression for the clone bug: cloning persists get_system_prompt(), so
+    runtime-only metadata (kennel memory, live timestamps) and the per-instance
+    identity ID must stay out of it.
+    """
+    from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+    agent = CodePuppyAgent()
+    with patch("code_puppy.callbacks.on_load_prompt", return_value=["SECRET-RUNTIME"]):
+        authored = agent.get_system_prompt()
+    assert "SECRET-RUNTIME" not in authored
+    assert agent.get_identity() not in authored
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +452,49 @@ def test_clone_agent_failure():
         result = clone_agent("totally-nonexistent-agent-xyz")
         # Should return None for nonexistent agent
         assert result is None
+
+
+def test_clone_class_agent_does_not_bake_runtime_metadata(tmp_path):
+    """Cloning a class-based agent must persist only the authored prompt.
+
+    Regression: previously the clone stored ``get_full_system_prompt()`` which
+    baked in runtime ``load_prompt`` fragments (kennel memory, live
+    timestamps/CWD) and the per-instance identity ID into the static JSON.
+    """
+    import code_puppy.agents.agent_manager as am
+    from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+    captured = {}
+
+    def fake_atomic_write(path, content):
+        captured["path"] = path
+        captured["content"] = content
+
+    with (
+        patch.object(am, "_discover_agents"),
+        patch.dict(am._AGENT_REGISTRY, {"code-puppy": CodePuppyAgent}, clear=True),
+        patch(
+            "code_puppy.config.get_user_agents_directory",
+            return_value=str(tmp_path),
+        ),
+        patch("code_puppy.config.get_agent_pinned_model", return_value=None),
+        patch(
+            "code_puppy.callbacks.on_load_prompt",
+            return_value=["KENNEL-SECRET-BLOCK"],
+        ),
+        patch.object(am, "atomic_write_text", side_effect=fake_atomic_write),
+        patch.object(am, "emit_success"),
+        patch.object(am, "emit_warning"),
+        patch.object(am, "_filter_available_tools", side_effect=lambda t: t),
+    ):
+        clone_name = am.clone_agent("code-puppy")
+
+    assert clone_name == "code-puppy-clone-1"
+    config = json.loads(captured["content"])
+    # Runtime-only metadata must not be frozen into the clone definition.
+    assert "KENNEL-SECRET-BLOCK" not in config["system_prompt"]
+    # No baked identity ID block.
+    assert "Your ID is" not in config["system_prompt"]
 
 
 # ---------------------------------------------------------------------------

@@ -176,6 +176,14 @@ class TestAgentCreatorAgent:
         assert "## ALL AVAILABLE MODELS:" in prompt
         assert "You are the Agent Creator! 🏗️" in prompt
 
+    def test_prompt_describes_model_override_tools_as_power_user_scoped(self):
+        agent = AgentCreatorAgent()
+        prompt = agent.get_system_prompt()
+
+        assert "Normal agents should use `invoke_agent` only" in prompt
+        assert "power-user agents" in prompt
+        assert "`model_name` is required" in prompt
+
     def test_get_available_tools_with_uc_enabled(self):
         """Test that get_available_tools includes UC when enabled."""
         with patch(

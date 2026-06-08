@@ -8,11 +8,11 @@ This is the kind of test that would have caught the Phase 4 signature bug
 (``history_processor(ctx, messages)`` vs pydantic-ai's 1-arg calling
 convention) in ~1s instead of on the user's screen.
 
-Skips gracefully if ``SYN_API_KEY`` is not set.
+Skips gracefully if ``LILAC_API_KEY`` is not set.
 
 Run:
 
-    SYN_API_KEY=xxx uv run pytest tests/integration/test_compaction_live.py -v
+    LILAC_API_KEY=xxx uv run pytest tests/integration/test_compaction_live.py -v
 
 """
 
@@ -36,25 +36,72 @@ from pydantic_ai.messages import (
 # -- Gate on SYN_API_KEY ------------------------------------------------------
 
 
-def _fireworks_key_available() -> bool:
-    """True if SYNTHETIC_API_KEY is set via env OR in puppy.cfg.
+# The lilac-hosted GLM-5.1 model (200k+ ctx window) we drive these tests with.
+LILAC_MODEL = "lilac-zai-org-glm-5.1"
 
-    Name kept for historical reasons; we now drive these tests through
-    ``synthetic-GLM-5.1`` since Fireworks deprecated the original route.
+
+# Fake CI placeholder values — not real API keys
+_FAKE_CI_KEYS = {"fake-key-for-ci-testing", ""}
+
+
+def _lilac_key_available() -> bool:
+    """True if LILAC_API_KEY is set via env OR in puppy.cfg.
+
+    Skips live tests when only a fake/placeholder CI key is available,
+    since those cause opaque 401 errors that mask the real problem.
+    Also skips when CI=1 is set (no real Lilac provider in CI environments).
     """
-    if os.environ.get("SYNTHETIC_API_KEY"):
+    # Skip live tests entirely in CI — Lilac provider not available
+    if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
+        return False
+    env_key = os.environ.get("LILAC_API_KEY", "").strip()
+    if env_key and env_key not in _FAKE_CI_KEYS:
         return True
     try:
         from code_puppy.model_factory import get_api_key
 
-        return bool(get_api_key("SYNTHETIC_API_KEY"))
+        cfg_key = (get_api_key("LILAC_API_KEY") or "").strip()
+        return bool(cfg_key) and cfg_key not in _FAKE_CI_KEYS
     except Exception:
         return False
 
 
+def _lilac_model_present() -> bool:
+    """True only if ``LILAC_MODEL`` is actually in the merged model config.
+
+    ``models.json`` ships EMPTY — the lilac model only exists when someone
+    (a dev, or the CI "Provision CI model" step) has written it into
+    ``~/.code_puppy/extra_models.json``. If it was never added, the agent
+    can't instantiate it and ``run_with_mcp`` fails opaquely (returns None).
+    Be explicit about that contract: skip loudly instead of failing cryptically.
+    """
+    try:
+        from code_puppy.model_factory import ModelFactory
+
+        return LILAC_MODEL in ModelFactory.load_config()
+    except Exception:
+        return False
+
+
+def _live_lilac_skip_reason() -> str | None:
+    """Return a skip reason if the live lilac model isn't usable, else None."""
+    if not _lilac_key_available():
+        return (
+            "LILAC_API_KEY not set (or is a fake CI placeholder); "
+            "live compaction tests skipped."
+        )
+    if not _lilac_model_present():
+        return (
+            f"{LILAC_MODEL!r} not found in models config — models.json is empty "
+            "and it was never added to ~/.code_puppy/extra_models.json; "
+            "live compaction tests skipped."
+        )
+    return None
+
+
 pytestmark = pytest.mark.skipif(
-    not _fireworks_key_available(),
-    reason="SYNTHETIC_API_KEY not set (env or puppy.cfg); live compaction tests skipped.",
+    _live_lilac_skip_reason() is not None,
+    reason=_live_lilac_skip_reason() or "",
 )
 
 
@@ -220,7 +267,7 @@ def huge_history() -> List[ModelMessage]:
 
 @pytest.fixture
 def pinned_code_puppy_agent(monkeypatch):
-    """Fresh CodePuppyAgent pinned to synthetic-GLM-5.1.
+    """Fresh CodePuppyAgent pinned to lilac-zai-org-glm-5.1.
 
     Uses monkeypatch to override the global model getter so we don't touch
     the user's on-disk config during the test run.
@@ -231,7 +278,19 @@ def pinned_code_puppy_agent(monkeypatch):
     from code_puppy.agents import base_agent as _base_agent_mod
     from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
-    test_model = "synthetic-GLM-5.1"
+    test_model = LILAC_MODEL
+
+    # Be explicit: models.json is empty, so this model is ONLY present if it
+    # was added to extra_models.json. The module-level skip already guards
+    # this, but assert here too so any future refactor that bypasses the gate
+    # fails loudly ("model not added") instead of as an opaque None response.
+    from code_puppy.model_factory import ModelFactory
+
+    assert test_model in ModelFactory.load_config(), (
+        f"{test_model!r} is not in the model config. models.json ships empty; "
+        "add it to ~/.code_puppy/extra_models.json (CI does this in the "
+        "'Provision CI model' step)."
+    )
 
     # `from code_puppy.config import foo` captures a binding at import time, so
     # patching cp_config.foo alone doesnt propagate. Patch every site that

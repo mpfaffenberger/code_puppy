@@ -2,12 +2,37 @@
 
 Kept separate from ``register_callbacks.py`` so this stays unit-testable in
 isolation and so callbacks file remains thin.
+
+Design note — *why* we re-implement the token counting locally:
+
+``/context`` is supposed to be a *consistent*, model-agnostic view of how
+full the context window is. The core runtime has two layers that make
+token counts vary between models:
+
+1. The ``token_ratio_learner`` plugin monkeypatches
+   ``_history.estimate_tokens`` to use *learned* chars-per-token ratios
+   per model. Great for compaction decisions — terrible for a
+   user-facing dashboard, because the same conversation reports
+   different token counts on different models.
+
+2. ``_history._apply_multiplier`` bumps some models (e.g. Opus 4.7 by
+   1.35×) to compensate for tokenizers that over-tokenize relative to
+   our heuristic. Again: useful for safety margins, lousy for
+   "consistency between models".
+
+To keep ``/context`` honest and stable across model switches, this
+module uses its OWN raw ``max(1, floor(len(text) / 2.5))`` estimator
+and applies NO multiplier. Other parts of the system (compaction,
+summarization triggers) still use the calibrated values — that's
+intentional.
 """
 
 from __future__ import annotations
 
+import json
+import math
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, List, Optional
 
 # Thresholds (fractions of context window). Match the visual indicator buckets:
 #   <30% green, 30–<65% yellow, ≥65% red.
@@ -19,6 +44,11 @@ YELLOW_THRESHOLD = 0.65
 GREEN_CIRCLE = "🟢"
 YELLOW_CIRCLE = "🟡"
 RED_CIRCLE = "🔴"
+
+# Classic char/token heuristic used throughout. Kept here as a private
+# constant so /context's numbers don't drift if the core estimator is
+# patched at runtime by the token_ratio_learner plugin.
+_CHARS_PER_TOKEN = 2.5
 
 
 @dataclass(frozen=True)
@@ -38,6 +68,7 @@ class ContextUsage:
     agents_md_tokens: int = 0
     pydantic_tools_tokens: int = 0
     mcp_tokens: int = 0
+    kennel_memory_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -68,16 +99,112 @@ def pick_indicator(proportion: float) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Raw token estimation (model-agnostic, never patched)
+# ---------------------------------------------------------------------------
+def _raw_estimate_tokens(text: str) -> int:
+    """Pure char/2.5 heuristic. Identical for every model, every time.
+
+    Mirrors the *original* ``_history.estimate_tokens`` before any plugin
+    patches it. We deliberately don't import it — the whole point of this
+    function is to stay immune to the token_ratio_learner monkeypatch.
+    """
+    if not text:
+        return 0
+    return max(1, math.floor(len(text) / _CHARS_PER_TOKEN))
+
+
+def _raw_tokens_for_message(message: Any) -> int:
+    """Sum raw tokens across a message's parts via the canonical stringifier."""
+    # ``stringify_part`` is a pure formatter — safe to import directly.
+    from code_puppy.agents._history import stringify_part
+
+    total = 0
+    for part in getattr(message, "parts", []) or []:
+        part_str = stringify_part(part)
+        if part_str:
+            total += _raw_estimate_tokens(part_str)
+    return total
+
+
+def _raw_tokens_for_pydantic_tools(tools: Optional[dict]) -> int:
+    """Estimate tokens contributed by pydantic-ai registered tools.
+
+    Mirrors ``_history.estimate_context_overhead`` but uses the raw
+    estimator and skips the model multiplier.
+    """
+    if not tools:
+        return 0
+    from code_puppy.agents._history import (
+        _extract_tool_description,
+        _extract_tool_json_schema,
+    )
+
+    total = 0
+    for tool_name, tool_obj in tools.items():
+        total += _raw_estimate_tokens(tool_name)
+        desc = _extract_tool_description(tool_obj)
+        if desc:
+            total += _raw_estimate_tokens(desc)
+        schema = _extract_tool_json_schema(tool_obj)
+        if schema is not None:
+            try:
+                total += _raw_estimate_tokens(json.dumps(schema))
+            except (TypeError, ValueError):
+                total += _raw_estimate_tokens(repr(schema))
+        else:
+            annotations = getattr(tool_obj, "__annotations__", None)
+            if annotations:
+                total += _raw_estimate_tokens(str(annotations))
+    return total
+
+
+def _raw_tokens_for_mcp_servers(mcp_servers: Optional[List[Any]]) -> int:
+    """Estimate tokens contributed by MCP toolsets — raw, no multiplier."""
+    if not mcp_servers:
+        return 0
+
+    total = 0
+    for server in mcp_servers:
+        cached = getattr(server, "_cached_tools", None)
+        if not cached:
+            continue
+        prefix = getattr(server, "tool_prefix", None) or ""
+        for mcp_tool in cached:
+            name = getattr(mcp_tool, "name", "") or ""
+            full_name = f"{prefix}_{name}" if prefix else name
+            if full_name:
+                total += _raw_estimate_tokens(full_name)
+            description = getattr(mcp_tool, "description", "") or ""
+            if description:
+                total += _raw_estimate_tokens(description)
+            schema = getattr(mcp_tool, "inputSchema", None)
+            if schema:
+                try:
+                    total += _raw_estimate_tokens(json.dumps(schema, sort_keys=True))
+                except (TypeError, ValueError):
+                    total += _raw_estimate_tokens(repr(schema))
+    return total
+
+
+# ---------------------------------------------------------------------------
 # Overhead breakdown
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class OverheadBreakdown:
-    """Per-bucket overhead estimate, all already multiplier-adjusted."""
+    """Per-bucket overhead estimate. All values are RAW (no multiplier).
+
+    The buckets form an additive partition of ``total``: ``kennel_memory``
+    is *carved out* of the resolved system prompt (since that's where the
+    memory block actually lives at runtime), so summing all five fields
+    still equals the true overhead — just with the memory chunk surfaced
+    as its own line so users can see what the kennel is eating.
+    """
 
     system_prompt_tokens: int
     agents_md_tokens: int
     pydantic_tools_tokens: int
     mcp_tokens: int
+    kennel_memory_tokens: int = 0
 
     @property
     def total(self) -> int:
@@ -86,6 +213,7 @@ class OverheadBreakdown:
             + self.agents_md_tokens
             + self.pydantic_tools_tokens
             + self.mcp_tokens
+            + self.kennel_memory_tokens
         )
 
 
@@ -140,6 +268,26 @@ def _live_mcp_servers_for(agent):
     return getattr(agent, "_mcp_servers", None) or None
 
 
+def _kennel_memory_block() -> str:
+    """Return the kennel's current recall block, or an empty string.
+
+    We call the kennel retriever directly — same code path the prompt
+    assembly uses on ``load_prompt`` — so the token count we report here
+    matches the block actually shipped to the model. Returns ``""`` when
+    the kennel plugin isn't installed, is disabled, or has nothing to
+    surface this turn.
+    """
+    try:
+        from code_puppy.plugins.puppy_kennel.retriever import build_recall_block
+    except Exception:
+        return ""
+    try:
+        block = build_recall_block()
+    except Exception:
+        return ""
+    return block or ""
+
+
 def _agent_tools(agent):
     """Best-effort pydantic-tool dict for the agent (or ``None``)."""
     try:
@@ -164,62 +312,53 @@ def _agent_tools(agent):
 
 
 def compute_overhead_breakdown(agent) -> OverheadBreakdown:
-    """Compute per-bucket overhead in tokens for the active agent.
+    """Compute per-bucket overhead in raw tokens for the active agent.
 
-    Each bucket is estimated independently and the per-model multiplier is
-    applied to each, so the sum may differ from a single combined estimate
-    by a token or two (floor rounding). That's fine — these numbers are
-    advisory.
+    Each bucket is estimated via the local raw heuristic — no learned
+    ratios, no per-model multiplier. This keeps ``/context`` consistent
+    when switching between models.
     """
     from code_puppy.agents._builder import load_puppy_rules
-    from code_puppy.agents._history import (
-        _apply_multiplier,
-        _estimate_mcp_tool_tokens,
-        estimate_context_overhead,
-        estimate_tokens,
-    )
 
-    model_name = agent.get_model_name()
-
-    # System prompt (resolved for the active model).
+    # System prompt (resolved for the active model). NB: this already
+    # includes any ``load_prompt`` plugin fragments — most notably the
+    # kennel memory block — so we'll carve those out below to avoid
+    # double-counting.
     try:
         resolved = _resolved_system_prompt(agent)
-        system_tokens = _apply_multiplier(estimate_tokens(resolved), model_name)
+        system_tokens = _raw_estimate_tokens(resolved)
     except Exception:
         system_tokens = 0
 
+    # Kennel memory block — carved out of the system prompt so it gets
+    # its own line in /context. Clamp the subtraction to zero in the
+    # paranoid case where the resolved prompt somehow doesn't contain the
+    # block (e.g. agent overrode get_system_prompt without calling
+    # ``on_load_prompt``).
+    try:
+        kennel_tokens = _raw_estimate_tokens(_kennel_memory_block())
+    except Exception:
+        kennel_tokens = 0
+    system_tokens = max(0, system_tokens - kennel_tokens)
+
     # AGENTS.md / puppy rules — separate bucket so users can see how much of
-    # their context budget is being eaten by project rules. Note that the
-    # core ``_estimate_context_overhead`` currently *omits* this; the badge
-    # was under-reporting before. We fix that here by adding it explicitly.
+    # their context budget is being eaten by project rules.
     try:
         rules = load_puppy_rules() or ""
-        agents_md_tokens = (
-            _apply_multiplier(estimate_tokens(rules), model_name) if rules else 0
-        )
+        agents_md_tokens = _raw_estimate_tokens(rules) if rules else 0
     except Exception:
         agents_md_tokens = 0
 
     # Pydantic-registered tools.
     try:
-        tools = _agent_tools(agent)
-        pydantic_tools_tokens = (
-            estimate_context_overhead("", tools, model_name, mcp_servers=None)
-            if tools
-            else 0
-        )
+        pydantic_tools_tokens = _raw_tokens_for_pydantic_tools(_agent_tools(agent))
     except Exception:
         pydantic_tools_tokens = 0
 
     # MCP toolsets — fetch a LIVE server list rather than trusting
-    # ``agent._mcp_servers`` (which is only refreshed at pydantic-agent build
-    # time, so bind/unbind/start/stop after that would otherwise show stale
-    # numbers in ``/context``). Falls back to the cached list if the live
-    # lookup blows up for any reason.
+    # ``agent._mcp_servers`` (only refreshed at pydantic-agent build time).
     try:
-        mcp_servers = _live_mcp_servers_for(agent)
-        mcp_raw = _estimate_mcp_tool_tokens(mcp_servers) if mcp_servers else 0
-        mcp_tokens = _apply_multiplier(mcp_raw, model_name) if mcp_raw else 0
+        mcp_tokens = _raw_tokens_for_mcp_servers(_live_mcp_servers_for(agent))
     except Exception:
         mcp_tokens = 0
 
@@ -228,6 +367,7 @@ def compute_overhead_breakdown(agent) -> OverheadBreakdown:
         agents_md_tokens=int(agents_md_tokens),
         pydantic_tools_tokens=int(pydantic_tools_tokens),
         mcp_tokens=int(mcp_tokens),
+        kennel_memory_tokens=int(kennel_tokens),
     )
 
 
@@ -236,9 +376,12 @@ def get_current_usage() -> Optional[ContextUsage]:
 
     Returns ``None`` whenever any required piece of data is unavailable —
     missing agent, missing model config, or *any* exception while estimating
-    history/used/overhead/capacity. We deliberately do **not** fall back to
+    history/overhead/capacity. We deliberately do **not** fall back to
     zero on partial failures: a misleading 🟢 indicator is worse than no
     indicator at all (the prompt simply hides the badge).
+
+    All token counts are computed with the raw model-agnostic heuristic
+    so the badge stays stable when the user switches models mid-session.
     """
     try:
         from code_puppy.agents.agent_manager import get_current_agent
@@ -254,11 +397,7 @@ def get_current_usage() -> Optional[ContextUsage]:
 
     try:
         history = agent.get_message_history() or []
-        used = sum(agent.estimate_tokens_for_message(m) for m in history)
-        # We still call the canonical overhead estimator first so any
-        # exception bubbles up the same way it did before — preserves the
-        # "all-or-nothing" semantics the badge relies on.
-        overhead = agent._estimate_context_overhead()
+        used = sum(_raw_tokens_for_message(m) for m in history)
         capacity = agent._get_model_context_length()
     except Exception:
         return None
@@ -266,23 +405,18 @@ def get_current_usage() -> Optional[ContextUsage]:
     if capacity <= 0:
         return None
 
-    # Breakdown is best-effort: if it explodes we still want to show the
-    # aggregate. Fall back to a zero-filled breakdown in that case.
     try:
         breakdown = compute_overhead_breakdown(agent)
     except Exception:
-        breakdown = OverheadBreakdown(0, 0, 0, 0)
-
-    # Prefer the breakdown total when it's available and non-zero, because
-    # it also accounts for AGENTS.md (which the legacy estimator omits).
-    final_overhead = breakdown.total if breakdown.total else int(overhead)
+        return None
 
     return ContextUsage(
         used_tokens=int(used),
-        overhead_tokens=final_overhead,
+        overhead_tokens=breakdown.total,
         capacity=int(capacity),
         system_prompt_tokens=breakdown.system_prompt_tokens,
         agents_md_tokens=breakdown.agents_md_tokens,
         pydantic_tools_tokens=breakdown.pydantic_tools_tokens,
         mcp_tokens=breakdown.mcp_tokens,
+        kennel_memory_tokens=breakdown.kennel_memory_tokens,
     )

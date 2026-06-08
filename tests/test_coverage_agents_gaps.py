@@ -63,6 +63,19 @@ class TestCodePuppyAgentTools:
         assert "delete_snippet" in tools
         assert "invoke_agent" in tools
 
+    def test_default_code_puppy_does_not_get_model_override_tools(self):
+        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+        agent = CodePuppyAgent()
+        tools = agent.get_available_tools()
+        prompt = agent.get_system_prompt()
+
+        assert "invoke_agent" in tools
+        assert "invoke_agent_with_model" not in tools
+        assert "list_available_models" not in tools
+        assert "model_name" not in prompt
+        assert "invoke_agent_with_model" not in prompt
+
 
 # =============================================================================
 # summarization_agent.py gaps

@@ -316,7 +316,11 @@ class TestSubagentInvocationUsesAsyncAutostart:
         import re
         from pathlib import Path
 
-        source = Path("code_puppy/tools/agent_tools.py").read_text(encoding="utf-8")
+        # ``invoke_agent`` was refactored out of agent_tools.py and now lives
+        # in subagent_invocation.py — grep the file that actually owns it.
+        source = Path("code_puppy/tools/subagent_invocation.py").read_text(
+            encoding="utf-8"
+        )
         return "\n".join(re.sub(r"#.*$", "", line) for line in source.splitlines())
 
     def test_agent_tools_calls_async_autostart(self):

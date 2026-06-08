@@ -583,10 +583,32 @@ def _sanitize_string(text: str) -> str:
         )
 
 
+def _split_grep_search_string(search_string: str) -> list[str]:
+    """Split grep arguments without corrupting Windows backslashes.
+
+    `_grep` accepts ripgrep-style flags in `search_string`, so we still need
+    shell-like tokenization. On Windows, POSIX parsing treats backslashes as
+    escapes and mangles common regexes and paths, so use non-POSIX tokenization
+    and then trim any matching quote wrappers from the resulting tokens.
+    """
+
+    import shlex
+
+    try:
+        if os.name == "nt":
+            lexer = shlex.shlex(search_string, posix=False)
+            lexer.whitespace_split = True
+            lexer.commenters = ""
+            return [part.strip("\"'") for part in lexer]
+        return shlex.split(search_string)
+    except ValueError:
+        # Keep the full string intact when quotes are unmatched.
+        return [search_string]
+
+
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
     import json
     import os
-    import shlex
     import shutil
     import subprocess
     import sys
@@ -651,12 +673,8 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
 
         cmd.extend(["--ignore-file", ignore_file])
         # Split search_string to support ripgrep flags like --ignore-case
-        try:
-            parts = shlex.split(search_string)
-        except ValueError:
-            # Fallback for unmatched quotes (e.g., apostrophes in search terms)
-            parts = [search_string]
-        cmd.extend(parts)
+        # without corrupting Windows backslashes in regexes or file paths.
+        cmd.extend(_split_grep_search_string(search_string))
         cmd.append(directory)
         # Use encoding with error handling to handle files with invalid UTF-8
         result = subprocess.run(
@@ -667,6 +685,15 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             encoding="utf-8",
             errors="replace",  # Replace invalid chars instead of crashing
         )
+
+        if result.returncode not in (0, 1):
+            stderr = _sanitize_string(result.stderr.strip()) if result.stderr else ""
+            error_message = stderr or f"ripgrep exited with code {result.returncode}"
+        elif result.returncode == 1 and result.stderr.strip():
+            error_message = _sanitize_string(result.stderr.strip())
+
+        if error_message is not None:
+            return GrepOutput(matches=[], error=error_message)
 
         # Parse the JSON output from ripgrep
         for line in result.stdout.strip().split("\n"):
@@ -765,9 +792,39 @@ def register_list_files(agent):
         # No need to emit again here
         if warning:
             result.error = warning
-        if (len(result.content)) > 200000:
-            result.content = result.content[0:200000]
-            result.error = "Results truncated. This is a massive directory tree, recommend non-recursive calls to list_files"
+
+        # Context guard: if the listing is too chonky to dump straight into
+        # the agent's context window, spill it to a temp file and hand the
+        # agent a pointer instead. Keeps token usage sane on huge repos.
+        _LIST_FILES_CONTEXT_LIMIT = 20_000
+        if len(result.content) > _LIST_FILES_CONTEXT_LIMIT:
+            from tempfile import NamedTemporaryFile, gettempdir
+
+            # Pull the summary footer (last line of _list_files output) so the
+            # agent still gets the counts without reading the dump file.
+            summary_line = result.content.rstrip().rsplit("\n", 1)[-1]
+
+            spill = NamedTemporaryFile(
+                mode="w",
+                prefix="code_puppy_listing_",
+                suffix=".txt",
+                dir=gettempdir(),
+                delete=False,
+                encoding="utf-8",
+            )
+            try:
+                spill.write(result.content)
+            finally:
+                spill.close()
+
+            result.content = (
+                f"Directory listing for {directory} exceeded "
+                f"{_LIST_FILES_CONTEXT_LIMIT} chars ({len(result.content)} total).\n"
+                f"Full listing written to: {spill.name}\n"
+                f"Use read_file on that path (in chunks if needed) to inspect it, "
+                f"or call list_files again with recursive=False / a narrower directory.\n\n"
+                f"{summary_line}"
+            )
         return result
 
 

@@ -2,7 +2,6 @@
 
 from code_puppy.config import get_puppy_name
 
-from .. import callbacks
 from .base_agent import BaseAgent
 
 
@@ -157,8 +156,7 @@ Remember: You're the strategic planner, not the implementer. Your job is to crea
 
 IMPORTANT: Only when the user gives clear approval to proceed (such as "execute plan", "go ahead", "let's do it", "start", "begin", "proceed", "sounds good", or any equivalent phrase indicating they want to move forward), coordinate with the appropriate agents to implement your roadmap step by step, otherwise don't start invoking other tools such read file or other agents.
 """
-
-        prompt_additions = callbacks.on_load_prompt()
-        if len(prompt_additions):
-            result += "\n".join(prompt_additions)
+        # Runtime ``load_prompt`` fragments are injected by
+        # ``BaseAgent.get_full_system_prompt`` — see CodePuppyAgent for the
+        # rationale (keeps runtime metadata out of persisted definitions).
         return result

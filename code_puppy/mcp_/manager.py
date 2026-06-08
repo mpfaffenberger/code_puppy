@@ -73,29 +73,13 @@ def _warn_unbound_servers(server_names: List[str], agent_name: str) -> None:
     for name in fresh:
         _WARNED_UNBOUND.add((name, agent_name))
 
-    # Hint shown at the end of every variant of this warning. Single source
-    # of truth so the silence-instructions can't drift between branches.
-    silence_hint = "Silence this warning forever with `/mcp silence-warning`."
-
-    if len(fresh) == 1:
-        name = fresh[0]
-        emit_warning(
-            f"MCP server '{name}' is registered in mcp_servers.json but "
-            f"not bound to agent '{agent_name}'. Run `/mcp start {name}` "
-            f"(auto-binds for this session only) or `/agents` \u2192 B to "
-            f"manage persistent bindings. {silence_hint}"
-        )
-        return
-
-    bullet_lines = "\n".join(
-        f"  \u2022 '{name}'  \u2192  `/mcp start {name}`" for name in fresh
-    )
+    # One terse line: just the count + how to act. Individual server names are
+    # left out on purpose — `/mcp` lists them, and silencing is discoverable.
+    noun = "server" if len(fresh) == 1 else "servers"
     emit_warning(
-        f"{len(fresh)} MCP servers are registered in mcp_servers.json but "
-        f"not bound to agent '{agent_name}':\n{bullet_lines}\n"
-        f"Run the suggested `/mcp start <name>` (auto-binds for this session "
-        f"only) or `/agents` \u2192 B to manage persistent bindings. "
-        f"{silence_hint}"
+        f"{len(fresh)} MCP {noun} registered but not bound to agent "
+        f"'{agent_name}' \u2014 run `/mcp` to bind, or silence via "
+        f"`/mcp silence-warning`."
     )
 
 

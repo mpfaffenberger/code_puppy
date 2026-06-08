@@ -26,6 +26,8 @@ class TestToolRegistration:
             "agent_run_shell_command",
             "list_agents",
             "invoke_agent",
+            "invoke_agent_with_model",
+            "list_available_models",
         ]
 
         assert isinstance(TOOL_REGISTRY, dict)

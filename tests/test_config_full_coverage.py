@@ -552,12 +552,14 @@ class TestDefaultModel:
         cp_config._default_model_cache = None
 
     def test_default_model_empty_config(self):
+        # models.json now ships empty; with no models configured the default
+        # resolver returns None so callers can surface a "no model" warning.
         cp_config._default_model_cache = None
         with patch(
             "code_puppy.model_factory.ModelFactory.load_config", return_value={}
         ):
             result = cp_config._default_model_from_models_json()
-            assert result == "gpt-5"
+            assert result is None
         cp_config._default_model_cache = None
 
     def test_default_model_exception(self):
@@ -566,7 +568,7 @@ class TestDefaultModel:
             "code_puppy.model_factory.ModelFactory.load_config", side_effect=Exception
         ):
             result = cp_config._default_model_from_models_json()
-            assert result == "gpt-5"
+            assert result is None
         cp_config._default_model_cache = None
 
 

@@ -28,6 +28,12 @@ from code_puppy.config import EXTRA_MODELS_FILE, set_config_value
 from code_puppy.list_filtering import query_matches_text
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.models_dev_parser import ModelInfo, ModelsDevRegistry, ProviderInfo
+from code_puppy.provider_credentials import (
+    credential_display,
+    credential_hint,
+    is_credential_set,
+    save_credential,
+)
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
 PAGE_SIZE = 15  # Items per page
@@ -89,6 +95,11 @@ def derive_provider_identity(provider: ProviderInfo) -> str:
 class AddModelMenu:
     """Interactive TUI for browsing and adding models."""
 
+    # Class-level default so the attribute is always present, even when the
+    # instance is constructed via ``__new__`` (e.g. in tests that bypass
+    # ``__init__``). ``run()`` reads this in its event loop.
+    pending_credentials_edit: Optional[ProviderInfo] = None
+
     def __init__(self):
         """Initialize the model browser menu."""
         self.registry: Optional[ModelsDevRegistry] = None
@@ -108,6 +119,7 @@ class AddModelMenu:
         # Pending model for credential prompting
         self.pending_model: Optional[ModelInfo] = None
         self.pending_provider: Optional[ProviderInfo] = None
+        self.pending_credentials_edit: Optional[ProviderInfo] = None
 
         # Custom model support
         self.is_custom_model_selected = False
@@ -155,6 +167,10 @@ class AddModelMenu:
             if 0 <= self.selected_model_idx < len(filtered_models):
                 return filtered_models[self.selected_model_idx]
         return None
+
+    def _get_current_provider_from_model(self) -> Optional[ProviderInfo]:
+        """Get the provider for the currently selected model (in models view)."""
+        return self.current_provider
 
     def _is_custom_model_selected(self) -> bool:
         """Check if the custom model option is currently selected."""
@@ -471,6 +487,8 @@ class AddModelMenu:
         if self.view_mode == "providers":
             lines.append(("fg:green", "  Enter  "))
             lines.append(("", "Select\n"))
+            lines.append(("fg:cyan", "  e  "))
+            lines.append(("", "Edit credentials\n"))
         else:
             lines.append(("fg:green", "  Enter  "))
             lines.append(("", "Add Model\n"))
@@ -518,11 +536,21 @@ class AddModelMenu:
 
             if provider.env:
                 lines.append(("", "\n"))
-                lines.append(("bold", "  Environment Variables:"))
+                lines.append(("bold", "  Credentials:"))
                 lines.append(("", "\n"))
                 for env_var in provider.env:
-                    lines.append(("fg:ansibrightblack", f"    • {env_var}"))
+                    status = credential_display(env_var)
+                    hint = credential_hint(env_var)
+                    color = (
+                        "fg:ansigreen"
+                        if is_credential_set(env_var)
+                        else "fg:ansiyellow"
+                    )
+                    lines.append((color, f"    • {env_var}: {status}"))
                     lines.append(("", "\n"))
+                    if hint:
+                        lines.append(("fg:ansibrightblack", f"      {hint}"))
+                        lines.append(("", "\n"))
 
             if provider.doc:
                 lines.append(("", "\n"))
@@ -1001,6 +1029,36 @@ class AddModelMenu:
 
         return True
 
+    def _edit_provider_credentials(self, provider: ProviderInfo) -> bool:
+        """Prompt user to edit any credential for a provider (not just missing ones).
+
+        Returns:
+            True if credentials were saved or no edit needed, False if user cancelled.
+        """
+        if not provider.env:
+            return True
+
+        emit_info(f"\n🔑 {provider.name} credentials:\n")
+        for env_var in provider.env:
+            status = credential_display(env_var)
+            hint = credential_hint(env_var)
+            emit_info(f"  {env_var}: {status}")
+            if hint:
+                emit_info(f"    {hint}")
+
+        emit_info("\n  Press Enter to skip, or type a new value to replace.\n")
+        for env_var in provider.env:
+            try:
+                value = safe_input(f"  {env_var}: ")
+                if value:
+                    save_credential(env_var, value)
+                    emit_info(f"✅ Saved {env_var}")
+            except (KeyboardInterrupt, EOFError):
+                emit_info("")  # Clean newline
+                emit_warning("Credential edit cancelled")
+                return False
+        return True
+
     def _create_custom_model_info(
         self, model_name: str, context_length: int = 128000
     ) -> ModelInfo:
@@ -1190,6 +1248,17 @@ class AddModelMenu:
             if self.view_mode == "models":
                 self._go_back_to_providers()
 
+        @kb.add("e")
+        def _(event):
+            """Edit credentials for the current provider."""
+            if self.view_mode == "providers":
+                provider = self._get_current_provider()
+            else:
+                provider = self._get_current_provider_from_model()
+            if provider and provider.env:
+                self.pending_credentials_edit = provider
+                event.app.exit()
+
         @kb.add("backspace")
         def _(event):
             if self._delete_filter_char():
@@ -1215,37 +1284,48 @@ class AddModelMenu:
             event.app.exit()
 
         layout = Layout(root_container)
-        app = Application(
-            layout=layout,
-            key_bindings=kb,
-            full_screen=False,
-            mouse_support=False,
-        )
 
         set_awaiting_user_input(True)
 
-        # Enter alternate screen buffer once for entire session
-        sys.stdout.write("\033[?1049h")  # Enter alternate buffer
-        sys.stdout.write("\033[2J\033[H")  # Clear and home
-        sys.stdout.flush()
-        time.sleep(0.05)
-
         try:
-            # Initial display
-            self.update_display()
+            while True:
+                # Enter alternate screen buffer for this session
+                sys.stdout.write("\033[?1049h")  # Enter alternate buffer
+                sys.stdout.write("\033[2J\033[H")  # Clear and home
+                sys.stdout.flush()
+                time.sleep(0.05)
 
-            # Just clear the current buffer (don't switch buffers)
-            sys.stdout.write("\033[2J\033[H")  # Clear screen within current buffer
-            sys.stdout.flush()
+                # Initial display
+                self.update_display()
+                sys.stdout.write("\033[2J\033[H")  # Clear screen within current buffer
+                sys.stdout.flush()
 
-            # Run application in a background thread to avoid event loop conflicts
-            # This is needed because code_puppy runs in an async context
-            app.run(in_thread=True)
+                # Create a fresh Application each iteration — reusing a
+                # prompt_toolkit Application after exit() is unreliable
+                app = Application(
+                    layout=layout,
+                    key_bindings=kb,
+                    full_screen=False,
+                    mouse_support=False,
+                )
 
+                # Run application in a background thread to avoid event loop conflicts
+                app.run(in_thread=True)
+
+                # Exit alternate screen buffer
+                sys.stdout.write("\033[?1049l")  # Exit alternate buffer
+                sys.stdout.flush()
+
+                # Handle credential editing
+                if self.pending_credentials_edit:
+                    provider = self.pending_credentials_edit
+                    self.pending_credentials_edit = None
+                    self._edit_provider_credentials(provider)
+                    continue  # Restart the application
+
+                # Exit the loop for normal results
+                break
         finally:
-            # Exit alternate screen buffer once at end
-            sys.stdout.write("\033[?1049l")  # Exit alternate buffer
-            sys.stdout.flush()
             # Reset awaiting input flag
             set_awaiting_user_input(False)
 

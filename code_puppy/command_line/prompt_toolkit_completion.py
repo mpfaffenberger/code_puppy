@@ -550,7 +550,9 @@ def get_prompt_with_active_model(base: str = ">>> "):
     from code_puppy.agents.agent_manager import get_current_agent
 
     puppy = get_puppy_name()
-    global_model = get_active_model() or "(default)"
+    # When nothing is configured this is None - surface that explicitly as
+    # [None] so the user immediately sees they need to /add_model.
+    global_model = get_active_model()
 
     # Get current agent information
     current_agent = get_current_agent()
@@ -564,12 +566,13 @@ def get_prompt_with_active_model(base: str = ">>> "):
     # Determine which model to display
     if agent_model and agent_model != global_model:
         # Show both models when they differ
-        model_display = f"[{global_model} → {agent_model}]"
+        model_display = f"[{global_model} \u2192 {agent_model}]"
     elif agent_model:
         # Show only the agent model when pinned
         model_display = f"[{agent_model}]"
     else:
-        # Show only the global model when no agent model is pinned
+        # Show only the global model when no agent model is pinned.
+        # global_model may be None -> renders as [None].
         model_display = f"[{global_model}]"
 
     cwd = os.getcwd()

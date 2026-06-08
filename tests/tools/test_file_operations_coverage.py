@@ -252,6 +252,46 @@ class TestGrepFunction:
         result = _grep(None, "content", str(tmp_path))
         assert isinstance(result, GrepOutput)
 
+    @patch("code_puppy.tools.file_operations.os.name", "nt")
+    @patch("shutil.which", return_value="rg")
+    @patch("subprocess.run")
+    def test_grep_preserves_backslashes_on_windows(
+        self, mock_run, _mock_which, tmp_path
+    ):
+        """Test Windows grep preserves backslashes in regex and path arguments."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr="",
+        )
+
+        patterns = [r"\bdef\b", r"\d+", r"C:\Users\me", r"foo\.bar"]
+
+        for pattern in patterns:
+            result = _grep(None, pattern, str(tmp_path))
+
+            assert result.error is None
+            invoked_cmd = mock_run.call_args[0][0]
+            assert pattern in invoked_cmd
+
+    @patch("shutil.which", return_value="rg")
+    @patch("subprocess.run")
+    def test_grep_reports_ripgrep_errors(self, mock_run, _mock_which, tmp_path):
+        """Test ripgrep failures are surfaced instead of looking like no matches."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=2,
+            stdout="",
+            stderr="regex parse error:\n    foo(\n       ^\nerror: unclosed group",
+        )
+
+        result = _grep(None, "foo(", str(tmp_path))
+
+        assert result.matches == []
+        assert result.error is not None
+        assert "regex parse error" in result.error
+
 
 class TestListFilesRipgrepHandling:
     """Test _list_files handling of ripgrep edge cases."""

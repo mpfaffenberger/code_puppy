@@ -340,3 +340,36 @@ async def run_onboarding_if_needed() -> Optional[str]:
     if should_show_onboarding():
         return await run_onboarding_wizard()
     return None
+
+
+def require_model_setup_if_needed(wizard_result: Optional[str]) -> None:
+    """Require an explicit model choice when the user skipped OAuth.
+
+    Claude Code and ChatGPT OAuth flows set a model for you. For every other
+    path (API keys, OpenRouter, "skip for now", or a plain completed/skipped
+    tutorial) there is no bundled default model anymore, so the user *must*
+    run ``/add_model`` before they can do anything useful. Surface a loud,
+    unmissable instruction instead of letting them hit a silent [None] model.
+    """
+    # OAuth paths already wired up a model - nothing to nag about.
+    if wizard_result in ("chatgpt", "claude"):
+        return
+
+    from code_puppy import config as cp_config
+    from code_puppy.messaging import emit_warning
+
+    # Pre-arm the generic one-time "no model" warning BEFORE resolving the
+    # model, so the resolution below doesn't double up with our more specific
+    # tutorial message. Harmless if a model turns out to be configured.
+    cp_config._warned_no_model = True
+
+    # If a model somehow is already configured, don't be annoying.
+    if cp_config.get_global_model_name():
+        return
+
+    emit_warning(
+        "\U0001f6a8 No model configured yet!\n"
+        "   Code Puppy ships with an empty model list, so you need to add one:\n"
+        "   \u2022 Run /add_model to browse + add a model (API key required), or\n"
+        "   \u2022 Run /tutorial again and pick Claude Code or ChatGPT OAuth."
+    )

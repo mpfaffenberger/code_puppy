@@ -188,6 +188,7 @@ def handle_tutorial_command(command: str) -> bool:
     import concurrent.futures
 
     from code_puppy.command_line.onboarding_wizard import (
+        require_model_setup_if_needed,
         reset_onboarding,
         run_onboarding_wizard,
     )
@@ -219,6 +220,10 @@ def handle_tutorial_command(command: str) -> bool:
         emit_info("🎉 Tutorial complete! Happy coding!")
     elif result == "skipped":
         emit_info("⏭️ Tutorial skipped. Run /tutorial anytime!")
+
+    # If the user didn't go the OAuth route they have no model yet -> require
+    # an explicit /add_model.
+    require_model_setup_if_needed(result)
 
     return True
 
@@ -281,6 +286,17 @@ def handle_agent_command(command: str) -> bool:
                     lambda: asyncio.run(interactive_agent_picker())
                 )
                 selected_agent = future.result(timeout=300)  # 5 min timeout
+
+            # Drain any deferred pin-reloads queued from inside the picker.
+            # These MUST run on the main loop, not on the worker's transient
+            # one --- see the comment in agent_menu._PENDING_PIN_RELOADS.
+            from code_puppy.command_line.agent_menu import (
+                apply_pending_pin_reload,
+                consume_pending_pin_reloads,
+            )
+
+            for pin_agent, pin_model in consume_pending_pin_reloads():
+                apply_pending_pin_reload(pin_agent, pin_model)
 
             if selected_agent:
                 current_agent = get_current_agent()

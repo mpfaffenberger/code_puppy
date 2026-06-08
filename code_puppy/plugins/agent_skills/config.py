@@ -125,6 +125,35 @@ def set_skills_enabled(enabled: bool) -> None:
     logger.info(f"Skills integration {'enabled' if enabled else 'disabled'}")
 
 
+def get_frontmatter_in_system_prompt() -> bool:
+    """Check if skill frontmatter is injected into the system prompt.
+
+    When enabled (default), each enabled skill's ``name`` + ``description``
+    (parsed from the SKILL.md frontmatter) is appended to the system prompt
+    so the model can see what skills are available. When disabled, the model
+    has no built-in awareness of skills but can still discover / activate
+    them via the ``list_or_search_skills`` and ``activate_skill`` tools.
+
+    Returns:
+        True if frontmatter is loaded into the system prompt, False otherwise.
+        Reads from ``frontmatter_in_system_prompt`` config key (default: True).
+    """
+    cfg_val = get_value("frontmatter_in_system_prompt")
+    if cfg_val is None:
+        return True  # Enabled by default
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def set_frontmatter_in_system_prompt(enabled: bool) -> None:
+    """Enable or disable loading frontmatter into the system prompt.
+
+    Args:
+        enabled: True to inject frontmatter, False to skip it.
+    """
+    set_value("frontmatter_in_system_prompt", "true" if enabled else "false")
+    logger.info(f"Frontmatter in system prompt {'enabled' if enabled else 'disabled'}")
+
+
 def get_disabled_skills() -> Set[str]:
     """Get set of explicitly disabled skill names.
 

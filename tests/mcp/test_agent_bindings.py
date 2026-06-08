@@ -230,9 +230,10 @@ class TestUnboundOrphanWarning:
         assert servers == []
         assert mock_warn.call_count == 1
         msg = mock_warn.call_args.args[0]
-        assert "'nu'" in msg
+        # Terse one-liner: count + agent + how to act. Individual server names
+        # are intentionally omitted (run `/mcp` to see them).
+        assert "1 MCP server" in msg
         assert "'python'" in msg
-        assert "/mcp start nu" in msg
         # The warning must advertise its own off-switch, otherwise users have
         # no idea this is silenceable.
         assert "/mcp silence-warning" in msg
@@ -264,12 +265,11 @@ class TestUnboundOrphanWarning:
         # first build emits one block listing nu+mu, python's second build
         # is fully deduped. Total: 2 warning blocks.
         assert mock_warn.call_count == 2
-        # Each emitted message should mention BOTH unbound servers and the
-        # specific agent it was built for.
+        # Each emitted message reports the count of unbound servers and the
+        # specific agent it was built for (names are omitted by design).
         for call in mock_warn.call_args_list:
             msg = call.args[0]
-            assert "'nu'" in msg
-            assert "'mu'" in msg
+            assert "2 MCP servers" in msg
         agents_warned_about = [
             "python" if "'python'" in call.args[0] else "rust"
             for call in mock_warn.call_args_list

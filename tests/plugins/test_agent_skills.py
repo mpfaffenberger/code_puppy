@@ -31,7 +31,7 @@ from code_puppy.plugins.agent_skills.metadata import (
     parse_yaml_frontmatter,
 )
 from code_puppy.plugins.agent_skills.prompt_builder import (
-    build_available_skills_xml,
+    build_available_skills_block,
     build_skills_guidance,
 )
 
@@ -583,27 +583,23 @@ class TestMetadataParsing:
 class TestPromptBuilder:
     """Tests for prompt builder module."""
 
-    def test_build_available_skills_xml_empty(self):
-        """Test building XML for empty skills list."""
-        xml = build_available_skills_xml([])
-        assert xml == "<available_skills></available_skills>"
+    def test_build_available_skills_block_empty(self):
+        """Empty input → empty string (no stray heading)."""
+        assert build_available_skills_block([]) == ""
 
-    def test_build_available_skills_xml_single_skill(self):
-        """Test building XML for single skill."""
+    def test_build_available_skills_block_single_skill(self):
+        """Single skill renders as one markdown bullet."""
         skill = SkillMetadata(
             name="test-skill",
             description="A test skill",
             path=Path("/path/to/skill"),
         )
-        xml = build_available_skills_xml([skill])
-        assert "<available_skills>" in xml
-        assert "<skill>" in xml
-        assert "<name>test-skill</name>" in xml
-        assert "<description>A test skill</description>" in xml
-        assert "</skill>" in xml
+        block = build_available_skills_block([skill])
+        assert block.startswith("## Available Skills")
+        assert "- test-skill: A test skill" in block
 
-    def test_build_available_skills_xml_multiple_skills(self):
-        """Test building XML for multiple skills."""
+    def test_build_available_skills_block_multiple_skills(self):
+        """Multiple skills → one bullet per skill, no XML in sight."""
         skills = [
             SkillMetadata(
                 name="skill1",
@@ -616,77 +612,48 @@ class TestPromptBuilder:
                 path=Path("/path/to/skill2"),
             ),
         ]
-        xml = build_available_skills_xml(skills)
-        assert xml.count("<skill>") == 2
-        assert "<name>skill1</name>" in xml
-        assert "<name>skill2</name>" in xml
+        block = build_available_skills_block(skills)
+        assert "- skill1: First skill" in block
+        assert "- skill2: Second skill" in block
+        assert "<" not in block  # no XML residue
 
-    def test_xml_escaping_ampersand(self):
-        """Test XML escaping of ampersand character."""
+    def test_block_collapses_multiline_description(self):
+        """Newlines / extra whitespace in descriptions get squashed flat."""
         skill = SkillMetadata(
             name="test",
-            description="Tom & Jerry",
+            description="line one\n   line two\tline three",
             path=Path("/path"),
         )
-        xml = build_available_skills_xml([skill])
-        assert "Tom &amp; Jerry" in xml
+        block = build_available_skills_block([skill])
+        assert "- test: line one line two line three" in block
+        assert "\n" not in block.split("\n", 1)[1]  # only the heading separator
 
-    def test_xml_escaping_less_than(self):
-        """Test XML escaping of less than character."""
-        skill = SkillMetadata(
-            name="test",
-            description="Use < for comparison",
-            path=Path("/path"),
-        )
-        xml = build_available_skills_xml([skill])
-        assert "Use &lt; for comparison" in xml
-
-    def test_xml_escaping_greater_than(self):
-        """Test XML escaping of greater than character."""
-        skill = SkillMetadata(
-            name="test",
-            description="Use > for comparison",
-            path=Path("/path"),
-        )
-        xml = build_available_skills_xml([skill])
-        assert "Use &gt; for comparison" in xml
-
-    def test_xml_escaping_quotes(self):
-        """Test XML escaping of quotes."""
-        skill = SkillMetadata(
-            name="test",
-            description='She said "Hello"',
-            path=Path("/path"),
-        )
-        xml = build_available_skills_xml([skill])
-        assert "She said &quot;Hello&quot;" in xml
-
-    def test_xml_escaping_apostrophe(self):
-        """Test XML escaping of apostrophe."""
-        skill = SkillMetadata(
-            name="test",
-            description="It's a test",
-            path=Path("/path"),
-        )
-        xml = build_available_skills_xml([skill])
-        assert "It&#39;s a test" in xml
-
-    def test_xml_escaping_multiple_special_chars(self):
-        """Test XML escaping of multiple special characters."""
+    def test_block_preserves_special_chars_verbatim(self):
+        """No XML means no escaping — characters pass through untouched."""
         skill = SkillMetadata(
             name="test",
             description="Tom & Jerry say: 'Use < & >'",
             path=Path("/path"),
         )
-        xml = build_available_skills_xml([skill])
-        assert "Tom &amp; Jerry say: &#39;Use &lt; &amp; &gt;&#39;" in xml
+        block = build_available_skills_block([skill])
+        assert "Tom & Jerry say: 'Use < & >'" in block
+
+    def test_block_skill_without_description(self):
+        """A skill with empty description still renders cleanly."""
+        skill = SkillMetadata(
+            name="bare",
+            description="",
+            path=Path("/path"),
+        )
+        block = build_available_skills_block([skill])
+        assert "- bare" in block
+        assert "- bare:" not in block  # no trailing colon when no desc
 
     def test_build_skills_guidance(self):
-        """Test building skills guidance text."""
+        """Guidance mentions the two tools the agent actually needs."""
         guidance = build_skills_guidance()
-        assert "# Agent Skills" in guidance
-        assert "list_or_search_skills" in guidance
         assert "activate_skill" in guidance
+        assert "list_or_search_skills" in guidance
 
 
 # Tests for Config Module
@@ -1170,7 +1137,7 @@ class TestSkillIntegration:
                 if metadata:
                     metadatas.append(metadata)
 
-        # Build XML
-        xml = build_available_skills_xml(metadatas)
-        assert "<available_skills>" in xml
-        assert "<name>test-skill</name>" in xml
+        # Build skills block
+        block = build_available_skills_block(metadatas)
+        assert "## Available Skills" in block
+        assert "- test-skill:" in block

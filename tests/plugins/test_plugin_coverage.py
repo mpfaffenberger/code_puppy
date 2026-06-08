@@ -42,12 +42,35 @@ class TestExampleCustomCommand:
         assert self._get_handler()("unknown", "unknown") is None
 
     def test_woof_no_args(self):
+        from code_puppy.plugins.customizable_commands.register_callbacks import (
+            MarkdownCommandResult,
+        )
+
         result = self._get_handler()("woof", "woof")
-        assert result == "Tell me a dog fact"
+        assert isinstance(result, MarkdownCommandResult)
+        assert result.content == "Tell me a dog fact"
 
     def test_woof_with_text(self):
+        from code_puppy.plugins.customizable_commands.register_callbacks import (
+            MarkdownCommandResult,
+        )
+
         result = self._get_handler()("woof hello world", "woof")
-        assert result == "hello world"
+        assert isinstance(result, MarkdownCommandResult)
+        assert result.content == "hello world"
+
+    def test_woof_falls_back_to_string_when_markdown_result_unavailable(
+        self, monkeypatch
+    ):
+        """If the sibling ``customizable_commands`` plugin is absent, ``/woof``
+        should degrade gracefully to a bare-string (display-only) return
+        rather than break the plugin.
+        """
+        from code_puppy.plugins.example_custom_command import register_callbacks
+
+        monkeypatch.setattr(register_callbacks, "MarkdownCommandResult", None)
+        result = register_callbacks._handle_custom_command("woof", "woof")
+        assert result == "Tell me a dog fact"
 
     def test_echo_no_args(self):
         result = self._get_handler()("echo", "echo")

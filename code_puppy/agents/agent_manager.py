@@ -16,6 +16,7 @@ from code_puppy.agents.base_agent import BaseAgent
 from code_puppy.agents.json_agent import JSONAgent, discover_json_agents
 from code_puppy.callbacks import on_agent_reload, on_register_agents
 from code_puppy.messaging import emit_success, emit_warning
+from code_puppy.tools.common import atomic_write_text
 
 # Registry of available agents (Python classes and JSON file paths)
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
@@ -657,7 +658,12 @@ def clone_agent(agent_name: str) -> Optional[str]:
                     agent_instance.display_name, clone_index
                 ),
                 "description": agent_instance.description,
-                "system_prompt": agent_instance.get_full_system_prompt(),
+                # Persist the AUTHORED prompt only. ``get_full_system_prompt``
+                # would bake in runtime ``load_prompt`` fragments (live
+                # timestamp/CWD, kennel memory, ...) and the instance identity
+                # ID — all of which must be (re)injected fresh at runtime, not
+                # frozen into a static clone definition.
+                "system_prompt": agent_instance.get_system_prompt(),
                 "tools": _filter_available_tools(agent_instance.get_available_tools()),
             }
 
@@ -681,8 +687,10 @@ def clone_agent(agent_name: str) -> Optional[str]:
         return None
 
     try:
-        with open(clone_path, "w", encoding="utf-8") as f:
-            json.dump(clone_config, f, indent=2, ensure_ascii=False)
+        atomic_write_text(
+            str(clone_path),
+            json.dumps(clone_config, indent=2, ensure_ascii=False),
+        )
         emit_success(f"Cloned '{agent_name}' to '{clone_name}'.")
         return clone_name
     except Exception as exc:

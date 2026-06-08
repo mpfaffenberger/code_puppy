@@ -25,7 +25,10 @@ from code_puppy.agents import (
 )
 from code_puppy.command_line.mcp_binding_menu import interactive_mcp_binding_menu
 from code_puppy.mcp_.agent_bindings import get_bound_servers
-from code_puppy.command_line.model_picker_completion import load_model_names
+from code_puppy.command_line.model_picker_completion import (
+    ModelSelectionMenu,
+    load_model_names,
+)
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
     get_page_bounds,
@@ -39,9 +42,51 @@ from code_puppy.config import (
 )
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
-from code_puppy.tools.common import arrow_select_async
 
 PAGE_SIZE = 10  # Agents per page
+
+# ---------------------------------------------------------------------------
+# Deferred-reload queue
+# ---------------------------------------------------------------------------
+# ``interactive_agent_picker`` is intentionally executed inside a worker
+# thread + transient ``asyncio.run`` loop by callers (see
+# ``handle_agent_command`` and the ``switch_agent_resume`` plugin). That
+# transient loop dies as soon as the picker coroutine returns.
+#
+# If we trigger ``reload_code_generation_agent()`` from inside the picker,
+# its MCP autostart path schedules long-lived lifecycle tasks on the
+# transient loop. When ``asyncio.run`` enters cleanup it cancels and awaits
+# those tasks, which deadlock on anyio task-group / subprocess teardown ---
+# the worker future never completes and the main thread hangs in
+# ``future.result(timeout=300)``. Symptom: pressing Enter after pinning a
+# model freezes the whole app.
+#
+# Solution: queue the reload here and let the caller drain the queue on the
+# main event loop *after* ``future.result()`` returns. That way MCP tasks
+# live on the main loop where they belong.
+_PENDING_PIN_RELOADS: List[Tuple[str, Optional[str]]] = []
+
+
+def consume_pending_pin_reloads() -> List[Tuple[str, Optional[str]]]:
+    """Drain and return queued (agent_name, pinned_model) reload requests.
+
+    Callers MUST invoke this from the main event loop after the picker
+    worker future has completed, then call
+    :func:`apply_pending_pin_reload` for each tuple.
+    """
+    global _PENDING_PIN_RELOADS
+    pending = _PENDING_PIN_RELOADS
+    _PENDING_PIN_RELOADS = []
+    return pending
+
+
+def apply_pending_pin_reload(agent_name: str, pinned_model: Optional[str]) -> None:
+    """Reload the active agent if its pinned model changed during the picker.
+
+    Safe to call from the main event loop only. No-ops if the named agent
+    is not currently active.
+    """
+    _reload_agent_if_current(agent_name, pinned_model)
 
 
 def _sanitize_display_text(text: str) -> str:
@@ -138,56 +183,16 @@ def _get_pinned_model(agent_name: str) -> Optional[str]:
     return None
 
 
-def _build_model_picker_choices(
-    pinned_model: Optional[str],
-    model_names: List[str],
-) -> List[str]:
-    """Build model picker choices with pinned/unpin indicators."""
-    choices = ["✓ (unpin)" if not pinned_model else "  (unpin)"]
-
-    for model_name in model_names:
-        if model_name == pinned_model:
-            choices.append(f"✓ {model_name} (pinned)")
-        else:
-            choices.append(f"  {model_name}")
-
-    return choices
-
-
-def _normalize_model_choice(choice: str) -> str:
-    """Normalize a picker choice into a model name or '(unpin)' string."""
-    cleaned = choice.strip()
-    if cleaned.startswith("✓"):
-        cleaned = cleaned.lstrip("✓").strip()
-    if cleaned.endswith(" (pinned)"):
-        cleaned = cleaned[: -len(" (pinned)")].strip()
-    return cleaned
-
-
 async def _select_pinned_model(agent_name: str) -> Optional[str]:
-    """Prompt for a model to pin to the agent."""
+    """Prompt for a model to pin to the agent, reusing the /model picker."""
     try:
         model_names = load_model_names() or []
     except Exception as exc:
         emit_warning(f"Failed to load models: {exc}")
         return None
 
-    pinned_model = _get_pinned_model(agent_name)
-    choices = _build_model_picker_choices(pinned_model, model_names)
-    if not choices:
-        emit_warning("No models available to pin.")
-        return None
-
-    try:
-        choice = await arrow_select_async(
-            f"Select a model to pin for '{agent_name}'",
-            choices,
-        )
-    except KeyboardInterrupt:
-        emit_info("Model pinning cancelled")
-        return None
-
-    return _normalize_model_choice(choice)
+    # Prepend the "(unpin)" sentinel that _apply_pinned_model already understands.
+    return await ModelSelectionMenu(model_names=["(unpin)"] + model_names).run_async()
 
 
 def _reload_agent_if_current(
@@ -261,7 +266,11 @@ def _apply_pinned_model(agent_name: str, model_choice: str) -> None:
                 emit_success(f"Pinned '{model_choice}' to '{agent_name}'")
                 pinned_model = model_choice
 
-        _reload_agent_if_current(agent_name, pinned_model)
+        # Defer the reload to the main event loop --- doing it here would
+        # schedule MCP autostart tasks on the picker's transient asyncio
+        # loop and deadlock the worker on shutdown (see
+        # ``_PENDING_PIN_RELOADS`` for the gory details).
+        _PENDING_PIN_RELOADS.append((agent_name, pinned_model))
     except Exception as exc:
         emit_warning(f"Failed to apply pinned model: {exc}")
 

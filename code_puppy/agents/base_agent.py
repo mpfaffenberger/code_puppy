@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Set
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List, Optional, Set
 
 import pydantic_ai.models
 
@@ -71,6 +72,7 @@ class BaseAgent(ABC):
         self._compacted_message_hashes: Set[int] = set()
         self._code_generation_agent: Any = None
         self._last_model_name: Optional[str] = None
+        self._runtime_model_name_override: Optional[str] = None
         self._puppy_rules: Optional[str] = None
         self._mcp_servers: List[Any] = []
         self.cur_model: Optional[pydantic_ai.models.Model] = None
@@ -112,7 +114,35 @@ class BaseAgent(ABC):
     def get_user_prompt(self) -> Optional[str]:
         return None
 
+    def get_runtime_model_name_override(self) -> Optional[str]:
+        """Return a temporary per-run model override, if one is active."""
+        return self._runtime_model_name_override
+
+    def set_runtime_model_name_override(self, model_name: Optional[str]) -> None:
+        """Set a temporary per-run model override.
+
+        This is intentionally not persisted. It lets orchestration code run an
+        agent on a specific model for one invocation without mutating global,
+        pinned, or JSON agent model configuration.
+        """
+        self._runtime_model_name_override = model_name
+
+    @contextmanager
+    def temporary_model_name_override(
+        self, model_name: Optional[str]
+    ) -> Iterator[None]:
+        """Temporarily apply a per-run model override within a scoped block."""
+        previous_model_name = self.get_runtime_model_name_override()
+        try:
+            self.set_runtime_model_name_override(model_name)
+            yield
+        finally:
+            self.set_runtime_model_name_override(previous_model_name)
+
     def get_model_name(self) -> Optional[str]:
+        override = self.get_runtime_model_name_override()
+        if override:
+            return override
         pinned = get_agent_pinned_model(self.name)
         return pinned if pinned else get_global_model_name()
 
@@ -128,7 +158,24 @@ class BaseAgent(ABC):
         )
 
     def get_full_system_prompt(self) -> str:
-        return self.get_system_prompt() + self.get_identity_prompt()
+        """Assemble the runtime system prompt.
+
+        Layered as: authored prompt (``get_system_prompt``) + per-turn
+        ``load_prompt`` plugin fragments + this instance's identity.
+
+        The ``load_prompt`` fragments (live timestamp/CWD, file-permission
+        rules, kennel memory, ...) and the identity ID are *runtime* concerns.
+        They live here — not in ``get_system_prompt`` — so they're recomputed
+        fresh every run and never get persisted into static agent definitions
+        (e.g. when an agent is cloned to JSON). See ``clone_agent``.
+        """
+        from code_puppy import callbacks
+
+        prompt = self.get_system_prompt()
+        prompt_additions = callbacks.on_load_prompt()
+        if prompt_additions:
+            prompt += "\n" + "\n".join(prompt_additions)
+        return prompt + self.get_identity_prompt()
 
     # ---- Message history (plain dict-level access) ------------------------
     def get_message_history(self) -> List[Any]:

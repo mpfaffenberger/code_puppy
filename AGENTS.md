@@ -38,6 +38,7 @@ That's it. The plugin loader auto-discovers `register_callbacks.py` in subdirs.
 | `custom_command` | Unknown `/slash` cmd | `(command, name) -> True \| str \| None` |
 | `custom_command_help` | `/help` menu | `() -> list[tuple[str, str]]` |
 | `register_tools` | Tool registration | `() -> list[dict]` with `{"name": str, "register_func": callable}` |
+| `register_agent_tools` | Advertise tools to an agent's available list | `(agent_name: str \| None) -> list[str]` — tool names from `TOOL_REGISTRY` to merge into the agent's hardcoded `get_available_tools()` |
 | `register_agents` | Agent catalogue | `() -> list[dict]` with `{"name": str, "class": type}` |
 | `register_model_type` | Custom model type | `() -> list[dict]` with `{"type": str, "handler": callable}` |
 | `register_skills` | Skill catalogue | `() -> list[dict]` with `{"name": str, "skill_md" \| "skill_md_path" \| "frontmatter"+"body"}` |

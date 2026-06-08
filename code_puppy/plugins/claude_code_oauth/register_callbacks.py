@@ -275,7 +275,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 "Existing Claude Code tokens found. Continuing will overwrite them."
             )
         _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-7")
+        set_model_and_reload_agent("claude-code-claude-opus-4-8-long")
         return True
 
     if name == "claude-code-status":
@@ -435,6 +435,9 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         verify=verify,
         timeout=180,
         http2=False,
+        # Claude Code OAuth requires the ``cp_`` tool-name prefix; the wire
+        # format Anthropic's CLI uses won't accept un-prefixed tools.
+        apply_claude_code_prefix=True,
         oauth_reauthentication_callback=lambda: _reauthenticate_after_expired_oauth(
             model_name
         ),
