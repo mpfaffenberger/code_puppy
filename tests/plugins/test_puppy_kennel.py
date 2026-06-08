@@ -27,14 +27,35 @@ def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "kennel"
     monkeypatch.setenv("PUPPY_KENNEL_ROOT", str(root))
 
-    # Reload the config + kennel modules so they pick up the new env var.
+    # Every submodule binds paths/flags from ``config`` (and ``state``) AT
+    # IMPORT TIME. If the plugin was already imported earlier in the test
+    # session (e.g. via another plugin test) those bindings point at the
+    # user's REAL kennel — which may even be disabled — and the recorder
+    # silently no-ops. Reload the whole graph in dependency order so the temp
+    # root + a fresh (enabled) state win regardless of import history.
     import importlib
 
     from code_puppy.plugins.puppy_kennel import config as kennel_config
     from code_puppy.plugins.puppy_kennel import kennel as kennel_mod
+    from code_puppy.plugins.puppy_kennel import packer as packer_mod
+    from code_puppy.plugins.puppy_kennel import recorder as recorder_mod
+    from code_puppy.plugins.puppy_kennel import retriever as retriever_mod
+    from code_puppy.plugins.puppy_kennel import schema as schema_mod
+    from code_puppy.plugins.puppy_kennel import state as state_mod
+    from code_puppy.plugins.puppy_kennel import wings as wings_mod
 
-    importlib.reload(kennel_config)
-    importlib.reload(kennel_mod)
+    for mod in (
+        kennel_config,  # base: paths + budgets
+        schema_mod,  # SQL constants
+        state_mod,  # STATE_PATH <- config.KENNEL_ROOT
+        wings_mod,  # cwd/repo helpers
+        kennel_mod,  # DB_PATH <- config
+        packer_mod,  # <- kennel, config, wings
+        recorder_mod,  # <- kennel, state, wings
+        retriever_mod,  # <- packer, state
+    ):
+        importlib.reload(mod)
+
     kennel_mod.initialize()
     return root
 
