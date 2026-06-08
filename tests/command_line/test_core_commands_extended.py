@@ -691,8 +691,11 @@ class TestHandleModelCommand:
 
     def test_model_command_with_valid_argument(self):
         """Test model command with a valid model name argument."""
+        # core_commands imports update_model_in_input at module scope, so patch
+        # it there (not on model_picker_completion) to fully isolate from the
+        # real model config.
         with patch(
-            "code_puppy.command_line.model_picker_completion.update_model_in_input",
+            "code_puppy.command_line.core_commands.update_model_in_input",
             return_value="/m synthetic-GLM-5.1",
         ):
             with patch(
@@ -726,7 +729,7 @@ class TestHandleModelCommand:
     def test_model_command_m_alias(self):
         """Test model command with /m alias."""
         with patch(
-            "code_puppy.command_line.model_picker_completion.update_model_in_input",
+            "code_puppy.command_line.core_commands.update_model_in_input",
             return_value="",
         ):
             with patch(

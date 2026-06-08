@@ -504,7 +504,9 @@ class TestGetPromptWithActiveModel:
             result = get_prompt_with_active_model()
             text = "".join(t[1] for t in result)
             assert "code-puppy" in text
-            assert "(default)" in text
+            # With no model configured the statusline surfaces [None] so the
+            # user immediately sees they need to /add_model.
+            assert "[None]" in text
 
     def test_cwd_outside_home(self):
         from code_puppy.command_line.prompt_toolkit_completion import (
