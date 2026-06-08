@@ -1105,8 +1105,24 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
         emit_error(f"Error executing prompt: {str(e)}")
 
 
+def _force_utf8_stdio():
+    """Ensure stdout/stderr can encode non-ASCII output (e.g. emoji prompts).
+
+    On Windows the console often defaults to a legacy code page (e.g. cp1252),
+    so writing UTF-8 characters such as the "🐾" onboarding banner raises
+    UnicodeEncodeError and crashes the very first run. Reconfigure the streams
+    to UTF-8 where the runtime supports it; no-op otherwise.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def main_entry():
     """Entry point for the installed CLI tool."""
+    _force_utf8_stdio()
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
