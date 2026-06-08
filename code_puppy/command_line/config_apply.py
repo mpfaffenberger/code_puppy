@@ -16,12 +16,21 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class ApplyResult:
-    """Outcome of writing a single config key/value pair."""
+    """Outcome of writing a single config key/value pair.
+
+    ``warning`` carries validation/policy notices that should fire
+    regardless of whether the agent reload succeeds (e.g. restart-required
+    notices for ``enable_dbos`` and ``cancel_agent_key``).
+    ``reload_error`` is the separate "the config saved fine but the live
+    agent couldn't be reloaded" signal -- keeping it on its own field
+    means a reload failure can't silently clobber a restart notice.
+    """
 
     ok: bool
     value_after: Optional[str] = None
     error: Optional[str] = None
     warning: Optional[str] = None
+    reload_error: Optional[str] = None
     requires_restart: bool = False
 
 
@@ -102,22 +111,19 @@ def apply_setting(
     set_config_value(key, normalized_value)
     invalidate_post_write_caches(key)
 
+    reload_error: Optional[str] = None
     if reload_agent:
         from code_puppy.agents import get_current_agent
 
         try:
             get_current_agent().reload_code_generation_agent()
-        except Exception as reload_error:
-            return ApplyResult(
-                ok=True,
-                value_after=normalized_value,
-                warning=f"Config saved but agent reload failed: {reload_error}",
-                requires_restart=requires_restart,
-            )
+        except Exception as exc:
+            reload_error = f"Config saved but agent reload failed: {exc}"
 
     return ApplyResult(
         ok=True,
         value_after=normalized_value,
         warning=warning,
+        reload_error=reload_error,
         requires_restart=requires_restart,
     )

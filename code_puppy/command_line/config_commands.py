@@ -216,8 +216,15 @@ def handle_set_command(command: str) -> bool:
         else result.value_after
     )
     emit_success(f'Set {key} = "{display}" in puppy.cfg!')
+    # Restart notices (warning) and the reload-success/failure signal
+    # are independent: a restart-required key like ``enable_dbos``
+    # should still report whether the live agent reload happened. The
+    # original ``/set`` always emitted "Agent reloaded with updated
+    # config" alongside the restart notice; preserve that contract.
     if result.warning:
         emit_warning(result.warning)
+    if result.reload_error:
+        emit_warning(result.reload_error)
     else:
         emit_info("Agent reloaded with updated config")
     return True

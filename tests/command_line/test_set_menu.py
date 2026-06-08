@@ -111,7 +111,26 @@ class TestApplySetting:
             )
             result = apply_setting("yolo_mode", "true")
         assert result.ok is True
-        assert "agent reload failed" in (result.warning or "").lower()
+        # Reload failure travels on its own field so a restart-required
+        # warning (e.g. enable_dbos) can't be silently clobbered by it.
+        assert "agent reload failed" in (result.reload_error or "").lower()
+        assert result.warning is None
+
+    def test_reload_failure_preserves_restart_warning(self):
+        """Regression: restart notices must survive a reload failure on the
+        same key. Original /set always emitted both the restart notice and
+        the reload-failure warning; the split-field layout preserves that."""
+        with (
+            patch("code_puppy.config.set_config_value"),
+            patch("code_puppy.agents.get_current_agent") as mock_agent,
+        ):
+            mock_agent.return_value.reload_code_generation_agent.side_effect = (
+                RuntimeError("boom")
+            )
+            result = apply_setting("enable_dbos", "true")
+        assert result.ok is True
+        assert "restart" in (result.warning or "").lower()
+        assert "agent reload failed" in (result.reload_error or "").lower()
 
 
 # ---------------------------------------------------------------------------
