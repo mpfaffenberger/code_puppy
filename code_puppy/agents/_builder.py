@@ -80,7 +80,7 @@ def _expand_at_references(text: str, base_dir: Path) -> str:
 
         if ref_path.is_file():
             return ref_path.read_text(encoding="utf-8-sig").rstrip("\n")
-            
+
         if ref_path.is_dir():
             code_puppy_dir = ref_path / _CODE_PUPPY_DIR
             if code_puppy_dir.is_dir():
