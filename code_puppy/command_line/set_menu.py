@@ -193,8 +193,7 @@ async def _prompt_for_value(
             # CUSTOM_LABEL falls through to the free-text PromptSession.
 
         prompt = (
-            f"New value for '{setting.key}' "
-            f"(current: {current_val or '(not set)'}): "
+            f"New value for '{setting.key}' (current: {current_val or '(not set)'}): "
         )
         session = PromptSession(prompt, is_password=setting.sensitive)
         try:
@@ -211,7 +210,15 @@ def _coerce_typed_input(type_hint: str, value: str) -> Optional[str]:
     """Validate user input against ``type_hint``. ``None`` = invalid/cancel."""
     if type_hint == "bool":
         if value.lower() in (
-            "true", "false", "1", "0", "yes", "no", "on", "off", "",
+            "true",
+            "false",
+            "1",
+            "0",
+            "yes",
+            "no",
+            "on",
+            "off",
+            "",
         ):
             return value.lower()
         return None
@@ -309,11 +316,19 @@ async def interactive_set_picker() -> Optional[PickerResult]:
         VSplit(
             [
                 Frame(
-                    Window(content=left_control, wrap_lines=True, width=Dimension(weight=50)),
+                    Window(
+                        content=left_control,
+                        wrap_lines=True,
+                        width=Dimension(weight=50),
+                    ),
                     title="Settings",
                 ),
                 Frame(
-                    Window(content=right_control, wrap_lines=True, width=Dimension(weight=50)),
+                    Window(
+                        content=right_control,
+                        wrap_lines=True,
+                        width=Dimension(weight=50),
+                    ),
                     title="Details",
                 ),
             ]
@@ -377,9 +392,7 @@ def _record_reset(state: _PickerState, key: str) -> None:
     reset_value(key)
     invalidate_post_write_caches(key)
     state.result.changed_settings[key] = None
-    state.result.pending_messages.append(
-        ("success", f"Reset '{key}' to default")
-    )
+    state.result.pending_messages.append(("success", f"Reset '{key}' to default"))
 
 
 def _apply_and_record(state: _PickerState, setting: Setting, new_val: str) -> None:

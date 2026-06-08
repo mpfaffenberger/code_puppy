@@ -67,7 +67,6 @@ from code_puppy.keymap import get_cancel_agent_key, get_pause_agent_key
 from code_puppy.plugins.dbos_durable_exec.config import is_enabled as get_dbos_enabled
 
 
-
 # ---------------------------------------------------------------------------
 # Category definitions
 # ---------------------------------------------------------------------------
@@ -135,8 +134,7 @@ _BEHAVIOR = SettingsCategory(
             key="yolo_mode",
             display_name="YOLO Mode",
             description=(
-                "Skip confirmation prompts for destructive actions. "
-                "Use with caution!"
+                "Skip confirmation prompts for destructive actions. Use with caution!"
             ),
             type_hint="bool",
             effective_getter=get_yolo_mode,
@@ -302,8 +300,7 @@ _FEATURES = SettingsCategory(
             key="enable_pack_agents",
             display_name="Pack Agents",
             description=(
-                "Enable specialized pack agents "
-                "(bloodhound, shepherd, terrier, etc.)."
+                "Enable specialized pack agents (bloodhound, shepherd, terrier, etc.)."
             ),
             type_hint="bool",
             effective_getter=get_pack_agents_enabled,
@@ -594,4 +591,3 @@ SETTINGS_CATEGORIES: Tuple[SettingsCategory, ...] = (
     _HOOKS,
     _API_KEYS,
 )
-

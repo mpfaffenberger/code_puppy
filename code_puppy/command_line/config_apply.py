@@ -26,10 +26,7 @@ class ApplyResult:
 
 
 def _restart_notice(label: str) -> str:
-    return (
-        f"{label} changed. Please restart Code Puppy for this change "
-        f"to take effect."
-    )
+    return f"{label} changed. Please restart Code Puppy for this change to take effect."
 
 
 def invalidate_post_write_caches(key: str) -> None:

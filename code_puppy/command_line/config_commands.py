@@ -245,9 +245,7 @@ def _launch_interactive_set_menu() -> None:
     }
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        future = executor.submit(
-            lambda: asyncio.run(interactive_set_picker())
-        )
+        future = executor.submit(lambda: asyncio.run(interactive_set_picker()))
         result = future.result(timeout=300)  # 5 min timeout
 
     if result is None:
@@ -266,9 +264,7 @@ def _launch_interactive_set_menu() -> None:
             get_current_agent().reload_code_generation_agent()
             emit_info("Agent reloaded with updated config")
         except Exception as reload_error:
-            emit_warning(
-                f"Config saved but agent reload failed: {reload_error}"
-            )
+            emit_warning(f"Config saved but agent reload failed: {reload_error}")
 
 
 def _get_json_agents_pinned_to_model(model_name: str) -> list:

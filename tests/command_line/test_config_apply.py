@@ -21,21 +21,19 @@ from code_puppy.command_line.config_apply import (
 
 class TestInvalidatePostWriteCaches:
     def test_model_key_clears_both_caches(self):
-        with patch(
-            "code_puppy.config.reset_session_model"
-        ) as mock_reset, patch(
-            "code_puppy.config.clear_model_cache"
-        ) as mock_clear:
+        with (
+            patch("code_puppy.config.reset_session_model") as mock_reset,
+            patch("code_puppy.config.clear_model_cache") as mock_clear,
+        ):
             invalidate_post_write_caches("model")
         mock_reset.assert_called_once()
         mock_clear.assert_called_once()
 
     def test_non_model_key_is_noop(self):
-        with patch(
-            "code_puppy.config.reset_session_model"
-        ) as mock_reset, patch(
-            "code_puppy.config.clear_model_cache"
-        ) as mock_clear:
+        with (
+            patch("code_puppy.config.reset_session_model") as mock_reset,
+            patch("code_puppy.config.clear_model_cache") as mock_clear,
+        ):
             invalidate_post_write_caches("yolo_mode")
             invalidate_post_write_caches("puppy_name")
             invalidate_post_write_caches("temperature")
@@ -46,11 +44,12 @@ class TestInvalidatePostWriteCaches:
 class TestApplySettingInvalidatesModelCache:
     def test_setting_model_clears_session_cache(self):
         """The original bug: changing model didn't invalidate ``_SESSION_MODEL``."""
-        with patch(
-            "code_puppy.config.set_config_value"
-        ), patch(
-            "code_puppy.command_line.config_apply.invalidate_post_write_caches"
-        ) as mock_invalidate:
+        with (
+            patch("code_puppy.config.set_config_value"),
+            patch(
+                "code_puppy.command_line.config_apply.invalidate_post_write_caches"
+            ) as mock_invalidate,
+        ):
             result = apply_setting("model", "claude-opus-4-7", reload_agent=False)
         assert result.ok
         mock_invalidate.assert_called_once_with("model")
@@ -59,10 +58,11 @@ class TestApplySettingInvalidatesModelCache:
         """The invalidator is called for every key; it's the helper's job
         to decide whether to actually clear anything. Ensures the wire-up
         stays uniform and the model-specific knowledge stays in one place."""
-        with patch(
-            "code_puppy.config.set_config_value"
-        ), patch(
-            "code_puppy.command_line.config_apply.invalidate_post_write_caches"
-        ) as mock_invalidate:
+        with (
+            patch("code_puppy.config.set_config_value"),
+            patch(
+                "code_puppy.command_line.config_apply.invalidate_post_write_caches"
+            ) as mock_invalidate,
+        ):
             apply_setting("yolo_mode", "true", reload_agent=False)
         mock_invalidate.assert_called_once_with("yolo_mode")

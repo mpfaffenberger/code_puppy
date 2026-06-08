@@ -52,20 +52,17 @@ class TestApplySetting:
         assert result.error and "key" in result.error.lower()
 
     def test_cancel_agent_key_invalid_returns_error(self):
-        with patch(
-            "code_puppy.config.set_config_value"
-        ) as mock_set:
+        with patch("code_puppy.config.set_config_value") as mock_set:
             result = apply_setting("cancel_agent_key", "ctrl+x")
         assert result.ok is False
         assert "Invalid cancel_agent_key" in (result.error or "")
         mock_set.assert_not_called()
 
     def test_cancel_agent_key_valid_warns_restart(self):
-        with patch(
-            "code_puppy.config.set_config_value"
-        ) as mock_set, patch(
-            "code_puppy.agents.get_current_agent"
-        ) as mock_agent:
+        with (
+            patch("code_puppy.config.set_config_value") as mock_set,
+            patch("code_puppy.agents.get_current_agent") as mock_agent,
+        ):
             mock_agent.return_value.reload_code_generation_agent.return_value = None
             result = apply_setting("cancel_agent_key", "CTRL+K")
         assert result.ok is True
@@ -75,9 +72,10 @@ class TestApplySetting:
         mock_set.assert_called_once_with("cancel_agent_key", "ctrl+k")
 
     def test_enable_dbos_warns_restart(self):
-        with patch(
-            "code_puppy.config.set_config_value"
-        ), patch("code_puppy.agents.get_current_agent") as mock_agent:
+        with (
+            patch("code_puppy.config.set_config_value"),
+            patch("code_puppy.agents.get_current_agent") as mock_agent,
+        ):
             mock_agent.return_value.reload_code_generation_agent.return_value = None
             result = apply_setting("enable_dbos", "false")
         assert result.ok is True
@@ -85,9 +83,10 @@ class TestApplySetting:
         assert "restart" in (result.warning or "").lower()
 
     def test_yolo_mode_no_restart(self):
-        with patch(
-            "code_puppy.config.set_config_value"
-        ), patch("code_puppy.agents.get_current_agent") as mock_agent:
+        with (
+            patch("code_puppy.config.set_config_value"),
+            patch("code_puppy.agents.get_current_agent") as mock_agent,
+        ):
             mock_agent.return_value.reload_code_generation_agent.return_value = None
             result = apply_setting("yolo_mode", "true")
         assert result.ok is True
@@ -95,16 +94,18 @@ class TestApplySetting:
         assert result.warning is None
 
     def test_reload_agent_false_skips_reload(self):
-        with patch(
-            "code_puppy.config.set_config_value"
-        ), patch("code_puppy.agents.get_current_agent") as mock_agent:
+        with (
+            patch("code_puppy.config.set_config_value"),
+            patch("code_puppy.agents.get_current_agent") as mock_agent,
+        ):
             apply_setting("yolo_mode", "true", reload_agent=False)
         mock_agent.assert_not_called()
 
     def test_reload_failure_does_not_break_save(self):
-        with patch(
-            "code_puppy.config.set_config_value"
-        ), patch("code_puppy.agents.get_current_agent") as mock_agent:
+        with (
+            patch("code_puppy.config.set_config_value"),
+            patch("code_puppy.agents.get_current_agent") as mock_agent,
+        ):
             mock_agent.return_value.reload_code_generation_agent.side_effect = (
                 RuntimeError("boom")
             )
@@ -124,13 +125,16 @@ class TestPromptForValue:
         setting = find_setting("compaction_strategy")
         prompt_session = MagicMock()
         prompt_session.prompt_async = AsyncMock(return_value="never-called")
-        with patch(
-            "code_puppy.tools.common.arrow_select_async",
-            new=AsyncMock(return_value="Cancel (keep current)"),
-        ), patch(
-            "prompt_toolkit.PromptSession",
-            return_value=prompt_session,
-        ) as ps_class:
+        with (
+            patch(
+                "code_puppy.tools.common.arrow_select_async",
+                new=AsyncMock(return_value="Cancel (keep current)"),
+            ),
+            patch(
+                "prompt_toolkit.PromptSession",
+                return_value=prompt_session,
+            ) as ps_class,
+        ):
             result = await _prompt_for_value(setting, current_val="summarization")
         assert result is None
         prompt_session.prompt_async.assert_not_awaited()
@@ -151,12 +155,15 @@ class TestPromptForValue:
         setting = find_setting("compaction_strategy")
         prompt_session = MagicMock()
         prompt_session.prompt_async = AsyncMock(return_value="my-custom-value")
-        with patch(
-            "code_puppy.tools.common.arrow_select_async",
-            new=AsyncMock(return_value="Type custom value..."),
-        ), patch(
-            "prompt_toolkit.PromptSession",
-            return_value=prompt_session,
+        with (
+            patch(
+                "code_puppy.tools.common.arrow_select_async",
+                new=AsyncMock(return_value="Type custom value..."),
+            ),
+            patch(
+                "prompt_toolkit.PromptSession",
+                return_value=prompt_session,
+            ),
         ):
             result = await _prompt_for_value(setting, current_val="summarization")
         # 'choice' falls through to string passthrough -> returned unchanged.
@@ -306,28 +313,18 @@ class TestEntryBuilding:
         assert not _entry_matches(entry, "nope")
 
     def test_detect_dynamic_type_bool_by_suffix(self):
-        with patch(
-            "code_puppy.command_line.set_menu.get_value", return_value=None
-        ):
+        with patch("code_puppy.command_line.set_menu.get_value", return_value=None):
             assert _detect_dynamic_type("some_enabled") == "bool"
             assert _detect_dynamic_type("foo_mode") == "bool"
 
     def test_detect_dynamic_type_by_value(self):
-        with patch(
-            "code_puppy.command_line.set_menu.get_value", return_value="42"
-        ):
+        with patch("code_puppy.command_line.set_menu.get_value", return_value="42"):
             assert _detect_dynamic_type("random_key") == "int"
-        with patch(
-            "code_puppy.command_line.set_menu.get_value", return_value="0.5"
-        ):
+        with patch("code_puppy.command_line.set_menu.get_value", return_value="0.5"):
             assert _detect_dynamic_type("random_key") == "float"
-        with patch(
-            "code_puppy.command_line.set_menu.get_value", return_value="true"
-        ):
+        with patch("code_puppy.command_line.set_menu.get_value", return_value="true"):
             assert _detect_dynamic_type("random_key") == "bool"
-        with patch(
-            "code_puppy.command_line.set_menu.get_value", return_value="hi"
-        ):
+        with patch("code_puppy.command_line.set_menu.get_value", return_value="hi"):
             assert _detect_dynamic_type("random_key") == "string"
 
 
@@ -364,9 +361,12 @@ class TestRecordResetAndApply:
         ``_record_reset`` must call ``invalidate_post_write_caches`` for every
         key (the helper itself decides which keys actually need clearing)."""
         state = _StubState(result=PickerResult())
-        with patch("code_puppy.command_line.set_menu.reset_value"), patch(
-            "code_puppy.command_line.config_apply.invalidate_post_write_caches"
-        ) as mock_invalidate:
+        with (
+            patch("code_puppy.command_line.set_menu.reset_value"),
+            patch(
+                "code_puppy.command_line.config_apply.invalidate_post_write_caches"
+            ) as mock_invalidate,
+        ):
             _record_reset(state, "model")
         mock_invalidate.assert_called_once_with("model")
 
@@ -388,8 +388,7 @@ class TestRecordResetAndApply:
         # but the user-facing message is masked.
         assert state.result.changed_settings["puppy_token"] == "abcd1234efgh"
         success_msgs = [
-            text for level, text in state.result.pending_messages
-            if level == "success"
+            text for level, text in state.result.pending_messages if level == "success"
         ]
         assert any("abcd...efgh" in m for m in success_msgs)
         assert not any("abcd1234efgh" in m for m in success_msgs)
@@ -403,8 +402,7 @@ class TestRecordResetAndApply:
         ):
             _apply_and_record(state, yolo, "true")
         success_msgs = [
-            text for level, text in state.result.pending_messages
-            if level == "success"
+            text for level, text in state.result.pending_messages if level == "success"
         ]
         assert any('"true"' in m for m in success_msgs)
 
@@ -426,18 +424,16 @@ class TestHandleSetCommandDispatcher:
                 ("info", "Exited config settings menu"),
             ],
         )
-        with patch(
-            "code_puppy.command_line.set_menu.interactive_set_picker",
-            new=AsyncMock(return_value=picker_result),
-        ), patch(
-            "code_puppy.messaging.emit_success"
-        ) as mock_success, patch(
-            "code_puppy.messaging.emit_warning"
-        ) as mock_warning, patch(
-            "code_puppy.messaging.emit_info"
-        ) as mock_info, patch(
-            "code_puppy.agents.get_current_agent"
-        ) as mock_agent:
+        with (
+            patch(
+                "code_puppy.command_line.set_menu.interactive_set_picker",
+                new=AsyncMock(return_value=picker_result),
+            ),
+            patch("code_puppy.messaging.emit_success") as mock_success,
+            patch("code_puppy.messaging.emit_warning") as mock_warning,
+            patch("code_puppy.messaging.emit_info") as mock_info,
+            patch("code_puppy.agents.get_current_agent") as mock_agent,
+        ):
             mock_agent.return_value.reload_code_generation_agent.return_value = None
             assert handle_set_command("/set") is True
 
@@ -454,24 +450,25 @@ class TestHandleSetCommandDispatcher:
             changed_settings={},
             pending_messages=[("info", "Exited config settings menu")],
         )
-        with patch(
-            "code_puppy.command_line.set_menu.interactive_set_picker",
-            new=AsyncMock(return_value=picker_result),
-        ), patch("code_puppy.messaging.emit_info"), patch(
-            "code_puppy.agents.get_current_agent"
-        ) as mock_agent:
+        with (
+            patch(
+                "code_puppy.command_line.set_menu.interactive_set_picker",
+                new=AsyncMock(return_value=picker_result),
+            ),
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.agents.get_current_agent") as mock_agent,
+        ):
             handle_set_command("/set")
         mock_agent.assert_not_called()
 
     def test_slash_set_puppy_token_masks_value_in_success(self):
         from code_puppy.command_line.config_commands import handle_set_command
 
-        with patch(
-            "code_puppy.config.set_config_value"
-        ), patch("code_puppy.agents.get_current_agent") as mock_agent, patch(
-            "code_puppy.messaging.emit_success"
-        ) as mock_success, patch(
-            "code_puppy.messaging.emit_info"
+        with (
+            patch("code_puppy.config.set_config_value"),
+            patch("code_puppy.agents.get_current_agent") as mock_agent,
+            patch("code_puppy.messaging.emit_success") as mock_success,
+            patch("code_puppy.messaging.emit_info"),
         ):
             mock_agent.return_value.reload_code_generation_agent.return_value = None
             handle_set_command("/set puppy_token abcd1234efgh")
@@ -483,12 +480,11 @@ class TestHandleSetCommandDispatcher:
     def test_slash_set_yolo_does_not_mask(self):
         from code_puppy.command_line.config_commands import handle_set_command
 
-        with patch(
-            "code_puppy.config.set_config_value"
-        ), patch("code_puppy.agents.get_current_agent") as mock_agent, patch(
-            "code_puppy.messaging.emit_success"
-        ) as mock_success, patch(
-            "code_puppy.messaging.emit_info"
+        with (
+            patch("code_puppy.config.set_config_value"),
+            patch("code_puppy.agents.get_current_agent") as mock_agent,
+            patch("code_puppy.messaging.emit_success") as mock_success,
+            patch("code_puppy.messaging.emit_info"),
         ):
             mock_agent.return_value.reload_code_generation_agent.return_value = None
             handle_set_command("/set yolo_mode true")
