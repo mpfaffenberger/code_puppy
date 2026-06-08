@@ -40,14 +40,28 @@ from pydantic_ai.messages import (
 LILAC_MODEL = "lilac-zai-org-glm-5.1"
 
 
+# Fake CI placeholder values — not real API keys
+_FAKE_CI_KEYS = {"fake-key-for-ci-testing", ""}
+
+
 def _lilac_key_available() -> bool:
-    """True if LILAC_API_KEY is set via env OR in puppy.cfg."""
-    if os.environ.get("LILAC_API_KEY"):
+    """True if LILAC_API_KEY is set via env OR in puppy.cfg.
+
+    Skips live tests when only a fake/placeholder CI key is available,
+    since those cause opaque 401 errors that mask the real problem.
+    Also skips when CI=1 is set (no real Lilac provider in CI environments).
+    """
+    # Skip live tests entirely in CI — Lilac provider not available
+    if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
+        return False
+    env_key = os.environ.get("LILAC_API_KEY", "").strip()
+    if env_key and env_key not in _FAKE_CI_KEYS:
         return True
     try:
         from code_puppy.model_factory import get_api_key
 
-        return bool(get_api_key("LILAC_API_KEY"))
+        cfg_key = (get_api_key("LILAC_API_KEY") or "").strip()
+        return bool(cfg_key) and cfg_key not in _FAKE_CI_KEYS
     except Exception:
         return False
 
@@ -73,7 +87,8 @@ def _live_lilac_skip_reason() -> str | None:
     """Return a skip reason if the live lilac model isn't usable, else None."""
     if not _lilac_key_available():
         return (
-            "LILAC_API_KEY not set (env or puppy.cfg); live compaction tests skipped."
+            "LILAC_API_KEY not set (or is a fake CI placeholder); "
+            "live compaction tests skipped."
         )
     if not _lilac_model_present():
         return (

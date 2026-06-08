@@ -98,9 +98,10 @@ async def test_no_callbacks_preserves_baseline_exception_path(
     pydantic_agent = ScriptedPydanticAgent(original)
     agent = DummyAgent(pydantic_agent)
 
-    result = await _runtime.run_with_mcp(agent, "hello")
+    # Exceptions now propagate to the caller (no longer silently swallowed)
+    with pytest.raises(RuntimeError, match="boom"):
+        await _runtime.run_with_mcp(agent, "hello")
 
-    assert result is None
     assert len(pydantic_agent.calls) == 1
     assert diagnostics == [original]
 
@@ -117,10 +118,10 @@ async def test_agent_exception_callback_fires_without_retry(
     register_callback("agent_exception", observe)
     pydantic_agent = ScriptedPydanticAgent(original)
     agent = DummyAgent(pydantic_agent)
+    # Exception propagates even when a callback fires (callbacks don't suppress it)
+    with pytest.raises(RuntimeError, match="observe me"):
+        await _runtime.run_with_mcp(agent, "hello")
 
-    result = await _runtime.run_with_mcp(agent, "hello")
-
-    assert result is None
     assert len(pydantic_agent.calls) == 1
     assert diagnostics == [original]
     assert seen == [
@@ -180,9 +181,9 @@ async def test_agent_exception_retry_then_failure_does_not_loop(
     pydantic_agent = ScriptedPydanticAgent(first, second)
     agent = DummyAgent(pydantic_agent)
 
-    result = await _runtime.run_with_mcp(agent, "hello")
-
-    assert result is None
+    # After retry fails, exception propagates (no silent None return)
+    with pytest.raises(RuntimeError, match="still broken"):
+        await _runtime.run_with_mcp(agent, "hello")
     assert len(pydantic_agent.calls) == 2
     assert seen == [first]
     assert diagnostics == [second]

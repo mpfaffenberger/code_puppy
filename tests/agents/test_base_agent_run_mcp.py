@@ -181,16 +181,19 @@ class TestBaseAgentRunMCP:
 
     @pytest.mark.asyncio
     async def test_run_with_mcp_handles_exceptions_gracefully(self, agent):
-        """Test run_with_mcp handles various exceptions properly."""
+        """Test run_with_mcp handles various exceptions properly.
+
+        Exceptions from the agent run are now propagated to the caller
+        (no longer silently swallowed), so we expect the exception to raise.
+        """
         with patch.object(agent, "_code_generation_agent") as mock_agent:
             mock_run = AsyncMock(side_effect=Exception("Test error"))
             mock_agent.run = mock_run
 
-            # Should handle and potentially swallow exceptions
-            await agent.run_with_mcp("Error test")
+            # Exceptions propagate to caller (previously swallowed, returning None)
+            with pytest.raises(Exception, match="Test error"):
+                await agent.run_with_mcp("Error test")
 
-            # The method should complete without raising (error handling in run_agent_task)
-            # In real implementation, this would emit error info and continue
             assert mock_run.called
 
     @pytest.mark.asyncio
