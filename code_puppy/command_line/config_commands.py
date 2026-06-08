@@ -7,7 +7,6 @@ discovered by the command registry system.
 import json
 
 from code_puppy.command_line.command_registry import register_command
-from code_puppy.config import get_config_keys
 
 
 # Import get_commands_help from command_handler to avoid circular imports
@@ -171,8 +170,8 @@ def handle_verbosity_command(command: str) -> bool:
 
 @register_command(
     name="set",
-    description="Set puppy config (e.g., /set yolo_mode true)",
-    usage="/set <key> <value>",
+    description="Set puppy config (e.g., /set yolo_mode true) or launch interactive menu",
+    usage="/set [key [value]]",
     category="config",
 )
 def handle_set_command(command: str) -> bool:
@@ -197,22 +196,15 @@ def handle_set_command(command: str) -> bool:
         key = tokens[1]
         value = ""
     else:
-        config_keys = get_config_keys()
-        if "compaction_strategy" not in config_keys:
-            config_keys.append("compaction_strategy")
-        session_help = (
-            "\n[yellow]Session Management[/yellow]"
-            "\n  [cyan]auto_save_session[/cyan]    Auto-save chat after every response (true/false)"
-        )
-        keymap_help = (
-            "\n[yellow]Keyboard Shortcuts[/yellow]"
-            "\n  [cyan]cancel_agent_key[/cyan]     Key to cancel agent tasks (ctrl+c, ctrl+k, or ctrl+q)"
-        )
-        emit_warning(
-            Text.from_markup(
-                f"Usage: /set KEY=VALUE or /set KEY VALUE\nConfig keys: {', '.join(config_keys)}\n[dim]Note: compaction_strategy can be 'summarization' or 'truncation'[/dim]{session_help}{keymap_help}"
-            )
-        )
+        # No arguments — launch the interactive config menu
+        import asyncio
+        import concurrent.futures
+
+        from code_puppy.command_line.set_menu import interactive_set_picker
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(lambda: asyncio.run(interactive_set_picker()))
+            future.result(timeout=300)  # 5 min timeout
         return True
     if key:
         # Check if we're toggling DBOS enablement

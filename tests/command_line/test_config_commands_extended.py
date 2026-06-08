@@ -209,13 +209,13 @@ class TestSetCommand:
                 mock_set.assert_called_once_with("invalid_key", "value")
 
     def test_set_command_no_arguments(self):
-        """Test set command with no arguments."""
-        with patch("code_puppy.config.get_config_keys", return_value=["key"]):
-            with patch("code_puppy.messaging.emit_warning") as mock_warning:
-                result = handle_set_command("/set")
-                assert result is True
-
-                mock_warning.assert_called_once()
+        """Test set command with no arguments launches interactive menu."""
+        with patch(
+            "code_puppy.command_line.set_menu.interactive_set_picker",
+            return_value=None,
+        ):
+            result = handle_set_command("/set")
+            assert result is True
 
     def test_set_command_configuration_failure(self):
         """Test set command when configuration fails to set."""
