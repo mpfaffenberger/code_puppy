@@ -1,7 +1,20 @@
-"""Interactive terminal UI for configuring puppy settings."""
+"""Interactive picker for the ``/set`` command.
 
-import asyncio
-import sys
+UX parity with ``/mcp`` and ``/agent``: split-panel TUI, arrow-key
+navigation, ``/`` search, ``Enter`` to edit, ``r`` to reset, ``Esc`` to
+exit. All saves are routed through
+:func:`code_puppy.command_line.config_apply.apply_setting` so the
+slash-command path and the menu share one source of validation truth.
+
+The picker never emits messages directly while prompt_toolkit owns the
+terminal -- success/warning/error strings are queued on
+:class:`PickerResult` and drained by the dispatcher once the picker
+returns. Same trick :mod:`agent_menu` uses for pending pin reloads.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from prompt_toolkit.application import Application
@@ -10,63 +23,74 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
+from code_puppy.command_line.config_apply import apply_setting
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
     get_page_bounds,
     get_page_for_index,
     get_total_pages,
 )
-from code_puppy.command_line.set_menu_settings import SETTINGS_CATEGORIES
-from code_puppy.config import (
-    get_value,
-    set_config_value,
+from code_puppy.command_line.set_menu_render import (
+    render_left_panel,
+    render_right_panel,
 )
-from code_puppy.messaging import emit_info, emit_success, emit_warning
+from code_puppy.command_line.set_menu_settings import (
+    Setting,
+    SettingsCategory,
+    iter_curated_settings,
+)
+from code_puppy.command_line.set_menu_values import display_value, mask_value
+from code_puppy.config import (
+    get_config_keys,
+    get_value,
+    reset_value,
+)
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
 PAGE_SIZE = 12
 
-
-def _current_value(key: str) -> Optional[str]:
-    return get_value(key)
-
-
-def _build_flat_settings() -> List[Tuple[str, str, str, str, str, str]]:
-    flat: List[Tuple[str, str, str, str, str, str]] = []
-    curated_keys: set = set()
-    # Add curated settings with proper descriptions
-    for category, settings in SETTINGS_CATEGORIES:
-        for key, display_name, description, type_hint, valid_values in settings:
-            values_str = ", ".join(valid_values) if valid_values else ""
-            flat.append(
-                (category, key, display_name, description, type_hint, values_str)
-            )
-            curated_keys.add(key)
-    # Add all other available keys from get_config_keys() to a Dynamic section
-    from code_puppy.config import get_config_keys
-
-    for key in get_config_keys():
-        if key not in curated_keys:
-            flat.append(
-                (
-                    " Dynamic",
-                    key,
-                    key.replace("_", " ").title(),
-                    "Auto-detected setting (no description available)",
-                    _detect_type(key),
-                    "",
-                )
-            )
-    return flat
+_DYNAMIC_CATEGORY = SettingsCategory(name="Dynamic")
+# Alphabet bound to the search buffer. ``r`` is excluded so the
+# reset shortcut keeps working in nav mode.
+_SEARCH_ALPHABET = "abcdefghijklmnopqstuvwxyz0123456789_ -"
 
 
-def _detect_type(key: str) -> str:
-    """Auto-detect the type of a setting from its current value or key name."""
-    current = _current_value(key)
-    # Check key name patterns first
-    if "_enabled" in key or "_mode" in key:
+# ---------------------------------------------------------------------------
+# Data shapes
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _Entry:
+    """One row in the flattened picker list."""
+
+    category: SettingsCategory
+    setting: Setting
+
+
+@dataclass
+class PickerResult:
+    """Returned by :func:`interactive_set_picker`.
+
+    ``pending_messages`` is a list of ``(level, text)`` pairs the
+    dispatcher emits after the picker exits, where ``level`` is one of
+    ``"info"``, ``"success"``, ``"warning"``, ``"error"``.
+    """
+
+    changed_settings: dict = field(default_factory=dict)
+    pending_messages: List[Tuple[str, str]] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Entry construction & type detection
+# ---------------------------------------------------------------------------
+
+
+def _detect_dynamic_type(key: str) -> str:
+    """Best-effort type guess for un-curated keys in the Dynamic section."""
+    if key.endswith("_enabled") or key.endswith("_mode"):
         return "bool"
-    # Try to parse current value
+    current = get_value(key)
     if current is None:
         return "string"
     lower = current.strip().lower()
@@ -75,471 +99,421 @@ def _detect_type(key: str) -> str:
     try:
         int(current)
         return "int"
-    except (ValueError, TypeError):
+    except (TypeError, ValueError):
         pass
     try:
         float(current)
         return "float"
-    except (ValueError, TypeError):
+    except (TypeError, ValueError):
         pass
     return "string"
 
 
-def _render_left_panel(
-    entries: List,
-    page: int,
-    selected_idx: int,
-    search_text: str,
-) -> List:
-    lines: List[Tuple[str, str]] = []
-    total_pages = get_total_pages(len(entries), PAGE_SIZE)
-    start_idx, end_idx = get_page_bounds(page, len(entries), PAGE_SIZE)
-    lines.append(("bold cyan", " Puppy Config Settings"))
-    lines.append(("fg:ansibrightblack", f" (Page {page + 1}/{total_pages})"))
-    if search_text:
-        lines.append(("fg:ansiyellow", f"   '{search_text}'"))
-    lines.append(("", "\n\n"))
-    current_category = ""
-    for i in range(start_idx, end_idx):
-        category, key, display_name, _, type_hint, _ = entries[i]
-        if category != current_category:
-            if current_category:
-                lines.append(("", "\n"))
-            lines.append(("bold fg:ansiblue", f"  {category}"))
-            current_category = category
-        is_selected = i == selected_idx
-        current_val = _current_value(key)
-        val_display = current_val if current_val else "(not set)"
-        if len(val_display) > 30:
-            val_display = val_display[:27] + "..."
-        if is_selected:
-            lines.append(("fg:ansigreen bold", f"> {display_name}"))
-            lines.append(("fg:ansigreen", f"  = {val_display}"))
-        else:
-            lines.append(("", f"  {display_name}"))
-            lines.append(("fg:ansibrightblack", f"    = {val_display}"))
-        lines.append(("", "\n"))
-    lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  up/down   Navigate"))
-    lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  left/right   Page"))
-    lines.append(("", "\n"))
-    lines.append(("fg:green", "  Enter Edit value"))
-    lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  /    Search"))
-    lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  R    Reset to default"))
-    lines.append(("", "\n"))
-    lines.append(("fg:ansicyan", "  Esc  Save & Exit"))
-    lines.append(("", "\n"))
-    lines.append(("fg:ansired", "  Ctrl+C Cancel (discard)"))
-    return lines
+def _build_entries() -> List[_Entry]:
+    """Flatten curated settings + Dynamic catch-all into render order."""
+    entries: List[_Entry] = []
+    curated_keys: set = set()
+    for category, setting in iter_curated_settings():
+        entries.append(_Entry(category=category, setting=setting))
+        curated_keys.add(setting.key)
+
+    for key in get_config_keys():
+        if key in curated_keys:
+            continue
+        entries.append(
+            _Entry(
+                category=_DYNAMIC_CATEGORY,
+                setting=Setting(
+                    key=key,
+                    display_name=key.replace("_", " ").title(),
+                    description="Auto-detected setting (no description available).",
+                    type_hint=_detect_dynamic_type(key),
+                ),
+            )
+        )
+    return entries
 
 
-def _render_right_panel(
-    entry: Optional[Tuple],
-) -> List:
-    lines: List[Tuple[str, str]] = []
-    lines.append(("bold cyan", " Setting Details"))
-    lines.append(("", "\n\n"))
-    if not entry:
-        lines.append(("fg:ansiyellow", "  No setting selected."))
-        lines.append(("", "\n"))
-        return lines
-    category, key, display_name, description, type_hint, valid_values_str = entry
-    lines.append(("bold", "Key: "))
-    lines.append(("fg:ansicyan", key))
-    lines.append(("", "\n\n"))
-    lines.append(("bold", "Name: "))
-    lines.append(("fg:ansigreen", display_name))
-    lines.append(("", "\n\n"))
-    lines.append(("bold", "Category: "))
-    lines.append(("fg:ansiblue", category))
-    lines.append(("", "\n\n"))
-    type_display = {
-        "bool": "true / false",
-        "int": "integer",
-        "float": "float (0.0 - X.X)",
-        "string": "free text",
-        "choice": f"one of: {valid_values_str}",
-    }.get(type_hint, type_hint)
-    lines.append(("bold", "Type: "))
-    lines.append(("fg:ansiyellow", type_display))
-    lines.append(("", "\n\n"))
-    current_val = _current_value(key)
-    lines.append(("bold", "Current Value: "))
-    if current_val:
-        lines.append(("fg:ansigreen", current_val))
-    else:
-        lines.append(("fg:ansibrightblack", "(not set - using default)"))
-    lines.append(("", "\n\n"))
-    lines.append(("bold", "Description:"))
-    lines.append(("", "\n"))
-    words = description.split()
-    current_line = ""
-    for word in words:
-        if len(current_line) + len(word) + 1 > 55:
-            lines.append(("fg:ansibrightblack", "  " + current_line))
-            lines.append(("", "\n"))
-            current_line = word
-        else:
-            if current_line == "":
-                current_line = word
-            else:
-                current_line += " " + word
-    if current_line.strip():
-        lines.append(("fg:ansibrightblack", "  " + current_line))
-        lines.append(("", "\n"))
-    lines.append(("", "\n"))
-    if type_hint == "choice" and valid_values_str:
-        lines.append(("bold", "Valid Values:"))
-        lines.append(("", "\n"))
-        for val in valid_values_str.split(", "):
-            marker = " <- current" if val == current_val else ""
-            if val == current_val:
-                lines.append(("fg:ansigreen", f"   {val}{marker}"))
-            else:
-                lines.append(("fg:ansibrightblack", f"    {val}"))
-            lines.append(("", "\n"))
-    lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", " Tip: Press Enter to edit this setting."))
-    return lines
+def _entry_matches(entry: _Entry, needle: str) -> bool:
+    haystack = (
+        entry.setting.key,
+        entry.setting.display_name,
+        entry.setting.description,
+        entry.category.name,
+    )
+    return any(needle in candidate.lower() for candidate in haystack)
+
+
+# ---------------------------------------------------------------------------
+# Sub-prompt for editing a single setting
+# ---------------------------------------------------------------------------
 
 
 async def _prompt_for_value(
-    key: str,
-    type_hint: str,
-    valid_values: Optional[List[str]],
+    setting: Setting,
     current_val: Optional[str],
 ) -> Optional[str]:
+    """Ask the user for a new value. Returns ``None`` if cancelled.
+
+    For ``choice`` settings, presents an :func:`arrow_select_async`
+    picker; a real choice returns immediately, ``Cancel`` returns
+    ``None``, and ``Type custom value...`` falls through to a free-text
+    prompt. For non-choice settings, goes straight to free-text.
+    """
     from prompt_toolkit import PromptSession
+
+    from code_puppy.tools.common import arrow_select_async
 
     set_awaiting_user_input(True)
     try:
-        if type_hint == "choice" and valid_values:
-            choices = []
-            for val in valid_values:
-                if val == current_val:
-                    choices.append(f" {val} (current)")
-                else:
-                    choices.append(f"  {val}")
+        if setting.type_hint == "choice" and setting.valid_values:
+            CANCEL_LABEL = "Cancel (keep current)"
+            CUSTOM_LABEL = "Type custom value..."
+            choices: List[str] = []
+            for val in setting.valid_values:
+                suffix = " (current)" if val == current_val else ""
+                choices.append(f"  {val}{suffix}")
             choices.append("---")
-            choices.append("Type custom value...")
-            choices.append("Cancel (keep current)")
-            from code_puppy.tools.common import arrow_select_async
+            choices.append(CUSTOM_LABEL)
+            choices.append(CANCEL_LABEL)
 
             try:
                 selected = await arrow_select_async(
-                    f"Select value for '{key}':",
+                    f"Select value for '{setting.key}':",
                     choices,
                 )
             except KeyboardInterrupt:
                 return None
-            if "Cancel" in selected or "custom" in selected.lower():
-                pass
-            elif "Type custom" in selected:
-                pass
-            else:
-                cleaned = selected.strip().lstrip("").strip()
-                cleaned = cleaned.replace(" (current)", "")
-                return cleaned if cleaned else None
-        prompt = f"New value for '{key}' (current: {current_val or '(not set)'}): "
-        session = PromptSession(prompt)
+
+            if selected == CANCEL_LABEL:
+                return None
+            if selected != CUSTOM_LABEL:
+                cleaned = selected.replace(" (current)", "").strip()
+                return cleaned or None
+            # CUSTOM_LABEL falls through to the free-text PromptSession.
+
+        prompt = (
+            f"New value for '{setting.key}' "
+            f"(current: {current_val or '(not set)'}): "
+        )
+        session = PromptSession(prompt, is_password=setting.sensitive)
         try:
             new_val = await session.prompt_async()
         except KeyboardInterrupt:
             return None
-        new_val = new_val.strip()
-        if type_hint == "bool":
-            if new_val.lower() in (
-                "true",
-                "false",
-                "1",
-                "0",
-                "yes",
-                "no",
-                "on",
-                "off",
-                "",
-            ):
-                return new_val.lower()
-            else:
-                emit_warning("Enter 'true'/'false' or press Enter to cancel.")
-                return None
-        elif type_hint == "int":
-            if new_val == "":
-                return ""
-            try:
-                int(new_val)
-                return new_val
-            except ValueError:
-                emit_warning("Please enter a valid integer.")
-                return None
-        elif type_hint == "float":
-            if new_val == "":
-                return ""
-            try:
-                float(new_val)
-                return new_val
-            except ValueError:
-                emit_warning("Please enter a valid number.")
-                return None
-        else:
-            return new_val if new_val is not None else None
+
+        return _coerce_typed_input(setting.type_hint, new_val.strip())
     finally:
         set_awaiting_user_input(False)
 
 
-def _reset_setting(key: str) -> None:
-    import configparser
-    from code_puppy.config import CONFIG_FILE, DEFAULT_SECTION
+def _coerce_typed_input(type_hint: str, value: str) -> Optional[str]:
+    """Validate user input against ``type_hint``. ``None`` = invalid/cancel."""
+    if type_hint == "bool":
+        if value.lower() in (
+            "true", "false", "1", "0", "yes", "no", "on", "off", "",
+        ):
+            return value.lower()
+        return None
+    if type_hint == "int":
+        if value == "":
+            return ""
+        try:
+            int(value)
+        except ValueError:
+            return None
+        return value
+    if type_hint == "float":
+        if value == "":
+            return ""
+        try:
+            float(value)
+        except ValueError:
+            return None
+        return value
+    return value
 
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    if DEFAULT_SECTION in config and key in config[DEFAULT_SECTION]:
-        del config[DEFAULT_SECTION][key]
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            config.write(f)
-        emit_success(f"Reset '{key}' to default")
+
+# ---------------------------------------------------------------------------
+# Picker state
+# ---------------------------------------------------------------------------
 
 
-async def interactive_set_picker() -> Optional[dict]:
-    all_entries = _build_flat_settings()
+@dataclass
+class _PickerState:
+    all_entries: List[_Entry]
+    selected_idx: int = 0
+    current_page: int = 0
+    search_text: str = ""
+    in_search_mode: bool = False
+    search_buffer: str = ""
+    exit_requested: bool = False
+    enter_triggered: bool = False
+    visible_entries: List[_Entry] = field(default_factory=list)
+    result: PickerResult = field(default_factory=PickerResult)
+
+    @property
+    def current_entry(self) -> Optional[_Entry]:
+        if 0 <= self.selected_idx < len(self.visible_entries):
+            return self.visible_entries[self.selected_idx]
+        return None
+
+    def update_visible(self) -> None:
+        needle = self.search_text.lower()
+        if needle:
+            self.visible_entries = [
+                e for e in self.all_entries if _entry_matches(e, needle)
+            ]
+        else:
+            self.visible_entries = list(self.all_entries)
+        self.selected_idx = min(
+            self.selected_idx, max(0, len(self.visible_entries) - 1)
+        )
+        self.current_page = get_page_for_index(self.selected_idx, PAGE_SIZE)
+
+
+# ---------------------------------------------------------------------------
+# Main picker entry point
+# ---------------------------------------------------------------------------
+
+
+async def interactive_set_picker() -> Optional[PickerResult]:
+    """Run the interactive ``/set`` picker."""
+    all_entries = _build_entries()
     if not all_entries:
-        emit_info("No settings found.")
-        return None
-    selected_idx = [0]
-    current_page = [0]
-    changed_settings: dict = {}
-    search_text = [""]
-    in_search_mode = [False]
-    search_buffer = [""]
-    exit_requested = [False]  # Set by Escape/Ctrl+C to stop the loop
-    enter_triggered = [False]  # Set by Enter to run sub-prompt
-    total_pages = [get_total_pages(len(all_entries), PAGE_SIZE)]
+        result = PickerResult()
+        result.pending_messages.append(("info", "No settings found."))
+        return result
 
-    def get_current_entry() -> Optional[Tuple]:
-        if 0 <= selected_idx[0] < len(all_entries):
-            return all_entries[selected_idx[0]]
-        return None
-
-    def filter_entries(search: str) -> List:
-        if not search:
-            return all_entries
-        lower = search.lower()
-        return [
-            e
-            for e in all_entries
-            if lower in e[1].lower()
-            or lower in e[2].lower()
-            or lower in e[3].lower()
-            or lower in e[0].lower()
-        ]
-
-    visible_entries = [all_entries]
-
-    def update_visible():
-        nonlocal visible_entries
-        visible_entries[0] = filter_entries(search_text[0])
-        total_pages[0] = get_total_pages(len(visible_entries[0]), PAGE_SIZE)
-        selected_idx[0] = min(selected_idx[0], max(0, len(visible_entries[0]) - 1))
-        current_page[0] = get_page_for_index(selected_idx[0], PAGE_SIZE)
+    state = _PickerState(all_entries=all_entries)
+    state.update_visible()
 
     left_control = FormattedTextControl(text="")
     right_control = FormattedTextControl(text="")
 
-    def update_display():
-        left_control.text = _render_left_panel(
-            visible_entries[0],
-            current_page[0],
-            selected_idx[0],
-            search_text[0],
+    def update_display() -> None:
+        left_control.text = render_left_panel(
+            state.visible_entries,
+            state.current_page,
+            state.selected_idx,
+            state.search_text,
+            state.in_search_mode,
+            state.search_buffer,
+            page_size=PAGE_SIZE,
+            page_bounds=get_page_bounds,
+            total_pages_fn=get_total_pages,
         )
-        right_control.text = _render_right_panel(get_current_entry())
+        right_control.text = render_right_panel(state.current_entry)
 
-    left_window = Window(
-        content=left_control,
-        wrap_lines=True,
-        width=Dimension(weight=50),
+    layout = Layout(
+        VSplit(
+            [
+                Frame(
+                    Window(content=left_control, wrap_lines=True, width=Dimension(weight=50)),
+                    title="Settings",
+                ),
+                Frame(
+                    Window(content=right_control, wrap_lines=True, width=Dimension(weight=50)),
+                    title="Details",
+                ),
+            ]
+        )
     )
-    right_window = Window(
-        content=right_control,
-        wrap_lines=True,
-        width=Dimension(weight=50),
-    )
-    left_frame = Frame(left_window, title="Settings")
-    right_frame = Frame(right_window, title="Details")
-    root_container = VSplit([left_frame, right_frame])
-
-    kb = KeyBindings()
-
-    @kb.add("up")
-    def _(event):
-        if in_search_mode[0]:
-            return
-        if selected_idx[0] > 0:
-            selected_idx[0] -= 1
-            current_page[0] = ensure_visible_page(
-                selected_idx[0], current_page[0], len(visible_entries[0]), PAGE_SIZE
-            )
-            update_display()
-
-    @kb.add("down")
-    def _(event):
-        if in_search_mode[0]:
-            return
-        if selected_idx[0] < len(visible_entries[0]) - 1:
-            selected_idx[0] += 1
-            current_page[0] = ensure_visible_page(
-                selected_idx[0], current_page[0], len(visible_entries[0]), PAGE_SIZE
-            )
-            update_display()
-
-    @kb.add("left")
-    def _(event):
-        if in_search_mode[0]:
-            return
-        if current_page[0] > 0:
-            current_page[0] -= 1
-            selected_idx[0] = current_page[0] * PAGE_SIZE
-            update_display()
-
-    @kb.add("right")
-    def _(event):
-        if in_search_mode[0]:
-            return
-        if current_page[0] < total_pages[0] - 1:
-            current_page[0] += 1
-            selected_idx[0] = current_page[0] * PAGE_SIZE
-            update_display()
-
-    @kb.add("enter")
-    async def _(event):
-        if in_search_mode[0]:
-            search_text[0] = search_buffer[0]
-            in_search_mode[0] = False
-            search_buffer[0] = ""
-            update_visible()
-            update_display()
-            return
-        entry = get_current_entry()
-        if not entry:
-            return
-        # Exit app so sub-prompts render in clean main terminal
-        enter_triggered[0] = True
-        event.app.exit()
-        return  # Important: don't run sub-prompt here, main loop handles it
-
-    @kb.add("r")
-    def _(event):
-        if in_search_mode[0]:
-            return
-        entry = get_current_entry()
-        if entry:
-            _reset_setting(entry[1])
-            update_display()
-
-    @kb.add("/")
-    def _(event):
-        in_search_mode[0] = True
-        search_buffer[0] = ""
-        update_display()
-
-    for char in "abcdefghijklmnopqrstuvwxyz0123456789_ -":
-
-        @kb.add(char)
-        def _c(event, c=char):
-            if in_search_mode[0]:
-                search_buffer[0] += c
-                update_display()
-
-    @kb.add("backspace")
-    def _(event):
-        if in_search_mode[0]:
-            search_buffer[0] = search_buffer[0][:-1]
-            update_display()
-
-    @kb.add("c-c")
-    def _(event):
-        exit_requested[0] = True
-        event.app.exit()
-
-    @kb.add("escape")
-    def _(event):
-        if in_search_mode[0]:
-            in_search_mode[0] = False
-            search_buffer[0] = ""
-            update_display()
-        else:
-            exit_requested[0] = True
-            event.app.exit()
-
-    layout = Layout(root_container)
+    kb = _build_keybindings(state, update_display)
     app = Application(
         layout=layout,
         key_bindings=kb,
         full_screen=False,
         mouse_support=False,
     )
+
     set_awaiting_user_input(True)
-    import code_puppy.messaging as messaging_module
-
-    original_emit_success = messaging_module.emit_success
-    original_emit_info = messaging_module.emit_info
-    original_emit_warning = messaging_module.emit_warning
-
-    def _no_op(msg):
-        pass
-
-    messaging_module.emit_success = _no_op
-    messaging_module.emit_info = _no_op
-    messaging_module.emit_warning = _no_op
-    sys.stdout.write("\033[?1049h")
-    sys.stdout.write("\033[2J\033[H")
-    sys.stdout.flush()
-    await asyncio.sleep(0.05)
     try:
         while True:
             update_display()
-            sys.stdout.write("\033[2J\033[H")
-            sys.stdout.flush()
             try:
                 await app.run_async()
             except KeyboardInterrupt:
-                exit_requested[0] = True
+                state.exit_requested = True
                 break
-            # Check if Enter was pressed (sub-prompt triggered)
-            if enter_triggered[0]:
-                enter_triggered[0] = False
-                entry = get_current_entry()
-                if entry:
-                    category, key, _, _, type_hint, valid_values_str = entry
-                    current_val = _current_value(key)
-                    valid_values = (
-                        valid_values_str.split(", ") if valid_values_str else None
-                    )
-                    new_val = await _prompt_for_value(
-                        key, type_hint, valid_values, current_val
-                    )
-                    if new_val is None:
-                        continue  # Cancelled, restart app
-                    if new_val == "":
-                        _reset_setting(key)
-                    else:
-                        set_config_value(key, new_val)
-                        changed_settings[key] = new_val
-                    continue  # Restart app with updated display
-            # Exit requested (Escape/Ctrl+C)
-            if exit_requested[0]:
+
+            if state.enter_triggered:
+                state.enter_triggered = False
+                await _handle_edit(state)
+                continue
+            if state.exit_requested:
                 break
     finally:
-        sys.stdout.write("\033[?1049l")
-        sys.stdout.flush()
         set_awaiting_user_input(False)
-        messaging_module.emit_success = original_emit_success
-        messaging_module.emit_info = original_emit_info
-        messaging_module.emit_warning = original_emit_warning
-    emit_info(" Exited config settings menu")
-    if changed_settings:
-        return changed_settings
-    return None
+
+    state.result.pending_messages.append(("info", "Exited config settings menu"))
+    return state.result
+
+
+async def _handle_edit(state: _PickerState) -> None:
+    entry = state.current_entry
+    if entry is None:
+        return
+    current_val = display_value(entry.setting)
+    new_val = await _prompt_for_value(entry.setting, current_val)
+    if new_val is None:
+        return
+    if new_val == "":
+        _record_reset(state, entry.setting.key)
+        return
+    _apply_and_record(state, entry.setting, new_val)
+
+
+def _record_reset(state: _PickerState, key: str) -> None:
+    """Reset ``key`` to its default and queue a coalesced agent reload.
+
+    Reset is a real config mutation just like a set: the dispatcher's
+    end-of-picker reload is gated on ``changed_settings`` being non-empty,
+    so an unrecorded reset would silently leave the running agent with
+    the old value until next restart.
+    """
+    from code_puppy.command_line.config_apply import invalidate_post_write_caches
+
+    reset_value(key)
+    invalidate_post_write_caches(key)
+    state.result.changed_settings[key] = None
+    state.result.pending_messages.append(
+        ("success", f"Reset '{key}' to default")
+    )
+
+
+def _apply_and_record(state: _PickerState, setting: Setting, new_val: str) -> None:
+    result = apply_setting(setting.key, new_val, reload_agent=False)
+    if not result.ok:
+        state.result.pending_messages.append(
+            ("error", result.error or "Failed to apply setting.")
+        )
+        return
+    state.result.changed_settings[setting.key] = result.value_after
+    display = (
+        mask_value(result.value_after or "")
+        if setting.sensitive
+        else result.value_after
+    )
+    state.result.pending_messages.append(
+        ("success", f'Set {setting.key} = "{display}"')
+    )
+    if result.warning:
+        state.result.pending_messages.append(("warning", result.warning))
+
+
+# ---------------------------------------------------------------------------
+# Keybindings
+# ---------------------------------------------------------------------------
+
+
+def _build_keybindings(state: _PickerState, update_display) -> KeyBindings:
+    kb = KeyBindings()
+
+    @kb.add("up")
+    def _(event):
+        if state.in_search_mode or state.selected_idx <= 0:
+            return
+        state.selected_idx -= 1
+        state.current_page = ensure_visible_page(
+            state.selected_idx,
+            state.current_page,
+            len(state.visible_entries),
+            PAGE_SIZE,
+        )
+        update_display()
+
+    @kb.add("down")
+    def _(event):
+        if state.in_search_mode:
+            return
+        if state.selected_idx >= len(state.visible_entries) - 1:
+            return
+        state.selected_idx += 1
+        state.current_page = ensure_visible_page(
+            state.selected_idx,
+            state.current_page,
+            len(state.visible_entries),
+            PAGE_SIZE,
+        )
+        update_display()
+
+    @kb.add("left")
+    def _(event):
+        if state.in_search_mode or state.current_page <= 0:
+            return
+        state.current_page -= 1
+        state.selected_idx = state.current_page * PAGE_SIZE
+        update_display()
+
+    @kb.add("right")
+    def _(event):
+        total_pages = get_total_pages(len(state.visible_entries), PAGE_SIZE)
+        if state.in_search_mode or state.current_page >= total_pages - 1:
+            return
+        state.current_page += 1
+        state.selected_idx = state.current_page * PAGE_SIZE
+        update_display()
+
+    @kb.add("enter")
+    def _(event):
+        if state.in_search_mode:
+            state.search_text = state.search_buffer
+            state.in_search_mode = False
+            state.search_buffer = ""
+            state.update_visible()
+            update_display()
+            return
+        if state.current_entry is None:
+            return
+        state.enter_triggered = True
+        event.app.exit()
+
+    @kb.add("r")
+    def _(event):
+        if state.in_search_mode:
+            state.search_buffer += "r"
+            update_display()
+            return
+        entry = state.current_entry
+        if entry is None:
+            return
+        _record_reset(state, entry.setting.key)
+        update_display()
+
+    @kb.add("/")
+    def _(event):
+        state.in_search_mode = True
+        state.search_buffer = ""
+        update_display()
+
+    for char in _SEARCH_ALPHABET:
+
+        @kb.add(char)
+        def _c(event, c=char):
+            if state.in_search_mode:
+                state.search_buffer += c
+                update_display()
+
+    @kb.add("backspace")
+    def _(event):
+        if state.in_search_mode:
+            state.search_buffer = state.search_buffer[:-1]
+            update_display()
+
+    @kb.add("c-c")
+    def _(event):
+        state.exit_requested = True
+        event.app.exit()
+
+    @kb.add("escape")
+    def _(event):
+        if state.in_search_mode:
+            state.in_search_mode = False
+            state.search_buffer = ""
+            update_display()
+            return
+        state.exit_requested = True
+        event.app.exit()
+
+    return kb
