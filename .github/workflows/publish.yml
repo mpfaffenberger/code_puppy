@@ -42,7 +42,27 @@ jobs:
       - name: Install pexpect for integration tests
         run: uv pip install pexpect>=4.9.0
 
-
+      - name: Provision CI model (lilac synthetic GLM-5.1)
+        # models.json ships empty. CI gets its model from extra_models.json,
+        # exactly like a real user would after running /add_model.
+        run: |
+          mkdir -p "$HOME/.code_puppy"
+          cat > "$HOME/.code_puppy/extra_models.json" <<'JSON'
+          {
+            "lilac-zai-org-glm-5.1": {
+              "type": "custom_openai",
+              "provider": "lilac",
+              "name": "zai-org/glm-5.1",
+              "custom_endpoint": {
+                "url": "https://api.getlilac.com/v1",
+                "api_key": "$LILAC_API_KEY"
+              },
+              "context_length": 202800,
+              "supported_settings": ["temperature", "seed", "top_p"]
+            }
+          }
+          JSON
+          echo "Wrote $HOME/.code_puppy/extra_models.json"
 
       - name: Debug environment variables
         env:
@@ -51,6 +71,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
           SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
+          LILAC_API_KEY: ${{ secrets.LILAC_API_KEY || 'fake-key-for-ci-testing' }}
         run: |
           echo "=== DEBUG: Environment Variables ==="
           echo "CEREBRAS_API_KEY is set: ${{ secrets.CEREBRAS_API_KEY != '' }}"
@@ -74,6 +95,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
           SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
+          LILAC_API_KEY: ${{ secrets.LILAC_API_KEY || 'fake-key-for-ci-testing' }}
         run: |
           echo "Running tests (including integration tests) on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
           echo "Required environment variables are set (using CI fallbacks if secrets not available)"
