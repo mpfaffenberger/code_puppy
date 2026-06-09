@@ -351,6 +351,8 @@ def get_config_keys():
         default_keys.append(f"banner_color_{banner_name}")
     # Add resume message count configuration
     default_keys.append("resume_message_count")
+    # Per-file AGENTS.md character cap (see get_agents_md_max_chars()).
+    default_keys.append("agents_md_max_chars")
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
     # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
     default_keys.append("goal_max_iterations")
@@ -1298,6 +1300,35 @@ def get_resume_message_count() -> int:
         return max(0, min(configured_value, 100))
     except (ValueError, TypeError):
         return 50
+
+
+# Default cap (in characters) for any single AGENTS.md file injected into
+# the system prompt. Bound from above by AGENTS_MD_MAX_CHARS_CEILING so a
+# typo'd ``/set agents_md_max_chars=10000000`` can't accidentally re-bloat
+# every session. Tuned in get_agents_md_max_chars() below.
+AGENTS_MD_MAX_CHARS_DEFAULT = 10_000
+AGENTS_MD_MAX_CHARS_CEILING = 200_000
+
+
+def get_agents_md_max_chars() -> int:
+    """Return the per-file AGENTS.md character cap, honouring user override.
+
+    Read from the ``agents_md_max_chars`` config key (settable via
+    ``/set agents_md_max_chars=<int>``). Defaults to
+    ``AGENTS_MD_MAX_CHARS_DEFAULT`` (10,000) when unset, and falls back to
+    the default on garbage values (non-numeric, negative, zero). Clamped
+    to ``[1, AGENTS_MD_MAX_CHARS_CEILING]`` so a typo can't blow up the
+    system-prompt budget. The ceiling is generous on purpose — it's a
+    sanity bound, not a recommended max.
+    """
+    val = get_value("agents_md_max_chars")
+    try:
+        configured = int(val) if val else AGENTS_MD_MAX_CHARS_DEFAULT
+    except (ValueError, TypeError):
+        return AGENTS_MD_MAX_CHARS_DEFAULT
+    if configured <= 0:
+        return AGENTS_MD_MAX_CHARS_DEFAULT
+    return min(configured, AGENTS_MD_MAX_CHARS_CEILING)
 
 
 def get_compaction_threshold():

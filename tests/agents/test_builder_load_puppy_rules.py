@@ -223,7 +223,10 @@ class TestTruncation:
         )
 
         content = "x" * (AGENTS_MD_MAX_CHARS - 1)
-        assert _truncate_agents_md(content, source="test") == content
+        assert (
+            _truncate_agents_md(content, source="test", max_chars=AGENTS_MD_MAX_CHARS)
+            == content
+        )
 
     def test_helper_at_limit_returns_verbatim(self):
         from code_puppy.agents._builder import (
@@ -232,7 +235,9 @@ class TestTruncation:
         )
 
         content = "x" * AGENTS_MD_MAX_CHARS
-        result = _truncate_agents_md(content, source="test")
+        result = _truncate_agents_md(
+            content, source="test", max_chars=AGENTS_MD_MAX_CHARS
+        )
         assert result == content
         assert "truncated" not in result
 
@@ -244,7 +249,9 @@ class TestTruncation:
 
         original_len = AGENTS_MD_MAX_CHARS + 5_000
         content = "y" * original_len
-        result = _truncate_agents_md(content, source="global ~/x/AGENTS.md")
+        result = _truncate_agents_md(
+            content, source="global ~/x/AGENTS.md", max_chars=AGENTS_MD_MAX_CHARS
+        )
 
         # First N chars verbatim from the original.
         assert result[:AGENTS_MD_MAX_CHARS] == content[:AGENTS_MD_MAX_CHARS]
@@ -256,6 +263,19 @@ class TestTruncation:
         # Counts present (thousands-separated, since that's what the notice uses).
         assert f"{original_len:,}" in result
         assert f"{original_len - AGENTS_MD_MAX_CHARS:,}" in result
+        # Hints the user at the config knob.
+        assert "agents_md_max_chars" in result
+
+    def test_helper_respects_caller_max_chars(self):
+        """Cap is whatever the caller passes — not a hardcoded global."""
+        from code_puppy.agents._builder import _truncate_agents_md
+
+        content = "z" * 5_000
+        # Caller-provided cap below the default — should truncate.
+        result = _truncate_agents_md(content, source="test", max_chars=1_000)
+        assert result[:1_000] == content[:1_000]
+        assert "--- AGENTS.md truncated ---" in result
+        assert "4,000 chars dropped" in result
 
     # --- end-to-end through load_puppy_rules ------------------------------
 
@@ -410,3 +430,102 @@ class TestTruncation:
 
         outside_home = tmp_path / "elsewhere" / "AGENTS.md"
         assert _friendly_path(outside_home) == str(outside_home)
+
+    # --- /set agents_md_max_chars override ----------------------------------
+
+    def test_override_raises_cap_and_keeps_file_intact(
+        self, temp_project, mock_config_dir
+    ):
+        """`/set agents_md_max_chars=20000` lets a 15k file load verbatim."""
+        from code_puppy.agents._builder import load_puppy_rules
+
+        (temp_project / "AGENTS.md").write_text("r" * 15_000)
+
+        with (
+            patch("code_puppy.agents._builder.CONFIG_DIR", str(mock_config_dir)),
+            patch(
+                "code_puppy.agents._builder.get_agents_md_max_chars",
+                return_value=20_000,
+            ),
+        ):
+            result = load_puppy_rules()
+
+        assert result == "r" * 15_000
+        assert "truncated" not in result
+
+    def test_override_lowers_cap_and_truncates_under_default(
+        self, temp_project, mock_config_dir
+    ):
+        """`/set agents_md_max_chars=2000` truncates an 8k file the default would have allowed."""
+        from code_puppy.agents._builder import load_puppy_rules
+
+        (temp_project / "AGENTS.md").write_text("s" * 8_000)
+
+        with (
+            patch("code_puppy.agents._builder.CONFIG_DIR", str(mock_config_dir)),
+            patch(
+                "code_puppy.agents._builder.get_agents_md_max_chars",
+                return_value=2_000,
+            ),
+        ):
+            result = load_puppy_rules()
+
+        assert result is not None
+        assert result[:2_000] == "s" * 2_000
+        assert "--- AGENTS.md truncated ---" in result
+        assert "6,000 chars dropped" in result
+        # The new cap is reflected in the user-facing notice.
+        assert "2,000" in result
+
+
+class TestGetAgentsMdMaxChars:
+    """Tests for the config getter that backs ``/set agents_md_max_chars``."""
+
+    def test_unset_returns_default(self):
+        from code_puppy.config import (
+            AGENTS_MD_MAX_CHARS_DEFAULT,
+            get_agents_md_max_chars,
+        )
+
+        with patch("code_puppy.config.get_value", return_value=None):
+            assert get_agents_md_max_chars() == AGENTS_MD_MAX_CHARS_DEFAULT
+
+    def test_valid_int_string_is_honoured(self):
+        from code_puppy.config import get_agents_md_max_chars
+
+        with patch("code_puppy.config.get_value", return_value="25000"):
+            assert get_agents_md_max_chars() == 25_000
+
+    def test_garbage_falls_back_to_default(self):
+        from code_puppy.config import (
+            AGENTS_MD_MAX_CHARS_DEFAULT,
+            get_agents_md_max_chars,
+        )
+
+        with patch("code_puppy.config.get_value", return_value="banana"):
+            assert get_agents_md_max_chars() == AGENTS_MD_MAX_CHARS_DEFAULT
+
+    def test_zero_or_negative_falls_back_to_default(self):
+        from code_puppy.config import (
+            AGENTS_MD_MAX_CHARS_DEFAULT,
+            get_agents_md_max_chars,
+        )
+
+        for bogus in ("0", "-1", "-9999"):
+            with patch("code_puppy.config.get_value", return_value=bogus):
+                assert get_agents_md_max_chars() == AGENTS_MD_MAX_CHARS_DEFAULT
+
+    def test_above_ceiling_is_clamped(self):
+        from code_puppy.config import (
+            AGENTS_MD_MAX_CHARS_CEILING,
+            get_agents_md_max_chars,
+        )
+
+        with patch("code_puppy.config.get_value", return_value="99999999"):
+            assert get_agents_md_max_chars() == AGENTS_MD_MAX_CHARS_CEILING
+
+    def test_key_is_in_config_keys_for_set_autocomplete(self):
+        """The key must appear in get_config_keys() so /set tab-completes it."""
+        from code_puppy.config import get_config_keys
+
+        assert "agents_md_max_chars" in get_config_keys()

@@ -285,6 +285,7 @@ class TestGetConfigKeys:
         mock_parser_instance.read.assert_called_once_with(mock_cfg_file)
         assert keys == sorted(
             [
+                "agents_md_max_chars",
                 "allow_recursion",
                 "auto_save_session",
                 "banner_color_agent_reasoning",
@@ -351,6 +352,7 @@ class TestGetConfigKeys:
         keys = cp_config.get_config_keys()
         assert keys == sorted(
             [
+                "agents_md_max_chars",
                 "allow_recursion",
                 "auto_save_session",
                 "banner_color_agent_reasoning",
