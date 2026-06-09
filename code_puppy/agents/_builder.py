@@ -27,7 +27,9 @@ from code_puppy.callbacks import (
     on_wrap_pydantic_agent,
 )
 from code_puppy.config import (
+    AGENTS_MD_MAX_CHARS_DEFAULT,
     CONFIG_DIR,
+    get_agents_md_max_chars,
     get_global_model_name,
     get_value,
 )
@@ -37,6 +39,54 @@ from code_puppy.model_factory import ModelFactory, make_model_settings
 
 _AGENT_RULE_FILES = ("AGENTS.md", "AGENT.md", "agents.md", "agent.md")
 _CODE_PUPPY_DIR = ".code_puppy"
+
+# Re-export the default so callers that imported AGENTS_MD_MAX_CHARS from
+# here keep working. The *effective* cap on any given load is whatever
+# ``get_agents_md_max_chars()`` returns (user override via
+# ``/set agents_md_max_chars=<int>``); this constant is just the fallback
+# documented in the warning notice and used by tests that don't care about
+# the override path.
+AGENTS_MD_MAX_CHARS = AGENTS_MD_MAX_CHARS_DEFAULT
+
+
+def _friendly_path(candidate: Path) -> str:
+    """Render ``candidate`` as ``~/relative`` when it's under ``$HOME``.
+
+    Keeps the absolute home path out of the system prompt (and out of any
+    Slack paste of the agent's "please trim AGENTS.md" reply).
+    """
+    try:
+        return f"~/{candidate.relative_to(Path.home())}"
+    except ValueError:
+        return str(candidate)
+
+
+def _truncate_agents_md(content: str, source: str, max_chars: int) -> str:
+    """Cap one AGENTS.md file at ``max_chars`` with a labelled notice.
+
+    Returns ``content`` unchanged when it's within the cap. When it overflows,
+    keeps exactly the first ``max_chars`` characters of the original and
+    appends a delimited warning addressed to the agent (so the agent can
+    surface it to the user on the next turn). ``source`` is a human-readable
+    label for the file — used in the warning so the agent can tell the user
+    which specific file to trim when multiple files overflow. ``max_chars``
+    is resolved once per load by the caller (see ``get_agents_md_max_chars``)
+    so a session-wide ``/set`` override is honoured.
+    """
+    original_len = len(content)
+    if original_len <= max_chars:
+        return content
+    dropped = original_len - max_chars
+    notice = (
+        f"\n\n--- AGENTS.md truncated ---\n"
+        f"The {source} content was truncated: original was "
+        f"{original_len:,} chars, {dropped:,} chars dropped. Please tell "
+        f"the user to trim {source} below {max_chars:,} "
+        f"characters so the full rules can take effect (or raise the cap "
+        f"via `/set agents_md_max_chars=<int>`).\n"
+        f"--- end truncation notice ---"
+    )
+    return content[:max_chars] + notice
 
 
 def load_puppy_rules() -> Optional[str]:
@@ -50,13 +100,24 @@ def load_puppy_rules() -> Optional[str]:
     1. ``.code_puppy/AGENTS.md`` (preferred — keeps root clean)
     2. ``./AGENTS.md`` (alternate location)
 
+    Each file is independently truncated via :func:`_truncate_agents_md` so
+    the combined system-prompt overhead stays bounded. The per-file cap is
+    resolved once per call via :func:`get_agents_md_max_chars` so a user
+    can raise (or lower) it with ``/set agents_md_max_chars=<int>``.
+
     Returns ``None`` if neither exists.
     """
+    max_chars = get_agents_md_max_chars()
+
     global_rules: Optional[str] = None
     for name in _AGENT_RULE_FILES:
         candidate = Path(CONFIG_DIR) / name
         if candidate.exists():
-            global_rules = candidate.read_text(encoding="utf-8-sig")
+            global_rules = _truncate_agents_md(
+                candidate.read_text(encoding="utf-8-sig"),
+                source=f"global {_friendly_path(candidate)}",
+                max_chars=max_chars,
+            )
             break
 
     project_rules: Optional[str] = None
@@ -67,7 +128,11 @@ def load_puppy_rules() -> Optional[str]:
         for name in _AGENT_RULE_FILES:
             candidate = code_puppy_dir / name
             if candidate.exists():
-                project_rules = candidate.read_text(encoding="utf-8-sig")
+                project_rules = _truncate_agents_md(
+                    candidate.read_text(encoding="utf-8-sig"),
+                    source=f"project {candidate}",
+                    max_chars=max_chars,
+                )
                 break
 
     # Priority 2: Fallback to project root
@@ -75,7 +140,11 @@ def load_puppy_rules() -> Optional[str]:
         for name in _AGENT_RULE_FILES:
             candidate = Path(name)
             if candidate.exists():
-                project_rules = candidate.read_text(encoding="utf-8-sig")
+                project_rules = _truncate_agents_md(
+                    candidate.read_text(encoding="utf-8-sig"),
+                    source=f"project {candidate}",
+                    max_chars=max_chars,
+                )
                 break
 
     rules = [r for r in (global_rules, project_rules) if r]
