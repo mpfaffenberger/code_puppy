@@ -156,7 +156,9 @@ class TestBuiltinCollision:
 
 
 class TestUserCollision:
-    def test_user_plugin_skipped_when_project_overrides(self, project_plugins_dir: Path, caplog):
+    def test_user_plugin_skipped_when_project_overrides(
+        self, project_plugins_dir: Path, caplog
+    ):
         """When a project plugin has the same name as a user plugin,
         the user plugin is skipped (dedup) and _load_project_plugins
         does NOT see it in user_names at all."""
