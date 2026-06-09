@@ -1303,11 +1303,12 @@ def get_resume_message_count() -> int:
 
 
 # Default cap (in characters) for any single AGENTS.md file injected into
-# the system prompt. Bound from above by AGENTS_MD_MAX_CHARS_CEILING so a
-# typo'd ``/set agents_md_max_chars=10000000`` can't accidentally re-bloat
-# every session. Tuned in get_agents_md_max_chars() below.
+# the system prompt. Users can override this via
+# ``/set agents_md_max_chars=<int>`` — any positive integer is honoured so
+# models with very large context windows (1M+ tokens) can opt into bigger
+# AGENTS.md files when it makes sense. The default of 10,000 just keeps
+# the unbounded out-of-the-box behaviour from regressing.
 AGENTS_MD_MAX_CHARS_DEFAULT = 10_000
-AGENTS_MD_MAX_CHARS_CEILING = 200_000
 
 
 def get_agents_md_max_chars() -> int:
@@ -1316,10 +1317,9 @@ def get_agents_md_max_chars() -> int:
     Read from the ``agents_md_max_chars`` config key (settable via
     ``/set agents_md_max_chars=<int>``). Defaults to
     ``AGENTS_MD_MAX_CHARS_DEFAULT`` (10,000) when unset, and falls back to
-    the default on garbage values (non-numeric, negative, zero). Clamped
-    to ``[1, AGENTS_MD_MAX_CHARS_CEILING]`` so a typo can't blow up the
-    system-prompt budget. The ceiling is generous on purpose — it's a
-    sanity bound, not a recommended max.
+    the default on values that can't be a sensible cap (non-numeric,
+    negative, zero). No upper clamp — if a user with a 1M-token model
+    wants ``/set agents_md_max_chars=500000``, that's their call.
     """
     val = get_value("agents_md_max_chars")
     try:
@@ -1328,7 +1328,7 @@ def get_agents_md_max_chars() -> int:
         return AGENTS_MD_MAX_CHARS_DEFAULT
     if configured <= 0:
         return AGENTS_MD_MAX_CHARS_DEFAULT
-    return min(configured, AGENTS_MD_MAX_CHARS_CEILING)
+    return configured
 
 
 def get_compaction_threshold():

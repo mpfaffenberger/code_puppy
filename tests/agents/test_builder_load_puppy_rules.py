@@ -515,14 +515,15 @@ class TestGetAgentsMdMaxChars:
             with patch("code_puppy.config.get_value", return_value=bogus):
                 assert get_agents_md_max_chars() == AGENTS_MD_MAX_CHARS_DEFAULT
 
-    def test_above_ceiling_is_clamped(self):
-        from code_puppy.config import (
-            AGENTS_MD_MAX_CHARS_CEILING,
-            get_agents_md_max_chars,
-        )
+    def test_very_large_values_pass_through_uncapped(self):
+        """No upper clamp: 1M-context models can opt into huge AGENTS.md files."""
+        from code_puppy.config import get_agents_md_max_chars
+
+        with patch("code_puppy.config.get_value", return_value="500000"):
+            assert get_agents_md_max_chars() == 500_000
 
         with patch("code_puppy.config.get_value", return_value="99999999"):
-            assert get_agents_md_max_chars() == AGENTS_MD_MAX_CHARS_CEILING
+            assert get_agents_md_max_chars() == 99_999_999
 
     def test_key_is_in_config_keys_for_set_autocomplete(self):
         """The key must appear in get_config_keys() so /set tab-completes it."""
