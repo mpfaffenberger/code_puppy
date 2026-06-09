@@ -42,13 +42,14 @@ CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
 
 def _model_requires_thinking_summary(model_name):
-    # Anthropic's Opus 4.7 family rejects adaptive-thinking requests unless a
-    # 'display: summary' field is present alongside 'type: adaptive'. We check
-    # both naming conventions (opus-4-7 and 4-7-opus).
+    # Anthropic's Opus 4.7+ / Fable 5 families reject adaptive-thinking
+    # requests unless 'display: summarized' is present alongside
+    # 'type: adaptive'. Delegate to model_utils — single source of truth.
     if not model_name:
         return False
-    lower = model_name.lower()
-    return "opus-4-7" in lower or "4-7-opus" in lower
+    from code_puppy.model_utils import should_use_anthropic_thinking_summary
+
+    return should_use_anthropic_thinking_summary(model_name)
 
 
 def _enforce_thinking_display_summary(payload):

@@ -136,6 +136,8 @@ def supports_adaptive_thinking(
         "4-8-opus",
         "sonnet-4-6",
         "4-6-sonnet",
+        "fable-5",
+        "5-fable",
     )
     return any(tag in c for c in candidates for tag in _ADAPTIVE_TAGS)
 
@@ -145,7 +147,7 @@ def get_default_extended_thinking(
 ) -> str:
     """Return the default extended_thinking mode for an Anthropic model.
 
-    Opus 4-6, Opus 4-7, Opus 4-8, and Sonnet 4-6 models default to
+    Opus 4-6, Opus 4-7, Opus 4-8, Sonnet 4-6, and Fable 5 models default to
     ``"adaptive"`` thinking; all other Anthropic models default to ``"enabled"``.
 
     Args:
@@ -166,13 +168,18 @@ def should_use_anthropic_thinking_summary(
 ) -> bool:
     """Return whether Anthropic adaptive thinking should request summary display.
 
-    Anthropic's newer Opus 4.7 and 4.8 models require ``display: \"summarized\"``
-    alongside ``thinking={"type": "adaptive"}``.
+    Anthropic's newer Opus 4.7+, Opus 4.8, and Fable 5 models require
+    ``display: \"summarized\"`` alongside ``thinking={"type": "adaptive"}``.
     """
+    _SUMMARY_TAGS = (
+        "opus-4-7",
+        "4-7-opus",
+        "opus-4-8",
+        "4-8-opus",
+        "fable-5",
+        "5-fable",
+    )
     candidates = [model_name.lower()]
     if actual_model_id:
         candidates.append(actual_model_id.lower())
-    return any(
-        "opus-4-7" in c or "4-7-opus" in c or "opus-4-8" in c or "4-8-opus" in c
-        for c in candidates
-    )
+    return any(tag in c for c in candidates for tag in _SUMMARY_TAGS)
