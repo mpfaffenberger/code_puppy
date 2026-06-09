@@ -487,7 +487,7 @@ class AddModelMenu:
         if self.view_mode == "providers":
             lines.append(("fg:green", "  Enter  "))
             lines.append(("", "Select\n"))
-            lines.append(("fg:cyan", "  e  "))
+            lines.append(("fg:cyan", "  Ctrl+E  "))
             lines.append(("", "Edit credentials\n"))
         else:
             lines.append(("fg:green", "  Enter  "))
@@ -1248,7 +1248,7 @@ class AddModelMenu:
             if self.view_mode == "models":
                 self._go_back_to_providers()
 
-        @kb.add("e")
+        @kb.add("c-e")
         def _(event):
             """Edit credentials for the current provider."""
             if self.view_mode == "providers":
