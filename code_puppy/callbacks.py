@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import traceback
-from typing import Any, Callable, Dict, List, Literal, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional, Set
 
 PhaseType = Literal[
     "startup",
@@ -112,6 +112,49 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Plugin ownership tracking
+# ---------------------------------------------------------------------------
+# Maps each registered callback function to the plugin that registered it.
+# Populated by register_callback() when a loading context is active.
+_callback_owners: Dict[CallbackFunc, str] = {}
+
+# Set by the plugin loader before importing each plugin's register_callbacks.py,
+# cleared immediately after.  register_callback() reads this to record ownership.
+_current_loading_plugin: Optional[str] = None
+
+
+def set_loading_context(plugin_name: str) -> None:
+    """Mark *plugin_name* as the plugin currently being loaded.
+
+    Called by the plugin loader before importing a plugin's
+    ``register_callbacks`` module.  Any callbacks registered while this
+    context is active are associated with *plugin_name*.
+    """
+    global _current_loading_plugin
+    _current_loading_plugin = plugin_name
+
+
+def clear_loading_context() -> None:
+    """Clear the current plugin loading context."""
+    global _current_loading_plugin
+    _current_loading_plugin = None
+
+
+def get_callback_owner(func: CallbackFunc) -> Optional[str]:
+    """Return the plugin name that registered *func*, or ``None``."""
+    return _callback_owners.get(func)
+
+
+def _get_disabled_plugins() -> Set[str]:
+    """Lazy accessor for the disabled-plugins set (avoids circular import)."""
+    try:
+        from code_puppy.plugins.config import get_disabled_plugins
+
+        return get_disabled_plugins()
+    except Exception:
+        return set()
+
 
 def register_callback(phase: PhaseType, func: CallbackFunc) -> None:
     if phase not in _callbacks:
@@ -131,6 +174,11 @@ def register_callback(phase: PhaseType, func: CallbackFunc) -> None:
         return
 
     _callbacks[phase].append(func)
+
+    # Record ownership if we know which plugin is loading.
+    if _current_loading_plugin is not None:
+        _callback_owners[func] = _current_loading_plugin
+
     logger.debug(f"Registered async callback {func.__name__} for phase '{phase}'")
 
 
@@ -159,8 +207,23 @@ def clear_callbacks(phase: Optional[PhaseType] = None) -> None:
             logger.debug(f"Cleared async callbacks for phase '{phase}'")
 
 
-def get_callbacks(phase: PhaseType) -> List[CallbackFunc]:
-    return _callbacks.get(phase, []).copy()
+def get_callbacks(
+    phase: PhaseType, *, include_disabled: bool = False
+) -> List[CallbackFunc]:
+    """Return callbacks for *phase*, filtering out disabled plugins.
+
+    When *include_disabled* is ``True`` the filter is bypassed — useful for
+    introspection (e.g. listing all registered callbacks).
+    """
+    all_cbs = _callbacks.get(phase, []).copy()
+    if include_disabled:
+        return all_cbs
+
+    disabled = _get_disabled_plugins()
+    if not disabled:
+        return all_cbs
+
+    return [cb for cb in all_cbs if _callback_owners.get(cb) not in disabled]
 
 
 def count_callbacks(phase: Optional[PhaseType] = None) -> int:

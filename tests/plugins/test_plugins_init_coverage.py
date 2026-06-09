@@ -596,26 +596,27 @@ class TestLoadUserPlugins:
 
 
 class TestLoadPluginCallbacks:
-    """Test load_plugin_callbacks function."""
+    """Test load_plugin_callbacks function (three-tier: builtin, user, project)."""
 
     def test_idempotent_loading(self):
         """Test that plugins are only loaded once (idempotent)."""
-        # Reset the global flag for this test
         original_loaded = plugins_module._PLUGINS_LOADED
         plugins_module._PLUGINS_LOADED = True
 
         try:
             result = load_plugin_callbacks()
             # Should return empty since plugins are "already loaded"
-            assert result == {"builtin": [], "user": []}
+            assert result == {"builtin": [], "user": [], "project": []}
         finally:
             plugins_module._PLUGINS_LOADED = original_loaded
 
-    def test_calls_load_functions(self, tmp_path):
-        """Test that load_plugin_callbacks calls both load functions."""
-        # Reset the global flag
+    def test_calls_all_three_load_functions(self, tmp_path):
+        """Test that load_plugin_callbacks calls builtin, user, AND project loaders."""
         original_loaded = plugins_module._PLUGINS_LOADED
         plugins_module._PLUGINS_LOADED = False
+
+        project_dir = tmp_path / ".code_puppy" / "plugins"
+        project_dir.mkdir(parents=True)
 
         with (
             patch(
@@ -625,16 +626,52 @@ class TestLoadPluginCallbacks:
             patch(
                 "code_puppy.plugins._load_user_plugins", return_value=["user_plugin"]
             ) as mock_user,
+            patch(
+                "code_puppy.plugins.get_project_plugins_directory",
+                return_value=project_dir,
+            ),
+            patch(
+                "code_puppy.plugins._load_project_plugins",
+                return_value=["project_plugin"],
+            ) as mock_project,
         ):
             try:
                 result = load_plugin_callbacks()
 
                 assert result["builtin"] == ["builtin_plugin"]
                 assert result["user"] == ["user_plugin"]
+                assert result["project"] == ["project_plugin"]
                 mock_builtin.assert_called_once()
                 mock_user.assert_called_once()
-                # Check that the flag was set
+                mock_project.assert_called_once_with(
+                    project_dir,
+                    builtin_names={"builtin_plugin"},
+                    user_names={"user_plugin"},
+                )
                 assert plugins_module._PLUGINS_LOADED is True
+            finally:
+                plugins_module._PLUGINS_LOADED = original_loaded
+
+    def test_skips_project_when_dir_missing(self):
+        """Test that project loading is skipped when directory doesn't exist."""
+        original_loaded = plugins_module._PLUGINS_LOADED
+        plugins_module._PLUGINS_LOADED = False
+
+        with (
+            patch("code_puppy.plugins._load_builtin_plugins", return_value=[]),
+            patch("code_puppy.plugins._load_user_plugins", return_value=[]),
+            patch(
+                "code_puppy.plugins.get_project_plugins_directory",
+                return_value=None,
+            ),
+            patch(
+                "code_puppy.plugins._load_project_plugins",
+            ) as mock_project,
+        ):
+            try:
+                result = load_plugin_callbacks()
+                assert result["project"] == []
+                mock_project.assert_not_called()
             finally:
                 plugins_module._PLUGINS_LOADED = original_loaded
 
@@ -646,6 +683,10 @@ class TestLoadPluginCallbacks:
         with (
             patch("code_puppy.plugins._load_builtin_plugins", return_value=[]),
             patch("code_puppy.plugins._load_user_plugins", return_value=[]),
+            patch(
+                "code_puppy.plugins.get_project_plugins_directory",
+                return_value=None,
+            ),
         ):
             try:
                 load_plugin_callbacks()
@@ -666,6 +707,10 @@ class TestLoadPluginCallbacks:
                 return_value=["test_builtin"],
             ),
             patch("code_puppy.plugins._load_user_plugins", return_value=["test_user"]),
+            patch(
+                "code_puppy.plugins.get_project_plugins_directory",
+                return_value=None,
+            ),
             caplog.at_level(logging.DEBUG),
         ):
             try:
