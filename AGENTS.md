@@ -5,7 +5,15 @@
 
 ## How Plugins Work
 
-Create `code_puppy/plugins/my_feature/register_callbacks.py` (builtin) or `~/.code_puppy/plugins/my_feature/register_callbacks.py` (user):
+Plugins are discovered from three tiers, loaded in order:
+
+| Tier | Location | When to use |
+|------|----------|-------------|
+| **Builtin** | `code_puppy/plugins/<name>/register_callbacks.py` | Core functionality shipped with Code Puppy |
+| **User** | `~/.code_puppy/plugins/<name>/register_callbacks.py` | Personal plugins, applied to every project |
+| **Project** | `<CWD>/.code_puppy/plugins/<name>/register_callbacks.py` | Repo-specific plugins, shared with your team via git |
+
+All three tiers use the same pattern — drop a `register_callbacks.py` in a named subdirectory:
 
 ```python
 from code_puppy.callbacks import register_callback
@@ -17,6 +25,26 @@ register_callback("startup", _on_startup)
 ```
 
 That's it. The plugin loader auto-discovers `register_callbacks.py` in subdirs.
+
+### Project Plugins
+
+Project plugins live at `<CWD>/.code_puppy/plugins/<name>/register_callbacks.py`.
+This mirrors the project-level discovery already used by agents (`<CWD>/.code_puppy/agents/`)
+and skills (`<CWD>/.code_puppy/skills/`).
+
+**Key details:**
+
+- **Directory must be created intentionally.** Code Puppy will never auto-create
+  `.code_puppy/plugins/` — your team opts in by creating it.
+- **Load order is builtin → user → project.** Project plugins load last, giving
+  them highest precedence for override-style hooks.
+- **Project wins on name collision.** If a project plugin shares a name with a
+  user plugin, only the project copy loads (the user plugin is skipped). This
+  matches how agents deduplicate — `discover_json_agents()` overwrites user
+  agents with project agents of the same name. A warning is logged when a
+  project plugin shadows a builtin.
+- **Module namespace isolation.** Project plugins use `project_plugins.<name>.register_callbacks`
+  in `sys.modules`, so they never collide with user plugins at the import level.
 
 ## Available Hooks
 
@@ -60,3 +88,4 @@ Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
 5. **Return `None` from commands you don't own**
 6. **Always run linters - `ruff check --fix`, `ruff format .`
 7. **NEVER ALLOW A CLAUDE CO-AUTHOR COMMIT**
+
