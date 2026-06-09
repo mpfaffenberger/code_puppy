@@ -472,6 +472,9 @@ def filter_latest_claude_models(
         if model_name == "claude-sonnet-4-6":
             family_models.setdefault("sonnet", []).append((model_name, 4, 6, 20250610))
             continue
+        if model_name == "claude-fable-5":
+            family_models.setdefault("fable", []).append((model_name, 5, 0, 0))
+            continue
         # Match pattern: claude-{family}-{major}-{minor}-{date}
         # Examples: claude-haiku-3-5-20241022, claude-sonnet-4-5-20250929
         match = re.match(r"claude-(haiku|sonnet|opus)-(\d+)-(\d+)-(\d+)", model_name)
@@ -575,6 +578,7 @@ def _build_model_entry(model_name: str, access_token: str, context_length: int) 
         or "4-7-opus" in lower
         or "opus-4-8" in lower
         or "4-8-opus" in lower
+        or "fable-5" in lower
     ):
         supported_settings.append("effort")
 
@@ -600,7 +604,7 @@ def add_models_to_extra_config(models: List[str]) -> bool:
     try:
         # Filter to only latest haiku, sonnet, and opus models
         filtered_models = filter_latest_claude_models(
-            models, max_per_family={"default": 1, "opus": 3}
+            models, max_per_family={"default": 1, "opus": 3, "fable": 3}
         )
 
         # Start fresh - overwrite the file on every auth instead of loading existing
