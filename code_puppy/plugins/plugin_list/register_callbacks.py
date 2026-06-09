@@ -91,7 +91,7 @@ def _all_loaded_plugin_names() -> set[str]:
 
 def _handle_disable(plugin_name: str) -> bool:
     """Disable a plugin by name."""
-    from code_puppy.messaging import emit_error, emit_info, emit_success
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
     from code_puppy.plugins.config import set_plugin_disabled
 
     all_names = _all_loaded_plugin_names()
@@ -103,8 +103,8 @@ def _handle_disable(plugin_name: str) -> bool:
         return True
 
     if set_plugin_disabled(plugin_name, disabled=True):
-        emit_success(f"Plugin '{plugin_name}' disabled. Its callbacks will be skipped.")
-        emit_info("This takes effect immediately -- no restart required.")
+        emit_success(f"Plugin '{plugin_name}' disabled.")
+        emit_warning("Restart Code Puppy for this change to take effect.")
     else:
         emit_info(f"Plugin '{plugin_name}' is already disabled.")
     return True
@@ -112,7 +112,7 @@ def _handle_disable(plugin_name: str) -> bool:
 
 def _handle_enable(plugin_name: str) -> bool:
     """Enable a previously disabled plugin."""
-    from code_puppy.messaging import emit_error, emit_info, emit_success
+    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
     from code_puppy.plugins.config import set_plugin_disabled
 
     all_names = _all_loaded_plugin_names()
@@ -125,7 +125,7 @@ def _handle_enable(plugin_name: str) -> bool:
 
     if set_plugin_disabled(plugin_name, disabled=False):
         emit_success(f"Plugin '{plugin_name}' re-enabled.")
-        emit_info("This takes effect immediately -- no restart required.")
+        emit_warning("Restart Code Puppy for this change to take effect.")
     else:
         emit_info(f"Plugin '{plugin_name}' is already enabled.")
     return True

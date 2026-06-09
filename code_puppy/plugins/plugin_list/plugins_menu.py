@@ -46,6 +46,7 @@ class PluginsMenu:
         self.selected_idx = 0
         self.current_page = 0
         self.result: Optional[str] = None
+        self._changed = False
 
         self.menu_control: Optional[FormattedTextControl] = None
         self.detail_control: Optional[FormattedTextControl] = None
@@ -80,6 +81,7 @@ class PluginsMenu:
 
         is_disabled = entry.name in self.disabled
         set_plugin_disabled(entry.name, not is_disabled)
+        self._changed = True
         self._refresh_data()
         self.update_display()
 
@@ -179,6 +181,12 @@ class PluginsMenu:
         lines.append(("", "\n\n"))
 
         lines.append(("fg:ansibrightblack", "  Press Enter to toggle."))
+
+        if self._changed:
+            lines.append(("", "\n\n"))
+            lines.append(("fg:ansiyellow bold", "  Restart Code Puppy for"))
+            lines.append(("", "\n"))
+            lines.append(("fg:ansiyellow bold", "  changes to take effect."))
 
         return lines
 
@@ -309,5 +317,12 @@ class PluginsMenu:
 
 def run_plugins_menu() -> Optional[str]:
     """Entry point: create and run the plugins TUI, return the result."""
+    from code_puppy.messaging import emit_warning
+
     menu = PluginsMenu()
-    return menu.run()
+    result = menu.run()
+
+    if menu._changed:
+        emit_warning("Restart Code Puppy for plugin changes to take effect.")
+
+    return result
