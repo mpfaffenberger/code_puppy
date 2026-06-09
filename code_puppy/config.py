@@ -351,6 +351,8 @@ def get_config_keys():
         default_keys.append(f"banner_color_{banner_name}")
     # Add resume message count configuration
     default_keys.append("resume_message_count")
+    # Per-file AGENTS.md character cap (see get_agents_md_max_chars()).
+    default_keys.append("agents_md_max_chars")
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
     # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
     default_keys.append("goal_max_iterations")
@@ -1298,6 +1300,35 @@ def get_resume_message_count() -> int:
         return max(0, min(configured_value, 100))
     except (ValueError, TypeError):
         return 50
+
+
+# Default cap (in characters) for any single AGENTS.md file injected into
+# the system prompt. Users can override this via
+# ``/set agents_md_max_chars=<int>`` — any positive integer is honoured so
+# models with very large context windows (1M+ tokens) can opt into bigger
+# AGENTS.md files when it makes sense. The default of 10,000 just keeps
+# the unbounded out-of-the-box behaviour from regressing.
+AGENTS_MD_MAX_CHARS_DEFAULT = 10_000
+
+
+def get_agents_md_max_chars() -> int:
+    """Return the per-file AGENTS.md character cap, honouring user override.
+
+    Read from the ``agents_md_max_chars`` config key (settable via
+    ``/set agents_md_max_chars=<int>``). Defaults to
+    ``AGENTS_MD_MAX_CHARS_DEFAULT`` (10,000) when unset, and falls back to
+    the default on values that can't be a sensible cap (non-numeric,
+    negative, zero). No upper clamp — if a user with a 1M-token model
+    wants ``/set agents_md_max_chars=500000``, that's their call.
+    """
+    val = get_value("agents_md_max_chars")
+    try:
+        configured = int(val) if val else AGENTS_MD_MAX_CHARS_DEFAULT
+    except (ValueError, TypeError):
+        return AGENTS_MD_MAX_CHARS_DEFAULT
+    if configured <= 0:
+        return AGENTS_MD_MAX_CHARS_DEFAULT
+    return configured
 
 
 def get_compaction_threshold():
