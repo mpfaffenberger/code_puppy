@@ -309,9 +309,7 @@ class TestTruncation:
         assert "AGENTS.md" in result
         assert "project" in result
 
-    def test_truncation_per_file_global_only(
-        self, temp_project, mock_config_dir
-    ):
+    def test_truncation_per_file_global_only(self, temp_project, mock_config_dir):
         from code_puppy.agents._builder import (
             AGENTS_MD_MAX_CHARS,
             load_puppy_rules,
@@ -336,9 +334,7 @@ class TestTruncation:
         assert "g" * AGENTS_MD_MAX_CHARS in result
         assert "g" * (AGENTS_MD_MAX_CHARS + 1) not in result
 
-    def test_truncation_per_file_project_only(
-        self, temp_project, mock_config_dir
-    ):
+    def test_truncation_per_file_project_only(self, temp_project, mock_config_dir):
         from code_puppy.agents._builder import (
             AGENTS_MD_MAX_CHARS,
             load_puppy_rules,
