@@ -5,6 +5,8 @@ import sys
 import types
 from pathlib import Path
 
+from code_puppy.callbacks import clear_loading_context, set_loading_context
+
 logger = logging.getLogger(__name__)
 
 # User plugins directory
@@ -45,6 +47,7 @@ def _load_builtin_plugins(plugins_dir: Path) -> list[str]:
 
                 try:
                     module_name = f"code_puppy.plugins.{plugin_name}.register_callbacks"
+                    set_loading_context(plugin_name)
                     importlib.import_module(module_name)
                     loaded.append(plugin_name)
                 except ImportError as e:
@@ -55,6 +58,8 @@ def _load_builtin_plugins(plugins_dir: Path) -> list[str]:
                     logger.error(
                         f"Unexpected error loading built-in plugin {plugin_name}: {e}"
                     )
+                finally:
+                    clear_loading_context()
 
     return loaded
 
@@ -148,7 +153,11 @@ def _load_user_plugins(
                     module = importlib.util.module_from_spec(spec)
                     sys.modules[module_name] = module
 
-                    spec.loader.exec_module(module)
+                    set_loading_context(plugin_name)
+                    try:
+                        spec.loader.exec_module(module)
+                    finally:
+                        clear_loading_context()
                     loaded.append(plugin_name)
 
                 except ImportError as e:
@@ -174,7 +183,11 @@ def _load_user_plugins(
 
                         module = importlib.util.module_from_spec(spec)
                         sys.modules[module_name] = module
-                        spec.loader.exec_module(module)
+                        set_loading_context(plugin_name)
+                        try:
+                            spec.loader.exec_module(module)
+                        finally:
+                            clear_loading_context()
                         loaded.append(plugin_name)
 
                     except Exception as e:
@@ -318,7 +331,11 @@ def _load_project_plugins(
 
                     module = importlib.util.module_from_spec(spec)
                     sys.modules[module_name] = module
-                    spec.loader.exec_module(module)
+                    set_loading_context(plugin_name)
+                    try:
+                        spec.loader.exec_module(module)
+                    finally:
+                        clear_loading_context()
                     loaded.append(plugin_name)
 
                 except ImportError as e:
@@ -335,7 +352,12 @@ def _load_project_plugins(
                 init_file = item / "__init__.py"
                 if init_file.exists():
                     try:
-                        if _ensure_plugin_package(item, plugin_name):
+                        set_loading_context(plugin_name)
+                        try:
+                            loaded_ok = _ensure_plugin_package(item, plugin_name)
+                        finally:
+                            clear_loading_context()
+                        if loaded_ok:
                             loaded.append(plugin_name)
                         else:
                             logger.warning(

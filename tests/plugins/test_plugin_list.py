@@ -15,6 +15,7 @@ from code_puppy.plugins.plugin_list.register_callbacks import (
 # Patch targets live on the source module because _build_output() uses
 # lazy imports: ``from code_puppy.plugins import …``.
 _PLUGINS_MOD = "code_puppy.plugins"
+_PLUGINS_CONFIG_MOD = "code_puppy.plugins.config"
 
 
 # ── Unit tests for helpers ────────────────────────────────────────────────
@@ -22,19 +23,25 @@ _PLUGINS_MOD = "code_puppy.plugins"
 
 class TestFormatPluginList:
     def test_empty_list(self):
-        assert _format_plugin_list([]) == "  (none)"
+        assert _format_plugin_list([], set()) == "  (none)"
 
     def test_single_plugin(self):
-        result = _format_plugin_list(["shell_safety"])
+        result = _format_plugin_list(["shell_safety"], set())
         assert "shell_safety" in result
 
     def test_multiple_sorted(self):
-        result = _format_plugin_list(["zebra", "alpha", "mid"])
+        result = _format_plugin_list(["zebra", "alpha", "mid"], set())
         lines = result.split("\n")
         assert len(lines) == 3
         assert "alpha" in lines[0]
         assert "mid" in lines[1]
         assert "zebra" in lines[2]
+
+    def test_disabled_shown(self):
+        result = _format_plugin_list(["alpha", "beta"], {"beta"})
+        lines = result.split("\n")
+        assert "(disabled)" not in lines[0]  # alpha
+        assert "(disabled)" in lines[1]  # beta
 
 
 class TestBuildOutput:
@@ -52,6 +59,10 @@ class TestBuildOutput:
             patch(
                 f"{_PLUGINS_MOD}.get_project_plugins_directory",
                 return_value=Path("/tmp/proj/.code_puppy/plugins"),
+            ),
+            patch(
+                f"{_PLUGINS_CONFIG_MOD}.get_disabled_plugins",
+                return_value=set(),
             ),
         ):
             output = _build_output()
@@ -74,6 +85,10 @@ class TestBuildOutput:
             patch(
                 f"{_PLUGINS_MOD}.get_project_plugins_directory",
                 return_value=None,
+            ),
+            patch(
+                f"{_PLUGINS_CONFIG_MOD}.get_disabled_plugins",
+                return_value=set(),
             ),
         ):
             output = _build_output()
@@ -98,6 +113,10 @@ class TestBuildOutput:
                 f"{_PLUGINS_MOD}.get_project_plugins_directory",
                 return_value=None,
             ),
+            patch(
+                f"{_PLUGINS_CONFIG_MOD}.get_disabled_plugins",
+                return_value=set(),
+            ),
         ):
             output = _build_output()
             assert "<CWD>/.code_puppy/plugins/" in output
@@ -111,7 +130,15 @@ class TestHandleCustomCommand:
         assert _handle_custom_command("/foo", "foo") is None
         assert _handle_custom_command("/help", "help") is None
 
-    def test_plugins_command_returns_true(self):
+    def test_bare_plugins_launches_tui(self):
+        with patch(
+            "code_puppy.plugins.plugin_list.plugins_menu.run_plugins_menu",
+        ) as mock_menu:
+            result = _handle_custom_command("/plugins", "plugins")
+            assert result is True
+            mock_menu.assert_called_once()
+
+    def test_plugins_list_returns_text(self):
         loaded = {"builtin": ["a"], "user": [], "project": []}
         with (
             patch(
@@ -123,10 +150,14 @@ class TestHandleCustomCommand:
                 return_value=None,
             ),
             patch(
+                f"{_PLUGINS_CONFIG_MOD}.get_disabled_plugins",
+                return_value=set(),
+            ),
+            patch(
                 "code_puppy.messaging.emit_info",
             ) as mock_emit,
         ):
-            result = _handle_custom_command("/plugins", "plugins")
+            result = _handle_custom_command("/plugins list", "plugins")
             assert result is True
             mock_emit.assert_called_once()
             assert "Loaded Plugins" in mock_emit.call_args[0][0]
