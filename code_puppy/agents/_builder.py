@@ -38,6 +38,51 @@ from code_puppy.model_factory import ModelFactory, make_model_settings
 _AGENT_RULE_FILES = ("AGENTS.md", "AGENT.md", "agents.md", "agent.md")
 _CODE_PUPPY_DIR = ".code_puppy"
 
+# Hard cap on the characters from a single AGENTS.md file that get injected
+# into the system prompt. Users with kitchen-sink AGENTS.md files were
+# bloating context and degrading model attention; this keeps overhead
+# bounded without taking a CLI flag. Per-file (not post-join) so a fat
+# global doesn't silently nuke the project file a developer is actively
+# editing. Bump if you really must — but consider trimming AGENTS.md first.
+AGENTS_MD_MAX_CHARS = 10_000
+
+
+def _friendly_path(candidate: Path) -> str:
+    """Render ``candidate`` as ``~/relative`` when it's under ``$HOME``.
+
+    Keeps the absolute home path out of the system prompt (and out of any
+    Slack paste of the agent's "please trim AGENTS.md" reply).
+    """
+    try:
+        return f"~/{candidate.relative_to(Path.home())}"
+    except ValueError:
+        return str(candidate)
+
+
+def _truncate_agents_md(content: str, source: str) -> str:
+    """Cap one AGENTS.md file at ``AGENTS_MD_MAX_CHARS`` with a labelled notice.
+
+    Returns ``content`` unchanged when it's within the cap. When it overflows,
+    keeps exactly the first ``AGENTS_MD_MAX_CHARS`` characters of the original
+    and appends a delimited warning addressed to the agent (so the agent can
+    surface it to the user on the next turn). ``source`` is a human-readable
+    label for the file — used in the warning so the agent can tell the user
+    which specific file to trim when multiple files overflow.
+    """
+    original_len = len(content)
+    if original_len <= AGENTS_MD_MAX_CHARS:
+        return content
+    dropped = original_len - AGENTS_MD_MAX_CHARS
+    notice = (
+        f"\n\n--- AGENTS.md truncated ---\n"
+        f"The {source} content was truncated: original was "
+        f"{original_len:,} chars, {dropped:,} chars dropped. Please tell "
+        f"the user to trim {source} below {AGENTS_MD_MAX_CHARS:,} "
+        f"characters so the full rules can take effect.\n"
+        f"--- end truncation notice ---"
+    )
+    return content[:AGENTS_MD_MAX_CHARS] + notice
+
 
 def load_puppy_rules() -> Optional[str]:
     """Load AGENT(S).md from global config dir and/or the current project dir.
@@ -50,13 +95,19 @@ def load_puppy_rules() -> Optional[str]:
     1. ``.code_puppy/AGENTS.md`` (preferred — keeps root clean)
     2. ``./AGENTS.md`` (alternate location)
 
+    Each file is independently truncated via :func:`_truncate_agents_md` so
+    the combined system-prompt overhead stays bounded.
+
     Returns ``None`` if neither exists.
     """
     global_rules: Optional[str] = None
     for name in _AGENT_RULE_FILES:
         candidate = Path(CONFIG_DIR) / name
         if candidate.exists():
-            global_rules = candidate.read_text(encoding="utf-8-sig")
+            global_rules = _truncate_agents_md(
+                candidate.read_text(encoding="utf-8-sig"),
+                source=f"global {_friendly_path(candidate)}",
+            )
             break
 
     project_rules: Optional[str] = None
@@ -67,7 +118,10 @@ def load_puppy_rules() -> Optional[str]:
         for name in _AGENT_RULE_FILES:
             candidate = code_puppy_dir / name
             if candidate.exists():
-                project_rules = candidate.read_text(encoding="utf-8-sig")
+                project_rules = _truncate_agents_md(
+                    candidate.read_text(encoding="utf-8-sig"),
+                    source=f"project {candidate}",
+                )
                 break
 
     # Priority 2: Fallback to project root
@@ -75,7 +129,10 @@ def load_puppy_rules() -> Optional[str]:
         for name in _AGENT_RULE_FILES:
             candidate = Path(name)
             if candidate.exists():
-                project_rules = candidate.read_text(encoding="utf-8-sig")
+                project_rules = _truncate_agents_md(
+                    candidate.read_text(encoding="utf-8-sig"),
+                    source=f"project {candidate}",
+                )
                 break
 
     rules = [r for r in (global_rules, project_rules) if r]
