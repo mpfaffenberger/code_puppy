@@ -13,6 +13,7 @@ from code_puppy.tools.file_operations import (
     ListFileOutput,
     MatchInfo,
     ReadFileOutput,
+    _build_grep_args,
     _grep,
     _list_files,
     _read_file,
@@ -252,13 +253,12 @@ class TestGrepFunction:
         result = _grep(None, "content", str(tmp_path))
         assert isinstance(result, GrepOutput)
 
-    @patch("code_puppy.tools.file_operations.os.name", "nt")
     @patch("shutil.which", return_value="rg")
     @patch("subprocess.run")
-    def test_grep_preserves_backslashes_on_windows(
+    def test_grep_preserves_backslashes_on_all_platforms(
         self, mock_run, _mock_which, tmp_path
     ):
-        """Test Windows grep preserves backslashes in regex and path arguments."""
+        """Plain patterns must reach ripgrep verbatim on every OS."""
         mock_run.return_value = subprocess.CompletedProcess(
             args=[],
             returncode=1,
@@ -274,6 +274,73 @@ class TestGrepFunction:
             assert result.error is None
             invoked_cmd = mock_run.call_args[0][0]
             assert pattern in invoked_cmd
+
+    @patch("shutil.which", return_value="rg")
+    @patch("subprocess.run")
+    def test_grep_pattern_with_spaces_is_single_argument(
+        self, mock_run, _mock_which, tmp_path
+    ):
+        """Multi-word patterns are one -e argument, never split into paths."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr=""
+        )
+
+        result = _grep(None, "class ResourceLimits", str(tmp_path))
+
+        assert result.error is None
+        invoked_cmd = mock_run.call_args[0][0]
+        e_index = invoked_cmd.index("-e")
+        assert invoked_cmd[e_index + 1] == "class ResourceLimits"
+        # The only path argument should be the search directory.
+        assert invoked_cmd[-1] == os.path.abspath(str(tmp_path))
+
+    def test_grep_rejects_output_format_flags(self, tmp_path):
+        """Flags incompatible with JSON match parsing produce a clear error."""
+        for flags in ("-l foo", "--files", "-c foo", "--count foo", "-i -l foo"):
+            result = _grep(None, flags, str(tmp_path))
+            assert result.matches == []
+            assert result.error is not None
+            assert "not supported" in result.error
+
+
+class TestBuildGrepArgs:
+    """Test _build_grep_args pattern/flag mode selection."""
+
+    def test_plain_pattern_passed_verbatim(self):
+        args, error = _build_grep_args("foo|bar baz")
+        assert error is None
+        assert args == ["-e", "foo|bar baz"]
+
+    def test_plain_pattern_with_quotes_untouched(self):
+        args, error = _build_grep_args('print("hello world")')
+        assert error is None
+        assert args == ["-e", 'print("hello world")']
+
+    def test_flag_mode_tokenizes_and_strips_quote_pairs(self):
+        args, error = _build_grep_args("-i --type py 'class Limits'")
+        assert error is None
+        assert args == ["-i", "--type", "py", "class Limits"]
+
+    def test_flag_mode_preserves_backslashes(self):
+        args, error = _build_grep_args(r"-i '\bdef\b'")
+        assert error is None
+        assert args == ["-i", r"\bdef\b"]
+
+    def test_explicit_dash_e_allows_leading_dash_patterns(self):
+        args, error = _build_grep_args("-e '->foo'")
+        assert error is None
+        assert args == ["-e", "->foo"]
+
+    def test_incompatible_flag_rejected(self):
+        args, error = _build_grep_args("-l pattern")
+        assert args == []
+        assert error is not None
+        assert "-l" in error
+
+    def test_unmatched_quote_falls_back_to_literal_pattern(self):
+        args, error = _build_grep_args("-i 'unclosed")
+        assert error is None
+        assert args == ["-e", "-i 'unclosed"]
 
     @patch("shutil.which", return_value="rg")
     @patch("subprocess.run")

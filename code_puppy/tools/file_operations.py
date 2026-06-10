@@ -583,27 +583,85 @@ def _sanitize_string(text: str) -> str:
         )
 
 
-def _split_grep_search_string(search_string: str) -> list[str]:
-    """Split grep arguments without corrupting Windows backslashes.
+# Ripgrep flags that change the output away from per-match JSON events.
+# _grep parses `--json` "match" events; with any of these flags ripgrep
+# emits none, so the tool would silently report zero matches. Reject them
+# loudly instead.
+_INCOMPATIBLE_RG_FLAGS = frozenset(
+    {
+        "-l",
+        "--files-with-matches",
+        "--files-without-match",
+        "-c",
+        "--count",
+        "--count-matches",
+        "--files",
+        "-q",
+        "--quiet",
+        "--json",
+        "--type-list",
+        "-h",
+        "--help",
+        "-V",
+        "--version",
+    }
+)
 
-    `_grep` accepts ripgrep-style flags in `search_string`, so we still need
-    shell-like tokenization. On Windows, POSIX parsing treats backslashes as
-    escapes and mangles common regexes and paths, so use non-POSIX tokenization
-    and then trim any matching quote wrappers from the resulting tokens.
+
+def _strip_quote_pair(token: str) -> str:
+    """Remove one matching pair of surrounding quotes, if present.
+
+    Only a single, balanced pair is removed so quote characters that are
+    part of the pattern itself survive intact.
     """
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+        return token[1:-1]
+    return token
 
+
+def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
+    """Convert ``search_string`` into ripgrep arguments, identically on all OSes.
+
+    Two explicit modes:
+
+    - Plain pattern (default): when the string does NOT start with ``-``,
+      the entire string is a single regex passed verbatim via ``-e``.
+      Spaces, pipes, quotes, and backslashes are preserved exactly on
+      every platform -- no tokenization happens at all.
+    - Flag mode: when the string starts with ``-``, it is tokenized so
+      ripgrep flags can be supplied, e.g. ``-i --type py 'class Limits'``.
+      Tokenization is non-POSIX on every platform so regex escapes and
+      Windows paths (``\\b``, ``C:\\Users``) are never mangled; quotes
+      group words and one surrounding pair is stripped per token.
+
+    Returns ``(args, error)``. ``error`` is set when an unsupported
+    output-format flag is requested.
+    """
     import shlex
 
+    if not search_string.startswith("-"):
+        return ["-e", search_string], None
+
+    lexer = shlex.shlex(search_string, posix=False)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
     try:
-        if os.name == "nt":
-            lexer = shlex.shlex(search_string, posix=False)
-            lexer.whitespace_split = True
-            lexer.commenters = ""
-            return [part.strip("\"'") for part in lexer]
-        return shlex.split(search_string)
+        tokens = [_strip_quote_pair(part) for part in lexer]
     except ValueError:
-        # Keep the full string intact when quotes are unmatched.
-        return [search_string]
+        # Unmatched quote: refuse to guess at shell-like structure and
+        # treat the whole string as a literal pattern.
+        return ["-e", search_string], None
+
+    for token in tokens:
+        flag = token.split("=", 1)[0]
+        if flag in _INCOMPATIBLE_RG_FLAGS:
+            return [], (
+                f"ripgrep flag '{flag}' is not supported: this tool parses "
+                "per-match JSON output, and that flag changes the output "
+                "format (it would silently return zero matches). Use a plain "
+                "pattern, or content flags like -i, -w, -F, --type instead."
+            )
+    return tokens, None
 
 
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
@@ -650,6 +708,12 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             )
             return GrepOutput(matches=[], error=error_message)
 
+        # Plain patterns are passed verbatim via -e; strings starting with
+        # '-' are tokenized as ripgrep flags. See _build_grep_args.
+        rg_args, args_error = _build_grep_args(search_string)
+        if args_error is not None:
+            return GrepOutput(matches=[], error=args_error)
+
         cmd = [
             rg_path,
             "--json",
@@ -672,9 +736,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             f.close()
 
         cmd.extend(["--ignore-file", ignore_file])
-        # Split search_string to support ripgrep flags like --ignore-case
-        # without corrupting Windows backslashes in regexes or file paths.
-        cmd.extend(_split_grep_search_string(search_string))
+        cmd.extend(rg_args)
         cmd.append(directory)
         # Use encoding with error handling to handle files with invalid UTF-8
         result = subprocess.run(
@@ -852,8 +914,17 @@ def register_grep(agent):
     def grep(
         context: RunContext, search_string: str = "", directory: str = "."
     ) -> GrepOutput:
-        """Recursively search for text patterns across files using ripgrep (rg).
+        """Recursively search file contents for a regex pattern using ripgrep (rg).
 
-        search_string supports ripgrep flag syntax (regex, -i for case-insensitive, etc).
+        By default the ENTIRE search_string is treated as one regex pattern --
+        spaces, pipes, and backslashes are preserved exactly (e.g. 'class Limits'
+        or 'foo|bar baz' work as-is, on every OS).
+
+        To pass ripgrep flags, start the string with a flag and quote the
+        pattern, e.g.: -i --type py 'def \\w+_handler'
+
+        Output-format flags (-l, -c, --files, --count, --json, -q) are not
+        supported and return an error. To search for a pattern that itself
+        starts with '-', use: -e '-pattern'
         """
         return _grep(context, search_string, directory)
