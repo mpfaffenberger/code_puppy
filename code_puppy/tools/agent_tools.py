@@ -1,7 +1,6 @@
 # agent_tools.py
 import hashlib
 import json
-import pickle
 import re
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +21,7 @@ from code_puppy.messaging import (
     get_session_context,
     set_session_context,
 )
+from code_puppy.session_storage import load_session, save_session
 from code_puppy.tools.common import atomic_write_text, generate_group_id
 
 
@@ -124,13 +124,12 @@ def _save_session_history(
 
     sessions_dir = _get_subagent_sessions_dir()
 
-    # Save pickle file with message history (atomic: write a temp file then
-    # replace, so a crash mid-write can't corrupt an existing session pickle)
-    pkl_path = sessions_dir / f"{session_id}.pkl"
-    tmp_pkl = pkl_path.with_suffix(".tmp")
-    with open(tmp_pkl, "wb") as f:
-        pickle.dump(message_history, f)
-    tmp_pkl.replace(pkl_path)
+    # Save JSON session history using the shared session storage helpers.
+    save_session(
+        history=message_history,
+        session_name=session_id,
+        base_dir=sessions_dir,
+    )
 
     # Save or update txt file with metadata
     txt_path = sessions_dir / f"{session_id}.txt"
@@ -172,16 +171,12 @@ def _load_session_history(session_id: str) -> List[ModelMessage]:
     _validate_session_id(session_id)
 
     sessions_dir = _get_subagent_sessions_dir()
-    pkl_path = sessions_dir / f"{session_id}.pkl"
-
-    if not pkl_path.exists():
-        return []
 
     try:
-        with open(pkl_path, "rb") as f:
-            return pickle.load(f)
+        return load_session(session_id, sessions_dir)
+    except FileNotFoundError:
+        return []
     except Exception:
-        # If pickle is corrupted or incompatible, return empty history
         return []
 
 

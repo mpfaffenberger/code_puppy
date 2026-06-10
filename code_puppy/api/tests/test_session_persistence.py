@@ -132,8 +132,6 @@ def test_session_update_action_created_for_first_message():
     )
     assert payload["action"] == "created"
     assert payload["auto_saved"] is True
-    assert payload["pickle_path"] == ""
-    assert payload["metadata_path"] == ""
     assert payload["timestamp"] == "2026-01-01T00:00:00"
 
 
@@ -169,8 +167,6 @@ def test_session_update_payload_has_expected_keys():
         "message_count",
         "total_tokens",
         "auto_saved",
-        "pickle_path",
-        "metadata_path",
         "action",
     }
     assert set(payload.keys()) == expected_keys

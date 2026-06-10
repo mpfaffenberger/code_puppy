@@ -29,7 +29,7 @@ def _do_switch_and_resume(agent_name: str) -> bool:
     )
     from code_puppy.messaging import emit_info, emit_success, emit_warning
     from code_puppy.session_storage import (
-        build_session_paths,
+        get_session_file_path,
         load_session,
         save_session,
     )
@@ -91,11 +91,11 @@ def _do_switch_and_resume(agent_name: str) -> bool:
     if last_session_to_resume:
         try:
             autosave_dir = Path(AUTOSAVE_DIR).resolve()
-            session_pickle = build_session_paths(
+            session_file = get_session_file_path(
                 autosave_dir, last_session_to_resume
-            ).pickle_path.resolve()
-            if autosave_dir not in session_pickle.parents:
-                raise FileNotFoundError(session_pickle)
+            ).resolve()
+            if autosave_dir not in session_file.parents:
+                raise FileNotFoundError(session_file)
             history = load_session(last_session_to_resume, autosave_dir)
             new_agent.set_message_history(history)
             pin_current_session_name(last_session_to_resume)

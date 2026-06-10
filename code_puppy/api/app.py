@@ -71,14 +71,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Initialise shared SQLite database
     try:
         from code_puppy.api.db.connection import init_db
-        from code_puppy.api.db.seeder import seed_from_pkl_dirs
 
         await init_db()
         logger.info("✓ aiosqlite DB initialised")
-
-        # Seed existing pkl sessions in the background — non-blocking
-        asyncio.create_task(seed_from_pkl_dirs())
-        logger.info("✓ SQLite seeder task started")
     except Exception as _db_exc:
         logger.error("SQLite DB init failed (continuing without DB): %s", _db_exc)
 

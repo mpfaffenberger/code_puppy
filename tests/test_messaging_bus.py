@@ -34,7 +34,7 @@ class TestMessageBusInitialization:
         assert bus._maxsize == 1000
         assert isinstance(bus._outgoing, queue.Queue)
         assert isinstance(bus._incoming, queue.Queue)
-        assert bus._current_session_id is None
+        assert bus.get_session_context() is None
         assert not bus._has_active_renderer
         assert bus._startup_buffer == []
 
@@ -587,3 +587,35 @@ class TestThreadSafety:
             t.join()
 
         assert len(contexts) == 5
+
+    @pytest.mark.asyncio
+    async def test_session_context_is_task_local(self):
+        """Each asyncio task should see its own session context."""
+        bus = MessageBus()
+        bus._has_active_renderer = True
+
+        ready_first = asyncio.Event()
+        ready_second = asyncio.Event()
+        release = asyncio.Event()
+
+        async def worker(session_id, ready_to_set, ready_done):
+            if ready_to_set is not None:
+                await ready_to_set.wait()
+            bus.set_session_context(session_id)
+            ready_done.set()
+            await release.wait()
+            msg = TextMessage(level=MessageLevel.INFO, text=session_id)
+            bus.emit(msg)
+            return bus.get_session_context(), msg.session_id
+
+        first = asyncio.create_task(worker("session-1", None, ready_first))
+        second = asyncio.create_task(worker("session-2", ready_first, ready_second))
+
+        await ready_second.wait()
+        release.set()
+
+        first_ctx, second_ctx = await asyncio.gather(first, second)
+
+        assert first_ctx == ("session-1", "session-1")
+        assert second_ctx == ("session-2", "session-2")
+        assert bus.get_session_context() is None

@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import pickle
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -10,10 +9,9 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-# Thread pool for blocking file I/O
-_executor = ThreadPoolExecutor(max_workers=2)
+from code_puppy.session_storage import get_session_file_path, load_session
 
-# Timeout for file operations (seconds)
+_executor = ThreadPoolExecutor(max_workers=2)
 FILE_IO_TIMEOUT = 10.0
 
 router = APIRouter()
@@ -45,63 +43,25 @@ class SessionDetail(SessionInfo):
 
 
 def _get_sessions_dir() -> Path:
-    """Get the subagent sessions directory.
-
-    Returns:
-        Path to the subagent sessions directory
-    """
     from code_puppy.config import DATA_DIR
 
     return Path(DATA_DIR) / "subagent_sessions"
 
 
 def _serialize_message(msg: Any) -> Dict[str, Any]:
-    """Serialize a pydantic-ai message to a JSON-safe dict.
-
-    Handles both wrapped and unwrapped message formats:
-    - Wrapped (WS sessions): {'msg': <ModelRequest|ModelResponse>, 'agent': ..., 'model': ..., 'ts': ...}
-    - Unwrapped: <ModelRequest|ModelResponse> or <ModelMessage>
-
-    Preserves all message parts including ThinkingPart, ToolCallPart, TextPart, etc.
-
-    Args:
-        msg: A pydantic-ai message object or wrapped message dict
-
-    Returns:
-        JSON-serializable dictionary representation of the message
-    """
-
     def _serialize_obj(obj: Any) -> Any:
-        """Recursively serialize an object to JSON-safe types."""
-        # Pydantic v2 models with model_dump
         if hasattr(obj, "model_dump"):
             return obj.model_dump(mode="json")
-
-        # Handle dicts recursively
         if isinstance(obj, dict):
             return {k: _serialize_obj(v) for k, v in obj.items()}
-
-        # Handle lists/tuples recursively
         if isinstance(obj, (list, tuple)):
             return [_serialize_obj(item) for item in obj]
-
-        # JSON-safe primitives
         if isinstance(obj, (str, int, float, bool, type(None))):
             return obj
-
-        # pydantic-ai message objects (ModelRequest, ModelResponse, Part subclasses)
-        # They have __dict__ but are not Pydantic models
         if hasattr(obj, "__dict__"):
-            result = {}
-            for k, v in obj.__dict__.items():
-                result[k] = _serialize_obj(v)
-            return result
-
-        # Fallback: convert to string
+            return {k: _serialize_obj(v) for k, v in obj.__dict__.items()}
         return str(obj)
 
-    # Handle wrapped message format (used in WS sessions)
-    # {'msg': <ModelRequest|ModelResponse>, 'agent': ..., 'model': ..., 'ts': ...}
     if isinstance(msg, dict) and "msg" in msg:
         actual_msg = msg["msg"]
         return {
@@ -111,7 +71,6 @@ def _serialize_message(msg: Any) -> Dict[str, Any]:
             "ts": msg.get("ts"),
         }
 
-    # Handle unwrapped messages
     result = _serialize_obj(msg)
     if not isinstance(result, dict):
         return {"content": str(result)}
@@ -119,35 +78,26 @@ def _serialize_message(msg: Any) -> Dict[str, Any]:
 
 
 def _load_json_sync(file_path: Path) -> dict:
-    """Synchronous JSON file load (for use in executor)."""
-    with open(file_path, "r") as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def _load_pickle_sync(file_path: Path) -> Any:
-    """Synchronous pickle file load (for use in executor)."""
-    with open(file_path, "rb") as f:
-        return pickle.load(f)
+def _load_session_history_sync(file_path: Path) -> Any:
+    return load_session(file_path.stem, file_path.parent)
 
 
 @router.get("/")
 async def list_sessions() -> List[SessionInfo]:
-    """List all available sessions.
-
-    Returns:
-        List of SessionInfo objects for each session found
-    """
     sessions_dir = _get_sessions_dir()
     if not sessions_dir.exists():
         return []
 
     loop = asyncio.get_running_loop()
-    sessions = []
+    sessions: list[SessionInfo] = []
 
     for txt_file in sessions_dir.glob("*.txt"):
         session_id = txt_file.stem
         try:
-            # Run blocking I/O in thread pool with timeout
             metadata = await asyncio.wait_for(
                 loop.run_in_executor(_executor, _load_json_sync, txt_file),
                 timeout=FILE_IO_TIMEOUT,
@@ -163,10 +113,8 @@ async def list_sessions() -> List[SessionInfo]:
                 )
             )
         except asyncio.TimeoutError:
-            # Timed out reading file, include basic info
             sessions.append(SessionInfo(session_id=session_id))
         except Exception:
-            # If we can't parse metadata, still include basic session info
             sessions.append(SessionInfo(session_id=session_id))
 
     return sessions
@@ -174,17 +122,6 @@ async def list_sessions() -> List[SessionInfo]:
 
 @router.get("/{session_id}")
 async def get_session(session_id: str) -> SessionInfo:
-    """Get session metadata.
-
-    Args:
-        session_id: The session identifier
-
-    Returns:
-        SessionInfo with metadata for the specified session
-
-    Raises:
-        HTTPException: 404 if session not found, 504 on timeout
-    """
     sessions_dir = _get_sessions_dir()
     txt_file = sessions_dir / f"{session_id}.txt"
 
@@ -192,7 +129,6 @@ async def get_session(session_id: str) -> SessionInfo:
         raise HTTPException(404, f"Session '{session_id}' not found")
 
     loop = asyncio.get_running_loop()
-
     try:
         metadata = await asyncio.wait_for(
             loop.run_in_executor(_executor, _load_json_sync, txt_file),
@@ -213,28 +149,16 @@ async def get_session(session_id: str) -> SessionInfo:
 
 @router.get("/{session_id}/messages")
 async def get_session_messages(session_id: str) -> List[Dict[str, Any]]:
-    """Get the full message history for a session.
-
-    Args:
-        session_id: The session identifier
-
-    Returns:
-        List of serialized message dictionaries
-
-    Raises:
-        HTTPException: 404 if session messages not found, 500 on load error, 504 on timeout
-    """
     sessions_dir = _get_sessions_dir()
-    pkl_file = sessions_dir / f"{session_id}.pkl"
+    session_file = get_session_file_path(sessions_dir, session_id)
 
-    if not pkl_file.exists():
+    if not session_file.exists():
         raise HTTPException(404, f"Session '{session_id}' messages not found")
 
     loop = asyncio.get_running_loop()
-
     try:
         messages = await asyncio.wait_for(
-            loop.run_in_executor(_executor, _load_pickle_sync, pkl_file),
+            loop.run_in_executor(_executor, _load_session_history_sync, session_file),
             timeout=FILE_IO_TIMEOUT,
         )
         return [_serialize_message(msg) for msg in messages]
@@ -248,27 +172,16 @@ async def get_session_messages(session_id: str) -> List[Dict[str, Any]]:
 
 @router.delete("/{session_id}")
 async def delete_session(session_id: str) -> Dict[str, str]:
-    """Delete a session and its data.
-
-    Args:
-        session_id: The session identifier
-
-    Returns:
-        Success message dict
-
-    Raises:
-        HTTPException: 404 if session not found
-    """
     sessions_dir = _get_sessions_dir()
     txt_file = sessions_dir / f"{session_id}.txt"
-    pkl_file = sessions_dir / f"{session_id}.pkl"
+    session_file = get_session_file_path(sessions_dir, session_id)
 
-    if not txt_file.exists() and not pkl_file.exists():
+    if not txt_file.exists() and not session_file.exists():
         raise HTTPException(404, f"Session '{session_id}' not found")
 
     if txt_file.exists():
         txt_file.unlink()
-    if pkl_file.exists():
-        pkl_file.unlink()
+    if session_file.exists():
+        session_file.unlink()
 
     return {"message": f"Session '{session_id}' deleted"}

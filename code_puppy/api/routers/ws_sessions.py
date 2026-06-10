@@ -222,12 +222,8 @@ async def get_ws_session_tool_calls(session_name: str) -> List[Dict[str, Any]]:
 
 @router.delete("/{session_name}")
 async def delete_ws_session(session_name: str) -> Dict[str, str]:
-    """Soft-delete a WebSocket session in SQLite.
-
-    Also attempts to clean up any legacy pkl files if they exist.
-    """
-    ws_dir = _get_ws_sessions_dir()
-    safe_base = _validate_session_name(session_name, ws_dir)
+    """Soft-delete a WebSocket session in SQLite."""
+    _validate_session_name(session_name, _get_ws_sessions_dir())
 
     # Soft delete in SQLite
     try:
@@ -238,17 +234,6 @@ async def delete_ws_session(session_name: str) -> Dict[str, str]:
     except Exception as e:
         logger.error("delete_ws_session: SQLite error for %s: %s", session_name, e)
         raise HTTPException(503, "Service unavailable: database error")
-
-    # Cleanup legacy files (best effort)
-    try:
-        pkl_file = ws_dir / f"{safe_base}.pkl"
-        meta_file = ws_dir / f"{safe_base}_meta.json"
-        if pkl_file.exists():
-            pkl_file.unlink()
-        if meta_file.exists():
-            meta_file.unlink()
-    except Exception:
-        pass
 
     return {"message": f"WebSocket session '{session_name}' deleted"}
 

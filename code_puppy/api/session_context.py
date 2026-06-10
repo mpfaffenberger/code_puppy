@@ -441,7 +441,7 @@ class SessionManager:
     async def save_session(self, session_id: str) -> None:
         """Persist session history and metadata to SQLite (single source of truth).
 
-        Previously wrote to {WS_SESSION_DIR}/{session_id}.pkl — that pkl write
+        Previously wrote session files under {WS_SESSION_DIR} — that legacy file write
         has been removed. SQLite at ~/.puppy_desk/chat_messages.db is now the
         only durable store.
 
@@ -582,7 +582,7 @@ class SessionManager:
                 self._sessions[session_id] = ctx
 
             return ctx
-        # SQLite is the single source of truth — no pkl fallback.
+        # SQLite is the single source of truth — no file fallback.
         # If _load_from_sqlite() returned None the session does not exist in the DB.
         logger.debug("Session %s not found in SQLite — treating as new", session_id)
         return None
