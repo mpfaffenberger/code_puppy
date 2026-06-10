@@ -9,7 +9,12 @@ the spinner / event-stream renderer:
   the time the handler started iterating events.)
 * ``stream_event`` -- fires for every part-start / part-delta event. The
   first text/thinking event marks T1 (first-token time); subsequent events
-  accumulate output-token counts for the generation-speed average.
+  accumulate output-token counts AND inter-event elapsed time for the
+  generation-speed average. Gen-speed is measured purely between stream
+  events -- gaps larger than ``_MAX_INTER_EVENT_GAP_SECONDS`` (tool
+  execution, the next model call's request latency) are treated as stalls
+  and excluded, so TG reflects actual decode speed rather than wall-clock
+  time across the whole agent run.
 * ``agent_run_end`` -- folds the just-finished cycle into conversation-wide
   aggregates so the auto-save line shows up-to-date averages.
 
@@ -50,11 +55,20 @@ class AgentRunStats:
 
     _lock: Lock = Lock()
 
+    # Inter-event gaps above this are stalls (tool runs, follow-up request
+    # latency) and are excluded from generation-time accounting. Streaming
+    # deltas arrive sub-second even on slow backends, so 2s is generous.
+    _MAX_INTER_EVENT_GAP_SECONDS: float = 2.0
+
     # ----------------- per-cycle state -----------------
     # T0 set on agent_run_start; T1 set on first content stream_event;
     # output_tokens accumulates across all stream_events in the cycle.
+    # gen_seconds accumulates only the gaps BETWEEN stream events, so tool
+    # execution time between model calls never pollutes the TG denominator.
     _stream_start_time: float = 0.0
     _first_token_time: float = 0.0
+    _last_token_time: float = 0.0
+    _gen_seconds: float = 0.0
     _output_tokens: int = 0
 
     # Snapshot of the most-recently-finished cycle. Used as a fallback so
@@ -82,6 +96,8 @@ class AgentRunStats:
         with cls._lock:
             cls._stream_start_time = time.monotonic()
             cls._first_token_time = 0.0
+            cls._last_token_time = 0.0
+            cls._gen_seconds = 0.0
             cls._output_tokens = 0
 
     @classmethod
@@ -89,7 +105,10 @@ class AgentRunStats:
         """Account for ``tokens`` more streamed output tokens.
 
         Marks the first-token timestamp on the initial call so TTFT can be
-        computed when the cycle ends.
+        computed when the cycle ends. Generation time accumulates only as
+        gaps between consecutive stream events; gaps wider than
+        ``_MAX_INTER_EVENT_GAP_SECONDS`` are stalls (tool execution,
+        follow-up request latency) and re-anchor the burst instead.
         """
         if tokens <= 0:
             return
@@ -100,6 +119,11 @@ class AgentRunStats:
                 cls._stream_start_time = now
             if cls._first_token_time == 0.0:
                 cls._first_token_time = now
+            else:
+                gap = now - cls._last_token_time
+                if 0.0 < gap <= cls._MAX_INTER_EVENT_GAP_SECONDS:
+                    cls._gen_seconds += gap
+            cls._last_token_time = now
             cls._output_tokens += int(tokens)
 
     @classmethod
@@ -111,7 +135,6 @@ class AgentRunStats:
         fields. Per-cycle counters are zeroed so the next ``mark_request_start``
         starts cleanly.
         """
-        now = time.monotonic()
         with cls._lock:
             if cls._first_token_time > 0.0 and cls._stream_start_time > 0.0:
                 ttft = cls._first_token_time - cls._stream_start_time
@@ -119,15 +142,15 @@ class AgentRunStats:
                     cls._last_ttft_seconds = ttft
                     cls._total_ttft_seconds += ttft
                     cls._ttft_sample_count += 1
-                if cls._output_tokens > 0:
-                    gen_elapsed = now - cls._first_token_time
-                    if gen_elapsed > 0:
-                        cls._last_gen_tps = cls._output_tokens / gen_elapsed
-                        cls._total_output_tokens += cls._output_tokens
-                        cls._total_gen_seconds += gen_elapsed
+                if cls._output_tokens > 0 and cls._gen_seconds > 0:
+                    cls._last_gen_tps = cls._output_tokens / cls._gen_seconds
+                    cls._total_output_tokens += cls._output_tokens
+                    cls._total_gen_seconds += cls._gen_seconds
             # Zero per-cycle state so the next run starts cleanly.
             cls._stream_start_time = 0.0
             cls._first_token_time = 0.0
+            cls._last_token_time = 0.0
+            cls._gen_seconds = 0.0
             cls._output_tokens = 0
 
     @classmethod
@@ -140,6 +163,8 @@ class AgentRunStats:
         with cls._lock:
             cls._stream_start_time = 0.0
             cls._first_token_time = 0.0
+            cls._last_token_time = 0.0
+            cls._gen_seconds = 0.0
             cls._output_tokens = 0
             cls._last_ttft_seconds = 0.0
             cls._last_gen_tps = 0.0
@@ -163,7 +188,6 @@ class AgentRunStats:
         the auto-save line includes the request that just completed.
         Returns ``(None, None)`` if no data has been collected yet.
         """
-        now = time.monotonic()
         with cls._lock:
             total_ttft = cls._total_ttft_seconds
             ttft_count = cls._ttft_sample_count
@@ -177,11 +201,9 @@ class AgentRunStats:
                 if live_ttft > 0:
                     total_ttft += live_ttft
                     ttft_count += 1
-                if cls._output_tokens > 0:
-                    elapsed = now - cls._first_token_time
-                    if elapsed > 0:
-                        total_out += cls._output_tokens
-                        total_gen += elapsed
+                if cls._output_tokens > 0 and cls._gen_seconds > 0:
+                    total_out += cls._output_tokens
+                    total_gen += cls._gen_seconds
 
             avg_ttft = (total_ttft / ttft_count) if ttft_count > 0 else None
             avg_gen = (total_out / total_gen) if total_gen > 0 else None

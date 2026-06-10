@@ -127,7 +127,9 @@ def test_snapshot_with_no_first_token_records_nothing():
 def test_reset_cycle_preserves_conversation_aggregates():
     AgentRunStats.mark_request_start()
     time.sleep(0.05)
-    AgentRunStats.record_output_tokens(50)
+    AgentRunStats.record_output_tokens(25)
+    time.sleep(0.05)
+    AgentRunStats.record_output_tokens(25)
     AgentRunStats.snapshot_cycle_into_aggregates()
     assert AgentRunStats._ttft_sample_count == 1
     assert AgentRunStats._total_output_tokens == 50
@@ -135,6 +137,34 @@ def test_reset_cycle_preserves_conversation_aggregates():
     AgentRunStats.reset_cycle_state()
     assert AgentRunStats._ttft_sample_count == 1  # preserved
     assert AgentRunStats._total_output_tokens == 50  # preserved
+
+
+def test_single_event_cycle_records_ttft_but_no_gen_sample():
+    """One lone stream event gives no inter-event gap, so no TG sample."""
+    AgentRunStats.mark_request_start()
+    time.sleep(0.02)
+    AgentRunStats.record_output_tokens(50)
+    AgentRunStats.snapshot_cycle_into_aggregates()
+    assert AgentRunStats._ttft_sample_count == 1
+    assert AgentRunStats._total_output_tokens == 0
+    assert AgentRunStats._total_gen_seconds == 0.0
+
+
+def test_gen_time_excludes_stalls_between_stream_events(monkeypatch):
+    """Gaps wider than the stall threshold (tool runs, follow-up request
+    latency) must not inflate the TG denominator."""
+    monkeypatch.setattr(AgentRunStats, "_MAX_INTER_EVENT_GAP_SECONDS", 0.05)
+
+    AgentRunStats.mark_request_start()
+    AgentRunStats.record_output_tokens(10)
+    time.sleep(0.01)  # normal inter-token gap -- counted
+    AgentRunStats.record_output_tokens(10)
+    gen_after_burst = AgentRunStats._gen_seconds
+    assert gen_after_burst > 0
+
+    time.sleep(0.1)  # stall (e.g. tool execution) -- excluded
+    AgentRunStats.record_output_tokens(10)
+    assert AgentRunStats._gen_seconds == gen_after_burst
 
 
 def test_reset_conversation_clears_aggregates():
@@ -154,13 +184,17 @@ def test_get_conversation_stats_includes_live_cycle():
     # Finished cycle
     AgentRunStats.mark_request_start()
     time.sleep(0.05)
-    AgentRunStats.record_output_tokens(100)
+    AgentRunStats.record_output_tokens(50)
+    time.sleep(0.05)
+    AgentRunStats.record_output_tokens(50)
     AgentRunStats.snapshot_cycle_into_aggregates()
 
     # Live cycle
     AgentRunStats.mark_request_start()
     time.sleep(0.05)
-    AgentRunStats.record_output_tokens(100)
+    AgentRunStats.record_output_tokens(50)
+    time.sleep(0.05)
+    AgentRunStats.record_output_tokens(50)
 
     avg_ttft, avg_gen = AgentRunStats.get_conversation_stats()
     assert avg_ttft is not None and avg_ttft > 0
@@ -300,6 +334,9 @@ async def test_on_agent_run_end_folds_into_aggregates():
 
     delta = TextPartDelta(content_delta="some response text")
     await _on_stream_event("part_delta", {"delta": delta})
+    time.sleep(0.02)
+    delta2 = TextPartDelta(content_delta="and a bit more of it")
+    await _on_stream_event("part_delta", {"delta": delta2})
 
     await _on_agent_run_end("agent", "model")
 
