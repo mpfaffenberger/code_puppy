@@ -35,6 +35,7 @@ It also handles request/response correlation for user interactions:
 import asyncio
 import queue
 import threading
+from contextvars import ContextVar
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
@@ -89,8 +90,11 @@ class MessageBus:
         # Request/Response correlation: prompt_id → Future (for async usage)
         self._pending_requests: Dict[str, asyncio.Future[Any]] = {}
 
-        # Session context for multi-agent tracking
-        self._current_session_id: Optional[str] = None
+        # Session context for multi-agent tracking. This is task/thread-local so
+        # concurrent websocket sessions and CLI flows cannot overwrite each other.
+        self._session_context: ContextVar[Optional[str]] = ContextVar(
+            f"message_bus_session_id_{id(self)}", default=None
+        )
 
     # =========================================================================
     # Outgoing Messages (Agent → UI)
@@ -108,8 +112,9 @@ class MessageBus:
         """
         # Auto-tag message with current session if not already set
         with self._lock:
-            if message.session_id is None and self._current_session_id is not None:
-                message.session_id = self._current_session_id
+            current_session_id = self._session_context.get()
+            if message.session_id is None and current_session_id is not None:
+                message.session_id = current_session_id
 
             if not self._has_active_renderer:
                 self._startup_buffer.append(message)
@@ -190,8 +195,7 @@ class MessageBus:
         Args:
             session_id: The session ID to tag messages with, or None to clear.
         """
-        with self._lock:
-            self._current_session_id = session_id
+        self._session_context.set(session_id)
 
     def get_session_context(self) -> Optional[str]:
         """Get the current session context.
@@ -199,8 +203,7 @@ class MessageBus:
         Returns:
             The current session_id, or None if not set.
         """
-        with self._lock:
-            return self._current_session_id
+        return self._session_context.get()
 
     # =========================================================================
     # User Input Requests (Agent waits for UI response)

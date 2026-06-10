@@ -12,7 +12,15 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any, Awaitable, Callable, Optional
+
+from code_puppy.api.ws.connection_manager import connection_manager
+from code_puppy.api.ws.history_utils import (
+    build_enhanced_history,
+    estimate_total_tokens,
+)
+from code_puppy.session_storage import generate_heuristic_title
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +88,7 @@ def build_session_update_payload(
     """Build the broadcast payload for ``connection_manager.broadcast_session_update``.
 
     ``action`` is ``"created"`` when ``message_count == 1`` (first turn),
-    otherwise ``"updated"``.  Legacy ``pickle_path`` / ``metadata_path``
-    fields are kept as empty strings for backwards-compat.
+    otherwise ``"updated"``.
     """
     return {
         "session_id": session_id,
@@ -92,10 +99,111 @@ def build_session_update_payload(
         "message_count": message_count,
         "total_tokens": total_tokens,
         "auto_saved": True,
-        "pickle_path": "",
-        "metadata_path": "",
         "action": "created" if message_count == 1 else "updated",
     }
+
+
+@dataclass(slots=True)
+class PersistedTurnSummary:
+    """Summary of a persisted websocket turn."""
+
+    session_title: str
+    message_count: int
+    total_tokens: int
+
+
+async def persist_session_turn_and_broadcast(
+    *,
+    history: list[Any],
+    session_id: str,
+    session_title: str,
+    session_working_directory: str,
+    session_pinned: bool,
+    agent: Any,
+    agent_name: str,
+    model_name: str,
+    ctx: Any,
+    original_user_message: str,
+    attachment_metadata: list[Any] | None,
+    safe_send_json: Callable[[dict[str, Any]], Awaitable[Any]],
+    logger_override: logging.Logger | None = None,
+) -> PersistedTurnSummary | None:
+    """Persist finalized turn history and notify websocket/session listeners.
+
+    Returns ``None`` when there is no history to persist. Otherwise returns a
+    compact summary containing the resolved title and aggregate counts.
+    """
+    if not history:
+        return None
+
+    logger_ = logger_override or logger
+    attachment_metadata = attachment_metadata or []
+
+    if not session_title or session_title == "untitled-session":
+        session_title = generate_heuristic_title(history)
+
+    session_name = session_id
+    agent_name_meta, model_name_meta = resolve_agent_model_meta(agent=agent, ctx=ctx)
+    enhanced_history = build_enhanced_history(
+        history,
+        agent_name_meta=agent_name_meta,
+        model_name_meta=model_name_meta,
+        original_user_message=original_user_message,
+        attachment_metadata=attachment_metadata,
+    )
+
+    if attachment_metadata and len(history) >= 2:
+        logger_.debug(
+            "Added UI metadata to user message: %d attachment(s), clean_content length: %d",
+            len(attachment_metadata),
+            len(original_user_message),
+        )
+
+    message_count = len(enhanced_history)
+    total_tokens = estimate_total_tokens(enhanced_history, agent)
+
+    await persist_turn_to_sqlite(
+        session_id=session_id,
+        enhanced_history=enhanced_history,
+        title=session_title,
+        working_directory=session_working_directory,
+        pinned=session_pinned,
+        agent_name=agent_name,
+        model_name=model_name,
+        total_tokens=total_tokens,
+        created_at_iso=ctx.created_at.isoformat(),
+        ctx=ctx,
+    )
+
+    await safe_send_json(
+        build_session_meta_payload(
+            session_id=session_id,
+            session_name=session_name,
+            total_tokens=total_tokens,
+            message_count=message_count,
+            title=session_title,
+            working_directory=session_working_directory,
+            agent_name=agent_name,
+            model_name=model_name,
+        )
+    )
+
+    await connection_manager.broadcast_session_update(
+        build_session_update_payload(
+            session_id=session_id,
+            session_name=session_name,
+            title=session_title,
+            working_directory=session_working_directory,
+            message_count=message_count,
+            total_tokens=total_tokens,
+        )
+    )
+
+    return PersistedTurnSummary(
+        session_title=session_title,
+        message_count=message_count,
+        total_tokens=total_tokens,
+    )
 
 
 async def persist_turn_to_sqlite(

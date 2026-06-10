@@ -6,7 +6,6 @@ dramatically reducing load times for frequently accessed sessions.
 
 import asyncio
 import logging
-import pickle
 import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
@@ -81,7 +80,7 @@ class SessionCache:
         self._stats = {"hits": 0, "misses": 0, "evictions": 0, "expirations": 0}
 
     async def get(
-        self, session_id: str, pkl_path: Path
+        self, session_id: str, session_file_path: Path
     ) -> Optional[Tuple[List[Dict[str, Any]], Dict[str, Any]]]:
         """Get cached session messages (pre-serialized JSON).
 
@@ -104,7 +103,7 @@ class SessionCache:
 
             # Check if file was modified
             try:
-                current_mtime = pkl_path.stat().st_mtime
+                current_mtime = session_file_path.stat().st_mtime
                 if current_mtime > entry.file_mtime:
                     self._stats["expirations"] += 1
                     del self._cache[session_id]
@@ -131,7 +130,7 @@ class SessionCache:
     async def put(
         self,
         session_id: str,
-        pkl_path: Path,
+        session_file_path: Path,
         messages: List[Any],
         json_messages: List[Dict[str, Any]],
         metadata: Dict[str, Any],
@@ -140,7 +139,7 @@ class SessionCache:
 
         Args:
             session_id: Unique session identifier
-            pkl_path: Path to the pickle file (for mtime tracking)
+            session_file_path: Path to the session JSON file (for mtime tracking)
             messages: Raw message objects
             json_messages: Pre-serialized JSON messages
             metadata: Session metadata
@@ -156,7 +155,7 @@ class SessionCache:
 
             # Get file mtime
             try:
-                file_mtime = pkl_path.stat().st_mtime
+                file_mtime = session_file_path.stat().st_mtime
             except FileNotFoundError:
                 file_mtime = time.time()
 
@@ -214,10 +213,11 @@ def get_session_cache() -> SessionCache:
     return _session_cache
 
 
-def _load_pickle_sync(pkl_path: Path) -> List[Any]:
-    """Synchronous pickle loading (for executor)."""
-    with open(pkl_path, "rb") as f:
-        return pickle.load(f)
+def _load_session_sync(session_file_path: Path) -> List[Any]:
+    """Synchronous session loading (for executor)."""
+    from code_puppy.session_storage import load_session
+
+    return load_session(session_file_path.stem, session_file_path.parent)
 
 
 def _serialize_message(msg: Any) -> Dict[str, Any]:
@@ -284,7 +284,7 @@ def _serialize_messages_sync(messages: List[Any]) -> List[Dict[str, Any]]:
 
 
 async def load_session_cached(
-    session_id: str, pkl_path: Path, timeout: float = 10.0
+    session_id: str, session_file_path: Path, timeout: float = 10.0
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Load session messages with caching.
 
@@ -293,33 +293,34 @@ async def load_session_cached(
 
     Args:
         session_id: Unique session identifier
-        pkl_path: Path to the pickle file
+        session_file_path: Path to the session JSON file
         timeout: Timeout for file operations
 
     Returns:
         Tuple of (json_messages, metadata)
 
     Raises:
-        FileNotFoundError: If pickle file doesn't exist
+        FileNotFoundError: If session JSON file does not exist
         asyncio.TimeoutError: If load times out
     """
     cache = get_session_cache()
 
     # Try cache first
-    cached = await cache.get(session_id, pkl_path)
+    cached = await cache.get(session_id, session_file_path)
     if cached is not None:
         return cached
 
     # Cache miss - load from disk
-    if not pkl_path.exists():
-        raise FileNotFoundError(f"Session file not found: {pkl_path}")
+    if not session_file_path.exists():
+        raise FileNotFoundError(f"Session file not found: {session_file_path}")
 
     loop = asyncio.get_running_loop()
 
-    # Load pickle in thread pool
+    # Load session file in thread pool
     start_time = time.time()
     messages = await asyncio.wait_for(
-        loop.run_in_executor(_executor, _load_pickle_sync, pkl_path), timeout=timeout
+        loop.run_in_executor(_executor, _load_session_sync, session_file_path),
+        timeout=timeout,
     )
     load_time = time.time() - start_time
 
@@ -335,7 +336,7 @@ async def load_session_cached(
     }
 
     # Cache for next time
-    await cache.put(session_id, pkl_path, messages, json_messages, metadata)
+    await cache.put(session_id, session_file_path, messages, json_messages, metadata)
 
     logger.info(
         f"[Cache] Loaded session {session_id} from disk in {load_time * 1000:.1f}ms"

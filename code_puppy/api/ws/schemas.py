@@ -47,6 +47,7 @@ class ServerMessageType(str, Enum):
     """All ``type`` values the server may send over the WebSocket."""
 
     SYSTEM = "system"
+    SESSION_META = "session_meta"
     SESSION_RESTORED = "session_restored"
     SESSION_SWITCHED = "session_switched"
     WORKING_DIRECTORY_CHANGED = "working_directory_changed"

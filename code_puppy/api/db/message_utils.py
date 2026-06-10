@@ -1,6 +1,6 @@
 """Shared helpers for extracting display fields from pydantic-ai ModelMessages.
 
-Used by seeder.py (pkl import) and session_context.py (live WS saves).
+Used by the SQLite persistence helpers and session_context.py.
 Must not import from seeder.py or session_context.py to avoid circular imports.
 """
 
@@ -68,7 +68,7 @@ def pydantic_json_for_message(msg: Any) -> Optional[str]:
     Stores as a single-element list: `[msg_json]`.
     Deserialise with: `ModelMessagesTypeAdapter.validate_json(s)[0]`
 
-    Returns None if serialisation fails (e.g. very old pkl message types).
+    Returns None if serialisation fails for unsupported historical message shapes.
     """
     try:
         from pydantic_ai.messages import ModelMessagesTypeAdapter

@@ -233,6 +233,43 @@
         const workingDirInput = document.getElementById('working-dir-input');
         const btnSetDir = document.getElementById('btn-set-dir');
         const currentWorkingDirEl = document.getElementById('current-working-dir');
+        const sessionState = {
+            sessionId: CONFIG.sessionId,
+            title: '',
+            messageCount: null,
+            totalTokens: null,
+            pinned: false,
+            workingDirectory: '',
+            config: {}
+        };
+        window.codePuppySessionState = sessionState;
+
+        function renderSessionInfo() {
+            const parts = [];
+            if (sessionState.sessionId) parts.push(`Session: ${sessionState.sessionId}`);
+            if (sessionState.title) parts.push(sessionState.title);
+            if (Number.isInteger(sessionState.messageCount)) parts.push(`${sessionState.messageCount} msgs`);
+            if (Number.isInteger(sessionState.totalTokens)) parts.push(`${sessionState.totalTokens} tokens`);
+            sessionInfo.textContent = parts.length ? parts.join(' • ') : 'Connected';
+        }
+
+        function applyWorkingDirectory(directory, error = null) {
+            const normalized = directory || '';
+            workingDirInput.value = normalized;
+            sessionState.workingDirectory = normalized;
+            if (error) {
+                currentWorkingDirEl.textContent = `Error: ${error}`;
+                currentWorkingDirEl.className = 'font-semibold text-red-400 text-xs mt-1';
+                return;
+            }
+            if (normalized) {
+                currentWorkingDirEl.textContent = normalized;
+                currentWorkingDirEl.className = 'font-semibold text-green-400 text-xs mt-1';
+            } else {
+                currentWorkingDirEl.textContent = 'Not set';
+                currentWorkingDirEl.className = 'font-semibold text-yellow-400 text-xs mt-1';
+            }
+        }
         
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -364,6 +401,7 @@
                 setStatus('connected');
                 reconnectAttempts = 0;
                 console.log('Connected to chat WebSocket');
+                renderSessionInfo();
                 loadAgentsAndModels();
             };
             
@@ -405,6 +443,21 @@
                 case 'system':
                     handleSystemMessage(message);
                     break;
+                case 'session_meta':
+                    handleSessionMeta(message);
+                    break;
+                case 'session_meta_updated':
+                    handleSessionMetaUpdated(message);
+                    break;
+                case 'session_restored':
+                    handleSessionRestored(message);
+                    break;
+                case 'session_switched':
+                    handleSessionSwitched(message);
+                    break;
+                case 'config_value':
+                    handleConfigValue(message);
+                    break;
                 case 'working_directory_changed':
                     handleWorkingDirectoryChanged(message);
                     break;
@@ -445,7 +498,9 @@
         }
         
         function handleSystemMessage(message) {
-            sessionInfo.textContent = message.content;
+            if (message.content && (!sessionState.sessionId || sessionInfo.textContent === 'Connecting...')) {
+                sessionInfo.textContent = message.content;
+            }
             if (message.agent_name) {
                 agentSelector.value = message.agent_name;
             }
@@ -455,14 +510,84 @@
             addSystemMessage(message.content);
         }
         
+        function handleSessionMeta(message) {
+            if (message.session_id) {
+                sessionState.sessionId = message.session_id;
+                CONFIG.sessionId = message.session_id;
+            }
+            sessionState.title = message.title || '';
+            sessionState.messageCount = Number.isInteger(message.message_count) ? message.message_count : null;
+            sessionState.totalTokens = Number.isInteger(message.total_tokens) ? message.total_tokens : null;
+            if (typeof message.pinned === 'boolean') {
+                sessionState.pinned = message.pinned;
+            }
+            if (message.agent_name) {
+                agentSelector.value = message.agent_name;
+            }
+            if (message.model_name) {
+                modelSelector.value = message.model_name;
+            }
+            applyWorkingDirectory(message.working_directory || '');
+            renderSessionInfo();
+        }
+
+        function handleSessionMetaUpdated(message) {
+            if (typeof message.title === 'string') {
+                sessionState.title = message.title;
+            }
+            if (typeof message.pinned === 'boolean') {
+                sessionState.pinned = message.pinned;
+            }
+            renderSessionInfo();
+        }
+
+        function handleSessionRestored(message) {
+            if (message.session_id) {
+                sessionState.sessionId = message.session_id;
+                CONFIG.sessionId = message.session_id;
+            }
+            if (typeof message.title === 'string') {
+                sessionState.title = message.title;
+            }
+            if (Number.isInteger(message.message_count)) {
+                sessionState.messageCount = message.message_count;
+            }
+            renderSessionInfo();
+        }
+
+        function handleSessionSwitched(message) {
+            if (message.session_id) {
+                sessionState.sessionId = message.session_id;
+                CONFIG.sessionId = message.session_id;
+            }
+            if (typeof message.title === 'string') {
+                sessionState.title = message.title;
+            }
+            if (Number.isInteger(message.message_count)) {
+                sessionState.messageCount = message.message_count;
+            }
+            if (message.agent_name) {
+                agentSelector.value = message.agent_name;
+            }
+            if (message.model_name) {
+                modelSelector.value = message.model_name;
+            }
+            applyWorkingDirectory(message.working_directory || '');
+            renderSessionInfo();
+        }
+
+        function handleConfigValue(message) {
+            if (!message.key) return;
+            sessionState.config[message.key] = message.value;
+            window.codePuppyConfig = sessionState.config;
+        }
+
         function handleWorkingDirectoryChanged(message) {
             if (message.success) {
-                currentWorkingDirEl.textContent = message.directory;
-                currentWorkingDirEl.className = 'font-semibold text-green-400 text-xs mt-1';
+                applyWorkingDirectory(message.directory || '');
                 addSystemMessage(`Working directory set to: ${message.directory}`);
             } else {
-                currentWorkingDirEl.textContent = `Error: ${message.error}`;
-                currentWorkingDirEl.className = 'font-semibold text-red-400 text-xs mt-1';
+                applyWorkingDirectory(message.directory || '', message.error || 'Unknown error');
                 addSystemMessage(`Failed to set working directory: ${message.error}`, 'error');
             }
         }

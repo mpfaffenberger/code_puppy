@@ -24,7 +24,6 @@ from code_puppy.api.db.queries import (
     write_system_message_to_sqlite,
     write_turn_to_sqlite,
 )
-from code_puppy.api.db.seeder import seed_from_pkl_dirs
 
 __all__ = [
     "init_db",
@@ -44,6 +43,5 @@ __all__ = [
     "get_active_messages",
     "mark_messages_compacted",
     "insert_compaction_log",
-    "seed_from_pkl_dirs",
     "write_turn_to_sqlite",
 ]
