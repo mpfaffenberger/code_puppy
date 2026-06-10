@@ -235,6 +235,15 @@ def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]
             if not skill_dir.is_dir() or skill_dir.name.startswith("."):
                 continue
 
+            # First-discovered skill wins - skip duplicates from later directories
+            if skill_dir.name in seen_skill_names:
+                logger.debug(
+                    "Skipping duplicate skill '%s' at %s (already discovered)",
+                    skill_dir.name,
+                    skill_dir,
+                )
+                continue
+
             has_skill_md = is_valid_skill_directory(skill_dir)
             skill_info = SkillInfo(
                 name=skill_dir.name,

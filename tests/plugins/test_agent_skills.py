@@ -288,6 +288,48 @@ class TestSkillDiscovery:
         assert "name: plugin-skill" in content
         assert "description: From plugin" in content
 
+    def test_discover_skills_deduplicates_across_directories(self, tmp_path, caplog):
+        """Test that same skill name in multiple directories only keeps first discovered.
+
+        When the same skill name exists in multiple skill directories (e.g.,
+        ~/.code_puppy/skills/foo and ~/.claude/skills/foo), only the first one
+        discovered should be kept. This prevents /help from showing duplicate entries.
+        """
+        # Create first skill directory (higher priority - discovered first)
+        first_dir = tmp_path / "primary-skills"
+        first_dir.mkdir()
+        first_skill = first_dir / "duplicate-skill"
+        first_skill.mkdir()
+        (first_skill / "SKILL.md").write_text(
+            "---\nname: duplicate-skill\ndescription: First version\n---\n"
+        )
+
+        # Create second skill directory (lower priority - discovered second)
+        second_dir = tmp_path / "secondary-skills"
+        second_dir.mkdir()
+        second_skill = second_dir / "duplicate-skill"
+        second_skill.mkdir()
+        (second_skill / "SKILL.md").write_text(
+            "---\nname: duplicate-skill\ndescription: Second version\n---\n"
+        )
+
+        # Discover skills from both directories in order
+        with caplog.at_level(logging.DEBUG):
+            skills = discover_skills(directories=[first_dir, second_dir])
+
+        # Should only have one skill, not two
+        duplicate_skills = [s for s in skills if s.name == "duplicate-skill"]
+        assert len(duplicate_skills) == 1, (
+            "Expected exactly one 'duplicate-skill', got "
+            f"{len(duplicate_skills)}: {[s.path for s in duplicate_skills]}"
+        )
+
+        # First-discovered wins - should be from the first directory
+        assert duplicate_skills[0].path == first_skill
+
+        # Verify debug log about skipping duplicate
+        assert "Skipping duplicate skill 'duplicate-skill'" in caplog.text
+
     def test_filesystem_skill_wins_over_plugin_collision(self, tmp_path, monkeypatch):
         from code_puppy.plugins.agent_skills import discovery as discovery_module
 
