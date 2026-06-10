@@ -114,9 +114,7 @@ def _ingest(mem: "substrate.Memory", fact_map: dict[str, Any], message: str) -> 
                 changed += 1
             except Exception:
                 rid = _rid_of(
-                    mem.remember(
-                        f["fact"], kind="semantic", importance=f["importance"]
-                    )
+                    mem.remember(f["fact"], kind="semantic", importance=f["importance"])
                 )
                 if rid is not None:
                     fact_map[f["fact"]] = rid

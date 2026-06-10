@@ -126,9 +126,7 @@ def register_yantrik_recall(agent: Any) -> None:
                         rid=_rid_of(m),
                     )
                 )
-            return YantrikRecallOutput(
-                query=query, total=len(items), memories=items
-            )
+            return YantrikRecallOutput(query=query, total=len(items), memories=items)
         except Exception as exc:  # noqa: BLE001
             return YantrikRecallOutput(
                 query=query, total=0, error=f"yantrik_recall failed: {exc!r}"

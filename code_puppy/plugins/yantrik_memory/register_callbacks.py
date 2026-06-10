@@ -53,9 +53,7 @@ def _on_load_prompt() -> str | None:
         return None
 
 
-async def _on_user_prompt_submit(
-    prompt: str, session_id: str | None = None
-) -> None:
+async def _on_user_prompt_submit(prompt: str, session_id: str | None = None) -> None:
     """Async hook — log + distill the user turn. Never modifies the prompt."""
     try:
         distill_user_message(prompt, session_id)

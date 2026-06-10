@@ -158,9 +158,7 @@ class Memory:
         current = self.prefs(n_prefs)
         cur_keys = {(m or {}).get("rid") for m in current}
         history = [
-            m
-            for m in self.recall(query, top_k)
-            if (m or {}).get("rid") not in cur_keys
+            m for m in self.recall(query, top_k) if (m or {}).get("rid") not in cur_keys
         ]
         return current, history
 
