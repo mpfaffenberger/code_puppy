@@ -54,6 +54,7 @@ class SteadyDrainer:
         self._min_units = max(1, min_units_per_tick)
         self._closed = False
         self._task: Optional[asyncio.Task] = None
+        self._pending = ""
 
     def start(self) -> None:
         """Spin up the background drain task (idempotent)."""
@@ -63,15 +64,52 @@ class SteadyDrainer:
     async def close(self) -> None:
         """Mark the stream finished and wait for the buffer to fully drain."""
         self._closed = True
-        if self._task is not None:
-            try:
-                await self._task
-            finally:
-                self._task = None
+        task, self._task = self._task, None
+        if task is None:
+            return
+        try:
+            await task
+        except asyncio.CancelledError:
+            # We were cancelled while waiting (user interrupt). Make sure
+            # the drain task dies with us and nothing prints afterwards.
+            task.cancel()
+            self._discard_all()
+            raise
+
+    def abort(self) -> None:
+        """Stop immediately and discard buffered content (user interrupt).
+
+        Unlike :meth:`close`, nothing further is printed: the user asked us
+        to stop, so dumping the backlog would just be noise.
+        """
+        self._closed = True
+        self._discard_all()
+        task, self._task = self._task, None
+        if task is not None:
+            task.cancel()
 
     async def _run(self) -> None:
         try:
+            was_paused = self._is_paused()
             while True:
+                if self._is_paused():
+                    if not was_paused:
+                        # Pause just began (user steering). Flush the tail in
+                        # ONE atomic write — it lands before the steering
+                        # prompt renders, and an empty buffer means close()
+                        # returns immediately instead of stalling the agent
+                        # pipeline inside the model's HTTP stream (held-open
+                        # connections get killed upstream → RemoteProtocolError
+                        # on the very next model call).
+                        self._flush_all()
+                    was_paused = True
+                    if self._closed and self._remaining_units() <= 0:
+                        return
+                    # Anything fed DURING the pause stays silent until resume
+                    # so we never type over the steering prompt.
+                    await asyncio.sleep(self._tick)
+                    continue
+                was_paused = False
                 remaining = self._remaining_units()
                 if remaining <= 0:
                     if self._closed:
@@ -85,9 +123,24 @@ class SteadyDrainer:
                 self._drain_units(n)
                 await asyncio.sleep(self._tick)
         except asyncio.CancelledError:
-            # Never lose buffered content on cancellation.
-            self._flush_all()
+            # Cancellation means interrupt/shutdown: stop typing NOW and
+            # drop the backlog instead of dumping it into the terminal.
+            self._discard_all()
             raise
+
+    def _discard_all(self) -> None:
+        """Throw away any buffered content without emitting it."""
+        self._pending = ""
+
+    @staticmethod
+    def _is_paused() -> bool:
+        """Best-effort check of the global pause controller."""
+        try:
+            from code_puppy.messaging.pause_controller import get_pause_controller
+
+            return get_pause_controller().is_paused()
+        except Exception:
+            return False
 
     # ── subclass hooks ─────────────────────────────────────────────────
     def _remaining_units(self) -> int:  # pragma: no cover - abstract
@@ -119,7 +172,6 @@ class ThinkingStreamSmoother(SteadyDrainer):
         )
         self._console = console
         self._style = style
-        self._pending = ""
 
     def feed(self, text: str) -> None:
         """Append streamed thinking text to the buffer."""
@@ -165,7 +217,6 @@ class SmoothTermflowWriter(SteadyDrainer):
             min_units_per_tick=min_chars_per_tick,
         )
         self._target = target
-        self._pending = ""
 
     # ── file-like interface used by termflow.Renderer ──────────────────
     def write(self, text: str) -> int:

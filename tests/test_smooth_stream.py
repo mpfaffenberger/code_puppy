@@ -69,6 +69,116 @@ async def test_close_is_safe_without_feed():
     assert buf.getvalue() == ""
 
 
+@pytest.mark.asyncio
+async def test_abort_discards_buffer_and_stops_typing():
+    """abort() must stop output immediately and drop the backlog."""
+    console, buf = _plain_console()
+    sm = ThinkingStreamSmoother(console, tick_interval=0.005, catch_up_seconds=1.0)
+    sm.start()
+    sm.feed("x" * 10_000)
+    await asyncio.sleep(0.02)  # let a few ticks emit
+    sm.abort()
+    emitted = buf.getvalue()
+    await asyncio.sleep(0.05)  # nothing more may print afterwards
+    assert buf.getvalue() == emitted
+    assert len(emitted) < 10_000
+
+
+@pytest.mark.asyncio
+async def test_cancellation_discards_instead_of_dumping():
+    """Cancelling the drain task must NOT flush the backlog to the terminal."""
+    console, buf = _plain_console()
+    sm = ThinkingStreamSmoother(console, tick_interval=0.005, catch_up_seconds=1.0)
+    sm.start()
+    sm.feed("y" * 10_000)
+    await asyncio.sleep(0.02)
+    sm._task.cancel()
+    await asyncio.sleep(0.02)
+    assert len(buf.getvalue()) < 10_000
+
+
+@pytest.mark.asyncio
+async def test_pause_suspends_typing_until_resume():
+    """Content fed DURING a pause must stay silent until resume."""
+    from code_puppy.messaging.pause_controller import (
+        get_pause_controller,
+        reset_pause_controller,
+    )
+
+    reset_pause_controller()
+    console, buf = _plain_console()
+    sm = ThinkingStreamSmoother(console, tick_interval=0.002, catch_up_seconds=0.02)
+    sm.start()
+    try:
+        get_pause_controller().pause()
+        sm.feed("quiet please")
+        await asyncio.sleep(0.05)
+        assert buf.getvalue() == ""
+        get_pause_controller().resume()
+        await sm.close()
+        assert buf.getvalue() == "quiet please"
+    finally:
+        reset_pause_controller()
+
+
+@pytest.mark.asyncio
+async def test_pause_transition_flushes_tail_atomically():
+    """Buffered content from BEFORE the pause flushes in one go at pause time.
+
+    The tail must land before the steering prompt renders, and the buffer
+    must be empty so close() can't stall the agent pipeline.
+    """
+    from code_puppy.messaging.pause_controller import (
+        get_pause_controller,
+        reset_pause_controller,
+    )
+
+    reset_pause_controller()
+    console, buf = _plain_console()
+    sm = ThinkingStreamSmoother(console, tick_interval=0.002, catch_up_seconds=5.0)
+    sm.start()
+    try:
+        sm.feed("tail content " * 50)  # would take ~5s at the steady rate
+        await asyncio.sleep(0.01)
+        get_pause_controller().pause()
+        await asyncio.sleep(0.05)  # a few ticks: transition flush fires
+        assert buf.getvalue().endswith("tail content ")
+        assert sm._pending == ""
+    finally:
+        get_pause_controller().resume()
+        await sm.close()
+        reset_pause_controller()
+
+
+@pytest.mark.asyncio
+async def test_close_does_not_stall_while_paused():
+    """Regression: close() during a pause must NOT wait for resume.
+
+    The old behavior held the model's HTTP stream open for the whole pause
+    (handler blocked in close() inside ``node.stream``), getting connections
+    killed upstream → RemoteProtocolError on the post-steer model call.
+    """
+    from code_puppy.messaging.pause_controller import (
+        get_pause_controller,
+        reset_pause_controller,
+    )
+
+    reset_pause_controller()
+    console, buf = _plain_console()
+    sm = ThinkingStreamSmoother(console, tick_interval=0.002, catch_up_seconds=5.0)
+    sm.start()
+    try:
+        sm.feed("x" * 5000)
+        await asyncio.sleep(0.01)
+        get_pause_controller().pause()
+        # NO resume — close() must still finish fast (transition flush
+        # empties the buffer; closed + empty exits the drain loop).
+        await asyncio.wait_for(sm.close(), timeout=1.0)
+        assert "x" * 100 in buf.getvalue()
+    finally:
+        reset_pause_controller()
+
+
 def test_make_thinking_smoother_respects_disabled(monkeypatch):
     """make_thinking_smoother returns None when smoothing is toggled off."""
     monkeypatch.setattr("code_puppy.config.get_smooth_thinking_stream", lambda: False)
