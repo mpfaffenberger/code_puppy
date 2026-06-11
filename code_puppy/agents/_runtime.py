@@ -53,18 +53,18 @@ except ImportError:  # pragma: no cover - 3.10 only
 
 from code_puppy.agents import _history, _key_listeners
 from code_puppy.agents._builder import build_pydantic_agent
+from code_puppy.agents._diagnostics import emit_exception_diagnostics
+from code_puppy.agents._non_streaming_render import (
+    StreamingTextDetector,
+    render_result_without_streaming,
+    should_render_fallback,
+)
 from code_puppy.agents._run_signals import (
     drain_pause_state_on_cancel,
     make_schedule_cancel,
     make_schedule_pause,
     prepare_queued_steer_injection,
     reset_pause_state_at_run_start,
-)
-from code_puppy.agents._diagnostics import emit_exception_diagnostics
-from code_puppy.agents._non_streaming_render import (
-    StreamingTextDetector,
-    render_result_without_streaming,
-    should_render_fallback,
 )
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
@@ -264,6 +264,23 @@ def _should_prepend_system_prompt(agent: Any, prompt: str) -> str:
         prepend_system_to_user=True,
     )
     return prepared.user_prompt
+
+
+def _is_cancel_scope_corruption(exc: BaseException) -> bool:
+    """True for anyio's cross-task cancel-scope ``RuntimeError``.
+
+    pydantic-ai MCP toolsets are refcounted: whichever task takes the
+    refcount 0->1 owns the underlying anyio cancel scope, and whichever
+    task drops it back to 0 closes it. When an MCP server's lifecycle task
+    dies mid-run (e.g. a flaky ``npx``-spawned stdio subprocess exits), the
+    agent run task ends up closing a scope owned by a dead task and anyio
+    raises ``RuntimeError: Attempted to exit a cancel scope that isn't the
+    current task's current cancel scope``. By that point the model's
+    response has already streamed — this is teardown noise, not a run
+    failure, so we detect it and degrade gracefully instead of dumping a
+    full exception group on the user.
+    """
+    return isinstance(exc, RuntimeError) and "cancel scope" in str(exc).lower()
 
 
 def _collect_exceptions(
@@ -492,6 +509,20 @@ async def run_with_mcp(
                     not isinstance(e, (asyncio.CancelledError, UsageLimitExceeded))
                 ),
             )
+            scope_noise = [e for e in unexpected if _is_cancel_scope_corruption(e)]
+            unexpected = [e for e in unexpected if e not in scope_noise]
+            if scope_noise:
+                import logging as _logging
+
+                _logging.getLogger(__name__).debug(
+                    "Suppressed cross-task cancel-scope error(s): %s", scope_noise
+                )
+                emit_warning(
+                    "An MCP server connection died during this run (its async "
+                    "teardown crossed task boundaries). The response above is "
+                    "intact, but this turn may not be saved to history. "
+                    "Check [cyan]/mcp status[/cyan] and restart the server if needed."
+                )
             for exc in unexpected:
                 emit_exception_diagnostics(exc, group_id=group_id)
             # Re-raise so the outer handler in run_with_mcp can propagate
@@ -518,6 +549,25 @@ async def run_with_mcp(
         )
     except Exception:
         # Hook failures never block the agent.
+        pass
+
+    # ``build_pydantic_agent`` may have kicked off fire-and-forget MCP
+    # autostarts (``start_server_sync``). Await them so each server's
+    # lifecycle task owns its anyio cancel scope BEFORE pydantic-ai enters
+    # the toolsets inside the run task below — otherwise the run task takes
+    # ownership and unwind crashes with a cross-task cancel-scope error.
+    # Mirrors the fix already applied to sub-agent invocation.
+    try:
+        from code_puppy.mcp_ import manager as _mcp_manager_module
+
+        # Peek at the singleton instead of get_mcp_manager() — if no manager
+        # exists yet there's nothing pending, and we shouldn't pay the cost
+        # of constructing one just to ask.
+        _existing_manager = _mcp_manager_module._manager_instance
+        if _existing_manager is not None:
+            await _existing_manager.wait_for_pending_starts()
+    except Exception:
+        # MCP trouble must never block the agent run itself.
         pass
 
     agent_task = asyncio.create_task(run_agent_task())
