@@ -6,32 +6,34 @@ are active; in real terminals CPR/raw-mode negotiation has caused instability
 (``WARNING: your terminal doesn't support cursor position requests (CPR)``) and
 left users unable to submit. This prompt is boring on purpose: stdlib-only,
 single-line, no CPR, no full-screen UI, no bottom toolbar.
+
+Line editing supports left/right arrows, Home/End, Delete, and Backspace at
+the cursor. Rendering is incremental (see :mod:`.line_editor`) so legacy
+Windows consoles — which ignore DEC 2026 synchronized output — don't flicker.
 """
 
 from __future__ import annotations
 
-import shutil
 import sys
-from typing import Literal, Optional, Tuple
+from typing import Iterator, Literal, Optional, Tuple
+
+from .line_editor import make_render_state, render_line
 
 SteerMode = Literal["now", "queue"]
 SteerResult = Optional[Tuple[str, SteerMode]]
-KeyAction = Literal["continue", "submit", "cancel", "redraw"]
+KeyAction = Literal["continue", "submit", "cancel"]
 
-# Minimum sensible terminal width — guards against zero/negative widths from
-# weird shells. If we ever see anything smaller, we treat the line as a single
-# unwrapped row, which is wrong but at least won't divide by zero.
-_MIN_WIDTH = 1
-_FALLBACK_WIDTH = 80
+# Symbolic tokens for navigation keys. Multi-char on purpose so they can
+# never collide with a literal single keypress character.
+_LEFT, _RIGHT, _HOME, _END, _DELETE = "left", "right", "home", "end", "delete"
 
-# DEC private mode 2026 — "synchronized output". Terminals that support it
-# (iTerm2, kitty, WezTerm, Alacritty, recent gnome-terminal/xterm, Windows
-# Terminal) buffer everything between BEGIN and END and commit it as one
-# atomic frame → no mid-redraw flicker. Terminals that don't recognize the
-# escape silently ignore it, so this is a free upgrade with zero fallback
-# cost. Spec: https://gist.github.com/christianparpart/d8a62cc1ab659194337d73e399004036
-_SYNC_BEGIN = "\x1b[?2026h"
-_SYNC_END = "\x1b[?2026l"
+# CSI / SS3 final bytes → tokens (ESC [ D, ESC O D, ...). Modifier params
+# (e.g. Ctrl+Left = ESC [ 1;5 D) map to the same base key — close enough.
+_CSI_FINAL_KEYS = {"D": _LEFT, "C": _RIGHT, "H": _HOME, "F": _END}
+# CSI <n> ~ → tokens (vt-style Home/End/Delete).
+_CSI_TILDE_KEYS = {"1": _HOME, "7": _HOME, "4": _END, "8": _END, "3": _DELETE}
+# Windows scan-code suffixes after a \x00/\xe0 prefix from msvcrt.getwch().
+_WIN_SCAN_KEYS = {"K": _LEFT, "M": _RIGHT, "G": _HOME, "O": _END, "S": _DELETE}
 
 
 def _can_run_full_ui() -> bool:
@@ -60,93 +62,78 @@ def _collect_via_input_fallback() -> SteerResult:
     return (text, "now") if text else None
 
 
-def _terminal_width() -> int:
-    """Best-effort terminal width, clamped to ``_MIN_WIDTH``."""
-    try:
-        cols = shutil.get_terminal_size(fallback=(_FALLBACK_WIDTH, 24)).columns
-    except Exception:
-        cols = _FALLBACK_WIDTH
-    return max(_MIN_WIDTH, cols)
+def _render_prompt(buffer: list[str], pos: int, mode: SteerMode, state: dict) -> None:
+    """Render the prompt line with the cursor at ``pos`` (index into buffer)."""
+    prefix = f"steer [{mode}]> "
+    render_line(prefix + "".join(buffer), len(prefix) + pos, state)
 
 
-def _cursor_row_for_length(text_len: int, width: int) -> int:
-    """Visual row offset (0-indexed) where the cursor sits after writing
-    ``text_len`` chars starting from column 0 of a fresh row.
+def _exit_prompt(buffer: list[str], mode: SteerMode, state: dict) -> None:
+    """Park the cursor after the line's end and drop to a fresh row.
 
-    Terminals park the cursor on the row of the *last printed character* until
-    the next char actually wraps, so for ``N`` chars the row is ``(N-1)//width``.
+    Without this, submitting/cancelling with the cursor mid-line would emit
+    the trailing newline from the middle of wrapped text and later output
+    would stomp the tail rows.
     """
-    if text_len <= 0:
-        return 0
-    return (text_len - 1) // max(_MIN_WIDTH, width)
-
-
-def _make_render_state() -> dict:
-    """Mutable bookkeeping for the redraw routine. Lives one prompt session."""
-    return {"cursor_row": 0}
-
-
-def _render_prompt(buffer: list[str], mode: SteerMode, state: dict) -> None:
-    """Redraw the steering prompt, correctly handling wrapped input.
-
-    On every redraw we jump back up to the prompt's starting row, wipe
-    everything from there to the end of the screen, and re-emit the line.
-    Without this, ``\r\x1b[K`` only clears the *current* visual row, so wrapped
-    input gets re-stamped on every keystroke (see the bug report Mike sent).
-
-    The whole sequence is wrapped in DEC 2026 synchronized output so modern
-    terminals commit it atomically — the user never sees the intermediate
-    "cleared screen" frame, which is what produced the flicker.
-    """
-    width = _terminal_width()
-    line = f"steer [{mode}]> {''.join(buffer)}"
-
-    prev_row = state.get("cursor_row", 0)
-    sys.stdout.write(_SYNC_BEGIN)
-    if prev_row > 0:
-        sys.stdout.write(f"\x1b[{prev_row}A")
-    sys.stdout.write("\r\x1b[J")
-    sys.stdout.write(line)
-    sys.stdout.write(_SYNC_END)
-
-    state["cursor_row"] = _cursor_row_for_length(len(line), width)
+    _render_prompt(buffer, len(buffer), mode, state)
+    sys.stdout.write("\n")
     sys.stdout.flush()
 
 
 def _handle_key(
-    ch: str, buffer: list[str], mode: SteerMode
-) -> tuple[KeyAction, SteerMode]:
-    """Handle one raw keypress, mutating ``buffer`` when appropriate."""
-    if ch in ("\r", "\n"):
-        return "submit", mode
-    if ch in ("", "\x03", "\x04", "\x1b"):
-        return "cancel", mode
-    if ch == "\t":
-        return "redraw", "queue" if mode == "now" else "now"
-    if ch in ("\x7f", "\b"):
-        if buffer:
-            buffer.pop()
-            return "redraw", mode
-        return "continue", mode
-    if len(ch) == 1 and ch >= " " and ch != "\x7f":
-        buffer.append(ch)
-        return "continue", mode
-    return "continue", mode
+    token: str, buffer: list[str], pos: int, mode: SteerMode
+) -> tuple[KeyAction, int, SteerMode]:
+    """Handle one key token, mutating ``buffer`` and returning new cursor/mode."""
+    if token in ("\r", "\n"):
+        return "submit", pos, mode
+    if token in ("", "\x03", "\x04", "\x1b"):
+        return "cancel", pos, mode
+    if token == "\t":
+        return "continue", pos, "queue" if mode == "now" else "now"
+    if token == _LEFT:
+        return "continue", max(0, pos - 1), mode
+    if token == _RIGHT:
+        return "continue", min(len(buffer), pos + 1), mode
+    if token == _HOME:
+        return "continue", 0, mode
+    if token == _END:
+        return "continue", len(buffer), mode
+    if token == _DELETE:
+        if pos < len(buffer):
+            del buffer[pos]
+        return "continue", pos, mode
+    if token in ("\x7f", "\b"):
+        if pos > 0:
+            del buffer[pos - 1]
+            pos -= 1
+        return "continue", pos, mode
+    if len(token) == 1 and token >= " " and token != "\x7f":
+        buffer.insert(pos, token)
+        return "continue", pos + 1, mode
+    return "continue", pos, mode
 
 
 # CSI sequences end on a "final byte" in this inclusive range (ECMA-48).
 _CSI_FINAL_LO, _CSI_FINAL_HI = "\x40", "\x7e"
 
 
-def _iter_keys(chunk: str):
-    """Yield individual keypresses from a raw input chunk.
+def _decode_csi(params: str, final: str) -> Optional[str]:
+    """Map one CSI sequence to a nav token, or ``None`` for keys we ignore."""
+    if final == "~":
+        return _CSI_TILDE_KEYS.get(params.split(";", 1)[0])
+    return _CSI_FINAL_KEYS.get(final)
+
+
+def _iter_keys(chunk: str) -> Iterator[str]:
+    """Yield key tokens (single chars or nav names) from a raw input chunk.
 
     Escape *sequences* (arrow keys, Home/End, F-keys, Alt+chords) arrive as
-    multi-byte bursts starting with ESC. This prompt has no cursor movement,
-    so we swallow them whole — the old code fed the bytes through one at a
-    time, saw the leading ESC, and cancelled the prompt the moment you
-    pressed a left arrow. A *lone* ESC (nothing after it in the chunk) is
-    still yielded so the caller can treat it as cancel.
+    multi-byte bursts starting with ESC. Recognized navigation sequences are
+    translated to symbolic tokens; everything else is swallowed whole — the
+    old code fed the bytes through one at a time, saw the leading ESC, and
+    cancelled the prompt the moment you pressed a left arrow. A *lone* ESC
+    (nothing after it in the chunk) is still yielded so the caller can treat
+    it as cancel.
     """
     i, n = 0, len(chunk)
     while i < n:
@@ -161,10 +148,19 @@ def _iter_keys(chunk: str):
         nxt = chunk[i + 1]
         if nxt == "[":  # CSI: ESC [ <params/intermediates> <final byte>
             i += 2
+            start = i
             while i < n and not (_CSI_FINAL_LO <= chunk[i] <= _CSI_FINAL_HI):
                 i += 1
+            if i < n:
+                token = _decode_csi(chunk[start:i], chunk[i])
+                if token is not None:
+                    yield token
             i += 1  # consume the final byte (or run off the end — fine)
-        elif nxt == "O":  # SS3: application-mode arrows / F1-F4
+        elif nxt == "O":  # SS3: application-mode arrows / Home / End
+            if i + 2 < n:
+                token = _CSI_FINAL_KEYS.get(chunk[i + 2])
+                if token is not None:
+                    yield token
             i += 3
         else:  # Alt+<char> chord — swallow both
             i += 2
@@ -193,35 +189,29 @@ def _collect_via_posix_raw() -> SteerResult:
     fd = sys.stdin.fileno()
     original_attrs = termios.tcgetattr(fd)
     buffer: list[str] = []
+    pos = 0
     mode: SteerMode = "now"
-    state = _make_render_state()
+    state = make_render_state()
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     try:
         tty.setcbreak(fd)
-        _render_prompt(buffer, mode, state)
+        _render_prompt(buffer, pos, mode, state)
         while True:
             raw = os.read(fd, 1024)
             if not raw:  # EOF
-                sys.stdout.write("\n")
-                sys.stdout.flush()
+                _exit_prompt(buffer, mode, state)
                 return None
-            for ch in _iter_keys(decoder.decode(raw)):
-                action, mode = _handle_key(ch, buffer, mode)
+            for token in _iter_keys(decoder.decode(raw)):
+                action, pos, mode = _handle_key(token, buffer, pos, mode)
                 if action == "submit":
-                    sys.stdout.write("\n")
-                    sys.stdout.flush()
+                    _exit_prompt(buffer, mode, state)
                     return _finish_submit(buffer, mode)
                 if action == "cancel":
-                    sys.stdout.write("\n")
-                    sys.stdout.flush()
+                    _exit_prompt(buffer, mode, state)
                     return None
-            # ``continue``/``redraw`` both land here; redrawing after an
-            # ignored key is a harmless no-op and keeps the state machine
-            # dead simple.
-            _render_prompt(buffer, mode, state)
+                _render_prompt(buffer, pos, mode, state)
     except KeyboardInterrupt:
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+        _exit_prompt(buffer, mode, state)
         return None
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
@@ -232,24 +222,26 @@ def _collect_via_windows_raw() -> SteerResult:
     import msvcrt
 
     buffer: list[str] = []
+    pos = 0
     mode: SteerMode = "now"
-    state = _make_render_state()
-    _render_prompt(buffer, mode, state)
+    state = make_render_state()
+    _render_prompt(buffer, pos, mode, state)
     while True:
         ch = msvcrt.getwch()
         if ch in ("\x00", "\xe0"):
-            msvcrt.getwch()  # consume and ignore special-key suffix
-            continue
-        action, mode = _handle_key(ch, buffer, mode)
+            token = _WIN_SCAN_KEYS.get(msvcrt.getwch())
+            if token is None:
+                continue  # F-keys, up/down, etc. — ignore
+        else:
+            token = ch
+        action, pos, mode = _handle_key(token, buffer, pos, mode)
         if action == "submit":
-            sys.stdout.write("\n")
-            sys.stdout.flush()
+            _exit_prompt(buffer, mode, state)
             return _finish_submit(buffer, mode)
         if action == "cancel":
-            sys.stdout.write("\n")
-            sys.stdout.flush()
+            _exit_prompt(buffer, mode, state)
             return None
-        _render_prompt(buffer, mode, state)
+        _render_prompt(buffer, pos, mode, state)
 
 
 def _collect_via_raw_terminal() -> SteerResult:

@@ -233,19 +233,22 @@ def _resolve_special_chars(
 def _wait_while_suspended(
     stop_event: threading.Event,
     suspend_event: threading.Event,
-    released_event: threading.Event,
+    released_event: Optional[threading.Event] = None,
 ) -> None:
     """Block until suspend is cleared or stop is set.
 
-    Sets ``released_event`` to confirm we've parked. Polls every 50ms so
-    we still respond to stop in a reasonable time.
+    Sets ``released_event`` (when given) to confirm we've parked. Polls
+    every 50ms so we still respond to stop in a reasonable time.
+
+    NOTE: we deliberately wait on ``stop_event`` (which is unset) rather
+    than ``suspend_event`` (which IS set while we're parked here — waiting
+    on it returns immediately and busy-spins, hogging the GIL and making
+    raw-mode input prompts feel laggy while the listener is suspended).
     """
-    released_event.set()
+    if released_event is not None:
+        released_event.set()
     while suspend_event.is_set() and not stop_event.is_set():
-        # Short wait so we react to stop quickly even while suspended.
-        if suspend_event.wait(timeout=0.05):
-            # Spin to re-check stop_event / suspend cleared.
-            continue
+        stop_event.wait(timeout=0.05)
 
 
 # =============================================================================
@@ -272,11 +275,7 @@ def _listen_windows(
         # Honor suspend: msvcrt doesn't reconfigure the terminal, so the
         # contract here is purely "don't read keystrokes while suspended."
         if suspend_event is not None and suspend_event.is_set():
-            if released_event is not None:
-                _wait_while_suspended(stop_event, suspend_event, released_event)
-            else:
-                while suspend_event.is_set() and not stop_event.is_set():
-                    time.sleep(0.05)
+            _wait_while_suspended(stop_event, suspend_event, released_event)
             if stop_event.is_set():
                 return
             continue
@@ -365,12 +364,7 @@ def _listen_posix(
             # until the plugin signals resume. Re-arm cbreak afterwards.
             if suspend_event is not None and suspend_event.is_set():
                 _exit_cbreak()
-                if released_event is not None:
-                    _wait_while_suspended(stop_event, suspend_event, released_event)
-                else:
-                    while suspend_event.is_set() and not stop_event.is_set():
-                        if suspend_event.wait(timeout=0.05):
-                            continue
+                _wait_while_suspended(stop_event, suspend_event, released_event)
                 if stop_event.is_set():
                     return
                 # Plugin finished — re-acquire raw mode.

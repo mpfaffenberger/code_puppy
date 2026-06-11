@@ -14,6 +14,7 @@ import pytest
 
 from code_puppy.agents._key_listeners import (
     KeyListenerHandle,
+    _wait_while_suspended,
     get_active_handle,
     set_active_handle,
 )
@@ -58,6 +59,44 @@ def test_suspend_returns_false_when_listener_never_acks():
     handle = _make_handle()
     # No fake-listener thread → released_event never gets set.
     assert handle.suspend(timeout=0.05) is False
+
+
+def test_wait_while_suspended_sleeps_instead_of_busy_spinning(monkeypatch):
+    """Regression: parking used to wait on ``suspend_event`` — which is SET
+    while suspended, so ``Event.wait()`` returned instantly and the loop
+    busy-spun at 100% CPU, hogging the GIL and lagging the steering prompt.
+
+    The park loop must block on ``stop_event`` (genuinely unset) instead.
+    """
+    stop = threading.Event()
+    suspend = threading.Event()
+    suspend.set()
+    released = threading.Event()
+
+    sleep_calls: list[float] = []
+    real_wait = stop.wait
+
+    def counting_wait(timeout=None):
+        sleep_calls.append(timeout)
+        if len(sleep_calls) >= 3:
+            suspend.clear()  # resume → loop must exit
+        return real_wait(0)  # don't actually sleep in tests
+
+    monkeypatch.setattr(stop, "wait", counting_wait)
+
+    _wait_while_suspended(stop, suspend, released)
+
+    assert released.is_set()
+    assert sleep_calls, "park loop never blocked — that's a busy-spin"
+    assert all(t == 0.05 for t in sleep_calls)
+
+
+def test_wait_while_suspended_tolerates_missing_released_event():
+    """Inline call sites pass ``released_event=None`` — must not crash."""
+    stop = threading.Event()
+    suspend = threading.Event()  # not set → returns immediately
+
+    _wait_while_suspended(stop, suspend, None)
 
 
 def test_resume_clears_suspend_event():
