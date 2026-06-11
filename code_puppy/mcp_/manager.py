@@ -639,6 +639,38 @@ class MCPManager:
                 return True
             return False
 
+    async def wait_for_pending_starts(self, timeout: float = 15.0) -> None:
+        """Wait for any background server starts scheduled by ``start_server_sync``.
+
+        ``start_server_sync`` is fire-and-forget: it schedules the actual
+        ``start_server`` coroutine as a background task and returns
+        immediately. If a pydantic-ai agent run begins before that task has
+        entered the MCP server's context, pydantic-ai's toolset ``__aenter__``
+        takes the refcount 0->1 inside the *run* task and becomes the anyio
+        cancel-scope owner — setting up the cross-task
+        ``Attempted to exit a cancel scope that isn't the current task's
+        current cancel scope`` crash on unwind.
+
+        Callers that are about to run an agent should await this first so the
+        lifecycle task owns each server's cancel scope before pydantic-ai
+        re-enters it (refcount no-op fast-path).
+
+        Uses ``asyncio.wait`` (NOT ``wait_for`` + ``gather``) so a timeout
+        never cancels the in-flight start tasks.
+        """
+        tasks = [
+            t
+            for t in getattr(self, "_pending_start_tasks", {}).values()
+            if not t.done()
+        ]
+        if not tasks:
+            return
+        _done, pending = await asyncio.wait(tasks, timeout=timeout)
+        if pending:
+            logger.warning(
+                "Timed out waiting for %d pending MCP server start(s)", len(pending)
+            )
+
     async def stop_server(self, server_id: str) -> bool:
         """
         Stop a server (disable it and stop the subprocess/connection).
