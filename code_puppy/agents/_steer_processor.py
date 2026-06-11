@@ -44,14 +44,36 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
         if not pending:
             return messages
 
+        # CRITICAL: carry the in-effect instructions onto the injected
+        # request. pydantic-ai resolves the system prompt from the MOST
+        # RECENT ModelRequest (``Model._get_instructions``); injecting with
+        # ``instructions=None`` silently drops the system prompt for that
+        # model call. Most models just get one amnesiac turn — claude-code
+        # OAuth models hard-fail, because the endpoint fingerprints the
+        # "You are Claude Code..." system prompt and stealth-rejects
+        # requests without it as fake ``overloaded_error``s.
+        last_instructions = next(
+            (
+                m.instructions
+                for m in reversed(messages)
+                if isinstance(m, ModelRequest) and m.instructions is not None
+            ),
+            None,
+        )
+
         # Build one user message per steer (so each shows up as a discrete
         # turn in the model's view of the conversation — clearer than
         # concatenating them).
         injected: List[ModelMessage] = []
         for steer_text in pending:
             preview = steer_text[:80] + ("..." if len(steer_text) > 80 else "")
-            emit_info(f"🎯 Injecting steer mid-turn — model will see: {preview!r}")
-            injected.append(ModelRequest(parts=[UserPromptPart(content=steer_text)]))
+            emit_info(f"Injecting steer mid-turn — model will see: {preview!r}")
+            injected.append(
+                ModelRequest(
+                    parts=[UserPromptPart(content=steer_text)],
+                    instructions=last_instructions,
+                )
+            )
 
         # Append AFTER the existing messages. pydantic-ai passes this list
         # to the model on this exact call, so the model's very next response

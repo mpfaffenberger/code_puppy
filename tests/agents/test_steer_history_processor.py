@@ -114,6 +114,70 @@ def test_multiple_steers_appended_as_separate_user_messages():
 
 
 # =============================================================================
+# Instructions inheritance (claude-code regression)
+# =============================================================================
+
+
+def test_injected_steer_inherits_instructions_from_latest_request():
+    """Regression: pydantic-ai resolves the system prompt from the MOST
+    RECENT ModelRequest. An injected steer with ``instructions=None`` drops
+    the system prompt for that model call — claude-code OAuth endpoints
+    fingerprint it and reject the request as a fake ``overloaded_error``.
+    """
+    agent = _make_agent_with_history()
+    proc = make_steer_history_processor(agent)
+    existing = ModelRequest(
+        parts=[UserPromptPart(content="hello")],
+        instructions="You are Claude Code, Anthropic's official CLI for Claude.",
+    )
+    get_pause_controller().request_steer("pivot")
+
+    result = proc([existing])
+
+    injected = result[-1]
+    assert injected.instructions == existing.instructions
+
+
+def test_injected_steer_uses_latest_non_none_instructions():
+    """With multiple requests in history, the newest non-None wins."""
+    agent = _make_agent_with_history()
+    proc = make_steer_history_processor(agent)
+    older = ModelRequest(parts=[UserPromptPart(content="old")], instructions="v1")
+    newer = ModelRequest(parts=[UserPromptPart(content="new")], instructions="v2")
+    mock_request = ModelRequest(parts=[UserPromptPart(content="tool stuff")])
+    get_pause_controller().request_steer("go")
+
+    result = proc([older, newer, mock_request])
+
+    assert result[-1].instructions == "v2"
+
+
+def test_injected_steer_instructions_none_when_history_has_none():
+    """No instructions anywhere → inject None (and don't crash)."""
+    agent = _make_agent_with_history()
+    proc = make_steer_history_processor(agent)
+    get_pause_controller().request_steer("go")
+
+    result = proc([ModelRequest(parts=[UserPromptPart(content="x")])])
+
+    assert result[-1].instructions is None
+
+
+def test_all_injected_steers_carry_instructions():
+    """Every injected steer (not just the first) inherits instructions."""
+    agent = _make_agent_with_history()
+    proc = make_steer_history_processor(agent)
+    pc = get_pause_controller()
+    pc.request_steer("first")
+    pc.request_steer("second")
+    existing = ModelRequest(parts=[UserPromptPart(content="hi")], instructions="sys")
+
+    result = proc([existing])
+
+    assert [m.instructions for m in result[1:]] == ["sys", "sys"]
+
+
+# =============================================================================
 # Queue lifecycle
 # =============================================================================
 
