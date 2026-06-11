@@ -618,7 +618,10 @@ async def run_with_mcp(
         key_listener_stop_event = threading.Event()
         key_listener_handle = _key_listeners.spawn_key_listener(
             key_listener_stop_event,
-            on_escape=lambda: None,  # Ctrl+X handled by command_runner
+            # Ctrl+X: command_runner installs a dynamic handler via
+            # _key_listeners.set_escape_handler() while shell commands run;
+            # outside that window Ctrl+X is a no-op.
+            on_escape=lambda: None,
             on_cancel_agent=cancel_cb,
             on_pause_agent=schedule_agent_pause,
         )

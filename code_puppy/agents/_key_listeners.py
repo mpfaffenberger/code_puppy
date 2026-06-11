@@ -81,6 +81,37 @@ class KeyListenerHandle:
 _active_handle: Optional[KeyListenerHandle] = None
 _active_handle_lock = threading.Lock()
 
+# =============================================================================
+# Dynamic escape (Ctrl+X) handler
+# =============================================================================
+#
+# The shell-command runner needs Ctrl+X to kill running processes, but only
+# while commands are in flight. Rather than spawning a *second* cbreak
+# listener thread (two readers on one stdin -- the historical cause of
+# stolen CPR replies and the "terminal doesn't support cursor position
+# requests" warning), it registers a handler here and the single active
+# listener dispatches to it.
+
+_escape_handler: Optional[Callable[[], None]] = None
+_escape_handler_lock = threading.Lock()
+
+
+def set_escape_handler(handler: Optional[Callable[[], None]]) -> None:
+    """Install (or clear, with ``None``) the dynamic Ctrl+X handler.
+
+    While set, it takes precedence over the ``on_escape`` callback the
+    listener was spawned with.
+    """
+    global _escape_handler
+    with _escape_handler_lock:
+        _escape_handler = handler
+
+
+def _resolve_escape_handler(fallback: Callable[[], None]) -> Callable[[], None]:
+    """Return the dynamic Ctrl+X handler if set, else ``fallback``."""
+    with _escape_handler_lock:
+        return _escape_handler or fallback
+
 
 def set_active_handle(handle: Optional[KeyListenerHandle]) -> None:
     """Publish the currently-running listener handle for plugins."""
@@ -255,7 +286,7 @@ def _listen_windows(
                 key = msvcrt.getwch()
                 if key == "\x18":  # Ctrl+X
                     try:
-                        on_escape()
+                        _resolve_escape_handler(on_escape)()
                     except Exception:
                         emit_warning(
                             "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
@@ -364,7 +395,7 @@ def _listen_posix(
                 break
             if data == "\x18":  # Ctrl+X
                 try:
-                    on_escape()
+                    _resolve_escape_handler(on_escape)()
                 except Exception:
                     emit_warning(
                         "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
@@ -446,6 +477,7 @@ __all__ = [
     "KeyListenerHandle",
     "get_active_handle",
     "set_active_handle",
+    "set_escape_handler",
     "spawn_key_listener",
     "suspended_key_listener",
 ]

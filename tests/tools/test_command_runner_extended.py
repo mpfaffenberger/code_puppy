@@ -44,8 +44,6 @@ _win32_pipe_has_data = command_runner_module._win32_pipe_has_data
 _truncate_line = command_runner_module._truncate_line
 _shell_command_keyboard_context = command_runner_module._shell_command_keyboard_context
 _spawn_ctrl_x_key_listener = command_runner_module._spawn_ctrl_x_key_listener
-_listen_for_ctrl_x_windows = command_runner_module._listen_for_ctrl_x_windows
-_listen_for_ctrl_x_posix = command_runner_module._listen_for_ctrl_x_posix
 is_awaiting_user_input = command_runner_module.is_awaiting_user_input
 set_awaiting_user_input = command_runner_module.set_awaiting_user_input
 get_running_shell_process_count = command_runner_module.get_running_shell_process_count
@@ -572,11 +570,17 @@ class TestRunShellCommandAsync:
 
 
 class TestKeyboardListeners:
-    """Test keyboard listener implementations for different platforms."""
+    """Test the unified keyboard listener (shared with agent runs).
+
+    command_runner no longer ships its own listener implementation —
+    Ctrl+X is dispatched by ``code_puppy.agents._key_listeners``.
+    """
 
     @pytest.mark.skipif(not sys.platform.startswith("win"), reason="Windows only")
     def test_windows_listener_handles_no_key(self):
         """Test Windows listener when no key is pressed."""
+        from code_puppy.agents import _key_listeners
+
         stop_event = threading.Event()
         escape_called = []
 
@@ -587,12 +591,14 @@ class TestKeyboardListeners:
         with patch("msvcrt.kbhit", return_value=False):
             with patch("time.sleep", MagicMock()):
                 stop_event.set()  # Stop after first iteration
-                _listen_for_ctrl_x_windows(stop_event, on_escape)
+                _key_listeners._listen_windows(stop_event, on_escape)
                 assert len(escape_called) == 0
 
     @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX only")
     def test_posix_listener_handles_stdin_error(self):
         """Test POSIX listener handles stdin errors gracefully."""
+        from code_puppy.agents import _key_listeners
+
         stop_event = threading.Event()
         escape_called = []
 
@@ -605,13 +611,15 @@ class TestKeyboardListeners:
                 with patch("termios.tcgetattr", return_value=[]):
                     with patch("tty.setcbreak", MagicMock()):
                         with patch("termios.tcsetattr", MagicMock()):
-                            _listen_for_ctrl_x_posix(stop_event, on_escape)
+                            _key_listeners._listen_posix(stop_event, on_escape)
                             # Should exit gracefully without raising
                             assert True
 
     @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX only")
     def test_posix_listener_handles_bad_stdin(self):
         """Test POSIX listener handles bad stdin gracefully."""
+        from code_puppy.agents import _key_listeners
+
         stop_event = threading.Event()
         escape_called = []
 
@@ -621,7 +629,7 @@ class TestKeyboardListeners:
         # Mock stdin.fileno to raise exception
         with patch("sys.stdin") as mock_stdin:
             mock_stdin.fileno.side_effect = ValueError("No fileno")
-            _listen_for_ctrl_x_posix(stop_event, on_escape)
+            _key_listeners._listen_posix(stop_event, on_escape)
             # Should exit gracefully without raising
             assert True
 

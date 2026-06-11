@@ -1,14 +1,19 @@
-"""Tests for pause-awareness in the shell-command Ctrl+X listener.
+"""Tests for shell Ctrl+X handling via the unified key listener.
 
-While a shell command is running, ``command_runner`` spawns a small
-``_listen_for_ctrl_x_*`` daemon that grabs stdin in cbreak mode looking
-for Ctrl+X to interrupt the process. That listener used to read stdin
-unconditionally — which meant when the user hit Ctrl+T to steer, every
-other keystroke typed into the steering editor got eaten by this thread.
+Historically ``command_runner`` spawned its OWN cbreak listener thread per
+shell command, alongside the agent run's key listener — two readers on one
+stdin. That's how CPR replies got eaten ("your terminal doesn't support
+cursor position requests") and keystrokes went missing.
 
-These tests lock in the new contract: when the PauseController is paused,
-the listener must NOT consume stdin (POSIX: drop cbreak and sleep;
-Windows: skip the kbhit() drain).
+The new contract, locked in here:
+
+* There is exactly ONE listener implementation
+  (``code_puppy.agents._key_listeners``).
+* ``command_runner`` routes Ctrl+X through
+  ``_key_listeners.set_escape_handler()`` instead of spawning a rival
+  thread when an agent-run listener is already active.
+* The unified listener parks (drops cbreak, stops reading) while its
+  ``suspend_event`` is set — replacing the old pause-controller polling.
 """
 
 from __future__ import annotations
@@ -20,52 +25,137 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.messaging.pause_controller import (
-    get_pause_controller,
-    reset_pause_controller,
-)
+from code_puppy.agents import _key_listeners
 
 
 @pytest.fixture(autouse=True)
-def _reset_pause_singleton():
-    reset_pause_controller()
+def _reset_escape_handler():
+    _key_listeners.set_escape_handler(None)
     yield
-    reset_pause_controller()
+    _key_listeners.set_escape_handler(None)
 
 
 # =============================================================================
-# POSIX listener
+# Dynamic escape-handler registry
+# =============================================================================
+
+
+def test_resolve_escape_handler_prefers_dynamic():
+    fallback = MagicMock()
+    dynamic = MagicMock()
+
+    assert _key_listeners._resolve_escape_handler(fallback) is fallback
+    _key_listeners.set_escape_handler(dynamic)
+    assert _key_listeners._resolve_escape_handler(fallback) is dynamic
+    _key_listeners.set_escape_handler(None)
+    assert _key_listeners._resolve_escape_handler(fallback) is fallback
+
+
+# =============================================================================
+# command_runner routing (no second listener thread)
+# =============================================================================
+
+
+def test_start_keyboard_listener_routes_instead_of_spawning():
+    """With an active agent-run listener, _start_keyboard_listener must NOT
+    spawn a second thread — it just points Ctrl+X dispatch at the shell
+    kill handler.
+    """
+    from code_puppy.tools import command_runner
+
+    fake_handle = MagicMock()
+    with (
+        patch.object(_key_listeners, "get_active_handle", return_value=fake_handle),
+        patch.object(command_runner, "_spawn_ctrl_x_key_listener") as mock_spawn,
+        patch("signal.signal", return_value=None),
+    ):
+        command_runner._start_keyboard_listener()
+        try:
+            mock_spawn.assert_not_called()
+            assert (
+                _key_listeners._resolve_escape_handler(MagicMock())
+                is command_runner._handle_ctrl_x_press
+            )
+        finally:
+            command_runner._stop_keyboard_listener()
+
+    # Handler cleared on stop.
+    fallback = MagicMock()
+    assert _key_listeners._resolve_escape_handler(fallback) is fallback
+
+
+def test_start_keyboard_listener_spawns_when_headless():
+    """Without an active agent-run listener, the shim spawn is used."""
+    from code_puppy.tools import command_runner
+
+    with (
+        patch.object(_key_listeners, "get_active_handle", return_value=None),
+        patch.object(
+            command_runner, "_spawn_ctrl_x_key_listener", return_value=None
+        ) as mock_spawn,
+        patch("signal.signal", return_value=None),
+    ):
+        command_runner._start_keyboard_listener()
+        try:
+            mock_spawn.assert_called_once()
+        finally:
+            command_runner._stop_keyboard_listener()
+
+
+def test_spawn_shim_delegates_to_unified_listener():
+    """The compat shim must delegate to _key_listeners.spawn_key_listener."""
+    from code_puppy.tools import command_runner
+
+    stop = threading.Event()
+    on_escape = MagicMock()
+
+    fake_handle = MagicMock()
+    with patch.object(
+        _key_listeners, "spawn_key_listener", return_value=fake_handle
+    ) as mock_spawn:
+        result = command_runner._spawn_ctrl_x_key_listener(stop, on_escape)
+
+    mock_spawn.assert_called_once_with(stop, on_escape=on_escape)
+    assert result is fake_handle.thread
+
+
+def test_spawn_shim_returns_none_without_tty():
+    """No TTY -> unified spawn returns None -> shim returns None."""
+    from code_puppy.tools import command_runner
+
+    stop = threading.Event()
+    with patch.object(_key_listeners, "spawn_key_listener", return_value=None):
+        assert command_runner._spawn_ctrl_x_key_listener(stop, MagicMock()) is None
+
+
+# =============================================================================
+# Unified POSIX listener behaviour
 # =============================================================================
 
 
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only test")
-def test_posix_listener_drops_cbreak_while_paused():
-    """When paused, the listener must call termios.tcsetattr to restore
-    the original terminal attrs (i.e. drop cbreak) so the steering editor
-    can take over stdin cleanly.
+def test_posix_listener_parks_while_suspended():
+    """While suspend_event is set, the listener must drop cbreak (restore
+    termios) and never read stdin — so another stdin consumer (e.g. a
+    prompt_toolkit app) can own the terminal cleanly.
     """
-    from code_puppy.tools import command_runner
-
     stop_event = threading.Event()
+    suspend_event = threading.Event()
+    released_event = threading.Event()
     on_escape = MagicMock()
 
-    # Mock all the tty plumbing so we can run this in CI without a real TTY.
-    fake_fd = 7
-    fake_attrs = ["original"]
-
     fake_stdin = MagicMock()
-    fake_stdin.fileno.return_value = fake_fd
+    fake_stdin.fileno.return_value = 7
 
     with (
-        patch.object(command_runner.sys, "stdin", fake_stdin),
-        patch("termios.tcgetattr", return_value=fake_attrs) as mock_tcget,
+        patch.object(sys, "stdin", fake_stdin),
+        patch("termios.tcgetattr", return_value=["original"]),
         patch("termios.tcsetattr") as mock_tcset,
         patch("tty.setcbreak") as mock_setcbreak,
         patch("select.select", return_value=([], [], [])),
     ):
-        # Pause BEFORE starting so the listener enters its paused branch
-        # on the first iteration.
-        get_pause_controller().pause()
+        # Suspend BEFORE starting so the listener parks on its first lap.
+        suspend_event.set()
 
         def stop_after_a_tick():
             time.sleep(0.15)
@@ -74,29 +164,63 @@ def test_posix_listener_drops_cbreak_while_paused():
         stopper = threading.Thread(target=stop_after_a_tick)
         stopper.start()
 
-        command_runner._listen_for_ctrl_x_posix(stop_event, on_escape)
+        _key_listeners._listen_posix(
+            stop_event,
+            on_escape,
+            suspend_event=suspend_event,
+            released_event=released_event,
+        )
         stopper.join()
 
-    # Cbreak entered once at the top, then dropped on pause detection.
     assert mock_setcbreak.called
-    # tcsetattr called to restore original attrs (drop cbreak) — at least
-    # once during pause handling + once in finally.
+    # tcsetattr restores attrs on suspend + again in finally.
     assert mock_tcset.call_count >= 1
-    # We never read stdin or fired the escape callback.
+    # Parked listener confirmed it released stdin and never read it.
+    assert released_event.is_set()
+    fake_stdin.read.assert_not_called()
     on_escape.assert_not_called()
-    assert mock_tcget.called
 
 
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only test")
-def test_posix_listener_reads_stdin_when_not_paused():
-    """Sanity check: when NOT paused, the listener should still call
-    select.select on stdin (i.e. it isn't permanently stuck in the
-    paused branch).
+def test_posix_listener_dispatches_ctrl_x_to_dynamic_handler():
+    """Ctrl+X must dispatch to the dynamically registered handler (shell
+    kill switch) in preference to the spawn-time on_escape callback.
     """
-    from code_puppy.tools import command_runner
-
     stop_event = threading.Event()
-    on_escape = MagicMock()
+    fallback = MagicMock()
+    dynamic = MagicMock()
+
+    fake_stdin = MagicMock()
+    fake_stdin.fileno.return_value = 7
+
+    reads = iter(["\x18"])
+
+    def fake_read(_n):
+        try:
+            return next(reads)
+        finally:
+            stop_event.set()
+
+    fake_stdin.read.side_effect = fake_read
+
+    _key_listeners.set_escape_handler(dynamic)
+    with (
+        patch.object(sys, "stdin", fake_stdin),
+        patch("termios.tcgetattr", return_value=["original"]),
+        patch("termios.tcsetattr"),
+        patch("tty.setcbreak"),
+        patch("select.select", return_value=([fake_stdin], [], [])),
+    ):
+        _key_listeners._listen_posix(stop_event, fallback)
+
+    dynamic.assert_called_once()
+    fallback.assert_not_called()
+
+
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only test")
+def test_posix_listener_polls_stdin_when_not_suspended():
+    """Sanity check: unsuspended listener keeps select()-ing stdin."""
+    stop_event = threading.Event()
     fake_stdin = MagicMock()
     fake_stdin.fileno.return_value = 7
 
@@ -109,38 +233,37 @@ def test_posix_listener_reads_stdin_when_not_paused():
         return ([], [], [])
 
     with (
-        patch.object(command_runner.sys, "stdin", fake_stdin),
+        patch.object(sys, "stdin", fake_stdin),
         patch("termios.tcgetattr", return_value=["orig"]),
         patch("termios.tcsetattr"),
         patch("tty.setcbreak"),
         patch("select.select", side_effect=fake_select),
     ):
-        # Not paused — listener should poll stdin.
-        command_runner._listen_for_ctrl_x_posix(stop_event, on_escape)
+        _key_listeners._listen_posix(stop_event, MagicMock())
 
     assert select_call_count["n"] >= 2
 
 
 # =============================================================================
-# Windows listener
+# Unified Windows listener behaviour
 # =============================================================================
 
 
-def test_windows_listener_skips_kbhit_while_paused(monkeypatch):
-    """While paused, the Windows listener must NOT call msvcrt.kbhit().
+def test_windows_listener_skips_kbhit_while_suspended(monkeypatch):
+    """While suspended, the Windows listener must NOT drain msvcrt.kbhit().
 
-    This test runs cross-platform by stubbing msvcrt as a fake module.
+    Runs cross-platform by stubbing msvcrt as a fake module.
     """
     fake_msvcrt = MagicMock()
     fake_msvcrt.kbhit.return_value = False
     monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
 
-    from code_puppy.tools import command_runner
-
     stop_event = threading.Event()
+    suspend_event = threading.Event()
+    released_event = threading.Event()
     on_escape = MagicMock()
 
-    get_pause_controller().pause()
+    suspend_event.set()
 
     def stop_after_a_tick():
         time.sleep(0.15)
@@ -148,8 +271,14 @@ def test_windows_listener_skips_kbhit_while_paused(monkeypatch):
 
     stopper = threading.Thread(target=stop_after_a_tick)
     stopper.start()
-    command_runner._listen_for_ctrl_x_windows(stop_event, on_escape)
+    _key_listeners._listen_windows(
+        stop_event,
+        on_escape,
+        suspend_event=suspend_event,
+        released_event=released_event,
+    )
     stopper.join()
 
     fake_msvcrt.kbhit.assert_not_called()
     on_escape.assert_not_called()
+    assert released_event.is_set()
