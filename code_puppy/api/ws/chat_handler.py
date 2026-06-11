@@ -29,6 +29,9 @@ from code_puppy.api.ws.ws_stream_drain import (
     stop_stream_drain,
 )
 from code_puppy.api.ws.ws_post_run import resolve_post_run_resolution
+from code_puppy.api.ws.ws_resume_recovery import (
+    reload_session_from_sqlite_with_sanitization,
+)
 from code_puppy.api.ws.ws_turn_finalization import (
     emit_pre_stream_end_tool_results,
     finalize_turn_history,
@@ -64,6 +67,7 @@ from code_puppy.api.ws.schemas import (
     ServerCancelled,
     ServerError,
     ServerStatus,
+    ServerSystem,
     ServerStreamEnd,
     ServerUserMessage,
 )
@@ -882,8 +886,94 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                     await safe_send_json(frame)
                                 continue
                             if post_run.no_result_error is not None:
-                                await send_typed(post_run.no_result_error)
-                                continue
+                                recovery_applied = False
+                                # Safe one-shot auto-recovery for resumed sessions only.
+                                if existing_history is not None:
+                                    await send_typed(
+                                        ServerSystem(
+                                            content=(
+                                                "Attempting safe session recovery from SQLite history "
+                                                "(one retry)..."
+                                            ),
+                                            session_id=session_id,
+                                            agent_name=agent_name,
+                                            model_name=model_name,
+                                        )
+                                    )
+                                    recovery = await reload_session_from_sqlite_with_sanitization(
+                                        session_id=session_id,
+                                        logger=logger,
+                                    )
+                                    if recovery.success and recovery.ctx is not None:
+                                        ctx = recovery.ctx
+                                        sender.ctx = ctx
+                                        agent = ctx.agent
+                                        agent_name = ctx.agent_name
+                                        model_name = ctx.model_name
+
+                                        retry_turn_state = WebSocketTurnState()
+                                        retry_run = await execute_turn_runner(
+                                            websocket=websocket,
+                                            session_id=session_id,
+                                            ctx=ctx,
+                                            agent=agent,
+                                            agent_name=agent_name,
+                                            model_name=model_name,
+                                            session_title=session_title,
+                                            session_working_directory=session_working_directory,
+                                            session_pinned=session_pinned,
+                                            message_to_send=message_to_send,
+                                            run_kwargs=run_kwargs,
+                                            turn_state=retry_turn_state,
+                                            clear_session_working_directory=clear_session_working_directory,
+                                        )
+                                        retry_post_run = resolve_post_run_resolution(
+                                            result=retry_run.result,
+                                            turn_state=retry_turn_state,
+                                            agent=agent,
+                                            session_id=session_id,
+                                            logger=logger,
+                                        )
+                                        if retry_post_run.cancelled:
+                                            await send_typed(
+                                                ServerCancelled(
+                                                    session_id=session_id,
+                                                )
+                                            )
+                                            continue
+                                        if retry_post_run.error_frames is not None:
+                                            for frame in retry_post_run.error_frames:
+                                                await safe_send_json(frame)
+                                            continue
+                                        if retry_post_run.no_result_error is None:
+                                            post_run = retry_post_run
+                                            recovery_applied = True
+                                            await send_typed(
+                                                ServerSystem(
+                                                    content=(
+                                                        "Session auto-recovery succeeded; continuing with "
+                                                        "reloaded DB history."
+                                                    ),
+                                                    session_id=session_id,
+                                                    agent_name=agent_name,
+                                                    model_name=model_name,
+                                                )
+                                            )
+                                        else:
+                                            logger.warning(
+                                                "[WS:%s] one-shot recovery retry still produced no response",
+                                                session_id,
+                                            )
+                                    else:
+                                        logger.warning(
+                                            "[WS:%s] recovery reload failed: %s",
+                                            session_id,
+                                            recovery.reason,
+                                        )
+
+                                if not recovery_applied:
+                                    await send_typed(post_run.no_result_error)
+                                    continue
 
                             response_text = post_run.response_text
                             tokens_used = post_run.tokens_used
