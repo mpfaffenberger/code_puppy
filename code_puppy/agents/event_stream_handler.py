@@ -213,223 +213,241 @@ async def event_stream_handler(
         )
         did_stream_anything = True
 
-    async for event in events:
-        # ---- Pause gate ------------------------------------------------
-        # If the user has paused the agent, suppress rendering and block
-        # at this safe boundary until resume (or until the safety timeout
-        # expires, to avoid SSE upstream timeouts).
-        from code_puppy.messaging.pause_controller import get_pause_controller
+    def _abort_all_drainers() -> None:
+        """Kill every drain task and drop buffers — the user said STOP."""
+        for smoother in thinking_smoothers.values():
+            smoother.abort()
+        thinking_smoothers.clear()
+        for writer in termflow_writers.values():
+            writer.abort()
+        termflow_writers.clear()
 
-        _pc = get_pause_controller()
-        if _pc.is_paused():
-            # Hide the spinner while paused so nothing animates.
-            pause_all_spinners()
-            # Read max pause from config lazily (avoid module-load coupling).
-            from code_puppy.config import get_value
+    try:
+        async for event in events:
+            # ---- Pause gate ------------------------------------------------
+            # If the user has paused the agent, suppress rendering and block
+            # at this safe boundary until resume (or until the safety timeout
+            # expires, to avoid SSE upstream timeouts).
+            from code_puppy.messaging.pause_controller import get_pause_controller
 
-            try:
-                max_pause = float(get_value("max_pause_seconds") or 180.0)
-            except (TypeError, ValueError):
-                max_pause = 180.0
-            resumed = await _pc.wait_if_paused(timeout=max_pause)
-            if not resumed:
-                from code_puppy.messaging import emit_warning
+            _pc = get_pause_controller()
+            if _pc.is_paused():
+                # Hide the spinner while paused so nothing animates.
+                pause_all_spinners()
+                # Read max pause from config lazily (avoid module-load coupling).
+                from code_puppy.config import get_value
 
-                emit_warning(
-                    f"⏸️  Pause exceeded {max_pause:.0f}s; auto-resuming to "
-                    "avoid upstream timeout."
+                try:
+                    max_pause = float(get_value("max_pause_seconds") or 180.0)
+                except (TypeError, ValueError):
+                    max_pause = 180.0
+                resumed = await _pc.wait_if_paused(timeout=max_pause)
+                if not resumed:
+                    from code_puppy.messaging import emit_warning
+
+                    emit_warning(
+                        f"⏸️  Pause exceeded {max_pause:.0f}s; auto-resuming to "
+                        "avoid upstream timeout."
+                    )
+
+            # PartStartEvent - register the part but defer banner until content arrives
+            if isinstance(event, PartStartEvent):
+                # Fire stream event callback for part_start
+                _fire_stream_event(
+                    "part_start",
+                    {
+                        "index": event.index,
+                        "part_type": type(event.part).__name__,
+                        "part": event.part,
+                    },
                 )
 
-        # PartStartEvent - register the part but defer banner until content arrives
-        if isinstance(event, PartStartEvent):
-            # Fire stream event callback for part_start
-            _fire_stream_event(
-                "part_start",
-                {
-                    "index": event.index,
-                    "part_type": type(event.part).__name__,
-                    "part": event.part,
-                },
-            )
+                part = event.part
+                if isinstance(part, ThinkingPart):
+                    streaming_parts.add(event.index)
+                    thinking_parts.add(event.index)
+                    # If there's initial content, print banner + content now
+                    if part.content and part.content.strip():
+                        await _print_thinking_banner()
+                        _emit_thinking(event.index, part.content)
+                        banner_printed.add(event.index)
+                elif isinstance(part, TextPart):
+                    streaming_parts.add(event.index)
+                    text_parts.add(event.index)
+                    # Initialize termflow streaming for this text part
+                    termflow_parsers[event.index] = TermflowParser()
+                    termflow_renderers[event.index] = _make_text_renderer(event.index)
+                    termflow_line_buffers[event.index] = ""
+                    # Handle initial content if present
+                    if part.content and part.content.strip():
+                        await _print_response_banner()
+                        banner_printed.add(event.index)
+                        termflow_line_buffers[event.index] = part.content
+                elif isinstance(part, ToolCallPart):
+                    streaming_parts.add(event.index)
+                    tool_parts.add(event.index)
+                    token_count[event.index] = 0  # Initialize token counter
+                    # Capture tool name from the start event
+                    tool_names[event.index] = part.tool_name or ""
+                    # Track tool name for display
+                    banner_printed.add(
+                        event.index
+                    )  # Use banner_printed to track if we've shown tool info
 
-            part = event.part
-            if isinstance(part, ThinkingPart):
-                streaming_parts.add(event.index)
-                thinking_parts.add(event.index)
-                # If there's initial content, print banner + content now
-                if part.content and part.content.strip():
-                    await _print_thinking_banner()
-                    _emit_thinking(event.index, part.content)
-                    banner_printed.add(event.index)
-            elif isinstance(part, TextPart):
-                streaming_parts.add(event.index)
-                text_parts.add(event.index)
-                # Initialize termflow streaming for this text part
-                termflow_parsers[event.index] = TermflowParser()
-                termflow_renderers[event.index] = _make_text_renderer(event.index)
-                termflow_line_buffers[event.index] = ""
-                # Handle initial content if present
-                if part.content and part.content.strip():
-                    await _print_response_banner()
-                    banner_printed.add(event.index)
-                    termflow_line_buffers[event.index] = part.content
-            elif isinstance(part, ToolCallPart):
-                streaming_parts.add(event.index)
-                tool_parts.add(event.index)
-                token_count[event.index] = 0  # Initialize token counter
-                # Capture tool name from the start event
-                tool_names[event.index] = part.tool_name or ""
-                # Track tool name for display
-                banner_printed.add(
-                    event.index
-                )  # Use banner_printed to track if we've shown tool info
+            # PartDeltaEvent - stream the content as it arrives
+            elif isinstance(event, PartDeltaEvent):
+                # Fire stream event callback for part_delta
+                _fire_stream_event(
+                    "part_delta",
+                    {
+                        "index": event.index,
+                        "delta_type": type(event.delta).__name__,
+                        "delta": event.delta,
+                    },
+                )
 
-        # PartDeltaEvent - stream the content as it arrives
-        elif isinstance(event, PartDeltaEvent):
-            # Fire stream event callback for part_delta
-            _fire_stream_event(
-                "part_delta",
-                {
-                    "index": event.index,
-                    "delta_type": type(event.delta).__name__,
-                    "delta": event.delta,
-                },
-            )
+                if event.index in streaming_parts:
+                    delta = event.delta
+                    if isinstance(delta, (TextPartDelta, ThinkingPartDelta)):
+                        if delta.content_delta:
+                            # For text parts, stream markdown with termflow
+                            if event.index in text_parts:
+                                # Print banner on first content
+                                if event.index not in banner_printed:
+                                    await _print_response_banner()
+                                    banner_printed.add(event.index)
 
-            if event.index in streaming_parts:
-                delta = event.delta
-                if isinstance(delta, (TextPartDelta, ThinkingPartDelta)):
-                    if delta.content_delta:
-                        # For text parts, stream markdown with termflow
-                        if event.index in text_parts:
-                            # Print banner on first content
-                            if event.index not in banner_printed:
-                                await _print_response_banner()
-                                banner_printed.add(event.index)
+                                # Add content to line buffer
+                                termflow_line_buffers[event.index] += (
+                                    delta.content_delta
+                                )
 
-                            # Add content to line buffer
-                            termflow_line_buffers[event.index] += delta.content_delta
+                                # Process complete lines
+                                parser = termflow_parsers[event.index]
+                                renderer = termflow_renderers[event.index]
+                                buffer = termflow_line_buffers[event.index]
 
-                            # Process complete lines
+                                while "\n" in buffer:
+                                    line, buffer = buffer.split("\n", 1)
+                                    events_to_render = parser.parse_line(line)
+                                    renderer.render_all(events_to_render)
+
+                                termflow_line_buffers[event.index] = buffer
+                            else:
+                                # For thinking parts, stream smoothly (dim) via a
+                                # rate-limited buffer so bursty deltas don't stutter.
+                                if event.index not in banner_printed:
+                                    await _print_thinking_banner()
+                                    banner_printed.add(event.index)
+                                _emit_thinking(event.index, delta.content_delta)
+                    elif isinstance(delta, ToolCallPartDelta):
+                        # For tool calls, estimate tokens from args_delta content
+                        # args_delta contains the streaming JSON arguments
+                        args_delta = getattr(delta, "args_delta", "") or ""
+                        if args_delta:
+                            # Same 2.5 chars/token heuristic as BaseAgent and file_operations
+                            estimated_tokens = max(1, math.floor(len(args_delta) / 2.5))
+                            token_count[event.index] += estimated_tokens
+                        else:
+                            # Even empty deltas count as activity
+                            token_count[event.index] += 1
+
+                        # Update tool name if delta provides more of it
+                        tool_name_delta = getattr(delta, "tool_name_delta", "") or ""
+                        if tool_name_delta:
+                            tool_names[event.index] = (
+                                tool_names.get(event.index, "") + tool_name_delta
+                            )
+
+                        # Use stored tool name for display
+                        tool_name = tool_names.get(event.index, "")
+                        count = token_count[event.index]
+                        # Display with tool wrench icon and tool name
+                        if tool_name:
+                            console.print(
+                                f"  \U0001f527 Calling {tool_name}... {count} token(s)   ",
+                                end="\r",
+                            )
+                        else:
+                            console.print(
+                                f"  \U0001f527 Calling tool... {count} token(s)   ",
+                                end="\r",
+                            )
+
+            # PartEndEvent - finish the streaming with a newline
+            elif isinstance(event, PartEndEvent):
+                # Fire stream event callback for part_end
+                _fire_stream_event(
+                    "part_end",
+                    {
+                        "index": event.index,
+                        "next_part_kind": getattr(event, "next_part_kind", None),
+                    },
+                )
+
+                if event.index in streaming_parts:
+                    # For text parts, finalize termflow rendering
+                    if event.index in text_parts:
+                        # Render any remaining buffered content
+                        if event.index in termflow_parsers:
                             parser = termflow_parsers[event.index]
                             renderer = termflow_renderers[event.index]
-                            buffer = termflow_line_buffers[event.index]
+                            remaining = termflow_line_buffers.get(event.index, "")
 
-                            while "\n" in buffer:
-                                line, buffer = buffer.split("\n", 1)
-                                events_to_render = parser.parse_line(line)
+                            # Parse and render any remaining partial line
+                            if remaining.strip():
+                                events_to_render = parser.parse_line(remaining)
                                 renderer.render_all(events_to_render)
 
-                            termflow_line_buffers[event.index] = buffer
-                        else:
-                            # For thinking parts, stream smoothly (dim) via a
-                            # rate-limited buffer so bursty deltas don't stutter.
-                            if event.index not in banner_printed:
-                                await _print_thinking_banner()
-                                banner_printed.add(event.index)
-                            _emit_thinking(event.index, delta.content_delta)
-                elif isinstance(delta, ToolCallPartDelta):
-                    # For tool calls, estimate tokens from args_delta content
-                    # args_delta contains the streaming JSON arguments
-                    args_delta = getattr(delta, "args_delta", "") or ""
-                    if args_delta:
-                        # Same 2.5 chars/token heuristic as BaseAgent and file_operations
-                        estimated_tokens = max(1, math.floor(len(args_delta) / 2.5))
-                        token_count[event.index] += estimated_tokens
-                    else:
-                        # Even empty deltas count as activity
-                        token_count[event.index] += 1
+                            # Finalize the parser to close any open blocks
+                            final_events = parser.finalize()
+                            renderer.render_all(final_events)
 
-                    # Update tool name if delta provides more of it
-                    tool_name_delta = getattr(delta, "tool_name_delta", "") or ""
-                    if tool_name_delta:
-                        tool_names[event.index] = (
-                            tool_names.get(event.index, "") + tool_name_delta
-                        )
+                            # Clean up termflow state
+                            del termflow_parsers[event.index]
+                            del termflow_renderers[event.index]
+                            del termflow_line_buffers[event.index]
 
-                    # Use stored tool name for display
-                    tool_name = tool_names.get(event.index, "")
-                    count = token_count[event.index]
-                    # Display with tool wrench icon and tool name
-                    if tool_name:
-                        console.print(
-                            f"  \U0001f527 Calling {tool_name}... {count} token(s)   ",
-                            end="\r",
-                        )
-                    else:
-                        console.print(
-                            f"  \U0001f527 Calling tool... {count} token(s)   ",
-                            end="\r",
-                        )
+                        # Drain any smooth typewriter writer to completion so the
+                        # full response has finished printing before we move on.
+                        writer = termflow_writers.pop(event.index, None)
+                        if writer is not None:
+                            await writer.close()
+                    # For tool parts, clear the chunk counter line
+                    elif event.index in tool_parts:
+                        # Clear the chunk counter line by printing spaces and returning
+                        console.print(" " * 50, end="\r")
+                    # For thinking parts, drain the smoother then print newline
+                    elif event.index in thinking_parts:
+                        smoother = thinking_smoothers.pop(event.index, None)
+                        if smoother is not None:
+                            await smoother.close()
+                        thinking_direct.discard(event.index)
+                        if event.index in banner_printed:
+                            console.print()  # Final newline after streaming
 
-        # PartEndEvent - finish the streaming with a newline
-        elif isinstance(event, PartEndEvent):
-            # Fire stream event callback for part_end
-            _fire_stream_event(
-                "part_end",
-                {
-                    "index": event.index,
-                    "next_part_kind": getattr(event, "next_part_kind", None),
-                },
-            )
+                    # Clean up token count and tool names
+                    token_count.pop(event.index, None)
+                    tool_names.pop(event.index, None)
+                    # Clean up all tracking sets
+                    streaming_parts.discard(event.index)
+                    thinking_parts.discard(event.index)
+                    text_parts.discard(event.index)
+                    tool_parts.discard(event.index)
+                    banner_printed.discard(event.index)
 
-            if event.index in streaming_parts:
-                # For text parts, finalize termflow rendering
-                if event.index in text_parts:
-                    # Render any remaining buffered content
-                    if event.index in termflow_parsers:
-                        parser = termflow_parsers[event.index]
-                        renderer = termflow_renderers[event.index]
-                        remaining = termflow_line_buffers.get(event.index, "")
-
-                        # Parse and render any remaining partial line
-                        if remaining.strip():
-                            events_to_render = parser.parse_line(remaining)
-                            renderer.render_all(events_to_render)
-
-                        # Finalize the parser to close any open blocks
-                        final_events = parser.finalize()
-                        renderer.render_all(final_events)
-
-                        # Clean up termflow state
-                        del termflow_parsers[event.index]
-                        del termflow_renderers[event.index]
-                        del termflow_line_buffers[event.index]
-
-                    # Drain any smooth typewriter writer to completion so the
-                    # full response has finished printing before we move on.
-                    writer = termflow_writers.pop(event.index, None)
-                    if writer is not None:
-                        await writer.close()
-                # For tool parts, clear the chunk counter line
-                elif event.index in tool_parts:
-                    # Clear the chunk counter line by printing spaces and returning
-                    console.print(" " * 50, end="\r")
-                # For thinking parts, drain the smoother then print newline
-                elif event.index in thinking_parts:
-                    smoother = thinking_smoothers.pop(event.index, None)
-                    if smoother is not None:
-                        await smoother.close()
-                    thinking_direct.discard(event.index)
-                    if event.index in banner_printed:
-                        console.print()  # Final newline after streaming
-
-                # Clean up token count and tool names
-                token_count.pop(event.index, None)
-                tool_names.pop(event.index, None)
-                # Clean up all tracking sets
-                streaming_parts.discard(event.index)
-                thinking_parts.discard(event.index)
-                text_parts.discard(event.index)
-                tool_parts.discard(event.index)
-                banner_printed.discard(event.index)
-
-                # Resume spinner if next part is NOT text/thinking/tool (avoid race condition)
-                # If next part is None or handled differently, it's safe to resume
-                # Note: spinner itself handles blank line before appearing
-                next_kind = getattr(event, "next_part_kind", None)
-                if next_kind not in ("text", "thinking", "tool-call"):
-                    resume_all_spinners()
+                    # Resume spinner if next part is NOT text/thinking/tool (avoid race condition)
+                    # If next part is None or handled differently, it's safe to resume
+                    # Note: spinner itself handles blank line before appearing
+                    next_kind = getattr(event, "next_part_kind", None)
+                    if next_kind not in ("text", "thinking", "tool-call"):
+                        resume_all_spinners()
+    except BaseException:
+        # Cancelled (Ctrl+C / steer) or crashed mid-stream: the graceful
+        # drain below would never run, orphaning the background drain
+        # tasks — which then keep typing into the terminal. Abort them.
+        _abort_all_drainers()
+        raise
 
     # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)
 
