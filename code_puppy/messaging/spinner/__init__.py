@@ -28,12 +28,18 @@ def pause_all_spinners():
 
     No-op when called from a sub-agent context to prevent
     parallel sub-agents from interfering with the main spinner.
+
+    Exception: in ``high`` output mode, sub-agent streams render
+    inline and need spinner coordination to avoid visual corruption.
     """
     # Lazy import to avoid circular dependency
     from code_puppy.tools.subagent_context import is_subagent
 
     if is_subagent():
-        return  # Sub-agents don't control the main spinner
+        from code_puppy.config import get_output_level
+
+        if get_output_level() != "high":
+            return  # Sub-agents don't control the main spinner
     for spinner in _active_spinners:
         try:
             spinner.pause()
@@ -47,12 +53,18 @@ def resume_all_spinners():
 
     No-op when called from a sub-agent context to prevent
     parallel sub-agents from interfering with the main spinner.
+
+    Exception: in ``high`` output mode, sub-agent streams render
+    inline and need spinner coordination to avoid visual corruption.
     """
     # Lazy import to avoid circular dependency
     from code_puppy.tools.subagent_context import is_subagent
 
     if is_subagent():
-        return  # Sub-agents don't control the main spinner
+        from code_puppy.config import get_output_level
+
+        if get_output_level() != "high":
+            return  # Sub-agents don't control the main spinner
     for spinner in _active_spinners:
         try:
             spinner.resume()

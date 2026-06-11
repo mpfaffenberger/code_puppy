@@ -32,6 +32,103 @@ from rich.text import Text
 
 from .message_queue import MessageQueue, MessageType, UIMessage
 
+# Lazily imported to avoid circular imports at module scope.
+_output_level_getter = None
+_suppress_info_getter = None
+_suppress_thinking_getter = None
+
+
+def _get_output_level() -> str:
+    """Lazy accessor for ``config.get_output_level``."""
+    global _output_level_getter
+    if _output_level_getter is None:
+        from code_puppy.config import get_output_level
+
+        _output_level_getter = get_output_level
+    return _output_level_getter()
+
+
+def _get_suppress_informational() -> bool:
+    global _suppress_info_getter
+    if _suppress_info_getter is None:
+        from code_puppy.config import get_suppress_informational_messages
+
+        _suppress_info_getter = get_suppress_informational_messages
+    return _suppress_info_getter()
+
+
+def _get_suppress_thinking() -> bool:
+    global _suppress_thinking_getter
+    if _suppress_thinking_getter is None:
+        from code_puppy.config import get_suppress_thinking_messages
+
+        _suppress_thinking_getter = get_suppress_thinking_messages
+    return _suppress_thinking_getter()
+
+
+# Message types that are collapsed or hidden in low output mode.
+_LOW_MODE_COLLAPSIBLE = frozenset(
+    {
+        MessageType.INFO,
+        MessageType.SUCCESS,
+        MessageType.WARNING,
+        MessageType.TOOL_OUTPUT,
+        MessageType.COMMAND_OUTPUT,
+        MessageType.FILE_OPERATION,
+        MessageType.AGENT_REASONING,
+        MessageType.PLANNED_NEXT_STEPS,
+        MessageType.SYSTEM,
+        MessageType.DEBUG,
+    }
+)
+
+# Types suppressed by suppress_informational_messages toggle.
+_INFORMATIONAL_TYPES = frozenset(
+    {
+        MessageType.INFO,
+        MessageType.SUCCESS,
+        MessageType.WARNING,
+    }
+)
+
+# Types suppressed by suppress_thinking_messages toggle.
+_THINKING_TYPES = frozenset(
+    {
+        MessageType.AGENT_REASONING,
+        MessageType.PLANNED_NEXT_STEPS,
+    }
+)
+
+
+def _should_suppress_legacy(message: UIMessage) -> bool:
+    """Return True if *message* should be silently dropped.
+
+    Checks both individual suppress toggles and the unified output-level
+    density control.  This is render-only filtering — autosave and
+    callbacks always see the full data.
+    """
+    # Individual suppress toggles — high mode overrides ALL of them
+    # (the user asked for maximum visibility).  This mirrors
+    # rich_renderer._do_render() and event_stream_handler._suppress_thinking_stream().
+    if (
+        message.type in _INFORMATIONAL_TYPES
+        and _get_output_level() != "high"
+        and _get_suppress_informational()
+    ):
+        return True
+    if (
+        message.type in _THINKING_TYPES
+        and _get_output_level() != "high"
+        and _get_suppress_thinking()
+    ):
+        return True
+    # Low output mode collapses everything except errors, responses,
+    # and blocking prompts.
+    if _get_output_level() == "low" and message.type in _LOW_MODE_COLLAPSIBLE:
+        return True
+    return False
+
+
 # Threshold for emitting a ``[buffered N messages during pause]`` indicator
 # when the buffer is drained. Below this we stay silent; the user pressed
 # pause, output buffered, output flushed — no extra noise needed.
@@ -288,6 +385,10 @@ class SynchronousInteractiveRenderer:
         if message.type == MessageType.HUMAN_INPUT_REQUEST:
             # Bypass the buffer — blocking prompt, buffering would deadlock.
             self._handle_human_input_request(message)
+            return
+
+        # Output-level / suppress-toggle gate (render-only filtering).
+        if _should_suppress_legacy(message):
             return
 
         from code_puppy.messaging.pause_controller import get_pause_controller

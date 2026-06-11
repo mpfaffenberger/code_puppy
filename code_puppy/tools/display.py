@@ -8,7 +8,7 @@ from typing import Optional
 
 from rich.console import Console
 
-from code_puppy.config import get_banner_color, get_subagent_verbose
+from code_puppy.config import get_banner_color, get_output_level, get_subagent_verbose
 from code_puppy.tools.subagent_context import is_subagent
 
 
@@ -34,8 +34,10 @@ def display_non_streamed_result(
         >>> display_non_streamed_result("# Hello\n\nThis is **bold** text.")
         # Renders with AGENT RESPONSE banner and formatted markdown
     """
-    # Skip display for sub-agents unless verbose mode
-    if is_subagent() and not get_subagent_verbose():
+    # Skip display for sub-agents unless verbose mode or high output level.
+    # In ``high`` mode the user has asked for maximum visibility, so sub-agent
+    # responses must render regardless of the legacy ``subagent_verbose`` toggle.
+    if is_subagent() and not get_subagent_verbose() and get_output_level() != "high":
         return
 
     import time

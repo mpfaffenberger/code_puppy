@@ -70,12 +70,16 @@ class AgentRunStats:
     _last_token_time: float = 0.0
     _gen_seconds: float = 0.0
     _output_tokens: int = 0
+    _current_model_name: str = ""
 
     # Snapshot of the most-recently-finished cycle. Used as a fallback so
     # consumers (telemetry, future displays) have something stable to read
     # between cycles instead of seeing zeros.
     _last_ttft_seconds: float = 0.0
     _last_gen_tps: float = 0.0
+    _last_output_tokens: int = 0
+    _last_gen_seconds: float = 0.0
+    _last_model_name: str = ""
 
     # --------------- conversation-wide aggregates ---------------
     # Summed across every model call in the session so we can report
@@ -87,7 +91,7 @@ class AgentRunStats:
 
     # ----------------- API -----------------
     @classmethod
-    def mark_request_start(cls) -> None:
+    def mark_request_start(cls, model_name: str = "") -> None:
         """Mark T0 = true request-start (called by ``agent_run_start`` hook).
 
         Resets per-cycle counters but preserves conversation-wide aggregates
@@ -99,6 +103,7 @@ class AgentRunStats:
             cls._last_token_time = 0.0
             cls._gen_seconds = 0.0
             cls._output_tokens = 0
+            cls._current_model_name = model_name
 
     @classmethod
     def record_output_tokens(cls, tokens: int) -> None:
@@ -127,7 +132,9 @@ class AgentRunStats:
             cls._output_tokens += int(tokens)
 
     @classmethod
-    def snapshot_cycle_into_aggregates(cls) -> None:
+    def snapshot_cycle_into_aggregates(
+        cls,
+    ) -> None:
         """Fold the just-finished cycle into conversation-wide aggregates.
 
         Called by the ``agent_run_end`` hook so the auto-save line reflects
@@ -136,22 +143,46 @@ class AgentRunStats:
         starts cleanly.
         """
         with cls._lock:
+            cls._last_model_name = cls._current_model_name
             if cls._first_token_time > 0.0 and cls._stream_start_time > 0.0:
                 ttft = cls._first_token_time - cls._stream_start_time
                 if ttft > 0:
                     cls._last_ttft_seconds = ttft
                     cls._total_ttft_seconds += ttft
                     cls._ttft_sample_count += 1
+                cls._last_output_tokens = cls._output_tokens
+                cls._last_gen_seconds = cls._gen_seconds
                 if cls._output_tokens > 0 and cls._gen_seconds > 0:
                     cls._last_gen_tps = cls._output_tokens / cls._gen_seconds
                     cls._total_output_tokens += cls._output_tokens
                     cls._total_gen_seconds += cls._gen_seconds
+            else:
+                cls._last_output_tokens = 0
+                cls._last_gen_seconds = 0.0
+
             # Zero per-cycle state so the next run starts cleanly.
             cls._stream_start_time = 0.0
             cls._first_token_time = 0.0
             cls._last_token_time = 0.0
             cls._gen_seconds = 0.0
             cls._output_tokens = 0
+            cls._current_model_name = ""
+
+    @classmethod
+    def get_last_cycle_stats(cls) -> dict:
+        """Return a snapshot of the most-recently-completed cycle.
+
+        Keys: ``model``, ``ttft_seconds``, ``gen_tps``, ``gen_seconds``,
+        ``output_tokens``.
+        """
+        with cls._lock:
+            return {
+                "model": cls._last_model_name,
+                "ttft_seconds": cls._last_ttft_seconds,
+                "gen_tps": cls._last_gen_tps,
+                "gen_seconds": cls._last_gen_seconds,
+                "output_tokens": cls._last_output_tokens,
+            }
 
     @classmethod
     def reset_cycle_state(cls) -> None:
@@ -166,8 +197,12 @@ class AgentRunStats:
             cls._last_token_time = 0.0
             cls._gen_seconds = 0.0
             cls._output_tokens = 0
+            cls._current_model_name = ""
             cls._last_ttft_seconds = 0.0
             cls._last_gen_tps = 0.0
+            cls._last_output_tokens = 0
+            cls._last_gen_seconds = 0.0
+            cls._last_model_name = ""
 
     @classmethod
     def reset_conversation_stats(cls) -> None:
@@ -230,6 +265,226 @@ class AgentRunStats:
 
 
 # ---------------------------------------------------------------------------
+# High output-mode per-turn stats rendering
+# ---------------------------------------------------------------------------
+
+
+# Line threshold above which an informational footer is shown in high mode.
+# This is NOT a truncation gate — high mode always shows the full result.
+_HIGH_MODE_RESULT_FOOTER_THRESHOLD = 50
+
+
+# Tool names whose response has already been rendered inline (streamed or
+# via display_non_streamed_result) and should NOT be dumped again.
+_ALREADY_RENDERED_TOOLS = frozenset({"invoke_agent", "invoke_agent_with_model"})
+
+# Tools whose output is already rendered by the rich_renderer via MessageBus
+# messages (FileContentMessage, DiffMessage, GrepResultMessage, etc.).
+# High-mode metadata annotations are already shown inline by the renderer,
+# so dumping the tool result body again would be noisy redundancy.
+_TOOLS_WITH_RENDERER = frozenset(
+    {
+        "read_file",
+        "list_files",
+        "grep",
+        "create_file",
+        "replace_in_file",
+        "delete_file",
+        "delete_snippet",
+        "edit_file",
+        "agent_run_shell_command",
+        "ask_user_question",
+        "activate_skill",
+        "list_or_search_skills",
+        "agent_share_your_reasoning",
+        "universal_constructor",
+        "load_image_for_analysis",
+    }
+)
+
+
+def _stringify_result(result: Any) -> str:
+    """Convert a tool result to a human-readable multi-line string.
+
+    Handles structured types (Pydantic BaseModel, dataclass, dict, list)
+    that produce single-line repr strings with escaped newlines when
+    passed through ``str()``.
+    """
+    if isinstance(result, str):
+        return result
+
+    # Pydantic BaseModel -> JSON-like dict
+    if hasattr(result, "model_dump"):
+        try:
+            import json
+
+            return json.dumps(result.model_dump(), indent=2, default=str)
+        except Exception:
+            pass
+
+    # dataclass -> JSON-like dict
+    import dataclasses
+
+    if dataclasses.is_dataclass(result) and not isinstance(result, type):
+        try:
+            import json
+
+            return json.dumps(dataclasses.asdict(result), indent=2, default=str)
+        except Exception:
+            pass
+
+    # dict / list -> JSON
+    if isinstance(result, (dict, list)):
+        try:
+            import json
+
+            return json.dumps(result, indent=2, default=str)
+        except Exception:
+            pass
+
+    # Last resort: str() with escaped-newline recovery.
+    text = str(result)
+    if "\\n" in text and "\n" not in text:
+        text = text.replace("\\n", "\n")
+    return text
+
+
+def _render_high_mode_tool_result(
+    tool_name: str,
+    tool_args: Any,
+    result: Any,
+    duration_ms: float,
+) -> None:
+    """Print a tool-result summary when ``output_level`` is ``high``.
+
+    Shows the return value that gets sent back to the model, truncated to
+    keep the terminal readable.  Medium mode is unaffected.
+    """
+    try:
+        from code_puppy.config import get_output_level
+
+        if get_output_level() != "high":
+            return
+
+        from rich.markup import escape as _esc
+
+        from code_puppy.agents.event_stream_handler import get_streaming_console
+
+        console = get_streaming_console()
+        dur_str = f"{duration_ms:.0f}" if duration_ms >= 1 else f"{duration_ms:.1f}"
+
+        # Sub-agent results: the response body was already streamed or
+        # rendered by display_non_streamed_result.  Dumping the raw repr
+        # of AgentInvokeOutput would produce a single unreadable line
+        # with escaped newlines.  Show a compact summary instead.
+        if tool_name in _ALREADY_RENDERED_TOOLS:
+            _render_high_mode_agent_result(console, tool_name, result, dur_str)
+            return
+
+        # Tools whose output was already rendered by the rich_renderer:
+        # show a compact duration-only line to avoid double-rendering.
+        if tool_name in _TOOLS_WITH_RENDERER:
+            console.print(
+                f"[dim]  \u21a9 {_esc(tool_name)} returned ({dur_str} ms)[/dim]"
+            )
+            return
+
+        # General path: convert structured results to readable multi-line
+        # text (handles Pydantic models, dataclasses, dicts, lists).
+        # High mode shows the FULL result — no truncation.  The user
+        # explicitly opted into maximum verbosity.
+        result_str = _stringify_result(result)
+        lines = result_str.splitlines()
+        total_lines = len(lines)
+        total_chars = len(result_str)
+
+        console.print(f"[dim]  \u21a9 {_esc(tool_name)} returned ({dur_str} ms):[/dim]")
+        for line in lines:
+            console.print(f"[dim]    {_esc(line)}[/dim]")
+        if total_lines > _HIGH_MODE_RESULT_FOOTER_THRESHOLD:
+            console.print(
+                f"[dim]    ({total_lines} lines, ~{total_chars:,} chars)[/dim]"
+            )
+    except Exception:
+        pass  # never crash for cosmetic output
+
+
+def _render_high_mode_agent_result(
+    console: Any,
+    tool_name: str,
+    result: Any,
+    dur_str: str,
+) -> None:
+    """Compact one-liner for invoke_agent / invoke_agent_with_model results."""
+    from rich.markup import escape as _esc
+
+    agent_name = getattr(result, "agent_name", None) or "?"
+    error = getattr(result, "error", None)
+    response = getattr(result, "response", None)
+
+    if error:
+        console.print(
+            f"[dim]  \u21a9 {_esc(tool_name)} returned ({dur_str} ms): "
+            f"[red]FAIL[/red] {_esc(agent_name)}[/dim]"
+        )
+    elif response is not None:
+        char_count = len(response)
+        console.print(
+            f"[dim]  \u21a9 {_esc(tool_name)} returned ({dur_str} ms): "
+            f"[green]OK[/green] {_esc(agent_name)} ({char_count:,} chars)[/dim]"
+        )
+    else:
+        console.print(
+            f"[dim]  \u21a9 {_esc(tool_name)} returned ({dur_str} ms): "
+            f"{_esc(agent_name)} (no response)[/dim]"
+        )
+
+
+def _render_high_mode_stats() -> None:
+    """Print a per-turn stats line when ``output_level`` is ``high``.
+
+    Reads the just-snapshotted cycle data from :class:`AgentRunStats` and
+    renders a compact dim line below the response showing model name,
+    TTFT, generation latency, and token counts.
+    """
+    try:
+        from code_puppy.config import get_output_level
+
+        if get_output_level() != "high":
+            return
+
+        stats = AgentRunStats.get_last_cycle_stats()
+        # Only render if we actually have timing data.
+        if stats["ttft_seconds"] <= 0 and stats["gen_seconds"] <= 0:
+            return
+
+        from code_puppy.agents.event_stream_handler import get_streaming_console
+
+        console = get_streaming_console()
+
+        parts: list[str] = []
+
+        if stats["ttft_seconds"] > 0:
+            parts.append(f"TTFT {stats['ttft_seconds']:.2f} s")
+
+        if stats["gen_seconds"] > 0:
+            parts.append(f"gen {stats['gen_seconds']:.1f} s")
+
+        if stats["gen_tps"] > 0:
+            parts.append(f"{stats['gen_tps']:,.1f} t/s")
+
+        if stats["output_tokens"] > 0:
+            parts.append(f"~{stats['output_tokens']:,} output tokens (est)")
+
+        if parts:
+            line = " | ".join(parts)
+            console.print(f"\n[dim] {line}[/dim]")
+    except Exception:
+        # Never crash the app for cosmetic stats rendering.
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Callback handlers
 # ---------------------------------------------------------------------------
 
@@ -255,7 +510,7 @@ async def _on_agent_run_start(
     """Mark T0 = true request-start, before any HTTP packets fly."""
     if is_subagent():
         return
-    AgentRunStats.mark_request_start()
+    AgentRunStats.mark_request_start(model_name=model_name)
 
 
 async def _on_stream_event(
@@ -287,6 +542,17 @@ async def _on_stream_event(
                 _record_text_tokens(args)
 
 
+async def _on_post_tool_call(
+    tool_name: str,
+    tool_args: Any,
+    result: Any,
+    duration_ms: float,
+    context: Any = None,
+) -> None:
+    """Render the tool return value inline in ``high`` output mode."""
+    _render_high_mode_tool_result(tool_name, tool_args, result, duration_ms)
+
+
 async def _on_agent_run_end(
     agent_name: str,
     model_name: str,
@@ -300,10 +566,14 @@ async def _on_agent_run_end(
 
     Always fires regardless of success/failure so partial-but-real stats
     still count toward the running averages.
+
+    In ``high`` output mode, a per-turn stats line is printed to the
+    streaming console so the user sees timing + token data inline.
     """
     if is_subagent():
         return
     AgentRunStats.snapshot_cycle_into_aggregates()
+    _render_high_mode_stats()
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +583,7 @@ _HOOKS_REGISTERED = False
 
 
 def register_hooks() -> None:
-    """Idempotently register the three run-stats callback hooks."""
+    """Idempotently register the run-stats callback hooks."""
     global _HOOKS_REGISTERED
     if _HOOKS_REGISTERED:
         return
@@ -323,6 +593,7 @@ def register_hooks() -> None:
         register_callback("agent_run_start", _on_agent_run_start)
         register_callback("stream_event", _on_stream_event)
         register_callback("agent_run_end", _on_agent_run_end)
+        register_callback("post_tool_call", _on_post_tool_call)
         _HOOKS_REGISTERED = True
     except Exception:
         # Callback module unavailable (extremely unlikely); silently skip
@@ -341,4 +612,5 @@ __all__ = [
     "_on_agent_run_start",
     "_on_stream_event",
     "_on_agent_run_end",
+    "_on_post_tool_call",
 ]

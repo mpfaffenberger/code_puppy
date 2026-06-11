@@ -2015,6 +2015,51 @@ def set_suppress_informational_messages(enabled: bool):
     set_config_value("suppress_informational_messages", "true" if enabled else "false")
 
 
+# ---------------------------------------------------------------------------
+# Output level (unified density control)
+# ---------------------------------------------------------------------------
+
+_VALID_OUTPUT_LEVELS = frozenset({"low", "medium", "high"})
+
+
+def get_output_level() -> str:
+    """Return the current output density level.
+
+    Valid values: ``low``, ``medium``, ``high``.  Default is ``medium``
+    (current behaviour).  The value is read from ``puppy.cfg`` with the
+    key ``output_level``.
+
+    * **low** — collapse tool calls, thinking blocks, and info messages
+      to one-line peeks.  Great for focused work.
+    * **medium** — current default behaviour.
+    * **high** — full metadata: timing, tokens, verbose grep, all
+      sub-agent output.
+    """
+    cfg_val = get_value("output_level")
+    if cfg_val is not None:
+        normalised = str(cfg_val).strip().lower()
+        if normalised in _VALID_OUTPUT_LEVELS:
+            return normalised
+    return "medium"
+
+
+def set_output_level(level: str) -> None:
+    """Set the output density level.
+
+    Args:
+        level: One of ``low``, ``medium``, or ``high``.
+
+    Raises:
+        ValueError: If *level* is not a valid choice.
+    """
+    normalised = level.strip().lower()
+    if normalised not in _VALID_OUTPUT_LEVELS:
+        raise ValueError(
+            f"Invalid output_level {level!r}; choose from low, medium, high"
+        )
+    set_config_value("output_level", normalised)
+
+
 # API Key management functions
 def get_api_key(key_name: str) -> str:
     """Get an API key from puppy.cfg.

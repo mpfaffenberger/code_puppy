@@ -303,6 +303,63 @@ class TestGrepFunction:
             assert "not supported" in result.error
 
 
+class TestGrepVerboseConfigWiring:
+    """Verify grep_output_verbose config flows into GrepResultMessage.verbose.
+
+    Regression test for code_puppy_oss-7vr: the toggle was disconnected.
+    """
+
+    def test_grep_verbose_false_by_default(self, tmp_path):
+        """GrepResultMessage.verbose is False when config is unset."""
+        test_file = tmp_path / "f.py"
+        test_file.write_text("match_me\n")
+
+        captured = []
+        mock_bus = MagicMock()
+        mock_bus.emit = lambda msg: captured.append(msg)
+
+        with (
+            patch(
+                "code_puppy.tools.file_operations.get_message_bus",
+                return_value=mock_bus,
+            ),
+            patch(
+                "code_puppy.config.get_grep_output_verbose",
+                return_value=False,
+            ),
+        ):
+            _grep(None, "match_me", str(tmp_path))
+
+        grep_msgs = [m for m in captured if hasattr(m, "verbose")]
+        assert len(grep_msgs) == 1
+        assert grep_msgs[0].verbose is False
+
+    def test_grep_verbose_true_from_config(self, tmp_path):
+        """GrepResultMessage.verbose is True when config says so."""
+        test_file = tmp_path / "f.py"
+        test_file.write_text("match_me\n")
+
+        captured = []
+        mock_bus = MagicMock()
+        mock_bus.emit = lambda msg: captured.append(msg)
+
+        with (
+            patch(
+                "code_puppy.tools.file_operations.get_message_bus",
+                return_value=mock_bus,
+            ),
+            patch(
+                "code_puppy.config.get_grep_output_verbose",
+                return_value=True,
+            ),
+        ):
+            _grep(None, "match_me", str(tmp_path))
+
+        grep_msgs = [m for m in captured if hasattr(m, "verbose")]
+        assert len(grep_msgs) == 1
+        assert grep_msgs[0].verbose is True
+
+
 class TestBuildGrepArgs:
     """Test _build_grep_args pattern/flag mode selection."""
 
