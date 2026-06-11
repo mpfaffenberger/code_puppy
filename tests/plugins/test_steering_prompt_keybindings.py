@@ -111,6 +111,54 @@ def test_other_control_chars_are_ignored(control, buffer):
 
 
 # =============================================================================
+# Escape-sequence handling (_iter_keys)
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "sequence",
+    [
+        "\x1b[D",  # left arrow (CSI)
+        "\x1b[C",  # right arrow
+        "\x1b[A",  # up arrow
+        "\x1b[B",  # down arrow
+        "\x1b[H",  # Home
+        "\x1b[1;5D",  # Ctrl+left (CSI with params)
+        "\x1b[3~",  # Delete
+        "\x1bOD",  # left arrow (SS3 / application mode)
+        "\x1bx",  # Alt+x chord
+    ],
+)
+def test_iter_keys_swallows_escape_sequences(sequence):
+    """Nav keys must be ignored entirely — NOT treated as ESC + garbage."""
+    assert list(prompt._iter_keys(sequence)) == []
+
+
+def test_iter_keys_lone_esc_passes_through():
+    """A bare ESC press still reaches the handler (→ cancel)."""
+    assert list(prompt._iter_keys("\x1b")) == ["\x1b"]
+
+
+def test_iter_keys_text_around_sequence_survives():
+    """Printable chars on either side of a nav key are preserved in order."""
+    assert list(prompt._iter_keys("ab\x1b[Dcd")) == ["a", "b", "c", "d"]
+
+
+def test_iter_keys_plain_text_passes_through():
+    assert list(prompt._iter_keys("hello")) == list("hello")
+
+
+def test_iter_keys_left_arrow_does_not_cancel_prompt():
+    """Regression: left arrow used to read as lone ESC and cancel the steer."""
+    buffer: list[str] = []
+    mode = "now"
+    for ch in prompt._iter_keys("hi\x1b[D!"):
+        action, mode = prompt._handle_key(ch, buffer, mode)
+        assert action != "cancel"
+    assert buffer == ["h", "i", "!"]
+
+
+# =============================================================================
 # Render math (wrap handling)
 # =============================================================================
 

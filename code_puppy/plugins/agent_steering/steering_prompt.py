@@ -134,6 +134,42 @@ def _handle_key(
     return "continue", mode
 
 
+# CSI sequences end on a "final byte" in this inclusive range (ECMA-48).
+_CSI_FINAL_LO, _CSI_FINAL_HI = "\x40", "\x7e"
+
+
+def _iter_keys(chunk: str):
+    """Yield individual keypresses from a raw input chunk.
+
+    Escape *sequences* (arrow keys, Home/End, F-keys, Alt+chords) arrive as
+    multi-byte bursts starting with ESC. This prompt has no cursor movement,
+    so we swallow them whole — the old code fed the bytes through one at a
+    time, saw the leading ESC, and cancelled the prompt the moment you
+    pressed a left arrow. A *lone* ESC (nothing after it in the chunk) is
+    still yielded so the caller can treat it as cancel.
+    """
+    i, n = 0, len(chunk)
+    while i < n:
+        ch = chunk[i]
+        if ch != "\x1b":
+            yield ch
+            i += 1
+            continue
+        if i + 1 >= n:
+            yield "\x1b"  # lone ESC → cancel
+            return
+        nxt = chunk[i + 1]
+        if nxt == "[":  # CSI: ESC [ <params/intermediates> <final byte>
+            i += 2
+            while i < n and not (_CSI_FINAL_LO <= chunk[i] <= _CSI_FINAL_HI):
+                i += 1
+            i += 1  # consume the final byte (or run off the end — fine)
+        elif nxt == "O":  # SS3: application-mode arrows / F1-F4
+            i += 3
+        else:  # Alt+<char> chord — swallow both
+            i += 2
+
+
 def _finish_submit(buffer: list[str], mode: SteerMode) -> SteerResult:
     """Build the public result for an Enter submit."""
     text = "".join(buffer).strip()
@@ -141,7 +177,16 @@ def _finish_submit(buffer: list[str], mode: SteerMode) -> SteerResult:
 
 
 def _collect_via_posix_raw() -> SteerResult:
-    """Collect steering text using POSIX cbreak mode. Always restores TTY."""
+    """Collect steering text using POSIX cbreak mode. Always restores TTY.
+
+    Input is read in chunks via ``os.read`` (not ``sys.stdin.read(1)``):
+    a keypress that produces an escape sequence arrives as one atomic burst,
+    which lets :func:`_iter_keys` tell "left arrow" apart from a lone ESC.
+    The text-IO wrapper would slurp the whole sequence into its private
+    buffer and make that distinction impossible.
+    """
+    import codecs
+    import os
     import termios
     import tty
 
@@ -150,23 +195,29 @@ def _collect_via_posix_raw() -> SteerResult:
     buffer: list[str] = []
     mode: SteerMode = "now"
     state = _make_render_state()
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     try:
         tty.setcbreak(fd)
         _render_prompt(buffer, mode, state)
         while True:
-            ch = sys.stdin.read(1)
-            action, mode = _handle_key(ch, buffer, mode)
-            if action == "submit":
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-                return _finish_submit(buffer, mode)
-            if action == "cancel":
+            raw = os.read(fd, 1024)
+            if not raw:  # EOF
                 sys.stdout.write("\n")
                 sys.stdout.flush()
                 return None
-            # ``continue`` covers both "buffer grew by one printable char" and
-            # "ignored control char"; redrawing on the latter is a harmless
-            # no-op and keeps the state machine dead simple.
+            for ch in _iter_keys(decoder.decode(raw)):
+                action, mode = _handle_key(ch, buffer, mode)
+                if action == "submit":
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    return _finish_submit(buffer, mode)
+                if action == "cancel":
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    return None
+            # ``continue``/``redraw`` both land here; redrawing after an
+            # ignored key is a harmless no-op and keeps the state machine
+            # dead simple.
             _render_prompt(buffer, mode, state)
     except KeyboardInterrupt:
         sys.stdout.write("\n")
