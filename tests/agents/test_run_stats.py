@@ -152,17 +152,24 @@ def test_single_event_cycle_records_ttft_but_no_gen_sample():
 
 def test_gen_time_excludes_stalls_between_stream_events(monkeypatch):
     """Gaps wider than the stall threshold (tool runs, follow-up request
-    latency) must not inflate the TG denominator."""
-    monkeypatch.setattr(AgentRunStats, "_MAX_INTER_EVENT_GAP_SECONDS", 0.05)
+    latency) must not inflate the TG denominator.
+
+    Uses a fake clock instead of real sleeps -- on a loaded machine a
+    short sleep can overshoot the stall threshold and flake the test.
+    """
+    clock = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
 
     AgentRunStats.mark_request_start()
-    AgentRunStats.record_output_tokens(10)
-    time.sleep(0.01)  # normal inter-token gap -- counted
+    AgentRunStats.record_output_tokens(10)  # first token anchors the burst
+
+    clock[0] += 0.5  # normal inter-token gap -- counted
     AgentRunStats.record_output_tokens(10)
     gen_after_burst = AgentRunStats._gen_seconds
-    assert gen_after_burst > 0
+    assert gen_after_burst == pytest.approx(0.5)
 
-    time.sleep(0.1)  # stall (e.g. tool execution) -- excluded
+    # Stall (e.g. tool execution) wider than the threshold -- excluded.
+    clock[0] += AgentRunStats._MAX_INTER_EVENT_GAP_SECONDS + 1.0
     AgentRunStats.record_output_tokens(10)
     assert AgentRunStats._gen_seconds == gen_after_burst
 
