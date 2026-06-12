@@ -122,24 +122,26 @@ Plus a **`/kennel`** slash command suite for humans:
 | `/kennel disable` (or `off`) | turn memory off at runtime (drawers preserved) |
 | `/kennel help` | usage hint |
 
-## Enable / disable at runtime
+## Enable / disable
 
-The plugin is **enabled by default**. State is persisted to
-``<KENNEL_ROOT>/state.json`` and read on every callback so the toggle is
-live — no restart needed.
+The plugin is **enabled by default**. Flip it with the slash commands:
+
+- ``/kennel disable`` (or ``/kennel off``) — turn memory off
+- ``/kennel enable`` (or ``/kennel on``) — turn memory back on
+
+State is persisted to ``puppy.cfg`` under ``kennel_enabled`` and read on
+every callback, so the toggle is live — no restart needed, and the
+front end can read or write the same value.
 
 **When disabled:**
 
 - ``load_prompt`` returns ``None`` (no recall block in system prompt)
 - ``agent_run_end`` is a no-op (nothing recorded)
 - Agent-facing tools return a friendly ``error`` field explaining memory is off
-- **Human inspection commands** (`/kennel stats`, `/kennel wings`, `/kennel search`)
-  still work — the operator can always see what's stored.
-
-**Two layers of off:**
-
-1. ``PUPPY_KENNEL_DISABLED=1`` env var → **hard off**, plugin never registers callbacks at all.
-2. ``/kennel disable`` slash command → **soft off**, plugin loaded but features paused.
+- **The ``/kennel`` slash suite stays available** — ``/kennel stats``,
+  ``/kennel wings``, ``/kennel search`` all still work so the operator
+  can see what's stored, and ``/kennel enable`` is always reachable to
+  turn it back on.
 
 ## Known tech debt
 
@@ -159,9 +161,14 @@ live — no restart needed.
 | Variable | Default | Effect |
 |---|---|---|
 | `PUPPY_KENNEL_ROOT` | `~/.code_puppy/kennel` | Where the SQLite file lives |
-| `PUPPY_KENNEL_DISABLED` | unset | Set to `1` to skip plugin entirely |
 | `PUPPY_KENNEL_PASSIVE_LIMIT` | `5` | Drawers surfaced in passive recall |
 | `PUPPY_KENNEL_MAX_DRAWER_CHARS` | `32000` | Cap on stored drawer size |
+
+## puppy.cfg keys
+
+| Key | Default | Effect |
+|---|---|---|
+| `kennel_enabled` | unset → enabled | Single source of truth for the on/off toggle. Set to `false`/`0`/`no`/`off` (case-insensitive) to disable. Anything else — missing, blank, or garbage — leaves the kennel on. Flipped live by `/kennel enable` and `/kennel disable`. |
 
 ## How tools reach the agent
 

@@ -15,7 +15,6 @@ from code_puppy.callbacks import register_callback
 from code_puppy.messaging.bus import emit_debug
 
 from . import commands, kennel, tools
-from .config import DISABLED
 from .recorder import record_run_end
 from .retriever import build_recall_block
 from .state import is_enabled
@@ -87,7 +86,7 @@ def _advertise_tools_to_agent(agent_name: str | None = None) -> list[str]:
     return list(_KENNEL_TOOL_NAMES)
 
 
-if not DISABLED and _initialize_once():
+if _initialize_once():
     register_callback("load_prompt", _on_load_prompt)
     register_callback("agent_run_end", _on_agent_run_end)
     register_callback("register_tools", tools.register_tools_callback)

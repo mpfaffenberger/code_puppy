@@ -22,6 +22,9 @@ import pytest
 
 @pytest.fixture
 def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    # ``PUPPY_KENNEL_ROOT`` now ONLY controls where the SQLite DB lives;
+    # it has nothing to do with the on/off toggle, which lives in
+    # puppy.cfg (isolated to a temp file by the root tests/conftest.py).
     root = tmp_path / "kennel"
     monkeypatch.setenv("PUPPY_KENNEL_ROOT", str(root))
 
@@ -79,11 +82,12 @@ def test_set_enabled_persists(kennel_root: Path) -> None:
     assert state.is_enabled() is True
 
 
-def test_state_file_corruption_falls_back_to_enabled(kennel_root: Path) -> None:
+def test_garbage_cfg_value_falls_back_to_enabled(kennel_root: Path) -> None:
+    """Default-on means a typo in puppy.cfg must not silently kill memory."""
+    from code_puppy.config import set_config_value
     from code_puppy.plugins.puppy_kennel import state
 
-    state.STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    state.STATE_PATH.write_text("this is not json", encoding="utf-8")
+    set_config_value("kennel_enabled", "banana")
     assert state.is_enabled() is True
 
 
