@@ -25,7 +25,12 @@ from code_puppy.agents.smooth_stream import (
     make_smooth_termflow_writer,
     make_thinking_smoother,
 )
-from code_puppy.config import get_banner_color, get_subagent_verbose
+from code_puppy.config import (
+    get_banner_color,
+    get_output_level,
+    get_subagent_verbose,
+    get_suppress_thinking_messages,
+)
 from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
 from code_puppy.tools.subagent_context import is_subagent
 
@@ -86,10 +91,39 @@ def get_streaming_console() -> Console:
 def _should_suppress_output() -> bool:
     """Check if sub-agent output should be suppressed.
 
+    In ``high`` output mode, sub-agent output is never suppressed.
+
     Returns:
         True if we're in a sub-agent context and verbose mode is disabled.
     """
+    if get_output_level() == "high":
+        return False
     return is_subagent() and not get_subagent_verbose()
+
+
+def _suppress_thinking_stream() -> bool:
+    """Return True if thinking banners/content should be hidden.
+
+    Thinking is suppressed in ``low`` output mode (collapsed to a peek
+    by the RichConsoleRenderer) or when the user has explicitly set
+    ``suppress_thinking_messages``.
+
+    In ``high`` output mode, thinking is *never* suppressed -- the user
+    explicitly asked for maximum visibility.
+    """
+    level = get_output_level()
+    if level == "high":
+        return False
+    return level == "low" or get_suppress_thinking_messages()
+
+
+def _suppress_tool_progress() -> bool:
+    """Return True if tool-call progress counters should be hidden.
+
+    In ``low`` mode, the shell-start peek in the RichConsoleRenderer is
+    sufficient; the streaming token counter is noise.
+    """
+    return get_output_level() == "low"
 
 
 async def event_stream_handler(
@@ -130,7 +164,9 @@ async def event_stream_handler(
     banner_printed: set[int] = set()  # Track if banner was already printed
     token_count: dict[int, int] = {}  # Track token count per text/tool part
     tool_names: dict[int, str] = {}  # Track tool name per tool part index
+    tool_args_buffer: dict[int, str] = {}  # Accumulate raw tool-call args JSON
     did_stream_anything = False  # Track if we streamed any content
+    is_high_mode = get_output_level() == "high"
 
     # Termflow streaming state for text parts
     termflow_parsers: dict[int, TermflowParser] = {}
@@ -188,6 +224,7 @@ async def event_stream_handler(
         console.print()  # Newline before banner
         # Bold banner with configurable color and lightning bolt
         thinking_color = get_banner_color("thinking")
+
         console.print(
             Text.from_markup(
                 f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}] [dim]\u26a1 "
@@ -267,9 +304,11 @@ async def event_stream_handler(
                     streaming_parts.add(event.index)
                     thinking_parts.add(event.index)
                     # If there's initial content, print banner + content now
+                    # (unless thinking is suppressed by output level or toggle).
                     if part.content and part.content.strip():
-                        await _print_thinking_banner()
-                        _emit_thinking(event.index, part.content)
+                        if not _suppress_thinking_stream():
+                            await _print_thinking_banner()
+                            _emit_thinking(event.index, part.content)
                         banner_printed.add(event.index)
                 elif isinstance(part, TextPart):
                     streaming_parts.add(event.index)
@@ -287,6 +326,7 @@ async def event_stream_handler(
                     streaming_parts.add(event.index)
                     tool_parts.add(event.index)
                     token_count[event.index] = 0  # Initialize token counter
+                    tool_args_buffer[event.index] = ""  # Accumulate JSON args
                     # Capture tool name from the start event
                     tool_names[event.index] = part.tool_name or ""
                     # Track tool name for display
@@ -336,10 +376,12 @@ async def event_stream_handler(
                             else:
                                 # For thinking parts, stream smoothly (dim) via a
                                 # rate-limited buffer so bursty deltas don't stutter.
-                                if event.index not in banner_printed:
-                                    await _print_thinking_banner()
-                                    banner_printed.add(event.index)
-                                _emit_thinking(event.index, delta.content_delta)
+                                # Gate on output level / suppress_thinking toggle.
+                                if not _suppress_thinking_stream():
+                                    if event.index not in banner_printed:
+                                        await _print_thinking_banner()
+                                        banner_printed.add(event.index)
+                                    _emit_thinking(event.index, delta.content_delta)
                     elif isinstance(delta, ToolCallPartDelta):
                         # For tool calls, estimate tokens from args_delta content
                         # args_delta contains the streaming JSON arguments
@@ -348,6 +390,10 @@ async def event_stream_handler(
                             # Same 2.5 chars/token heuristic as BaseAgent and file_operations
                             estimated_tokens = max(1, math.floor(len(args_delta) / 2.5))
                             token_count[event.index] += estimated_tokens
+                            # Accumulate raw args JSON for high-mode display.
+                            tool_args_buffer[event.index] = (
+                                tool_args_buffer.get(event.index, "") + args_delta
+                            )
                         else:
                             # Even empty deltas count as activity
                             token_count[event.index] += 1
@@ -359,20 +405,23 @@ async def event_stream_handler(
                                 tool_names.get(event.index, "") + tool_name_delta
                             )
 
-                        # Use stored tool name for display
-                        tool_name = tool_names.get(event.index, "")
-                        count = token_count[event.index]
-                        # Display with tool wrench icon and tool name
-                        if tool_name:
-                            console.print(
-                                f"  \U0001f527 Calling {tool_name}... {count} token(s)   ",
-                                end="\r",
-                            )
-                        else:
-                            console.print(
-                                f"  \U0001f527 Calling tool... {count} token(s)   ",
-                                end="\r",
-                            )
+                        # Use stored tool name for display.
+                        # In low mode, skip the progress counter — the
+                        # RichConsoleRenderer peek is sufficient.
+                        if not _suppress_tool_progress():
+                            tool_name = tool_names.get(event.index, "")
+                            count = token_count[event.index]
+                            # Display with tool wrench icon and tool name
+                            if tool_name:
+                                console.print(
+                                    f"  \U0001f527 Calling {tool_name}... {count} token(s)   ",
+                                    end="\r",
+                                )
+                            else:
+                                console.print(
+                                    f"  \U0001f527 Calling tool... {count} token(s)   ",
+                                    end="\r",
+                                )
 
             # PartEndEvent - finish the streaming with a newline
             elif isinstance(event, PartEndEvent):
@@ -417,6 +466,27 @@ async def event_stream_handler(
                     elif event.index in tool_parts:
                         # Clear the chunk counter line by printing spaces and returning
                         console.print(" " * 50, end="\r")
+                        # In high mode, dump the full tool call arguments so the
+                        # user can see exactly what the model sent to the tool.
+                        if is_high_mode:
+                            tool_name = tool_names.get(event.index, "tool")
+                            raw_args = tool_args_buffer.get(event.index, "")
+                            if raw_args:
+                                # Pretty-print the JSON if possible.
+                                import json as _json
+
+                                try:
+                                    parsed = _json.loads(raw_args)
+                                    formatted = _json.dumps(
+                                        parsed, indent=2, ensure_ascii=False
+                                    )
+                                except (ValueError, TypeError):
+                                    formatted = raw_args
+                                console.print(
+                                    f"[dim]  tool_call {escape(tool_name)} args:[/dim]"
+                                )
+                                for arg_line in formatted.splitlines():
+                                    console.print(f"[dim]    {escape(arg_line)}[/dim]")
                     # For thinking parts, drain the smoother then print newline
                     elif event.index in thinking_parts:
                         smoother = thinking_smoothers.pop(event.index, None)
@@ -429,6 +499,7 @@ async def event_stream_handler(
                     # Clean up token count and tool names
                     token_count.pop(event.index, None)
                     tool_names.pop(event.index, None)
+                    tool_args_buffer.pop(event.index, None)
                     # Clean up all tracking sets
                     streaming_parts.discard(event.index)
                     thinking_parts.discard(event.index)

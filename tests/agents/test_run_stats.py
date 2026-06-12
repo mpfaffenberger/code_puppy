@@ -1,19 +1,26 @@
 """Tests for code_puppy.agents.run_stats: TTFT + gen-speed timing.
 
-Covers both the ``AgentRunStats`` state container and the three callback
-hooks that drive it (agent_run_start / stream_event / agent_run_end).
+Covers both the ``AgentRunStats`` state container and the callback
+hooks that drive it (agent_run_start / stream_event / agent_run_end /
+post_tool_call).
 """
 
 import time
+from io import StringIO
+from unittest.mock import patch
 
 import pytest
+from rich.console import Console
 
 from code_puppy.agents.run_stats import (
     AgentRunStats,
     _estimate_tokens,
     _on_agent_run_end,
     _on_agent_run_start,
+    _on_post_tool_call,
     _on_stream_event,
+    _render_high_mode_tool_result,
+    _stringify_result,
 )
 from code_puppy.tools.subagent_context import subagent_context
 
@@ -390,3 +397,250 @@ async def test_full_cycle_with_multiple_model_calls():
     await _on_agent_run_end("agent", "model")
     assert AgentRunStats._ttft_sample_count == 1
     assert AgentRunStats._total_output_tokens > 0
+
+
+# ---------------------------------------------------------------------------
+# High-mode tool result rendering (_on_post_tool_call)
+# ---------------------------------------------------------------------------
+
+
+class TestHighModeToolResult:
+    """_render_high_mode_tool_result renders tool output in high mode."""
+
+    def _capture(self, tool_name, result, *, level="high", duration_ms=42.0):
+        """Run the renderer and return captured console output."""
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=False, width=120)
+        with (
+            patch(
+                "code_puppy.config.get_output_level",
+                return_value=level,
+            ),
+            patch(
+                "code_puppy.agents.event_stream_handler.get_streaming_console",
+                return_value=console,
+            ),
+        ):
+            _render_high_mode_tool_result(tool_name, {}, result, duration_ms)
+        buf.seek(0)
+        return buf.read()
+
+    def test_renders_in_high_mode(self):
+        out = self._capture("list_agents", "x = 1\ny = 2")
+        assert "list_agents" in out
+        assert "returned" in out
+        assert "42 ms" in out
+        assert "x = 1" in out
+        assert "y = 2" in out
+
+    def test_silent_in_medium_mode(self):
+        out = self._capture("list_agents", "x = 1", level="medium")
+        assert out == ""
+
+    def test_silent_in_low_mode(self):
+        out = self._capture("list_agents", "x = 1", level="low")
+        assert out == ""
+
+    def test_long_results_shown_in_full_with_footer(self):
+        """High mode never truncates.  Results >50 lines get an info footer."""
+        long_result = "\n".join(f"line {i}" for i in range(200))
+        out = self._capture("list_agents", long_result)
+        # All lines must be present — no truncation in high mode
+        assert "line 0" in out
+        assert "line 100" in out
+        assert "line 199" in out
+        # Informational footer (not a gate)
+        assert "200 lines" in out
+        assert "chars" in out
+        # Old truncation indicator must NOT appear
+        assert "truncated" not in out
+
+    def test_short_results_no_footer(self):
+        """Results under the footer threshold should have no footer."""
+        short_result = "\n".join(f"line {i}" for i in range(10))
+        out = self._capture("list_agents", short_result)
+        assert "line 0" in out
+        assert "line 9" in out
+        assert "lines," not in out  # no footer
+
+    def test_handles_dict_result(self):
+        out = self._capture("list_agents", {"error": "file not found"})
+        assert "file not found" in out
+
+    def test_never_crashes(self):
+        """Even with pathological input, the renderer must not raise."""
+        _render_high_mode_tool_result("tool", {}, None, 0.0)
+        _render_high_mode_tool_result("tool", {}, 12345, 0.0)
+
+    # -- invoke_agent / invoke_agent_with_model summary rendering -----------
+
+    def test_invoke_agent_shows_summary_not_repr(self):
+        """invoke_agent result should show a compact summary, not raw repr."""
+        from code_puppy.tools.agent_tools import AgentInvokeOutput
+
+        result = AgentInvokeOutput(
+            response="Hello\nWorld\nMultiline",
+            agent_name="test-agent",
+            session_id="sess-1",
+            model_name="gpt-4",
+        )
+        out = self._capture("invoke_agent", result)
+        # Should contain agent name and char count, NOT raw response body
+        assert "test-agent" in out
+        assert "OK" in out
+        assert "21 chars" in out
+        # Must NOT contain the raw response text or escaped newlines
+        assert "Hello" not in out
+        assert "World" not in out
+        assert "Multiline" not in out
+
+    def test_invoke_agent_with_model_shows_summary(self):
+        """invoke_agent_with_model gets the same compact treatment."""
+        from code_puppy.tools.agent_tools import AgentInvokeOutput
+
+        result = AgentInvokeOutput(
+            response="big response" * 100,
+            agent_name="code-puppy",
+        )
+        out = self._capture("invoke_agent_with_model", result)
+        assert "code-puppy" in out
+        assert "OK" in out
+        assert "1,200 chars" in out
+        # Raw body must not leak
+        assert "big response" not in out
+
+    def test_invoke_agent_error_shows_fail(self):
+        """Error sub-agent results should show FAIL status."""
+        from code_puppy.tools.agent_tools import AgentInvokeOutput
+
+        result = AgentInvokeOutput(
+            response=None,
+            agent_name="broken-agent",
+            error="Model quota exceeded",
+        )
+        out = self._capture("invoke_agent", result)
+        assert "broken-agent" in out
+        assert "FAIL" in out
+        # Error message should NOT be dumped (it's in the response payload)
+        assert "quota" not in out
+
+    def test_invoke_agent_no_response(self):
+        """Sub-agent with None response and no error shows 'no response'."""
+        from code_puppy.tools.agent_tools import AgentInvokeOutput
+
+        result = AgentInvokeOutput(
+            response=None,
+            agent_name="empty-agent",
+        )
+        out = self._capture("invoke_agent", result)
+        assert "empty-agent" in out
+        assert "no response" in out
+
+    def test_normal_tool_still_renders_body(self):
+        """Non-rendered tools should still render their full result body."""
+        out = self._capture("list_agents", "line 1\nline 2\nline 3")
+        assert "line 1" in out
+        assert "line 2" in out
+        assert "line 3" in out
+
+    # -- Tools with rich_renderer (compact summary, no body) ---------------
+
+    def test_rendered_tool_shows_compact_summary(self):
+        """Tools in _TOOLS_WITH_RENDERER show duration only, no body."""
+        out = self._capture("read_file", "x = 1\ny = 2")
+        assert "read_file" in out
+        assert "returned" in out
+        assert "42 ms" in out
+        # Body should NOT appear
+        assert "x = 1" not in out
+        assert "y = 2" not in out
+
+    def test_grep_shows_compact_summary(self):
+        """grep is in _TOOLS_WITH_RENDERER."""
+        out = self._capture("grep", "match 1\nmatch 2")
+        assert "grep" in out
+        assert "returned" in out
+        assert "match 1" not in out
+
+    def test_shell_shows_compact_summary(self):
+        """agent_run_shell_command is in _TOOLS_WITH_RENDERER."""
+        out = self._capture("agent_run_shell_command", "output here")
+        assert "agent_run_shell_command" in out
+        assert "returned" in out
+        assert "output here" not in out
+
+    # -- _stringify_result --------------------------------------------------
+
+    def test_stringify_plain_string(self):
+        assert _stringify_result("hello\nworld") == "hello\nworld"
+
+    def test_stringify_dict(self):
+        out = _stringify_result({"key": "value", "nested": {"a": 1}})
+        assert "\n" in out  # Should be multi-line JSON
+        assert '"key"' in out
+        assert '"value"' in out
+
+    def test_stringify_list(self):
+        out = _stringify_result([1, 2, 3])
+        assert "\n" in out
+        assert "1" in out
+
+    def test_stringify_pydantic_model(self):
+        from code_puppy.tools.agent_tools import AgentInvokeOutput
+
+        result = AgentInvokeOutput(
+            response="Hello\nWorld",
+            agent_name="test",
+        )
+        out = _stringify_result(result)
+        # Should produce multi-line JSON (real newlines for line splitting)
+        assert out.count("\n") > 1
+        # Should contain the field names as JSON keys
+        assert '"response"' in out
+        assert '"agent_name"' in out
+
+    def test_stringify_none(self):
+        out = _stringify_result(None)
+        assert isinstance(out, str)
+
+    def test_stringify_int(self):
+        assert _stringify_result(42) == "42"
+
+    # -- Footer for large structured results --------------------------------
+
+    def test_large_structured_result_shown_in_full_with_footer(self):
+        """Structured results are never truncated; large ones get a footer."""
+        big_dict = {f"key_{i}": f"value_{i}" for i in range(200)}
+        out = self._capture("list_agents", big_dict)
+        # No truncation
+        assert "truncated" not in out
+        # All keys must be present
+        assert '"key_0"' in out
+        assert '"key_199"' in out
+        # Informational footer (>50 lines)
+        assert "lines" in out
+        assert "chars" in out
+
+
+@pytest.mark.asyncio
+async def test_on_post_tool_call_delegates_to_renderer():
+    """_on_post_tool_call should call the render function."""
+    buf = StringIO()
+    console = Console(file=buf, force_terminal=False, width=120)
+    with (
+        patch(
+            "code_puppy.config.get_output_level",
+            return_value="high",
+        ),
+        patch(
+            "code_puppy.agents.event_stream_handler.get_streaming_console",
+            return_value=console,
+        ),
+    ):
+        await _on_post_tool_call("list_files", {"dir": "."}, "found 5 files", 10.0)
+    buf.seek(0)
+    out = buf.read()
+    assert "list_files" in out
+    assert "returned" in out
+    # list_files is in _TOOLS_WITH_RENDERER, so body should NOT appear
+    assert "found 5 files" not in out

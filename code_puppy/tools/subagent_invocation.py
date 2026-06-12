@@ -260,8 +260,31 @@ async def _invoke_agent_impl(
             )
 
             # Always use subagent_stream_handler to silence output and update console manager
-            # This ensures all sub-agent output goes through the aggregated dashboard
-            stream_handler = partial(subagent_stream_handler, session_id=session_id)
+            # This ensures all sub-agent output goes through the aggregated dashboard.
+            # Exception: high output mode streams subagent activity inline so
+            # the user sees thinking, tool calls, and responses in real time.
+            #
+            # In high mode we wrap the handler in a StreamingTextDetector so
+            # we know whether the backend actually emitted text tokens. If it
+            # didn't (buffered response), we fall back to a one-shot render
+            # so the user always sees the result.
+            from code_puppy.config import get_output_level
+
+            is_high_mode = get_output_level() == "high"
+            streaming_detector = None
+
+            if is_high_mode:
+                from code_puppy.agents._non_streaming_render import (
+                    StreamingTextDetector,
+                )
+                from code_puppy.agents.event_stream_handler import (
+                    event_stream_handler as _main_stream_handler,
+                )
+
+                streaming_detector = StreamingTextDetector(_main_stream_handler)
+                stream_handler = streaming_detector
+            else:
+                stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
             # Wrap the agent run in subagent context for tracking
             with subagent_context(agent_name):
@@ -288,6 +311,19 @@ async def _invoke_agent_impl(
                         if task.cancelled():
                             await on_agent_run_cancel(group_id)
 
+                # Still inside subagent_context: if high mode and streaming
+                # didn't produce any text, fall back to the one-shot renderer
+                # so the user always sees the response.
+                streamed_text = (
+                    streaming_detector is not None and streaming_detector.streamed_text
+                )
+                if is_high_mode and not streamed_text:
+                    from code_puppy.agents._non_streaming_render import (
+                        render_result_without_streaming,
+                    )
+
+                    render_result_without_streaming(result)
+
             # Extract the response from the result
             response = result.output
 
@@ -303,15 +339,19 @@ async def _invoke_agent_impl(
                 initial_prompt=prompt if is_new_session else None,
             )
 
-            # Emit structured response message via MessageBus
-            bus.emit(
-                SubAgentResponseMessage(
-                    agent_name=agent_name,
-                    session_id=session_id,
-                    response=response,
-                    message_count=len(updated_history),
+            # Emit structured response message via MessageBus.
+            # In high mode, skip the emit when streaming already rendered the
+            # response to avoid a double-render if any future subscriber
+            # starts rendering SubAgentResponseMessage.
+            if not (is_high_mode and streamed_text):
+                bus.emit(
+                    SubAgentResponseMessage(
+                        agent_name=agent_name,
+                        session_id=session_id,
+                        response=response,
+                        message_count=len(updated_history),
+                    )
                 )
-            )
 
             # Emit clean completion summary
             emit_success(

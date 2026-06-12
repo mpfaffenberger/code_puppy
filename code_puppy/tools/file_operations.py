@@ -671,6 +671,8 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     import subprocess
     import sys
 
+    from code_puppy.config import get_grep_output_verbose
+
     # Sanitize search string to handle any surrogates from copy-paste
     search_string = _sanitize_string(search_string)
 
@@ -826,6 +828,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         matches=grep_matches,
         total_matches=len(matches),
         files_searched=unique_files,
+        verbose=get_grep_output_verbose(),
     )
     get_message_bus().emit(grep_result_msg)
 

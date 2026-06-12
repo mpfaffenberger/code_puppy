@@ -46,6 +46,7 @@ from code_puppy.config import (
     get_openai_reasoning_effort,
     get_openai_reasoning_summary,
     get_openai_verbosity,
+    get_output_level,
     get_owner_name,
     get_pack_agents_enabled,
     get_protected_token_count,
@@ -489,6 +490,19 @@ _SAFETY = SettingsCategory(
 _OUTPUT = SettingsCategory(
     name="Output",
     settings=(
+        Setting(
+            key="output_level",
+            display_name="Output Level",
+            description=(
+                "Unified density control for conversation output. "
+                "low = one-line peeks for tool calls & thinking, "
+                "medium = current default, "
+                "high = full metadata with timing, tokens, and verbose output."
+            ),
+            type_hint="choice",
+            valid_values=("low", "medium", "high"),
+            effective_getter=get_output_level,
+        ),
         Setting(
             key="smooth_response_stream",
             display_name="Smooth Response Stream",
