@@ -1,6 +1,8 @@
 """Configuration for the puppy_kennel plugin.
 
-Single source of truth for paths, defaults, and opt-out flags.
+Single source of truth for paths, defaults, and tunable knobs. The
+on/off toggle lives in ``state.py`` and is persisted in ``puppy.cfg``
+under ``kennel_enabled`` -- see that module.
 """
 
 from __future__ import annotations
@@ -15,9 +17,6 @@ KENNEL_ROOT = Path(
 
 # The SQLite database file lives inside the kennel root.
 DB_PATH = KENNEL_ROOT / "kennel.db"
-
-# Disable the plugin entirely with PUPPY_KENNEL_DISABLED=1.
-DISABLED = os.environ.get("PUPPY_KENNEL_DISABLED", "").lower() in {"1", "true", "yes"}
 
 # --------------------------------------------------------------------------- #
 # Prompt-packing budget — how much of the system prompt we get to fill.

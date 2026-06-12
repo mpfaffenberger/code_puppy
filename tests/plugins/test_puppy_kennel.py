@@ -47,7 +47,7 @@ def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for mod in (
         kennel_config,  # base: paths + budgets
         schema_mod,  # SQL constants
-        state_mod,  # STATE_PATH <- config.KENNEL_ROOT
+        state_mod,  # is_enabled() reads kennel_enabled from puppy.cfg
         wings_mod,  # cwd/repo helpers
         kennel_mod,  # DB_PATH <- config
         packer_mod,  # <- kennel, config, wings

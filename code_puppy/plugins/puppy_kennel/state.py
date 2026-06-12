@@ -1,22 +1,28 @@
 """Runtime state for the puppy_kennel plugin.
 
-A tiny JSON file at ``<KENNEL_ROOT>/state.json`` records whether memory
-is currently enabled. The slash commands ``/kennel enable`` and
-``/kennel disable`` flip this flag; reads (recorder/retriever/tools)
-consult ``is_enabled()`` on every call so the toggle is live.
+Single source of truth for whether the kennel is on. Flipped by the
+``/kennel enable`` and ``/kennel disable`` slash commands. Persisted in
+``puppy.cfg`` under the key ``kennel_enabled`` so the front end can read
+and write the same value.
 
-The env var ``PUPPY_KENNEL_DISABLED=1`` is a separate, harder kill: it
-prevents the plugin from registering callbacks at all. That's handled in
-``register_callbacks``, not here.
+Default is **enabled** -- a missing key, blank value, or garbage value
+all leave the kennel on. Only the explicit-falsy tokens
+``{"false", "0", "no", "off"}`` (case-insensitive) turn it off. That
+asymmetry is on purpose: on a default-on system, a typo like
+``kennel_enabled = noep`` must not silently kill memory. In the face of
+ambiguity, refuse to guess.
+
+Reads and writes go through ``code_puppy.config.get_value`` /
+``set_config_value``, the same helpers every other plugin (statusline,
+prompt_newline, ...) uses for puppy.cfg interop.
 """
 
 from __future__ import annotations
 
-import json
+from code_puppy.config import get_value, set_config_value
 
-from .config import KENNEL_ROOT
-
-STATE_PATH = KENNEL_ROOT / "state.json"
+_CFG_KEY = "kennel_enabled"
+_FALSY = frozenset({"false", "0", "no", "off"})
 
 DISABLED_TOOL_ERROR = (
     "Puppy Kennel memory is currently disabled. "
@@ -25,18 +31,24 @@ DISABLED_TOOL_ERROR = (
 
 
 def is_enabled() -> bool:
-    """Read the persisted enabled flag. Defaults to True if no state file."""
-    try:
-        payload = json.loads(STATE_PATH.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    """Return True if the kennel is on.
+
+    Defaults to True when the key is missing, blank, or set to anything
+    that isn't one of the explicit-falsy tokens. Evaluated on every call
+    so flipping the toggle takes effect immediately -- no relaunch
+    required.
+    """
+    raw = get_value(_CFG_KEY)
+    if raw is None:
         return True
-    value = payload.get("enabled", True)
-    return bool(value)
+    return str(raw).strip().lower() not in _FALSY
 
 
 def set_enabled(value: bool) -> None:
-    """Persist the enabled flag to the state file. Best-effort."""
-    KENNEL_ROOT.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(
-        json.dumps({"enabled": bool(value)}, indent=2), encoding="utf-8"
-    )
+    """Persist the kennel enable flag to puppy.cfg (positive sense).
+
+    Writes the literal string ``"true"`` or ``"false"`` so the on-disk
+    representation is stable and any future FE consumer can parse the
+    cfg directly without going through this helper.
+    """
+    set_config_value(_CFG_KEY, "true" if value else "false")
