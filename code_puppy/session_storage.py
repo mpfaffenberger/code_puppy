@@ -1,248 +1,338 @@
-"""Shared helpers for persisting and restoring JSON chat sessions.
+"""Shared helpers for persisting and restoring chat sessions.
 
-All session export/autosave helpers now use JSON files. Pickle compatibility
-and legacy path shims have been removed from active runtime code.
+This module centralises the pickle + metadata handling that used to live in
+both the CLI command handler and the auto-save feature. Keeping it here helps
+us avoid duplication while staying inside the Zen-of-Python sweet spot: simple
+is better than complex, nested side effects are worse than deliberate helpers.
 """
 
 from __future__ import annotations
 
 import json
-import re
-from datetime import datetime
+import pickle
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List
+from typing import Any, Callable, List
 
+
+def _safe_loads(data: bytes) -> Any:
+    """Deserialize pickle data."""
+    return pickle.loads(data)  # noqa: S301
+
+
+_LEGACY_SIGNED_HEADER = b"CPSESSION\x01"
+_LEGACY_SIGNATURE_SIZE = (
+    32  # legacy signature bytes, retained only for backward-compat parsing
+)
 
 SessionHistory = List[Any]
+TokenEstimator = Callable[[Any], int]
+
+
+@dataclass(slots=True)
+class SessionPaths:
+    pickle_path: Path
+    metadata_path: Path
 
 
 @dataclass(slots=True)
 class SessionMetadata:
-    """Metadata returned after saving a session export/autosave."""
-
+    session_name: str
+    timestamp: str
     message_count: int
     total_tokens: int
-    session_file_path: Path
+    pickle_path: Path
+    metadata_path: Path
+    auto_saved: bool = False
+
+    def as_serialisable(self) -> dict[str, Any]:
+        return {
+            "session_name": self.session_name,
+            "timestamp": self.timestamp,
+            "message_count": self.message_count,
+            "total_tokens": self.total_tokens,
+            "file_path": str(self.pickle_path),
+            "auto_saved": self.auto_saved,
+        }
 
 
-def get_session_file_path(base_dir: Path, session_name: str) -> Path:
-    """Return the canonical JSON session file path for *session_name*."""
-    return base_dir / f"{session_name}.json"
+def _extract_pickle_payload(raw: bytes) -> bytes:
+    """Return the pickle payload from raw session file bytes.
+
+    New format is raw pickle bytes.
+    Legacy format was: header + 32-byte signature + pickle payload.
+    We no longer verify or generate signatures.
+    """
+    if raw.startswith(_LEGACY_SIGNED_HEADER):
+        offset = len(_LEGACY_SIGNED_HEADER) + _LEGACY_SIGNATURE_SIZE
+        return raw[offset:]
+    return raw
 
 
-def generate_heuristic_title(history: SessionHistory, max_length: int = 50) -> str:
-    """Generate a short title from the first user message in the history."""
+def ensure_directory(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
-    def extract_user_content(msg: Any) -> str | None:
-        if isinstance(msg, dict) and "msg" in msg:
-            msg = msg["msg"]
 
-        if hasattr(msg, "kind") and msg.kind == "request":
-            for part in getattr(msg, "parts", []):
-                if hasattr(part, "content") and isinstance(part.content, str):
-                    content = part.content.strip()
-                    if content:
-                        return content
-
-        if isinstance(msg, dict):
-            if msg.get("role") == "user" and isinstance(msg.get("content"), str):
-                content = msg["content"].strip()
-                if content:
-                    return content
-
-        return None
-
-    def content_to_title(content: str) -> str:
-        first_line = content.split("\n")[0][:max_length]
-        title = first_line.lower()
-        title = re.sub(r"[^a-z0-9\s-]", "", title)
-        title = re.sub(r"\s+", "-", title)
-        title = re.sub(r"-+", "-", title)
-        title = title.strip("-")[:max_length]
-        return title
-
-    for msg in history:
-        content = extract_user_content(msg)
-        if content:
-            title = content_to_title(content)
-            return title if title else "untitled-session"
-
-    return "untitled-session"
+def build_session_paths(base_dir: Path, session_name: str) -> SessionPaths:
+    pickle_path = base_dir / f"{session_name}.pkl"
+    metadata_path = base_dir / f"{session_name}_meta.json"
+    return SessionPaths(pickle_path=pickle_path, metadata_path=metadata_path)
 
 
 def save_session(
+    *,
     history: SessionHistory,
     session_name: str,
     base_dir: Path,
-    timestamp: str | None = None,
-    token_estimator: Any | None = None,
-    **kwargs: Any,
+    timestamp: str,
+    token_estimator: TokenEstimator,
+    auto_saved: bool = False,
 ) -> SessionMetadata:
-    """Save session history to a JSON file."""
-    del timestamp, kwargs
+    ensure_directory(base_dir)
+    paths = build_session_paths(base_dir, session_name)
 
-    base_dir.mkdir(parents=True, exist_ok=True)
-    file_path = get_session_file_path(base_dir, session_name)
+    pickle_data = pickle.dumps(history)
+    tmp_pickle = paths.pickle_path.with_suffix(".tmp")
+    with tmp_pickle.open("wb") as pickle_file:
+        pickle_file.write(pickle_data)
+    tmp_pickle.replace(paths.pickle_path)
 
-    try:
-        from pydantic_ai.messages import ModelMessagesTypeAdapter
-
-        if history and all(hasattr(item, "parts") for item in history):
-            json_bytes = ModelMessagesTypeAdapter.dump_json(history, indent=2)
-        else:
-            history_data = []
-            for item in history:
-                if isinstance(item, dict) and "msg" in item:
-                    inner = item["msg"]
-                    wrapper_meta = {k: v for k, v in item.items() if k != "msg"}
-                    if hasattr(inner, "parts"):
-                        try:
-                            serialized = ModelMessagesTypeAdapter.dump_python(
-                                [inner], mode="json"
-                            )[0]
-                            serialized["_wrapper"] = wrapper_meta
-                            history_data.append(serialized)
-                        except Exception:
-                            history_data.append(item)
-                    else:
-                        history_data.append(item)
-                elif hasattr(item, "parts"):
-                    try:
-                        serialized = ModelMessagesTypeAdapter.dump_python(
-                            [item], mode="json"
-                        )[0]
-                        history_data.append(serialized)
-                    except Exception:
-                        history_data.append({"_raw": str(item)})
-                else:
-                    history_data.append(item)
-
-            json_bytes = json.dumps(history_data, indent=2, default=str).encode("utf-8")
-    except Exception:
-        json_bytes = json.dumps(history, default=str, indent=2).encode("utf-8")
-
-    file_path.write_bytes(json_bytes)
-
-    total_tokens = 0
-    if token_estimator:
-        for msg in history:
-            try:
-                total_tokens += token_estimator(msg)
-            except Exception:
-                pass
-
-    return SessionMetadata(
+    total_tokens = sum(token_estimator(message) for message in history)
+    metadata = SessionMetadata(
+        session_name=session_name,
+        timestamp=timestamp,
         message_count=len(history),
         total_tokens=total_tokens,
-        session_file_path=file_path,
+        pickle_path=paths.pickle_path,
+        metadata_path=paths.metadata_path,
+        auto_saved=auto_saved,
     )
 
+    tmp_metadata = paths.metadata_path.with_suffix(".tmp")
+    with tmp_metadata.open("w", encoding="utf-8") as metadata_file:
+        json.dump(metadata.as_serialisable(), metadata_file, indent=2)
+    tmp_metadata.replace(paths.metadata_path)
 
-def load_session(session_name: str, base_dir: Path) -> SessionHistory:
-    """Load session history from a JSON file."""
-    file_path = get_session_file_path(base_dir, session_name)
-    if not file_path.exists():
-        raise FileNotFoundError(f"Session file not found: {file_path}")
+    return metadata
 
-    json_data = file_path.read_bytes()
 
-    try:
-        from pydantic_ai.messages import ModelMessagesTypeAdapter
+def load_session(
+    session_name: str, base_dir: Path, *, allow_legacy: bool = False
+) -> SessionHistory:
+    # Kept for API compatibility; legacy loading is always supported now.
+    _ = allow_legacy
 
-        return ModelMessagesTypeAdapter.validate_json(json_data)
-    except Exception:
-        raw = json.loads(json_data)
+    paths = build_session_paths(base_dir, session_name)
+    if not paths.pickle_path.exists():
+        raise FileNotFoundError(paths.pickle_path)
 
-    if not isinstance(raw, list):
-        return raw
-
-    try:
-        from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
-        from pydantic_ai.usage import RequestUsage
-
-        restored: list[Any] = []
-        for item in raw:
-            wrapper = None
-            if isinstance(item, dict):
-                wrapper = item.pop("_wrapper", None)
-
-            if isinstance(item, dict) and item.get("kind") in {"request", "response"}:
-                parts = []
-                for part in item.get("parts", []):
-                    if isinstance(part, dict) and part.get("part_kind") == "text":
-                        parts.append(
-                            TextPart(
-                                content=part.get("content", ""),
-                                id=part.get("id"),
-                                provider_details=part.get("provider_details"),
-                            )
-                        )
-                    else:
-                        parts.append(part)
-
-                if item.get("kind") == "request":
-                    msg = ModelRequest(
-                        parts=parts,
-                        instructions=item.get("instructions"),
-                        run_id=item.get("run_id"),
-                        metadata=item.get("metadata"),
-                    )
-                else:
-                    usage_data = item.get("usage") or {}
-                    timestamp = item.get("timestamp")
-                    if isinstance(timestamp, str):
-                        timestamp = datetime.fromisoformat(
-                            timestamp.replace("Z", "+00:00")
-                        )
-                    msg = ModelResponse(
-                        parts=parts,
-                        usage=RequestUsage(**usage_data),
-                        model_name=item.get("model_name"),
-                        timestamp=timestamp or datetime.now().astimezone(),
-                        provider_name=item.get("provider_name"),
-                        provider_details=item.get("provider_details"),
-                        provider_response_id=item.get("provider_response_id"),
-                        finish_reason=item.get("finish_reason"),
-                        run_id=item.get("run_id"),
-                        metadata=item.get("metadata"),
-                    )
-
-                restored.append(
-                    {**wrapper, "msg": msg} if isinstance(wrapper, dict) else msg
-                )
-            else:
-                restored.append(item)
-
-        return restored
-    except Exception:
-        return raw
+    raw = paths.pickle_path.read_bytes()
+    pickle_data = _extract_pickle_payload(raw)
+    return _safe_loads(pickle_data)
 
 
 def list_sessions(base_dir: Path) -> List[str]:
-    """List available JSON sessions."""
     if not base_dir.exists():
         return []
-    return sorted(path.stem for path in base_dir.glob("*.json"))
+    return sorted(path.stem for path in base_dir.glob("*.pkl"))
 
 
 def cleanup_sessions(base_dir: Path, max_sessions: int) -> List[str]:
-    """Cleanup old sessions if count exceeds *max_sessions*."""
-    if not base_dir.exists() or max_sessions <= 0:
+    if max_sessions <= 0:
         return []
 
-    sessions = sorted(base_dir.glob("*.json"), key=lambda path: path.stat().st_mtime)
-    removed: list[str] = []
-    if len(sessions) > max_sessions:
-        for path in sessions[: len(sessions) - max_sessions]:
-            try:
-                path.unlink()
-                removed.append(path.stem)
-            except Exception:
-                pass
-    return removed
+    if not base_dir.exists():
+        return []
+
+    candidate_paths = list(base_dir.glob("*.pkl"))
+    if len(candidate_paths) <= max_sessions:
+        return []
+
+    sorted_candidates = sorted(
+        ((path.stat().st_mtime, path) for path in candidate_paths),
+        key=lambda item: item[0],
+    )
+
+    stale_entries = sorted_candidates[:-max_sessions]
+    removed_sessions: List[str] = []
+    for _, pickle_path in stale_entries:
+        metadata_path = base_dir / f"{pickle_path.stem}_meta.json"
+        try:
+            pickle_path.unlink(missing_ok=True)
+            metadata_path.unlink(missing_ok=True)
+            removed_sessions.append(pickle_path.stem)
+        except OSError:
+            continue
+
+    return removed_sessions
 
 
 async def restore_autosave_interactively(base_dir: Path) -> None:
-    """Deprecated compatibility shim retained as a no-op."""
-    del base_dir
+    """Prompt the user to load an autosave session from base_dir, if any exist.
+
+    This helper is deliberately placed in session_storage to keep autosave
+    restoration close to the persistence layer. It uses the same public APIs
+    (list_sessions, load_session) and mirrors the interactive behaviours from
+    the command handler.
+    """
+    sessions = list_sessions(base_dir)
+    if not sessions:
+        return
+
+    # Import locally to avoid pulling the messaging layer into storage modules
+    from datetime import datetime
+
+    from prompt_toolkit.formatted_text import FormattedText
+
+    from code_puppy.agents.agent_manager import get_current_agent
+    from code_puppy.command_line.prompt_toolkit_completion import (
+        get_input_with_combined_completion,
+    )
+    from code_puppy.messaging import emit_success, emit_system_message, emit_warning
+
+    entries = []
+    for name in sessions:
+        meta_path = base_dir / f"{name}_meta.json"
+        try:
+            with meta_path.open("r", encoding="utf-8") as meta_file:
+                data = json.load(meta_file)
+            timestamp = data.get("timestamp")
+            message_count = data.get("message_count")
+        except Exception:
+            timestamp = None
+            message_count = None
+        entries.append((name, timestamp, message_count))
+
+    def sort_key(entry):
+        _, timestamp, _ = entry
+        if timestamp:
+            try:
+                return datetime.fromisoformat(timestamp)
+            except ValueError:
+                return datetime.min
+        return datetime.min
+
+    entries.sort(key=sort_key, reverse=True)
+
+    PAGE_SIZE = 5
+    total = len(entries)
+    page = 0
+
+    def render_page() -> None:
+        start = page * PAGE_SIZE
+        end = min(start + PAGE_SIZE, total)
+        page_entries = entries[start:end]
+        emit_system_message("Autosave Sessions Available:")
+        for idx, (name, timestamp, message_count) in enumerate(page_entries, start=1):
+            timestamp_display = timestamp or "unknown time"
+            message_display = (
+                f"{message_count} messages"
+                if message_count is not None
+                else "unknown size"
+            )
+            emit_system_message(
+                f"  [{idx}] {name} ({message_display}, saved at {timestamp_display})"
+            )
+        # If there are more pages, offer next-page; show 'Return to first page' on last page
+        if total > PAGE_SIZE:
+            page_count = (total + PAGE_SIZE - 1) // PAGE_SIZE
+            is_last_page = (page + 1) >= page_count
+            remaining = total - (page * PAGE_SIZE + len(page_entries))
+            summary = (
+                f" and {remaining} more" if (remaining > 0 and not is_last_page) else ""
+            )
+            label = "Return to first page" if is_last_page else f"Next page{summary}"
+            emit_system_message(f"  [6] {label}")
+        emit_system_message("  [Enter] Skip loading autosave")
+
+    chosen_name: str | None = None
+
+    while True:
+        render_page()
+        try:
+            selection = await get_input_with_combined_completion(
+                FormattedText(
+                    [
+                        (
+                            "class:prompt",
+                            "Pick 1-5 to load, 6 for next, or name/Enter: ",
+                        )
+                    ]
+                )
+            )
+        except (KeyboardInterrupt, EOFError):
+            emit_warning("Autosave selection cancelled")
+            return
+
+        selection = (selection or "").strip()
+        if not selection:
+            return
+
+        # Numeric choice: 1-5 select within current page; 6 advances page
+        if selection.isdigit():
+            num = int(selection)
+            if num == 6 and total > PAGE_SIZE:
+                page = (page + 1) % ((total + PAGE_SIZE - 1) // PAGE_SIZE)
+                # loop and re-render next page
+                continue
+            if 1 <= num <= 5:
+                start = page * PAGE_SIZE
+                idx = start + (num - 1)
+                if 0 <= idx < total:
+                    chosen_name = entries[idx][0]
+                    break
+                else:
+                    emit_warning("Invalid selection for this page")
+                    continue
+            emit_warning("Invalid selection; choose 1-5 or 6 for next")
+            continue
+
+        # Allow direct typing by exact session name
+        for name, _ts, _mc in entries:
+            if name == selection:
+                chosen_name = name
+                break
+        if chosen_name:
+            break
+        emit_warning("No autosave loaded (invalid selection)")
+        # keep looping and allow another try
+
+    if not chosen_name:
+        return
+
+    try:
+        history = load_session(chosen_name, base_dir)
+    except FileNotFoundError:
+        emit_warning(f"Autosave '{chosen_name}' could not be found")
+        return
+    except Exception as exc:
+        emit_warning(f"Failed to load autosave '{chosen_name}': {exc}")
+        return
+
+    agent = get_current_agent()
+    agent.set_message_history(history)
+
+    # Set current autosave session id so subsequent autosaves overwrite this session
+    try:
+        from code_puppy.config import set_current_autosave_from_session_name
+
+        set_current_autosave_from_session_name(chosen_name)
+    except Exception:
+        pass
+
+    total_tokens = sum(agent.estimate_tokens_for_message(msg) for msg in history)
+
+    session_path = base_dir / f"{chosen_name}.pkl"
+    emit_success(
+        f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
+        f"📁 From: {session_path}"
+    )
+
+    # Display recent message history for context
+    try:
+        from code_puppy.command_line.autosave_menu import display_resumed_history
+
+        display_resumed_history(history)
+    except Exception:
+        pass  # Don't fail if display doesn't work in non-TTY environment

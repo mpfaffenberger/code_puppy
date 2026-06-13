@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from code_puppy.session_storage import get_session_file_path, load_session
+from code_puppy.session_storage import load_session
 
 _executor = ThreadPoolExecutor(max_workers=2)
 FILE_IO_TIMEOUT = 10.0
@@ -150,7 +150,7 @@ async def get_session(session_id: str) -> SessionInfo:
 @router.get("/{session_id}/messages")
 async def get_session_messages(session_id: str) -> List[Dict[str, Any]]:
     sessions_dir = _get_sessions_dir()
-    session_file = get_session_file_path(sessions_dir, session_id)
+    session_file = sessions_dir / f"{session_id}.pkl"
 
     if not session_file.exists():
         raise HTTPException(404, f"Session '{session_id}' messages not found")
@@ -174,7 +174,7 @@ async def get_session_messages(session_id: str) -> List[Dict[str, Any]]:
 async def delete_session(session_id: str) -> Dict[str, str]:
     sessions_dir = _get_sessions_dir()
     txt_file = sessions_dir / f"{session_id}.txt"
-    session_file = get_session_file_path(sessions_dir, session_id)
+    session_file = sessions_dir / f"{session_id}.pkl"
 
     if not txt_file.exists() and not session_file.exists():
         raise HTTPException(404, f"Session '{session_id}' not found")
