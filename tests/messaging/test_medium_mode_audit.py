@@ -79,6 +79,10 @@ def _render_medium(renderer, console, message):
             return_value=False,
         ),
         patch(
+            "code_puppy.messaging.rich_renderer.get_suppress_directory_listing",
+            return_value=False,
+        ),
+        patch(
             "code_puppy.messaging.rich_renderer.is_subagent",
             return_value=False,
         ),

@@ -132,6 +132,10 @@ class TestRichRendererLowMode:
                 "code_puppy.messaging.rich_renderer.get_suppress_thinking_messages",
                 return_value=False,
             ),
+            patch(
+                "code_puppy.messaging.rich_renderer.get_suppress_directory_listing",
+                return_value=False,
+            ),
         ):
             renderer._do_render(message)
         return _output(console)
@@ -288,6 +292,10 @@ class TestRichRendererLowModeNeverCollapse:
                 "code_puppy.messaging.rich_renderer.get_suppress_thinking_messages",
                 return_value=False,
             ),
+            patch(
+                "code_puppy.messaging.rich_renderer.get_suppress_directory_listing",
+                return_value=False,
+            ),
         ):
             renderer._do_render(message)
         return _output(console)
@@ -343,6 +351,10 @@ class TestRichRendererMediumMode:
             ),
             patch(
                 "code_puppy.messaging.rich_renderer.get_suppress_thinking_messages",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.messaging.rich_renderer.get_suppress_directory_listing",
                 return_value=False,
             ),
         ):
@@ -414,6 +426,10 @@ class TestRichRendererHighMode:
             ),
             patch(
                 "code_puppy.messaging.rich_renderer.get_suppress_thinking_messages",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.messaging.rich_renderer.get_suppress_directory_listing",
                 return_value=False,
             ),
         ):
@@ -828,6 +844,10 @@ class TestRichRendererLowModeAuditGaps:
             ),
             patch(
                 "code_puppy.messaging.rich_renderer.get_suppress_thinking_messages",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.messaging.rich_renderer.get_suppress_directory_listing",
                 return_value=False,
             ),
         ):

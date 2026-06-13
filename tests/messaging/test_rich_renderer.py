@@ -158,7 +158,11 @@ def test_get_level_prefix(renderer):
 
 
 @patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
-def test_render_file_listing(mock_sub, renderer, console):
+@patch(
+    "code_puppy.messaging.rich_renderer.get_suppress_directory_listing",
+    return_value=False,
+)
+def test_render_file_listing(mock_suppress, mock_sub, renderer, console):
     msg = FileListingMessage(
         directory="/tmp/test",
         files=[
@@ -1128,7 +1132,11 @@ def test_suppress_skill_activate(mv, ms, renderer, console):
 
 
 @patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
-def test_render_file_listing_nested_dirs(mock_sub, renderer, console):
+@patch(
+    "code_puppy.messaging.rich_renderer.get_suppress_directory_listing",
+    return_value=False,
+)
+def test_render_file_listing_nested_dirs(mock_suppress, mock_sub, renderer, console):
     msg = FileListingMessage(
         directory="/project",
         files=[
@@ -1149,7 +1157,13 @@ def test_render_file_listing_nested_dirs(mock_sub, renderer, console):
 
 
 @patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
-def test_render_file_listing_root_files_only(mock_sub, renderer, console):
+@patch(
+    "code_puppy.messaging.rich_renderer.get_suppress_directory_listing",
+    return_value=False,
+)
+def test_render_file_listing_root_files_only(
+    mock_suppress, mock_sub, renderer, console
+):
     msg = FileListingMessage(
         directory="/project",
         files=[
@@ -1165,7 +1179,13 @@ def test_render_file_listing_root_files_only(mock_sub, renderer, console):
 
 
 @patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
-def test_render_file_listing_single_file_single_dir(mock_sub, renderer, console):
+@patch(
+    "code_puppy.messaging.rich_renderer.get_suppress_directory_listing",
+    return_value=False,
+)
+def test_render_file_listing_single_file_single_dir(
+    mock_suppress, mock_sub, renderer, console
+):
     """Test singular forms in summary."""
     msg = FileListingMessage(
         directory="/project",
