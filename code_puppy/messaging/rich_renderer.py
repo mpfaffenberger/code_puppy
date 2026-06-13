@@ -21,6 +21,7 @@ from rich.table import Table
 from code_puppy.config import (
     get_output_level,
     get_subagent_verbose,
+    get_suppress_directory_listing,
     get_suppress_informational_messages,
     get_suppress_thinking_messages,
 )
@@ -552,6 +553,9 @@ class RichConsoleRenderer:
         """
         # Skip for sub-agents unless verbose mode
         if self._should_suppress_subagent_output():
+            return
+
+        if get_suppress_directory_listing():
             return
 
         import os

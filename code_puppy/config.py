@@ -184,6 +184,17 @@ def get_enable_streaming() -> bool:
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
+def get_suppress_directory_listing() -> bool:
+    """
+    Get the suppress_directory_listing configuration value.
+    Returns True if directory listing displays should be suppressed, False otherwise.
+    """
+    val = get_value("suppress_directory_listing")
+    if val is None:
+        return True  # Default to True (suppress by default)
+    return str(val).lower() in ("1", "true", "yes", "on")
+
+
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
 
@@ -339,6 +350,8 @@ def get_config_keys():
     default_keys.append("max_hook_retries")
     # Add streaming control key
     default_keys.append("enable_streaming")
+    # Add suppress directory listing key
+    default_keys.append("suppress_directory_listing")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
     # Add max pause seconds configuration (used by pause/steer feature to
