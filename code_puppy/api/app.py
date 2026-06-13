@@ -2,19 +2,15 @@
 
 import asyncio
 import logging
-import os
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-from dbos import DBOS, DBOSConfig
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from code_puppy.config import DBOS_DATABASE_URL, get_use_dbos
 
 logger = logging.getLogger(__name__)
 
@@ -77,30 +73,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as _db_exc:
         logger.error("SQLite DB init failed (continuing without DB): %s", _db_exc)
 
-    # Initialize DBOS if enabled (mirrors cli_runner.py; API server logs errors and continues degraded rather than exiting)
-    _dbos_initialized = [False]  # use list to allow mutation across yield boundary
-    if get_use_dbos():
-        from code_puppy import __version__ as current_version
-
-        dbos_app_version = os.environ.get(
-            "DBOS_APP_VERSION", f"{current_version}-{int(time.time() * 1000)}"
-        )
-        dbos_config: DBOSConfig = {
-            "name": "dbos-code-puppy",
-            "system_database_url": DBOS_DATABASE_URL,
-            "run_admin_server": False,
-            "conductor_key": os.environ.get("DBOS_CONDUCTOR_KEY"),
-            "log_level": os.environ.get("DBOS_LOG_LEVEL", "ERROR"),
-            "application_version": dbos_app_version,
-        }
-        try:
-            DBOS(config=dbos_config)
-            DBOS.launch()
-            _dbos_initialized[0] = True  # only set after both calls succeed
-            logger.info("✓ DBOS initialized")
-        except Exception as e:
-            logger.error("Error initializing DBOS: %s", e)
-
     yield
     # Shutdown: clean up all the things!
     logger.info("🐶 Code Puppy API shutting down, cleaning up...")
@@ -133,14 +105,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.info("✓ PID file removed")
     except Exception as e:
         logger.error("Error removing PID file: %s", e)
-
-    # Destroy DBOS if it was fully initialized
-    if _dbos_initialized[0]:
-        try:
-            DBOS.destroy()
-            logger.info("✓ DBOS destroyed")
-        except Exception as e:
-            logger.error("Error destroying DBOS: %s", e)
 
     # 6. Close SQLite database
     try:
