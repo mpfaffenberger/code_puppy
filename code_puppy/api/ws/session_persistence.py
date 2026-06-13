@@ -20,9 +20,43 @@ from code_puppy.api.ws.history_utils import (
     build_enhanced_history,
     estimate_total_tokens,
 )
-from code_puppy.session_storage import generate_heuristic_title
 
 logger = logging.getLogger(__name__)
+
+
+def generate_heuristic_title(history: list[Any], max_length: int = 50) -> str:
+    """Generate a short title from the first user message in websocket history."""
+    import re
+
+    def extract_user_content(msg: Any) -> str | None:
+        if isinstance(msg, dict) and "msg" in msg:
+            msg = msg["msg"]
+
+        if hasattr(msg, "kind") and msg.kind == "request":
+            for part in getattr(msg, "parts", []):
+                content = getattr(part, "content", None)
+                if isinstance(content, str) and content.strip():
+                    return content.strip()
+
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+
+        return None
+
+    for msg in history:
+        content = extract_user_content(msg)
+        if content:
+            first_line = content.split("\n")[0][:max_length]
+            title = first_line.lower()
+            title = re.sub(r"[^a-z0-9\s-]", "", title)
+            title = re.sub(r"\s+", "-", title)
+            title = re.sub(r"-+", "-", title)
+            title = title.strip("-")[:max_length]
+            return title or "untitled-session"
+
+    return "untitled-session"
 
 
 def resolve_agent_model_meta(

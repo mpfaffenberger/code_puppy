@@ -272,7 +272,7 @@ def handle_dump_context_command(command: str) -> bool:
         )
         emit_success(
             f"✅ Context saved: {metadata.message_count} messages ({metadata.total_tokens} tokens)\n"
-            f"📁 File: {metadata.session_file_path}"
+            f"📁 Files: {metadata.pickle_path}, {metadata.metadata_path}"
         )
         return True
 
@@ -302,7 +302,7 @@ def handle_load_context_command(command: str) -> bool:
 
     session_name = tokens[1]
     contexts_dir = Path(CONTEXTS_DIR)
-    session_path = contexts_dir / f"{session_name}.json"
+    session_path = contexts_dir / f"{session_name}.pkl"
 
     try:
         history = load_session(session_name, contexts_dir)

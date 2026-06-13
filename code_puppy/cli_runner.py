@@ -52,7 +52,7 @@ plugins.load_plugin_callbacks()
 
 
 def _resume_session_from_path(raw_path: str) -> None:
-    """Restore agent message history from a saved .json session file.
+    """Restore agent message history from a saved .pkl session file.
 
     Accepts any path (autosaves, contexts, somewhere weird on disk). We don't
     care where it lives — we just decompose into (parent_dir, stem) and reuse
@@ -68,9 +68,9 @@ def _resume_session_from_path(raw_path: str) -> None:
         emit_error(f"--resume: session file not found: {session_path}")
         sys.exit(1)
 
-    if session_path.suffix != ".json":
+    if session_path.suffix != ".pkl":
         emit_error(
-            f"--resume: expected a .json session file, got '{session_path.suffix}': {session_path}"
+            f"--resume: expected a .pkl session file, got '{session_path.suffix}': {session_path}"
         )
         sys.exit(1)
 
@@ -141,7 +141,7 @@ async def main():
         "-r",
         type=str,
         metavar="PATH",
-        help="Resume a saved session from a .json file (e.g. ~/.code_puppy/contexts/foo.json)",
+        help="Resume a saved session from a .pkl file (e.g. ~/.code_puppy/contexts/foo.pkl)",
     )
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
@@ -758,7 +758,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 agent.estimate_tokens_for_message(msg)
                                 for msg in history
                             )
-                            session_path = base_dir / f"{chosen_session}.json"
+                            session_path = base_dir / f"{chosen_session}.pkl"
 
                             emit_success(
                                 f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
