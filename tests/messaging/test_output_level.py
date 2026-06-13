@@ -228,17 +228,20 @@ class TestRichRendererLowMode:
         assert "Loading plugins" in out
         # Should be dim one-liner, not full styled output
 
-    def test_subagent_invocation_collapsed(self, renderer, console):
+    @patch("code_puppy.messaging.rich_renderer.is_subagent", return_value=False)
+    def test_subagent_invocation_not_collapsed(self, mock_sub, renderer, console):
+        """SubAgentInvocationMessage renders fully in low mode (never collapsed)."""
         msg = SubAgentInvocationMessage(
-            agent_name="bigquery-explorer",
+            agent_name="test-helper",
             session_id="abc-123",
             prompt="Run a query",
             is_new_session=True,
         )
         out = self._render_with_level(renderer, console, msg)
-        assert "invoke_agent:" in out
-        assert "bigquery-explorer" in out
-        assert "INVOKE AGENT" not in out
+        assert "test-helper" in out
+        assert "Run a query" in out
+        # Full banner renders, not a peek
+        assert "INVOKE AGENT" in out
 
     def test_universal_constructor_collapsed(self, renderer, console):
         msg = UniversalConstructorMessage(
@@ -326,6 +329,86 @@ class TestRichRendererLowModeNeverCollapse:
         self._render_with_level(renderer, console, msg)
         # SpinnerControl passes through (may or may not print visible text)
         # Main point: no crash, and it's not turned into a peek line
+
+
+class TestRichRendererLowModePeekConsistency:
+    """Audit (code_puppy_oss-6yg): peek lines are even, escaped, consistent."""
+
+    def _render_with_level(self, renderer, console, message, level="low"):
+        with (
+            patch(
+                "code_puppy.messaging.rich_renderer.get_output_level",
+                return_value=level,
+            ),
+            patch(
+                "code_puppy.messaging.rich_renderer.get_suppress_informational_messages",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.messaging.rich_renderer.get_suppress_thinking_messages",
+                return_value=False,
+            ),
+        ):
+            renderer._do_render(message)
+        return _output(console)
+
+    def test_status_panel_collapsed_to_peek(self, renderer, console):
+        """StatusPanelMessage condenses to a one-line peek (not a tall panel)."""
+        from code_puppy.messaging.messages import StatusPanelMessage
+
+        msg = StatusPanelMessage(
+            title="Run Stats",
+            fields={"tokens": "1234", "duration": "2.5s"},
+        )
+        out = self._render_with_level(renderer, console, msg)
+        assert "status:" in out
+        assert "Run Stats" in out
+        # One peek line only — no multi-row panel borders.
+        lines = [ln for ln in out.split("\n") if ln.strip()]
+        assert len(lines) == 1
+
+    def test_text_peek_uses_label_format(self, renderer, console):
+        """Info text peeks follow the `label: summary` convention."""
+        msg = TextMessage(level=MessageLevel.INFO, text="Loading plugins...")
+        out = self._render_with_level(renderer, console, msg)
+        assert "info:" in out
+        assert "Loading plugins" in out
+
+    def test_warning_peek_uses_label_format(self, renderer, console):
+        msg = TextMessage(level=MessageLevel.WARNING, text="Heads up")
+        out = self._render_with_level(renderer, console, msg)
+        assert "warning:" in out
+
+    def test_peek_escapes_markup(self, renderer, console):
+        """Bracketed content in a peek must not break Rich markup parsing."""
+        # A shell command containing brackets would be parsed as a markup
+        # tag without escaping, corrupting the line.
+        msg = ShellStartMessage(command="echo [danger] {x}", timeout=60)
+        out = self._render_with_level(renderer, console, msg)
+        assert "shell:" in out
+        # The literal bracketed text survives intact.
+        assert "[danger]" in out
+        assert len([ln for ln in out.split("\n") if ln.strip()]) == 1
+
+    def test_all_peeks_share_two_space_indent(self, renderer, console):
+        """Every peek line uses the same 2-space dim indent for alignment."""
+        messages = [
+            FileContentMessage(path="a.py", content="x\n", total_lines=1, num_tokens=1),
+            GrepResultMessage(
+                search_term="q",
+                directory="/tmp",
+                matches=[GrepMatch(file_path="a.py", line_number=1, line_content="q")],
+                total_matches=1,
+                files_searched=1,
+            ),
+            TextMessage(level=MessageLevel.INFO, text="hi"),
+        ]
+        for msg in messages:
+            console.file.truncate(0)
+            console.file.seek(0)
+            out = self._render_with_level(renderer, console, msg)
+            line = next(ln for ln in out.split("\n") if ln.strip())
+            assert line.startswith("  "), f"peek not 2-space indented: {line!r}"
 
 
 class TestRichRendererMediumMode:
@@ -579,11 +662,17 @@ class TestSuppressTogglesWiredUp:
 class TestLegacyRendererOutputLevel:
     """_should_suppress_legacy correctly gates the legacy render path."""
 
-    def test_low_mode_suppresses_info(self):
-        from code_puppy.messaging.message_queue import MessageType, UIMessage
-        from code_puppy.messaging.renderers import _should_suppress_legacy
+    def test_low_mode_peeks_info(self):
+        """Low mode condenses INFO to a one-line peek, never drops it."""
+        from rich.text import Text
 
-        msg = UIMessage(type=MessageType.INFO, content="hello")
+        from code_puppy.messaging.message_queue import MessageType, UIMessage
+        from code_puppy.messaging.renderers import (
+            _apply_legacy_density,
+            _should_suppress_legacy,
+        )
+
+        msg = UIMessage(type=MessageType.INFO, content="hello world")
         with (
             patch(
                 "code_puppy.messaging.renderers._get_output_level",
@@ -598,11 +687,23 @@ class TestLegacyRendererOutputLevel:
                 return_value=False,
             ),
         ):
-            assert _should_suppress_legacy(msg) is True
+            # Not suppressed entirely — condensed instead.
+            assert _should_suppress_legacy(msg) is False
+            resolved = _apply_legacy_density(msg)
+            assert resolved is not None
+            assert isinstance(resolved.content, Text)
+            assert resolved.content.plain.strip().startswith("info:")
+            assert "hello world" in resolved.content.plain
 
-    def test_low_mode_suppresses_agent_reasoning(self):
+    def test_low_mode_peeks_agent_reasoning(self):
+        """Low mode condenses AGENT_REASONING to a peek, never drops it."""
+        from rich.text import Text
+
         from code_puppy.messaging.message_queue import MessageType, UIMessage
-        from code_puppy.messaging.renderers import _should_suppress_legacy
+        from code_puppy.messaging.renderers import (
+            _apply_legacy_density,
+            _should_suppress_legacy,
+        )
 
         msg = UIMessage(type=MessageType.AGENT_REASONING, content="Thinking...")
         with (
@@ -619,7 +720,11 @@ class TestLegacyRendererOutputLevel:
                 return_value=False,
             ),
         ):
-            assert _should_suppress_legacy(msg) is True
+            assert _should_suppress_legacy(msg) is False
+            resolved = _apply_legacy_density(msg)
+            assert resolved is not None
+            assert isinstance(resolved.content, Text)
+            assert resolved.content.plain.strip().startswith("thinking:")
 
     def test_low_mode_keeps_errors(self):
         from code_puppy.messaging.message_queue import MessageType, UIMessage
@@ -867,22 +972,23 @@ class TestRichRendererLowModeAuditGaps:
         # Shell output produces an empty peek → nothing printed
         assert out.strip() == ""
 
-    # -- Checklist #4: sub-agent response is no-op in low mode --
+    # -- Checklist #4: sub-agent response peek in low mode --
 
-    def test_subagent_response_produces_no_output(self, renderer, console):
-        """SubAgentResponseMessage renders as no-op (pass dispatch), so no output."""
+    def test_subagent_response_not_collapsed_in_low_mode(self, renderer, console):
+        """SubAgentResponseMessage renders fully in low mode (never collapsed)."""
         from code_puppy.messaging.messages import SubAgentResponseMessage
 
         msg = SubAgentResponseMessage(
-            agent_name="bigquery-explorer",
+            agent_name="test-helper",
             session_id="abc-123",
             response="Here is your report...",
             message_count=5,
         )
         out = self._render_with_level(renderer, console, msg)
-        # The dispatch for SubAgentResponseMessage is `pass` (no-op),
-        # so no output is produced regardless of _NEVER_COLLAPSE membership.
-        assert out.strip() == ""
+        assert "test-helper" in out
+        assert "Here is your report" in out
+        # Full banner renders, not a peek
+        assert "AGENT RESPONSE" in out
 
     # -- Checklist #8: interactive prompts never collapsed --
 

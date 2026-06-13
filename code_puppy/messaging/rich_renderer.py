@@ -123,6 +123,9 @@ def _is_paused() -> bool:
 # Rich Console Renderer
 # =============================================================================
 
+# Max length for low-mode peek lines.
+_PEEK_MAX_LEN = 100
+
 
 class RichConsoleRenderer:
     """Rich console implementation of the renderer protocol.
@@ -199,17 +202,18 @@ class RichConsoleRenderer:
 
     # -- Output-level density helpers ----------------------------------------
 
-    # Message types that are NEVER collapsed, even in low mode.
-    # These are interactive prompts, structural controls, or critical info.
+    # Types that render fully even in low mode: interactive prompts,
+    # structural controls, and signal messages (invocations, responses).
+    # StatusPanelMessage excluded — it’s multi-line, gets a peek instead.
     _NEVER_COLLAPSE = (
         UserInputRequest,
         ConfirmationRequest,
         SelectionRequest,
         SpinnerControl,
         DividerMessage,
-        StatusPanelMessage,
         VersionCheckMessage,
         AgentResponseMessage,
+        SubAgentInvocationMessage,
         SubAgentResponseMessage,
     )
 
@@ -231,14 +235,27 @@ class RichConsoleRenderer:
         return True
 
     def _render_peek(self, message: AnyMessage) -> None:
-        """Emit a single dim line summarising *message*.
+        """Emit a single dim peek line for low mode.
 
-        Called instead of the full render method when ``output_level``
-        is ``low``.
+        Body is escaped to avoid Rich markup mis-parsing.
         """
         peek = self._build_peek_text(message)
-        if peek:
-            self._console.print(f"[dim]  {peek}[/dim]")
+        if not peek:
+            return
+        if len(peek) > _PEEK_MAX_LEN:
+            peek = peek[: _PEEK_MAX_LEN - 1] + "\u2026"
+        self._console.print(f"[dim]  {escape_rich_markup(peek)}[/dim]")
+
+    @staticmethod
+    def _peek_label_for_level(level: MessageLevel) -> str:
+        """Map a text message level to its ``label: summary`` peek label."""
+        labels = {
+            MessageLevel.WARNING: "warning",
+            MessageLevel.SUCCESS: "success",
+            MessageLevel.INFO: "info",
+            MessageLevel.DEBUG: "debug",
+        }
+        return labels.get(level, "info")
 
     def _build_peek_text(self, message: AnyMessage) -> str:  # noqa: C901
         """Build the human-readable one-liner for a collapsed message."""
@@ -273,7 +290,11 @@ class RichConsoleRenderer:
             tokens = max(1, len(message.reasoning) // 3)
             return f"thinking: ~{tokens} tokens"
         if isinstance(message, SubAgentInvocationMessage):
-            return f"invoke_agent: {message.agent_name}"
+            prompt = message.prompt.replace("\n", " ").strip()
+            return f"invoke_agent: {message.agent_name} -- '{prompt}'"
+        if isinstance(message, SubAgentResponseMessage):
+            resp = message.response.replace("\n", " ").strip()
+            return f"agent_response: {message.agent_name} -- '{resp}'"
         if isinstance(message, UniversalConstructorMessage):
             tool = f" tool={message.tool_name}" if message.tool_name else ""
             return f"constructor: {message.action}{tool}"
@@ -281,13 +302,17 @@ class RichConsoleRenderer:
             return f"skills: {len(message.skills)} available"
         if isinstance(message, SkillActivateMessage):
             return f"skill: activated {message.skill_name}"
+        if isinstance(message, StatusPanelMessage):
+            fields = ", ".join(f"{k}={v}" for k, v in message.fields.items())
+            summary = f"{message.title} ({fields})" if fields else message.title
+            return f"status: {summary}"
         if isinstance(message, TextMessage):
-            # Info / warning / success — truncate to 80 chars.
+            # label: text format.
             text = message.text
             if len(text) > 80:
                 text = text[:77] + "..."
-            prefix = self._get_level_prefix(message.level)
-            return f"{prefix}{text}"
+            label = self._peek_label_for_level(message.level)
+            return f"{label}: {text}"
         return ""
 
     # =========================================================================
@@ -463,8 +488,10 @@ class RichConsoleRenderer:
         elif isinstance(message, SubAgentInvocationMessage):
             self._render_subagent_invocation(message)
         elif isinstance(message, SubAgentResponseMessage):
-            # Skip rendering - we now display sub-agent responses via display_non_streamed_result
-            pass
+            # High mode renders via streaming or render_result_without_streaming
+            # in subagent_invocation.py. Non-high modes render here.
+            if get_output_level() != "high":
+                self._render_subagent_response(message)
         elif isinstance(message, UniversalConstructorMessage):
             self._render_universal_constructor(message)
         elif isinstance(message, UserInputRequest):
