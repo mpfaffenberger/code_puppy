@@ -10,7 +10,8 @@ escape sequences (mure-style).
 ```
 /theme
 ```
-Launches a split-panel TUI with 10 themes (4 originals, 4 mure ports, surprise, reset).
+Launches a split-panel TUI with 14 themes (5 neon/dark themes, 7 palette-first/light themes, surprise, reset).
+
 
 ## What gets themed
 
@@ -33,18 +34,23 @@ Themes persist to your Code Puppy config and survive restarts. The OSC palette a
 | 2 | 🌲 Forest | earthy greens & olives |
 | 3 | 🌅 Sunset | warm reds, oranges & gold |
 | 4 | 🪩 Vaporwave | neon pinks & purples |
-| 5 | 🐱 Catppuccin Mocha | soothing pastel dark (mure default) |
-| 6 | ☕ Catppuccin Latte | soothing pastel light |
-| 7 | 🌃 Tokyo Night | neon-on-navy night |
-| 8 | 🍂 Gruvbox Dark | retro warm earth |
-| 9 | 🎲 Surprise Me | a fresh random remix every time |
-| 10 | 🔄 Restore Defaults | back to Code Puppy + terminal factory |
+| 5 | 🫧 Bubblegum Pink | sweet pinks, candy neon & glow |
+| 6 | 🐱 Catppuccin Mocha | soothing pastel dark (mure default) |
+| 7 | ☕ Catppuccin Latte | soothing pastel light |
+| 8 | 🌃 Tokyo Night | neon-on-navy night |
+| 9 | 🌑 Deep Black | inky noir with subtle neon edge |
+| 10 | ☀️ Solarized Light | classic warm beige with calm accents |
+| 11 | 📄 GitHub Light | crisp white, familiar code colors |
+| 12 | 🌸 Rose Pine Dawn | soft pastel rose light |
+| 13 | 🎲 Surprise Me | a fresh random remix every time |
+| 14 | 🔄 Restore Defaults | back to Code Puppy + terminal factory |
 
 ## Power-user shortcuts
 
 ```
-/theme 5            apply theme #5 (Catppuccin Mocha)
-/theme mocha        apply by alias (also: latte, tokyo, gruvbox)
+/theme 5            apply theme #5 (Bubblegum Pink)
+/theme bubblegum    apply by alias (also: pink, mocha, latte, tokyo,
+                    solarized, github, rose-pine)
 /theme tokyo-night  apply by canonical name
 /theme surprise     re-roll a random palette
 /theme default      restore Code Puppy + terminal factory colors
@@ -57,7 +63,7 @@ Themes persist to your Code Puppy config and survive restarts. The OSC palette a
 | File | Responsibility |
 |------|----------------|
 | `themes.py` | Theme catalog + banner/content/remap/palette construction |
-| `bundled_palettes.py` | Hex palette data (Catppuccin, Tokyo Night, Gruvbox, +4 originals) |
+| `bundled_palettes.py` | Hex palette data (Catppuccin, Tokyo Night, Deep Black, +5 originals) |
 | `content_styles.py` | Mutates `RichConsoleRenderer` style maps (Level 1) |
 | `rich_themes.py` | Monkey-patches `Console.get_style()` for inline remap (Level 2) |
 | `osc_palette.py` | OSC escape sequences for terminal-wide bg/fg/ANSI palette (Level 3) |
