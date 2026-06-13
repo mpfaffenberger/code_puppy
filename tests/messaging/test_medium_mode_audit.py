@@ -34,6 +34,7 @@ from code_puppy.messaging.messages import (
     ShellOutputMessage,
     ShellStartMessage,
     SubAgentInvocationMessage,
+    SubAgentResponseMessage,
 )
 from code_puppy.messaging.rich_renderer import RichConsoleRenderer
 
@@ -160,14 +161,14 @@ class TestChecklist1_ToolBanners:
 
     def test_invoke_agent_banner(self, renderer, console):
         msg = SubAgentInvocationMessage(
-            agent_name="bigquery-explorer",
+            agent_name="test-helper",
             session_id="abc-123",
             prompt="Run a query",
             is_new_session=True,
         )
         out = _render_medium(renderer, console, msg)
         assert "INVOKE AGENT" in out
-        assert "bigquery-explorer" in out
+        assert "test-helper" in out
 
 
 # =========================================================================
@@ -475,6 +476,19 @@ class TestChecklist5_SubagentOutput:
         with patch("code_puppy.config.get_value", return_value="medium"):
             assert _gol() == "medium"
             assert _gol() != "high"  # So subagent handler is selected
+
+    def test_subagent_response_renders_in_medium(self, renderer, console):
+        """SubAgentResponseMessage renders with banner+markdown in medium mode."""
+        msg = SubAgentResponseMessage(
+            agent_name="drone",
+            session_id="sess-42",
+            response="Done! I added 5 lines to the file.",
+            message_count=3,
+        )
+        out = _render_medium(renderer, console, msg)
+        assert "AGENT RESPONSE" in out
+        assert "drone" in out
+        assert "5 lines" in out
 
 
 # =========================================================================
