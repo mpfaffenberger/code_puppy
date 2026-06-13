@@ -4,13 +4,18 @@ Same proven seam the ``context_indicator`` plugin uses. The status command's
 stdout may contain ANSI color codes, so we convert it to prompt_toolkit
 ``FormattedText`` via ``ANSI``.
 
-Two modes (config ``statusline_mode``):
+Three modes (config ``statusline_mode``):
 
 * ``replace`` (default): the custom status line **replaces** Code Puppy's
   default prompt content (puppy/agent/model/cwd), keeping only the trailing
   arrow. No duplicated info, no extra stacked line.
 * ``above``: the custom status line is shown on its own line *above* the
   unchanged default prompt.
+* ``newline``: like ``replace`` but the trailing arrow is pushed to its own
+  line, so the user types below the status line::
+
+       [model] code-puppy (main) 0.9%ctx
+      >>> typed text
 """
 
 from __future__ import annotations
@@ -39,11 +44,18 @@ def _render(formatted_text, base: str):
         logger.debug("statusline: failed to parse status text", exc_info=True)
         return formatted_text
 
-    if get_mode() == "above":
+    mode = get_mode()
+
+    if mode == "above":
         # Status line on its own line, default prompt unchanged below it.
         return FormattedText(status_fragments + [("", "\n")] + list(formatted_text))
 
-    # replace mode: status line + trailing arrow only.
+    if mode == "newline":
+        # Status line on its own line, arrow on the next line.
+        arrow = base if base else _DEFAULT_ARROW
+        return FormattedText(status_fragments + [("", "\n"), ("class:arrow", arrow)])
+
+    # replace mode (default): status line + trailing arrow on same line.
     arrow = base if base else _DEFAULT_ARROW
     return FormattedText(status_fragments + [("class:arrow", " " + arrow)])
 

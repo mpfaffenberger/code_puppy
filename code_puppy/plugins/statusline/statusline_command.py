@@ -70,7 +70,7 @@ def _status_text() -> str:
         f"Status line: {enabled}   mode: {config.get_mode()}\n"
         f"  command: {cmd}\n"
         f"  refresh: {config.get_refresh_ms()}ms   timeout: {config.get_timeout_ms()}ms\n"
-        "  Subcommands: init | on | off | mode <replace|above> | show | json"
+        "  Subcommands: init | on | off | mode <replace|above|newline> | show | json"
     )
 
 
@@ -127,11 +127,12 @@ def handle_statusline_command(command: str, name: str) -> Optional[Any]:
         return True
     if sub == "mode":
         mode = tokens[2].strip().lower() if len(tokens) > 2 else ""
-        if mode not in ("replace", "above"):
-            emit_warning("Usage: /statusline mode <replace|above>")
+        if mode not in ("replace", "above", "newline"):
+            emit_warning("Usage: /statusline mode <replace|above|newline>")
             emit_info(
                 "  replace = your line REPLACES the default prompt (no duplicate)\n"
-                "  above   = your line sits on its own line above the default prompt"
+                "  above   = your line sits on its own line above the default prompt\n"
+                "  newline = like replace, but >>> drops to its own line below"
             )
             return True
         config.set_mode(mode)
