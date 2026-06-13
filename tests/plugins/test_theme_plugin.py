@@ -22,11 +22,12 @@ from code_puppy.plugins.theme.themes import (
     terminal_palette_for,
 )
 from code_puppy.plugins.theme.bundled_palettes import (
+    BUBBLEGUM_PINK,
     CATPPUCCIN_LATTE,
     CATPPUCCIN_MOCHA,
+    DEEP_BLACK,
     FOREST,
     GITHUB_LIGHT,
-    GRUVBOX_DARK,
     OCEAN,
     ROSE_PINE_DAWN,
     SOLARIZED_LIGHT,
@@ -58,25 +59,40 @@ from code_puppy.plugins.theme.osc_palette import (
 # ---------------------------------------------------------------------------
 class TestThemeCatalog:
     def test_curated_themes_count(self):
-        assert len(CURATED_THEMES) == 11
+        assert len(CURATED_THEMES) == 12
 
     def test_menu_has_expected_entries(self):
         names = [name for name, _ in MENU]
+        assert len(names) == 14
         assert "ocean" in names
         assert "forest" in names
         assert "sunset" in names
         assert "vaporwave" in names
+        assert "bubblegum-pink" in names
+        assert "catppuccin-mocha" in names
+        assert "tokyo-night" in names
+        assert "deep-black" in names
+        assert "solarized-light" in names
+        assert "github-light" in names
+        assert "rose-pine-dawn" in names
         assert "surprise" in names
         assert "default" in names
 
     def test_menu_by_index_maps_strings(self):
         assert MENU_BY_INDEX["1"] == "ocean"
+        assert MENU_BY_INDEX["5"] == "bubblegum-pink"
+        assert MENU_BY_INDEX["6"] == "catppuccin-mocha"
+        assert MENU_BY_INDEX["10"] == "solarized-light"
         assert MENU_BY_INDEX[str(len(MENU))] == "default"
 
     def test_aliases_resolve(self):
         assert MENU_BY_NAME["mocha"] is CURATED_THEMES["catppuccin-mocha"]
+        assert MENU_BY_NAME["bubblegum"] is CURATED_THEMES["bubblegum-pink"]
+        assert MENU_BY_NAME["pink"] is CURATED_THEMES["bubblegum-pink"]
         assert MENU_BY_NAME["tokyo"] is CURATED_THEMES["tokyo-night"]
-        assert MENU_BY_NAME["gruvbox"] is CURATED_THEMES["gruvbox-dark"]
+        assert MENU_BY_NAME["solarized"] is CURATED_THEMES["solarized-light"]
+        assert MENU_BY_NAME["github"] is CURATED_THEMES["github-light"]
+        assert MENU_BY_NAME["rose-pine"] is CURATED_THEMES["rose-pine-dawn"]
         assert MENU_BY_NAME["random"] is SURPRISE
         assert MENU_BY_NAME["reset"] is DEFAULT
 
@@ -155,8 +171,19 @@ class TestColorRemapFor:
         assert color_remap_for("default") == {}
 
     def test_palette_first_themes_have_empty_remap(self):
-        for name in ("mocha", "latte", "tokyo", "gruvbox"):
+        for name in (
+            "mocha",
+            "tokyo",
+            "solarized",
+            "github",
+            "rose-pine",
+        ):
             assert color_remap_for(name) == {}, name
+
+    def test_latte_has_remap_entries(self):
+        r = color_remap_for("latte")
+        assert isinstance(r, dict)
+        assert len(r) > 0
 
     def test_unknown_theme_raises(self):
         with pytest.raises(KeyError):
@@ -214,8 +241,10 @@ class TestResolveThemeArg:
 
     def test_alias_keys_are_accepted(self):
         assert resolve_theme_arg("mocha") is not None
+        assert resolve_theme_arg("bubblegum") is not None
+        assert resolve_theme_arg("pink") is not None
         assert resolve_theme_arg("tokyo") is not None
-        assert resolve_theme_arg("gruvbox") is not None
+        assert resolve_theme_arg("gruvbox") is None
 
 
 # ---------------------------------------------------------------------------
@@ -229,10 +258,11 @@ class TestBundledPalettes:
             FOREST,
             SUNSET,
             VAPORWAVE,
+            BUBBLEGUM_PINK,
             CATPPUCCIN_MOCHA,
             CATPPUCCIN_LATTE,
             TOKYO_NIGHT,
-            GRUVBOX_DARK,
+            DEEP_BLACK,
             SOLARIZED_LIGHT,
             GITHUB_LIGHT,
             ROSE_PINE_DAWN,
@@ -251,10 +281,11 @@ class TestBundledPalettes:
             FOREST,
             SUNSET,
             VAPORWAVE,
+            BUBBLEGUM_PINK,
             CATPPUCCIN_MOCHA,
             CATPPUCCIN_LATTE,
             TOKYO_NIGHT,
-            GRUVBOX_DARK,
+            DEEP_BLACK,
             SOLARIZED_LIGHT,
             GITHUB_LIGHT,
             ROSE_PINE_DAWN,

@@ -2,14 +2,16 @@
 
 UX:
   /theme               → interactive split-panel picker with live preview
-  /theme <N>           → apply theme number N (1-6)
+  /theme <N>           → apply theme number N (1-14)
   /theme <name>        → apply by name (ocean, forest, sunset, vaporwave,
-                         surprise, default)
+                         bubblegum-pink, mocha, latte, tokyo-night,
+                         deep-black, solarized-light, github-light,
+                         rose-pine-dawn, surprise, default)
   /theme reset         → restore Code Puppy defaults (alias of /theme default)
   /theme show          → show current banner → color mapping
 
-The 5th option (🎲 Surprise Me) re-rolls a random palette every time.
-The 6th option (🔄 Restore Defaults) puts everything back to factory.
+The 13th option (🎲 Surprise Me) re-rolls a random palette every time.
+The 14th option (🔄 Restore Defaults) puts everything back to factory.
 
 Plays nice with /colors — same color pool, same config keys.
 """

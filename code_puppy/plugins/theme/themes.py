@@ -184,6 +184,40 @@ CURATED_THEMES: dict[str, dict] = {
         ),
         "terminal_palette": bp.VAPORWAVE,
     },
+    "bubblegum-pink": {
+        "icon": "🫧",
+        "label": "Bubblegum Pink",
+        "blurb": "sweet pinks, candy neon & glow",
+        "colors": [
+            "hot_pink3",
+            "deep_pink4",
+            "pale_violet_red1",
+            "magenta",
+            "bright_magenta",
+            "dark_orchid",
+            "medium_purple4",
+            "violet",
+        ],
+        "content_styles": {
+            "info": "hot_pink3",
+            "warning": "deep_pink4",
+            "success": "bright_magenta",
+            "error": "bold red",
+            "debug": "dim magenta",
+            "diff_add": "bright_magenta",
+            "diff_remove": "red",
+            "diff_context": "dim magenta",
+        },
+        "color_remap": rt.make_remap(
+            cyan="hot_pink3",
+            blue="deep_pink4",
+            magenta="pale_violet_red1",
+            bright_cyan="#ff69b4",
+            bright_blue="medium_purple4",
+            bright_magenta="violet",
+        ),
+        "terminal_palette": bp.BUBBLEGUM_PINK,
+    },
     # --- Mure-port "palette-first" themes ---------------------------------
     # These rely primarily on the OSC ANSI palette swap (slot 6 = cyan, etc.)
     # so Rich's own [cyan]/[blue]/[magenta] tags automatically render in the
@@ -218,28 +252,35 @@ CURATED_THEMES: dict[str, dict] = {
     "catppuccin-latte": {
         "icon": "☕",
         "label": "Catppuccin Latte",
-        "blurb": "soothing pastel light",
+        "blurb": "soft pastel light with lavender & rose",
         "colors": [
-            "blue",
-            "magenta",
-            "green",
-            "yellow",
-            "cyan",
-            "red",
-            "bright_blue",
-            "bright_magenta",
+            "#1e66f5",
+            "#8839ef",
+            "#40a02b",
+            "#df8e1d",
+            "#04a5e5",
+            "#d20f39",
+            "#7287fd",
+            "#ea76cb",
         ],
         "content_styles": {
-            "info": "blue",
-            "warning": "yellow",
-            "success": "green",
-            "error": "bold red",
-            "debug": "dim white",
-            "diff_add": "green",
-            "diff_remove": "red",
-            "diff_context": "dim white",
+            "info": "#1e66f5",
+            "warning": "#df8e1d",
+            "success": "#40a02b",
+            "error": "bold #d20f39",
+            "debug": "dim #4c4f69",
+            "diff_add": "#40a02b",
+            "diff_remove": "#d20f39",
+            "diff_context": "dim #5c5f77",
         },
-        "color_remap": {},
+        "color_remap": rt.make_remap(
+            cyan="#04a5e5",
+            blue="#1e66f5",
+            magenta="#8839ef",
+            bright_cyan="#179299",
+            bright_blue="#7287fd",
+            bright_magenta="#ea76cb",
+        ),
         "terminal_palette": bp.CATPPUCCIN_LATTE,
     },
     "tokyo-night": {
@@ -269,32 +310,39 @@ CURATED_THEMES: dict[str, dict] = {
         "color_remap": {},
         "terminal_palette": bp.TOKYO_NIGHT,
     },
-    "gruvbox-dark": {
-        "icon": "🍂",
-        "label": "Gruvbox Dark",
-        "blurb": "retro warm earth",
+    "deep-black": {
+        "icon": "🌑",
+        "label": "Deep Black",
+        "blurb": "inky noir with subtle neon edge",
         "colors": [
-            "yellow",
-            "red",
-            "green",
-            "cyan",
-            "magenta",
-            "blue",
-            "bright_yellow",
-            "bright_red",
+            "#050505",
+            "#1f1f1f",
+            "#2b2b2b",
+            "#3a3a3a",
+            "#4dabf7",
+            "#b197fc",
+            "#63e6be",
+            "#ffd166",
         ],
         "content_styles": {
-            "info": "yellow",
-            "warning": "bright_yellow",
-            "success": "green",
-            "error": "bold red",
-            "debug": "dim white",
-            "diff_add": "green",
-            "diff_remove": "red",
-            "diff_context": "dim white",
+            "info": "#cfd8dc",
+            "warning": "#ffd166",
+            "success": "#96f2d7",
+            "error": "bold #ff6b6b",
+            "debug": "dim #6c757d",
+            "diff_add": "#96f2d7",
+            "diff_remove": "#ff6b6b",
+            "diff_context": "dim #adb5bd",
         },
-        "color_remap": {},
-        "terminal_palette": bp.GRUVBOX_DARK,
+        "color_remap": rt.make_remap(
+            cyan="#cfd8dc",
+            blue="#4dabf7",
+            magenta="#b197fc",
+            bright_cyan="#96f2d7",
+            bright_blue="#74c0fc",
+            bright_magenta="#d0bfff",
+        ),
+        "terminal_palette": bp.DEEP_BLACK,
     },
     # --- Light-mode themes ------------------------------------------------
     # For light themes, `debug` uses dim *black* (not white) so dim text stays
@@ -382,7 +430,7 @@ CURATED_THEMES: dict[str, dict] = {
     },
 }
 
-# The 5th option: surprise me — special case, regenerated each preview/apply.
+# The 13th option: surprise me — special case, regenerated each preview/apply.
 SURPRISE = {
     "icon": "🎲",
     "label": "Surprise Me",
@@ -393,7 +441,7 @@ SURPRISE = {
     "terminal_palette": None,  # randomized at apply time
 }
 
-# The 6th option: restore Code Puppy defaults (banners + content).
+# The 14th option: restore Code Puppy defaults (banners + content).
 DEFAULT = {
     "icon": "🔄",
     "label": "Restore Defaults",
@@ -404,16 +452,20 @@ DEFAULT = {
     "terminal_palette": None,  # handled specially (OSC reset)
 }
 
-# Ordered menu: 4 originals, 2 dark ports, 2 light themes, surprise, default.
-# (Catppuccin Mocha, Solarized Light, Rose Pine Dawn removed by request -
-# still resolvable by name as aliases for power users.)
+# Ordered menu: 5 vivid/dark themes, 7 palette-first/light themes, surprise, default.
 MENU: list[tuple[str, dict]] = [
     ("ocean", CURATED_THEMES["ocean"]),
     ("forest", CURATED_THEMES["forest"]),
     ("sunset", CURATED_THEMES["sunset"]),
     ("vaporwave", CURATED_THEMES["vaporwave"]),
+    ("bubblegum-pink", CURATED_THEMES["bubblegum-pink"]),
+    ("catppuccin-mocha", CURATED_THEMES["catppuccin-mocha"]),
     ("catppuccin-latte", CURATED_THEMES["catppuccin-latte"]),
+    ("tokyo-night", CURATED_THEMES["tokyo-night"]),
+    ("deep-black", CURATED_THEMES["deep-black"]),
+    ("solarized-light", CURATED_THEMES["solarized-light"]),
     ("github-light", CURATED_THEMES["github-light"]),
+    ("rose-pine-dawn", CURATED_THEMES["rose-pine-dawn"]),
     ("surprise", SURPRISE),
     ("default", DEFAULT),
 ]
@@ -427,7 +479,8 @@ MENU_BY_NAME["defaults"] = DEFAULT
 MENU_BY_NAME["mocha"] = CURATED_THEMES["catppuccin-mocha"]
 MENU_BY_NAME["latte"] = CURATED_THEMES["catppuccin-latte"]
 MENU_BY_NAME["tokyo"] = CURATED_THEMES["tokyo-night"]
-MENU_BY_NAME["gruvbox"] = CURATED_THEMES["gruvbox-dark"]
+MENU_BY_NAME["bubblegum"] = CURATED_THEMES["bubblegum-pink"]
+MENU_BY_NAME["pink"] = CURATED_THEMES["bubblegum-pink"]
 MENU_BY_NAME["solarized"] = CURATED_THEMES["solarized-light"]
 MENU_BY_NAME["github"] = CURATED_THEMES["github-light"]
 MENU_BY_NAME["rose-pine"] = CURATED_THEMES["rose-pine-dawn"]
@@ -586,7 +639,7 @@ def apply(
 
 
 def resolve_theme_arg(arg: str) -> str | None:
-    """Resolve '1'..'6' or a theme name to a canonical theme key.
+    """Resolve menu numbers or a theme name to a canonical theme key.
 
     Returns None if the argument is not recognized.
     """

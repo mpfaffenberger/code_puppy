@@ -5,8 +5,8 @@ Each palette ships:
     fg   = #rrggbb default foreground
     ansi = list of 16 #rrggbb hex strings (ANSI slots 0-15)
 
-The Catppuccin / Tokyo Night / Gruvbox palettes are the canonical
-upstream specs (same ones mure ships). The four original theme
+The Catppuccin / Tokyo Night palettes are the canonical
+upstream specs (same ones mure ships). The original theme
 palettes (ocean/forest/sunset/vaporwave) are coherent extensions
 of their existing Rich color schemes.
 """
@@ -42,21 +42,21 @@ CATPPUCCIN_LATTE = {
     "bg": "#eff1f5",
     "fg": "#4c4f69",
     "ansi": [
-        "#5c5f77",
+        "#4c4f69",
         "#d20f39",
         "#40a02b",
         "#df8e1d",
         "#1e66f5",
-        "#ea76cb",
+        "#8839ef",
         "#179299",
         "#acb0be",
-        "#6c6f85",
-        "#d20f39",
-        "#40a02b",
-        "#df8e1d",
-        "#1e66f5",
+        "#5c5f77",
+        "#e64553",
+        "#a6d189",
+        "#fe640b",
+        "#7287fd",
         "#ea76cb",
-        "#179299",
+        "#94e2d5",
         "#bcc0cc",
     ],
 }
@@ -84,26 +84,26 @@ TOKYO_NIGHT = {
     ],
 }
 
-GRUVBOX_DARK = {
-    "bg": "#282828",
-    "fg": "#ebdbb2",
+DEEP_BLACK = {
+    "bg": "#050505",
+    "fg": "#e6e6e6",
     "ansi": [
-        "#282828",
-        "#cc241d",
-        "#98971a",
-        "#d79921",
-        "#458588",
-        "#b16286",
-        "#689d6a",
-        "#a89984",
-        "#928374",
-        "#fb4934",
-        "#b8bb26",
-        "#fabd2f",
-        "#83a598",
-        "#d3869b",
-        "#8ec07c",
-        "#ebdbb2",
+        "#050505",
+        "#ff6b6b",
+        "#94d82d",
+        "#ffd166",
+        "#4dabf7",
+        "#b197fc",
+        "#63e6be",
+        "#adb5bd",
+        "#1f1f1f",
+        "#ff8787",
+        "#a9e34b",
+        "#ffe066",
+        "#74c0fc",
+        "#d0bfff",
+        "#96f2d7",
+        "#f1f3f5",
     ],
 }
 
@@ -269,5 +269,28 @@ VAPORWAVE = {
         "#f06292",
         "#80deea",
         "#fce4ec",
+    ],
+}
+
+BUBBLEGUM_PINK = {
+    "bg": "#2a0f1f",
+    "fg": "#fff1f7",
+    "ansi": [
+        "#2a0f1f",
+        "#ff5fa2",
+        "#ff8ec7",
+        "#ffd1e8",
+        "#ff4f93",
+        "#d96cff",
+        "#ff9fd2",
+        "#fff1f7",
+        "#4d1d39",
+        "#ff7ab2",
+        "#ffb3da",
+        "#ffe0ef",
+        "#ff6fb0",
+        "#eb8cff",
+        "#ffc4e1",
+        "#fff8fb",
     ],
 }
