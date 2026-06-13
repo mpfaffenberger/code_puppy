@@ -380,6 +380,7 @@ async def _run_judge_form(
     model_focused = Condition(is_model_focused)
 
     @kb.add("up", filter=model_focused)
+    @kb.add("k", filter=model_focused)
     def _(event):
         if not models:
             return
@@ -392,6 +393,7 @@ async def _run_judge_form(
             refresh()
 
     @kb.add("down", filter=model_focused)
+    @kb.add("j", filter=model_focused)
     def _(event):
         if not models:
             return
@@ -504,7 +506,7 @@ def _render_menu(
             lines.append(("", "\n"))
 
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  ↑↓ "))
+    lines.append(("fg:ansibrightblack", "  ↑↓/jk "))
     lines.append(("", "Navigate\n"))
     lines.append(("fg:ansibrightblack", "  ←→ "))
     lines.append(("", "Page\n"))
@@ -665,6 +667,7 @@ async def interactive_judges_menu() -> None:
     kb = KeyBindings()
 
     @kb.add("up")
+    @kb.add("k")
     def _(event):
         if selected_idx[0] > 0:
             selected_idx[0] -= 1
@@ -674,6 +677,7 @@ async def interactive_judges_menu() -> None:
             update_display()
 
     @kb.add("down")
+    @kb.add("j")
     def _(event):
         if selected_idx[0] < len(judges) - 1:
             selected_idx[0] += 1

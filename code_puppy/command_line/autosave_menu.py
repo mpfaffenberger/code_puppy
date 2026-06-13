@@ -573,6 +573,7 @@ async def interactive_autosave_picker() -> Optional[str]:
 
     @kb.add("up")
     @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
+    @kb.add("k")  # Vim-style
     def _(event):
         if browse_mode[0]:
             # In browse mode: go to older message
@@ -593,6 +594,7 @@ async def interactive_autosave_picker() -> Optional[str]:
 
     @kb.add("down")
     @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
+    @kb.add("j")  # Vim-style
     def _(event):
         if browse_mode[0]:
             # In browse mode: go to newer message

@@ -292,7 +292,7 @@ async def _split_panel_selector(
 
             lines.append(("", "\n"))
             lines.append(
-                ("fg:ansicyan", "↑↓ Navigate  │  Enter Select  │  Ctrl-C Cancel")
+                ("fg:ansicyan", "↑↓/jk Navigate  │  Enter Select  │  Ctrl-C Cancel")
             )
             return FormattedText(lines)
         except Exception as e:
@@ -310,6 +310,7 @@ async def _split_panel_selector(
 
     @kb.add("up")
     @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
+    @kb.add("k")  # Vim-style
     def move_up(event):
         if choices:
             # Skip separator lines
@@ -322,6 +323,7 @@ async def _split_panel_selector(
 
     @kb.add("down")
     @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
+    @kb.add("j")  # Vim-style
     def move_down(event):
         if choices:
             # Skip separator lines

@@ -52,7 +52,9 @@ PAGE_SIZE = 12
 _DYNAMIC_CATEGORY = SettingsCategory(name="Dynamic")
 # Alphabet bound to the search buffer. ``r`` is excluded so the
 # reset shortcut keeps working in nav mode.
-_SEARCH_ALPHABET = "abcdefghijklmnopqstuvwxyz0123456789_ -"
+# 'r' excluded: reset shortcut must work in nav mode.
+# 'j' and 'k' excluded: handled separately as vim-style nav with search fallback.
+_SEARCH_ALPHABET = "abcdefghilmnopqstuvwxyz0123456789_ -"
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +500,41 @@ def _build_keybindings(state: _PickerState, update_display) -> KeyBindings:
     def _(event):
         state.in_search_mode = True
         state.search_buffer = ""
+        update_display()
+
+    # j / k: vim-style navigation when NOT in search mode; type normally when searching.
+    @kb.add("j")
+    def _(event):
+        if state.in_search_mode:
+            state.search_buffer += "j"
+            update_display()
+            return
+        if state.selected_idx >= len(state.visible_entries) - 1:
+            return
+        state.selected_idx += 1
+        state.current_page = ensure_visible_page(
+            state.selected_idx,
+            state.current_page,
+            len(state.visible_entries),
+            PAGE_SIZE,
+        )
+        update_display()
+
+    @kb.add("k")
+    def _(event):
+        if state.in_search_mode:
+            state.search_buffer += "k"
+            update_display()
+            return
+        if state.selected_idx <= 0:
+            return
+        state.selected_idx -= 1
+        state.current_page = ensure_visible_page(
+            state.selected_idx,
+            state.current_page,
+            len(state.visible_entries),
+            PAGE_SIZE,
+        )
         update_display()
 
     for char in _SEARCH_ALPHABET:
