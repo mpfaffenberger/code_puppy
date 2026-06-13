@@ -12,6 +12,7 @@ escape sequences (mure-style).
 ```
 Launches a split-panel TUI with 14 themes (5 neon/dark themes, 7 palette-first/light themes, surprise, reset).
 
+
 ## What gets themed
 
 | Level | Surface | Themed? |
