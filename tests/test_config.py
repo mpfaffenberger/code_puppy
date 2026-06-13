@@ -335,6 +335,7 @@ class TestGetConfigKeys:
                 "protected_token_count",
                 "resume_message_count",
                 "summarization_model",
+                "suppress_directory_listing",
                 "temperature",
                 "yolo_mode",
             ]
@@ -400,6 +401,7 @@ class TestGetConfigKeys:
                 "protected_token_count",
                 "resume_message_count",
                 "summarization_model",
+                "suppress_directory_listing",
                 "temperature",
                 "yolo_mode",
             ]
