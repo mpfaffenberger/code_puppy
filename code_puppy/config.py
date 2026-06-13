@@ -48,11 +48,11 @@ EXTRA_MODELS_FILE = os.path.join(DATA_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(DATA_DIR, "agents")
 SKILLS_DIR = os.path.join(DATA_DIR, "skills")
 CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
-_DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 
 # Cache files (XDG_CACHE_HOME)
 AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
 WS_SESSION_DIR = os.path.join(CACHE_DIR, "ws_sessions")
+
 
 def get_ws_sessions_dir() -> pathlib.Path:
     """Return the ws_sessions directory path and ensure it exists."""
@@ -60,20 +60,9 @@ def get_ws_sessions_dir() -> pathlib.Path:
     p.mkdir(parents=True, exist_ok=True, mode=0o700)
     return p
 
+
 # State files (XDG_STATE_HOME)
 COMMAND_HISTORY_FILE = os.path.join(STATE_DIR, "command_history.txt")
-DBOS_DATABASE_URL = os.environ.get(
-    "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
-)
-# DBOS enable switch is controlled solely via puppy.cfg using key 'enable_dbos'.
-# Default: True (DBOS enabled) unless explicitly disabled.
-
-def get_use_dbos() -> bool:
-    """Return True if DBOS should be used based on 'enable_dbos' (default True)."""
-    cfg_val = get_value("enable_dbos")
-    if cfg_val is None:
-        return True
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 # OAuth plugin model files (XDG_DATA_HOME)
 GEMINI_MODELS_FILE = os.path.join(DATA_DIR, "gemini_models.json")
