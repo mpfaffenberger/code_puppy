@@ -46,8 +46,8 @@ async def test_execute_turn_runner_processes_permission_response(monkeypatch):
     complete_event = asyncio.Event()
     result = SimpleNamespace(name="result")
 
-    def _handle_permission_response(request_id, approved):
-        handled.append((request_id, approved))
+    def _handle_permission_response(request_id, approved, session_id=None):
+        handled.append((request_id, approved, session_id))
         complete_event.set()
         return True
 
@@ -78,7 +78,7 @@ async def test_execute_turn_runner_processes_permission_response(monkeypatch):
         clear_session_working_directory=lambda: cleanup_calls.append("cleared"),
     )
 
-    assert handled == [("req-1", True)]
+    assert handled == [("req-1", True, "session-1")]
     assert outcome.result is result
     assert outcome.deferred_msg is None
     assert cleanup_calls == ["cleared"]

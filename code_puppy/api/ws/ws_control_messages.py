@@ -82,7 +82,7 @@ async def handle_control_message(
             runtime=runtime,
             send_typed=send_typed,
         )
-        or await _handle_permission_response(msg=msg)
+        or await _handle_permission_response(msg=msg, session_id=runtime.session_id)
     )
 
 
@@ -584,14 +584,16 @@ async def _handle_cancel(
     return True
 
 
-async def _handle_permission_response(*, msg: dict[str, Any]) -> bool:
+async def _handle_permission_response(*, msg: dict[str, Any], session_id: str) -> bool:
     if msg.get("type") != "permission_response":
         return False
 
     request_id = msg.get("request_id")
     approved = msg.get("approved", False)
     if request_id:
-        handled = handle_permission_response(request_id, approved)
+        handled = handle_permission_response(
+            request_id, approved, session_id=session_id
+        )
         if handled:
             logger.debug(
                 "[Permission] ✅ Handled response: %s = %s", request_id, approved

@@ -5,13 +5,61 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🐶 Code Puppy Chat</title>
     
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Marked.js for Markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <!-- DOMPurify for XSS-safe HTML sanitization -->
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
     
     <style>
+    /* ═══════════════════════════════════
+       DESIGN-E THEME — Batch 1: base variables & reset
+       ═══════════════════════════════════ */
+    :root {
+      --bg: #18181B;
+      --surface: #222226;
+      --panel: #26262B;
+      --elevated: #303036;
+      --text: #F0F0F5;
+      --text2: #C4B5FD;
+      --muted: #7E7E8F;
+      --accent: #F472B6;
+      --teal: #2DE2E6;
+      --purple: #7C3AED;
+      --green: #34D399;
+      --amber: #FBBF24;
+      --red: #FB7185;
+      --blue: #60A5FA;
+      --border: rgba(255,255,255,.08);
+      --borderS: rgba(255,255,255,.04);
+      --hover: rgba(255,255,255,.055);
+      --code-bg: #111113;
+      --success: #34D399;
+      --danger: #FB7185;
+      --warning: #FBBF24;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      background: var(--bg) !important;
+      color: var(--text) !important;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    /* Thin scrollbars matching design-e */
+    ::-webkit-scrollbar { width: 3px; height: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.13); border-radius: 3px; }
+
         .status-indicator {
             width: 10px;
             height: 10px;
@@ -108,78 +156,617 @@
             overflow-wrap: anywhere;
             word-break: break-word;
         }
+
+    /* ═══════════════════════════════════
+       DESIGN-E THEME — Batch 2: Header
+       ═══════════════════════════════════ */
+
+    /* ── header shell ── */
+    header#chat-hdr {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      padding: 0;
+    }
+
+    /* ── Row 1 ── */
+    .hdr-r1 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      min-height: 40px;
+    }
+    .hdr-logo { font-size: 17px; flex-shrink: 0; }
+    .hdr-title {
+      font-size: 13px;
+      font-weight: 620;
+      color: #F7F8FF;
+      flex: 1;
+      letter-spacing: .1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    /* session sub-text shown via JS in same element */
+    #session-info {
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text2);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── compact selectors ── */
+    .hdr-sel-wrap {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .hdr-sel-lbl {
+      font-size: 9px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .hdr-sel {
+      background: var(--elevated);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 6px;
+      cursor: pointer;
+      outline: none;
+      font-family: inherit;
+      max-width: 150px;
+      transition: border-color .12s;
+    }
+    .hdr-sel:focus { border-color: rgba(124,58,237,.5); }
+    .hdr-sel--agent { color: var(--text2); }
+    .hdr-sel--model { color: var(--green); }
+
+    /* ── status dot + text ── */
+    .hdr-status {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    /* override status-indicator sizes from Batch 1 */
+    .status-indicator { width: 7px !important; height: 7px !important; border-radius: 50%; }
+    .status-connected    { background: var(--green)  !important; box-shadow: 0 0 5px var(--green); }
+    .status-disconnected { background: var(--red)    !important; box-shadow: 0 0 5px var(--red);   animation: none !important; }
+    .status-thinking     { background: var(--amber)  !important; box-shadow: 0 0 5px var(--amber); }
+
+    /* ── header action buttons ── */
+    .hdr-btn {
+      padding: 3px 9px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.04);
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      transition: background .12s, color .12s;
+      font-family: inherit;
+      flex-shrink: 0;
+    }
+    .hdr-btn:hover { background: var(--hover); color: var(--text); }
+
+    /* ── context bar (row 2) ── */
+    .ctx-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 14px 7px;
+      flex-wrap: nowrap;
+      overflow: hidden;
+    }
+
+    /* ── cwd pill ── */
+    .cc-cwd {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 9px 2px 7px;
+      border-radius: 5px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.05);
+      color: #D7DBEA;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 10.5px;
+      cursor: pointer;
+      transition: background .12s, border-color .12s;
+      max-width: 420px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      flex-shrink: 0;
+    }
+    .cc-cwd:hover    { background: rgba(255,255,255,.08); border-color: rgba(124,58,237,.4); }
+    .cc-cwd.not-set  { color: var(--amber); border-color: rgba(251,191,36,.25); background: rgba(251,191,36,.06); }
+    .cc-cwd.has-error{ color: var(--red);   border-color: rgba(251,113,133,.3);  background: rgba(251,113,133,.06); }
+    .cwd-pill-icon   { font-size: 11px; opacity: .7; flex-shrink: 0; }
+    .cwd-pill-text   { overflow: hidden; text-overflow: ellipsis; }
+
+    /* ── inline edit row ── */
+    .cwd-edit-row {
+      display: none;
+      align-items: center;
+      gap: 5px;
+      flex: 1;
+      min-width: 0;
+      animation: slideIn .12s ease;
+    }
+    @keyframes slideIn { from { opacity:0; transform: translateX(-4px); } to { opacity:1; transform: none; } }
+    .cwd-edit-row.visible { display: flex; }
+
+    .cwd-pick-btn {
+      width: 26px; height: 26px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.05);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .12s;
+      padding: 0;
+    }
+    .cwd-pick-btn:hover { background: rgba(124,58,237,.18); border-color: rgba(124,58,237,.4); }
+
+    .cwd-input {
+      flex: 1;
+      min-width: 0;
+      background: var(--elevated);
+      border: 1px solid rgba(124,58,237,.4);
+      border-radius: 6px;
+      padding: 4px 9px;
+      color: var(--text);
+      font-size: 11px;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .cwd-input:focus { border-color: rgba(124,58,237,.75); }
+
+    .cwd-set-btn {
+      padding: 4px 11px;
+      border-radius: 6px;
+      border: none;
+      background: var(--purple);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      flex-shrink: 0;
+      transition: background .12s;
+    }
+    .cwd-set-btn:hover { background: #6D28D9; }
+
+    .cwd-cancel-btn {
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+      font-family: inherit;
+      flex-shrink: 0;
+      transition: background .12s, color .12s;
+    }
+    .cwd-cancel-btn:hover { background: var(--hover); color: var(--text); }
+
+
+    /* ═══════════════════════════════════
+       DESIGN-E THEME — Batch 3: Message bubbles + avatars
+       ═══════════════════════════════════ */
+
+    /* messages scroll container */
+    #messages-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 22px 120px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* ── message row ── */
+    .msg { display: flex; gap: 9px; align-items: flex-start; }
+    .msg.u { flex-direction: row-reverse; }
+
+    /* ── avatar ── */
+    .mav {
+      width: 26px; height: 26px;
+      border-radius: 7px;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700; letter-spacing: -.5px;
+    }
+    .msg.a .mav { background: linear-gradient(135deg,#7C3AED,#2DE2E6); color:#fff; }
+    .msg.u .mav { background: var(--elevated); color: var(--muted); }
+
+    /* ── body ── */
+    .mbody {
+      display: flex; flex-direction: column; gap: 4px;
+      max-width: 78%; min-width: 0;
+    }
+    .msg.u .mbody { align-items: flex-end; }
+    .msg.a .mbody { min-width: min(480px, 60vw); }
+
+    /* ── bubble ── */
+    .bubble {
+      padding: 9px 13px;
+      border-radius: 11px;
+      font-size: 12.5px;
+      line-height: 1.65;
+      word-break: break-word;
+    }
+    .msg.a .bubble {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 3px 11px 11px 11px;
+    }
+    .msg.u .bubble {
+      background: rgba(124,58,237,.18);
+      border: 1px solid rgba(124,58,237,.25);
+      border-radius: 11px 3px 11px 11px;
+      color: #EFE9FF;
+    }
+
+    /* ── timestamp ── */
+    .mtime { font-size: 10px; color: var(--muted); padding: 0 2px; }
+    .msg.u .mtime { text-align: right; }
+
+    /* ── markdown inside bubble ── */
+    .bubble.markdown-content { line-height: 1.65; }
+    .bubble.markdown-content pre {
+      background: var(--code-bg);
+      padding: .75rem 1rem;
+      border-radius: 7px;
+      overflow-x: auto;
+      margin: .5rem 0;
+      font-size: 11.5px;
+    }
+    .bubble.markdown-content code {
+      background: var(--code-bg);
+      padding: .1em .3em;
+      border-radius: 4px;
+      font-size: 11.5px;
+      font-family: ui-monospace,'SF Mono',monospace;
+    }
+    .bubble.markdown-content pre code { background: none; padding: 0; }
+    .bubble.markdown-content h1,.bubble.markdown-content h2,.bubble.markdown-content h3 {
+      margin: .75rem 0 .35rem; font-weight: 600;
+    }
+    .bubble.markdown-content ul,.bubble.markdown-content ol {
+      margin: .4rem 0 .4rem 1.4rem;
+    }
+    .bubble.markdown-content a { color: var(--blue); text-decoration: underline; }
+    .bubble.markdown-content p { margin: .25rem 0; }
+    .bubble.markdown-content img,
+    .bubble.markdown-content svg,
+    .bubble.markdown-content canvas,
+    .bubble.markdown-content video,
+    .bubble.markdown-content iframe {
+      display: block;
+      max-width: 100%;
+      max-height: 380px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border-radius: 7px;
+      margin: .45rem 0;
+      background: rgba(255,255,255,.03);
+    }
+    .bubble.markdown-content table {
+      display: block;
+      max-width: 100%;
+      overflow: auto;
+      border-collapse: collapse;
+    }
+
+    /* ── system / info pills ── */
+    .sys-msg {
+      align-self: center;
+      padding: 3px 12px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      color: var(--muted);
+      background: rgba(255,255,255,.035);
+      border: 1px solid var(--borderS);
+      text-align: center;
+      max-width: 80%;
+    }
+    .sys-msg.err {
+      color: var(--red);
+      background: rgba(251,113,133,.08);
+      border-color: rgba(251,113,133,.25);
+    }
+
+    /* ── error card ── */
+    .err-card {
+      margin-left: 35px;
+      border-radius: 8px;
+      border: 1px solid rgba(251,113,133,.35);
+      background: rgba(251,113,133,.07);
+      padding: 10px 12px;
+      font-size: 11.5px;
+      display: flex; gap: 10px; align-items: flex-start;
+    }
+    .err-card-body { flex: 1; min-width: 0; }
+    .err-card-title { font-weight: 600; color: var(--red); margin-bottom: 3px; }
+    .err-card-text  { color: var(--text); opacity: .85; overflow-wrap: anywhere; }
+    .err-card-hint  { margin-top: 5px; font-size: 10.5px; color: var(--amber); }
+    .err-card-copy  {
+      flex-shrink: 0;
+      padding: 2px 8px; border-radius: 5px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.04);
+      color: var(--muted); font-size: 10px; cursor: pointer;
+      font-family: inherit; transition: background .12s, color .12s;
+    }
+    .err-card-copy:hover { background: var(--hover); color: var(--text); }
+
+    /* ── visible tool components (wireframe-style) ── */
+    .tc-inline {
+      margin: 2px 0 2px 35px;
+      width: calc(100% - 35px);
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.09);
+      border-left: 3px solid var(--muted);
+      background: rgba(255,255,255,.025);
+      transition: background .13s, border-color .13s;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.02);
+    }
+    .tc-inline:hover { background: rgba(255,255,255,.045); border-color: rgba(255,255,255,.14); }
+    .tc-inline.t-call {
+      border-left-color: var(--blue);
+      max-width: 75vw;
+    }
+    .tc-inline.t-result { border-left-color: var(--green); }
+    .tc-inline.t-error  { border-left-color: var(--red); }
+    .tc-inline-hdr {
+      min-height: 30px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px; cursor: pointer; user-select: none;
+      background: rgba(255,255,255,.018);
+    }
+    .tc-inline-arr { font-size: 9px; color: var(--muted); transition: transform .14s; }
+    .tc-inline-arr.open { transform: rotate(90deg); }
+    .tc-inline-icon {
+      width: 18px; height: 18px; border-radius: 5px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700; flex-shrink: 0;
+      background: rgba(255,255,255,.06); color: var(--muted);
+    }
+    .t-call .tc-inline-icon   { color: var(--blue);  background: rgba(96,165,250,.12); }
+    .t-result .tc-inline-icon { color: var(--green); background: rgba(52,211,153,.12); }
+    .t-error .tc-inline-icon  { color: var(--red);   background: rgba(251,113,133,.12); }
+    .tc-inline-name { font-size: 11.5px; font-weight: 650; color: var(--text); opacity: .92; }
+    .tc-inline-kind { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .tc-inline-preview {
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--muted); font-size: 10.5px; margin-left: 2px; flex: 1;
+      font-family: ui-monospace,'SF Mono',monospace;
+    }
+    .tc-inline-meta { font-size: 9.5px; color: var(--muted); margin-left: auto; font-family: ui-monospace,'SF Mono',monospace; flex-shrink: 0; }
+    .tc-inline-body {
+      display: block;
+      border-top: 1px solid var(--borderS);
+      background: rgba(0,0,0,.16);
+      max-height: min(46vh, 420px);
+      overflow: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+    }
+    .tc-inline-body.collapsed { display: none; }
+    .tc-inline-pre {
+      font-family: ui-monospace,'SF Mono',monospace;
+      font-size: 10.5px;
+      color: var(--text);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      min-width: 100%;
+      max-width: 100%;
+      opacity: .86;
+      background: rgba(10,10,12,.65);
+      padding: 9px 11px;
+      margin: 0;
+    }
+    .tc-inline-body img,
+    .tc-inline-body svg,
+    .tc-inline-body canvas,
+    .tc-inline-body video,
+    .tc-inline-body iframe {
+      display: block;
+      max-width: 100%;
+      max-height: 400px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border-radius: 6px;
+      background: rgba(255,255,255,.03);
+    }
+    .tc-inline-body table {
+      display: block;
+      max-width: 100%;
+      overflow: auto;
+      border-collapse: collapse;
+    }
+    .tc-inline-empty {
+      padding: 8px 11px;
+      color: var(--muted);
+      font-size: 10.5px;
+      font-family: ui-monospace,'SF Mono',monospace;
+    }
+
+    /* ── agent-invoked pill ── */
+    .agent-invoked {
+      margin-left: 35px;
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 3px 11px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      color: var(--text2);
+      background: rgba(124,58,237,.1);
+      border: 1px solid rgba(124,58,237,.22);
+      max-width: 90%;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    /* ── permission request card (wireframe-style) ── */
+    .permission-message { width: 100%; }
+    .perm-card {
+      margin: 2px 0 8px 35px;
+      width: calc(100% - 35px);
+      border-radius: 8px;
+      border: 1px solid rgba(251,191,36,.28);
+      background: rgba(251,191,36,.075);
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+    }
+    .perm-card-hdr {
+      padding: 8px 11px;
+      border-bottom: 1px solid rgba(251,191,36,.16);
+      font-size: 11px; font-weight: 700; color: var(--amber);
+    }
+    .perm-card-body { padding: 10px 11px; display: flex; flex-direction: column; gap: 8px; }
+    .perm-card-desc { font-size: 11.5px; color: var(--text); opacity: .9; }
+    .perm-card-cmd {
+      font-family: ui-monospace,'SF Mono',monospace;
+      background: rgba(10,10,12,.75);
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: 5px;
+      padding: 8px 10px;
+      font-size: 11.5px;
+      color: var(--success);
+      overflow-wrap: anywhere;
+    }
+    .perm-card-cwd { font-size: 10px; color: var(--muted); margin-top: -2px; font-family: ui-monospace,'SF Mono',monospace; }
+    .perm-card-actions { display: flex; gap: 8px; }
+    .perm-card-btn {
+      padding: 5px 14px; border-radius: 6px; border: 1px solid;
+      font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
+      transition: background .12s, transform .08s;
+    }
+    .perm-card-btn:active { transform: translateY(1px); }
+    .perm-btn-ok {
+      background: rgba(52,211,153,.14); color: var(--success);
+      border-color: rgba(52,211,153,.35);
+    }
+    .perm-btn-ok:hover { background: rgba(52,211,153,.24); }
+    .perm-btn-no {
+      background: rgba(251,113,133,.14); color: var(--red);
+      border-color: rgba(251,113,133,.3);
+    }
+    .perm-btn-no:hover { background: rgba(251,113,133,.24); }
+    .perm-card-timeout { font-size: 10px; color: var(--muted); }
+    .perm-decision {
+      font-size: 11px; font-weight: 800;
+      padding: 7px 10px; border-radius: 5px;
+      font-family: ui-monospace,'SF Mono',monospace;
+    }
+    .perm-decision.ok { color: var(--success); background: rgba(52,211,153,.14); }
+    .perm-decision.no { color: var(--red);     background: rgba(251,113,133,.14); }
+
     </style>
 </head>
 <body class="h-full bg-gray-900 text-white overflow-hidden">
     <div class="h-full flex flex-col">
-        <!-- Header -->
-        <header class="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between flex-shrink-0">
-            <div class="flex items-center space-x-3">
-                <span class="text-2xl">🐶</span>
-                <div>
-                    <h1 class="text-lg font-semibold text-gray-100">Code Puppy Chat</h1>
-                    <p class="text-xs text-gray-400" id="session-info">Connecting...</p>
-                </div>
+        <!-- Header — Design-E Batch 2 -->
+        <header id="chat-hdr">
+
+          <!-- ── Row 1: logo · session info · selectors · status · controls ── -->
+          <div class="hdr-r1">
+            <span class="hdr-logo"></span>
+
+            <!-- Session title / info (reuses existing id) -->
+            <span id="session-info" class="hdr-title">Connecting…</span>
+
+            <!-- Agent selector -->
+            <div class="hdr-sel-wrap">
+              <span class="hdr-sel-lbl">Agent</span>
+              <select id="agent-selector" class="hdr-sel hdr-sel--agent" aria-label="Select agent">
+                <option value="">Loading…</option>
+              </select>
             </div>
-            
-            <div class="flex items-center space-x-4">
-                <!-- Agent Selector -->
-                <div class="text-xs">
-                    <label for="agent-selector" class="text-gray-400">Agent:</label>
-                    <select id="agent-selector" 
-                            class="block mt-1 px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded text-blue-400 font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
-                            aria-label="Select agent">
-                        <option value="">Loading...</option>
-                    </select>
-                </div>
-                <!-- Model Selector -->
-                <div class="text-xs">
-                    <label for="model-selector" class="text-gray-400">Model:</label>
-                    <select id="model-selector" 
-                            class="block mt-1 px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded text-green-400 font-semibold focus:outline-none focus:border-green-500 cursor-pointer"
-                            aria-label="Select model">
-                        <option value="">Loading...</option>
-                    </select>
-                </div>
-                
-                <!-- Working Directory -->
-                <div class="text-xs">
-                    <div class="text-gray-400">Working Dir:</div>
-                    <div class="flex items-center space-x-1">
-                        <input type="text" id="working-dir-input" 
-                               placeholder="Enter directory path..."
-                               class="w-48 px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
-                               value="">
-                        <button id="btn-set-dir" 
-                                class="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded transition-colors">
-                            Set
-                        </button>
-                    </div>
-                    <div id="current-working-dir" class="font-semibold text-yellow-400 text-xs mt-1">Not set</div>
-                </div>
-                
-                <!-- Connection Status -->
-                <div class="flex items-center space-x-2">
-                    <div id="status-indicator" class="status-indicator status-disconnected"></div>
-                    <span id="status-text" class="text-sm text-gray-400">Disconnected</span>
-                </div>
-                
-                <!-- Controls -->
-                <div class="flex items-center space-x-2">
-                    <button id="btn-clear" 
-                            class="px-3 py-1 text-sm bg-gray-600 hover:bg-gray-700 rounded transition-colors">
-                        Clear
-                    </button>
-                    <a href="/" 
-                       class="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded transition-colors">
-                        Home
-                    </a>
-                </div>
+
+            <!-- Model selector -->
+            <div class="hdr-sel-wrap">
+              <span class="hdr-sel-lbl">Model</span>
+              <select id="model-selector" class="hdr-sel hdr-sel--model" aria-label="Select model">
+                <option value="">Loading…</option>
+              </select>
             </div>
+
+            <!-- Connection status -->
+            <div class="hdr-status">
+              <div id="status-indicator" class="status-indicator status-disconnected"></div>
+              <span id="status-text">Disconnected</span>
+            </div>
+
+            <!-- Controls -->
+            <button id="btn-clear" class="hdr-btn">Clear</button>
+            <a href="/" class="hdr-btn">Home</a>
+          </div>
+
+          <!-- ── Row 2: context bar — cwd pill + inline path editor ── -->
+          <div class="ctx-bar">
+
+            <!-- CWD pill — click to open inline editor -->
+            <div class="cc-cwd not-set" id="cwd-pill"
+                 onclick="openCwdEdit()"
+                 title="Click to change working directory">
+              <span class="cwd-pill-icon"></span>
+              <span class="cwd-pill-text" id="current-working-dir">Not set</span>
+            </div>
+
+            <!-- Inline editor (hidden until pill clicked) -->
+            <div class="cwd-edit-row" id="cwd-edit-row">
+
+              <!-- Native folder picker button -->
+              <button class="cwd-pick-btn" id="btn-pick-dir"
+                      onclick="triggerNativePicker()"
+                      title="Browse for folder (native picker)"></button>
+
+              <!-- Path text input (reuses existing id so backend JS still works) -->
+              <input type="text" id="working-dir-input"
+                     class="cwd-input"
+                     placeholder="/path/to/your/project"
+                     autocomplete="off" autocorrect="off" spellcheck="false">
+
+              <!-- Set / Cancel -->
+              <button class="cwd-set-btn" id="btn-set-dir">Set</button>
+              <button class="cwd-cancel-btn" onclick="closeCwdEdit()">Cancel</button>
+            </div>
+
+            <!-- Hidden fallback for browsers without showDirectoryPicker -->
+            <input type="file" id="dir-picker-fallback" webkitdirectory
+                   style="display:none" onchange="onFallbackDirPick(this)">
+          </div>
+
         </header>
         
         <!-- Messages Container -->
-        <main class="flex-1 overflow-y-auto p-4 space-y-4" id="messages-container">
+        <main id="messages-container">
             <!-- Messages will be dynamically inserted here -->
         </main>
         
@@ -207,7 +794,7 @@
     <script>
         // Configuration
         const CONFIG = {
-            wsUrl: `ws://${window.location.host}/ws/chat`,
+            wsUrl: `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/chat`,
             sessionId: new URLSearchParams(window.location.search).get('session') || null
         };
         
@@ -257,17 +844,29 @@
             const normalized = directory || '';
             workingDirInput.value = normalized;
             sessionState.workingDirectory = normalized;
+
+            const pill    = document.getElementById('cwd-pill');
+            const pillTxt = document.getElementById('current-working-dir');
+
+            // Close edit row on update
+            closeCwdEdit();
+
             if (error) {
-                currentWorkingDirEl.textContent = `Error: ${error}`;
-                currentWorkingDirEl.className = 'font-semibold text-red-400 text-xs mt-1';
+                pillTxt.textContent = 'Error: ' + error;
+                pill.className = 'cc-cwd has-error';
                 return;
             }
             if (normalized) {
-                currentWorkingDirEl.textContent = normalized;
-                currentWorkingDirEl.className = 'font-semibold text-green-400 text-xs mt-1';
+                // Show a compact path: abbreviate home dir as ~
+                const display = normalized.replace(/^\/Users\/[^\/]+/, '~')
+                                          .replace(/^\/home\/[^\/]+/, '~');
+                pillTxt.textContent = display;
+                pill.className = 'cc-cwd';
+                pill.title = normalized + ' — click to change';
             } else {
-                currentWorkingDirEl.textContent = 'Not set';
-                currentWorkingDirEl.className = 'font-semibold text-yellow-400 text-xs mt-1';
+                pillTxt.textContent = 'Not set';
+                pill.className = 'cc-cwd not-set';
+                pill.title = 'Click to set working directory';
             }
         }
         
@@ -342,10 +941,32 @@
             }));
         }
         
+        function isAbsoluteDirectoryPath(path) {
+            if (!path) return false;
+            // macOS/Linux absolute, home-relative, Windows drive, or UNC path.
+            return path.startsWith('/') || path.startsWith('~/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
+        }
+
+        function explainAbsolutePathRequired(path) {
+            const pickedName = path ? ` "${path}"` : '';
+            return 'Please enter the full absolute folder path' + pickedName +
+                '. Browser folder pickers only expose the folder name, not its full path. ' +
+                'Example: /Users/s0m0961/Documents/dev/puppy/my-ai-adoption-story';
+        }
+
         function handleSetWorkingDirectory() {
             const directory = workingDirInput.value.trim();
             if (!directory) {
                 alert('Please enter a directory path');
+                return;
+            }
+
+            if (!isAbsoluteDirectoryPath(directory)) {
+                const msg = explainAbsolutePathRequired(directory);
+                alert(msg);
+                workingDirInput.placeholder = 'Paste full path — e.g. /Users/s0m0961/Documents/dev/puppy/' + directory;
+                workingDirInput.focus();
+                workingDirInput.select();
                 return;
             }
             
@@ -474,9 +1095,14 @@
                     handleAssistantMessageEnd(message);
                     break;
                 case 'tool_call':
+                case 'tool_call_start':
                     handleToolCall(message);
                     break;
                 case 'tool_result':
+                case 'tool_call_complete':
+                    handleToolResult(message);
+                    break;
+                case 'tool_return':
                     handleToolResult(message);
                     break;
                 case 'response':
@@ -596,10 +1222,48 @@
             addUserMessage(message.content);
         }
         
+        function assistantPartKind(message) {
+            return String(message.part_type || message.partType || '').toLowerCase();
+        }
+
+        function isToolishAssistantPart(message) {
+            const kind = assistantPartKind(message);
+            return kind.includes('tool') || Boolean(message.tool_name && kind && kind !== 'text' && kind !== 'thinking');
+        }
+
+        function hasRenderableText(value) {
+            return typeof value === 'string' && value.trim().length > 0;
+        }
+
+        function removeEmptyAssistantMessage(row) {
+            if (!row) return;
+            const bubble = row.querySelector('.message-content');
+            const raw = bubble ? (bubble.getAttribute('data-raw-content') || bubble.textContent || '') : '';
+            if (!hasRenderableText(raw)) row.remove();
+        }
+
+        function ensureAssistantMessageElement(message) {
+            if (!currentMessageElement || message.message_id !== currentMessageId) {
+                currentMessageElement = createMessageElement('assistant', message);
+                currentMessageId = message.message_id;
+            }
+            return currentMessageElement;
+        }
+
         function handleAssistantMessageStart(message) {
-            // Create new message element with metadata
-            const messageDiv = createMessageElement('assistant', message);
-            currentMessageElement = messageDiv;
+            // Tool parts should render as tool cards, not as empty assistant bubbles.
+            if (isToolishAssistantPart(message)) {
+                if (message.tool_name || message.args || message.content) {
+                    addToolMessage('call', message);
+                }
+                currentMessageElement = null;
+                currentMessageId = null;
+                return;
+            }
+
+            // Do not create a visible row until text actually arrives. This avoids
+            // meaningless thin empty bubble/line artifacts for blank stream parts.
+            currentMessageElement = null;
             currentMessageId = message.message_id;
             
             // Update current agent/model display
@@ -612,32 +1276,45 @@
         }
         
         function handleAssistantMessageDelta(message) {
-            if (currentMessageElement && message.message_id === currentMessageId) {
-                const contentDiv = currentMessageElement.querySelector('.message-content');
+            if (isToolishAssistantPart(message)) {
+                if (message.tool_name || message.content || message.args) {
+                    addToolMessage('call', message);
+                }
+                return;
+            }
+
+            const content = typeof message.content === 'string' ? message.content : '';
+            if (!hasRenderableText(content) && !currentMessageElement) {
+                return;
+            }
+
+            if (message.message_id === currentMessageId || !currentMessageElement) {
+                const row = ensureAssistantMessageElement(message);
+                const contentDiv = row.querySelector('.message-content');
                 if (contentDiv) {
-                    // Append new content
                     const currentContent = contentDiv.getAttribute('data-raw-content') || '';
-                    const newContent = currentContent + message.content;
+                    const newContent = currentContent + content;
                     contentDiv.setAttribute('data-raw-content', newContent);
                     
-                    // Render markdown
-                    contentDiv.innerHTML = marked.parse(newContent);
+                    if (hasRenderableText(newContent)) {
+                        const renderedMarkdown = marked.parse(newContent);
+                        contentDiv.innerHTML = DOMPurify.sanitize(renderedMarkdown);
+                    }
                     
-                    // Update metadata if tool is now active
                     if (message.tool_name) {
-                        updateMessageMetadata(currentMessageElement, message);
+                        updateMessageMetadata(row, message);
                     }
                 }
-                
-                // Scroll to bottom
                 scrollToBottom();
             }
         }
         
         function handleAssistantMessageEnd(message) {
             if (currentMessageElement && message.message_id === currentMessageId) {
-                // Mark as complete
-                currentMessageElement.classList.add('message-complete');
+                removeEmptyAssistantMessage(currentMessageElement);
+                if (document.body.contains(currentMessageElement)) {
+                    currentMessageElement.classList.add('message-complete');
+                }
                 currentMessageElement = null;
                 currentMessageId = null;
             }
@@ -645,11 +1322,11 @@
         }
         
         function handleToolCall(message) {
-            addToolMessage('call', message);
+            addToolMessage('call', message.data || message);
         }
         
         function handleToolResult(message) {
-            addToolMessage('result', message);
+            addToolMessage('result', message.data || message);
         }
         
         function handleFinalResponse(message) {
@@ -699,33 +1376,18 @@
             const cwd = details.cwd || 'current directory';
             
             bubble.innerHTML = `
-                <div class="bg-yellow-900/30 border-2 border-yellow-500/50 rounded-lg p-4 mb-4">
-                    <div class="flex items-start gap-3">
-                        <div class="text-3xl">⚠️</div>
-                        <div class="flex-1">
-                            <h3 class="text-yellow-300 font-bold text-lg mb-2">${title}</h3>
-                            <p class="text-gray-300 mb-3">${description}</p>
-                            <div class="bg-black/30 rounded p-3 mb-4 font-mono text-sm">
-                                <div class="text-gray-400 mb-1">Command:</div>
-                                <div class="text-green-400">${escapeHtml(command)}</div>
-                                <div class="text-gray-400 mt-2 mb-1">Working directory:</div>
-                                <div class="text-blue-400">${escapeHtml(cwd)}</div>
-                            </div>
-                            <div class="flex gap-3">
-                                <button onclick="approvePermission('${requestId}')" 
-                                        class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors">
-                                    ✅ Approve
-                                </button>
-                                <button onclick="denyPermission('${requestId}')" 
-                                        class="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition-colors">
-                                    ❌ Deny
-                                </button>
-                            </div>
-                            <div class="text-xs text-gray-500 mt-2">
-                                Timeout in ${timeout} seconds
-                            </div>
-                        </div>
+                <div class="perm-card">
+                  <div class="perm-card-hdr">Permission Required — ${escapeHtml(String(title))}</div>
+                  <div class="perm-card-body">
+                    <div class="perm-card-desc">${escapeHtml(String(description))}</div>
+                    <div class="perm-card-cmd">${escapeHtml(command)}</div>
+                    <div class="perm-card-cwd">${escapeHtml(cwd)}</div>
+                    <div class="perm-card-actions">
+                      <button class="perm-card-btn perm-btn-ok" onclick="approvePermission('${requestId}')">Approve</button>
+                      <button class="perm-card-btn perm-btn-no" onclick="denyPermission('${requestId}')">Deny</button>
                     </div>
+                    <div class="perm-card-timeout">Timeout in ${timeout}s</div>
+                  </div>
                 </div>
             `;
             
@@ -758,17 +1420,17 @@
         }
         
         function updatePermissionUI(requestId, approved) {
-            const bubble = document.getElementById(`permission-${requestId}`);
-            if (bubble) {
-                const decision = approved ? '✅ APPROVED' : '❌ DENIED';
-                const bgColor = approved ? 'bg-green-900/30 border-green-500/50' : 'bg-red-900/30 border-red-500/50';
-                bubble.querySelector('.bg-yellow-900\/30').className = `${bgColor} rounded-lg p-4`;
-                bubble.querySelector('.flex.gap-3').innerHTML = `
-                    <div class="text-lg font-bold ${approved ? 'text-green-300' : 'text-red-300'}">
-                        ${decision}
-                    </div>
-                `;
-            }
+            const bubble = document.getElementById('permission-' + requestId);
+            if (!bubble) return;
+            const actionsEl = bubble.querySelector('.perm-card-actions');
+            const timeoutEl = bubble.querySelector('.perm-card-timeout');
+            if (actionsEl) actionsEl.style.display = 'none';
+            if (timeoutEl) timeoutEl.style.display = 'none';
+            const decision = document.createElement('div');
+            decision.className = approved ? 'perm-decision ok' : 'perm-decision no';
+            decision.textContent = approved ? 'APPROVED' : 'DENIED';
+            const body = bubble.querySelector('.perm-card-body');
+            if (body) body.appendChild(decision);
         }
         
         function escapeHtml(text) {
@@ -778,100 +1440,61 @@
         }
         
         // Create message elements
+        // Create message elements — Design-E Batch 3
         function createMessageElement(type, message) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message message-${type} p-4 rounded-lg ${
-                type === 'user' ? 'bg-blue-900 ml-12' : 'bg-gray-800 mr-12'
-            }`;
-            
-            // Header with metadata
-            const headerDiv = document.createElement('div');
-            headerDiv.className = 'flex items-center justify-between mb-2';
-            
-            const leftDiv = document.createElement('div');
-            leftDiv.className = 'flex items-center space-x-2';
-            
-            const icon = document.createElement('span');
-            icon.textContent = type === 'user' ? '👤' : '🤖';
-            leftDiv.appendChild(icon);
-            
-            const labelSpan = document.createElement('span');
-            labelSpan.className = 'font-semibold';
-            labelSpan.textContent = type === 'user' ? 'You' : (message.agent_name || 'Assistant');
-            leftDiv.appendChild(labelSpan);
-            
-            headerDiv.appendChild(leftDiv);
-            
-            // Metadata (agent, model, tool)
-            if (type === 'assistant' && (message.agent_name || message.model_name || message.tool_name)) {
-                const metadataDiv = document.createElement('div');
-                metadataDiv.className = 'message-metadata flex items-center space-x-2';
-                
-                if (message.agent_name) {
-                    const agentSpan = document.createElement('span');
-                    agentSpan.className = 'text-blue-400';
-                    agentSpan.textContent = `Agent: ${message.agent_name}`;
-                    metadataDiv.appendChild(agentSpan);
-                }
-                
-                if (message.model_name) {
-                    const modelSpan = document.createElement('span');
-                    modelSpan.className = 'text-green-400';
-                    modelSpan.textContent = `Model: ${message.model_name}`;
-                    metadataDiv.appendChild(modelSpan);
-                }
-                
-                if (message.tool_name) {
-                    const toolBadge = document.createElement('span');
-                    toolBadge.className = 'tool-badge';
-                    toolBadge.textContent = `🔧 ${message.tool_name}`;
-                    metadataDiv.appendChild(toolBadge);
-                }
-                
-                headerDiv.appendChild(metadataDiv);
+            const row = document.createElement('div');
+            row.className = type === 'user' ? 'msg u' : 'msg a';
+
+            // Avatar
+            const av = document.createElement('div');
+            av.className = 'mav';
+            av.textContent = type === 'user' ? 'You' : 'CP';
+
+            // Body wrapper
+            const body = document.createElement('div');
+            body.className = 'mbody';
+
+            // Bubble (content target)
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble message-content markdown-content';
+            bubble.setAttribute('data-raw-content', '');
+
+            // Timestamp
+            const time = document.createElement('div');
+            time.className = 'mtime';
+            time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            body.appendChild(bubble);
+            body.appendChild(time);
+
+            if (type === 'user') {
+                row.appendChild(body);
+                row.appendChild(av);
+            } else {
+                row.appendChild(av);
+                row.appendChild(body);
             }
-            
-            messageDiv.appendChild(headerDiv);
-            
-            // Content
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'message-content markdown-content';
-            contentDiv.setAttribute('data-raw-content', '');
-            messageDiv.appendChild(contentDiv);
-            
-            messagesContainer.appendChild(messageDiv);
+
+            messagesContainer.appendChild(row);
             scrollToBottom();
-            
-            return messageDiv;
+            return row;
         }
         
         function updateMessageMetadata(messageElement, message) {
-            const metadataDiv = messageElement.querySelector('.message-metadata');
-            if (metadataDiv && message.tool_name) {
-                // Check if tool badge already exists
-                let toolBadge = metadataDiv.querySelector('.tool-badge');
-                if (!toolBadge) {
-                    toolBadge = document.createElement('span');
-                    toolBadge.className = 'tool-badge';
-                    metadataDiv.appendChild(toolBadge);
-                }
-                toolBadge.textContent = `🔧 ${message.tool_name}`;
-            }
+            // no-op: agent/model info lives in header selectors
         }
         
         function addUserMessage(content) {
-            const messageDiv = createMessageElement('user', {});
-            const contentDiv = messageDiv.querySelector('.message-content');
-            contentDiv.textContent = content;
+            const row = createMessageElement('user', {});
+            const bubble = row.querySelector('.message-content');
+            bubble.textContent = content;
         }
         
         function addSystemMessage(content, level = 'info') {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message message-system p-3 rounded-lg text-center text-sm ${
-                level === 'error' ? 'bg-red-900 text-red-200' : 'bg-gray-700 text-gray-400'
-            }`;
-            messageDiv.textContent = content;
-            messagesContainer.appendChild(messageDiv);
+            const div = document.createElement('div');
+            div.className = level === 'error' ? 'sys-msg err' : 'sys-msg';
+            div.textContent = content;
+            messagesContainer.appendChild(div);
             scrollToBottom();
         }
 
@@ -912,124 +1535,207 @@
         }
 
         function addErrorSystemMessage(message) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className =
-                'message message-system message-error p-3 rounded-lg text-sm bg-red-950/80 border border-red-500/70 text-red-50';
+            const card = document.createElement('div');
+            card.className = 'err-card';
 
-            const row = document.createElement('div');
-            row.className = 'flex items-start justify-between gap-3';
-
-            const textCol = document.createElement('div');
-            textCol.className = 'min-w-0 flex-1';
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'err-card-body';
 
             const title = document.createElement('div');
-            title.className = 'font-semibold';
+            title.className = 'err-card-title';
             title.textContent = message.error_type
                 ? message.error_type.replaceAll('_', ' ').toUpperCase()
                 : 'ERROR';
 
-            const body = document.createElement('div');
-            body.className = 'mt-1';
-            body.textContent = message.error || 'An unknown error occurred';
+            const text = document.createElement('div');
+            text.className = 'err-card-text';
+            text.textContent = message.error || 'An unknown error occurred';
 
-            textCol.appendChild(title);
-            textCol.appendChild(body);
+            bodyEl.appendChild(title);
+            bodyEl.appendChild(text);
 
             if (message.action_required) {
                 const hint = document.createElement('div');
-                hint.className = 'mt-2 text-red-100/90';
-                hint.textContent = `Suggested action: ${_actionRequiredText(message.action_required)}`;
-                textCol.appendChild(hint);
+                hint.className = 'err-card-hint';
+                hint.textContent = 'Suggested: ' + _actionRequiredText(message.action_required);
+                bodyEl.appendChild(hint);
             }
 
             const copyBtn = document.createElement('button');
             copyBtn.type = 'button';
-            copyBtn.className =
-                'flex-shrink-0 px-2 py-1 text-xs bg-gray-900/70 hover:bg-gray-900 border border-gray-600 rounded transition-colors';
+            copyBtn.className = 'err-card-copy';
             copyBtn.textContent = 'Copy';
 
             const payload = JSON.stringify(message, null, 2);
             copyBtn.addEventListener('click', async () => {
                 const ok = await copyToClipboard(payload);
                 copyBtn.textContent = ok ? 'Copied' : 'Copy failed';
-                setTimeout(() => {
-                    copyBtn.textContent = 'Copy';
-                }, 1500);
+                setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
             });
 
-            row.appendChild(textCol);
-            row.appendChild(copyBtn);
-            messageDiv.appendChild(row);
-
-            messagesContainer.appendChild(messageDiv);
+            card.appendChild(bodyEl);
+            card.appendChild(copyBtn);
+            messagesContainer.appendChild(card);
             scrollToBottom();
         }
         
+        function formatToolPayload(value) {
+            if (value === undefined || value === null || value === '') return '';
+            if (typeof value === 'string') return value;
+            try { return JSON.stringify(value, null, 2); }
+            catch (_err) { return String(value); }
+        }
+
+        function isEmptyToolPayload(value) {
+            if (value === undefined || value === null) return true;
+            if (typeof value === 'string') return value.trim().length === 0;
+            if (Array.isArray(value)) return value.length === 0;
+            if (typeof value === 'object') {
+                const keys = Object.keys(value);
+                if (keys.length === 0) return true;
+                if (value._pending_full_result) return true;
+
+                // Suppress status-only bookkeeping payloads that produce
+                // `.tc-inline.t-result` cards with no user-useful content.
+                const noiseKeys = new Set([
+                    '_status', '_pending_full_result', 'status', 'success',
+                    'duration_ms', 'duration', 'elapsed_ms', 'elapsed',
+                ]);
+                return keys.every((key) => noiseKeys.has(key));
+            }
+            return false;
+        }
+
+        function compactOneLine(text, maxLen = 120) {
+            const one = String(text || '').replace(/\s+/g, ' ').trim();
+            if (!one) return '';
+            return one.length > maxLen ? one.slice(0, maxLen - 3) + '...' : one;
+        }
+
         function addToolMessage(type, message) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message message-tool p-3 rounded-lg bg-gray-700 mx-12';
-            
-            const icon = type === 'call' ? '🔧' : '✅';
-            const title = type === 'call' ? 'Tool Call' : 'Tool Result';
-            
-            let content = `<div class="flex items-center space-x-2 mb-2">
-                <span>${icon}</span>
-                <span class="font-semibold">${title}: ${message.tool_name}</span>
-            </div>`;
-            
-            // Add metadata
-            if (message.agent_name || message.model_name) {
-                content += '<div class="message-metadata flex items-center space-x-2 mb-2">';
-                if (message.agent_name) {
-                    content += `<span class="text-blue-400">Agent: ${message.agent_name}</span>`;
-                }
-                if (message.model_name) {
-                    content += `<span class="text-green-400">Model: ${message.model_name}</span>`;
-                }
-                content += '</div>';
+            const normalizedType = (message.type === 'tool_return') ? 'result' : type;
+            const callPayload = message.args ?? message.tool_args ?? message.arguments ?? message.input ?? message.details;
+            const resultPayload = message.result ?? message.result_summary ?? message.content ?? message.output ?? message.error;
+            const success = message.success;
+            const isErr = Boolean(
+                message.is_error ||
+                message.error ||
+                success === false ||
+                (normalizedType === 'result' && message.result && typeof message.result === 'object' && message.result.error)
+            );
+
+            // Result cards with no real payload are just noise. Keep explicit
+            // errors, and keep call cards even when they have no args, but drop
+            // empty/status-only successful results entirely.
+            if (normalizedType === 'result' && !isErr && isEmptyToolPayload(resultPayload)) {
+                return;
             }
-            
-            if (type === 'call' && message.args) {
-                content += `<pre class="text-xs bg-gray-800 p-2 rounded overflow-x-auto">${JSON.stringify(message.args, null, 2)}</pre>`;
-            } else if (type === 'result') {
-                // Stringify objects for display
-                let resultDisplay = message.result;
-                if (typeof resultDisplay === 'object' && resultDisplay !== null) {
-                    resultDisplay = JSON.stringify(resultDisplay, null, 2);
-                }
-                content += `<pre class="text-xs bg-gray-800 p-2 rounded overflow-x-auto whitespace-pre-wrap">${escapeHtml(resultDisplay)}</pre>`;
-                if (message.duration_ms) {
-                    content += `<div class="text-xs text-gray-500 mt-1">Duration: ${message.duration_ms.toFixed(1)}ms</div>`;
-                }
+
+            const card = document.createElement('div');
+            if (isErr) card.className = 'tc-inline t-error';
+            else if (normalizedType === 'call') card.className = 'tc-inline t-call';
+            else card.className = 'tc-inline t-result';
+
+            const toolName = String(
+                message.tool_name || message.tool || message.name || message.tool_call_id || message.tool_id || 'tool'
+            );
+            const durationStr = (normalizedType === 'result' && message.duration_ms)
+                ? Number(message.duration_ms).toFixed(0) + 'ms'
+                : '';
+            const kind = isErr ? 'error' : (normalizedType === 'call' ? 'call' : 'result');
+
+            let bodyContent = '';
+            if (normalizedType === 'call') {
+                bodyContent = formatToolPayload(callPayload);
+            } else {
+                bodyContent = formatToolPayload(resultPayload);
             }
-            
-            messageDiv.innerHTML = content;
-            messagesContainer.appendChild(messageDiv);
+
+            const preview = compactOneLine(bodyContent || (normalizedType === 'call' ? 'Tool requested' : 'Tool completed'));
+
+            const hdr = document.createElement('div');
+            hdr.className = 'tc-inline-hdr';
+
+            const arr = document.createElement('span');
+            arr.className = 'tc-inline-arr open';
+            arr.textContent = '>';
+
+            const ico = document.createElement('span');
+            ico.className = 'tc-inline-icon';
+            ico.textContent = isErr ? '!' : (normalizedType === 'call' ? 'IN' : 'OK');
+
+            const kindEl = document.createElement('span');
+            kindEl.className = 'tc-inline-kind';
+            kindEl.textContent = kind;
+
+            const nm = document.createElement('span');
+            nm.className = 'tc-inline-name';
+            nm.textContent = toolName;
+
+            const pv = document.createElement('span');
+            pv.className = 'tc-inline-preview';
+            pv.textContent = preview;
+
+            hdr.appendChild(arr);
+            hdr.appendChild(ico);
+            hdr.appendChild(kindEl);
+            hdr.appendChild(nm);
+            hdr.appendChild(pv);
+
+            if (durationStr) {
+                const meta = document.createElement('span');
+                meta.className = 'tc-inline-meta';
+                meta.textContent = durationStr;
+                hdr.appendChild(meta);
+            }
+
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'tc-inline-body';
+
+            // Tool call argument payloads can be wide/noisy; start them
+            // collapsed while preserving click-to-expand behavior. Results
+            // and errors remain expanded by default.
+            if (normalizedType === 'call') {
+                bodyEl.classList.add('collapsed');
+                arr.classList.remove('open');
+            }
+
+            if (bodyContent) {
+                const pre = document.createElement('pre');
+                pre.className = 'tc-inline-pre';
+                pre.textContent = bodyContent;
+                bodyEl.appendChild(pre);
+            } else {
+                const empty = document.createElement('div');
+                empty.className = 'tc-inline-empty';
+                empty.textContent = normalizedType === 'call' ? 'No arguments provided.' : 'No result payload returned.';
+                bodyEl.appendChild(empty);
+            }
+
+            hdr.addEventListener('click', () => {
+                const collapsed = bodyEl.classList.toggle('collapsed');
+                arr.classList.toggle('open', !collapsed);
+            });
+
+            card.appendChild(hdr);
+            card.appendChild(bodyEl);
+            messagesContainer.appendChild(card);
             scrollToBottom();
         }
         
         function handleAgentInvoked(message) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message message-agent-invoked p-3 rounded-lg bg-purple-900/30 border border-purple-700 mx-12';
-            
-            let content = `<div class="flex items-center space-x-2 mb-2">
-                <span>🐕</span>
-                <span class="font-semibold text-purple-300">Invoking Agent: ${message.agent_name || 'Unknown'}</span>
-            </div>`;
-            
+            const pill = document.createElement('div');
+            pill.className = 'agent-invoked';
+            const agentName = escapeHtml(String(message.agent_name || 'Unknown'));
+            let preview = '';
             if (message.prompt_preview) {
-                content += `<div class="text-sm text-gray-400 mt-2 pl-6">
-                    <span class="text-gray-500">└─</span> "${escapeHtml(message.prompt_preview)}"
-                </div>`;
+                const trimmed = message.prompt_preview.length > 72
+                    ? message.prompt_preview.substring(0, 72) + '...'
+                    : message.prompt_preview;
+                preview = ' — "' + escapeHtml(trimmed) + '"';
             }
-            
-            if (message.timestamp) {
-                const time = new Date(message.timestamp * 1000).toLocaleTimeString();
-                content += `<div class="text-xs text-gray-500 mt-1">${time}</div>`;
-            }
-            
-            messageDiv.innerHTML = content;
-            messagesContainer.appendChild(messageDiv);
+            pill.innerHTML = '<span style="opacity:.5">-&gt;</span> <strong>' + agentName + '</strong>' + preview;
+            messagesContainer.appendChild(pill);
             scrollToBottom();
         }
         
@@ -1057,6 +1763,79 @@
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
         
+
+        // ── CWD Pill editor ──────────────────────────────────────────────────
+        function openCwdEdit() {
+            const pill = document.getElementById('cwd-pill');
+            const row  = document.getElementById('cwd-edit-row');
+            pill.style.display = 'none';
+            row.classList.add('visible');
+            workingDirInput.value = sessionState.workingDirectory || '';
+            workingDirInput.focus();
+            workingDirInput.select();
+        }
+
+        function closeCwdEdit() {
+            const pill = document.getElementById('cwd-pill');
+            const row  = document.getElementById('cwd-edit-row');
+            if (pill) pill.style.display = '';
+            if (row)  row.classList.remove('visible');
+        }
+
+        function applyPickedFolderNameHint(folderName) {
+            const current = workingDirInput.value.trim();
+            const safeFolderName = String(folderName || '').trim();
+            if (!safeFolderName) return;
+
+            // Browsers intentionally do not expose absolute local paths from folder
+            // pickers. Never send the bare folder name to the backend, because the
+            // backend would resolve it relative to the server/worktree CWD.
+            if (isAbsoluteDirectoryPath(current) && /[\/]$/.test(current)) {
+                workingDirInput.value = current.replace(/[\/]+$/, '') + '/' + safeFolderName;
+            } else if (isAbsoluteDirectoryPath(current) && current.endsWith('/' + safeFolderName)) {
+                workingDirInput.value = current;
+            } else {
+                workingDirInput.value = '';
+                workingDirInput.placeholder = 'Paste full path — e.g. /Users/s0m0961/Documents/dev/puppy/' + safeFolderName;
+                alert('Selected folder "' + safeFolderName + '". ' + explainAbsolutePathRequired(safeFolderName));
+            }
+            workingDirInput.focus();
+            workingDirInput.select();
+        }
+
+        // ── Native folder picker ─────────────────────────────────────────────
+        // TODO(/api/pick-directory): Replace this browser-only picker/hint flow
+        // with a local backend endpoint that opens a native folder dialog and
+        // returns the absolute path (e.g. macOS osascript choose folder). Keep
+        // manual paste as the safe fallback because browser APIs only expose
+        // folder names/relative paths, never absolute local paths.
+        async function triggerNativePicker() {
+            if (window.showDirectoryPicker) {
+                try {
+                    const handle = await window.showDirectoryPicker({ mode: 'read' });
+                    applyPickedFolderNameHint(handle.name);
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        console.warn('[DirPicker] showDirectoryPicker error:', err);
+                        document.getElementById('dir-picker-fallback').click();
+                    }
+                }
+            } else {
+                // Fallback: <input webkitdirectory> exposes only webkitRelativePath,
+                // e.g. "project-name/file.txt", not an absolute local path.
+                document.getElementById('dir-picker-fallback').click();
+            }
+        }
+
+        function onFallbackDirPick(input) {
+            if (input.files && input.files.length > 0) {
+                const relPath = input.files[0].webkitRelativePath || '';
+                const dirName = relPath.split('/')[0];
+                applyPickedFolderNameHint(dirName);
+            }
+            input.value = '';
+        }
+
         window.addEventListener('beforeunload', () => {
             if (socket) {
                 socket.close();

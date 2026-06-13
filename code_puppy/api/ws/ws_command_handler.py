@@ -59,7 +59,7 @@ async def handle_command_message(
         await send_typed(
             ServerCommandResult(
                 command=command_str,
-                success=result is True or result is not False,
+                success=result is True,
                 output=output,
                 messages=captured_messages,
                 result=str(result) if result and result is not True else None,
@@ -69,7 +69,7 @@ async def handle_command_message(
         logger.debug(
             "Command executed: %s -> success=%s, output_len=%s",
             command_str,
-            result is True or result is not False,
+            result is True,
             len(output) if output else 0,
         )
     except Exception as cmd_error:

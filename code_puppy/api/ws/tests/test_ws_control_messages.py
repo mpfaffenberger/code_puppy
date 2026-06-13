@@ -22,7 +22,16 @@ class _FakeSessionManager:
         self.switch_model_calls.append((session_id, model_name))
 
 
-def _load_control_module(monkeypatch, *, cancel_calls=None, permission_calls=None, writes=None, update_calls=None, set_config_calls=None, get_values=None):
+def _load_control_module(
+    monkeypatch,
+    *,
+    cancel_calls=None,
+    permission_calls=None,
+    writes=None,
+    update_calls=None,
+    set_config_calls=None,
+    get_values=None,
+):
     fake_db_pkg = ModuleType("code_puppy.api.db")
     fake_db_pkg.__path__ = []
     fake_queries = ModuleType("code_puppy.api.db.queries")
@@ -40,13 +49,20 @@ def _load_control_module(monkeypatch, *, cancel_calls=None, permission_calls=Non
     monkeypatch.setitem(sys.modules, "code_puppy.api.db.queries", fake_queries)
 
     fake_permissions = ModuleType("code_puppy.api.permissions")
-    fake_permissions.handle_permission_response = lambda request_id, approved: permission_calls.append((request_id, approved)) or True
+    fake_permissions.handle_permission_response = (
+        lambda request_id, approved, session_id=None: permission_calls.append(
+            (request_id, approved, session_id)
+        )
+        or True
+    )
     monkeypatch.setitem(sys.modules, "code_puppy.api.permissions", fake_permissions)
 
     fake_session_context = ModuleType("code_puppy.api.session_context")
     fake_session_context._validate_session_id = lambda value: value
     fake_session_context.session_manager = _FakeSessionManager()
-    monkeypatch.setitem(sys.modules, "code_puppy.api.session_context", fake_session_context)
+    monkeypatch.setitem(
+        sys.modules, "code_puppy.api.session_context", fake_session_context
+    )
 
     fake_send_utils = ModuleType("code_puppy.api.ws.send_utils")
     fake_send_utils.WebSocketSender = object
@@ -58,12 +74,16 @@ def _load_control_module(monkeypatch, *, cancel_calls=None, permission_calls=Non
         cancel_calls.append(kwargs)
 
     fake_stream_drain.cancel_active_streaming = _cancel_active_streaming
-    monkeypatch.setitem(sys.modules, "code_puppy.api.ws.ws_stream_drain", fake_stream_drain)
+    monkeypatch.setitem(
+        sys.modules, "code_puppy.api.ws.ws_stream_drain", fake_stream_drain
+    )
 
     fake_config = ModuleType("code_puppy.config")
     fake_config.get_puppy_name = lambda: "puppy"
     fake_config.get_value = lambda key: get_values.get(key)
-    fake_config.set_config_value = lambda key, value: set_config_calls.append((key, value))
+    fake_config.set_config_value = lambda key, value: set_config_calls.append(
+        (key, value)
+    )
     monkeypatch.setitem(sys.modules, "code_puppy.config", fake_config)
 
     sys.modules.pop("code_puppy.api.ws.ws_control_messages", None)
@@ -72,7 +92,13 @@ def _load_control_module(monkeypatch, *, cancel_calls=None, permission_calls=Non
 
 @pytest.mark.asyncio
 async def test_handle_control_message_switch_model(monkeypatch):
-    cancel_calls, permission_calls, writes, update_calls, set_config_calls = [], [], [], [], []
+    cancel_calls, permission_calls, writes, update_calls, set_config_calls = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
     module = _load_control_module(
         monkeypatch,
         cancel_calls=cancel_calls,
@@ -84,7 +110,9 @@ async def test_handle_control_message_switch_model(monkeypatch):
     )
     runtime = WebSocketChatRuntime(
         session_id="session-1",
-        ctx=SimpleNamespace(agent=object(), agent_name="code-puppy", model_name="old-model"),
+        ctx=SimpleNamespace(
+            agent=object(), agent_name="code-puppy", model_name="old-model"
+        ),
         agent_name="code-puppy",
         model_name="old-model",
     )
@@ -110,7 +138,13 @@ async def test_handle_control_message_switch_model(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_handle_control_message_set_working_directory(monkeypatch, tmp_path):
-    cancel_calls, permission_calls, writes, update_calls, set_config_calls = [], [], [], [], []
+    cancel_calls, permission_calls, writes, update_calls, set_config_calls = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
     module = _load_control_module(
         monkeypatch,
         cancel_calls=cancel_calls,
@@ -122,7 +156,9 @@ async def test_handle_control_message_set_working_directory(monkeypatch, tmp_pat
     )
     runtime = WebSocketChatRuntime(
         session_id="session-2",
-        ctx=SimpleNamespace(agent_name="code-puppy", model_name="gpt-test", working_directory=""),
+        ctx=SimpleNamespace(
+            agent_name="code-puppy", model_name="gpt-test", working_directory=""
+        ),
     )
     sent = []
 
@@ -147,7 +183,13 @@ async def test_handle_control_message_set_working_directory(monkeypatch, tmp_pat
 
 @pytest.mark.asyncio
 async def test_handle_control_message_cancel(monkeypatch):
-    cancel_calls, permission_calls, writes, update_calls, set_config_calls = [], [], [], [], []
+    cancel_calls, permission_calls, writes, update_calls, set_config_calls = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
     module = _load_control_module(
         monkeypatch,
         cancel_calls=cancel_calls,
@@ -189,7 +231,13 @@ async def test_handle_control_message_cancel(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_handle_control_message_permission_response(monkeypatch):
-    cancel_calls, permission_calls, writes, update_calls, set_config_calls = [], [], [], [], []
+    cancel_calls, permission_calls, writes, update_calls, set_config_calls = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
     module = _load_control_module(
         monkeypatch,
         cancel_calls=cancel_calls,
@@ -213,5 +261,5 @@ async def test_handle_control_message_permission_response(monkeypatch):
     )
 
     assert handled is True
-    assert permission_calls == [("req-1", True)]
+    assert permission_calls == [("req-1", True, "session-4")]
     assert sent == []

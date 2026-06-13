@@ -155,7 +155,9 @@ async def execute_turn_runner(
                         approved = new_msg.get("approved", False)
 
                         if request_id:
-                            handled = handle_permission_response(request_id, approved)
+                            handled = handle_permission_response(
+                                request_id, approved, session_id=session_id
+                            )
                             if handled:
                                 logger.debug(
                                     "[Permission] ✅ Handled response: %s = %s",
