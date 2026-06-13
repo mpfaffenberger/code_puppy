@@ -84,22 +84,15 @@ from code_puppy.config import get_global_model_name
 from code_puppy.messaging.bus import get_message_bus
 from code_puppy.tools.command_runner import cleanup_session_process_tracking
 
-# Import session context for desk-puppy working directory support
-try:
-    from code_puppy.plugins.walmart_specific.session_context import (
-        clear_session_working_directory,
-        set_session_working_directory,
-    )
+# Per-agent-run working-directory context for shell/tool execution.
+# This is intentionally core (not Walmart-plugin-specific) so the desk UI works
+# in both the open-source and Walmart worktrees.
+from code_puppy.api.session_cwd import (
+    clear_session_working_directory,
+    set_session_working_directory,
+)
 
-    HAS_SESSION_CONTEXT = True
-except ImportError:
-    HAS_SESSION_CONTEXT = False
-
-    def set_session_working_directory(d):
-        pass
-
-    def clear_session_working_directory():
-        pass
+HAS_SESSION_CONTEXT = True
 
 
 _ClientMessageAdapter = TypeAdapter(ClientMessage)

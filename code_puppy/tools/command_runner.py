@@ -1247,14 +1247,9 @@ async def run_shell_command(
     # without relying on the process-global os.chdir().
     # Returns None for CLI sessions (subprocess inherits process CWD as normal).
     if cwd is None:
-        try:
-            from code_puppy.plugins.walmart_specific.session_context import (
-                get_session_working_directory,
-            )
+        from code_puppy.api.session_cwd import get_session_working_directory
 
-            cwd = get_session_working_directory()
-        except ImportError:
-            pass
+        cwd = get_session_working_directory()
 
     # Generate unique group_id for this command execution
     group_id = generate_group_id("shell_command", command)
@@ -1432,17 +1427,18 @@ async def run_shell_command(
             panel_content.append(cwd, style="dim cyan")
 
         # Use the common approval function (async version)
-        confirmed, user_feedback = await get_user_approval_async(
-            title="Shell Command",
-            content=panel_content,
-            preview=None,
-            border_style="dim white",
-            puppy_name=puppy_name,
-        )
-
-        # Release lock after approval
-        if confirmation_lock_acquired:
-            _CONFIRMATION_LOCK.release()
+        try:
+            confirmed, user_feedback = await get_user_approval_async(
+                title="Shell Command",
+                content=panel_content,
+                preview=None,
+                border_style="dim white",
+                puppy_name=puppy_name,
+            )
+        finally:
+            if confirmation_lock_acquired:
+                _CONFIRMATION_LOCK.release()
+                confirmation_lock_acquired = False
 
         if not confirmed:
             if user_feedback:

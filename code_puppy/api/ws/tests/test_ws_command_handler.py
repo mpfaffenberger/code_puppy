@@ -8,11 +8,19 @@ import pytest
 from code_puppy.api.ws.ws_command_handler import handle_command_message
 
 
-def _install_fake_command_handler(monkeypatch, *, help_text="Available commands", handle_result=True):
+def _install_fake_command_handler(
+    monkeypatch, *, help_text="Available commands", handle_result=True
+):
     fake_module = ModuleType("code_puppy.command_line.command_handler")
     fake_module.get_commands_help = lambda: help_text
-    fake_module.handle_command = lambda command: handle_result(command) if callable(handle_result) else handle_result
-    monkeypatch.setitem(sys.modules, "code_puppy.command_line.command_handler", fake_module)
+    fake_module.handle_command = (
+        lambda command: handle_result(command)
+        if callable(handle_result)
+        else handle_result
+    )
+    monkeypatch.setitem(
+        sys.modules, "code_puppy.command_line.command_handler", fake_module
+    )
 
 
 @pytest.mark.asyncio
@@ -48,7 +56,9 @@ async def test_handle_command_message_help_command(monkeypatch):
 @pytest.mark.asyncio
 async def test_handle_command_message_runs_generic_command(monkeypatch):
     sent = []
-    _install_fake_command_handler(monkeypatch, handle_result=lambda command: f"ran:{command}")
+    _install_fake_command_handler(
+        monkeypatch, handle_result=lambda command: f"ran:{command}"
+    )
 
     async def _send_typed(message):
         sent.append(message)
@@ -106,3 +116,23 @@ async def test_handle_command_message_reports_errors(monkeypatch):
     assert sent[0].command == "/broken"
     assert sent[0].success is False
     assert sent[0].error == "boom"
+
+
+@pytest.mark.asyncio
+async def test_handle_command_message_treats_none_result_as_failure(monkeypatch):
+    sent = []
+    _install_fake_command_handler(monkeypatch, handle_result=lambda _command: None)
+
+    async def _send_typed(message):
+        sent.append(message)
+
+    handled = await handle_command_message(
+        msg={"type": "command", "command": "/noop"},
+        session_id="session-5",
+        send_typed=_send_typed,
+    )
+
+    assert handled is True
+    assert len(sent) == 1
+    assert sent[0].command == "/noop"
+    assert sent[0].success is False

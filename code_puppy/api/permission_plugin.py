@@ -131,8 +131,11 @@ async def pre_tool_call_permission(
 
     except Exception as e:
         logger.error("[Permission] Error requesting permission: %s", e)
-        # On error, allow the tool (fail open for now)
-        return None
+        return {
+            "error": "Permission system error",
+            "blocked": True,
+            "tool_name": tool_name,
+        }
 
 
 async def shell_command_permission(
@@ -195,8 +198,11 @@ async def shell_command_permission(
 
     except Exception as e:
         logger.error("[Permission] Error requesting permission for command: %s", e)
-        # On error, allow the command (fail open for now)
-        return None
+        return {
+            "blocked": True,
+            "error": "Permission system error",
+            "reasoning": f"Permission request failed for command: {command}",
+        }
 
 
 def register_permission_callbacks():
