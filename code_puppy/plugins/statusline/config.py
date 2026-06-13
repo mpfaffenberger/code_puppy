@@ -17,7 +17,7 @@ KEY_MODE = "statusline_mode"
 DEFAULT_TIMEOUT_MS = 1000
 DEFAULT_REFRESH_MS = 1000
 DEFAULT_MODE = "replace"
-_VALID_MODES = ("replace", "above")
+_VALID_MODES = ("replace", "above", "newline")
 
 
 def _get_int(key: str, default: int) -> int:
