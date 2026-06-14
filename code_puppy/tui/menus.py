@@ -32,6 +32,12 @@ def _open_add_model(app: "CooperApp") -> None:
     open_add_model(app)
 
 
+def _open_uc(app: "CooperApp") -> None:
+    from .menu_uc import open_uc
+
+    open_uc(app)
+
+
 def open_model_picker(app: "CooperApp") -> None:
     """Open the model picker and apply the chosen model on dismiss."""
     from code_puppy.command_line.model_picker_completion import (
@@ -304,4 +310,5 @@ MENU_OPENERS: Dict[str, Callable[["CooperApp"], None]] = {
     "colors": open_colors_picker,
     "judges": _open_judges,
     "add_model": _open_add_model,
+    "uc": _open_uc,
 }
