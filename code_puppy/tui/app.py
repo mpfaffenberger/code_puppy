@@ -30,8 +30,11 @@ from code_puppy.messaging import (
     ConfirmationRequest,
     ConfirmationResponse,
     MessageLevel,
+    PauseAgentCommand,
+    ResumeAgentCommand,
     SelectionRequest,
     SelectionResponse,
+    SteerAgentCommand,
     TextMessage,
     UserInputRequest,
     UserInputResponse,
@@ -72,7 +75,11 @@ class CooperApp(App):
     }
     """
 
-    BINDINGS = [("ctrl+q", "quit", "Quit")]
+    BINDINGS = [
+        ("ctrl+q", "quit", "Quit"),
+        ("escape", "cancel_turn", "Cancel"),
+        ("ctrl+t", "steer", "Steer"),
+    ]
     TITLE = "Code Puppy"
     SUB_TITLE = "ready"
 
@@ -87,6 +94,7 @@ class CooperApp(App):
         # final response is rendered from AgentResponseMessage instead.
         self._quiet_console = Console(file=StringIO(), force_terminal=False)
         self._busy = False
+        self._agent_worker = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -187,7 +195,7 @@ class CooperApp(App):
                 text = handled  # command returned a prompt to run
             # handled is False -> unknown command, fall through to the agent
 
-        self._run_agent_turn(text)
+        self._agent_worker = self._run_agent_turn(text)
 
     def _show_request_modal(self, message: AnyMessage) -> None:
         """Push the right modal for an interactive request and reply via the bus.
@@ -283,6 +291,44 @@ class CooperApp(App):
             emit_error(f"Agent error: {e}")
         finally:
             self._set_busy(False)
+
+    def action_cancel_turn(self) -> None:
+        """Hard-cancel the running agent turn (Escape)."""
+        if not self._busy or self._agent_worker is None:
+            return
+        try:
+            self._agent_worker.cancel()
+        except Exception:
+            pass
+        get_message_bus().emit(
+            TextMessage(level=MessageLevel.WARNING, text="Turn cancelled.")
+        )
+
+    def action_steer(self) -> None:
+        """Pause the running agent and inject a steering message (Ctrl+T)."""
+        if not self._busy:
+            get_message_bus().emit(
+                TextMessage(
+                    level=MessageLevel.INFO,
+                    text="Nothing running to steer. Steering works during a turn.",
+                )
+            )
+            return
+
+        bus = get_message_bus()
+        # Pause at the next safe boundary while the user composes a steer.
+        bus.provide_response(PauseAgentCommand(reason="steer"))
+
+        def _on_steer(text):
+            if text and text.strip():
+                bus.provide_response(SteerAgentCommand(text=text.strip(), mode="now"))
+            # Always resume, whether or not a steer was provided.
+            bus.provide_response(ResumeAgentCommand())
+
+        request = UserInputRequest(
+            prompt_id="__steer__", prompt_text="Steer cooper (mid-turn):"
+        )
+        self.push_screen(TextInputModal(request), _on_steer)
 
     def _set_busy(self, busy: bool) -> None:
         """Toggle the working state: disable input + reflect status."""

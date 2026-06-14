@@ -119,6 +119,10 @@ ConfirmationRequest/SelectionRequest to a modal that ALWAYS replies via
 `bus.provide_response` (even on Escape) so the agent can't hang. Fixed a latent
 bug: SelectionResponse.selected_index `ge=0` rejected the documented `-1`
 cancel sentinel -> relaxed to `ge=-1` (also fixes classic selection-cancel).*
+*2b DONE: control plane. Escape hard-cancels the running turn (Textual worker
+.cancel()); Ctrl+T pauses the agent (PauseAgentCommand) and opens a steer modal
+that injects SteerAgentCommand(mode='now') + ResumeAgentCommand on submit, or
+just resumes on cancel. Busy-state always clears.*
 - ChatScreen: scrollback `RichLog` + **multiline `TextArea`** prompt (decided —
   supports multi-line prompts/paste; bind Enter=submit, Shift+Enter=newline).
 - Reimplement the input loop currently in `cli_runner.interactive_mode`:
