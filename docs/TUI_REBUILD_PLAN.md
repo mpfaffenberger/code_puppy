@@ -1,10 +1,75 @@
 # Code Puppy TUI Rebuild — Phased Plan
 
-> **Status:** approved direction, planning phase. Spike validated (`spikes/textual_spike/`).
 > **Decision:** rebuild the UI on **Textual** (Python, in-process) as a new
-> `RendererProtocol` implementation + input provider over the existing
-> `MessageBus`. Non-Python frameworks were eliminated (see Decision Record).
-> **Strategy:** big-bang full rebuild (with an incremental safety valve, see §7).
+> renderer + input provider over the existing `MessageBus`. Non-Python
+> frameworks were eliminated (see §1). **Strategy:** big-bang behind a feature
+> flag (`classic` still the default).
+
+---
+
+## 0. Current Status & Resume Guide (read this first)
+
+**Branch:** `feature/add-tui` · **Default UI:** still `classic` (safe) ·
+**~95 TUI tests passing**
+
+**Run the new UI:** `CODE_PUPPY_UI=textual .venv/bin/code-puppy`
+(or `/ui textual` then relaunch). **Test:** `.venv/bin/python -m pytest tests/tui/ -o addopts="" -q`
+
+### Phase status
+| Phase | State |
+|---|---|
+| 0 Foundations + `ui_mode` flag + `/ui` | **DONE** |
+| 1 Renderer parity (capture bridge) | **DONE** |
+| 2 Chat shell / input / control plane / completions / `!shell` / streaming | **DONE** |
+| 3 Menus as ModalScreens | **IN PROGRESS** (9 of ~?? ported) |
+| 4 Console-leak cleanup (33 `Console()` sites) | **NOT STARTED** |
+| 5 Theming / web (`textual-serve`) / perf / cutover | **NOT STARTED** |
+
+### What works in the TUI now
+Agent turns + live tool output + token streaming · interactive modals
+(input/confirm/select) · Esc cancel · Ctrl+T steer · `/command` + `@path`
+completion · `!shell` passthrough · command palette (Ctrl+P).
+**Menus ported (9):** `/model`, `/agent` (+`/a`,`/agents`), `/set`, `/diff`,
+`/colors`, autosave-load, `/mcp install`, `/judges`, `/add_model`. All other
+`/mcp` subcommands already work (they only emit via the bus).
+
+### What's left
+- **Phase 3 remainder:** `/uc` tool browser (bespoke custom screen, not a kit
+  fit) · onboarding wizard · long-tail completers (model-args after `/model `,
+  skills, mcp subcommands, pin commands) · the `register_screen` plugin hook (§8.4).
+- **Phase 4:** route the 33 stray `Console()` sites through the bus so nothing
+  prints behind Textual's back.
+- **Phase 5:** theming, fix `textual-serve` web errors, perf pass, flip default
+  to `textual`, remove `classic`.
+
+### Key files / where things live
+- `code_puppy/tui/app.py` — `CooperApp`; `_dispatch_command` does menu
+  interception (bare menu cmd -> modal; args fall through to classic `handle_command`).
+- `code_puppy/tui/capture.py` — Phase 1 capture bridge (reuses classic Rich formatting).
+- `code_puppy/tui/renderer.py` — `TextualRenderer` over the real `MessageBus`.
+- `code_puppy/tui/menus.py` — `MENU_OPENERS` registry (command name -> opener fn).
+- `code_puppy/tui/menu_judges.py`, `menu_add_model.py`, `mcp_install.py` — bigger menus.
+- **Kits:** `screens/base.py` `FilterableListScreen`+`ListChoice(...,style=)`;
+  `screens/form.py` `FormScreen`+`FormField(kind=text|password|select|bool|textarea)`;
+  `screens/interactive.py` `TextInputModal`/`ConfirmModal`/`SelectionModal`.
+- `config.py` — `get_ui_mode()` (precedence: `/ui` session > `CODE_PUPPY_UI` env > `puppy.cfg` > `classic`).
+
+### Pattern to add a new list/form menu
+1. Write an opener `(app) -> None` (build choices/fields, `app.push_screen(...)`,
+   apply the result via the real setter in the dismiss callback).
+2. Register it in `MENU_OPENERS` (lazy-import wrapper if it pulls heavy deps).
+3. Add headless pilot tests. **Gotcha:** form button-click tests need
+   `run_test(size=(100, 40))` or the buttons are off-screen.
+
+### Gotchas / notes
+- Detailed breadcrumbs live in the **kennel repo memory** (`decisions` room) —
+  every phase has a drawer with specifics.
+- Pre-existing (NOT ours): running `tests/test_rich_renderer.py` +
+  `tests/test_renderers.py` *together* errors (module-init quirk); reproduces on
+  clean `main`.
+- Don't call classic display helpers that make their own `Console()` (e.g.
+  `display_resumed_history`) from the TUI — they corrupt the screen. Route via the bus.
+- `spikes/` was deleted; §9 below is historical.
 
 ---
 
