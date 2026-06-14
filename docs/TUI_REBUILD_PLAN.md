@@ -83,8 +83,15 @@ Cost signals (from grep): 1,895 `emit_*` (no change) · 33 `Console(` (must rout
 - Stand up the headless pilot test harness (mirror the spike's `run_test` pattern) in `tests/tui/`.
 - **Exit:** `CODE_PUPPY_UI=textual` boots an empty CooperApp; classic path untouched.
 
-### Phase 1 — Output renderer parity (M)
+### Phase 1 — Output renderer parity (M) — DONE (Option B: capture bridge)
 **Goal:** every message type renders in Textual as well as it does today.
+*Shipped: `code_puppy/tui/capture.py` (RichCaptureFormatter) drives the real*
+*RichConsoleRenderer against an in-memory console and converts ANSI ->*
+*`Text.from_ansi` for RichLog. Zero formatting duplication, full message-type*
+*parity, zero risk to classic UI, all policy gates reused. Interactive/animated*
+*types (spinner, input/confirm/select) are skipped here -> Phase 2 widgets.*
+*`tests/tui/test_capture_parity.py` covers all types. Native renderable*
+*promotion for hot paths (diff/markdown/shell) deferred to a later phase.*
 - Promote `message_to_renderable` to production; add a branch per `AnyMessage`
   subtype (TextMessage, FileListing, FileContent, GrepResult, Diff, Shell*,
   AgentReasoning, AgentResponse, SubAgent*, StatusPanel, VersionCheck, Skill*,

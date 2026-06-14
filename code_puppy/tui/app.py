@@ -24,9 +24,15 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Footer, Header, RichLog, TextArea
 
-from code_puppy.messaging import MessageLevel, TextMessage, get_message_bus
+from code_puppy.messaging import (
+    AnyMessage,
+    MessageLevel,
+    TextMessage,
+    get_message_bus,
+)
 
-from .renderer import TextualRenderer
+from .capture import RichCaptureFormatter
+from .renderer import TextualRenderer, message_to_renderable
 
 
 class PromptArea(TextArea):
@@ -66,11 +72,16 @@ class CooperApp(App):
         super().__init__()
         self._initial_command = initial_command
         self._renderer = TextualRenderer(self)
+        # Phase 1 capture bridge: reuse the classic Rich formatting verbatim.
+        self._formatter = RichCaptureFormatter()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Vertical():
-            yield RichLog(id="log", wrap=True, markup=True, highlight=True)
+            # Captured output is already fully styled by the classic renderer;
+            # render it verbatim (no re-highlighting / markup re-parsing) so we
+            # don't double-process span boundaries.
+            yield RichLog(id="log", wrap=True, markup=False, highlight=False)
             yield PromptArea(id="prompt", soft_wrap=True)
         yield Footer()
 
@@ -88,8 +99,27 @@ class CooperApp(App):
             self.submit_prompt(self._initial_command)
 
     def write_renderable(self, renderable: RenderableType) -> None:
-        """Mount a renderable into the scrollback. Called via call_from_thread."""
+        """Mount a renderable into the scrollback."""
         self.query_one("#log", RichLog).write(renderable)
+
+    def handle_bus_message(self, message: AnyMessage) -> None:
+        """Render a bus message into the scrollback (runs on the UI thread).
+
+        Uses the Phase 1 capture bridge for full parity with the classic UI.
+        Falls back to a minimal renderable only if capture yields nothing for
+        a plain TextMessage (defensive; shouldn't normally happen).
+        """
+        log = self.query_one("#log", RichLog)
+        width = log.size.width or None
+        renderable = self._formatter.format(message, width=width)
+        if renderable is None:
+            # Capture suppressed/skipped this message. Only surface a fallback
+            # for plain text so nothing user-facing is silently lost.
+            if isinstance(message, TextMessage):
+                renderable = message_to_renderable(message)
+            else:
+                return
+        log.write(renderable)
 
     def submit_prompt(self, text: str) -> None:
         text = text.strip()
