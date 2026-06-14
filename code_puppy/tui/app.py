@@ -156,11 +156,21 @@ class CooperApp(App):
         self._busy = False
         self._agent_worker = None
         self._completion = None
-        # Live markdown streaming for the in-progress response (None when idle).
+        # Single ordered render pipeline. Bus messages (tool output), legacy-
+        # queue messages, and streamed response deltas all flow through ONE
+        # FIFO queue drained by ONE consumer, so output renders in true
+        # emission order (e.g. GREP output before the response that follows
+        # it) instead of racing across channels.
+        self._render_q: asyncio.Queue = asyncio.Queue()
+        # Inline live markdown streaming for the in-progress response.
         self._md_stream: MarkdownStream | None = None
         self._md_widget: MarkdownWidget | None = None
+        # The streamed response's banner widget. While set, tool/bus output
+        # mounts ABOVE it so the streaming response stays pinned to the bottom
+        # and tool output always lands above it (deterministic ordering, no
+        # cross-channel race).
+        self._response_anchor: Static | None = None
         self._streamed_this_turn = False
-        self._stream_queue: asyncio.Queue | None = None
         # Animated thinking spinner (mirrors the classic ConsoleSpinner).
         self._spinner_timer = None
         self._spinner_frame = 0
@@ -204,6 +214,11 @@ class CooperApp(App):
         # threads (e.g. the ask_user_question tool) can drive async request/
         # response round-trips against the UI.
         get_message_bus().set_event_loop(asyncio.get_running_loop())
+
+        # Start the single render consumer BEFORE the renderer thread (which
+        # immediately enqueues buffered startup messages). Everything renders
+        # through this one FIFO so ordering is deterministic.
+        self.run_worker(self._render_loop(), group="render", exclusive=False)
 
         self._renderer.start()
 
@@ -260,14 +275,30 @@ class CooperApp(App):
             except Exception:
                 pass
 
-    def _append_log(self, renderable: RenderableType) -> None:
-        """Mount a renderable as a new entry at the bottom of the scrollback."""
+    def _append_log(self, renderable: RenderableType, *, before=None) -> None:
+        """Mount a renderable as a new entry in the scrollback.
+
+        Defaults to the bottom; pass ``before`` (a mounted widget) to insert
+        above it -- used to keep tool output above an actively streaming
+        response.
+        """
         log = self.query_one("#log", VerticalScroll)
         entry = Static(renderable, markup=False)
         # Stash the source renderable for log_text() (Static hides it behind a
         # name-mangled attribute we'd rather not reach into).
         entry._cp_renderable = renderable
-        log.mount(entry)
+        if before is not None:
+            log.mount(entry, before=before)
+        else:
+            log.mount(entry)
+
+    def _append_output(self, renderable: RenderableType) -> None:
+        """Mount agent/tool output, keeping it ABOVE a streaming response.
+
+        If a response is streaming inline, its banner is the anchor and output
+        mounts just above it; otherwise output appends at the bottom.
+        """
+        self._append_log(renderable, before=self._response_anchor)
 
     def write_renderable(self, renderable: RenderableType) -> None:
         """Mount a renderable into the scrollback."""
@@ -297,18 +328,15 @@ class CooperApp(App):
         width = (log.content_size.width or log.size.width) or None
 
         # The agent's final response. When it streamed live (the common case)
-        # the markdown widget already holds it -- just finalize the stream.
-        # Otherwise (non-streaming model) mount it now.
+        # the inline markdown widget already holds it -- just finalize. For a
+        # non-streaming model, mount it now (at the bottom).
         if isinstance(message, AgentResponseMessage):
             if not self._streamed_this_turn:
-                # Non-streaming model: mount the same widget type the streaming
-                # path uses, so the response renders identically either way.
                 self._append_agent_response_banner()
                 if message.is_markdown:
                     log.mount(MarkdownWidget(message.content))
                 else:
                     self._append_log(Text(message.content))
-            # Always stop the per-turn stream consumer (streamed or not).
             self._finalize_stream()
             return
 
@@ -334,7 +362,8 @@ class CooperApp(App):
                 renderable = message_to_renderable(message)
             else:
                 return
-        self._append_log(renderable)
+        # Keep tool output above an actively streaming response.
+        self._append_output(renderable)
 
     def _echo_prompt(self, text: str) -> None:
         """Echo the user's submitted prompt into the scrollback.
@@ -352,21 +381,19 @@ class CooperApp(App):
         line.append(text, style="bold")
         self._append_log(line)
 
-    def _append_agent_response_banner(self) -> None:
-        """Mount the 'AGENT RESPONSE' banner above the agent's reply.
-
-        Mirrors the classic UI header (same text + configured banner color)
-        so a scrolled-back response is clearly attributable. Called once per
-        turn -- from the streaming path on first delta, or the non-streaming
-        path when the final message lands.
-        """
+    def _agent_response_banner_text(self) -> Text:
+        """Build the 'AGENT RESPONSE' banner renderable (classic colors)."""
         from code_puppy.config import get_banner_color
 
         color = get_banner_color("agent_response")
         line = Text()
         line.append("\n")  # blank line to separate from prior tool output
         line.append(" AGENT RESPONSE ", style=f"bold white on {color}")
-        self._append_log(line)
+        return line
+
+    def _append_agent_response_banner(self) -> None:
+        """Mount the 'AGENT RESPONSE' banner at the bottom (non-streamed path)."""
+        self._append_log(self._agent_response_banner_text())
 
     def submit_prompt(self, text: str) -> None:
         """Dispatch a submitted prompt: exit, slash command, or agent turn."""
@@ -520,15 +547,10 @@ class CooperApp(App):
         from code_puppy.config import auto_save_session_if_enabled
         from code_puppy.messaging import emit_error
 
+        # Close any leftover stream segment and reset the per-turn flag. The
+        # render loop (started in on_mount) mounts deltas + keeps ordering.
         self._finalize_stream()
         self._streamed_this_turn = False
-        # Fresh queue + consumer for this turn's streamed response. The consumer
-        # mounts the markdown widget (awaited) before any append, so the first
-        # delta is never lost to a mid-mount document reset.
-        self._stream_queue = asyncio.Queue()
-        self.run_worker(
-            self._consume_stream(self._stream_queue), group="stream", exclusive=False
-        )
         self._set_busy(True)
         try:
             agent = get_current_agent()
@@ -662,12 +684,12 @@ class CooperApp(App):
     # Live token streaming (Phase 2 polish)                                #
     # ------------------------------------------------------------------ #
     def _on_stream_event(self, event_type, event_data, agent_session_id=None):
-        """Stream response text deltas as formatted markdown, live.
+        """Stream response text deltas as inline formatted markdown, live.
 
-        Runs on the app's event loop (the stream callback is fired there), so
-        widget updates are safe. Only TEXT parts are streamed; thinking/tool
-        deltas are ignored here. The text is rendered as markdown in place via
-        a Textual MarkdownStream (it coalesces updates to keep up).
+        Runs on the app's event loop (the stream callback fires there). Only
+        TEXT parts stream; thinking/tool deltas are ignored. Deltas are queued
+        onto the single render pipeline so they're serialized with bus/legacy
+        output (one mounter, no concurrent-mount races).
         """
         try:
             if event_type != "part_delta":
@@ -678,61 +700,86 @@ class CooperApp(App):
             content = getattr(delta, "content_delta", None)
             if not content:
                 return
-            queue = self._stream_queue
-            if queue is None:
-                return  # no active turn (shouldn't happen)
             self._streamed_this_turn = True
-            queue.put_nowait(content)
+            self.enqueue_render(("delta", content))
         except Exception:
             # Streaming is best-effort polish; never break a turn over it.
             pass
 
-    async def _consume_stream(self, queue: "asyncio.Queue") -> None:
-        """Drain streamed text deltas into a markdown widget, in order.
+    def enqueue_render(self, item: tuple) -> None:
+        """Append an item to the single ordered render pipeline.
 
-        Lazily mounts the widget on the first delta (awaited, so it's fully
-        mounted before the first append -- otherwise the mount would reset the
-        document and swallow the first chunk). A ``None`` sentinel ends the turn.
+        Items: ``("bus", msg)``, ``("legacy", msg)``, ``("delta", content)``,
+        ``("end",)``. Must run on the UI loop; cross-thread callers go via
+        ``call_from_thread``.
         """
-        stream: MarkdownStream | None = None
         try:
-            while True:
-                content = await queue.get()
-                if content is None:  # end-of-turn sentinel
-                    break
-                if stream is None:
-                    log = self.query_one("#log", VerticalScroll)
-                    self._append_agent_response_banner()
-                    widget = MarkdownWidget()
-                    self._md_widget = widget
-                    await log.mount(widget)
-                    stream = MarkdownWidget.get_stream(widget)
-                    self._md_stream = stream
-                await stream.write(content)
+            self._render_q.put_nowait(item)
         except Exception:
             pass
-        finally:
-            if stream is not None:
-                try:
-                    await stream.stop()
-                except Exception:
-                    pass
 
-    def _finalize_stream(self) -> None:
-        """End the current turn's stream; the rendered widget stays as history.
+    async def _render_loop(self) -> None:
+        """Drain the render queue in FIFO order -- the ONE place output mounts.
 
-        Signals the consumer to drain remaining deltas and stop, then clears
-        the per-turn handles so the next turn starts fresh.
+        A single consumer serializes bus messages, legacy-queue messages, and
+        streamed deltas, so nothing mounts concurrently. Tool output mounts
+        ABOVE the streaming response (via its anchor), keeping the response
+        pinned to the bottom regardless of which channel fires first.
         """
-        queue = self._stream_queue
-        self._stream_queue = None
-        self._md_stream = None
-        self._md_widget = None
-        if queue is not None:
+        while True:
             try:
-                queue.put_nowait(None)
+                item = await self._render_q.get()
+                kind = item[0]
+                if kind == "bus":
+                    self.handle_bus_message(item[1])
+                elif kind == "legacy":
+                    self.handle_legacy_message(item[1])
+                elif kind == "delta":
+                    await self._stream_delta(item[1])
+                elif kind == "end":
+                    await self._stop_stream()
+            except Exception:
+                # Never let one bad item kill the render loop.
+                pass
+
+    async def _stream_delta(self, content: str) -> None:
+        """Append a response text delta to the inline markdown widget.
+
+        Lazily mounts the banner + markdown widget at the bottom on the first
+        delta (awaited, so the first chunk isn't lost). The banner becomes the
+        anchor that keeps subsequent tool output above the response.
+        """
+        if self._md_stream is None:
+            log = self.query_one("#log", VerticalScroll)
+            banner_text = self._agent_response_banner_text()
+            banner = Static(banner_text, markup=False)
+            banner._cp_renderable = banner_text  # for log_text()
+            self._response_anchor = banner
+            await log.mount(banner)
+            widget = MarkdownWidget()
+            self._md_widget = widget
+            await log.mount(widget)
+            self._md_stream = MarkdownWidget.get_stream(widget)
+        await self._md_stream.write(content)
+
+    async def _stop_stream(self) -> None:
+        """Stop the inline stream, leaving its widget as scrollback history."""
+        if self._md_stream is not None:
+            try:
+                await self._md_stream.stop()
             except Exception:
                 pass
+        self._md_stream = None
+        self._md_widget = None
+        self._response_anchor = None
+
+    def _finalize_stream(self) -> None:
+        """End the current turn's inline stream (queued, ordered).
+
+        Enqueues an end marker so the stop is ordered relative to any deltas
+        still in the pipeline; the actual stop happens in the render loop.
+        """
+        self.enqueue_render(("end",))
 
     def _set_busy(self, busy: bool) -> None:
         """Toggle the working state: disable input + reflect status."""
@@ -854,9 +901,13 @@ class CooperApp(App):
         completions.clear_options()
 
     def _on_legacy_message(self, message) -> None:
-        """Legacy-queue listener (runs on the queue's daemon thread)."""
+        """Legacy-queue listener (runs on the queue's daemon thread).
+
+        Enqueues into the single render pipeline so legacy output stays ordered
+        with bus output and streamed deltas.
+        """
         try:
-            self.call_from_thread(self.handle_legacy_message, message)
+            self.call_from_thread(self.enqueue_render, ("legacy", message))
         except Exception:
             pass
 
@@ -871,7 +922,8 @@ class CooperApp(App):
         width = (log.content_size.width or log.size.width) or None
         renderable = self._legacy_formatter.format(message, width=width)
         if renderable is not None:
-            self._append_log(renderable)
+            # Keep legacy tool output above an actively streaming response.
+            self._append_output(renderable)
 
     def _show_legacy_prompt(self, message) -> None:
         """Answer a legacy HUMAN_INPUT_REQUEST via a modal so tools don't hang."""

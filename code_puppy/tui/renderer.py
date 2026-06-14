@@ -106,11 +106,13 @@ class TextualRenderer:
     def _dispatch(self, msg: AnyMessage) -> None:
         """Marshal a raw bus message onto the Textual UI thread safely.
 
-        Formatting happens on the UI thread (in ``handle_bus_message``) where
-        the target widget width is known, so captured output wraps correctly.
+        Enqueues into the app's single render pipeline (rather than rendering
+        directly) so bus output stays FIFO-ordered with legacy-queue output
+        and streamed response deltas. Formatting still happens on the UI thread
+        (in ``handle_bus_message``) where the target widget width is known.
         """
         try:
-            self._app.call_from_thread(self._app.handle_bus_message, msg)
+            self._app.call_from_thread(self._app.enqueue_render, ("bus", msg))
         except Exception:
             # App may be shutting down; never crash the consumer thread.
             pass
