@@ -123,6 +123,13 @@ cancel sentinel -> relaxed to `ge=-1` (also fixes classic selection-cancel).*
 .cancel()); Ctrl+T pauses the agent (PauseAgentCommand) and opens a steer modal
 that injects SteerAgentCommand(mode='now') + ResumeAgentCommand on submit, or
 just resumes on cancel. Busy-state always clears.*
+*2e DONE: prompt completion. `completion.py` computes /command (from the
+registry) and @path (reusing the classic file_path_completion internals)
+candidates; a non-focusable CompletionList dropdown above the prompt, driven
+by keys forwarded from PromptArea (Up/Down navigate, Tab/Enter accept, Esc
+dismiss). on_mount imports command_handler so built-in commands register up
+front. Remaining Phase 2 (optional): shell passthrough, live token streaming,
+long-tail completers (model args / skills / mcp / pins).*
 - ChatScreen: scrollback `RichLog` + **multiline `TextArea`** prompt (decided —
   supports multi-line prompts/paste; bind Enter=submit, Shift+Enter=newline).
 - Reimplement the input loop currently in `cli_runner.interactive_mode`:

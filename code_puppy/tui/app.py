@@ -22,7 +22,8 @@ from rich.text import Text
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Footer, Header, RichLog, TextArea
+from textual.widgets import Footer, Header, OptionList, RichLog, TextArea
+from textual.widgets.option_list import Option
 
 from code_puppy.messaging import (
     AgentResponseMessage,
@@ -42,14 +43,39 @@ from code_puppy.messaging import (
 )
 
 from .capture import RichCaptureFormatter
+from .completion import compute_completions
 from .renderer import TextualRenderer, message_to_renderable
 from .screens.interactive import ConfirmModal, SelectionModal, TextInputModal
 
 
+class CompletionList(OptionList):
+    """Completion dropdown that never steals focus from the prompt."""
+
+    can_focus = False
+
+
 class PromptArea(TextArea):
-    """Multiline prompt. Enter submits; Shift+Enter inserts a newline."""
+    """Multiline prompt. Enter submits; Shift+Enter inserts a newline.
+
+    When the completion dropdown is open, Up/Down navigate it, Tab/Enter
+    accept the highlighted item, and Escape dismisses it.
+    """
 
     def _on_key(self, event: events.Key) -> None:
+        if self.app.completion_visible():
+            if event.key in ("down", "up", "tab", "enter", "escape"):
+                event.prevent_default()
+                event.stop()
+                if event.key == "down":
+                    self.app.completion_move(1)
+                elif event.key == "up":
+                    self.app.completion_move(-1)
+                elif event.key in ("tab", "enter"):
+                    self.app.accept_completion()
+                else:
+                    self.app.hide_completions()
+                return
+
         if event.key == "enter":
             event.prevent_default()
             event.stop()
@@ -73,6 +99,15 @@ class CooperApp(App):
         border: round $accent;
         margin-top: 1;
     }
+    #completions {
+        display: none;
+        height: auto;
+        max-height: 8;
+        border: round $primary;
+        background: $panel;
+        margin-top: 1;
+    }
+    #completions.visible { display: block; }
     """
 
     BINDINGS = [
@@ -95,6 +130,7 @@ class CooperApp(App):
         self._quiet_console = Console(file=StringIO(), force_terminal=False)
         self._busy = False
         self._agent_worker = None
+        self._completion = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -103,10 +139,16 @@ class CooperApp(App):
             # render it verbatim (no re-highlighting / markup re-parsing) so we
             # don't double-process span boundaries.
             yield RichLog(id="log", wrap=True, markup=False, highlight=False)
+            yield CompletionList(id="completions")
             yield PromptArea(id="prompt", soft_wrap=True)
         yield Footer()
 
     def on_mount(self) -> None:
+        # Importing command_handler registers all built-in slash commands so
+        # completion is populated from the first keystroke (not just after the
+        # first /command is dispatched).
+        import code_puppy.command_line.command_handler  # noqa: F401
+
         bus = get_message_bus()
         bus.emit(
             TextMessage(
@@ -338,6 +380,69 @@ class CooperApp(App):
         self.sub_title = "working..." if busy else "ready"
         if not busy:
             prompt.focus()
+
+    # ------------------------------------------------------------------ #
+    # Completion (Phase 2e): /command and @path                            #
+    # ------------------------------------------------------------------ #
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        if event.text_area.id == "prompt":
+            self._refresh_completions()
+
+    def completion_visible(self) -> bool:
+        return self._completion is not None
+
+    def _refresh_completions(self) -> None:
+        prompt = self.query_one("#prompt", PromptArea)
+        completions = self.query_one("#completions", CompletionList)
+        row, col = prompt.cursor_location
+        line = str(prompt.document.get_line(row))
+        result = compute_completions(line, col)
+
+        completions.clear_options()
+        if result is None:
+            self._completion = None
+            completions.remove_class("visible")
+            return
+
+        self._completion = result
+        for item in result.items:
+            label = item.display
+            if item.meta:
+                label = f"{item.display}   {item.meta}"
+            # Plain Text avoids Rich-markup injection from descriptions/paths.
+            completions.add_option(Option(Text(label, overflow="ellipsis")))
+        completions.add_class("visible")
+        completions.highlighted = 0
+
+    def completion_move(self, delta: int) -> None:
+        completions = self.query_one("#completions", CompletionList)
+        count = completions.option_count
+        if not count:
+            return
+        current = completions.highlighted or 0
+        completions.highlighted = max(0, min(count - 1, current + delta))
+
+    def accept_completion(self) -> None:
+        completions = self.query_one("#completions", CompletionList)
+        if self._completion is None or completions.highlighted is None:
+            return
+        item = self._completion.items[completions.highlighted]
+        prompt = self.query_one("#prompt", PromptArea)
+        row, _ = prompt.cursor_location
+        prompt.replace(
+            item.insert,
+            (row, self._completion.start_col),
+            (row, self._completion.end_col),
+        )
+        prompt.move_cursor((row, self._completion.start_col + len(item.insert)))
+        self.hide_completions()
+        prompt.focus()
+
+    def hide_completions(self) -> None:
+        self._completion = None
+        completions = self.query_one("#completions", CompletionList)
+        completions.remove_class("visible")
+        completions.clear_options()
 
     def on_unmount(self) -> None:
         self._renderer.stop()
