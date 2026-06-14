@@ -118,6 +118,13 @@ class CooperApp(App):
         margin-top: 1;
     }
     #completions.visible { display: block; }
+    #spinner {
+        display: none;
+        height: 1;
+        padding: 0 1;
+        background: $surface;
+    }
+    #spinner.visible { display: block; }
     """
 
     BINDINGS = [
@@ -149,6 +156,9 @@ class CooperApp(App):
         self._md_widget: MarkdownWidget | None = None
         self._streamed_this_turn = False
         self._stream_queue: asyncio.Queue | None = None
+        # Animated thinking spinner (mirrors the classic ConsoleSpinner).
+        self._spinner_timer = None
+        self._spinner_frame = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -159,6 +169,9 @@ class CooperApp(App):
             # Markdown widget streamed in place, so it reads as one continuous
             # flow -- no separate streaming region.
             yield VerticalScroll(id="log")
+            # Animated '<puppy> is thinking... (puppy) Tokens: ...' status,
+            # shown only while a turn is running (mirrors the classic spinner).
+            yield Static(id="spinner")
             yield CompletionList(id="completions")
             yield PromptArea(id="prompt", soft_wrap=True)
         yield Footer()
@@ -660,8 +673,54 @@ class CooperApp(App):
         prompt = self.query_one("#prompt", PromptArea)
         prompt.disabled = busy
         self.sub_title = "working..." if busy else "ready"
-        if not busy:
+        if busy:
+            self._start_spinner()
+        else:
+            self._stop_spinner()
             prompt.focus()
+
+    # ------------------------------------------------------------------ #
+    # Thinking spinner (mirrors the classic ConsoleSpinner)               #
+    # ------------------------------------------------------------------ #
+    def _start_spinner(self) -> None:
+        self._spinner_frame = 0
+        spinner = self.query_one("#spinner", Static)
+        spinner.add_class("visible")
+        self._render_spinner()
+        if self._spinner_timer is None:
+            self._spinner_timer = self.set_interval(0.12, self._tick_spinner)
+        else:
+            self._spinner_timer.resume()
+
+    def _stop_spinner(self) -> None:
+        if self._spinner_timer is not None:
+            self._spinner_timer.pause()
+        try:
+            self.query_one("#spinner", Static).remove_class("visible")
+        except Exception:
+            pass
+
+    def _tick_spinner(self) -> None:
+        from code_puppy.messaging.spinner import SpinnerBase
+
+        self._spinner_frame = (self._spinner_frame + 1) % len(SpinnerBase.FRAMES)
+        self._render_spinner()
+
+    def _render_spinner(self) -> None:
+        from code_puppy.messaging.spinner import SpinnerBase
+
+        frame = SpinnerBase.FRAMES[self._spinner_frame]
+        ctx = SpinnerBase.get_context_info()
+        line = Text()
+        line.append(SpinnerBase.THINKING_MESSAGE, style="bold cyan")
+        line.append(frame, style="cyan")
+        if ctx:
+            line.append("  ")
+            line.append(ctx, style="dim")
+        try:
+            self.query_one("#spinner", Static).update(line)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ #
     # Completion (Phase 2e): /command and @path                            #
