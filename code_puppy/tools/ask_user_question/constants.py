@@ -5,7 +5,7 @@ from typing import Final
 # Question constraints
 MAX_QUESTIONS_PER_CALL: Final[int] = 10  # Reasonable limit for a single TUI interaction
 MIN_OPTIONS_PER_QUESTION: Final[int] = 2
-MAX_OPTIONS_PER_QUESTION: Final[int] = 6
+MAX_OPTIONS_PER_QUESTION: Final[int] = 12
 MAX_HEADER_LENGTH: Final[int] = (
     25  # Must fit in left panel (MAX_LEFT_PANEL_WIDTH - padding)
 )

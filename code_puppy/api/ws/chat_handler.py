@@ -70,6 +70,10 @@ from code_puppy.api.ws.schemas import (
     ServerSystem,
     ServerStreamEnd,
     ServerUserMessage,
+    ServerConfirmationRequest,
+    ServerSelectionRequest,
+    ServerUserInputRequest,
+    ServerAskUserQuestionRequest,
 )
 from code_puppy.api.ws.send_utils import WebSocketSender
 from code_puppy.api.ws.ws_session_bootstrap import initialize_ws_session
@@ -82,6 +86,18 @@ from code_puppy.api.ws.chat_turn_state import WebSocketTurnState
 from code_puppy.api.ws.session_persistence import persist_session_turn_and_broadcast
 from code_puppy.config import get_global_model_name
 from code_puppy.messaging.bus import get_message_bus
+from code_puppy.messaging.commands import (
+    AskUserQuestionResponse,
+    ConfirmationResponse,
+    SelectionResponse,
+    UserInputResponse,
+)
+from code_puppy.messaging.messages import (
+    AskUserQuestionRequest,
+    ConfirmationRequest,
+    SelectionRequest,
+    UserInputRequest,
+)
 from code_puppy.tools.command_runner import cleanup_session_process_tracking
 
 # Per-agent-run working-directory context for shell/tool execution.
@@ -178,6 +194,68 @@ def register_chat_endpoint(app: FastAPI) -> None:
         active_agent_task = runtime.active_agent_task
         stop_draining = runtime.stop_draining
 
+        try:
+            get_message_bus().mark_renderer_active()
+        except Exception:
+            logger.debug("Failed to mark MessageBus renderer active", exc_info=True)
+
+        async def forward_message_bus_interactions() -> None:
+            """Forward pending MessageBus user-interaction prompts to chat.html."""
+            try:
+                bus = get_message_bus()
+                # Keep the drain bounded so regular stream events stay responsive.
+                for _ in range(20):
+                    request = bus.get_message_nowait()
+                    if request is None:
+                        break
+                    if isinstance(request, UserInputRequest):
+                        await send_typed(
+                            ServerUserInputRequest(
+                                prompt_id=request.prompt_id,
+                                prompt_text=request.prompt_text,
+                                default_value=request.default_value,
+                                input_type=request.input_type,
+                                session_id=session_id,
+                            )
+                        )
+                    elif isinstance(request, ConfirmationRequest):
+                        await send_typed(
+                            ServerConfirmationRequest(
+                                prompt_id=request.prompt_id,
+                                title=request.title,
+                                description=request.description,
+                                options=request.options,
+                                allow_feedback=request.allow_feedback,
+                                session_id=session_id,
+                            )
+                        )
+                    elif isinstance(request, SelectionRequest):
+                        await send_typed(
+                            ServerSelectionRequest(
+                                prompt_id=request.prompt_id,
+                                prompt_text=request.prompt_text,
+                                options=request.options,
+                                allow_cancel=request.allow_cancel,
+                                session_id=session_id,
+                            )
+                        )
+                    elif isinstance(request, AskUserQuestionRequest):
+                        await send_typed(
+                            ServerAskUserQuestionRequest(
+                                prompt_id=request.prompt_id,
+                                questions=request.questions,
+                                timeout_seconds=request.timeout_seconds,
+                                session_id=session_id,
+                            )
+                        )
+                    else:
+                        logger.debug(
+                            "Dropping unsupported MessageBus UI message: %s",
+                            type(request).__name__,
+                        )
+            except Exception:
+                logger.debug("Failed to forward MessageBus interaction", exc_info=True)
+
         async def send_session_meta_snapshot() -> None:
             runtime.session_id = session_id
             runtime.ctx = ctx
@@ -217,6 +295,57 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                 else "unknown"
                             },
                         )
+
+                    if msg.get("type") in {
+                        "user_input_response",
+                        "confirmation_response",
+                        "selection_response",
+                        "ask_user_question_response",
+                    }:
+                        bus = get_message_bus()
+                        try:
+                            if msg.get("type") == "user_input_response":
+                                bus.provide_response(
+                                    UserInputResponse(
+                                        prompt_id=msg.get("prompt_id", ""),
+                                        value=msg.get("value", ""),
+                                    )
+                                )
+                            elif msg.get("type") == "confirmation_response":
+                                bus.provide_response(
+                                    ConfirmationResponse(
+                                        prompt_id=msg.get("prompt_id", ""),
+                                        confirmed=bool(msg.get("confirmed", False)),
+                                        feedback=msg.get("feedback"),
+                                    )
+                                )
+                            elif msg.get("type") == "selection_response":
+                                bus.provide_response(
+                                    SelectionResponse(
+                                        prompt_id=msg.get("prompt_id", ""),
+                                        selected_index=int(
+                                            msg.get("selected_index", -1)
+                                        ),
+                                        selected_value=msg.get("selected_value", ""),
+                                    )
+                                )
+                            else:
+                                bus.provide_response(
+                                    AskUserQuestionResponse(
+                                        prompt_id=msg.get("prompt_id", ""),
+                                        answers=msg.get("answers") or [],
+                                        cancelled=bool(msg.get("cancelled", False)),
+                                    )
+                                )
+                        except Exception as exc:
+                            logger.warning("Invalid user interaction response: %s", exc)
+                            await send_typed(
+                                ServerError(
+                                    error=f"Invalid user interaction response: {exc}",
+                                    session_id=session_id,
+                                )
+                            )
+                        continue
 
                     if await handle_command_message(
                         msg=msg,
@@ -428,6 +557,8 @@ def register_chat_endpoint(app: FastAPI) -> None:
                                         # No events available within 10ms timeout
                                         # No polling needed - asyncio.wait_for blocks efficiently
                                         pass
+
+                                    await forward_message_bus_interactions()
 
                                     # Log batch composition for debugging
                                     if events_to_send:
@@ -1210,5 +1341,6 @@ def register_chat_endpoint(app: FastAPI) -> None:
             try:
                 bus = get_message_bus()
                 bus.set_session_context(None)
+                bus.mark_renderer_inactive()
             except Exception:
                 pass
