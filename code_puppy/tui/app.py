@@ -108,6 +108,15 @@ class CooperApp(App):
         margin-top: 1;
     }
     #completions.visible { display: block; }
+    #stream {
+        display: none;
+        height: auto;
+        max-height: 10;
+        border: round $secondary;
+        background: $panel;
+        margin-top: 1;
+    }
+    #stream.visible { display: block; }
     """
 
     BINDINGS = [
@@ -131,6 +140,7 @@ class CooperApp(App):
         self._busy = False
         self._agent_worker = None
         self._completion = None
+        self._stream_line_buf = ""
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -139,6 +149,9 @@ class CooperApp(App):
             # render it verbatim (no re-highlighting / markup re-parsing) so we
             # don't double-process span boundaries.
             yield RichLog(id="log", wrap=True, markup=False, highlight=False)
+            # Transient live-streaming preview (auto-scrolls); cleared when the
+            # turn completes and the final markdown lands in #log.
+            yield RichLog(id="stream", wrap=True, markup=False, highlight=False)
             yield CompletionList(id="completions")
             yield PromptArea(id="prompt", soft_wrap=True)
         yield Footer()
@@ -157,6 +170,12 @@ class CooperApp(App):
             )
         )
         self._renderer.start()
+
+        # Live token streaming: append response deltas to the transient preview.
+        from code_puppy.callbacks import register_callback
+
+        register_callback("stream_event", self._on_stream_event)
+
         self.query_one("#prompt", PromptArea).focus()
         if self._initial_command:
             self.submit_prompt(self._initial_command)
@@ -179,6 +198,9 @@ class CooperApp(App):
         # terminal (so its _do_render skips it). We stream to a hidden
         # console, so we render the response here instead.
         if isinstance(message, AgentResponseMessage):
+            # The streamed preview was transient; clear it and write the final
+            # markdown into the permanent scrollback.
+            self._clear_stream()
             body = (
                 Markdown(message.content)
                 if message.is_markdown
@@ -219,14 +241,20 @@ class CooperApp(App):
             text = "/clear"
 
         if text.startswith("!"):
-            # Shell passthrough writes to stdout; routing it cleanly into the
-            # TUI comes in a later Phase 2 sub-step.
-            get_message_bus().emit(
-                TextMessage(
-                    level=MessageLevel.WARNING,
-                    text="Shell passthrough (!cmd) isn't wired into the TUI yet.",
-                )
+            from code_puppy.command_line.shell_passthrough import (
+                extract_command,
+                is_shell_passthrough,
             )
+
+            if is_shell_passthrough(text):
+                self._run_shell_passthrough(extract_command(text))
+            else:
+                get_message_bus().emit(
+                    TextMessage(
+                        level=MessageLevel.WARNING,
+                        text="Empty command. Usage: !<command> (e.g., !ls -la)",
+                    )
+                )
             return
 
         if text.startswith("/"):
@@ -324,6 +352,7 @@ class CooperApp(App):
         from code_puppy.config import auto_save_session_if_enabled
         from code_puppy.messaging import emit_error
 
+        self._clear_stream()
         self._set_busy(True)
         try:
             agent = get_current_agent()
@@ -383,6 +412,94 @@ class CooperApp(App):
             prompt_id="__steer__", prompt_text="Steer cooper (mid-turn):"
         )
         self.push_screen(TextInputModal(request), _on_steer)
+
+    @work(thread=True, group="shell")
+    def _run_shell_passthrough(self, command: str) -> None:
+        """Run a !shell command captured (not inheriting stdio) and emit results.
+
+        The classic passthrough inherits the real stdout, which would corrupt
+        the Textual screen; here we capture output and route it through the bus.
+        """
+        import os
+        import subprocess
+        import time
+
+        bus = get_message_bus()
+        bus.emit(TextMessage(level=MessageLevel.INFO, text=f"$ {command}"))
+        start = time.monotonic()
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                cwd=os.getcwd(),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            elapsed = time.monotonic() - start
+            out = (result.stdout or "").rstrip()
+            err = (result.stderr or "").rstrip()
+            if out:
+                bus.emit(TextMessage(level=MessageLevel.INFO, text=out))
+            if err:
+                bus.emit(TextMessage(level=MessageLevel.WARNING, text=err))
+            if result.returncode == 0:
+                bus.emit(
+                    TextMessage(
+                        level=MessageLevel.SUCCESS, text=f"Done ({elapsed:.1f}s)"
+                    )
+                )
+            else:
+                bus.emit(
+                    TextMessage(
+                        level=MessageLevel.ERROR,
+                        text=f"Exit code {result.returncode} ({elapsed:.1f}s)",
+                    )
+                )
+        except subprocess.TimeoutExpired:
+            bus.emit(
+                TextMessage(level=MessageLevel.ERROR, text="Command timed out (120s).")
+            )
+        except Exception as e:
+            bus.emit(TextMessage(level=MessageLevel.ERROR, text=f"Shell error: {e}"))
+
+    # ------------------------------------------------------------------ #
+    # Live token streaming (Phase 2 polish)                                #
+    # ------------------------------------------------------------------ #
+    def _on_stream_event(self, event_type, event_data, agent_session_id=None):
+        """Append response text deltas to the transient streaming preview.
+
+        Runs on the app's event loop (the stream callback is fired there), so
+        widget updates are safe. Only TEXT parts are previewed; thinking/tool
+        deltas are ignored here.
+        """
+        try:
+            if event_type != "part_delta":
+                return
+            if event_data.get("delta_type") != "TextPartDelta":
+                return
+            delta = event_data.get("delta")
+            content = getattr(delta, "content_delta", None)
+            if not content:
+                return
+            stream = self.query_one("#stream", RichLog)
+            stream.add_class("visible")
+            self._stream_line_buf += content
+            while "\n" in self._stream_line_buf:
+                line, self._stream_line_buf = self._stream_line_buf.split("\n", 1)
+                stream.write(Text(line, style="cyan"))
+        except Exception:
+            # Streaming is best-effort polish; never break a turn over it.
+            pass
+
+    def _clear_stream(self) -> None:
+        self._stream_line_buf = ""
+        try:
+            stream = self.query_one("#stream", RichLog)
+            stream.clear()
+            stream.remove_class("visible")
+        except Exception:
+            pass
 
     def _set_busy(self, busy: bool) -> None:
         """Toggle the working state: disable input + reflect status."""
@@ -457,6 +574,9 @@ class CooperApp(App):
         completions.clear_options()
 
     def on_unmount(self) -> None:
+        from code_puppy.callbacks import unregister_callback
+
+        unregister_callback("stream_event", self._on_stream_event)
         self._renderer.stop()
 
 

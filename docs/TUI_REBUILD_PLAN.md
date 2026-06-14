@@ -130,6 +130,11 @@ by keys forwarded from PromptArea (Up/Down navigate, Tab/Enter accept, Esc
 dismiss). on_mount imports command_handler so built-in commands register up
 front. Remaining Phase 2 (optional): shell passthrough, live token streaming,
 long-tail completers (model args / skills / mcp / pins).*
+*POLISH DONE: !shell passthrough runs captured (not inheriting stdio) on a
+thread worker and emits results via the bus; live token streaming previews
+response text deltas (TextPartDelta) line-buffered into a transient,
+auto-scrolling #stream RichLog (registered via the stream_event callback),
+cleared when the final markdown lands in #log. Remaining: long-tail completers.*
 - ChatScreen: scrollback `RichLog` + **multiline `TextArea`** prompt (decided —
   supports multi-line prompts/paste; bind Enter=submit, Shift+Enter=newline).
 - Reimplement the input loop currently in `cli_runner.interactive_mode`:
