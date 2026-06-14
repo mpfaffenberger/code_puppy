@@ -134,6 +134,7 @@ class CooperApp(App):
         ("ctrl+q", "quit", "Quit"),
         ("escape", "cancel_turn", "Cancel"),
         ("ctrl+t", "steer", "Steer"),
+        ("ctrl+x", "interrupt_shell", "Kill shell"),
     ]
     TITLE = "Code Puppy"
     SUB_TITLE = "ready"
@@ -544,6 +545,24 @@ class CooperApp(App):
         get_message_bus().emit(
             TextMessage(level=MessageLevel.WARNING, text="Turn cancelled.")
         )
+
+    def action_interrupt_shell(self) -> None:
+        """Kill any in-flight shell commands (Ctrl+X).
+
+        The TUI-native equivalent of the classic raw-stdin Ctrl+X listener.
+        In Textual mode the agent runtime no longer spawns that listener (it
+        raced Textual for stdin), so this binding owns the shortcut directly.
+        """
+        from code_puppy.tools.command_runner import kill_all_running_shell_processes
+
+        killed = kill_all_running_shell_processes()
+        if killed:
+            get_message_bus().emit(
+                TextMessage(
+                    level=MessageLevel.WARNING,
+                    text=f"Interrupted {killed} running shell command(s).",
+                )
+            )
 
     def action_steer(self) -> None:
         """Pause the running agent and inject a steering message (Ctrl+T)."""

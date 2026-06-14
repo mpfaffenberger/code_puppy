@@ -394,7 +394,13 @@ def _start_keyboard_listener() -> None:
     from code_puppy.agents import _key_listeners
 
     _key_listeners.set_escape_handler(_handle_ctrl_x_press)
-    if _key_listeners.get_active_handle() is None:
+
+    # In the Textual TUI, never spawn a raw cbreak reader -- it races Textual
+    # for stdin. The app binds Ctrl+X to kill_all_running_shell_processes()
+    # directly, so the dynamic escape handler above is enough (and unused).
+    from code_puppy.config import get_ui_mode
+
+    if get_ui_mode() != "textual" and _key_listeners.get_active_handle() is None:
         # No agent-run listener owns stdin — spawn the unified listener.
         _SHELL_CTRL_X_STOP_EVENT = threading.Event()
         _SHELL_CTRL_X_THREAD = _spawn_ctrl_x_key_listener(

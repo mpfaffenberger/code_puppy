@@ -53,6 +53,49 @@ async def test_escape_cancels_running_turn(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_ctrl_x_kills_running_shells(monkeypatch):
+    """Ctrl+X in the TUI kills in-flight shell processes directly (no raw
+    stdin listener), and reports how many it interrupted."""
+    calls = {}
+    monkeypatch.setattr(
+        "code_puppy.tools.command_runner.kill_all_running_shell_processes",
+        lambda: calls.setdefault("n", 3),
+    )
+    emitted = []
+    bus = get_message_bus()
+    monkeypatch.setattr(bus, "emit", lambda m: emitted.append(m))
+
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.action_interrupt_shell()
+        await pilot.pause(0.05)
+
+    assert calls.get("n") == 3
+    assert any("Interrupted 3" in getattr(m, "text", "") for m in emitted)
+
+
+@pytest.mark.asyncio
+async def test_ctrl_x_quiet_when_no_shells(monkeypatch):
+    """With nothing running, Ctrl+X stays silent (no warning noise)."""
+    monkeypatch.setattr(
+        "code_puppy.tools.command_runner.kill_all_running_shell_processes",
+        lambda: 0,
+    )
+    emitted = []
+    bus = get_message_bus()
+    monkeypatch.setattr(bus, "emit", lambda m: emitted.append(m))
+
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.action_interrupt_shell()
+        await pilot.pause(0.05)
+
+    assert not any("Interrupted" in getattr(m, "text", "") for m in emitted)
+
+
+@pytest.mark.asyncio
 async def test_steer_when_idle_does_nothing(monkeypatch):
     app = build_app()
     async with app.run_test() as pilot:

@@ -613,21 +613,28 @@ async def run_with_mcp(
         else:
             original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
             cancel_cb = schedule_agent_cancel
-        # Always spawn a key listener — Ctrl+X (shell) and the pause-agent
-        # key both need it. The listener cheaply no-ops if stdin isn't a TTY.
-        key_listener_stop_event = threading.Event()
-        key_listener_handle = _key_listeners.spawn_key_listener(
-            key_listener_stop_event,
-            # Ctrl+X: command_runner installs a dynamic handler via
-            # _key_listeners.set_escape_handler() while shell commands run;
-            # outside that window Ctrl+X is a no-op.
-            on_escape=lambda: None,
-            on_cancel_agent=cancel_cb,
-            on_pause_agent=schedule_agent_pause,
-        )
-        # Publish the handle so plugins (e.g. agent_steering) can suspend/
-        # resume the listener while they take over stdin.
-        _key_listeners.set_active_handle(key_listener_handle)
+        # Spawn a raw-stdin key listener for Ctrl+X (shell), cancel, and
+        # pause -- but NOT in the Textual TUI. There, Textual owns the
+        # terminal and a second cbreak reader races it for keystrokes
+        # (swallowing ~half of them). The TUI binds Esc=cancel, Ctrl+T=steer,
+        # and Ctrl+X=kill-shell natively instead. The listener cheaply no-ops
+        # if stdin isn't a TTY.
+        from code_puppy.config import get_ui_mode
+
+        if get_ui_mode() != "textual":
+            key_listener_stop_event = threading.Event()
+            key_listener_handle = _key_listeners.spawn_key_listener(
+                key_listener_stop_event,
+                # Ctrl+X: command_runner installs a dynamic handler via
+                # _key_listeners.set_escape_handler() while shell commands run;
+                # outside that window Ctrl+X is a no-op.
+                on_escape=lambda: None,
+                on_cancel_agent=cancel_cb,
+                on_pause_agent=schedule_agent_pause,
+            )
+            # Publish the handle so plugins (e.g. agent_steering) can suspend/
+            # resume the listener while they take over stdin.
+            _key_listeners.set_active_handle(key_listener_handle)
 
         result = await agent_task
         run_success = True
