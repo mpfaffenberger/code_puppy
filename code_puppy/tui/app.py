@@ -14,6 +14,7 @@ Phase status
 
 from __future__ import annotations
 
+import asyncio
 from io import StringIO
 
 from rich.console import Console, RenderableType
@@ -21,8 +22,10 @@ from rich.markdown import Markdown
 from rich.text import Text
 from textual import events, work
 from textual.app import App, ComposeResult
-from textual.containers import Vertical
+from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Footer, Header, OptionList, RichLog, TextArea
+from textual.widgets import Markdown as MarkdownWidget
+from textual.widgets.markdown import MarkdownStream
 from textual.widgets.option_list import Option
 
 from code_puppy.messaging import (
@@ -108,15 +111,20 @@ class CooperApp(App):
         margin-top: 1;
     }
     #completions.visible { display: block; }
-    #stream {
+    #stream-scroll {
         display: none;
         height: auto;
-        max-height: 10;
-        border: round $secondary;
+        max-height: 16;
         background: $panel;
-        margin-top: 1;
+        padding: 0 1;
+        scrollbar-size-vertical: 1;
     }
-    #stream.visible { display: block; }
+    #stream-scroll.visible { display: block; }
+    #stream {
+        background: transparent;
+        padding: 0;
+        margin: 0;
+    }
     """
 
     BINDINGS = [
@@ -143,7 +151,8 @@ class CooperApp(App):
         self._busy = False
         self._agent_worker = None
         self._completion = None
-        self._stream_line_buf = ""
+        # Live markdown streaming for the in-progress response (None when idle).
+        self._md_stream: MarkdownStream | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -152,9 +161,13 @@ class CooperApp(App):
             # render it verbatim (no re-highlighting / markup re-parsing) so we
             # don't double-process span boundaries.
             yield RichLog(id="log", wrap=True, markup=False, highlight=False)
-            # Transient live-streaming preview (auto-scrolls); cleared when the
-            # turn completes and the final markdown lands in #log.
-            yield RichLog(id="stream", wrap=True, markup=False, highlight=False)
+            # Live response streaming: formatted markdown rendered in place as
+            # tokens arrive (Textual MarkdownStream coalesces updates). The
+            # scroll container anchors to the bottom so the typewriter effect
+            # follows the latest text. On completion the response is promoted
+            # into #log and this is cleared/hidden.
+            with VerticalScroll(id="stream-scroll"):
+                yield MarkdownWidget(id="stream")
             yield CompletionList(id="completions")
             yield PromptArea(id="prompt", soft_wrap=True)
         yield Footer()
@@ -247,15 +260,16 @@ class CooperApp(App):
         # terminal (so its _do_render skips it). We stream to a hidden
         # console, so we render the response here instead.
         if isinstance(message, AgentResponseMessage):
-            # The streamed preview was transient; clear it and write the final
-            # markdown into the permanent scrollback.
-            self._clear_stream()
+            # Promote the streamed response into the permanent scrollback and
+            # clear the live streaming widget (same handler -> one repaint, no
+            # flicker / no duplicate).
             body = (
                 Markdown(message.content)
                 if message.is_markdown
                 else Text(message.content)
             )
             log.write(body)
+            self._reset_stream()
             return
 
         # Interactive requests: the agent is awaiting a response. Show a modal
@@ -411,7 +425,7 @@ class CooperApp(App):
         from code_puppy.config import auto_save_session_if_enabled
         from code_puppy.messaging import emit_error
 
-        self._clear_stream()
+        self._reset_stream()
         self._set_busy(True)
         try:
             agent = get_current_agent()
@@ -442,6 +456,7 @@ class CooperApp(App):
             self._agent_worker.cancel()
         except Exception:
             pass
+        self._reset_stream()
         get_message_bus().emit(
             TextMessage(level=MessageLevel.WARNING, text="Turn cancelled.")
         )
@@ -526,11 +541,12 @@ class CooperApp(App):
     # Live token streaming (Phase 2 polish)                                #
     # ------------------------------------------------------------------ #
     def _on_stream_event(self, event_type, event_data, agent_session_id=None):
-        """Append response text deltas to the transient streaming preview.
+        """Stream response text deltas as formatted markdown, live.
 
         Runs on the app's event loop (the stream callback is fired there), so
-        widget updates are safe. Only TEXT parts are previewed; thinking/tool
-        deltas are ignored here.
+        widget updates are safe. Only TEXT parts are streamed; thinking/tool
+        deltas are ignored here. The text is rendered as markdown in place via
+        a Textual MarkdownStream (it coalesces updates to keep up).
         """
         try:
             if event_type != "part_delta":
@@ -541,22 +557,47 @@ class CooperApp(App):
             content = getattr(delta, "content_delta", None)
             if not content:
                 return
-            stream = self.query_one("#stream", RichLog)
-            stream.add_class("visible")
-            self._stream_line_buf += content
-            while "\n" in self._stream_line_buf:
-                line, self._stream_line_buf = self._stream_line_buf.split("\n", 1)
-                stream.write(Text(line, style="cyan"))
+            if self._md_stream is None:
+                scroll = self.query_one("#stream-scroll", VerticalScroll)
+                widget = self.query_one("#stream", MarkdownWidget)
+                scroll.add_class("visible")
+                # Follow the bottom as new text streams in.
+                scroll.anchor()
+                self._md_stream = MarkdownWidget.get_stream(widget)
+            # write() appends synchronously to the stream's pending buffer
+            # before its only await, so create_task preserves delta order.
+            asyncio.create_task(self._md_stream.write(content))
         except Exception:
             # Streaming is best-effort polish; never break a turn over it.
             pass
 
-    def _clear_stream(self) -> None:
-        self._stream_line_buf = ""
+    def _reset_stream(self) -> None:
+        """Stop streaming and clear/hide the live markdown widget."""
+        stream_obj = self._md_stream
+        self._md_stream = None
+        if stream_obj is not None or self._stream_visible():
+            self.run_worker(
+                self._async_reset_stream(stream_obj),
+                group="stream-reset",
+                exclusive=True,
+            )
+
+    def _stream_visible(self) -> bool:
         try:
-            stream = self.query_one("#stream", RichLog)
-            stream.clear()
-            stream.remove_class("visible")
+            return self.query_one("#stream-scroll", VerticalScroll).has_class("visible")
+        except Exception:
+            return False
+
+    async def _async_reset_stream(self, stream_obj: MarkdownStream | None) -> None:
+        if stream_obj is not None:
+            try:
+                await stream_obj.stop()
+            except Exception:
+                pass
+        try:
+            scroll = self.query_one("#stream-scroll", VerticalScroll)
+            scroll.remove_class("visible")
+            await self.query_one("#stream", MarkdownWidget).update("")
         except Exception:
             pass
 
