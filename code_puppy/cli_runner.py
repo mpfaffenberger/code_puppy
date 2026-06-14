@@ -155,18 +155,30 @@ async def main():
         get_message_bus,
     )
 
+    # Resolve which UI to drive. The Textual TUI only takes over interactive
+    # sessions (not -p single-prompt runs), and only when explicitly enabled
+    # via the ui_mode setting / CODE_PUPPY_UI env / /ui command. Defaults off.
+    from code_puppy.config import get_ui_mode
+
+    use_textual = get_ui_mode() == "textual" and not args.prompt
+
     # Create a shared console for both renderers
     display_console = Console()
 
     # Legacy renderer for backward compatibility (emits via get_global_queue)
     message_queue = get_global_queue()
     message_renderer = SynchronousInteractiveRenderer(message_queue, display_console)
-    message_renderer.start()
 
     # New MessageBus renderer for structured messages (tools emit here)
     message_bus = get_message_bus()
     bus_renderer = RichConsoleRenderer(message_bus, display_console)
-    bus_renderer.start()
+
+    # In Textual mode the CooperApp owns the bus via its own renderer, so we
+    # must NOT start the classic renderers (they'd steal messages off the
+    # queue and print behind Textual's back). Classic path is unchanged.
+    if not use_textual:
+        message_renderer.start()
+        bus_renderer.start()
 
     initialize_command_history_file()
     from code_puppy.messaging import emit_error, emit_system_message
@@ -382,6 +394,11 @@ async def main():
 
         if prompt_only_mode:
             await execute_single_prompt(initial_command, message_renderer)
+        elif use_textual:
+            # New Textual TUI (Phase 0 scaffold). Owns its own bus renderer.
+            from code_puppy.tui import run_textual_ui
+
+            await run_textual_ui(initial_command=initial_command)
         else:
             # Default to interactive mode (no args = same as -i)
             await interactive_mode(message_renderer, initial_command=initial_command)
