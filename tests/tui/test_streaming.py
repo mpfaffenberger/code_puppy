@@ -39,6 +39,10 @@ def _feed(app, text, delta_type="TextPartDelta"):
     )
 
 
+def _banner_count(app):
+    return app.log_text().count("AGENT RESPONSE")
+
+
 @pytest.mark.asyncio
 async def test_text_deltas_stream_formatted_markdown_inline():
     app = build_app()
@@ -55,6 +59,8 @@ async def test_text_deltas_stream_formatted_markdown_inline():
         assert len(mds) == 1
         assert app._streamed_this_turn is True
         assert (mds[0].source or "").startswith("Rust")
+        # The AGENT RESPONSE banner is mounted once, above the response.
+        assert _banner_count(app) == 1
 
 
 @pytest.mark.asyncio
@@ -89,6 +95,8 @@ async def test_final_response_finalizes_stream_without_duplicating():
         assert app._stream_queue is None
         assert app._md_stream is None
         assert len(_markdown_children(app)) == 1
+        # Finalizing a streamed turn must not add a second banner.
+        assert _banner_count(app) == 1
 
 
 @pytest.mark.asyncio
@@ -105,3 +113,5 @@ async def test_non_streamed_response_is_mounted():
         await pilot.pause(0.1)
         assert len(_markdown_children(app)) == 1
         assert app._stream_queue is None
+        # Non-streamed responses still get the banner.
+        assert _banner_count(app) == 1

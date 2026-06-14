@@ -302,6 +302,7 @@ class CooperApp(App):
             if not self._streamed_this_turn:
                 # Non-streaming model: mount the same widget type the streaming
                 # path uses, so the response renders identically either way.
+                self._append_agent_response_banner()
                 if message.is_markdown:
                     log.mount(MarkdownWidget(message.content))
                 else:
@@ -348,6 +349,22 @@ class CooperApp(App):
         line.append(" PROMPT ", style="bold white on royal_blue1")
         line.append(" ")
         line.append(text, style="bold")
+        self._append_log(line)
+
+    def _append_agent_response_banner(self) -> None:
+        """Mount the 'AGENT RESPONSE' banner above the agent's reply.
+
+        Mirrors the classic UI header (same text + configured banner color)
+        so a scrolled-back response is clearly attributable. Called once per
+        turn -- from the streaming path on first delta, or the non-streaming
+        path when the final message lands.
+        """
+        from code_puppy.config import get_banner_color
+
+        color = get_banner_color("agent_response")
+        line = Text()
+        line.append("\n")  # blank line to separate from prior tool output
+        line.append(" AGENT RESPONSE ", style=f"bold white on {color}")
         self._append_log(line)
 
     def submit_prompt(self, text: str) -> None:
@@ -684,6 +701,7 @@ class CooperApp(App):
                     break
                 if stream is None:
                     log = self.query_one("#log", VerticalScroll)
+                    self._append_agent_response_banner()
                     widget = MarkdownWidget()
                     self._md_widget = widget
                     await log.mount(widget)
