@@ -104,8 +104,15 @@ Cost signals (from grep): 1,895 `emit_*` (no change) · 33 `Console(` (must rout
 - Spinners → Textual `LoadingIndicator`/status; map `SpinnerControl`.
 - **Exit:** a scripted message-replay test shows visual parity for all types.
 
-### Phase 2 — Chat shell, input & control plane (M)
+### Phase 2 — Chat shell, input & control plane (M) — IN PROGRESS
 **Goal:** the main interactive loop is fully Textual.
+*2a DONE: prompt submits real agent turns via a Textual `@work` worker
+(`run_prompt_with_attachments`, streaming routed to a hidden console so it
+can't corrupt the screen); tool activity renders live via the bus; the final
+AgentResponseMessage renders as markdown; slash commands dispatch through
+`handle_command`; exit/quit + busy-state input lock. Remaining: steering/
+cancel/pause, interactive request modals, completions, shell passthrough,
+live token streaming.*
 - ChatScreen: scrollback `RichLog` + **multiline `TextArea`** prompt (decided —
   supports multi-line prompts/paste; bind Enter=submit, Shift+Enter=newline).
 - Reimplement the input loop currently in `cli_runner.interactive_mode`:

@@ -1,5 +1,6 @@
-"""Phase 0: the CooperApp scaffold boots headlessly and the bus -> renderer
-path works (no TTY required, CI-friendly).
+"""CooperApp boots headlessly and the bus -> renderer path works (no TTY).
+
+Phase 2a tests stub the agent run so no model/network is touched.
 """
 
 import pytest
@@ -8,6 +9,34 @@ from textual.widgets import RichLog
 from code_puppy.tui.app import build_app
 from code_puppy.tui.renderer import message_to_renderable
 from code_puppy.messaging import MessageLevel, TextMessage
+
+
+class _FakeResult:
+    output = "All **done**!"
+
+    def all_messages(self):
+        return []
+
+
+class _FakeAgent:
+    def __init__(self):
+        self.history = None
+
+    def set_message_history(self, history):
+        self.history = history
+
+
+def _stub_agent_run(monkeypatch):
+    """Patch the lazy imports inside CooperApp._run_agent_turn."""
+    agent = _FakeAgent()
+
+    async def fake_run(_agent, _task, **_kwargs):
+        return _FakeResult(), None
+
+    monkeypatch.setattr("code_puppy.agents.get_current_agent", lambda: agent)
+    monkeypatch.setattr("code_puppy.cli_runner.run_prompt_with_attachments", fake_run)
+    monkeypatch.setattr("code_puppy.config.auto_save_session_if_enabled", lambda: None)
+    return agent
 
 
 @pytest.mark.asyncio
@@ -21,27 +50,60 @@ async def test_app_boots_and_renders_startup_message():
 
 
 @pytest.mark.asyncio
-async def test_submit_prompt_round_trips_through_bus():
+async def test_submit_prompt_runs_agent_and_renders_response(monkeypatch):
+    agent = _stub_agent_run(monkeypatch)
     app = build_app()
     async with app.run_test() as pilot:
         await pilot.pause()
         log = app.query_one("#log", RichLog)
         before = len(log.lines)
-        app.submit_prompt("hello puppy")
-        for _ in range(50):
+        app.submit_prompt("do a thing")
+        for _ in range(60):
             await pilot.pause(0.05)
-            if len(log.lines) > before:
+            if len(log.lines) > before and not app._busy:
                 break
         assert len(log.lines) > before
+        # The agent's history was updated and busy state cleared.
+        assert agent.history == []
+        assert app._busy is False
 
 
 @pytest.mark.asyncio
-async def test_initial_command_is_submitted_on_mount():
+async def test_exit_command_quits():
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.submit_prompt("/exit")
+        await pilot.pause(0.1)
+    # Exiting the run_test context without error is the assertion.
+
+
+@pytest.mark.asyncio
+async def test_slash_command_does_not_run_agent(monkeypatch):
+    ran = {"agent": False}
+
+    async def fake_run(_agent, _task, **_kwargs):
+        ran["agent"] = True
+        return None, None
+
+    monkeypatch.setattr("code_puppy.cli_runner.run_prompt_with_attachments", fake_run)
+    # /help is a registered command -> handled, must not reach the agent.
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.submit_prompt("/help")
+        await pilot.pause(0.2)
+        assert ran["agent"] is False
+
+
+@pytest.mark.asyncio
+async def test_initial_command_is_submitted_on_mount(monkeypatch):
+    _stub_agent_run(monkeypatch)
     app = build_app(initial_command="do the thing")
     async with app.run_test() as pilot:
-        for _ in range(50):
+        for _ in range(60):
             await pilot.pause(0.05)
-            if len(app.query_one("#log", RichLog).lines) > 1:
+            if len(app.query_one("#log", RichLog).lines) > 1 and not app._busy:
                 break
         assert len(app.query_one("#log", RichLog).lines) > 1
 

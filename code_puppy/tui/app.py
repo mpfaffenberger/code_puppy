@@ -1,30 +1,31 @@
 """CooperApp: the Textual application shell for Code Puppy's new TUI.
 
-Phase 0 scope
--------------
-This is the SCAFFOLD. It boots, wires the TextualRenderer to the real
-MessageBus, and lays out the eventual chat surface: a scrollback log plus a
-multiline prompt (decided: TextArea, Enter submits / Shift+Enter newlines).
+Chat surface: a scrollback log plus a multiline prompt (TextArea, Enter
+submits / Shift+Enter newlines).
 
-What's intentionally NOT here yet (later phases):
-* Phase 1 - full message-type rendering parity
-* Phase 2 - real input loop, slash commands, completions, steer/cancel/pause
+Phase status
+------------
+* Phase 1 - full message-type rendering parity (capture bridge) -- DONE
+* Phase 2a - real agent turns from the prompt + slash commands + exit -- DONE
+* Phase 2 (remaining) - steering/cancel/pause, interactive modals,
+  completions, shell passthrough, live token streaming
 * Phase 3 - menus as ModalScreens
-
-The prompt is present but inert in Phase 0 (it prints a 'coming soon' notice)
-so the layout and key handling can be felt without pretending the agent loop
-is wired.
 """
 
 from __future__ import annotations
 
-from rich.console import RenderableType
-from textual import events
+from io import StringIO
+
+from rich.console import Console, RenderableType
+from rich.markdown import Markdown
+from rich.text import Text
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Footer, Header, RichLog, TextArea
 
 from code_puppy.messaging import (
+    AgentResponseMessage,
     AnyMessage,
     MessageLevel,
     TextMessage,
@@ -66,7 +67,7 @@ class CooperApp(App):
 
     BINDINGS = [("ctrl+q", "quit", "Quit")]
     TITLE = "Code Puppy"
-    SUB_TITLE = "Textual UI (Phase 0 scaffold)"
+    SUB_TITLE = "ready"
 
     def __init__(self, initial_command: str | None = None) -> None:
         super().__init__()
@@ -74,6 +75,11 @@ class CooperApp(App):
         self._renderer = TextualRenderer(self)
         # Phase 1 capture bridge: reuse the classic Rich formatting verbatim.
         self._formatter = RichCaptureFormatter()
+        # Hidden console so the agent's live token streaming never writes to
+        # the real terminal (which would corrupt the Textual screen). The
+        # final response is rendered from AgentResponseMessage instead.
+        self._quiet_console = Console(file=StringIO(), force_terminal=False)
+        self._busy = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -90,7 +96,7 @@ class CooperApp(App):
         bus.emit(
             TextMessage(
                 level=MessageLevel.SUCCESS,
-                text="Textual UI active (Phase 0 scaffold). Agent loop lands in Phase 2.",
+                text="cooper is ready. Type a task and press Enter. Ctrl+Q to quit.",
             )
         )
         self._renderer.start()
@@ -111,6 +117,19 @@ class CooperApp(App):
         """
         log = self.query_one("#log", RichLog)
         width = log.size.width or None
+
+        # The agent's final response: the classic UI streams it to the
+        # terminal (so its _do_render skips it). We stream to a hidden
+        # console, so we render the response here instead.
+        if isinstance(message, AgentResponseMessage):
+            body = (
+                Markdown(message.content)
+                if message.is_markdown
+                else Text(message.content)
+            )
+            log.write(body)
+            return
+
         renderable = self._formatter.format(message, width=width)
         if renderable is None:
             # Capture suppressed/skipped this message. Only surface a fallback
@@ -122,19 +141,96 @@ class CooperApp(App):
         log.write(renderable)
 
     def submit_prompt(self, text: str) -> None:
+        """Dispatch a submitted prompt: exit, slash command, or agent turn."""
         text = text.strip()
-        if not text:
+        if not text or self._busy:
             return
-        # Phase 0: the agent loop isn't wired yet. Echo + notice via the bus so
-        # the full bus -> renderer path is exercised even in the scaffold.
-        bus = get_message_bus()
-        bus.emit(TextMessage(level=MessageLevel.INFO, text=f"You typed: {text}"))
-        bus.emit(
-            TextMessage(
-                level=MessageLevel.WARNING,
-                text="Agent loop not wired yet (Phase 2). Ctrl+Q to quit.",
+
+        lowered = text.lower()
+        if lowered in ("exit", "quit", "/exit", "/quit"):
+            self.exit()
+            return
+        if lowered == "clear":
+            text = "/clear"
+
+        if text.startswith("!"):
+            # Shell passthrough writes to stdout; routing it cleanly into the
+            # TUI comes in a later Phase 2 sub-step.
+            get_message_bus().emit(
+                TextMessage(
+                    level=MessageLevel.WARNING,
+                    text="Shell passthrough (!cmd) isn't wired into the TUI yet.",
+                )
             )
-        )
+            return
+
+        if text.startswith("/"):
+            handled = self._dispatch_command(text)
+            if handled is True:
+                return
+            if isinstance(handled, str):
+                text = handled  # command returned a prompt to run
+            # handled is False -> unknown command, fall through to the agent
+
+        self._run_agent_turn(text)
+
+    def _dispatch_command(self, command: str):
+        """Route a /command through the shared command handler.
+
+        Returns True if fully handled, a str to run as a prompt, or False if
+        the command was not recognized.
+        """
+        from code_puppy.command_line.command_handler import handle_command
+        from code_puppy.messaging import emit_error
+
+        try:
+            result = handle_command(command)
+        except Exception as e:  # never let a command crash the UI
+            emit_error(f"Command error: {e}")
+            return True
+        if result == "__AUTOSAVE_LOAD__":
+            emit_error("Interactive autosave load isn't available in the TUI yet.")
+            return True
+        return result
+
+    @work(exclusive=True, group="agent")
+    async def _run_agent_turn(self, task: str) -> None:
+        """Run one agent turn on a Textual worker, keeping the UI responsive."""
+        from code_puppy.agents import get_current_agent
+        from code_puppy.cli_runner import run_prompt_with_attachments
+        from code_puppy.config import auto_save_session_if_enabled
+        from code_puppy.messaging import emit_error
+
+        self._set_busy(True)
+        try:
+            agent = get_current_agent()
+            result, _agent_task = await run_prompt_with_attachments(
+                agent,
+                task,
+                spinner_console=self._quiet_console,
+                use_spinner=False,
+            )
+            if result is None:
+                return  # cancelled or empty
+            if hasattr(result, "all_messages"):
+                agent.set_message_history(list(result.all_messages()))
+            get_message_bus().emit(
+                AgentResponseMessage(content=result.output, is_markdown=True)
+            )
+            auto_save_session_if_enabled()
+        except Exception as e:
+            emit_error(f"Agent error: {e}")
+        finally:
+            self._set_busy(False)
+
+    def _set_busy(self, busy: bool) -> None:
+        """Toggle the working state: disable input + reflect status."""
+        self._busy = busy
+        prompt = self.query_one("#prompt", PromptArea)
+        prompt.disabled = busy
+        self.sub_title = "working..." if busy else "ready"
+        if not busy:
+            prompt.focus()
 
     def on_unmount(self) -> None:
         self._renderer.stop()
