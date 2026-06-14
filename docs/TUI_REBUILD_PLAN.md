@@ -158,8 +158,10 @@ reusable filter+list+dismiss kit); `menus.py` MENU_OPENERS maps menu commands
 to modal openers; app._dispatch_command intercepts a BARE menu command (e.g.
 /model) to open the modal, while args (/model gpt-x) fall through to the
 classic handler. First menu ported: /model (picker applies via
-set_model_and_reload_agent). Remaining waves: A (/set, /agent, /diff), B (MCP
-family), C (colors/judges/autosave/add-model/onboarding/uc).*
+set_model_and_reload_agent). Ported so far: /model, /agent (+/a /agents), autosave load picker
+(__AUTOSAVE_LOAD__), /set (two-step: pick key -> edit value via the validated
+apply_setting; TextInputModal gained a prefill option). Remaining waves: A
+leftover (/diff), B (MCP family), C (colors/judges/add-model/onboarding/uc).*
 Build a small reusable kit first (DRY), then port menus in waves.
 - **Kit:** `screens/base.py` with a `FilterableListScreen` (filter Input +
   OptionList + dismiss-with-value), `FormScreen`, `ConfirmScreen`. The model

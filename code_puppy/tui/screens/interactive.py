@@ -51,9 +51,13 @@ class TextInputModal(ModalScreen[Optional[str]]):
     CSS = _DIALOG_CSS.replace("$mScreen", "TextInputModal")
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
-    def __init__(self, request: UserInputRequest) -> None:
+    def __init__(self, request: UserInputRequest, *, prefill: bool = False) -> None:
         super().__init__()
         self._request = request
+        # prefill=True seeds the input with default_value for editing (used by
+        # /set); the agent's request_input keeps default as a placeholder-only
+        # fallback so an empty submit means "use the default".
+        self._prefill = prefill
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
@@ -70,7 +74,10 @@ class TextInputModal(ModalScreen[Optional[str]]):
             )
 
     def on_mount(self) -> None:
-        self.query_one("#value", Input).focus()
+        value_input = self.query_one("#value", Input)
+        if self._prefill and self._request.default_value:
+            value_input.value = self._request.default_value
+        value_input.focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self.dismiss(event.value)

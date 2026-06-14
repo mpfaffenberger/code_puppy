@@ -198,6 +198,50 @@ async def test_autosave_no_sessions_no_modal(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_set_command_opens_key_picker():
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.submit_prompt("/set")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, FilterableListScreen)
+
+
+@pytest.mark.asyncio
+async def test_set_flow_applies_value(monkeypatch):
+    from types import SimpleNamespace
+
+    from textual.widgets import Input
+
+    from code_puppy.tui.screens.interactive import TextInputModal
+
+    applied = {}
+    monkeypatch.setattr(
+        "code_puppy.command_line.config_apply.apply_setting",
+        lambda key, value, reload_agent=True: (
+            applied.update({"key": key, "value": value})
+            or SimpleNamespace(ok=True, error=None)
+        ),
+    )
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.submit_prompt("/set")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, FilterableListScreen)
+        await pilot.press(*"yolo_mode")
+        await pilot.pause(0.1)
+        await pilot.press("enter")  # choose the key
+        await pilot.pause(0.1)
+        assert isinstance(app.screen, TextInputModal)
+        app.screen.query_one("#value", Input).value = "true"
+        await pilot.press("enter")  # submit the value
+        await pilot.pause(0.1)
+    assert applied.get("key") == "yolo_mode"
+    assert applied.get("value") == "true"
+
+
+@pytest.mark.asyncio
 async def test_model_command_with_arg_falls_through(monkeypatch):
     calls = []
     monkeypatch.setattr(

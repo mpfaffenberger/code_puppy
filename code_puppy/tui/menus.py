@@ -123,6 +123,54 @@ def open_autosave_picker(app: "CooperApp") -> None:
     app.push_screen(FilterableListScreen("Load autosave session", choices), _apply)
 
 
+def open_set_picker(app: "CooperApp") -> None:
+    """Two-step /set: pick a config key, then edit its value.
+
+    Applies through the validated ``apply_setting`` path (same as
+    ``/set key value``), not a raw config write.
+    """
+    from code_puppy.config import get_config_keys, get_value
+    from code_puppy.messaging import UserInputRequest
+
+    from .screens.interactive import TextInputModal
+
+    keys = sorted(get_config_keys())
+    choices = [
+        ListChoice(
+            id=key,
+            label=f"{key} = {get_value(key) if get_value(key) is not None else '(unset)'}",
+            search=key,
+        )
+        for key in keys
+    ]
+
+    def _on_key(key) -> None:
+        if not key:
+            return
+        current = get_value(key) or ""
+        request = UserInputRequest(
+            prompt_id="__set__",
+            prompt_text=f"Set {key}:",
+            default_value=current,
+        )
+
+        def _on_value(value) -> None:
+            if value is None:  # cancelled
+                return
+            from code_puppy.command_line.config_apply import apply_setting
+            from code_puppy.messaging import emit_error, emit_success
+
+            result = apply_setting(key, value, reload_agent=True)
+            if result.ok:
+                emit_success(f"Set {key} = {value}")
+            else:
+                emit_error(result.error or "Failed to apply setting.")
+
+        app.push_screen(TextInputModal(request, prefill=True), _on_value)
+
+    app.push_screen(FilterableListScreen("Settings (/set)", choices), _on_key)
+
+
 # command name (without leading slash) -> opener.
 # Aliases that mirror the classic command registry are included so the bare
 # alias also opens the modal (e.g. /a == /agent).
@@ -131,4 +179,5 @@ MENU_OPENERS: Dict[str, Callable[["CooperApp"], None]] = {
     "agent": open_agent_picker,
     "a": open_agent_picker,
     "agents": open_agent_picker,
+    "set": open_set_picker,
 }
