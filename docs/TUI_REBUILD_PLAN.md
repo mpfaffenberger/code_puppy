@@ -146,8 +146,15 @@ long-tail completers (model args / skills / mcp / pins).*
 - **Exit:** a full agent turn (prompt → tools → response) runs end-to-end in Textual,
   including steer + cancel.
 
-### Phase 3 — Menus as ModalScreens (L — the big one)
+### Phase 3 — Menus as ModalScreens (L — the big one) — IN PROGRESS
 **Goal:** every `/command` menu is a Textual modal.
+*Foundation DONE: `screens/base.py` FilterableListScreen + ListChoice (the
+reusable filter+list+dismiss kit); `menus.py` MENU_OPENERS maps menu commands
+to modal openers; app._dispatch_command intercepts a BARE menu command (e.g.
+/model) to open the modal, while args (/model gpt-x) fall through to the
+classic handler. First menu ported: /model (picker applies via
+set_model_and_reload_agent). Remaining waves: A (/set, /agent, /diff), B (MCP
+family), C (colors/judges/autosave/add-model/onboarding/uc).*
 Build a small reusable kit first (DRY), then port menus in waves.
 - **Kit:** `screens/base.py` with a `FilterableListScreen` (filter Input +
   OptionList + dismiss-with-value), `FormScreen`, `ConfirmScreen`. The model

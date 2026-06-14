@@ -294,6 +294,18 @@ class CooperApp(App):
         from code_puppy.command_line.command_handler import handle_command
         from code_puppy.messaging import emit_error
 
+        from .menus import MENU_OPENERS
+
+        # Bare menu commands (e.g. /model) open a Textual modal instead of the
+        # classic prompt_toolkit menu. With args (e.g. /model gpt-x) we fall
+        # through to the normal handler so direct-set still works.
+        parts = command[1:].split()
+        name = parts[0].lower() if parts else ""
+        opener = MENU_OPENERS.get(name)
+        if opener is not None and len(parts) == 1:
+            opener(self)
+            return True
+
         try:
             result = handle_command(command)
         except Exception as e:  # never let a command crash the UI
