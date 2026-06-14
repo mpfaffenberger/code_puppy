@@ -19,6 +19,13 @@ if TYPE_CHECKING:
     from .app import CooperApp
 
 
+def _open_judges(app: "CooperApp") -> None:
+    # Imported lazily to keep menus.py's import graph light.
+    from .menu_judges import open_judges
+
+    open_judges(app)
+
+
 def open_model_picker(app: "CooperApp") -> None:
     """Open the model picker and apply the chosen model on dismiss."""
     from code_puppy.command_line.model_picker_completion import (
@@ -289,4 +296,5 @@ MENU_OPENERS: Dict[str, Callable[["CooperApp"], None]] = {
     "set": open_set_picker,
     "diff": open_diff_picker,
     "colors": open_colors_picker,
+    "judges": _open_judges,
 }

@@ -18,7 +18,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Select, Switch
+from textual.widgets import Button, Input, Label, Select, Switch, TextArea
 
 
 @dataclass
@@ -30,6 +30,7 @@ class FormField:
       * ``"password"`` -> Input(password=True)
       * ``"select"``   -> Select over ``options``
       * ``"bool"``     -> Switch
+      * ``"textarea"`` -> multi-line TextArea
     """
 
     key: str
@@ -56,6 +57,7 @@ class FormScreen(ModalScreen[Optional[Dict[str, Any]]]):
     #title { text-style: bold; color: $accent; margin-bottom: 1; }
     #fields { height: auto; max-height: 18; }
     .field-label { color: $text-muted; margin-top: 1; }
+    .form-textarea { height: 6; border: round $primary; }
     .bool-row { height: auto; }
     .bool-row Label { width: 1fr; }
     #error { color: $error; margin-top: 1; }
@@ -95,6 +97,9 @@ class FormScreen(ModalScreen[Optional[Dict[str, Any]]]):
             options = [(opt, opt) for opt in f.options]
             value = f.default if f.default in f.options else Select.BLANK
             yield Select(options, value=value, id=wid, allow_blank=True)
+        elif f.kind == "textarea":
+            yield Label(f.label, classes="field-label")
+            yield TextArea(str(f.default or ""), id=wid, classes="form-textarea")
         else:
             yield Label(f.label, classes="field-label")
             yield Input(
@@ -120,6 +125,8 @@ class FormScreen(ModalScreen[Optional[Dict[str, Any]]]):
                 values[f.key] = bool(widget.value)
             elif f.kind == "select":
                 values[f.key] = "" if widget.value is Select.BLANK else widget.value
+            elif f.kind == "textarea":
+                values[f.key] = widget.text.strip()
             else:
                 values[f.key] = widget.value.strip()
         return values
