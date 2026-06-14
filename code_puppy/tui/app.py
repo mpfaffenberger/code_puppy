@@ -304,11 +304,25 @@ class CooperApp(App):
                 return
         self._append_log(renderable)
 
+    def _echo_prompt(self, text: str) -> None:
+        """Echo the user's submitted prompt into the scrollback.
+
+        In classic mode the typed prompt is part of the terminal scrollback; in
+        the TUI the prompt lives in a separate widget, so without this a
+        scrolled-back response has no visible question above it.
+        """
+        line = Text()
+        line.append("\n")  # blank line to separate turns
+        line.append(">>> ", style="bold cyan")
+        line.append(text, style="bold cyan")
+        self._append_log(line)
+
     def submit_prompt(self, text: str) -> None:
         """Dispatch a submitted prompt: exit, slash command, or agent turn."""
         text = text.strip()
         if not text or self._busy:
             return
+        original = text
 
         lowered = text.lower()
         if lowered in ("exit", "quit", "/exit", "/quit"):
@@ -342,6 +356,7 @@ class CooperApp(App):
                 text = handled  # command returned a prompt to run
             # handled is False -> unknown command, fall through to the agent
 
+        self._echo_prompt(original)
         self._agent_worker = self._run_agent_turn(text)
 
     def _show_request_modal(self, message: AnyMessage) -> None:
