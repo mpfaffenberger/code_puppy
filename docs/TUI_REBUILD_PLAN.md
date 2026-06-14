@@ -39,10 +39,12 @@ tests via the `CODE_PUPPY_SKIP_TUTORIAL` autouse fixture).
 ### What's left
 - **Phase 5:** theming, fix `textual-serve` web errors, perf pass, flip default
   to `textual`, remove `classic`. The main remaining work.
-- **Phase 4 residuals (low-risk):** a few direct-stdout consoles remain but
-  only fire at startup or rarely: the truecolor warning, MCP dashboard
-  (`mcp_/dashboard.py`), `terminal_utils` warnings. The big vectors are fixed
-  (see below).
+- **Phase 4 residuals:** addressed. The two that actually fired during a TUI
+  session (per-MCP-tool-call banner in `managed_server.py`; `/goal` banners in
+  wiggum) now route through the queue console. The rest are non-issues:
+  truecolor warning is classic-only (`interactive_mode`), `mcp_/dashboard.py`
+  print methods have no callers (dead code), `terminal_utils:433` only reads
+  `color_system` (no print).
 - **Phase 5:** theming, fix `textual-serve` web errors, perf pass, flip default
   to `textual`, remove `classic`, delete this plan's historical §9.
 - **Optional:** more long-tail completers (skills, pin commands); native
@@ -291,11 +293,12 @@ RichLog; drains the startup buffer; legacy HUMAN_INPUT_REQUEST -> TextInputModal
 Prompt.ask (raw stdin) — now gated: in ui_mode==textual it routes through
 bus.request_confirmation(allow_feedback=True) -> ConfirmModal. Most of the 33
 Console() sites are safe (in-memory capture/quiet consoles, or classic-only
-renderers/menus the TUI bypasses). Residual direct-stdout consoles
-(truecolor warning, mcp dashboard, terminal_utils) only fire at startup or
-rarely — low risk, deferred.*
+renderers/menus the TUI bypasses). Residual direct-stdout consoles audited and addressed: managed_server.py
+per-MCP-tool-call banner + wiggum /goal banners now route via get_queue_console
+(bridged); truecolor warning is classic-only; mcp_/dashboard.py print methods
+are dead code (no callers); terminal_utils:433 only reads color_system.*
 - **Exit:** legacy + bus output both render in the TUI; approval works as a
-  modal; 673 tool/messaging tests green (no classic regression).
+  modal; no console prints behind Textual's back during a session.
 
 ### Phase 5 — Polish, theming, web, cutover (M)
 **Goal:** make it the default; light up web.

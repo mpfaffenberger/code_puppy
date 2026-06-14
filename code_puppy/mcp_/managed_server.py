@@ -88,14 +88,16 @@ async def process_tool_call(
     tool_args: dict[str, Any],
 ) -> ToolResult:
     """A tool call processor that passes along the deps."""
-    from rich.console import Console
-
     from code_puppy.config import get_banner_color
+    from code_puppy.messaging import get_queue_console
 
-    console = Console()
+    # Route via the shared queue console (like every other tool banner) so it
+    # renders in both the classic UI and the Textual TUI -- a raw Console()
+    # here printed straight to stdout and corrupted the Textual screen.
+    console = get_queue_console()
     color = get_banner_color("mcp_tool_call")
     banner = f"[bold white on {color}] MCP TOOL CALL [/bold white on {color}]"
-    console.print(f"\n{banner} 🔧 [bold cyan]{name}[/bold cyan]")
+    console.print(f"\n{banner}  [bold cyan]{name}[/bold cyan]")
     return await call_tool(name, tool_args, {"deps": ctx.deps})
 
 
