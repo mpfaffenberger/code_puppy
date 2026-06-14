@@ -17,7 +17,7 @@ from .constants import (
     MAX_QUESTIONS_PER_CALL,
     MIN_OPTIONS_PER_QUESTION,
 )
-from .handler import ask_user_question as _ask_user_question_impl
+from .handler import ask_user_question_async as _ask_user_question_impl
 from .models import AskUserQuestionOutput
 
 if TYPE_CHECKING:
@@ -61,15 +61,25 @@ _QUESTION_SCHEMA: Dict[str, Any] = {
             "type": "boolean",
             "description": "If true, user can select multiple options (default: false)",
         },
+        "input_mode": {
+            "type": "string",
+            "enum": ["select", "text", "select_or_text"],
+            "description": "Use 'text' for free-form user input, 'select' for options, or 'select_or_text' for both.",
+        },
+        "input_placeholder": {
+            "type": "string",
+            "maxLength": MAX_DESCRIPTION_LENGTH,
+            "description": "Placeholder shown for free-form text input.",
+        },
         "options": {
             "type": "array",
             "items": _OPTION_SCHEMA,
-            "minItems": MIN_OPTIONS_PER_QUESTION,
+            "minItems": 0,
             "maxItems": MAX_OPTIONS_PER_QUESTION,
-            "description": f"Array of {MIN_OPTIONS_PER_QUESTION}-{MAX_OPTIONS_PER_QUESTION} selectable options",
+            "description": f"Array of 0-{MAX_OPTIONS_PER_QUESTION} selectable options. Use at least {MIN_OPTIONS_PER_QUESTION} unless input_mode is 'text'.",
         },
     },
-    "required": ["question", "header", "options"],
+    "required": ["question", "header"],
 }
 
 _QUESTIONS_ARRAY_SCHEMA: Dict[str, Any] = {
@@ -81,8 +91,9 @@ _QUESTIONS_ARRAY_SCHEMA: Dict[str, Any] = {
         f"Array of 1-{MAX_QUESTIONS_PER_CALL} question objects. Each question needs: "
         f"'question' (max {MAX_QUESTION_LENGTH} chars), "
         f"'header' (max {MAX_HEADER_LENGTH} chars, no spaces), "
-        f"'options' (array of {MIN_OPTIONS_PER_QUESTION}-{MAX_OPTIONS_PER_QUESTION} options with 'label'). "
-        "Optional: 'multi_select' (boolean)."
+        f"'options' (array of 0-{MAX_OPTIONS_PER_QUESTION} options with 'label'). "
+        "Optional: 'multi_select' (boolean), 'input_mode' ('select', 'text', or 'select_or_text'), "
+        "and 'input_placeholder'."
     ),
 }
 
@@ -118,7 +129,8 @@ QuestionsListWithSchema = Annotated[
             f"Array of 1-{MAX_QUESTIONS_PER_CALL} question objects. Each question needs: "
             f"'question' (max {MAX_QUESTION_LENGTH} chars), "
             f"'header' (max {MAX_HEADER_LENGTH} chars), "
-            f"'options' ({MIN_OPTIONS_PER_QUESTION}-{MAX_OPTIONS_PER_QUESTION} options with 'label')."
+            f"'options' (0-{MAX_OPTIONS_PER_QUESTION} options with 'label'; "
+            "at least 2 unless input_mode='text')."
         )
     ),
 ]
@@ -128,11 +140,11 @@ def register_ask_user_question(agent: Agent) -> None:
     """Register the ask_user_question tool with the given agent."""
 
     @agent.tool
-    def ask_user_question(
+    async def ask_user_question(
         context: RunContext,  # noqa: ARG001 - Required by framework
         questions: QuestionsListWithSchema,
     ) -> AskUserQuestionOutput:
-        """Ask the user multiple related questions in an interactive TUI."""
+        """Ask the user multiple related questions in the active UI."""
         # Keep the external tool schema simple for provider compatibility.
         # The handler performs the real nested validation and normalization.
         # Fire a Claude Code-style notification so plugins can react when the
@@ -154,4 +166,4 @@ def register_ask_user_question(agent: Agent) -> None:
                 _asyncio.run(_coro)
         except Exception:
             pass
-        return _ask_user_question_impl(questions)
+        return await _ask_user_question_impl(questions)

@@ -24,9 +24,62 @@ from code_puppy.api.ws.chat_context import (
 )
 from code_puppy.api.ws.chat_turn_state import WebSocketTurnState
 from code_puppy.api.ws.schemas import ClientMessage
+from code_puppy.messaging.bus import get_message_bus
+from code_puppy.messaging.commands import (
+    AskUserQuestionResponse,
+    ConfirmationResponse,
+    SelectionResponse,
+    UserInputResponse,
+)
 
 _ClientMessageAdapter = TypeAdapter(ClientMessage)
 logger = logging.getLogger(__name__)
+
+
+def handle_user_interaction_response(message: dict[str, Any]) -> bool:
+    """Resolve MessageBus user-interaction responses during an active turn."""
+    msg_type = message.get("type")
+    if msg_type not in {
+        "user_input_response",
+        "confirmation_response",
+        "selection_response",
+        "ask_user_question_response",
+    }:
+        return False
+
+    bus = get_message_bus()
+    if msg_type == "user_input_response":
+        bus.provide_response(
+            UserInputResponse(
+                prompt_id=message.get("prompt_id", ""),
+                value=message.get("value", ""),
+            )
+        )
+    elif msg_type == "confirmation_response":
+        bus.provide_response(
+            ConfirmationResponse(
+                prompt_id=message.get("prompt_id", ""),
+                confirmed=bool(message.get("confirmed", False)),
+                feedback=message.get("feedback"),
+            )
+        )
+    elif msg_type == "selection_response":
+        bus.provide_response(
+            SelectionResponse(
+                prompt_id=message.get("prompt_id", ""),
+                selected_index=int(message.get("selected_index", -1)),
+                selected_value=message.get("selected_value", ""),
+            )
+        )
+    else:
+        bus.provide_response(
+            AskUserQuestionResponse(
+                prompt_id=message.get("prompt_id", ""),
+                answers=message.get("answers") or [],
+                cancelled=bool(message.get("cancelled", False)),
+            )
+        )
+    return True
 
 
 async def save_agent_result_in_background(**kwargs: Any) -> None:
@@ -146,7 +199,13 @@ async def execute_turn_runner(
                             },
                         )
 
-                    if new_msg.get("type") == "permission_response":
+                    if handle_user_interaction_response(new_msg):
+                        logger.debug(
+                            "[UserInteraction] Handled response: %s",
+                            new_msg.get("type"),
+                        )
+
+                    elif new_msg.get("type") == "permission_response":
                         from code_puppy.api.permissions import (
                             handle_permission_response,
                         )

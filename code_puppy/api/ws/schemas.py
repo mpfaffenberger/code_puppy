@@ -18,7 +18,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Discriminator, Tag
+from pydantic import BaseModel, Discriminator, Field, Tag
 
 # ── Protocol version ────────────────────────────────────────────────────────
 PROTOCOL_VERSION = "1.0.0"
@@ -41,6 +41,10 @@ class ClientMessageType(str, Enum):
     COMMAND = "command"
     CANCEL = "cancel"
     PERMISSION_RESPONSE = "permission_response"
+    USER_INPUT_RESPONSE = "user_input_response"
+    CONFIRMATION_RESPONSE = "confirmation_response"
+    SELECTION_RESPONSE = "selection_response"
+    ASK_USER_QUESTION_RESPONSE = "ask_user_question_response"
 
 
 class ServerMessageType(str, Enum):
@@ -67,6 +71,10 @@ class ServerMessageType(str, Enum):
     STREAM_END = "stream_end"
     ERROR = "error"
     PERMISSION_REQUEST = "permission_request"
+    USER_INPUT_REQUEST = "user_input_request"
+    CONFIRMATION_REQUEST = "confirmation_request"
+    SELECTION_REQUEST = "selection_request"
+    ASK_USER_QUESTION_REQUEST = "ask_user_question_request"
     CANCELLED = "cancelled"
 
 
@@ -219,8 +227,43 @@ class ClientPermissionResponse(_BaseMessage):
     remember: Optional[bool] = None
 
 
+class ClientUserInputResponse(_BaseMessage):
+    """Response to a free-form input prompt emitted by the runtime."""
+
+    type: Literal["user_input_response"] = "user_input_response"
+    prompt_id: str
+    value: str
+
+
+class ClientConfirmationResponse(_BaseMessage):
+    """Response to a confirmation prompt emitted by the runtime."""
+
+    type: Literal["confirmation_response"] = "confirmation_response"
+    prompt_id: str
+    confirmed: bool
+    feedback: Optional[str] = None
+
+
+class ClientSelectionResponse(_BaseMessage):
+    """Response to an option-selection prompt emitted by the runtime."""
+
+    type: Literal["selection_response"] = "selection_response"
+    prompt_id: str
+    selected_index: int
+    selected_value: str
+
+
+class ClientAskUserQuestionResponse(_BaseMessage):
+    """Response to a structured ask_user_question prompt emitted by the runtime."""
+
+    type: Literal["ask_user_question_response"] = "ask_user_question_response"
+    prompt_id: str
+    answers: List[Dict[str, Any]] = Field(default_factory=list)
+    cancelled: bool = False
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# SERVER → CLIENT  (21 message types)
+# SERVER → CLIENT  (user-visible message types)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -545,6 +588,50 @@ class ServerPermissionRequest(_BaseMessage):
     timeout_seconds: int
 
 
+class ServerUserInputRequest(_BaseMessage):
+    """Ask the browser UI to collect free-form text from the user."""
+
+    type: Literal["user_input_request"] = "user_input_request"
+    prompt_id: str
+    prompt_text: str
+    session_id: str
+    default_value: Optional[str] = None
+    input_type: Literal["text", "password"] = "text"
+
+
+class ServerConfirmationRequest(_BaseMessage):
+    """Ask the browser UI to collect a yes/no-style confirmation."""
+
+    type: Literal["confirmation_request"] = "confirmation_request"
+    prompt_id: str
+    title: str
+    description: str
+    session_id: str
+    options: List[str] = []
+    allow_feedback: bool = False
+
+
+class ServerSelectionRequest(_BaseMessage):
+    """Ask the browser UI to collect one selected option from a list."""
+
+    type: Literal["selection_request"] = "selection_request"
+    prompt_id: str
+    prompt_text: str
+    options: List[str]
+    session_id: str
+    allow_cancel: bool = True
+
+
+class ServerAskUserQuestionRequest(_BaseMessage):
+    """Ask the browser UI to collect structured ask_user_question answers."""
+
+    type: Literal["ask_user_question_request"] = "ask_user_question_request"
+    prompt_id: str
+    questions: List[Dict[str, Any]]
+    session_id: str
+    timeout_seconds: int = 300
+
+
 class ServerCancelled(_BaseMessage):
     """Confirmation that the current agent run was cancelled.
 
@@ -573,6 +660,10 @@ ClientMessage = Annotated[
         Annotated[ClientCommand, Tag("command")],
         Annotated[ClientCancel, Tag("cancel")],
         Annotated[ClientPermissionResponse, Tag("permission_response")],
+        Annotated[ClientUserInputResponse, Tag("user_input_response")],
+        Annotated[ClientConfirmationResponse, Tag("confirmation_response")],
+        Annotated[ClientSelectionResponse, Tag("selection_response")],
+        Annotated[ClientAskUserQuestionResponse, Tag("ask_user_question_response")],
     ],
     Discriminator("type"),
 ]
@@ -600,6 +691,10 @@ ServerMessage = Annotated[
         Annotated[ServerStreamEnd, Tag("stream_end")],
         Annotated[ServerError, Tag("error")],
         Annotated[ServerPermissionRequest, Tag("permission_request")],
+        Annotated[ServerUserInputRequest, Tag("user_input_request")],
+        Annotated[ServerConfirmationRequest, Tag("confirmation_request")],
+        Annotated[ServerSelectionRequest, Tag("selection_request")],
+        Annotated[ServerAskUserQuestionRequest, Tag("ask_user_question_request")],
         Annotated[ServerCancelled, Tag("cancelled")],
     ],
     Discriminator("type"),

@@ -687,6 +687,209 @@
     .perm-decision.ok { color: var(--success); background: rgba(52,211,153,.14); }
     .perm-decision.no { color: var(--red);     background: rgba(251,113,133,.14); }
 
+    /* ── user interaction request card ── */
+    .interaction-message { width: 100%; }
+    .interaction-card {
+      margin: 2px 0 8px 35px;
+      width: calc(100% - 35px);
+      border-radius: 8px;
+      border: 1px solid rgba(124,58,237,.28);
+      background: rgba(124,58,237,.075);
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+    }
+    .interaction-card-hdr {
+      padding: 8px 11px;
+      border-bottom: 1px solid rgba(124,58,237,.16);
+      font-size: 11px; font-weight: 700; color: var(--purple2);
+    }
+    .interaction-card-body { padding: 10px 11px; display: flex; flex-direction: column; gap: 9px; }
+    .interaction-prompt { font-size: 11.5px; color: var(--text); opacity: .94; }
+    .interaction-input {
+      width: 100%;
+      min-height: 34px;
+      border-radius: 7px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(10,10,12,.55);
+      color: var(--text);
+      padding: 7px 9px;
+      outline: none;
+      font: inherit;
+      font-size: 12px;
+    }
+    .interaction-input:focus { border-color: rgba(124,58,237,.45); box-shadow: 0 0 0 2px rgba(124,58,237,.10); }
+    .interaction-options { display: flex; flex-wrap: wrap; gap: 7px; }
+    .interaction-option {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.045);
+      color: var(--text2);
+      cursor: pointer;
+      font-size: 11px;
+      font-family: inherit;
+      transition: border-color .12s, background .12s, transform .08s;
+    }
+    .interaction-option:hover,
+    .interaction-option.selected { border-color: rgba(124,58,237,.45); background: rgba(124,58,237,.16); color: var(--text); }
+    .interaction-actions { display: flex; gap: 8px; align-items: center; }
+    .interaction-btn {
+      padding: 5px 14px; border-radius: 6px; border: 1px solid rgba(124,58,237,.35);
+      font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
+      color: #fff; background: var(--purple);
+    }
+    .interaction-btn.secondary { color: var(--muted); background: rgba(255,255,255,.045); border-color: rgba(255,255,255,.10); }
+    .interaction-decision {
+      font-size: 11px; font-weight: 800; color: var(--success);
+      padding: 7px 10px; border-radius: 5px; background: rgba(52,211,153,.14);
+      font-family: ui-monospace,'SF Mono',monospace;
+    }
+
+    /* ── ask_user_question / userinput tool card ── */
+    .auq-card {
+      margin: 4px 0 10px 35px;
+      width: min(1040px, calc(100% - 35px));
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.09);
+      border-left: 5px solid var(--purple2);
+      background: linear-gradient(180deg, rgba(31,31,36,.96), rgba(28,28,32,.96));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 14px 36px rgba(0,0,0,.28);
+      padding: 18px 20px 16px;
+      color: var(--text);
+    }
+    .auq-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    .auq-title { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 18px; font-weight: 800; color: var(--text); letter-spacing: .01em; }
+    .auq-icon { color: var(--muted); font-size: 13px; }
+    .auq-count { color: var(--text2); font-family: ui-monospace,'SF Mono',monospace; font-size: 16px; font-weight: 800; white-space: nowrap; }
+    .auq-status { display: inline-flex; align-items: center; gap: 9px; color: var(--text2); font-family: ui-monospace,'SF Mono',monospace; font-size: 14px; font-weight: 800; white-space: nowrap; }
+    .auq-dot { width: 11px; height: 11px; border-radius: 999px; background: var(--cyan); box-shadow: 0 0 0 3px rgba(34,211,238,.10); }
+    .auq-progress { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; margin-bottom: 16px; }
+    .auq-progress-seg { height: 8px; border-radius: 999px; background: rgba(255,255,255,.14); overflow: hidden; }
+    .auq-progress-seg.active, .auq-progress-seg.done { background: linear-gradient(90deg, var(--purple2), var(--purple)); }
+    .auq-question-panel { border: 1px solid rgba(255,255,255,.07); border-radius: 10px; background: rgba(255,255,255,.025); padding: 14px 16px; margin-bottom: 16px; }
+    .auq-question-kicker { display: inline-flex; margin-bottom: 7px; color: var(--purple2); font-family: ui-monospace,'SF Mono',monospace; font-size: 11px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+    .auq-question-title { font-size: 16px; line-height: 1.35; font-weight: 800; color: var(--text); margin-bottom: 12px; }
+    .auq-option-list { display: flex; flex-direction: column; gap: 8px; }
+    .auq-option { display: grid; grid-template-columns: 24px 1fr; gap: 9px; align-items: start; width: 100%; border: 0; background: transparent; color: inherit; padding: 0; text-align: left; font: inherit; cursor: pointer; }
+    .auq-option:focus-visible { outline: 2px solid rgba(167,139,250,.65); outline-offset: 3px; border-radius: 6px; }
+    .auq-control { width: 19px; height: 19px; margin-top: 1px; border-radius: 999px; border: 2px solid rgba(255,255,255,.78); background: rgba(255,255,255,.92); box-shadow: inset 0 0 0 3px rgba(31,31,36,.92); }
+    .auq-option.multi .auq-control { border-radius: 6px; }
+    .auq-option.selected .auq-control { border-color: var(--purple2); background: var(--purple2); box-shadow: inset 0 0 0 4px rgba(31,31,36,.92); }
+    .auq-option-label { color: var(--text); font-size: 15px; font-weight: 700; line-height: 1.25; }
+    .auq-option-desc { color: var(--muted); font-size: 12.5px; line-height: 1.35; margin-top: 2px; }
+    .auq-custom { margin-top: 12px; padding-left: 56px; }
+    .auq-input { width: 100%; min-height: 40px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: rgba(55,55,64,.70); color: var(--text); padding: 9px 12px; font: inherit; font-size: 14px; outline: none; }
+    .auq-input::placeholder { color: rgba(214,214,222,.46); }
+    .auq-input:focus { border-color: rgba(167,139,250,.58); box-shadow: 0 0 0 2px rgba(124,58,237,.12); }
+    .auq-footer { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
+    .auq-left, .auq-right { display: flex; align-items: center; gap: 10px; }
+    .auq-right { justify-content: flex-end; }
+    .auq-mid { color: var(--muted); font-weight: 800; font-size: 13px; }
+    .auq-btn { border: 0; border-radius: 10px; padding: 9px 16px; background: rgba(255,255,255,.08); color: var(--text); font: inherit; font-weight: 800; cursor: pointer; transition: transform .08s, opacity .12s, background .12s; }
+    .auq-btn:hover:not(:disabled) { background: rgba(255,255,255,.12); }
+    .auq-btn:active:not(:disabled) { transform: translateY(1px); }
+    .auq-btn:disabled { opacity: .42; cursor: not-allowed; }
+    .auq-submit { background: linear-gradient(135deg, var(--purple2), var(--purple)); color: #fff; }
+    .auq-submit:hover:not(:disabled) { background: linear-gradient(135deg, #9F7AEA, #7C3AED); }
+    .auq-pending { grid-column: 1 / -1; justify-self: start; margin-top: 6px; color: #FBBF24; border: 1px solid rgba(251,191,36,.38); background: rgba(251,191,36,.08); border-radius: 999px; padding: 5px 13px; font-weight: 800; font-size: 12px; }
+    .auq-summary { grid-column: 1 / -1; margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: rgba(52,211,153,.10); color: var(--success); font-family: ui-monospace,'SF Mono',monospace; font-size: 12px; white-space: pre-wrap; }
+    @media (max-width: 720px) {
+      .auq-card { margin-left: 0; width: 100%; padding: 14px; }
+      .auq-head { align-items: flex-start; flex-direction: column; }
+      .auq-footer { grid-template-columns: 1fr; }
+      .auq-mid, .auq-right { justify-content: flex-start; }
+      .auq-custom { padding-left: 0; }
+    }
+
+    /* ═══════════════════════════════════
+       DESIGN-E THEME — Batch 4: Floating input pill
+       ═══════════════════════════════════ */
+    .chat-footer {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 48px);
+      max-width: 740px;
+      background: var(--surface);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 14px;
+      padding: 9px 12px 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.3);
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+
+    .chat-form-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    #message-input.chat-input {
+      flex: 1;
+      min-width: 0;
+      height: 40px;
+      background: var(--elevated);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+      outline: none;
+      font-family: inherit;
+      transition: border-color .13s, background .13s, box-shadow .13s;
+    }
+
+    #message-input.chat-input:focus {
+      border-color: rgba(124,58,237,.45);
+      background: rgba(48,48,54,.92);
+      box-shadow: 0 0 0 2px rgba(124,58,237,.10);
+    }
+
+    #message-input.chat-input::placeholder { color: var(--muted); }
+
+    #send-button.chat-send {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: none;
+      background: var(--purple);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      padding: 0;
+      transition: background .13s, transform .08s, opacity .13s;
+    }
+
+    #send-button.chat-send:hover { background: #6D28D9; }
+    #send-button.chat-send:active { transform: translateY(1px); }
+    #send-button.chat-send:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+    .typing-indicator {
+      min-height: 14px;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 10.5px;
+      line-height: 1.2;
+    }
+
+    @media (max-width: 640px) {
+      .chat-footer {
+        width: calc(100% - 24px);
+        bottom: 10px;
+        padding: 8px 9px 7px;
+      }
+      #send-button.chat-send { width: 34px; height: 34px; }
+    }
+
+
     </style>
 </head>
 <body class="h-full bg-gray-900 text-white overflow-hidden">
@@ -770,24 +973,26 @@
             <!-- Messages will be dynamically inserted here -->
         </main>
         
-        <!-- Input Area -->
-        <footer class="bg-gray-800 border-t border-gray-700 p-4 flex-shrink-0">
-            <form id="message-form" class="flex space-x-2">
-                <input 
-                    type="text" 
-                    id="message-input" 
-                    placeholder="Type your message..." 
-                    class="flex-1 bg-gray-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        <!-- Input Area — Design-E Batch 4 -->
+        <footer class="chat-footer">
+            <form id="message-form" class="chat-form-row">
+                <input
+                    type="text"
+                    id="message-input"
+                    placeholder="Message Code Puppy..."
+                    class="chat-input"
                     autocomplete="off"
                 />
-                <button 
-                    type="submit" 
+                <button
+                    type="submit"
                     id="send-button"
-                    class="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                    Send
+                    class="chat-send"
+                    title="Send message"
+                    aria-label="Send message">
+                    ↑
                 </button>
             </form>
-            <div class="mt-2 text-xs text-gray-500" id="typing-indicator"></div>
+            <div class="typing-indicator" id="typing-indicator"></div>
         </footer>
     </div>
     
@@ -1117,6 +1322,18 @@
                 case 'permission_request':
                     handlePermissionRequest(message);
                     break;
+                case 'user_input_request':
+                    handleUserInputRequest(message);
+                    break;
+                case 'confirmation_request':
+                    handleConfirmationRequest(message);
+                    break;
+                case 'selection_request':
+                    handleSelectionRequest(message);
+                    break;
+                case 'ask_user_question_request':
+                    handleAskUserQuestionRequest(message);
+                    break;
                 case 'agent_invoked':
                     handleAgentInvoked(message);
                     break;
@@ -1322,11 +1539,17 @@
         }
         
         function handleToolCall(message) {
-            addToolMessage('call', message.data || message);
+            const payload = message.data || message;
+            if (payload !== message && !payload.type) payload.type = message.type;
+            if (payload !== message && !payload.data) payload.data = message.data;
+            addToolMessage('call', payload);
         }
         
         function handleToolResult(message) {
-            addToolMessage('result', message.data || message);
+            const payload = message.data || message;
+            if (payload !== message && !payload.type) payload.type = message.type;
+            if (payload !== message && !payload.data) payload.data = message.data;
+            addToolMessage('result', payload);
         }
         
         function handleFinalResponse(message) {
@@ -1358,6 +1581,145 @@
             typingIndicator.textContent = '';
         }
         
+        function createInteractionCard(id, title, prompt) {
+            const bubble = document.createElement('div');
+            bubble.className = 'message interaction-message';
+            bubble.id = `interaction-${id}`;
+
+            const card = document.createElement('div');
+            card.className = 'interaction-card';
+            card.innerHTML = `
+                <div class="interaction-card-hdr">${escapeHtml(title)}</div>
+                <div class="interaction-card-body">
+                    <div class="interaction-prompt">${escapeHtml(prompt || '')}</div>
+                </div>
+            `;
+            bubble.appendChild(card);
+            messagesContainer.appendChild(bubble);
+            scrollToBottom();
+            return bubble;
+        }
+
+        function finishInteractionUI(promptId, text) {
+            const bubble = document.getElementById('interaction-' + promptId);
+            if (!bubble) return;
+            const body = bubble.querySelector('.interaction-card-body');
+            const actions = bubble.querySelector('.interaction-actions');
+            const inputs = bubble.querySelectorAll('input, textarea, button');
+            inputs.forEach(el => { el.disabled = true; });
+            if (actions) actions.style.display = 'none';
+            const decision = document.createElement('div');
+            decision.className = 'interaction-decision';
+            decision.textContent = text;
+            if (body) body.appendChild(decision);
+            scrollToBottom();
+        }
+
+        function handleUserInputRequest(message) {
+            const promptId = message.prompt_id;
+            const bubble = createInteractionCard(promptId, 'Input Requested', message.prompt_text || 'Please provide input');
+            const body = bubble.querySelector('.interaction-card-body');
+            const input = document.createElement('input');
+            input.className = 'interaction-input';
+            input.type = message.input_type === 'password' ? 'password' : 'text';
+            input.value = message.default_value || '';
+            input.placeholder = message.default_value || 'Type your response...';
+            const actions = document.createElement('div');
+            actions.className = 'interaction-actions';
+            const submit = document.createElement('button');
+            submit.className = 'interaction-btn';
+            submit.textContent = 'Submit';
+            submit.addEventListener('click', () => submitUserInputResponse(promptId, input.value));
+            input.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') submitUserInputResponse(promptId, input.value);
+            });
+            actions.appendChild(submit);
+            body.appendChild(input);
+            body.appendChild(actions);
+            input.focus();
+            scrollToBottom();
+        }
+
+        function submitUserInputResponse(promptId, value) {
+            socket.send(JSON.stringify({ type: 'user_input_response', prompt_id: promptId, value: value || '' }));
+            finishInteractionUI(promptId, 'SUBMITTED');
+        }
+
+        function handleConfirmationRequest(message) {
+            const promptId = message.prompt_id;
+            const bubble = createInteractionCard(promptId, message.title || 'Confirmation Requested', message.description || 'Please confirm');
+            const body = bubble.querySelector('.interaction-card-body');
+            const feedback = document.createElement('input');
+            feedback.className = 'interaction-input';
+            feedback.placeholder = 'Optional feedback...';
+            if (!message.allow_feedback) feedback.style.display = 'none';
+            const actions = document.createElement('div');
+            actions.className = 'interaction-actions';
+            const options = Array.isArray(message.options) && message.options.length ? message.options : ['Yes', 'No'];
+            options.slice(0, 12).forEach((label, index) => {
+                const btn = document.createElement('button');
+                btn.className = index === 0 ? 'interaction-btn' : 'interaction-btn secondary';
+                btn.textContent = label;
+                btn.addEventListener('click', () => {
+                    const confirmed = index === 0 || /^yes|approve|ok|confirm$/i.test(String(label));
+                    socket.send(JSON.stringify({
+                        type: 'confirmation_response',
+                        prompt_id: promptId,
+                        confirmed,
+                        feedback: feedback.value || null
+                    }));
+                    finishInteractionUI(promptId, confirmed ? 'CONFIRMED' : 'DECLINED');
+                });
+                actions.appendChild(btn);
+            });
+            body.appendChild(feedback);
+            body.appendChild(actions);
+            scrollToBottom();
+        }
+
+        function handleSelectionRequest(message) {
+            const promptId = message.prompt_id;
+            const bubble = createInteractionCard(promptId, 'Selection Requested', message.prompt_text || 'Choose an option');
+            const body = bubble.querySelector('.interaction-card-body');
+            const optionsWrap = document.createElement('div');
+            optionsWrap.className = 'interaction-options';
+            (message.options || []).slice(0, 12).forEach((value, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'interaction-option';
+                btn.textContent = value;
+                btn.addEventListener('click', () => {
+                    socket.send(JSON.stringify({
+                        type: 'selection_response',
+                        prompt_id: promptId,
+                        selected_index: index,
+                        selected_value: String(value)
+                    }));
+                    finishInteractionUI(promptId, `SELECTED: ${value}`);
+                });
+                optionsWrap.appendChild(btn);
+            });
+            body.appendChild(optionsWrap);
+            if (message.allow_cancel) {
+                const actions = document.createElement('div');
+                actions.className = 'interaction-actions';
+                const cancel = document.createElement('button');
+                cancel.className = 'interaction-btn secondary';
+                cancel.textContent = 'Cancel';
+                cancel.addEventListener('click', () => {
+                    socket.send(JSON.stringify({
+                        type: 'selection_response',
+                        prompt_id: promptId,
+                        selected_index: -1,
+                        selected_value: ''
+                    }));
+                    finishInteractionUI(promptId, 'CANCELLED');
+                });
+                actions.appendChild(cancel);
+                body.appendChild(actions);
+            }
+            scrollToBottom();
+        }
+
         function handlePermissionRequest(message) {
             console.log('[Permission] Request received:', message);
             
@@ -1612,11 +1974,242 @@
             return one.length > maxLen ? one.slice(0, maxLen - 3) + '...' : one;
         }
 
+        function coerceToolPayloadObject(payload) {
+            if (!payload) return null;
+            if (typeof payload === 'object') return payload;
+            if (typeof payload !== 'string') return null;
+
+            const raw = payload.trim();
+            const candidates = [raw];
+
+            const fenced = raw.match(/```(?:json|javascript|js)?\s*([\s\S]*?)```/i);
+            if (fenced && fenced[1]) candidates.push(fenced[1].trim());
+
+            const objectStart = raw.indexOf('{');
+            const objectEnd = raw.lastIndexOf('}');
+            if (objectStart >= 0 && objectEnd > objectStart) {
+                candidates.push(raw.slice(objectStart, objectEnd + 1));
+            }
+
+            for (const candidate of candidates) {
+                try { return JSON.parse(candidate); } catch (_err) { /* try next */ }
+            }
+            return null;
+        }
+
+        function findQuestionsPayload(value, seen = new Set()) {
+            if (value === undefined || value === null) return null;
+            if (typeof value === 'string') return findQuestionsPayload(coerceToolPayloadObject(value), seen);
+            if (typeof value !== 'object') return null;
+            if (seen.has(value)) return null;
+            seen.add(value);
+
+            if (Array.isArray(value.questions) && value.questions.length) return value;
+            if (Array.isArray(value)) {
+                for (const item of value) {
+                    const found = findQuestionsPayload(item, seen);
+                    if (found) return found;
+                }
+                return null;
+            }
+
+            const likelyKeys = ['args', 'tool_args', 'arguments', 'input', 'details', 'data', 'payload', 'content', 'result', 'output'];
+            for (const key of likelyKeys) {
+                const found = findQuestionsPayload(value[key], seen);
+                if (found) return found;
+            }
+            for (const key of Object.keys(value)) {
+                if (likelyKeys.includes(key)) continue;
+                const found = findQuestionsPayload(value[key], seen);
+                if (found) return found;
+            }
+            return null;
+        }
+
+        function isAskUserQuestionTool(toolName, payload, fullMessage = null) {
+            const name = String(toolName || '').toLowerCase().replace(/[^a-z0-9_]/g, '_');
+            const obj = findQuestionsPayload(payload) || findQuestionsPayload(fullMessage);
+            return Boolean(
+                obj && Array.isArray(obj.questions) && obj.questions.length &&
+                (name.includes('ask_user_question') || name.includes('userinput') || name.includes('user_input') || name.includes('question') || name === 'tool')
+            );
+        }
+
+        function normalizeAqOption(option) {
+            if (option && typeof option === 'object') {
+                return {
+                    label: String(option.label ?? option.value ?? option.name ?? ''),
+                    description: String(option.description ?? option.detail ?? option.help ?? '')
+                };
+            }
+            return { label: String(option ?? ''), description: '' };
+        }
+
+        function renderAskUserQuestionTool(toolName, payload, fullMessage = null) {
+            const obj = findQuestionsPayload(payload) || findQuestionsPayload(fullMessage);
+            if (!obj || !Array.isArray(obj.questions)) return false;
+
+            const questions = obj.questions.map((q, index) => ({
+                header: String(q.header || q.title || `Question ${index + 1}`),
+                question: String(q.question || q.prompt || q.prompt_text || ''),
+                inputMode: String(q.input_mode || (q.options && q.options.length ? 'select' : 'text')),
+                multiSelect: Boolean(q.multi_select),
+                inputPlaceholder: String(q.input_placeholder || 'Type your response...'),
+                options: Array.isArray(q.options) ? q.options.map(normalizeAqOption).filter(o => o.label) : [],
+                selected: new Set(),
+                customText: ''
+            })).filter(q => q.question || q.options.length || q.inputMode.includes('text'));
+            if (!questions.length) return false;
+
+            let currentIndex = 0;
+            const card = document.createElement('div');
+            card.className = 'auq-card';
+            card.setAttribute('role', 'group');
+            card.setAttribute('aria-label', 'User input questions');
+            const promptId = fullMessage?.prompt_id || obj.prompt_id || null;
+            const canSubmitToServer = Boolean(promptId && socket && socket.readyState === WebSocket.OPEN);
+            if (promptId) card.id = 'interaction-' + promptId;
+
+            const render = () => {
+                const q = questions[currentIndex];
+                const countText = `${questions.length} ${questions.length === 1 ? 'question' : 'questions'} pending`;
+                const canGoBack = currentIndex > 0;
+                const canGoNext = currentIndex < questions.length - 1;
+                const showText = q.inputMode === 'text' || q.inputMode === 'select_or_text';
+                const optionsHtml = q.options.map((option, idx) => {
+                    const selected = q.selected.has(idx);
+                    const multi = q.multiSelect ? ' multi' : '';
+                    return `
+                        <button type="button" class="auq-option${multi}${selected ? ' selected' : ''}" data-auq-option="${idx}" aria-pressed="${selected ? 'true' : 'false'}">
+                            <span class="auq-control" aria-hidden="true"></span>
+                            <span>
+                                <span class="auq-option-label">${escapeHtml(option.label)}</span>
+                                ${option.description ? `<span class="auq-option-desc">${escapeHtml(option.description)}</span>` : ''}
+                            </span>
+                        </button>
+                    `;
+                }).join('');
+
+                card.innerHTML = `
+                    <div class="auq-head">
+                        <div class="auq-title"><span class="auq-icon"></span><span>User Input</span><span class="auq-count">| ${escapeHtml(countText)}</span></div>
+                        <div class="auq-status"><span class="auq-dot"></span><span>awaiting response ▼</span></div>
+                    </div>
+                    <div class="auq-progress">
+                        ${questions.map((_item, idx) => `<div class="auq-progress-seg ${idx < currentIndex ? 'done' : idx === currentIndex ? 'active' : ''}"></div>`).join('')}
+                    </div>
+                    <div class="auq-question-panel">
+                        ${q.header ? `<div class="auq-question-kicker">${escapeHtml(q.header)}</div>` : ''}
+                        <div class="auq-question-title">${currentIndex + 1}) ${escapeHtml(q.question || q.header)}</div>
+                        <div class="auq-option-list">${optionsHtml}</div>
+                        ${showText ? `<div class="auq-custom"><input class="auq-input" type="text" value="${escapeHtml(q.customText)}" placeholder="${escapeHtml(q.inputPlaceholder)}" aria-label="Custom answer for ${escapeHtml(q.header)}"></div>` : ''}
+                    </div>
+                    <div class="auq-footer">
+                        <div class="auq-left"><button type="button" class="auq-btn auq-back" ${canGoBack ? '' : 'disabled'}>Back</button></div>
+                        <div class="auq-mid">Question ${currentIndex + 1} of ${questions.length}</div>
+                        <div class="auq-right">
+                            <button type="button" class="auq-btn auq-skip">Skip</button>
+                            ${canGoNext ? '<button type="button" class="auq-btn auq-next">Next</button>' : '<button type="button" class="auq-btn auq-submit">Submit</button>'}
+                        </div>
+                        <div class="auq-pending">Pending</div>
+                    </div>
+                `;
+
+                card.querySelectorAll('[data-auq-option]').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const idx = Number(btn.getAttribute('data-auq-option'));
+                        if (q.multiSelect) {
+                            if (q.selected.has(idx)) q.selected.delete(idx);
+                            else q.selected.add(idx);
+                        } else {
+                            q.selected.clear();
+                            q.selected.add(idx);
+                        }
+                        render();
+                    });
+                });
+                const input = card.querySelector('.auq-input');
+                if (input) {
+                    input.addEventListener('input', () => { q.customText = input.value; });
+                    input.addEventListener('keydown', event => {
+                        if (event.key === 'Enter' && !canGoNext) submit();
+                    });
+                }
+                const back = card.querySelector('.auq-back');
+                const next = card.querySelector('.auq-next');
+                const skip = card.querySelector('.auq-skip');
+                const submitBtn = card.querySelector('.auq-submit');
+                if (back) back.addEventListener('click', () => { if (currentIndex > 0) { currentIndex -= 1; render(); } });
+                if (next) next.addEventListener('click', () => { if (currentIndex < questions.length - 1) { currentIndex += 1; render(); } });
+                if (skip) skip.addEventListener('click', () => { q.selected.clear(); q.customText = ''; if (canGoNext) { currentIndex += 1; render(); } else submit(); });
+                if (submitBtn) submitBtn.addEventListener('click', submit);
+            };
+
+            const submit = () => {
+                const answers = questions.map(q => ({
+                    question_header: q.header,
+                    selected_options: Array.from(q.selected).map(idx => q.options[idx]?.label).filter(Boolean),
+                    other_text: null,
+                    user_input: q.customText || null
+                }));
+                if (canSubmitToServer) {
+                    socket.send(JSON.stringify({
+                        type: 'ask_user_question_response',
+                        prompt_id: promptId,
+                        answers,
+                        cancelled: false
+                    }));
+                }
+                card.querySelectorAll('button, input').forEach(el => { el.disabled = true; });
+                const pending = card.querySelector('.auq-pending');
+                if (pending) pending.textContent = canSubmitToServer ? 'Submitted' : 'Captured locally';
+                const summary = document.createElement('div');
+                summary.className = 'auq-summary';
+                summary.textContent = (canSubmitToServer ? 'Answers submitted:' : 'Answers captured locally:') + '\n' + answers.map((a, idx) => {
+                    const parts = [];
+                    if (a.selected_options.length) parts.push(a.selected_options.join(', '));
+                    if (a.user_input) parts.push(a.user_input);
+                    return `${idx + 1}. ${a.question_header}: ${parts.join(' + ') || '(skipped)'}`;
+                }).join('\n');
+                card.querySelector('.auq-footer')?.appendChild(summary);
+                card.dataset.answers = JSON.stringify(answers);
+                scrollToBottom();
+            };
+
+            render();
+            messagesContainer.appendChild(card);
+            scrollToBottom();
+            return true;
+        }
+
+
+        function handleAskUserQuestionRequest(message) {
+            renderAskUserQuestionTool('ask_user_question', { questions: message.questions || [] }, message);
+        }
+
         function addToolMessage(type, message) {
             const normalizedType = (message.type === 'tool_return') ? 'result' : type;
             const callPayload = message.args ?? message.tool_args ?? message.arguments ?? message.input ?? message.details;
             const resultPayload = message.result ?? message.result_summary ?? message.content ?? message.output ?? message.error;
             const success = message.success;
+            const renderedToolName = String(
+                message.tool_name || message.tool || message.name || message.tool_call_id || message.tool_id || 'tool'
+            );
+            const auqPayload = findQuestionsPayload(callPayload) || findQuestionsPayload(resultPayload) || findQuestionsPayload(message);
+            const noUsefulCallPayload = normalizedType === 'call' && isEmptyToolPayload(callPayload);
+            if (noUsefulCallPayload && isAskUserQuestionTool(renderedToolName, null, message)) {
+                return;
+            }
+            if (auqPayload && (normalizedType === 'call' || normalizedType === 'result')) {
+                if (normalizedType === 'call' && !message.prompt_id) return;
+                renderAskUserQuestionTool(renderedToolName, auqPayload, message);
+                return;
+            }
+            if (normalizedType === 'call' && isAskUserQuestionTool(renderedToolName, callPayload, message)) {
+                if (!message.prompt_id) return;
+                renderAskUserQuestionTool(renderedToolName, callPayload, message);
+                return;
+            }
             const isErr = Boolean(
                 message.is_error ||
                 message.error ||
