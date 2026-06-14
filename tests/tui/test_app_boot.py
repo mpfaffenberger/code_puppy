@@ -4,7 +4,7 @@ Phase 2a tests stub the agent run so no model/network is touched.
 """
 
 import pytest
-from textual.widgets import RichLog
+from textual.containers import VerticalScroll
 
 from code_puppy.tui.app import build_app
 from code_puppy.tui.renderer import message_to_renderable
@@ -26,6 +26,11 @@ class _FakeAgent:
         self.history = history
 
 
+def _log_entries(app):
+    """Number of mounted scrollback entries (Static / Markdown widgets)."""
+    return len(app.query_one("#log", VerticalScroll).children)
+
+
 def _stub_agent_run(monkeypatch):
     """Patch the lazy imports inside CooperApp._run_agent_turn."""
     agent = _FakeAgent()
@@ -44,9 +49,8 @@ async def test_app_boots_and_renders_startup_message():
     app = build_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        log = app.query_one("#log", RichLog)
         # Startup success message was buffered then drained by the renderer.
-        assert len(log.lines) >= 1
+        assert _log_entries(app) >= 1
 
 
 @pytest.mark.asyncio
@@ -55,14 +59,13 @@ async def test_submit_prompt_runs_agent_and_renders_response(monkeypatch):
     app = build_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        log = app.query_one("#log", RichLog)
-        before = len(log.lines)
+        before = _log_entries(app)
         app.submit_prompt("do a thing")
         for _ in range(60):
             await pilot.pause(0.05)
-            if len(log.lines) > before and not app._busy:
+            if _log_entries(app) > before and not app._busy:
                 break
-        assert len(log.lines) > before
+        assert _log_entries(app) > before
         # The agent's history was updated and busy state cleared.
         assert agent.history == []
         assert app._busy is False
@@ -103,9 +106,9 @@ async def test_initial_command_is_submitted_on_mount(monkeypatch):
     async with app.run_test() as pilot:
         for _ in range(60):
             await pilot.pause(0.05)
-            if len(app.query_one("#log", RichLog).lines) > 1 and not app._busy:
+            if _log_entries(app) > 1 and not app._busy:
                 break
-        assert len(app.query_one("#log", RichLog).lines) > 1
+        assert _log_entries(app) > 1
 
 
 def test_message_to_renderable_handles_text_and_fallback():

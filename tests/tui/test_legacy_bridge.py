@@ -6,7 +6,6 @@ and QueueConsole.print output (used by many tools) would be invisible.
 """
 
 import pytest
-from textual.widgets import RichLog
 
 from code_puppy.messaging.message_queue import (
     MessageType,
@@ -19,7 +18,7 @@ from code_puppy.tui.screens.interactive import TextInputModal
 
 
 def _log_text(app) -> str:
-    return " ".join(line.text for line in app.query_one("#log", RichLog).lines)
+    return app.log_text()
 
 
 @pytest.mark.asyncio

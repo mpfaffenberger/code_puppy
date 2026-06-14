@@ -1,14 +1,12 @@
 """Phase 2 polish: !shell passthrough runs captured and renders in the TUI."""
 
 import pytest
-from textual.widgets import RichLog
 
 from code_puppy.tui.app import build_app
 
 
 def _log_text(app) -> str:
-    log = app.query_one("#log", RichLog)
-    return " ".join(line.text for line in log.lines)
+    return app.log_text()
 
 
 @pytest.mark.asyncio

@@ -18,12 +18,11 @@ import asyncio
 from io import StringIO
 
 from rich.console import Console, RenderableType
-from rich.markdown import Markdown
 from rich.text import Text
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
-from textual.widgets import Footer, Header, OptionList, RichLog, TextArea
+from textual.widgets import Footer, Header, OptionList, Static, TextArea
 from textual.widgets import Markdown as MarkdownWidget
 from textual.widgets.markdown import MarkdownStream
 from textual.widgets.option_list import Option
@@ -92,15 +91,18 @@ class CooperApp(App):
 
     CSS = """
     Screen { background: $surface; }
-    #response-panel {
-        border: round $primary;
-        height: 1fr;
-        background: $panel;
-    }
     #log {
-        height: 1fr;
+        border: round $primary;
         padding: 0 1;
         background: $panel;
+        height: 1fr;
+    }
+    /* Each log entry: no extra vertical gap so output reads as one flow. */
+    #log > Static, #log > Markdown {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        height: auto;
     }
     #prompt {
         height: 5;
@@ -116,20 +118,6 @@ class CooperApp(App):
         margin-top: 1;
     }
     #completions.visible { display: block; }
-    #stream-scroll {
-        display: none;
-        height: auto;
-        max-height: 16;
-        background: $panel;
-        padding: 0 1;
-        scrollbar-size-vertical: 1;
-    }
-    #stream-scroll.visible { display: block; }
-    #stream {
-        background: transparent;
-        padding: 0;
-        margin: 0;
-    }
     """
 
     BINDINGS = [
@@ -158,25 +146,18 @@ class CooperApp(App):
         self._completion = None
         # Live markdown streaming for the in-progress response (None when idle).
         self._md_stream: MarkdownStream | None = None
+        self._md_widget: MarkdownWidget | None = None
+        self._streamed_this_turn = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Vertical():
-            # One bordered "response panel" wraps both the scrollback and the
-            # live streaming response, so streaming happens *inside* the panel
-            # instead of in a separate box below it.
-            with Vertical(id="response-panel"):
-                # Captured output is already fully styled by the classic
-                # renderer; render it verbatim (no re-highlighting / markup
-                # re-parsing) so we don't double-process span boundaries.
-                yield RichLog(id="log", wrap=True, markup=False, highlight=False)
-                # Live response streaming: formatted markdown rendered in place
-                # as tokens arrive (Textual MarkdownStream coalesces updates).
-                # The scroll container anchors to the bottom so the typewriter
-                # effect follows the latest text. On completion the response is
-                # promoted into #log and this is cleared/hidden.
-                with VerticalScroll(id="stream-scroll"):
-                    yield MarkdownWidget(id="stream")
+            # Single unified scrollback: every piece of output (captured
+            # renderables, markdown responses, the live streaming response) is
+            # a child widget mounted in document order. The live response is a
+            # Markdown widget streamed in place, so it reads as one continuous
+            # flow -- no separate streaming region.
+            yield VerticalScroll(id="log")
             yield CompletionList(id="completions")
             yield PromptArea(id="prompt", soft_wrap=True)
         yield Footer()
@@ -194,7 +175,11 @@ class CooperApp(App):
 
         logo = build_logo_renderable()
         if logo is not None:
-            self.query_one("#log", RichLog).write(logo)
+            self._append_log(logo)
+
+        # Keep the scrollback pinned to the bottom as new output arrives
+        # (released automatically when the user scrolls up to read history).
+        self.query_one("#log", VerticalScroll).anchor()
 
         self._renderer.start()
 
@@ -251,9 +236,31 @@ class CooperApp(App):
             except Exception:
                 pass
 
+    def _append_log(self, renderable: RenderableType) -> None:
+        """Mount a renderable as a new entry at the bottom of the scrollback."""
+        log = self.query_one("#log", VerticalScroll)
+        entry = Static(renderable, markup=False)
+        # Stash the source renderable for log_text() (Static hides it behind a
+        # name-mangled attribute we'd rather not reach into).
+        entry._cp_renderable = renderable
+        log.mount(entry)
+
     def write_renderable(self, renderable: RenderableType) -> None:
         """Mount a renderable into the scrollback."""
-        self.query_one("#log", RichLog).write(renderable)
+        self._append_log(renderable)
+
+    def log_text(self) -> str:
+        """Concatenate the plain text of every scrollback entry (for tests)."""
+        parts: list[str] = []
+        for child in self.query_one("#log", VerticalScroll).children:
+            if isinstance(child, MarkdownWidget):
+                parts.append(child.source or "")
+            elif isinstance(child, Static):
+                r = getattr(child, "_cp_renderable", None)
+                if r is None:
+                    continue
+                parts.append(r.plain if hasattr(r, "plain") else str(r))
+        return "\n".join(parts)
 
     def handle_bus_message(self, message: AnyMessage) -> None:
         """Render a bus message into the scrollback (runs on the UI thread).
@@ -262,23 +269,21 @@ class CooperApp(App):
         Falls back to a minimal renderable only if capture yields nothing for
         a plain TextMessage (defensive; shouldn't normally happen).
         """
-        log = self.query_one("#log", RichLog)
-        width = log.size.width or None
+        log = self.query_one("#log", VerticalScroll)
+        width = (log.content_size.width or log.size.width) or None
 
-        # The agent's final response: the classic UI streams it to the
-        # terminal (so its _do_render skips it). We stream to a hidden
-        # console, so we render the response here instead.
+        # The agent's final response. When it streamed live (the common case)
+        # the markdown widget already holds it -- just finalize the stream.
+        # Otherwise (non-streaming model) mount it now.
         if isinstance(message, AgentResponseMessage):
-            # Promote the streamed response into the permanent scrollback and
-            # clear the live streaming widget (same handler -> one repaint, no
-            # flicker / no duplicate).
-            body = (
-                Markdown(message.content)
-                if message.is_markdown
-                else Text(message.content)
-            )
-            log.write(body)
-            self._reset_stream()
+            if self._streamed_this_turn:
+                self._finalize_stream()
+            elif message.is_markdown:
+                # Mount the same widget type the streaming path uses, so the
+                # response renders identically whether or not it streamed.
+                log.mount(MarkdownWidget(message.content))
+            else:
+                self._append_log(Text(message.content))
             return
 
         # Interactive requests: the agent is awaiting a response. Show a modal
@@ -297,7 +302,7 @@ class CooperApp(App):
                 renderable = message_to_renderable(message)
             else:
                 return
-        log.write(renderable)
+        self._append_log(renderable)
 
     def submit_prompt(self, text: str) -> None:
         """Dispatch a submitted prompt: exit, slash command, or agent turn."""
@@ -434,7 +439,8 @@ class CooperApp(App):
         from code_puppy.config import auto_save_session_if_enabled
         from code_puppy.messaging import emit_error
 
-        self._reset_stream()
+        self._finalize_stream()
+        self._streamed_this_turn = False
         self._set_busy(True)
         try:
             agent = get_current_agent()
@@ -465,7 +471,7 @@ class CooperApp(App):
             self._agent_worker.cancel()
         except Exception:
             pass
-        self._reset_stream()
+        self._finalize_stream()
         get_message_bus().emit(
             TextMessage(level=MessageLevel.WARNING, text="Turn cancelled.")
         )
@@ -567,12 +573,14 @@ class CooperApp(App):
             if not content:
                 return
             if self._md_stream is None:
-                scroll = self.query_one("#stream-scroll", VerticalScroll)
-                widget = self.query_one("#stream", MarkdownWidget)
-                scroll.add_class("visible")
-                # Follow the bottom as new text streams in.
-                scroll.anchor()
+                # Mount a fresh markdown widget at the bottom of the scrollback
+                # and stream into it in place -- one continuous flow.
+                log = self.query_one("#log", VerticalScroll)
+                widget = MarkdownWidget()
+                self._md_widget = widget
+                log.mount(widget)
                 self._md_stream = MarkdownWidget.get_stream(widget)
+            self._streamed_this_turn = True
             # write() appends synchronously to the stream's pending buffer
             # before its only await, so create_task preserves delta order.
             asyncio.create_task(self._md_stream.write(content))
@@ -580,33 +588,25 @@ class CooperApp(App):
             # Streaming is best-effort polish; never break a turn over it.
             pass
 
-    def _reset_stream(self) -> None:
-        """Stop streaming and clear/hide the live markdown widget."""
+    def _finalize_stream(self) -> None:
+        """Stop the live stream, leaving the rendered widget in the scrollback.
+
+        The streaming markdown widget is now permanent history -- we only tear
+        down the background stream task and clear the handles so the next turn
+        starts fresh.
+        """
         stream_obj = self._md_stream
         self._md_stream = None
-        if stream_obj is not None or self._stream_visible():
+        self._md_widget = None
+        if stream_obj is not None:
             self.run_worker(
-                self._async_reset_stream(stream_obj),
-                group="stream-reset",
-                exclusive=True,
+                self._stop_stream(stream_obj),
+                group="stream-stop",
             )
 
-    def _stream_visible(self) -> bool:
+    async def _stop_stream(self, stream_obj: MarkdownStream) -> None:
         try:
-            return self.query_one("#stream-scroll", VerticalScroll).has_class("visible")
-        except Exception:
-            return False
-
-    async def _async_reset_stream(self, stream_obj: MarkdownStream | None) -> None:
-        if stream_obj is not None:
-            try:
-                await stream_obj.stop()
-            except Exception:
-                pass
-        try:
-            scroll = self.query_one("#stream-scroll", VerticalScroll)
-            scroll.remove_class("visible")
-            await self.query_one("#stream", MarkdownWidget).update("")
+            await stream_obj.stop()
         except Exception:
             pass
 
@@ -696,12 +696,11 @@ class CooperApp(App):
         if message.type == MessageType.HUMAN_INPUT_REQUEST:
             self._show_legacy_prompt(message)
             return
-        log = self.query_one("#log", RichLog)
-        renderable = self._legacy_formatter.format(
-            message, width=log.size.width or None
-        )
+        log = self.query_one("#log", VerticalScroll)
+        width = (log.content_size.width or log.size.width) or None
+        renderable = self._legacy_formatter.format(message, width=width)
         if renderable is not None:
-            log.write(renderable)
+            self._append_log(renderable)
 
     def _show_legacy_prompt(self, message) -> None:
         """Answer a legacy HUMAN_INPUT_REQUEST via a modal so tools don't hang."""
