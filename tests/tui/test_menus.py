@@ -198,6 +198,42 @@ async def test_autosave_no_sessions_no_modal(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_colors_command_opens_banner_picker():
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.submit_prompt("/colors")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, FilterableListScreen)
+
+
+@pytest.mark.asyncio
+async def test_colors_three_step_applies(monkeypatch):
+    applied = {}
+    monkeypatch.setattr(
+        "code_puppy.config.set_banner_color",
+        lambda banner, color: applied.update({"banner": banner, "color": color}),
+    )
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.submit_prompt("/colors")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, FilterableListScreen)
+        await pilot.press(*"thinking")
+        await pilot.pause(0.1)
+        await pilot.press("enter")  # choose the banner
+        await pilot.pause(0.1)
+        assert isinstance(app.screen, FilterableListScreen)
+        await pilot.press(*"blue")
+        await pilot.pause(0.1)
+        await pilot.press("enter")  # choose the color
+        await pilot.pause(0.1)
+    assert applied.get("banner") == "thinking"
+    assert applied.get("color")
+
+
+@pytest.mark.asyncio
 async def test_diff_command_opens_color_picker(monkeypatch):
     monkeypatch.setattr("code_puppy.config.get_diff_addition_color", lambda: "#000000")
     app = build_app()

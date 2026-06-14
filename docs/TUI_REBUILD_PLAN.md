@@ -162,9 +162,11 @@ set_model_and_reload_agent). Ported so far: /model, /agent (+/a /agents), autosa
 (__AUTOSAVE_LOAD__), /set (two-step: pick key -> edit value via the validated
 apply_setting; TextInputModal gained a prefill option), /diff (two-step color
 picker; ListChoice gained a `style` field so rows render color swatches).
-Wave A COMPLETE. Remaining: B (MCP family), C (colors/judges/add-model/
-onboarding/uc). Note: /colors, /judges, /add-model, /uc are forms/CRUD/wizards
-(need a FormScreen kit); MCP is a multi-screen wizard cluster.*
+Wave A COMPLETE. Also ported /colors (3-step banner->color swatch picker,
+reusing the ListChoice.style swatches). Remaining: B (MCP family), C leftovers
+(/judges CRUD, /add-model wizard, /uc tool browser, onboarding). Note: those
+are forms/CRUD/wizards (need a FormScreen kit); MCP is a multi-screen wizard
+cluster.*
 Build a small reusable kit first (DRY), then port menus in waves.
 - **Kit:** `screens/base.py` with a `FilterableListScreen` (filter Input +
   OptionList + dismiss-with-value), `FormScreen`, `ConfirmScreen`. The model
