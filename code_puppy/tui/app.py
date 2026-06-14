@@ -92,8 +92,13 @@ class CooperApp(App):
 
     CSS = """
     Screen { background: $surface; }
-    #log {
+    #response-panel {
         border: round $primary;
+        height: 1fr;
+        background: $panel;
+    }
+    #log {
+        height: 1fr;
         padding: 0 1;
         background: $panel;
     }
@@ -157,17 +162,21 @@ class CooperApp(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Vertical():
-            # Captured output is already fully styled by the classic renderer;
-            # render it verbatim (no re-highlighting / markup re-parsing) so we
-            # don't double-process span boundaries.
-            yield RichLog(id="log", wrap=True, markup=False, highlight=False)
-            # Live response streaming: formatted markdown rendered in place as
-            # tokens arrive (Textual MarkdownStream coalesces updates). The
-            # scroll container anchors to the bottom so the typewriter effect
-            # follows the latest text. On completion the response is promoted
-            # into #log and this is cleared/hidden.
-            with VerticalScroll(id="stream-scroll"):
-                yield MarkdownWidget(id="stream")
+            # One bordered "response panel" wraps both the scrollback and the
+            # live streaming response, so streaming happens *inside* the panel
+            # instead of in a separate box below it.
+            with Vertical(id="response-panel"):
+                # Captured output is already fully styled by the classic
+                # renderer; render it verbatim (no re-highlighting / markup
+                # re-parsing) so we don't double-process span boundaries.
+                yield RichLog(id="log", wrap=True, markup=False, highlight=False)
+                # Live response streaming: formatted markdown rendered in place
+                # as tokens arrive (Textual MarkdownStream coalesces updates).
+                # The scroll container anchors to the bottom so the typewriter
+                # effect follows the latest text. On completion the response is
+                # promoted into #log and this is cleared/hidden.
+                with VerticalScroll(id="stream-scroll"):
+                    yield MarkdownWidget(id="stream")
             yield CompletionList(id="completions")
             yield PromptArea(id="prompt", soft_wrap=True)
         yield Footer()
