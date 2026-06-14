@@ -169,8 +169,8 @@ class SelectionResponse(BaseCommand):
         description="ID of the prompt this responds to (must match request)"
     )
     selected_index: int = Field(
-        ge=0,
-        description="Zero-based index of the selected option",
+        ge=-1,
+        description="Zero-based index of the selected option; -1 means cancelled",
     )
     selected_value: str = Field(description="The value of the selected option")
 

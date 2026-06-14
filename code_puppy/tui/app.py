@@ -27,13 +27,20 @@ from textual.widgets import Footer, Header, RichLog, TextArea
 from code_puppy.messaging import (
     AgentResponseMessage,
     AnyMessage,
+    ConfirmationRequest,
+    ConfirmationResponse,
     MessageLevel,
+    SelectionRequest,
+    SelectionResponse,
     TextMessage,
+    UserInputRequest,
+    UserInputResponse,
     get_message_bus,
 )
 
 from .capture import RichCaptureFormatter
 from .renderer import TextualRenderer, message_to_renderable
+from .screens.interactive import ConfirmModal, SelectionModal, TextInputModal
 
 
 class PromptArea(TextArea):
@@ -130,6 +137,14 @@ class CooperApp(App):
             log.write(body)
             return
 
+        # Interactive requests: the agent is awaiting a response. Show a modal
+        # and ALWAYS reply (even on cancel) so the agent never hangs.
+        if isinstance(
+            message, (UserInputRequest, ConfirmationRequest, SelectionRequest)
+        ):
+            self._show_request_modal(message)
+            return
+
         renderable = self._formatter.format(message, width=width)
         if renderable is None:
             # Capture suppressed/skipped this message. Only surface a fallback
@@ -173,6 +188,52 @@ class CooperApp(App):
             # handled is False -> unknown command, fall through to the agent
 
         self._run_agent_turn(text)
+
+    def _show_request_modal(self, message: AnyMessage) -> None:
+        """Push the right modal for an interactive request and reply via the bus.
+
+        Every dismissal path provides a response so the agent's awaited Future
+        always completes.
+        """
+        bus = get_message_bus()
+        prompt_id = message.prompt_id
+
+        if isinstance(message, UserInputRequest):
+
+            def _on_text(value):
+                bus.provide_response(
+                    UserInputResponse(prompt_id=prompt_id, value=value or "")
+                )
+
+            self.push_screen(TextInputModal(message), _on_text)
+
+        elif isinstance(message, ConfirmationRequest):
+
+            def _on_confirm(result):
+                confirmed, feedback = result if result else (False, None)
+                bus.provide_response(
+                    ConfirmationResponse(
+                        prompt_id=prompt_id,
+                        confirmed=confirmed,
+                        feedback=feedback,
+                    )
+                )
+
+            self.push_screen(ConfirmModal(message), _on_confirm)
+
+        elif isinstance(message, SelectionRequest):
+
+            def _on_select(result):
+                index, value = result if result else (-1, "")
+                bus.provide_response(
+                    SelectionResponse(
+                        prompt_id=prompt_id,
+                        selected_index=index,
+                        selected_value=value,
+                    )
+                )
+
+            self.push_screen(SelectionModal(message), _on_select)
 
     def _dispatch_command(self, command: str):
         """Route a /command through the shared command handler.
