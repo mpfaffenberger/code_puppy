@@ -34,8 +34,6 @@ from code_puppy.config import (
 from code_puppy.http_utils import find_available_port
 from code_puppy.keymap import (
     KeymapError,
-    get_cancel_agent_display_name,
-    get_pause_agent_display_name,
     validate_cancel_agent_key,
     validate_pause_agent_key,
 )
@@ -185,33 +183,23 @@ async def main():
 
     # Show the awesome Code Puppy logo when entering interactive mode
     # This happens when: no -p flag (prompt-only mode) is used
-    # The logo should appear for both `code-puppy` and `code-puppy -i`
-    if not args.prompt:
-        try:
-            import pyfiglet
+    # The logo should appear for both `code-puppy` and `code-puppy -i`.
+    # In Textual mode we DON'T print it here: stdout gets cleared the instant
+    # the app takes over the screen, so the TUI renders the logo itself (see
+    # CooperApp.on_mount). Both paths share startup_banner.build_logo_renderable.
+    if not args.prompt and not use_textual:
+        from code_puppy.startup_banner import (
+            build_logo_renderable,
+            emit_logo_fallback,
+        )
 
-            intro_lines = pyfiglet.figlet_format(
-                "CODE PUPPY", font="ansi_shadow"
-            ).split("\n")
-
-            # Simple blue to green gradient (top to bottom)
-            gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
+        logo = build_logo_renderable()
+        if logo is not None:
+            # Print directly to console to avoid the 'dim' style of system messages.
             display_console.print("\n")
-
-            lines = []
-            # Apply gradient line by line
-            for line_num, line in enumerate(intro_lines):
-                if line.strip():
-                    # Use line position to determine color (top blue, middle cyan, bottom green)
-                    color_idx = min(line_num // 2, len(gradient_colors) - 1)
-                    color = gradient_colors[color_idx]
-                    lines.append(f"[{color}]{line}[/{color}]")
-                else:
-                    lines.append("")
-            # Print directly to console to avoid the 'dim' style from emit_system_message
-            display_console.print("\n".join(lines))
-        except ImportError:
-            emit_system_message("🐶 Code Puppy is Loading...")
+            display_console.print(logo)
+        else:
+            emit_logo_fallback()
 
         # Truecolor warning moved to interactive_mode() so it prints LAST
         # after all the help stuff - max visibility for the ugly red box!
@@ -423,39 +411,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     display_console = message_renderer.console
     from code_puppy.messaging import emit_info, emit_system_message
 
-    emit_system_message(
-        "Type '/exit', '/quit', or press Ctrl+D to exit the interactive mode."
-    )
-    emit_system_message("Type 'clear' to reset the conversation history.")
-    emit_system_message("Type /help to view all commands")
-    emit_system_message(
-        "Type @ for path completion, or /model to pick a model. Toggle multiline with Alt+M or F2; newline: Ctrl+J."
-    )
-    emit_system_message("Paste images: Ctrl+V (even on Mac!), F3, or /paste command.")
-    import platform
+    from code_puppy.startup_banner import emit_interactive_help
 
-    if platform.system() == "Darwin":
-        emit_system_message(
-            "💡 macOS tip: Use Ctrl+V (not Cmd+V) to paste images in terminal."
-        )
-    cancel_key = get_cancel_agent_display_name()
-    emit_system_message(
-        f"Press {cancel_key} during processing to cancel the current task or inference. Use Ctrl+X to interrupt running shell commands."
-    )
-    pause_key = get_pause_agent_display_name()
-    emit_system_message(
-        f"Press {pause_key} during processing to pause the agent and inject a steering message."
-    )
-    emit_system_message(
-        "Use /autosave_load to manually load a previous autosave session."
-    )
-    emit_system_message(
-        "Use /diff to configure diff highlighting colors for file changes."
-    )
-    emit_system_message("To re-run the tutorial, use /tutorial.")
-    emit_system_message(
-        "!<command> to run shell commands directly (e.g., !git status)",
-    )
+    emit_interactive_help(textual=False)
     # Print truecolor warning LAST so it's the most visible thing on startup
     # Big ugly red box should be impossible to miss! 🔴
     print_truecolor_warning(display_console)

@@ -165,6 +165,15 @@ class CooperApp(App):
         # first /command is dispatched).
         import code_puppy.command_line.command_handler  # noqa: F401
 
+        # The classic logo print (cli_runner.run) is skipped in Textual mode
+        # because stdout is wiped when the app grabs the screen. Render it here
+        # instead, using the shared builder so both UIs stay in sync.
+        from code_puppy.startup_banner import build_logo_renderable
+
+        logo = build_logo_renderable()
+        if logo is not None:
+            self.query_one("#log", RichLog).write(logo)
+
         bus = get_message_bus()
         bus.emit(
             TextMessage(
@@ -186,6 +195,13 @@ class CooperApp(App):
         for buffered in get_buffered_startup_messages():
             self.handle_legacy_message(buffered)
         queue.clear_startup_buffer()
+
+        # The help block lives in cli_runner.interactive_mode, which the TUI
+        # bypasses -- emit the Textual-appropriate variant here so users get
+        # the same orientation (with correct keybindings).
+        from code_puppy.startup_banner import emit_interactive_help
+
+        emit_interactive_help(textual=True)
 
         # Live token streaming: append response deltas to the transient preview.
         from code_puppy.callbacks import register_callback
