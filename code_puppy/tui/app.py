@@ -34,6 +34,8 @@ from code_puppy.messaging import (
     ConfirmationResponse,
     MessageLevel,
     PauseAgentCommand,
+    QuestionRequest,
+    QuestionResponse,
     ResumeAgentCommand,
     SelectionRequest,
     SelectionResponse,
@@ -48,6 +50,7 @@ from .capture import LegacyCaptureFormatter, RichCaptureFormatter
 from .completion import compute_completions
 from .renderer import TextualRenderer, message_to_renderable
 from .screens.interactive import ConfirmModal, SelectionModal, TextInputModal
+from .screens.question import QuestionModal
 
 
 class CompletionList(OptionList):
@@ -195,6 +198,11 @@ class CooperApp(App):
         # (released automatically when the user scrolls up to read history).
         self.query_one("#log", VerticalScroll).anchor()
 
+        # Register our event loop on the bus so sync callers running on worker
+        # threads (e.g. the ask_user_question tool) can drive async request/
+        # response round-trips against the UI.
+        get_message_bus().set_event_loop(asyncio.get_running_loop())
+
         self._renderer.start()
 
         # Bridge the legacy queue: register a listener (the queue's daemon
@@ -304,7 +312,13 @@ class CooperApp(App):
         # Interactive requests: the agent is awaiting a response. Show a modal
         # and ALWAYS reply (even on cancel) so the agent never hangs.
         if isinstance(
-            message, (UserInputRequest, ConfirmationRequest, SelectionRequest)
+            message,
+            (
+                UserInputRequest,
+                ConfirmationRequest,
+                SelectionRequest,
+                QuestionRequest,
+            ),
         ):
             self._show_request_modal(message)
             return
@@ -422,6 +436,21 @@ class CooperApp(App):
                 )
 
             self.push_screen(SelectionModal(message), _on_select)
+
+        elif isinstance(message, QuestionRequest):
+
+            def _on_questions(result):
+                answers, cancelled, timed_out = result if result else ([], True, False)
+                bus.provide_response(
+                    QuestionResponse(
+                        prompt_id=prompt_id,
+                        answers=answers,
+                        cancelled=cancelled,
+                        timed_out=timed_out,
+                    )
+                )
+
+            self.push_screen(QuestionModal(message), _on_questions)
 
     def _dispatch_command(self, command: str):
         """Route a /command through the shared command handler.
@@ -831,6 +860,10 @@ class CooperApp(App):
         except Exception:
             pass
         unregister_callback("stream_event", self._on_stream_event)
+        try:
+            get_message_bus().set_event_loop(None)
+        except Exception:
+            pass
         self._renderer.stop()
 
 

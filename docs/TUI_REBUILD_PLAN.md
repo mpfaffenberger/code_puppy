@@ -27,8 +27,22 @@
 
 ### What works in the TUI now
 Agent turns + live tool output + token streaming · interactive modals
-(input/confirm/select) · Esc cancel · Ctrl+T steer · `/command` + `@path`
+(input/confirm/select/**question**) · Esc cancel · Ctrl+T steer · `/command` + `@path`
 completion · `!shell` passthrough · command palette (Ctrl+P).
+
+**`ask_user_question` ported (split-panel modal):** the multi-question tool now
+renders as a native `QuestionModal` (`tui/screens/question.py`) instead of its
+prompt_toolkit picker (which corrupted the Textual screen). Bridge: new
+`QuestionRequest`/`QuestionResponse` bus types + `MessageBus.request_questions`
+(async) and `ask_questions_blocking` (sync wrapper). The tool is a *sync* tool
+run on a worker thread, so `handler._run_textual_picker` calls
+`ask_questions_blocking`, which marshals onto the UI loop via
+`run_coroutine_threadsafe` (the app registers its loop with
+`bus.set_event_loop()` in `on_mount`). Layout mirrors classic: left panel =
+question headers/tabs (check-marked on answered), right panel = current question + options
+(radio for single-select, `[x]` for multi-select) + free-form "Other" + focused
+option description. Esc/Cancel always replies (cancelled) so the agent can't
+hang. Tests: `tests/tui/test_question_modal.py` + `test_question_bridge.py`.
 **Menus ported (11):** `/model`, `/agent` (+`/a`,`/agents`), `/set`, `/diff`,
 `/colors`, autosave-load, `/mcp install`, `/judges`, `/add_model`, `/uc`,
 `/tutorial` (onboarding). All other `/mcp` subcommands already work (they only
