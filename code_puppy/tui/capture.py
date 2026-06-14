@@ -94,3 +94,57 @@ class RichCaptureFormatter:
         if not ansi.strip():
             return None
         return Text.from_ansi(ansi.rstrip("\n"))
+
+
+class LegacyCaptureFormatter:
+    """Same capture trick for the legacy global MessageQueue (UIMessage).
+
+    Tools and lots of status text still emit through the legacy queue
+    (``emit_info`` etc. and ``QueueConsole.print``). The classic UI renders
+    these via ``SynchronousInteractiveRenderer``; the TUI captures that
+    renderer's per-message output (``_print_message`` + the density gate) so
+    none of it is dropped. HUMAN_INPUT_REQUEST is handled separately (modal).
+    """
+
+    def __init__(self, width: int = _DEFAULT_WIDTH) -> None:
+        self._console = Console(
+            file=StringIO(),
+            force_terminal=True,
+            color_system="truecolor",
+            width=width,
+            record=True,
+        )
+
+    def format(self, message, width: int | None = None) -> Text | None:
+        from code_puppy.messaging.message_queue import MessageType
+        from code_puppy.messaging.renderers import (
+            _apply_legacy_density,
+            _print_message,
+        )
+
+        if message.type == MessageType.HUMAN_INPUT_REQUEST:
+            return None  # handled as a modal by the app
+
+        resolved = _apply_legacy_density(message)
+        if resolved is None:
+            return None
+
+        if width and width > 0:
+            try:
+                self._console.width = width
+            except Exception:
+                pass
+
+        try:
+            _print_message(self._console, resolved)
+            ansi = self._console.export_text(clear=True, styles=True)
+        except Exception:
+            try:
+                self._console.export_text(clear=True)
+            except Exception:
+                pass
+            return None
+
+        if not ansi.strip():
+            return None
+        return Text.from_ansi(ansi.rstrip("\n"))

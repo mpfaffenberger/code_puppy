@@ -42,7 +42,7 @@ from code_puppy.messaging import (
     get_message_bus,
 )
 
-from .capture import RichCaptureFormatter
+from .capture import LegacyCaptureFormatter, RichCaptureFormatter
 from .completion import compute_completions
 from .renderer import TextualRenderer, message_to_renderable
 from .screens.interactive import ConfirmModal, SelectionModal, TextInputModal
@@ -133,6 +133,9 @@ class CooperApp(App):
         self._renderer = TextualRenderer(self)
         # Phase 1 capture bridge: reuse the classic Rich formatting verbatim.
         self._formatter = RichCaptureFormatter()
+        # Bridge the legacy global MessageQueue (emit_info / QueueConsole) into
+        # the TUI - the classic renderers that drain it aren't started here.
+        self._legacy_formatter = LegacyCaptureFormatter()
         # Hidden console so the agent's live token streaming never writes to
         # the real terminal (which would corrupt the Textual screen). The
         # final response is rendered from AgentResponseMessage instead.
@@ -170,6 +173,19 @@ class CooperApp(App):
             )
         )
         self._renderer.start()
+
+        # Bridge the legacy queue: register a listener (the queue's daemon
+        # thread invokes it), then drain anything buffered before we attached.
+        from code_puppy.messaging.message_queue import (
+            get_buffered_startup_messages,
+            get_global_queue,
+        )
+
+        queue = get_global_queue()
+        queue.add_listener(self._on_legacy_message)
+        for buffered in get_buffered_startup_messages():
+            self.handle_legacy_message(buffered)
+        queue.clear_startup_buffer()
 
         # Live token streaming: append response deltas to the transient preview.
         from code_puppy.callbacks import register_callback
@@ -596,9 +612,51 @@ class CooperApp(App):
         completions.remove_class("visible")
         completions.clear_options()
 
+    def _on_legacy_message(self, message) -> None:
+        """Legacy-queue listener (runs on the queue's daemon thread)."""
+        try:
+            self.call_from_thread(self.handle_legacy_message, message)
+        except Exception:
+            pass
+
+    def handle_legacy_message(self, message) -> None:
+        """Render a legacy UIMessage into the scrollback (UI thread)."""
+        from code_puppy.messaging.message_queue import MessageType
+
+        if message.type == MessageType.HUMAN_INPUT_REQUEST:
+            self._show_legacy_prompt(message)
+            return
+        log = self.query_one("#log", RichLog)
+        renderable = self._legacy_formatter.format(
+            message, width=log.size.width or None
+        )
+        if renderable is not None:
+            log.write(renderable)
+
+    def _show_legacy_prompt(self, message) -> None:
+        """Answer a legacy HUMAN_INPUT_REQUEST via a modal so tools don't hang."""
+        from code_puppy.messaging.message_queue import get_global_queue
+
+        prompt_id = (message.metadata or {}).get("prompt_id")
+        request = UserInputRequest(
+            prompt_id=str(prompt_id or "legacy"),
+            prompt_text=str(message.content),
+        )
+
+        def _reply(value) -> None:
+            if prompt_id is not None:
+                get_global_queue().provide_prompt_response(prompt_id, value or "")
+
+        self.push_screen(TextInputModal(request), _reply)
+
     def on_unmount(self) -> None:
         from code_puppy.callbacks import unregister_callback
+        from code_puppy.messaging.message_queue import get_global_queue
 
+        try:
+            get_global_queue().remove_listener(self._on_legacy_message)
+        except Exception:
+            pass
         unregister_callback("stream_event", self._on_stream_event)
         self._renderer.stop()
 

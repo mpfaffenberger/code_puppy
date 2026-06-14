@@ -22,7 +22,7 @@
 | 1 Renderer parity (capture bridge) | **DONE** |
 | 2 Chat shell / input / control plane / completions / `!shell` / streaming | **DONE** |
 | 3 Menus as ModalScreens + completers + onboarding | **DONE** (except `register_screen` plugin hook) |
-| 4 Console-leak cleanup (33 `Console()` sites) | **NOT STARTED** |
+| 4 Console-leak cleanup / output bridging | **DONE** (core; minor residuals) |
 | 5 Theming / web (`textual-serve`) / perf / cutover | **NOT STARTED** |
 
 ### What works in the TUI now
@@ -39,8 +39,10 @@ tests via the `CODE_PUPPY_SKIP_TUTORIAL` autouse fixture).
 ### What's left
 - **`register_screen` plugin hook** (§8.4) — let plugins contribute Textual
   screens/widgets. The last Phase 3 item.
-- **Phase 4:** route the 33 stray `Console()` sites through the bus so nothing
-  prints behind Textual's back.
+- **Phase 4 residuals (low-risk):** a few direct-stdout consoles remain but
+  only fire at startup or rarely: the truecolor warning, MCP dashboard
+  (`mcp_/dashboard.py`), `terminal_utils` warnings. The big vectors are fixed
+  (see below).
 - **Phase 5:** theming, fix `textual-serve` web errors, perf pass, flip default
   to `textual`, remove `classic`, delete this plan's historical §9.
 - **Optional:** more long-tail completers (skills, pin commands); native
@@ -275,13 +277,25 @@ Build a small reusable kit first (DRY), then port menus in waves.
   Textual path; all 50 menus have modal equivalents + tests; `register_screen`
   hook live with one example plugin screen.
 
-### Phase 4 — Console leak cleanup (S–M)
-**Goal:** nothing prints behind Textual's back.
-- Audit the 33 `Console(` sites; reroute each through the bus (`emit_*`) or the
-  app's `write_renderable`.
-- Add a guard/test that fails if a raw `Console().print` runs while the Textual
-  app owns the terminal.
-- **Exit:** no stray output corrupts the TUI in a full session.
+### Phase 4 — Console leak cleanup / output bridging — DONE (core)
+**Goal:** nothing prints behind Textual's back; all output reaches the TUI.
+*KEY FINDING: the dominant issue wasn't 33 stray consoles — it was that the
+legacy global MessageQueue (emit_info/emit_warning + QueueConsole.print, used
+by 16 tool files) was NOT consumed in TUI mode (classic renderers don't start),
+so that output was invisible. FIX: app bridges the legacy queue via
+get_global_queue().add_listener(self._on_legacy_message) -> LegacyCaptureFormatter
+(capture.py, reuses renderers._print_message + _apply_legacy_density) ->
+RichLog; drains the startup buffer; legacy HUMAN_INPUT_REQUEST -> TextInputModal
+-> provide_prompt_response. Also: the mid-turn user-approval flow
+(tools/common._get_user_approval_async_impl) printed a panel + ran arrow_select/
+Prompt.ask (raw stdin) — now gated: in ui_mode==textual it routes through
+bus.request_confirmation(allow_feedback=True) -> ConfirmModal. Most of the 33
+Console() sites are safe (in-memory capture/quiet consoles, or classic-only
+renderers/menus the TUI bypasses). Residual direct-stdout consoles
+(truecolor warning, mcp dashboard, terminal_utils) only fire at startup or
+rarely — low risk, deferred.*
+- **Exit:** legacy + bus output both render in the TUI; approval works as a
+  modal; 673 tool/messaging tests green (no classic regression).
 
 ### Phase 5 — Polish, theming, web, cutover (M)
 **Goal:** make it the default; light up web.
