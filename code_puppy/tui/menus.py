@@ -11,7 +11,7 @@ applies the dismissed result, then registering it in ``MENU_OPENERS``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Dict
+from typing import TYPE_CHECKING, Callable, Dict, Optional
 
 from .screens.base import FilterableListScreen, ListChoice
 
@@ -332,3 +332,37 @@ MENU_OPENERS: Dict[str, Callable[["CooperApp"], None]] = {
     "uc": _open_uc,
     "tutorial": open_onboarding,
 }
+
+
+def _plugin_screen_openers() -> Dict[str, Callable[["CooperApp"], None]]:
+    """Menu openers contributed by plugins via the register_screen hook."""
+    openers: Dict[str, Callable[["CooperApp"], None]] = {}
+    try:
+        from code_puppy.callbacks import on_register_screens
+
+        entries = on_register_screens() or []
+    except Exception:
+        return openers
+    # on_register_screens returns one result per callback, each a list of
+    # dicts -> flatten.
+    for result in entries:
+        result_list = result if isinstance(result, list) else [result]
+        for entry in result_list:
+            if not isinstance(entry, dict):
+                continue
+            opener = entry.get("open")
+            if not callable(opener):
+                continue
+            names = [entry.get("command"), *entry.get("aliases", [])]
+            for name in names:
+                if name:
+                    openers[str(name).lstrip("/").lower()] = opener
+    return openers
+
+
+def get_menu_opener(name: str) -> Optional[Callable[["CooperApp"], None]]:
+    """Resolve a bare menu command to an opener (builtin first, then plugins)."""
+    key = name.lstrip("/").lower()
+    if key in MENU_OPENERS:
+        return MENU_OPENERS[key]
+    return _plugin_screen_openers().get(key)

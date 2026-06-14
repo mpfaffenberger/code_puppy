@@ -70,6 +70,7 @@ and skills (`<CWD>/.code_puppy/skills/`).
 | `register_agents` | Agent catalogue | `() -> list[dict]` with `{"name": str, "class": type}` |
 | `register_model_type` | Custom model type | `() -> list[dict]` with `{"type": str, "handler": callable}` |
 | `register_skills` | Skill catalogue | `() -> list[dict]` with `{"name": str, "skill_md" \| "skill_md_path" \| "frontmatter"+"body"}` |
+| `register_screen` | Textual TUI menu/screen | `() -> list[dict]` with `{"command": str, "open": callable(app)}` (opt. `"aliases": list[str]`). Bare `/command` opens the screen in the Textual UI; no-op in classic. |
 | `load_model_config` | Patch model config | `(*args, **kwargs) -> Any` |
 | `load_models_config` | Inject models | `() -> dict` |
 | `load_model_descriptions` | Inject description overlays | `() -> dict[str, str]` |

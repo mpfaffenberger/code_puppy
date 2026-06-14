@@ -21,7 +21,7 @@
 | 0 Foundations + `ui_mode` flag + `/ui` | **DONE** |
 | 1 Renderer parity (capture bridge) | **DONE** |
 | 2 Chat shell / input / control plane / completions / `!shell` / streaming | **DONE** |
-| 3 Menus as ModalScreens + completers + onboarding | **DONE** (except `register_screen` plugin hook) |
+| 3 Menus + completers + onboarding + `register_screen` hook | **DONE** |
 | 4 Console-leak cleanup / output bridging | **DONE** (core; minor residuals) |
 | 5 Theming / web (`textual-serve`) / perf / cutover | **NOT STARTED** |
 
@@ -37,8 +37,8 @@ argument completion. **First-run onboarding** auto-shows in the TUI (disabled in
 tests via the `CODE_PUPPY_SKIP_TUTORIAL` autouse fixture).
 
 ### What's left
-- **`register_screen` plugin hook** (§8.4) — let plugins contribute Textual
-  screens/widgets. The last Phase 3 item.
+- **Phase 5:** theming, fix `textual-serve` web errors, perf pass, flip default
+  to `textual`, remove `classic`. The main remaining work.
 - **Phase 4 residuals (low-risk):** a few direct-stdout consoles remain but
   only fire at startup or rarely: the truecolor warning, MCP dashboard
   (`mcp_/dashboard.py`), `terminal_utils` warnings. The big vectors are fixed
@@ -354,8 +354,9 @@ until Phase 5 cutover regardless.
 2. **Completion UX** — **port the prompt_toolkit completers faithfully** to a
    Textual dropdown; command palette is a bonus. *(Phase 2)*
 3. **Input widget** — **multiline `TextArea`** (Enter submit / Shift+Enter newline). *(Phase 2)*
-4. **Plugin hooks** — **yes, add `register_screen`** so plugins contribute Textual
-   screens/widgets. *(Phase 3)*
+4. **Plugin hooks** — **DONE**: `register_screen` hook added (callbacks.py
+   `on_register_screens`; menus.py `get_menu_opener` merges plugin openers;
+   documented in AGENTS.md). Plugins return `{"command", "open", "aliases"?}`. *(Phase 3)*
 5. **Web errors** — **fix in this effort, Phase 5**, alongside cutover.
 
 ---
