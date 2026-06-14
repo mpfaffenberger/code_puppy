@@ -46,7 +46,48 @@ def open_model_picker(app: "CooperApp") -> None:
     )
 
 
-# command name (without leading slash) -> opener
+def open_agent_picker(app: "CooperApp") -> None:
+    """Open the agent switcher and apply the chosen agent on dismiss."""
+    from code_puppy.agents.agent_manager import (
+        get_available_agents,
+        get_current_agent_name,
+        set_current_agent,
+    )
+    from code_puppy.messaging import emit_error, emit_success
+
+    current = get_current_agent_name()
+    agents = get_available_agents()  # name -> display name
+    choices = [
+        ListChoice(
+            id=name,
+            label=display,
+            search=f"{name} {display}",
+            active=(name == current),
+        )
+        for name, display in sorted(agents.items(), key=lambda kv: kv[1].lower())
+    ]
+
+    def _apply(agent_id) -> None:
+        if not agent_id or agent_id == current:
+            return
+        try:
+            set_current_agent(agent_id)
+            emit_success(f"Switched to agent: {agent_id}")
+        except Exception as exc:
+            emit_error(f"Failed to switch agent: {exc}")
+
+    app.push_screen(
+        FilterableListScreen(f"Select an agent (current: {current})", choices),
+        _apply,
+    )
+
+
+# command name (without leading slash) -> opener.
+# Aliases that mirror the classic command registry are included so the bare
+# alias also opens the modal (e.g. /a == /agent).
 MENU_OPENERS: Dict[str, Callable[["CooperApp"], None]] = {
     "model": open_model_picker,
+    "agent": open_agent_picker,
+    "a": open_agent_picker,
+    "agents": open_agent_picker,
 }

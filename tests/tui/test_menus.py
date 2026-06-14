@@ -83,6 +83,60 @@ async def test_model_command_applies_selection(monkeypatch):
     assert applied.get("model") == "beta"
 
 
+def _stub_agents(monkeypatch, current="code-puppy"):
+    monkeypatch.setattr(
+        "code_puppy.agents.agent_manager.get_available_agents",
+        lambda: {"code-puppy": "Code Puppy", "helios": "Helios"},
+    )
+    monkeypatch.setattr(
+        "code_puppy.agents.agent_manager.get_current_agent_name",
+        lambda: current,
+    )
+
+
+@pytest.mark.asyncio
+async def test_agent_command_opens_modal(monkeypatch):
+    _stub_agents(monkeypatch)
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.submit_prompt("/agent")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, FilterableListScreen)
+
+
+@pytest.mark.asyncio
+async def test_agent_alias_opens_modal(monkeypatch):
+    _stub_agents(monkeypatch)
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.submit_prompt("/a")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, FilterableListScreen)
+
+
+@pytest.mark.asyncio
+async def test_agent_selection_switches(monkeypatch):
+    _stub_agents(monkeypatch, current="code-puppy")
+    switched = {}
+    monkeypatch.setattr(
+        "code_puppy.agents.agent_manager.set_current_agent",
+        lambda name: switched.setdefault("to", name) or True,
+    )
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.submit_prompt("/agent")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, FilterableListScreen)
+        await pilot.press(*"helios")
+        await pilot.pause(0.1)
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+    assert switched.get("to") == "helios"
+
+
 @pytest.mark.asyncio
 async def test_model_command_with_arg_falls_through(monkeypatch):
     calls = []
