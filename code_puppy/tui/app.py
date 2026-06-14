@@ -95,9 +95,9 @@ class CooperApp(App):
     CSS = """
     Screen { background: $surface; }
     #log {
-        border: round $primary;
+        border: none;
         padding: 0 1;
-        background: $panel;
+        background: $surface;
         height: 1fr;
     }
     /* Each log entry: no extra vertical gap so output reads as one flow. */
@@ -109,7 +109,8 @@ class CooperApp(App):
     }
     #prompt {
         height: 5;
-        border: round $accent;
+        border: none;
+        border-top: solid $accent;
         margin-top: 1;
     }
     #completions {
