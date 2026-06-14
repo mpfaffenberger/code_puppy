@@ -177,8 +177,12 @@ from_catalog; custom path -> FormScreen(name/type/command/args/url/auth) ->
 register_server + persist to MCP_SERVERS_FILE. app._dispatch_command routes
 /mcp install to it. All OTHER /mcp subcommands (list/start/stop/status/logs/
 remove/restart/help) already work in the TUI - they only emit via the bus.
-Remaining: /judges (CRUD), /add-model (wizard), /uc (tool browser), onboarding;
-long-tail completers.*
+Remaining: /uc (tool browser), onboarding; long-tail completers.*
+*WAVE C progress: /judges (CRUD - list->add/edit FormScreen / delete
+ConfirmModal; FormScreen gained 'textarea' kind) + /add_model (manual form
+writing an extra_models.json entry - pragmatic replacement for the 54KB
+models.dev catalog wizard) DONE. Remaining: /uc (bespoke tool browser),
+onboarding wizard, long-tail completers.*
 Build a small reusable kit first (DRY), then port menus in waves.
 - **Kit:** `screens/base.py` with a `FilterableListScreen` (filter Input +
   OptionList + dismiss-with-value), `FormScreen`, `ConfirmScreen`. The model
