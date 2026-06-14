@@ -3,6 +3,7 @@
 import pytest
 
 from code_puppy.tui.app import build_app
+from code_puppy.tui.menus import open_autosave_picker
 from code_puppy.tui.screens.base import FilterableListScreen, ListChoice
 
 
@@ -135,6 +136,65 @@ async def test_agent_selection_switches(monkeypatch):
         await pilot.press("enter")
         await pilot.pause(0.1)
     assert switched.get("to") == "helios"
+
+
+@pytest.mark.asyncio
+async def test_autosave_picker_opens(monkeypatch):
+    monkeypatch.setattr(
+        "code_puppy.session_storage.list_sessions",
+        lambda base: ["sess-a", "sess-b"],
+    )
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        open_autosave_picker(app)
+        await pilot.pause(0.1)
+        assert isinstance(app.screen, FilterableListScreen)
+
+
+@pytest.mark.asyncio
+async def test_autosave_select_loads(monkeypatch):
+    loaded = {}
+    monkeypatch.setattr(
+        "code_puppy.session_storage.list_sessions",
+        lambda base: ["sess-a", "sess-b"],
+    )
+    monkeypatch.setattr(
+        "code_puppy.session_storage.load_session",
+        lambda name, base: ["m1", "m2"],
+    )
+
+    class _Agent:
+        def set_message_history(self, h):
+            loaded["hist"] = h
+
+    monkeypatch.setattr("code_puppy.agents.get_current_agent", lambda: _Agent())
+    monkeypatch.setattr(
+        "code_puppy.config.set_current_autosave_from_session_name",
+        lambda name: loaded.setdefault("name", name),
+    )
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        open_autosave_picker(app)
+        await pilot.pause(0.1)
+        await pilot.press(*"sess-b")
+        await pilot.pause(0.1)
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+    assert loaded.get("name") == "sess-b"
+    assert loaded.get("hist") == ["m1", "m2"]
+
+
+@pytest.mark.asyncio
+async def test_autosave_no_sessions_no_modal(monkeypatch):
+    monkeypatch.setattr("code_puppy.session_storage.list_sessions", lambda base: [])
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        open_autosave_picker(app)
+        await pilot.pause(0.1)
+        assert not isinstance(app.screen, FilterableListScreen)
 
 
 @pytest.mark.asyncio

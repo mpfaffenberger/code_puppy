@@ -322,7 +322,7 @@ class CooperApp(App):
         from code_puppy.command_line.command_handler import handle_command
         from code_puppy.messaging import emit_error
 
-        from .menus import MENU_OPENERS
+        from .menus import MENU_OPENERS, open_autosave_picker
 
         # Bare menu commands (e.g. /model) open a Textual modal instead of the
         # classic prompt_toolkit menu. With args (e.g. /model gpt-x) we fall
@@ -340,7 +340,7 @@ class CooperApp(App):
             emit_error(f"Command error: {e}")
             return True
         if result == "__AUTOSAVE_LOAD__":
-            emit_error("Interactive autosave load isn't available in the TUI yet.")
+            open_autosave_picker(self)
             return True
         return result
 

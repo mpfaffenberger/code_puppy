@@ -82,6 +82,47 @@ def open_agent_picker(app: "CooperApp") -> None:
     )
 
 
+def open_autosave_picker(app: "CooperApp") -> None:
+    """Open a picker over saved autosave sessions; load the chosen one.
+
+    Replaces the classic ``__AUTOSAVE_LOAD__`` interactive picker (which used
+    prompt_toolkit). The post-load history preview is skipped because the
+    classic ``display_resumed_history`` prints to its own console, which would
+    corrupt the Textual screen.
+    """
+    from pathlib import Path
+
+    from code_puppy.agents import get_current_agent
+    from code_puppy.config import (
+        AUTOSAVE_DIR,
+        set_current_autosave_from_session_name,
+    )
+    from code_puppy.messaging import emit_error, emit_success, emit_warning
+    from code_puppy.session_storage import list_sessions, load_session
+
+    base_dir = Path(AUTOSAVE_DIR)
+    sessions = list_sessions(base_dir)
+    if not sessions:
+        emit_warning("No saved autosave sessions found.")
+        return
+
+    choices = [ListChoice(id=name, label=name) for name in sessions]
+
+    def _apply(session_id) -> None:
+        if not session_id:
+            emit_warning("Autosave load cancelled")
+            return
+        try:
+            history = load_session(session_id, base_dir)
+            get_current_agent().set_message_history(history)
+            set_current_autosave_from_session_name(session_id)
+            emit_success(f"Autosave loaded: {session_id} ({len(history)} messages)")
+        except Exception as exc:
+            emit_error(f"Failed to load autosave: {exc}")
+
+    app.push_screen(FilterableListScreen("Load autosave session", choices), _apply)
+
+
 # command name (without leading slash) -> opener.
 # Aliases that mirror the classic command registry are included so the bare
 # alias also opens the modal (e.g. /a == /agent).
