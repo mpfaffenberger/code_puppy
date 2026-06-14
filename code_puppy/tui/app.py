@@ -148,6 +148,7 @@ class CooperApp(App):
         self._md_stream: MarkdownStream | None = None
         self._md_widget: MarkdownWidget | None = None
         self._streamed_this_turn = False
+        self._stream_queue: asyncio.Queue | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -276,14 +277,15 @@ class CooperApp(App):
         # the markdown widget already holds it -- just finalize the stream.
         # Otherwise (non-streaming model) mount it now.
         if isinstance(message, AgentResponseMessage):
-            if self._streamed_this_turn:
-                self._finalize_stream()
-            elif message.is_markdown:
-                # Mount the same widget type the streaming path uses, so the
-                # response renders identically whether or not it streamed.
-                log.mount(MarkdownWidget(message.content))
-            else:
-                self._append_log(Text(message.content))
+            if not self._streamed_this_turn:
+                # Non-streaming model: mount the same widget type the streaming
+                # path uses, so the response renders identically either way.
+                if message.is_markdown:
+                    log.mount(MarkdownWidget(message.content))
+                else:
+                    self._append_log(Text(message.content))
+            # Always stop the per-turn stream consumer (streamed or not).
+            self._finalize_stream()
             return
 
         # Interactive requests: the agent is awaiting a response. Show a modal
@@ -459,6 +461,13 @@ class CooperApp(App):
 
         self._finalize_stream()
         self._streamed_this_turn = False
+        # Fresh queue + consumer for this turn's streamed response. The consumer
+        # mounts the markdown widget (awaited) before any append, so the first
+        # delta is never lost to a mid-mount document reset.
+        self._stream_queue = asyncio.Queue()
+        self.run_worker(
+            self._consume_stream(self._stream_queue), group="stream", exclusive=False
+        )
         self._set_busy(True)
         try:
             agent = get_current_agent()
@@ -590,43 +599,60 @@ class CooperApp(App):
             content = getattr(delta, "content_delta", None)
             if not content:
                 return
-            if self._md_stream is None:
-                # Mount a fresh markdown widget at the bottom of the scrollback
-                # and stream into it in place -- one continuous flow.
-                log = self.query_one("#log", VerticalScroll)
-                widget = MarkdownWidget()
-                self._md_widget = widget
-                log.mount(widget)
-                self._md_stream = MarkdownWidget.get_stream(widget)
+            queue = self._stream_queue
+            if queue is None:
+                return  # no active turn (shouldn't happen)
             self._streamed_this_turn = True
-            # write() appends synchronously to the stream's pending buffer
-            # before its only await, so create_task preserves delta order.
-            asyncio.create_task(self._md_stream.write(content))
+            queue.put_nowait(content)
         except Exception:
             # Streaming is best-effort polish; never break a turn over it.
             pass
 
-    def _finalize_stream(self) -> None:
-        """Stop the live stream, leaving the rendered widget in the scrollback.
+    async def _consume_stream(self, queue: "asyncio.Queue") -> None:
+        """Drain streamed text deltas into a markdown widget, in order.
 
-        The streaming markdown widget is now permanent history -- we only tear
-        down the background stream task and clear the handles so the next turn
-        starts fresh.
+        Lazily mounts the widget on the first delta (awaited, so it's fully
+        mounted before the first append -- otherwise the mount would reset the
+        document and swallow the first chunk). A ``None`` sentinel ends the turn.
         """
-        stream_obj = self._md_stream
-        self._md_stream = None
-        self._md_widget = None
-        if stream_obj is not None:
-            self.run_worker(
-                self._stop_stream(stream_obj),
-                group="stream-stop",
-            )
-
-    async def _stop_stream(self, stream_obj: MarkdownStream) -> None:
+        stream: MarkdownStream | None = None
         try:
-            await stream_obj.stop()
+            while True:
+                content = await queue.get()
+                if content is None:  # end-of-turn sentinel
+                    break
+                if stream is None:
+                    log = self.query_one("#log", VerticalScroll)
+                    widget = MarkdownWidget()
+                    self._md_widget = widget
+                    await log.mount(widget)
+                    stream = MarkdownWidget.get_stream(widget)
+                    self._md_stream = stream
+                await stream.write(content)
         except Exception:
             pass
+        finally:
+            if stream is not None:
+                try:
+                    await stream.stop()
+                except Exception:
+                    pass
+
+    def _finalize_stream(self) -> None:
+        """End the current turn's stream; the rendered widget stays as history.
+
+        Signals the consumer to drain remaining deltas and stop, then clears
+        the per-turn handles so the next turn starts fresh.
+        """
+        queue = self._stream_queue
+        self._stream_queue = None
+        self._md_stream = None
+        self._md_widget = None
+        if queue is not None:
+            try:
+                queue.put_nowait(None)
+            except Exception:
+                pass
 
     def _set_busy(self, busy: bool) -> None:
         """Toggle the working state: disable input + reflect status."""
