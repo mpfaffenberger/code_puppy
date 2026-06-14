@@ -38,6 +38,25 @@ def _open_uc(app: "CooperApp") -> None:
     open_uc(app)
 
 
+def open_onboarding(app: "CooperApp") -> None:
+    """Show the onboarding slide deck; mark complete + optionally pick a model."""
+    from .screens.onboarding import OnboardingScreen
+
+    def _on_done(result) -> None:
+        try:
+            from code_puppy.command_line.onboarding_wizard import (
+                mark_onboarding_complete,
+            )
+
+            mark_onboarding_complete()
+        except Exception:
+            pass
+        if result == "model":
+            open_model_picker(app)
+
+    app.push_screen(OnboardingScreen(), _on_done)
+
+
 def open_model_picker(app: "CooperApp") -> None:
     """Open the model picker and apply the chosen model on dismiss."""
     from code_puppy.command_line.model_picker_completion import (
@@ -311,4 +330,5 @@ MENU_OPENERS: Dict[str, Callable[["CooperApp"], None]] = {
     "judges": _open_judges,
     "add_model": _open_add_model,
     "uc": _open_uc,
+    "tutorial": open_onboarding,
 }

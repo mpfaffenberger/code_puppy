@@ -179,6 +179,20 @@ class CooperApp(App):
         self.query_one("#prompt", PromptArea).focus()
         if self._initial_command:
             self.submit_prompt(self._initial_command)
+        else:
+            # First-run onboarding (the classic flow lives in interactive_mode,
+            # which the TUI bypasses). Safe Textual slide deck instead.
+            try:
+                from code_puppy.command_line.onboarding_wizard import (
+                    should_show_onboarding,
+                )
+
+                if should_show_onboarding():
+                    from .menus import open_onboarding
+
+                    open_onboarding(self)
+            except Exception:
+                pass
 
     def write_renderable(self, renderable: RenderableType) -> None:
         """Mount a renderable into the scrollback."""

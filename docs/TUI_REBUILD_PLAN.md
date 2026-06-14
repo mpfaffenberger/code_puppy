@@ -21,7 +21,7 @@
 | 0 Foundations + `ui_mode` flag + `/ui` | **DONE** |
 | 1 Renderer parity (capture bridge) | **DONE** |
 | 2 Chat shell / input / control plane / completions / `!shell` / streaming | **DONE** |
-| 3 Menus as ModalScreens | **IN PROGRESS** (9 of ~?? ported) |
+| 3 Menus as ModalScreens + completers + onboarding | **DONE** (except `register_screen` plugin hook) |
 | 4 Console-leak cleanup (33 `Console()` sites) | **NOT STARTED** |
 | 5 Theming / web (`textual-serve`) / perf / cutover | **NOT STARTED** |
 
@@ -29,18 +29,22 @@
 Agent turns + live tool output + token streaming · interactive modals
 (input/confirm/select) · Esc cancel · Ctrl+T steer · `/command` + `@path`
 completion · `!shell` passthrough · command palette (Ctrl+P).
-**Menus ported (9):** `/model`, `/agent` (+`/a`,`/agents`), `/set`, `/diff`,
-`/colors`, autosave-load, `/mcp install`, `/judges`, `/add_model`. All other
-`/mcp` subcommands already work (they only emit via the bus).
+**Menus ported (11):** `/model`, `/agent` (+`/a`,`/agents`), `/set`, `/diff`,
+`/colors`, autosave-load, `/mcp install`, `/judges`, `/add_model`, `/uc`,
+`/tutorial` (onboarding). All other `/mcp` subcommands already work (they only
+emit via the bus). **Completers:** `/command`, `@path`, `/model`/`/agent`/`/mcp`
+argument completion. **First-run onboarding** auto-shows in the TUI (disabled in
+tests via the `CODE_PUPPY_SKIP_TUTORIAL` autouse fixture).
 
 ### What's left
-- **Phase 3 remainder:** `/uc` tool browser (bespoke custom screen, not a kit
-  fit) · onboarding wizard · long-tail completers (model-args after `/model `,
-  skills, mcp subcommands, pin commands) · the `register_screen` plugin hook (§8.4).
+- **`register_screen` plugin hook** (§8.4) — let plugins contribute Textual
+  screens/widgets. The last Phase 3 item.
 - **Phase 4:** route the 33 stray `Console()` sites through the bus so nothing
   prints behind Textual's back.
 - **Phase 5:** theming, fix `textual-serve` web errors, perf pass, flip default
-  to `textual`, remove `classic`.
+  to `textual`, remove `classic`, delete this plan's historical §9.
+- **Optional:** more long-tail completers (skills, pin commands); native
+  renderable promotion for hot paths (deferred from Phase 1).
 
 ### Key files / where things live
 - `code_puppy/tui/app.py` — `CooperApp`; `_dispatch_command` does menu
@@ -246,8 +250,13 @@ Remaining: /uc (tool browser), onboarding; long-tail completers.*
 *WAVE C progress: /judges (CRUD - list->add/edit FormScreen / delete
 ConfirmModal; FormScreen gained 'textarea' kind) + /add_model (manual form
 writing an extra_models.json entry - pragmatic replacement for the 54KB
-models.dev catalog wizard) DONE. Remaining: /uc (bespoke tool browser),
-onboarding wizard, long-tail completers.*
+models.dev catalog wizard) DONE. /uc DONE (menu_uc.py: list -> per-tool
+Enable/Disable + View source via screens/source_view.py). Onboarding DONE
+(screens/onboarding.py slide deck; open_onboarding registered for /tutorial +
+auto-shown first-run from app.on_mount when should_show_onboarding(); tests
+gate it via CODE_PUPPY_SKIP_TUTORIAL autouse fixture in tests/tui/conftest.py).
+Long-tail completers DONE (/model, /agent, /mcp args in completion.py).
+PHASE 3 COMPLETE except the register_screen plugin hook (8.4).*
 Build a small reusable kit first (DRY), then port menus in waves.
 - **Kit:** `screens/base.py` with a `FilterableListScreen` (filter Input +
   OptionList + dismiss-with-value), `FormScreen`, `ConfirmScreen`. The model
