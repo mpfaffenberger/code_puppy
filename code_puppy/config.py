@@ -371,6 +371,8 @@ def get_config_keys():
     default_keys.append("goal_max_iterations")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
+    # Add UI mode key (classic prompt_toolkit UI vs new Textual TUI).
+    default_keys.append("ui_mode")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -406,6 +408,63 @@ def reset_value(key: str) -> None:
         del config[DEFAULT_SECTION][key]
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             config.write(f)
+
+
+# --- UI MODE (Textual TUI rollout) -----------------------------------------
+# Layered precedence so the rebuild can be toggled three ways without conflict:
+#   /ui (session)  >  CODE_PUPPY_UI env  >  puppy.cfg ui_mode  >  "classic"
+VALID_UI_MODES = ("classic", "textual")
+
+# Session-only override set by the /ui command. None means "not overridden".
+_SESSION_UI_MODE = None
+
+
+def _normalize_ui_mode(value):
+    """Return a valid UI mode string, or None if the value is unrecognized."""
+    if value is None:
+        return None
+    candidate = str(value).strip().lower()
+    return candidate if candidate in VALID_UI_MODES else None
+
+
+def get_ui_mode() -> str:
+    """Resolve the active UI mode with layered precedence.
+
+    Highest priority first: the in-session /ui override, then the
+    ``CODE_PUPPY_UI`` environment variable, then the persisted ``ui_mode``
+    key in puppy.cfg, finally the default of ``"classic"``. Unknown values
+    at any layer are ignored (we fall through to the next layer).
+    """
+    session = _normalize_ui_mode(_SESSION_UI_MODE)
+    if session is not None:
+        return session
+    env = _normalize_ui_mode(os.environ.get("CODE_PUPPY_UI"))
+    if env is not None:
+        return env
+    cfg = _normalize_ui_mode(get_value("ui_mode"))
+    if cfg is not None:
+        return cfg
+    return "classic"
+
+
+def set_session_ui_mode(mode):
+    """Set the session-only UI override used by /ui. Pass None to clear it.
+
+    Returns the normalized mode that was stored (or None if cleared/invalid).
+    Does NOT persist to disk — that's what set_ui_mode is for.
+    """
+    global _SESSION_UI_MODE
+    _SESSION_UI_MODE = _normalize_ui_mode(mode)
+    return _SESSION_UI_MODE
+
+
+def set_ui_mode(mode: str) -> bool:
+    """Persist the default UI mode to puppy.cfg. Returns True if mode is valid."""
+    normalized = _normalize_ui_mode(mode)
+    if normalized is None:
+        return False
+    set_config_value("ui_mode", normalized)
+    return True
 
 
 # --- MODEL STICKY EXTENSION STARTS HERE ---
