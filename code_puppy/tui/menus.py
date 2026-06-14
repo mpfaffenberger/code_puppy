@@ -38,6 +38,13 @@ def _open_uc(app: "CooperApp") -> None:
     open_uc(app)
 
 
+def _open_tools(app: "CooperApp") -> None:
+    """Show the available-tools catalogue in a responsive modal."""
+    from .screens.tools import ToolsScreen
+
+    app.push_screen(ToolsScreen())
+
+
 def open_onboarding(app: "CooperApp") -> None:
     """Show the onboarding slide deck; mark complete + optionally pick a model."""
     from .screens.onboarding import OnboardingScreen
@@ -331,6 +338,7 @@ MENU_OPENERS: Dict[str, Callable[["CooperApp"], None]] = {
     "add_model": _open_add_model,
     "uc": _open_uc,
     "tutorial": open_onboarding,
+    "tools": _open_tools,
 }
 
 

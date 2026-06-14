@@ -99,6 +99,11 @@ class CooperApp(App):
         padding: 0 1;
         background: $surface;
         height: 1fr;
+        /* Always reserve the scrollbar gutter so the content width is stable
+           whether or not the scrollbar is showing -- otherwise captured Rich
+           output (panels, wide lines) renders too wide and clips on the right
+           the moment a scrollbar appears. */
+        scrollbar-gutter: stable;
     }
     /* Each log entry: no extra vertical gap so output reads as one flow. */
     #log > Static, #log > Markdown {
@@ -275,6 +280,21 @@ class CooperApp(App):
             except Exception:
                 pass
 
+    def _log_width(self) -> int | None:
+        """Usable content width of #log, EXCLUDING the scrollbar gutter.
+
+        ``content_size`` still counts the reserved scrollbar gutter, so
+        captured Rich output rendered at that width clips on the right once a
+        scrollbar appears. ``scrollable_content_region`` is the true drawable
+        width (gutter reserved via ``scrollbar-gutter: stable``).
+        """
+        log = self.query_one("#log", VerticalScroll)
+        return (
+            log.scrollable_content_region.width
+            or log.content_size.width
+            or log.size.width
+        ) or None
+
     def _append_log(self, renderable: RenderableType, *, before=None) -> None:
         """Mount a renderable as a new entry in the scrollback.
 
@@ -325,7 +345,7 @@ class CooperApp(App):
         a plain TextMessage (defensive; shouldn't normally happen).
         """
         log = self.query_one("#log", VerticalScroll)
-        width = (log.content_size.width or log.size.width) or None
+        width = self._log_width()
 
         # The agent's final response. When it streamed live (the common case)
         # the inline markdown widget already holds it -- just finalize. For a
@@ -918,8 +938,7 @@ class CooperApp(App):
         if message.type == MessageType.HUMAN_INPUT_REQUEST:
             self._show_legacy_prompt(message)
             return
-        log = self.query_one("#log", VerticalScroll)
-        width = (log.content_size.width or log.size.width) or None
+        width = self._log_width()
         renderable = self._legacy_formatter.format(message, width=width)
         if renderable is not None:
             # Keep legacy tool output above an actively streaming response.
