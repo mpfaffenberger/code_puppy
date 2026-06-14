@@ -169,8 +169,16 @@ are forms/CRUD/wizards; MCP is a multi-screen wizard cluster.*
 *FormScreen kit DONE: screens/form.py FormScreen + FormField (kinds: text/
 password/select/bool, required-field validation, dismiss(values_dict) or None).
 The reusable multi-field-form building block for the remaining wizard/CRUD
-menus (MCP custom server, judges add/edit, add-model). Next: use it to port
-the MCP cluster (Wave B) + judges/add-model.*
+menus.*
+*WAVE B (MCP) DONE: tui/mcp_install.py ports /mcp install [id] - catalog
+browser (FilterableListScreen over catalog.servers + a custom entry) ->
+per-server FormScreen (custom name + env vars + cmd args) -> install_server_
+from_catalog; custom path -> FormScreen(name/type/command/args/url/auth) ->
+register_server + persist to MCP_SERVERS_FILE. app._dispatch_command routes
+/mcp install to it. All OTHER /mcp subcommands (list/start/stop/status/logs/
+remove/restart/help) already work in the TUI - they only emit via the bus.
+Remaining: /judges (CRUD), /add-model (wizard), /uc (tool browser), onboarding;
+long-tail completers.*
 Build a small reusable kit first (DRY), then port menus in waves.
 - **Kit:** `screens/base.py` with a `FilterableListScreen` (filter Input +
   OptionList + dismiss-with-value), `FormScreen`, `ConfirmScreen`. The model

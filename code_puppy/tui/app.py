@@ -334,6 +334,15 @@ class CooperApp(App):
             opener(self)
             return True
 
+        # /mcp install [id] is interactive (classic uses prompt_toolkit +
+        # blocking prompts). Route it to the Textual install flow. Other /mcp
+        # subcommands only emit via the bus, so they fall through and work.
+        if name == "mcp" and len(parts) >= 2 and parts[1].lower() == "install":
+            from .mcp_install import open_mcp_install
+
+            open_mcp_install(self, parts[2] if len(parts) >= 3 else None)
+            return True
+
         try:
             result = handle_command(command)
         except Exception as e:  # never let a command crash the UI
