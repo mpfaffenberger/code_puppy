@@ -311,10 +311,13 @@ class CooperApp(App):
         the TUI the prompt lives in a separate widget, so without this a
         scrolled-back response has no visible question above it.
         """
+        # Mirror the tool-call banner style ([bold white on <color>] LABEL )
+        # so the user's turn is just as prominent as the agent's tool activity.
         line = Text()
         line.append("\n")  # blank line to separate turns
-        line.append(">>> ", style="bold cyan")
-        line.append(text, style="bold cyan")
+        line.append(" PROMPT ", style="bold white on royal_blue1")
+        line.append(" ")
+        line.append(text, style="bold")
         self._append_log(line)
 
     def submit_prompt(self, text: str) -> None:

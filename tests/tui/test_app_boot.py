@@ -67,8 +67,10 @@ async def test_submit_prompt_runs_agent_and_renders_response(monkeypatch):
                 break
         assert _log_entries(app) > before
         # The submitted prompt is echoed into the scrollback (so a scrolled-back
-        # response still shows its question).
-        assert ">>> do a thing" in app.log_text()
+        # response still shows its question), as a prominent PROMPT banner.
+        echoed = app.log_text()
+        assert "PROMPT" in echoed
+        assert "do a thing" in echoed
         # The agent's history was updated and busy state cleared.
         assert agent.history == []
         assert app._busy is False
