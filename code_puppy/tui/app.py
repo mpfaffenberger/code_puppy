@@ -688,7 +688,8 @@ class CooperApp(App):
         spinner.add_class("visible")
         self._render_spinner()
         if self._spinner_timer is None:
-            self._spinner_timer = self.set_interval(0.12, self._tick_spinner)
+            # 0.05s per frame matches the classic ConsoleSpinner cadence.
+            self._spinner_timer = self.set_interval(0.05, self._tick_spinner)
         else:
             self._spinner_timer.resume()
 
