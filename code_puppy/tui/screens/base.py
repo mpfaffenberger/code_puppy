@@ -15,6 +15,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import ModalScreen
+from rich.text import Text
 from textual.widgets import Input, Label, OptionList
 from textual.widgets.option_list import Option
 
@@ -23,12 +24,17 @@ from code_puppy.list_filtering import query_matches_text
 
 @dataclass
 class ListChoice:
-    """One row in a FilterableListScreen."""
+    """One row in a FilterableListScreen.
+
+    ``style`` is an optional Rich style applied to the label (e.g.
+    ``"on #0b3e0b"`` for a color swatch in a color picker).
+    """
 
     id: str
     label: str
     search: str = ""
     active: bool = False
+    style: str = ""
 
     def __post_init__(self) -> None:
         if not self.search:
@@ -89,7 +95,8 @@ class FilterableListScreen(ModalScreen[Optional[str]]):
             marker = (
                 self._active_marker if choice.active else " " * len(self._active_marker)
             )
-            items.add_option(Option(f"{marker}{choice.label}", id=choice.id))
+            label = Text(f"{marker}{choice.label}", style=choice.style or "")
+            items.add_option(Option(label, id=choice.id))
         if items.option_count:
             items.highlighted = 0
 

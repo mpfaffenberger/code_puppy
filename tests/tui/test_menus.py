@@ -198,6 +198,45 @@ async def test_autosave_no_sessions_no_modal(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_diff_command_opens_color_picker(monkeypatch):
+    monkeypatch.setattr("code_puppy.config.get_diff_addition_color", lambda: "#000000")
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.submit_prompt("/diff")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, FilterableListScreen)
+
+
+@pytest.mark.asyncio
+async def test_diff_two_step_applies_both_colors(monkeypatch):
+    applied = {}
+    monkeypatch.setattr("code_puppy.config.get_diff_addition_color", lambda: "#000000")
+    monkeypatch.setattr("code_puppy.config.get_diff_deletion_color", lambda: "#111111")
+    monkeypatch.setattr(
+        "code_puppy.config.set_diff_addition_color",
+        lambda c: applied.__setitem__("add", c),
+    )
+    monkeypatch.setattr(
+        "code_puppy.config.set_diff_deletion_color",
+        lambda c: applied.__setitem__("del", c),
+    )
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.submit_prompt("/diff")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, FilterableListScreen)
+        await pilot.press("enter")  # choose first addition color
+        await pilot.pause(0.1)
+        assert isinstance(app.screen, FilterableListScreen)
+        await pilot.press("enter")  # choose first deletion color
+        await pilot.pause(0.1)
+    assert "add" in applied and "del" in applied
+    assert applied["add"].startswith("#") and applied["del"].startswith("#")
+
+
+@pytest.mark.asyncio
 async def test_set_command_opens_key_picker():
     app = build_app()
     async with app.run_test() as pilot:
