@@ -174,13 +174,6 @@ class CooperApp(App):
         if logo is not None:
             self.query_one("#log", RichLog).write(logo)
 
-        bus = get_message_bus()
-        bus.emit(
-            TextMessage(
-                level=MessageLevel.SUCCESS,
-                text="cooper is ready. Type a task and press Enter. Ctrl+Q to quit.",
-            )
-        )
         self._renderer.start()
 
         # Bridge the legacy queue: register a listener (the queue's daemon
@@ -202,6 +195,16 @@ class CooperApp(App):
         from code_puppy.startup_banner import emit_interactive_help
 
         emit_interactive_help(textual=True)
+
+        # The "ready" line goes LAST, through the same legacy FIFO queue as the
+        # help above, so it deterministically renders after it. (Emitting it on
+        # the bus instead raced ahead of the legacy messages across threads.)
+        # The green check normally added by the bus SUCCESS path is baked in.
+        from code_puppy.messaging.message_queue import emit_success
+
+        emit_success(
+            "\u2713 cooper is ready. Type a task and press Enter. Ctrl+Q to quit."
+        )
 
         # Live token streaming: append response deltas to the transient preview.
         from code_puppy.callbacks import register_callback
