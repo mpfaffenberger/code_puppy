@@ -122,8 +122,8 @@ class CooperApp(App):
         display: none;
         height: auto;
         max-height: 8;
-        border: round $primary;
-        background: $panel;
+        border: round $accent;
+        background: $surface;
         margin-top: 1;
     }
     #completions.visible { display: block; }
@@ -134,6 +134,13 @@ class CooperApp(App):
         background: $surface;
     }
     #spinner.visible { display: block; }
+    /* Blend the footer into the window background like the response area. The
+       Footer layers several themed backgrounds (key / description / item) --
+       make those transparent so the single $surface fill shows through. */
+    Footer { background: $surface; }
+    Footer FooterKey,
+    Footer FooterKey .footer-key--key,
+    Footer FooterKey .footer-key--description { background: transparent; }
     """
 
     BINDINGS = [
