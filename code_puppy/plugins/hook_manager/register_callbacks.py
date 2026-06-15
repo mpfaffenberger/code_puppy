@@ -221,7 +221,22 @@ def _handle_hooks_command(command: str, name: str) -> Optional[Any]:
 # Register callbacks
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# Textual TUI integration
+# ---------------------------------------------------------------------------
+# The prompt_toolkit hooks menu corrupts the Textual screen, so the TUI opens
+# a native ModalScreen instead. register_screen is consumed only by the TUI;
+# classic mode + the /hooks list|enable|disable|status subcommands are
+# unaffected.
+def _register_hooks_screen():
+    from code_puppy.plugins.hook_manager.hooks_tui import open_hooks
+
+    return [{"command": _COMMAND_NAME, "open": open_hooks, "aliases": list(_ALIASES)}]
+
+
 register_callback("custom_command_help", _hooks_command_help)
 register_callback("custom_command", _handle_hooks_command)
+register_callback("register_screen", _register_hooks_screen)
 
 logger.info("Hook Manager plugin loaded")
