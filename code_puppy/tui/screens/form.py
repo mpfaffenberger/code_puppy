@@ -49,20 +49,27 @@ class FormScreen(ModalScreen[Optional[Dict[str, Any]]]):
     FormScreen { align: center middle; }
     #dialog {
         width: 78;
-        max-height: 28;
+        height: auto;
+        max-height: 90%;
         border: round $accent;
         background: $panel;
         padding: 1 2;
     }
     #title { text-style: bold; color: $accent; margin-bottom: 1; }
+    /* Cap the scrollable field area; the dialog (max-height 90%) keeps slack
+       below it so the title/error/buttons always get their full height and
+       the button labels never clip. */
     #fields { height: auto; max-height: 18; }
     .field-label { color: $text-muted; margin-top: 1; }
     .form-textarea { height: 6; border: round $primary; }
     .bool-row { height: auto; }
     .bool-row Label { width: 1fr; }
     #error { color: $error; margin-top: 1; }
-    #buttons { height: auto; margin-top: 1; align-horizontal: right; }
-    Button { margin-left: 1; }
+    /* Pin the button row height so the labels can't get clipped when the
+       form is tall (auto-height buttons otherwise squish to 1 row). */
+    #buttons { height: 3; margin-top: 1; align-horizontal: right; }
+    #buttons Button { height: 3; margin-left: 1; }
+    #form-hint { width: 1fr; color: $text-muted; padding-top: 1; }
     """
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
@@ -83,6 +90,7 @@ class FormScreen(ModalScreen[Optional[Dict[str, Any]]]):
                     yield from self._compose_field(f)
             yield Label("", id="error")
             with Horizontal(id="buttons"):
+                yield Label("Esc = cancel", id="form-hint")
                 yield Button(self._submit_label, id="submit", variant="primary")
                 yield Button("Cancel", id="cancel")
 
