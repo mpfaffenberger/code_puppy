@@ -271,56 +271,10 @@ def open_diff_picker(app: "CooperApp") -> None:
 
 
 def open_colors_picker(app: "CooperApp") -> None:
-    """Three-step /colors: pick a banner, pick a color (swatches), apply."""
-    from code_puppy.command_line.colors_menu import BANNER_COLORS
-    from code_puppy.config import (
-        DEFAULT_BANNER_COLORS,
-        get_banner_color,
-        set_banner_color,
-    )
-    from code_puppy.messaging import emit_success
+    """Two-panel /colors: banner list + live preview (mirrors classic)."""
+    from .screens.colors_picker import ColorsPickerScreen
 
-    banner_choices = [
-        ListChoice(
-            id=banner,
-            label=banner,
-            search=banner,
-            style=f"on {get_banner_color(banner)}",
-        )
-        for banner in sorted(DEFAULT_BANNER_COLORS.keys())
-    ]
-
-    def _on_banner(banner) -> None:
-        if not banner:
-            return
-        current = get_banner_color(banner)
-        color_choices = [
-            ListChoice(
-                id=name,  # friendly name is unique; rich value may repeat
-                label=name,
-                search=f"{name} {rich}",
-                style=f"on {rich}",
-                active=(rich == current),
-            )
-            for name, rich in BANNER_COLORS.items()
-        ]
-
-        def _on_color(name) -> None:
-            if not name:
-                return
-            rich = BANNER_COLORS.get(name)
-            if rich:
-                set_banner_color(banner, rich)
-                emit_success(f"Set '{banner}' banner color to {name}")
-
-        app.push_screen(
-            FilterableListScreen(f"Color for '{banner}'", color_choices), _on_color
-        )
-
-    app.push_screen(
-        FilterableListScreen("Pick a banner to recolor", banner_choices),
-        _on_banner,
-    )
+    app.push_screen(ColorsPickerScreen())
 
 
 # command name (without leading slash) -> opener.

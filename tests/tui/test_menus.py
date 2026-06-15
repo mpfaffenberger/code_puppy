@@ -6,6 +6,7 @@ from code_puppy.tui.app import build_app
 from code_puppy.tui.menus import open_autosave_picker
 from code_puppy.tui.screens.agent_picker import AgentPickerScreen
 from code_puppy.tui.screens.base import FilterableListScreen, ListChoice
+from code_puppy.tui.screens.colors_picker import ColorsPickerScreen
 from code_puppy.tui.screens.session_picker import SessionPickerScreen
 
 
@@ -214,25 +215,26 @@ async def test_colors_command_opens_banner_picker():
         await pilot.pause()
         app.submit_prompt("/colors")
         await pilot.pause(0.2)
-        assert isinstance(app.screen, FilterableListScreen)
+        assert isinstance(app.screen, ColorsPickerScreen)
 
 
 @pytest.mark.asyncio
-async def test_colors_three_step_applies(monkeypatch):
+async def test_colors_two_panel_applies(monkeypatch):
     applied = {}
     monkeypatch.setattr(
         "code_puppy.config.set_banner_color",
         lambda banner, color: applied.update({"banner": banner, "color": color}),
     )
     app = build_app()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         app.submit_prompt("/colors")
         await pilot.pause(0.2)
-        assert isinstance(app.screen, FilterableListScreen)
+        assert isinstance(app.screen, ColorsPickerScreen)
+        # Filter to 'thinking' so the highlighted row is order-independent.
         await pilot.press(*"thinking")
         await pilot.pause(0.1)
-        await pilot.press("enter")  # choose the banner
+        await pilot.press("enter")  # open swatches for the highlighted banner
         await pilot.pause(0.1)
         assert isinstance(app.screen, FilterableListScreen)
         await pilot.press(*"blue")
@@ -241,6 +243,19 @@ async def test_colors_three_step_applies(monkeypatch):
         await pilot.pause(0.1)
     assert applied.get("banner") == "thinking"
     assert applied.get("color")
+
+
+@pytest.mark.asyncio
+async def test_colors_dismiss_button_closes():
+    app = build_app()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        app.submit_prompt("/colors")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, ColorsPickerScreen)
+        await pilot.click("#dismiss")
+        await pilot.pause(0.2)
+        assert not isinstance(app.screen, ColorsPickerScreen)
 
 
 @pytest.mark.asyncio

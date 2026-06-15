@@ -49,17 +49,22 @@ class FilterableListScreen(ModalScreen[Optional[str]]):
     FilterableListScreen { align: center middle; }
     #dialog {
         width: 78;
-        height: 26;
+        height: auto;
+        max-height: 85%;
         border: round $accent;
         background: $panel;
         padding: 1 2;
     }
     #title { text-style: bold; color: $accent; margin-bottom: 1; }
     #filter { margin-bottom: 1; }
-    #items { height: 1fr; border: round $primary; }
-    #footer { height: auto; margin-top: 1; align-horizontal: right; }
+    /* Cap the list so a long set of options can't grow the dialog past its
+       max-height and squish the footer/Dismiss button off-screen. */
+    #items { height: auto; max-height: 18; border: round $primary; }
+    /* Pin the footer + button height so the Dismiss label/hit-box can't be
+       clipped to zero rows when the list is tall (matches FormScreen). */
+    #footer { height: 3; margin-top: 1; align-horizontal: right; }
     #hint { width: 1fr; color: $text-muted; padding-top: 1; }
-    #dismiss { margin-left: 1; }
+    #dismiss { height: 3; margin-left: 1; min-width: 11; }
     """
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]

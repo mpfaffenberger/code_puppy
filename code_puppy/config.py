@@ -1750,6 +1750,8 @@ DEFAULT_BANNER_COLORS = {
     "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
     # LLM Judge - goal-mode verdict (distinct from agent reasoning)
     "llm_judge": "gold3",  # Gold - judicial authority / gavel
+    # User prompt echo - TUI-only (classic keeps the prompt in scrollback)
+    "prompt": "royal_blue1",  # Royal blue - the user's own turn
 }
 
 

@@ -411,9 +411,12 @@ class CooperApp(App):
         """
         # Mirror the tool-call banner style ([bold white on <color>] LABEL )
         # so the user's turn is just as prominent as the agent's tool activity.
+        from code_puppy.config import get_banner_color
+
+        color = get_banner_color("prompt")
         line = Text()
         line.append("\n")  # blank line to separate turns
-        line.append(" PROMPT ", style="bold white on royal_blue1")
+        line.append(" PROMPT ", style=f"bold white on {color}")
         line.append(" ")
         line.append(text, style="bold")
         self._append_log(line)
