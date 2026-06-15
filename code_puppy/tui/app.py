@@ -62,8 +62,11 @@ class CompletionList(OptionList):
 class PromptArea(TextArea):
     """Multiline prompt. Enter submits; Shift+Enter inserts a newline.
 
-    When the completion dropdown is open, Up/Down navigate it, Tab/Enter
-    accept the highlighted item, and Escape dismisses it.
+    When the completion dropdown is open, Up/Down navigate it, Tab accepts
+    the highlighted item, and Escape dismisses it. Enter accepts a *partial*
+    completion, but SUBMITS when the highlighted item is already fully typed
+    (e.g. a complete ``/model``) -- so bare menu commands open their modal
+    instead of getting stuck in argument completion.
     """
 
     def _on_key(self, event: events.Key) -> None:
@@ -75,8 +78,15 @@ class PromptArea(TextArea):
                     self.app.completion_move(1)
                 elif event.key == "up":
                     self.app.completion_move(-1)
-                elif event.key in ("tab", "enter"):
+                elif event.key == "tab":
                     self.app.accept_completion()
+                elif event.key == "enter":
+                    if self.app.completion_is_exact():
+                        self.app.hide_completions()
+                        self.app.submit_prompt(self.text)
+                        self.text = ""
+                    else:
+                        self.app.accept_completion()
                 else:
                     self.app.hide_completions()
                 return
@@ -904,6 +914,21 @@ class CooperApp(App):
             return
         current = completions.highlighted or 0
         completions.highlighted = max(0, min(count - 1, current + delta))
+
+    def completion_is_exact(self) -> bool:
+        """True if the highlighted completion already equals the text it would
+        replace (e.g. a fully-typed ``/command``). Enter should then submit
+        rather than re-accept (and re-trigger argument completion).
+        """
+        completions = self.query_one("#completions", CompletionList)
+        if self._completion is None or completions.highlighted is None:
+            return False
+        item = self._completion.items[completions.highlighted]
+        prompt = self.query_one("#prompt", PromptArea)
+        row, col = prompt.cursor_location
+        line = str(prompt.document.get_line(row))
+        replaced = line[self._completion.start_col : col]
+        return item.display == replaced
 
     def accept_completion(self) -> None:
         completions = self.query_one("#completions", CompletionList)
