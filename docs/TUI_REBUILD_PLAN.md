@@ -23,12 +23,20 @@
 | 2 Chat shell / input / control plane / completions / `!shell` / streaming | **DONE** |
 | 3 Menus + completers + onboarding + `register_screen` hook | **DONE** |
 | 4 Console-leak cleanup / output bridging | **DONE** (core; minor residuals) |
-| 5 Theming / web (`textual-serve`) / perf / cutover | **NOT STARTED** |
+| 5 Theming / web (`textual-serve`) / perf / cutover | **IN PROGRESS** (web serve DONE) |
 
 ### What works in the TUI now
 Agent turns + live tool output + token streaming · interactive modals
 (input/confirm/select/**question**) · Esc cancel · Ctrl+T steer · `/command` + `@path`
 completion · `!shell` passthrough · command palette (Ctrl+P).
+
+**Web serve (`textual-serve`) DONE:** `code-puppy --serve` (opt. `--host`/`--port`/
+`--public-url`) runs the *same* CooperApp in a browser. `code_puppy/tui/serve.py`
+builds a `textual_serve.server.Server` whose per-session command re-launches
+`python -m code_puppy --tui` (the new `--tui` flag force-enables Textual even
+without a TTY). Serve is intercepted in `main_entry` BEFORE `asyncio.run(main())`
+because `Server.serve()` runs its own blocking aiohttp loop (can't nest). Verified
+live: ws upgrade + ~46KB app render streamed, no errors.
 
 **`ask_user_question` ported (split-panel modal):** the multi-question tool now
 renders as a native `QuestionModal` (`tui/screens/question.py`) instead of its

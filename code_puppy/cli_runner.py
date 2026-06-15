@@ -142,6 +142,20 @@ async def main():
         help="Resume a saved session from a .pkl file (e.g. ~/.code_puppy/contexts/foo.pkl)",
     )
     parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Force the Textual UI (used internally by --serve; works without a TTY)",
+    )
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Serve the Textual UI to a web browser (see also --host/--port)",
+    )
+    parser.add_argument("--host", default="localhost", help=argparse.SUPPRESS)
+    parser.add_argument("--port", type=int, default=8000, help=argparse.SUPPRESS)
+    parser.add_argument("--public-url", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--serve-debug", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
     args = parser.parse_args()
@@ -158,7 +172,9 @@ async def main():
     # via the ui_mode setting / CODE_PUPPY_UI env / /ui command. Defaults off.
     from code_puppy.config import get_ui_mode
 
-    use_textual = get_ui_mode() == "textual" and not args.prompt
+    # --tui forces Textual regardless of the configured ui_mode (the --serve
+    # subprocess relies on this); otherwise honor the resolved ui_mode.
+    use_textual = (args.tui or get_ui_mode() == "textual") and not args.prompt
 
     # Create a shared console for both renderers
     display_console = Console()
@@ -1098,6 +1114,12 @@ def _force_utf8_stdio():
 def main_entry():
     """Entry point for the installed CLI tool."""
     _force_utf8_stdio()
+    # Web serve mode runs a blocking aiohttp loop; it must NOT be nested inside
+    # asyncio.run(main()). Intercept it here and run the server synchronously.
+    if "--serve" in sys.argv:
+        from code_puppy.tui.serve import run_web_server_from_args
+
+        return run_web_server_from_args(sys.argv[1:])
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
