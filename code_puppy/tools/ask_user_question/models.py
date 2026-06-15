@@ -266,7 +266,11 @@ class QuestionAnswer(BaseModel):
     @property
     def is_empty(self) -> bool:
         """Check if no options were selected."""
-        return not self.selected_options and self.other_text is None and self.user_input is None
+        return (
+            not self.selected_options
+            and self.other_text is None
+            and self.user_input is None
+        )
 
 
 class AskUserQuestionOutput(BaseModel):

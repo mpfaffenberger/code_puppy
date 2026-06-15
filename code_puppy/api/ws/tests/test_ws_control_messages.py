@@ -50,10 +50,9 @@ def _load_control_module(
 
     fake_permissions = ModuleType("code_puppy.api.permissions")
     fake_permissions.handle_permission_response = (
-        lambda request_id, approved, session_id=None: permission_calls.append(
-            (request_id, approved, session_id)
+        lambda request_id, approved, session_id=None: (
+            permission_calls.append((request_id, approved, session_id)) or True
         )
-        or True
     )
     monkeypatch.setitem(sys.modules, "code_puppy.api.permissions", fake_permissions)
 

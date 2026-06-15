@@ -23,8 +23,11 @@ from rich.text import Text
 try:
     from code_puppy.callbacks import on_run_shell_command_output
 except ImportError:
+
     async def on_run_shell_command_output(*args, **kwargs):
         return []
+
+
 from code_puppy.config import get_command_timeout_seconds
 from code_puppy.messaging import (  # Structured messaging types
     AgentReasoningMessage,

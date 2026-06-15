@@ -58,7 +58,18 @@ class _FakeBus:
         self.contexts.append(session_id)
 
 
-def _install_bootstrap_deps(monkeypatch, *, session_exists=False, session_metadata=None, session_row=None, active_messages=None, session_manager=None, writes=None, bus=None, init_calls=None):
+def _install_bootstrap_deps(
+    monkeypatch,
+    *,
+    session_exists=False,
+    session_metadata=None,
+    session_row=None,
+    active_messages=None,
+    session_manager=None,
+    writes=None,
+    bus=None,
+    init_calls=None,
+):
     fake_db_pkg = ModuleType("code_puppy.api.db")
     fake_db_pkg.__path__ = []
     fake_queries = ModuleType("code_puppy.api.db.queries")
@@ -90,15 +101,21 @@ def _install_bootstrap_deps(monkeypatch, *, session_exists=False, session_metada
     fake_session_context = ModuleType("code_puppy.api.session_context")
     fake_session_context._validate_session_id = lambda value: value
     fake_session_context.session_manager = session_manager
-    monkeypatch.setitem(sys.modules, "code_puppy.api.session_context", fake_session_context)
+    monkeypatch.setitem(
+        sys.modules, "code_puppy.api.session_context", fake_session_context
+    )
 
     fake_bus_module = ModuleType("code_puppy.messaging.bus")
     fake_bus_module.get_message_bus = lambda: bus
     monkeypatch.setitem(sys.modules, "code_puppy.messaging.bus", fake_bus_module)
 
     fake_command_runner = ModuleType("code_puppy.tools.command_runner")
-    fake_command_runner.init_session_process_tracking = lambda: init_calls.append("init")
-    monkeypatch.setitem(sys.modules, "code_puppy.tools.command_runner", fake_command_runner)
+    fake_command_runner.init_session_process_tracking = lambda: init_calls.append(
+        "init"
+    )
+    monkeypatch.setitem(
+        sys.modules, "code_puppy.tools.command_runner", fake_command_runner
+    )
 
     fake_session_persistence = ModuleType("code_puppy.api.ws.session_persistence")
     fake_session_persistence.build_session_meta_payload = lambda **kwargs: kwargs
@@ -229,7 +246,8 @@ async def test_initialize_ws_session_restores_existing_session(monkeypatch):
     assert sent[0].resumed is True
     assert any(message.type == "session_restored" for message in sent)
     assert any(
-        message.type == "system" and getattr(message, "content", "") == "restored config"
+        message.type == "system"
+        and getattr(message, "content", "") == "restored config"
         for message in sent[1:]
     )
     assert meta[0]["title"] == "Saved title"
