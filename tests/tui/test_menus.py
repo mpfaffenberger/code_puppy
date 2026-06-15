@@ -6,6 +6,7 @@ from code_puppy.tui.app import build_app
 from code_puppy.tui.menus import open_autosave_picker
 from code_puppy.tui.screens.agent_picker import AgentPickerScreen
 from code_puppy.tui.screens.base import FilterableListScreen, ListChoice
+from code_puppy.tui.screens.session_picker import SessionPickerScreen
 
 
 @pytest.mark.asyncio
@@ -145,12 +146,16 @@ async def test_autosave_picker_opens(monkeypatch):
         "code_puppy.session_storage.list_sessions",
         lambda base: ["sess-a", "sess-b"],
     )
+    monkeypatch.setattr(
+        "code_puppy.command_line.autosave_menu._get_session_entries",
+        lambda base: [("sess-a", {}), ("sess-b", {})],
+    )
     app = build_app()
     async with app.run_test() as pilot:
         await pilot.pause()
         open_autosave_picker(app)
         await pilot.pause(0.1)
-        assert isinstance(app.screen, FilterableListScreen)
+        assert isinstance(app.screen, SessionPickerScreen)
 
 
 @pytest.mark.asyncio
@@ -159,6 +164,10 @@ async def test_autosave_select_loads(monkeypatch):
     monkeypatch.setattr(
         "code_puppy.session_storage.list_sessions",
         lambda base: ["sess-a", "sess-b"],
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.autosave_menu._get_session_entries",
+        lambda base: [("sess-a", {}), ("sess-b", {})],
     )
     monkeypatch.setattr(
         "code_puppy.session_storage.load_session",
@@ -195,7 +204,7 @@ async def test_autosave_no_sessions_no_modal(monkeypatch):
         await pilot.pause()
         open_autosave_picker(app)
         await pilot.pause(0.1)
-        assert not isinstance(app.screen, FilterableListScreen)
+        assert not isinstance(app.screen, SessionPickerScreen)
 
 
 @pytest.mark.asyncio

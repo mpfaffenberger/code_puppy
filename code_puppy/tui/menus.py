@@ -141,13 +141,17 @@ def open_autosave_picker(app: "CooperApp") -> None:
     from code_puppy.messaging import emit_error, emit_success, emit_warning
     from code_puppy.session_storage import list_sessions, load_session
 
+    from code_puppy.command_line.autosave_menu import _get_session_entries
+
+    from .screens.session_picker import SessionPickerScreen
+
     base_dir = Path(AUTOSAVE_DIR)
-    sessions = list_sessions(base_dir)
-    if not sessions:
+    if not list_sessions(base_dir):
         emit_warning("No saved autosave sessions found.")
         return
 
-    choices = [ListChoice(id=name, label=name) for name in sessions]
+    # (name, metadata) sorted most-recent-first, matching the classic panel.
+    entries = _get_session_entries(base_dir)
 
     def _apply(session_id) -> None:
         if not session_id:
@@ -161,7 +165,7 @@ def open_autosave_picker(app: "CooperApp") -> None:
         except Exception as exc:
             emit_error(f"Failed to load autosave: {exc}")
 
-    app.push_screen(FilterableListScreen("Load autosave session", choices), _apply)
+    app.push_screen(SessionPickerScreen(entries, base_dir), _apply)
 
 
 def open_set_picker(app: "CooperApp") -> None:
