@@ -21,7 +21,7 @@ from rich.console import Console, RenderableType
 from rich.text import Text
 from textual import events, work
 from textual.app import App, ComposeResult
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Header, OptionList, Rule, Static, TextArea
 from textual.widgets import Markdown as MarkdownWidget
 from textual.widgets.markdown import MarkdownStream
@@ -128,7 +128,7 @@ class CooperApp(App):
         border-top: solid $accent;
         border-bottom: solid $accent;
         /* Inset left/right by 1 to line up with the response area's
-           `padding: 0 1`, and keep a 1-row gap above. */
+           `padding: 0 1`. */
         margin: 1 1 0 1;
     }
     #completions {
@@ -147,21 +147,29 @@ class CooperApp(App):
         background: $surface;
     }
     #spinner.visible { display: block; }
-    /* Blend the footer into the window background like the response area. The
-       Footer layers several themed backgrounds (key / description / item) --
-       make those transparent so the single $surface fill shows through. */
-    Footer { background: $surface; }
+    /* Footer row: native key hints (left) + status line (fills, right-aligned)
+       + a command-palette hint (far right). Blend everything into $surface and
+       make the Footer's layered key backgrounds transparent. */
+    #footerbar { height: 1; background: $surface; }
+    #footerbar Footer { dock: none; width: auto; background: transparent; }
     Footer FooterKey,
     Footer FooterKey .footer-key--key,
     Footer FooterKey .footer-key--description { background: transparent; }
-    /* One-line status bar (model / agent / branch / context%) above the
-       footer, mirroring the classic status line. */
+    /* Status line (model / agent / branch / context%), mirroring classic. */
     #statusbar {
+        width: 1fr;
         height: 1;
         padding: 0 1;
-        background: $surface;
+        background: transparent;
         color: $text-muted;
         text-align: right;
+    }
+    #palettehint {
+        width: auto;
+        height: 1;
+        padding: 0 1;
+        background: transparent;
+        color: $text-muted;
     }
     /* Accent rule above each user PROMPT turn (same color as the input box
        borders) so a new turn stands out in the scrollback. */
@@ -183,10 +191,11 @@ class CooperApp(App):
     """
 
     BINDINGS = [
-        ("ctrl+q", "quit", "Quit"),
-        ("escape", "cancel_turn", "Cancel"),
-        ("ctrl+t", "steer", "Steer"),
-        ("ctrl+x", "interrupt_shell", "Kill shell"),
+        ("ctrl+q", "quit", "quit"),
+        ("escape", "cancel_turn", "cancel"),
+        ("ctrl+t", "steer", "steer"),
+        ("ctrl+r", "history", "history"),
+        ("ctrl+x", "interrupt_shell", "kill shell"),
     ]
     TITLE = "Code Puppy"
     SUB_TITLE = "ready"
@@ -246,8 +255,10 @@ class CooperApp(App):
             yield Static(id="spinner")
             yield CompletionList(id="completions")
             yield PromptArea(id="prompt", soft_wrap=True)
-        yield Static(id="statusbar")
-        yield Footer()
+        with Horizontal(id="footerbar"):
+            yield Footer(show_command_palette=False)
+            yield Static("[dim]\u2502[/dim] [b]^p[/b] palette", id="palettehint")
+            yield Static(id="statusbar")
 
     def on_mount(self) -> None:
         # Importing command_handler registers all built-in slash commands so
@@ -733,6 +744,12 @@ class CooperApp(App):
             prompt_id="__steer__", prompt_text="Steer cooper (mid-turn):"
         )
         self.push_screen(TextInputModal(request), _on_steer)
+
+    def action_history(self) -> None:
+        """Open the prompt-history picker (Ctrl+R, classic reverse-search)."""
+        from .menus import open_history
+
+        open_history(self)
 
     @work(thread=True, group="shell")
     def _run_shell_passthrough(self, command: str) -> None:

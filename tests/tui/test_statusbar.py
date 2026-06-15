@@ -35,6 +35,23 @@ async def test_statusbar_renders_model(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_statusbar_sits_between_footer_keys_and_palette():
+    from textual.widgets import Footer
+
+    app = build_app()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        await pilot.pause(0.2)
+        footer = app.query_one(Footer)
+        sb = app.query_one("#statusbar", Static)
+        palette = app.query_one("#palettehint", Static)
+        # All on the same row: keys | palette hint | status (fills, right).
+        assert footer.region.y == sb.region.y == palette.region.y
+        assert footer.region.right <= palette.region.x
+        assert palette.region.right <= sb.region.x
+
+
+@pytest.mark.asyncio
 async def test_statusbar_degrades_without_optional_fields(monkeypatch):
     # Only a model -> no agent/branch/ctx, but no crash and model still shows.
     monkeypatch.setattr(

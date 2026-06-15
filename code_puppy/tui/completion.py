@@ -36,6 +36,13 @@ class CompletionResult:
     items: List[CompletionItem]
 
 
+# Commands that exist only in the Textual UI (no classic registry entry), so
+# they must be advertised for completion explicitly.
+_TUI_ONLY_COMMANDS = {
+    "history": "Search & reuse a previous prompt",
+}
+
+
 def _command_items(partial: str) -> List[CompletionItem]:
     # Importing command_handler registers all built-in slash commands (it's a
     # cheap no-op after the first import), so completion works regardless of
@@ -44,14 +51,21 @@ def _command_items(partial: str) -> List[CompletionItem]:
     from code_puppy.command_line.command_registry import get_unique_commands
 
     items: List[CompletionItem] = []
+    seen = set()
     for info in sorted(get_unique_commands(), key=lambda c: c.name):
         if info.name.startswith(partial):
+            seen.add(info.name)
             items.append(
                 CompletionItem(
                     insert=f"/{info.name} ",
                     display=f"/{info.name}",
                     meta=info.description or "",
                 )
+            )
+    for name, desc in sorted(_TUI_ONLY_COMMANDS.items()):
+        if name.startswith(partial) and name not in seen:
+            items.append(
+                CompletionItem(insert=f"/{name} ", display=f"/{name}", meta=desc)
             )
     return items
 

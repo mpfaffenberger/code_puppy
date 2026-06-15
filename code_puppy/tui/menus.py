@@ -207,6 +207,33 @@ def open_colors_picker(app: "CooperApp") -> None:
     app.push_screen(ColorsPickerScreen())
 
 
+def open_history(app: "CooperApp") -> None:
+    """Open the prompt-history picker; drop the chosen prompt into the input.
+
+    Same data source as the classic Ctrl+R reverse-search (the command-history
+    file). The TUI has no Ctrl+R, so /history is its searchable replacement.
+    """
+    from textual.widgets import TextArea
+
+    from .screens.history_picker import HistoryScreen, load_prompt_history
+
+    prompts = load_prompt_history()
+    if not prompts:
+        from code_puppy.messaging import emit_info
+
+        emit_info("No prompt history yet.")
+        return
+
+    def _picked(prompt) -> None:
+        if not prompt:
+            return
+        area = app.query_one("#prompt", TextArea)
+        area.text = prompt
+        area.focus()
+
+    app.push_screen(HistoryScreen(prompts), _picked)
+
+
 def open_model_settings(app: "CooperApp") -> None:
     """Two-panel /model_settings: model list + per-model setting editor.
 
@@ -241,6 +268,7 @@ MENU_OPENERS: Dict[str, Callable[["CooperApp"], None]] = {
     "set": open_set_picker,
     "diff": open_diff_picker,
     "colors": open_colors_picker,
+    "history": open_history,
     "model_settings": open_model_settings,
     "ms": open_model_settings,
     "judges": _open_judges,
