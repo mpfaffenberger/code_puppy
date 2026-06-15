@@ -13,10 +13,8 @@ def _install_fake_command_handler(
 ):
     fake_module = ModuleType("code_puppy.command_line.command_handler")
     fake_module.get_commands_help = lambda: help_text
-    fake_module.handle_command = (
-        lambda command: handle_result(command)
-        if callable(handle_result)
-        else handle_result
+    fake_module.handle_command = lambda command: (
+        handle_result(command) if callable(handle_result) else handle_result
     )
     monkeypatch.setitem(
         sys.modules, "code_puppy.command_line.command_handler", fake_module

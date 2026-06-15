@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from code_puppy.api.ws.ws_resume_recovery import sanitize_trailing_incomplete_tool_history
+from code_puppy.api.ws.ws_resume_recovery import (
+    sanitize_trailing_incomplete_tool_history,
+)
 
 
 class ToolCallPart: ...

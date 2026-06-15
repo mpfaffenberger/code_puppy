@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import Any
 
 
-
 @dataclass(slots=True)
 class ResumeRecoveryResult:
     """Outcome of a resume recovery attempt."""
@@ -42,7 +41,9 @@ def _is_incomplete_tool_only_response(message: Any) -> bool:
     return has_tool_call and not has_tool_return and not has_text
 
 
-def sanitize_trailing_incomplete_tool_history(history: list[Any]) -> tuple[list[Any], int]:
+def sanitize_trailing_incomplete_tool_history(
+    history: list[Any],
+) -> tuple[list[Any], int]:
     """Trim incomplete trailing tool-only assistant responses from history."""
     if not history:
         return history, 0

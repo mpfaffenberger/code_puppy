@@ -270,12 +270,19 @@ class TestInjectCodexFields:
         input_items = data["input"]
 
         # rs_1 duplicate should be removed; first occurrence preserved.
-        assert [item.get("id") for item in input_items if isinstance(item, dict) and item.get("id")] == [
+        assert [
+            item.get("id")
+            for item in input_items
+            if isinstance(item, dict) and item.get("id")
+        ] == [
             "rs_1",
-        "rs_2",
+            "rs_2",
         ]
         # non-id items should still be present
-        assert any(isinstance(item, dict) and item.get("type") == "message" for item in input_items)
+        assert any(
+            isinstance(item, dict) and item.get("type") == "message"
+            for item in input_items
+        )
 
     def test_invalid_json_returns_none(self):
         """Test that invalid JSON returns (None, False)."""

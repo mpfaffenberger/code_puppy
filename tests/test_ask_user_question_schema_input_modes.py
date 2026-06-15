@@ -3,7 +3,10 @@
 import pytest
 from pydantic import ValidationError
 
-from code_puppy.tools.ask_user_question.models import AskUserQuestionInput, QuestionAnswer
+from code_puppy.tools.ask_user_question.models import (
+    AskUserQuestionInput,
+    QuestionAnswer,
+)
 from code_puppy.tools.ask_user_question.registration import _QUESTIONS_ARRAY_SCHEMA
 
 
