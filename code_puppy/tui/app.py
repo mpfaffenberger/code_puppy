@@ -193,6 +193,12 @@ class CooperApp(App):
         # cross-channel race).
         self._response_anchor: Static | None = None
         self._streamed_this_turn = False
+        # Lossless accumulation of the streamed response text + the last part
+        # index. The live MarkdownStream renders incrementally and can drop
+        # characters at text-part/tool boundaries; at stream stop we rebuild
+        # the committed widget from this buffer, which never loses anything.
+        self._stream_text = ""
+        self._stream_last_index = None
         # Animated thinking spinner (mirrors the classic ConsoleSpinner).
         self._spinner_timer = None
         self._spinner_frame = 0
@@ -591,6 +597,8 @@ class CooperApp(App):
         # render loop (started in on_mount) mounts deltas + keeps ordering.
         self._finalize_stream()
         self._streamed_this_turn = False
+        self._stream_text = ""
+        self._stream_last_index = None
         self._set_busy(True)
         try:
             agent = get_current_agent()
@@ -732,15 +740,36 @@ class CooperApp(App):
         output (one mounter, no concurrent-mount races).
         """
         try:
-            if event_type != "part_delta":
-                return
-            if event_data.get("delta_type") != "TextPartDelta":
-                return
-            delta = event_data.get("delta")
-            content = getattr(delta, "content_delta", None)
+            index = event_data.get("index")
+            content = None
+            if event_type == "part_start":
+                # A new TextPart may already carry its opening text in the
+                # start event (it is NOT repeated as a delta) -- capture it or
+                # we drop the first characters of the part. Mirrors the classic
+                # handler, which seeds its line buffer from part.content.
+                if event_data.get("part_type") == "TextPart":
+                    part = event_data.get("part")
+                    content = getattr(part, "content", None)
+            elif event_type == "part_delta":
+                if event_data.get("delta_type") != "TextPartDelta":
+                    return
+                delta = event_data.get("delta")
+                content = getattr(delta, "content_delta", None)
             if not content:
                 return
             self._streamed_this_turn = True
+            # The model emits a fresh text part after each tool call; separate
+            # consecutive parts with a blank line so they don't run together.
+            if (
+                self._stream_last_index is not None
+                and index is not None
+                and index != self._stream_last_index
+            ):
+                content = "\n\n" + content
+            self._stream_last_index = index
+            # Accumulate losslessly (plain concat on the event loop -- no race);
+            # the committed widget is rebuilt from this at stop.
+            self._stream_text += content
             self.enqueue_render(("delta", content))
         except Exception:
             # Streaming is best-effort polish; never break a turn over it.
@@ -809,9 +838,19 @@ class CooperApp(App):
                 await self._md_stream.stop()
             except Exception:
                 pass
+        # Rebuild the committed widget from the lossless buffer so the final
+        # history is correct even if incremental rendering dropped characters
+        # at part/tool boundaries (the bug this guards against).
+        if self._md_widget is not None and self._stream_text:
+            try:
+                await self._md_widget.update(self._stream_text)
+            except Exception:
+                pass
         self._md_stream = None
         self._md_widget = None
         self._response_anchor = None
+        self._stream_text = ""
+        self._stream_last_index = None
 
     def _finalize_stream(self) -> None:
         """End the current turn's inline stream (queued, ordered).
