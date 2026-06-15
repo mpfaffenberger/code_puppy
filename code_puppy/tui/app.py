@@ -22,7 +22,7 @@ from rich.text import Text
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
-from textual.widgets import Footer, Header, OptionList, Static, TextArea
+from textual.widgets import Footer, Header, OptionList, Rule, Static, TextArea
 from textual.widgets import Markdown as MarkdownWidget
 from textual.widgets.markdown import MarkdownStream
 from textual.widgets.option_list import Option
@@ -126,7 +126,10 @@ class CooperApp(App):
         height: 5;
         border: none;
         border-top: solid $accent;
-        margin-top: 1;
+        border-bottom: solid $accent;
+        /* Inset left/right by 1 to line up with the response area's
+           `padding: 0 1`, and keep a 1-row gap above. */
+        margin: 1 1 0 1;
     }
     #completions {
         display: none;
@@ -151,6 +154,32 @@ class CooperApp(App):
     Footer FooterKey,
     Footer FooterKey .footer-key--key,
     Footer FooterKey .footer-key--description { background: transparent; }
+    /* One-line status bar (model / agent / branch / context%) above the
+       footer, mirroring the classic status line. */
+    #statusbar {
+        height: 1;
+        padding: 0 1;
+        background: $surface;
+        color: $text-muted;
+        text-align: right;
+    }
+    /* Accent rule above each user PROMPT turn (same color as the input box
+       borders) so a new turn stands out in the scrollback. */
+    /* Dimmed accent timestamp, sitting directly above the rule. */
+    #log > Static.prompt-timestamp {
+        color: $accent;
+        text-opacity: 55%;
+        margin-top: 1;
+        height: 1;
+    }
+    #log > Rule.prompt-rule {
+        color: $accent;
+        /* Left edge flush with the PROMPT banner (x=1, the #log padding);
+           the banner widget has no extra left margin, so neither do we. No
+           top margin -- the timestamp above provides the inter-turn gap. */
+        margin: 0 1 0 0;
+        height: 1;
+    }
     """
 
     BINDINGS = [
@@ -217,6 +246,7 @@ class CooperApp(App):
             yield Static(id="spinner")
             yield CompletionList(id="completions")
             yield PromptArea(id="prompt", soft_wrap=True)
+        yield Static(id="statusbar")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -249,6 +279,11 @@ class CooperApp(App):
         self.run_worker(self._render_loop(), group="render", exclusive=False)
 
         self._renderer.start()
+
+        # Status bar: render once now, then refresh on a timer (model/agent/
+        # branch/context% can change between and during turns).
+        self._refresh_statusbar()
+        self.set_interval(3.0, self._refresh_statusbar)
 
         # Bridge the legacy queue: register a listener (the queue's daemon
         # thread invokes it), then drain anything buffered before we attached.
@@ -419,13 +454,34 @@ class CooperApp(App):
         # so the user's turn is just as prominent as the agent's tool activity.
         from code_puppy.config import get_banner_color
 
+        # A dimmed accent timestamp + horizontal rule above the banner (both in
+        # the input-box border color) make each new turn pop in the scrollback.
+        from datetime import datetime
+
+        log = self.query_one("#log", VerticalScroll)
+        stamp_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        stamp = Static(stamp_text, classes="prompt-timestamp")
+        stamp._cp_renderable = stamp_text
+        log.mount(stamp)
+
+        rule = Rule(line_style="solid")
+        rule.add_class("prompt-rule")
+        rule._cp_renderable = ""  # ignored by log_text()
+        log.mount(rule)
+
         color = get_banner_color("prompt")
         line = Text()
-        line.append("\n")  # blank line to separate turns
         line.append(" PROMPT ", style=f"bold white on {color}")
         line.append(" ")
         line.append(text, style="bold")
         self._append_log(line)
+
+        # Closing rule below the prompt (same accent color + margins) so the
+        # turn header reads as a framed block.
+        bottom_rule = Rule(line_style="solid")
+        bottom_rule.add_class("prompt-rule")
+        bottom_rule._cp_renderable = ""
+        log.mount(bottom_rule)
 
     def _agent_response_banner_text(self) -> Text:
         """Build the 'AGENT RESPONSE' banner renderable (classic colors)."""
@@ -871,6 +927,55 @@ class CooperApp(App):
         else:
             self._stop_spinner()
             prompt.focus()
+            # A turn just finished -> token usage / branch may have changed.
+            self._refresh_statusbar()
+
+    # ------------------------------------------------------------------ #
+    # Status bar (model / agent / git branch / context%)
+    # ------------------------------------------------------------------ #
+    @work(thread=True, group="statusbar", exclusive=True)
+    def _refresh_statusbar(self) -> None:
+        """Rebuild the status bar off the UI thread (git call may block).
+
+        Reuses the statusline plugin's ``build_payload`` (DRY) so the TUI footer
+        shows the same model / agent / branch / context% the classic prompt does.
+        """
+        try:
+            text = self._build_status_text()
+        except Exception:
+            return
+        self.call_from_thread(self._apply_statusbar, text)
+
+    def _apply_statusbar(self, text: Text) -> None:
+        try:
+            bar = self.query_one("#statusbar", Static)
+            bar.update(text)
+            bar._cp_renderable = text  # for tests / introspection
+        except Exception:
+            pass
+
+    def _build_status_text(self) -> Text:
+        from code_puppy.plugins.statusline.payload import build_payload
+
+        payload = build_payload()
+        ctx = payload.get("context_window") or {}
+        t = Text()
+        t.append("\U0001f436 ")  # puppy face
+        indicator = ctx.get("indicator")
+        if indicator:
+            t.append(f"{indicator} ")
+        model = (payload.get("model") or {}).get("display_name") or "(default)"
+        t.append(f"[{model}] ", style="bold cyan")
+        agent = (payload.get("agent") or {}).get("name")
+        if agent:
+            t.append(f"{agent} ", style="bold")
+        branch = (payload.get("workspace") or {}).get("git_branch")
+        if branch:
+            t.append(f"({branch}) ", style="magenta")
+        pct = ctx.get("used_percentage")
+        if pct is not None:
+            t.append(f"{pct}%ctx", style="yellow")
+        return t
 
     # ------------------------------------------------------------------ #
     # Thinking spinner (mirrors the classic ConsoleSpinner)               #

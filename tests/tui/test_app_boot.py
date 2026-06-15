@@ -71,6 +71,20 @@ async def test_submit_prompt_runs_agent_and_renders_response(monkeypatch):
         echoed = app.log_text()
         assert "PROMPT" in echoed
         assert "do a thing" in echoed
+        # A prominent accent rule is mounted above the PROMPT banner.
+        from textual.widgets import Rule
+
+        log = app.query_one("#log", VerticalScroll)
+        assert any("prompt-rule" in r.classes for r in log.query(Rule))
+        # ...with a dimmed timestamp above the rule (YYYY-MM-DD HH:MM:SS).
+        import re
+
+        stamps = list(log.query(".prompt-timestamp"))
+        assert stamps
+        assert re.fullmatch(
+            r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}",
+            str(getattr(stamps[-1], "_cp_renderable", "")),
+        )
         # The agent's history was updated and busy state cleared.
         assert agent.history == []
         assert app._busy is False
