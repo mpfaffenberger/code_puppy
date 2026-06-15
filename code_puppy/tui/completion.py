@@ -43,6 +43,34 @@ _TUI_ONLY_COMMANDS = {
 }
 
 
+def _custom_command_pairs() -> List[tuple]:
+    """(name, description) for plugin custom commands (claude-code-auth,
+    /context, /theme, ...), advertised via the ``custom_command_help`` hook.
+
+    This is the SAME source the classic completer uses, so the two UIs show
+    the same command set.
+    """
+    pairs: List[tuple] = []
+    try:
+        from code_puppy import callbacks, plugins
+
+        # Ensure plugins are loaded so their custom commands are registered.
+        plugins.load_plugin_callbacks()
+        for res in callbacks.on_custom_command_help() or []:
+            if not res:
+                continue
+            # A callback may return a list of (name, desc) tuples or a single
+            # (name, desc) tuple.
+            items = res if isinstance(res, list) else [res]
+            for item in items:
+                if isinstance(item, tuple) and len(item) == 2:
+                    pairs.append((str(item[0]).lstrip("/"), str(item[1])))
+    except Exception:
+        # Never let a misbehaving plugin break completion.
+        pass
+    return pairs
+
+
 def _command_items(partial: str) -> List[CompletionItem]:
     # Importing command_handler registers all built-in slash commands (it's a
     # cheap no-op after the first import), so completion works regardless of
@@ -62,11 +90,21 @@ def _command_items(partial: str) -> List[CompletionItem]:
                     meta=info.description or "",
                 )
             )
-    for name, desc in sorted(_TUI_ONLY_COMMANDS.items()):
+    # Plugin custom commands (same source as the classic UI).
+    for name, desc in _custom_command_pairs():
         if name.startswith(partial) and name not in seen:
+            seen.add(name)
             items.append(
                 CompletionItem(insert=f"/{name} ", display=f"/{name}", meta=desc)
             )
+    for name, desc in sorted(_TUI_ONLY_COMMANDS.items()):
+        if name.startswith(partial) and name not in seen:
+            seen.add(name)
+            items.append(
+                CompletionItem(insert=f"/{name} ", display=f"/{name}", meta=desc)
+            )
+    # Keep the dropdown alphabetical regardless of source ordering.
+    items.sort(key=lambda i: i.display.lower())
     return items
 
 

@@ -21,6 +21,32 @@ def test_no_completion_after_command_space():
     assert compute_completions("/help ", 6) is None
 
 
+def test_custom_plugin_commands_are_completable(monkeypatch):
+    # Plugin custom commands (advertised via custom_command_help) should show
+    # in the dropdown just like in the classic UI.
+    monkeypatch.setattr(
+        "code_puppy.callbacks.on_custom_command_help",
+        lambda: [[("context", "Show context usage"), ("copilot-login", "Login")]],
+    )
+    result = compute_completions("/cont", 5)
+    assert result is not None
+    inserts = [i.insert for i in result.items]
+    assert "/context " in inserts
+
+
+def test_custom_command_not_duplicated_when_also_registered(monkeypatch):
+    # If a plugin advertises a name that's already a registry command, it must
+    # not appear twice.
+    monkeypatch.setattr(
+        "code_puppy.callbacks.on_custom_command_help",
+        lambda: [[("help", "duplicate help")]],
+    )
+    result = compute_completions("/help", 5)
+    assert result is not None
+    helps = [i for i in result.items if i.display == "/help"]
+    assert len(helps) == 1
+
+
 def test_path_completion_matches_repo_file():
     # cwd is the repo root under pytest; pyproject.toml should be found.
     result = compute_completions("look at @pyproj", len("look at @pyproj"))
