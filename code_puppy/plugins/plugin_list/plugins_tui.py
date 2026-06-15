@@ -116,13 +116,19 @@ class PluginsScreen(ModalScreen[None]):
         self._update_details(self._rows[target].name)
 
     def _row_label(self, row: _PluginRow) -> Text:
+        # Mirror the classic menu's +/x markers. Tier lives in the detail
+        # panel; only surface it inline for the rarer user/project plugins so
+        # an all-builtin list stays clean (no repeated [buil] noise).
         label = Text()
-        label.append(f"[{row.tier[:4]}] ", style="dim")
         if row.disabled:
+            label.append("x ", style="bold red")
             label.append(row.name, style="dim strike")
             label.append("  (disabled)", style="bold red")
         else:
+            label.append("+ ", style="bold green")
             label.append(row.name, style="green")
+        if row.tier != "builtin":
+            label.append(f"  ({row.tier})", style="dim")
         return label
 
     # ------------------------------------------------------------------ details

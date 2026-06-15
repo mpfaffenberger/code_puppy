@@ -35,6 +35,39 @@ async def test_plugins_screen_lists_all_tiers():
             assert items.option_count == 3  # alpha, beta, gamma
 
 
+def _row_texts(app):
+    from textual.widgets import OptionList
+
+    items = app.screen.query_one("#items", OptionList)
+    return [items.get_option_at_index(i).prompt for i in range(items.option_count)]
+
+
+@pytest.mark.asyncio
+async def test_plugins_screen_row_labels_use_markers():
+    loaded = {"builtin": ["alpha"], "user": ["mine"], "project": []}
+    app = build_app()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        with (
+            patch("code_puppy.plugins.get_loaded_plugins", return_value=loaded),
+            patch(
+                "code_puppy.plugins.config.get_disabled_plugins",
+                return_value={"alpha"},
+            ),
+        ):
+            app.push_screen(PluginsScreen())
+            await pilot.pause()
+            labels = [t.plain for t in _row_texts(app)]
+    # No truncated tier noise.
+    assert all("[buil" not in label for label in labels)
+    # Disabled builtin row -> 'x' marker, no inline tier tag.
+    assert any(
+        label.startswith("x alpha") and "builtin" not in label for label in labels
+    )
+    # Enabled user row -> '+' marker WITH the (user) tier tag.
+    assert any(label.startswith("+ mine") and "(user)" in label for label in labels)
+
+
 @pytest.mark.asyncio
 async def test_plugins_screen_toggle_calls_config():
     calls = {}
