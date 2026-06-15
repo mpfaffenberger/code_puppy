@@ -38,11 +38,19 @@ class SourceViewScreen(ModalScreen[None]):
         Binding("q", "close", "Close"),
     ]
 
-    def __init__(self, title: str, content: str, error: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        title: str,
+        content: str,
+        error: Optional[str] = None,
+        *,
+        lexer: str = "python",
+    ) -> None:
         super().__init__()
         self._title = title
         self._content = content
         self._error = error
+        self._lexer = lexer
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
@@ -58,7 +66,7 @@ class SourceViewScreen(ModalScreen[None]):
             code.write(
                 Syntax(
                     self._content,
-                    "python",
+                    self._lexer,
                     line_numbers=True,
                     word_wrap=False,
                 )
