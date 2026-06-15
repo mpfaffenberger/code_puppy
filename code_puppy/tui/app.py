@@ -85,8 +85,11 @@ class PromptArea(TextArea):
                         self.app.hide_completions()
                         self.app.submit_prompt(self.text)
                         self.text = ""
-                    else:
-                        self.app.accept_completion()
+                    elif self.app.accept_completion(submit_if_terminal=True):
+                        # Accepted a terminal command and ran it in one go.
+                        self.text = ""
+                    # else: accepted a partial/argument completion; stay put
+                    # so the user can keep typing the next token.
                 else:
                     self.app.hide_completions()
                 return
@@ -1094,11 +1097,26 @@ class CooperApp(App):
         replaced = line[self._completion.start_col : col]
         return item.display == replaced
 
-    def accept_completion(self) -> None:
+    def accept_completion(self, submit_if_terminal: bool = False) -> bool:
+        """Insert the highlighted completion into the prompt.
+
+        When ``submit_if_terminal`` is set and the accepted item completes a
+        *command name* that has nothing left to complete (no argument
+        completions follow), the prompt is submitted immediately -- so menu
+        commands like ``/help`` or ``/diff`` open on a single Enter instead of
+        requiring a second one (Enter-completes-then-Enter-runs). Commands
+        that take argument completions (``/model``, ``/agent``, ``/mcp``)
+        leave the dropdown open so the user can pick an argument.
+
+        Returns True if the prompt was submitted, False otherwise.
+        """
         completions = self.query_one("#completions", CompletionList)
         if self._completion is None or completions.highlighted is None:
-            return
+            return False
         item = self._completion.items[completions.highlighted]
+        # A command-name completion inserts "/<name> "; argument/path
+        # completions don't start with a slash.
+        is_command = item.insert.startswith("/")
         prompt = self.query_one("#prompt", PromptArea)
         row, _ = prompt.cursor_location
         prompt.replace(
@@ -1109,6 +1127,18 @@ class CooperApp(App):
         prompt.move_cursor((row, self._completion.start_col + len(item.insert)))
         self.hide_completions()
         prompt.focus()
+
+        if submit_if_terminal and is_command:
+            # Did completing the command surface argument completions? If so,
+            # keep the dropdown open and let the user pick one. Otherwise it's
+            # a terminal command -> run it now (single-Enter menu open).
+            self._refresh_completions()
+            if not self.completion_visible():
+                text = prompt.text
+                prompt.text = ""
+                self.submit_prompt(text)
+                return True
+        return False
 
     def hide_completions(self) -> None:
         self._completion = None

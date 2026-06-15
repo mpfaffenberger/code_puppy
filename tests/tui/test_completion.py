@@ -123,3 +123,54 @@ async def test_escape_dismisses_dropdown():
 
         app.hide_completions()
         assert not app.completion_visible()
+
+
+@pytest.mark.asyncio
+async def test_partial_menu_command_runs_on_single_enter(monkeypatch):
+    """Typing a few letters of a no-arg menu command + Enter should open it in
+    one keystroke (not complete-then-require-a-second-Enter)."""
+    from code_puppy.tui.screens.diff_picker import DiffPickerScreen
+
+    monkeypatch.setattr("code_puppy.config.get_diff_addition_color", lambda: "#000000")
+    app = build_app()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        prompt = app.query_one("#prompt", PromptArea)
+        prompt.text = "/dif"
+        prompt.move_cursor((0, 4))
+        app._refresh_completions()
+        await pilot.pause(0.05)
+        assert app.completion_visible()
+
+        # One Enter: accept /diff AND open its modal.
+        submitted = app.accept_completion(submit_if_terminal=True)
+        await pilot.pause(0.1)
+        assert submitted is True
+        assert prompt.text == ""
+        assert isinstance(app.screen, DiffPickerScreen)
+
+
+@pytest.mark.asyncio
+async def test_partial_arg_command_does_not_autorun_on_enter(monkeypatch):
+    """Commands with argument completions (e.g. /model) should complete the
+    name and surface argument completions instead of auto-running."""
+    monkeypatch.setattr(
+        "code_puppy.command_line.model_picker_completion.load_model_names",
+        lambda: ["alpha-1", "beta-2"],
+    )
+    app = build_app()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        prompt = app.query_one("#prompt", PromptArea)
+        prompt.text = "/mod"
+        prompt.move_cursor((0, 4))
+        app._refresh_completions()
+        await pilot.pause(0.05)
+        assert app.completion_visible()
+
+        submitted = app.accept_completion(submit_if_terminal=True)
+        await pilot.pause(0.05)
+        # Did NOT submit; completed to "/model " and shows model-name args.
+        assert submitted is False
+        assert prompt.text.startswith("/model ")
+        assert app.completion_visible()
