@@ -4,6 +4,7 @@ import pytest
 
 from code_puppy.tui.app import build_app
 from code_puppy.tui.menus import open_autosave_picker
+from code_puppy.tui.screens.agent_picker import AgentPickerScreen
 from code_puppy.tui.screens.base import FilterableListScreen, ListChoice
 
 
@@ -103,7 +104,7 @@ async def test_agent_command_opens_modal(monkeypatch):
         await pilot.pause()
         app.submit_prompt("/agent")
         await pilot.pause(0.2)
-        assert isinstance(app.screen, FilterableListScreen)
+        assert isinstance(app.screen, AgentPickerScreen)
 
 
 @pytest.mark.asyncio
@@ -114,7 +115,7 @@ async def test_agent_alias_opens_modal(monkeypatch):
         await pilot.pause()
         app.submit_prompt("/a")
         await pilot.pause(0.2)
-        assert isinstance(app.screen, FilterableListScreen)
+        assert isinstance(app.screen, AgentPickerScreen)
 
 
 @pytest.mark.asyncio
@@ -130,7 +131,7 @@ async def test_agent_selection_switches(monkeypatch):
         await pilot.pause()
         app.submit_prompt("/agent")
         await pilot.pause(0.2)
-        assert isinstance(app.screen, FilterableListScreen)
+        assert isinstance(app.screen, AgentPickerScreen)
         await pilot.press(*"helios")
         await pilot.pause(0.1)
         await pilot.press("enter")

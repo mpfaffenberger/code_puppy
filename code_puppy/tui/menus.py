@@ -92,7 +92,8 @@ def open_model_picker(app: "CooperApp") -> None:
 
 
 def open_agent_picker(app: "CooperApp") -> None:
-    """Open the agent switcher and apply the chosen agent on dismiss."""
+    """Open the two-panel agent switcher and apply the chosen agent on dismiss."""
+    from code_puppy.agents import get_agent_descriptions
     from code_puppy.agents.agent_manager import (
         get_available_agents,
         get_current_agent_name,
@@ -100,15 +101,13 @@ def open_agent_picker(app: "CooperApp") -> None:
     )
     from code_puppy.messaging import emit_error, emit_success
 
+    from .screens.agent_picker import AgentPickerScreen
+
     current = get_current_agent_name()
     agents = get_available_agents()  # name -> display name
-    choices = [
-        ListChoice(
-            id=name,
-            label=display,
-            search=f"{name} {display}",
-            active=(name == current),
-        )
+    descriptions = get_agent_descriptions()
+    entries = [
+        (name, display, descriptions.get(name, "No description available"))
         for name, display in sorted(agents.items(), key=lambda kv: kv[1].lower())
     ]
 
@@ -121,10 +120,7 @@ def open_agent_picker(app: "CooperApp") -> None:
         except Exception as exc:
             emit_error(f"Failed to switch agent: {exc}")
 
-    app.push_screen(
-        FilterableListScreen(f"Select an agent (current: {current})", choices),
-        _apply,
-    )
+    app.push_screen(AgentPickerScreen(entries, current), _apply)
 
 
 def open_autosave_picker(app: "CooperApp") -> None:
