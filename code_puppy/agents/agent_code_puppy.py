@@ -25,6 +25,7 @@ class CodePuppyAgent(BaseAgent):
         return [
             "list_agents",
             "invoke_agent",
+            "invoke_agents",
             "list_files",
             "read_file",
             "grep",
