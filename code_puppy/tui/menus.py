@@ -217,57 +217,10 @@ def open_set_picker(app: "CooperApp") -> None:
 
 
 def open_diff_picker(app: "CooperApp") -> None:
-    """Two-step /diff: pick the addition color, then the deletion color.
+    """Two-panel /diff: addition/deletion menu + live preview (mirrors classic)."""
+    from .screens.diff_picker import DiffPickerScreen
 
-    Rows render the actual color as a swatch. Skips the classic live-preview
-    pane but applies through the real setters (values normalize to hex).
-    """
-    from code_puppy.command_line.diff_menu import ADDITION_COLORS, DELETION_COLORS
-    from code_puppy.config import (
-        get_diff_addition_color,
-        get_diff_deletion_color,
-        set_diff_addition_color,
-        set_diff_deletion_color,
-    )
-    from code_puppy.messaging import emit_success
-
-    cur_add = get_diff_addition_color()
-    add_choices = [
-        ListChoice(
-            id=hex_value,
-            label=name,
-            search=name,
-            style=f"on {hex_value}",
-            active=(hex_value.lower() == cur_add.lower()),
-        )
-        for name, hex_value in ADDITION_COLORS.items()
-    ]
-
-    def _on_add(add_hex) -> None:
-        if add_hex:
-            set_diff_addition_color(add_hex)
-        cur_del = get_diff_deletion_color()
-        del_choices = [
-            ListChoice(
-                id=hex_value,
-                label=name,
-                search=name,
-                style=f"on {hex_value}",
-                active=(hex_value.lower() == cur_del.lower()),
-            )
-            for name, hex_value in DELETION_COLORS.items()
-        ]
-
-        def _on_del(del_hex) -> None:
-            if del_hex:
-                set_diff_deletion_color(del_hex)
-            emit_success("Diff colors updated.")
-
-        app.push_screen(
-            FilterableListScreen("Diff deletion color", del_choices), _on_del
-        )
-
-    app.push_screen(FilterableListScreen("Diff addition color", add_choices), _on_add)
+    app.push_screen(DiffPickerScreen())
 
 
 def open_colors_picker(app: "CooperApp") -> None:
