@@ -12,6 +12,7 @@ from code_puppy.tui.screens.model_settings import (
     ModelSettingDetailScreen,
     ModelSettingsScreen,
 )
+from code_puppy.tui.screens.set_picker import SetPickerScreen
 from code_puppy.tui.screens.session_picker import SessionPickerScreen
 
 
@@ -391,44 +392,54 @@ async def test_model_settings_edits_numeric_setting(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_set_command_opens_key_picker():
+async def test_set_command_opens_picker():
     app = build_app()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         app.submit_prompt("/set")
         await pilot.pause(0.2)
-        assert isinstance(app.screen, FilterableListScreen)
+        assert isinstance(app.screen, SetPickerScreen)
 
 
 @pytest.mark.asyncio
-async def test_set_flow_applies_value(monkeypatch):
+async def test_set_dismiss_button_closes():
+    app = build_app()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        app.submit_prompt("/set")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, SetPickerScreen)
+        await pilot.click("#dismiss")
+        await pilot.pause(0.2)
+        assert not isinstance(app.screen, SetPickerScreen)
+
+
+@pytest.mark.asyncio
+async def test_set_flow_applies_bool_value(monkeypatch):
     from types import SimpleNamespace
-
-    from textual.widgets import Input
-
-    from code_puppy.tui.screens.interactive import TextInputModal
 
     applied = {}
     monkeypatch.setattr(
         "code_puppy.command_line.config_apply.apply_setting",
         lambda key, value, reload_agent=True: (
             applied.update({"key": key, "value": value})
-            or SimpleNamespace(ok=True, error=None)
+            or SimpleNamespace(ok=True, error=None, warning=None)
         ),
     )
     app = build_app()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         app.submit_prompt("/set")
         await pilot.pause(0.2)
+        assert isinstance(app.screen, SetPickerScreen)
+        await pilot.press(*"yolo_mode")  # filter to the YOLO Mode bool setting
+        await pilot.pause(0.1)
+        await pilot.press("enter")  # edit -> bool list picker
+        await pilot.pause(0.1)
         assert isinstance(app.screen, FilterableListScreen)
-        await pilot.press(*"yolo_mode")
+        await pilot.press(*"true")
         await pilot.pause(0.1)
-        await pilot.press("enter")  # choose the key
-        await pilot.pause(0.1)
-        assert isinstance(app.screen, TextInputModal)
-        app.screen.query_one("#value", Input).value = "true"
-        await pilot.press("enter")  # submit the value
+        await pilot.press("enter")  # choose 'true'
         await pilot.pause(0.1)
     assert applied.get("key") == "yolo_mode"
     assert applied.get("value") == "true"

@@ -33,9 +33,10 @@ def _open_add_model(app: "CooperApp") -> None:
 
 
 def _open_uc(app: "CooperApp") -> None:
-    from .menu_uc import open_uc
+    """Two-panel /uc: UC tool list + live Tool Details preview."""
+    from .screens.uc_tools import UCToolsScreen
 
-    open_uc(app)
+    app.push_screen(UCToolsScreen())
 
 
 def _open_tools(app: "CooperApp") -> None:
@@ -169,51 +170,27 @@ def open_autosave_picker(app: "CooperApp") -> None:
 
 
 def open_set_picker(app: "CooperApp") -> None:
-    """Two-step /set: pick a config key, then edit its value.
+    """Two-panel /set: category-grouped settings list + live Setting Details.
 
-    Applies through the validated ``apply_setting`` path (same as
-    ``/set key value``), not a raw config write.
+    Edits route through the validated ``apply_setting`` path (same as
+    ``/set key value``); the active agent is reloaded once on dismiss if
+    anything changed (matches the classic picker's deferred-reload behavior).
     """
-    from code_puppy.config import get_config_keys, get_value
-    from code_puppy.messaging import UserInputRequest
+    from .screens.set_picker import SetPickerScreen
 
-    from .screens.interactive import TextInputModal
-
-    keys = sorted(get_config_keys())
-    choices = [
-        ListChoice(
-            id=key,
-            label=f"{key} = {get_value(key) if get_value(key) is not None else '(unset)'}",
-            search=key,
-        )
-        for key in keys
-    ]
-
-    def _on_key(key) -> None:
-        if not key:
+    def _done(changed) -> None:
+        if not changed:
             return
-        current = get_value(key) or ""
-        request = UserInputRequest(
-            prompt_id="__set__",
-            prompt_text=f"Set {key}:",
-            default_value=current,
-        )
+        from code_puppy.agents import get_current_agent
+        from code_puppy.messaging import emit_info, emit_warning
 
-        def _on_value(value) -> None:
-            if value is None:  # cancelled
-                return
-            from code_puppy.command_line.config_apply import apply_setting
-            from code_puppy.messaging import emit_error, emit_success
+        try:
+            get_current_agent().reload_code_generation_agent()
+            emit_info("Active agent reloaded")
+        except Exception as exc:
+            emit_warning(f"Agent reload failed: {exc}")
 
-            result = apply_setting(key, value, reload_agent=True)
-            if result.ok:
-                emit_success(f"Set {key} = {value}")
-            else:
-                emit_error(result.error or "Failed to apply setting.")
-
-        app.push_screen(TextInputModal(request, prefill=True), _on_value)
-
-    app.push_screen(FilterableListScreen("Settings (/set)", choices), _on_key)
+    app.push_screen(SetPickerScreen(), _done)
 
 
 def open_diff_picker(app: "CooperApp") -> None:

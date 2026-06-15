@@ -268,8 +268,9 @@ Remaining: /uc (tool browser), onboarding; long-tail completers.*
 *WAVE C progress: /judges (CRUD - list->add/edit FormScreen / delete
 ConfirmModal; FormScreen gained 'textarea' kind) + /add_model (manual form
 writing an extra_models.json entry - pragmatic replacement for the 54KB
-models.dev catalog wizard) DONE. /uc DONE (menu_uc.py: list -> per-tool
-Enable/Disable + View source via screens/source_view.py). Onboarding DONE
+models.dev catalog wizard) DONE. /uc DONE (later upgraded to the two-panel
+screens/uc_tools.py: tool list + live Tool Details preview, Enter=view source,
+e=toggle, d=delete; replaces the old flat menu_uc.py). Onboarding DONE
 (screens/onboarding.py slide deck; open_onboarding registered for /tutorial +
 auto-shown first-run from app.on_mount when should_show_onboarding(); tests
 gate it via CODE_PUPPY_SKIP_TUTORIAL autouse fixture in tests/tui/conftest.py).
