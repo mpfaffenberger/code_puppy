@@ -43,9 +43,9 @@ question headers/tabs (check-marked on answered), right panel = current question
 (radio for single-select, `[x]` for multi-select) + free-form "Other" + focused
 option description. Esc/Cancel always replies (cancelled) so the agent can't
 hang. Tests: `tests/tui/test_question_modal.py` + `test_question_bridge.py`.
-**Menus ported (11):** `/model`, `/agent` (+`/a`,`/agents`), `/set`, `/diff`,
-`/colors`, autosave-load, `/mcp install`, `/judges`, `/add_model`, `/uc`,
-`/tutorial` (onboarding). All other `/mcp` subcommands already work (they only
+**Menus ported (12):** `/model`, `/agent` (+`/a`,`/agents`), `/set`, `/diff`,
+`/colors`, `/model_settings` (+`/ms`), autosave-load, `/mcp install`, `/judges`,
+`/add_model`, `/uc`, `/tutorial` (onboarding). All other `/mcp` subcommands already work (they only
 emit via the bus). **Completers:** `/command`, `@path`, `/model`/`/agent`/`/mcp`
 argument completion. **First-run onboarding** auto-shows in the TUI (disabled in
 tests via the `CODE_PUPPY_SKIP_TUTORIAL` autouse fixture).

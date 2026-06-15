@@ -230,6 +230,29 @@ def open_colors_picker(app: "CooperApp") -> None:
     app.push_screen(ColorsPickerScreen())
 
 
+def open_model_settings(app: "CooperApp") -> None:
+    """Two-panel /model_settings: model list + per-model setting editor.
+
+    Reloads the active agent on dismiss when anything changed, so updated
+    settings take effect immediately (matches the classic command).
+    """
+    from .screens.model_settings import ModelSettingsScreen
+
+    def _done(changed) -> None:
+        if not changed:
+            return
+        from code_puppy.agents import get_current_agent
+        from code_puppy.messaging import emit_info, emit_warning
+
+        try:
+            get_current_agent().reload_code_generation_agent()
+            emit_info("Active agent reloaded")
+        except Exception as exc:
+            emit_warning(f"Agent reload failed: {exc}")
+
+    app.push_screen(ModelSettingsScreen(), _done)
+
+
 # command name (without leading slash) -> opener.
 # Aliases that mirror the classic command registry are included so the bare
 # alias also opens the modal (e.g. /a == /agent).
@@ -241,6 +264,8 @@ MENU_OPENERS: Dict[str, Callable[["CooperApp"], None]] = {
     "set": open_set_picker,
     "diff": open_diff_picker,
     "colors": open_colors_picker,
+    "model_settings": open_model_settings,
+    "ms": open_model_settings,
     "judges": _open_judges,
     "add_model": _open_add_model,
     "uc": _open_uc,

@@ -8,6 +8,10 @@ from code_puppy.tui.screens.agent_picker import AgentPickerScreen
 from code_puppy.tui.screens.base import FilterableListScreen, ListChoice
 from code_puppy.tui.screens.colors_picker import ColorsPickerScreen
 from code_puppy.tui.screens.diff_picker import DiffPickerScreen
+from code_puppy.tui.screens.model_settings import (
+    ModelSettingDetailScreen,
+    ModelSettingsScreen,
+)
 from code_puppy.tui.screens.session_picker import SessionPickerScreen
 
 
@@ -319,6 +323,71 @@ async def test_diff_dismiss_button_closes():
         await pilot.click("#dismiss")
         await pilot.pause(0.2)
         assert not isinstance(app.screen, DiffPickerScreen)
+
+
+@pytest.mark.asyncio
+async def test_model_settings_command_opens_picker():
+    app = build_app()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        app.submit_prompt("/model_settings")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, ModelSettingsScreen)
+
+
+@pytest.mark.asyncio
+async def test_model_settings_alias_ms_opens_picker():
+    app = build_app()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        app.submit_prompt("/ms")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, ModelSettingsScreen)
+
+
+@pytest.mark.asyncio
+async def test_model_settings_dismiss_button_closes():
+    app = build_app()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        app.submit_prompt("/model_settings")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, ModelSettingsScreen)
+        await pilot.click("#dismiss")
+        await pilot.pause(0.2)
+        assert not isinstance(app.screen, ModelSettingsScreen)
+
+
+@pytest.mark.asyncio
+async def test_model_settings_edits_numeric_setting(monkeypatch):
+    captured = {}
+    mod = "code_puppy.tui.screens.model_settings"
+    # Deterministic single-model world where only temperature is configurable.
+    monkeypatch.setattr(f"{mod}._load_all_model_names", lambda: ["test-model"])
+    monkeypatch.setattr(f"{mod}.get_global_model_name", lambda: "test-model")
+    monkeypatch.setattr(
+        f"{mod}.model_supports_setting", lambda m, s: s == "temperature"
+    )
+    monkeypatch.setattr(f"{mod}._get_model_display_settings", lambda m: {})
+    monkeypatch.setattr(
+        f"{mod}.set_model_setting",
+        lambda m, s, v: captured.update({"model": m, "setting": s, "value": v}),
+    )
+    app = build_app()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        app.submit_prompt("/model_settings")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, ModelSettingsScreen)
+        await pilot.press("enter")  # configure highlighted model
+        await pilot.pause(0.1)
+        assert isinstance(app.screen, ModelSettingDetailScreen)
+        await pilot.press("enter")  # edit highlighted (temperature -> numeric)
+        await pilot.pause(0.1)
+        await pilot.press(*"0.5")
+        await pilot.press("enter")  # submit the value
+        await pilot.pause(0.1)
+    assert captured == {"model": "test-model", "setting": "temperature", "value": 0.5}
 
 
 @pytest.mark.asyncio
