@@ -51,6 +51,36 @@ from code_puppy.version_checker import default_version_mismatch_behavior
 plugins.load_plugin_callbacks()
 
 
+def _render_turn_exception(exc: Exception) -> None:
+    """Render a turn-level exception without ever taking down the REPL.
+
+    Transient model/connection failures (a dropped socket, a VPN/WiFi blip, a
+    provider rate limit) are environment hiccups, not Code Puppy bugs. They get
+    a friendly one-liner instead of a 60-line traceback, because a wall of
+    stack frames makes a recoverable blip look fatal. Genuine errors still get
+    the full traceback so they stay debuggable.
+
+    The transient/not-transient decision reuses the same classifier that drives
+    streaming auto-retries, so the two stay in lock-step by construction.
+    """
+    from code_puppy.agents.base_agent import should_retry_streaming_exception
+
+    if should_retry_streaming_exception(exc):
+        from code_puppy.messaging import emit_error
+
+        emit_error(
+            f"\U0001f50c The model connection hit a transient error "
+            f"({type(exc).__name__}) and didn't recover after auto-retries. "
+            "This is almost always a VPN/WiFi/provider blip \u2014 just re-run "
+            "your last prompt. Your session history is intact."
+        )
+        return
+
+    from code_puppy.messaging.queue_console import get_queue_console
+
+    get_queue_console().print_exception()
+
+
 def _resume_session_from_path(raw_path: str) -> None:
     """Restore agent message history from a saved .pkl session file.
 
@@ -853,9 +883,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             except Exception as e:
                 turn_error = e
-                from code_puppy.messaging.queue_console import get_queue_console
-
-                get_queue_console().print_exception()
+                _render_turn_exception(e)
 
             # Auto-save session if enabled (moved outside the try block to avoid being swallowed)
             from code_puppy.config import auto_save_session_if_enabled
@@ -947,9 +975,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     break
                 except Exception as e:
                     continuation_error = e
-                    from code_puppy.messaging.queue_console import get_queue_console
-
-                    get_queue_console().print_exception()
+                    _render_turn_exception(e)
                     auto_save_session_if_enabled()
 
             # Re-disable Ctrl+C if needed (uvx mode) - must be done after

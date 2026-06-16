@@ -87,6 +87,54 @@ class TestStreamingRetry:
         assert factory.await_count == 2
 
     @pytest.mark.asyncio
+    async def test_retries_on_httpx_read_error(self):
+        # Regression: a dropped socket mid-stream (e.g. VPN/WiFi blip) raises
+        # httpx.ReadError. It used to escape the retry classifier and crash
+        # the whole REPL. A connection-management hiccup must never be fatal.
+        factory = AsyncMock(
+            side_effect=[
+                httpx.ReadError("connection dropped mid-stream"),
+                "recovered",
+            ]
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await _run_with_streaming_retry(factory)
+
+        assert result == "recovered"
+        assert factory.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retries_on_httpx_connect_error(self):
+        factory = AsyncMock(
+            side_effect=[
+                httpx.ConnectError("failed to establish connection"),
+                "recovered",
+            ]
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await _run_with_streaming_retry(factory)
+
+        assert result == "recovered"
+        assert factory.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retries_on_httpcore_read_error(self):
+        factory = AsyncMock(
+            side_effect=[
+                httpcore.ReadError("connection dropped mid-stream"),
+                "recovered",
+            ]
+        )
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = await _run_with_streaming_retry(factory)
+
+        assert result == "recovered"
+        assert factory.await_count == 2
+
+    @pytest.mark.asyncio
     async def test_retries_on_httpcore_remote_protocol_error(self):
         factory = AsyncMock(
             side_effect=[
@@ -191,7 +239,19 @@ class TestStreamingRetry:
         )
         assert should_retry_streaming_exception(httpx.ReadTimeout("timed out"))
         assert should_retry_streaming_exception(
+            httpx.ReadError("connection dropped mid-stream")
+        )
+        assert should_retry_streaming_exception(
+            httpx.ConnectError("failed to establish connection")
+        )
+        assert should_retry_streaming_exception(
+            httpx.ConnectTimeout("connect timed out")
+        )
+        assert should_retry_streaming_exception(
             httpcore.RemoteProtocolError("peer closed connection")
+        )
+        assert should_retry_streaming_exception(
+            httpcore.ReadError("connection dropped mid-stream")
         )
         assert should_retry_streaming_exception(
             UnexpectedModelBehavior("streamed response ended without content")

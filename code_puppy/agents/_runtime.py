@@ -105,9 +105,18 @@ _RETRYABLE_SNIPPETS = (
     "internal server error",
 )
 
+# Transient transport failures worth a silent retry rather than a crash.
+# We list the umbrella base classes instead of individual error types so a
+# dropped socket in any guise -- ReadError, WriteError, ConnectError,
+# CloseError (all httpx.NetworkError) or any of the *Timeout variants
+# (httpx.TimeoutException) -- is covered without us chasing each subclass.
+# A flaky VPN/WiFi blip mid-stream is recoverable, never fatal.
 _RETRYABLE_EXCEPTIONS: tuple = (
+    httpx.NetworkError,
+    httpx.TimeoutException,
     httpx.RemoteProtocolError,
-    httpx.ReadTimeout,
+    httpcore.NetworkError,
+    httpcore.TimeoutException,
     httpcore.RemoteProtocolError,
 )
 
