@@ -31,9 +31,7 @@ TRANSIENT_ERRORS = [
 def test_transient_errors_get_friendly_message_no_traceback(exc):
     with (
         patch("code_puppy.messaging.emit_error") as mock_emit,
-        patch(
-            "code_puppy.messaging.queue_console.get_queue_console"
-        ) as mock_console,
+        patch("code_puppy.messaging.queue_console.get_queue_console") as mock_console,
     ):
         _render_turn_exception(exc)
 
