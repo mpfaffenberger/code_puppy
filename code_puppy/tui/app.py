@@ -99,7 +99,18 @@ class PromptArea(TextArea):
             event.stop()
             self.app.submit_prompt(self.text)
             self.text = ""
-        # Shift+Enter / ctrl+j fall through to default newline insertion.
+            return
+
+        # Shift+Enter / Ctrl+J insert a literal newline. Textual's TextArea
+        # only inserts "\n" for the bare "enter" key (which we hijack for
+        # submit above) -- shift+enter and ctrl+j are neither "printable" nor
+        # in its insert table, so without this branch they'd do nothing.
+        # ("newline" is Textual's alias for ctrl+j on some terminals.)
+        if event.key in ("shift+enter", "ctrl+j", "newline"):
+            event.prevent_default()
+            event.stop()
+            start, end = self.selection
+            self.replace("\n", start, end, maintain_selection_offset=False)
 
 
 class CooperApp(App):
