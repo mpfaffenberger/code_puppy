@@ -112,6 +112,25 @@ class PromptArea(TextArea):
             start, end = self.selection
             self.replace("\n", start, end, maintain_selection_offset=False)
 
+    def get_line(self, line_index: int):
+        """Italic-cyan the attachment placeholders, matching the classic UI.
+
+        ``get_line`` is Textual's documented hook for layering extra styling
+        onto TextArea content; we stylize the [png image]-style placeholders
+        here so they read as friendly chips instead of plain text.
+        """
+        from rich.style import Style
+
+        from .attachments import placeholder_spans
+
+        line = super().get_line(line_index)
+        placeholders = [p for p, _ in getattr(self.app, "_attachment_placeholders", [])]
+        if placeholders:
+            style = Style(color="cyan", italic=True)
+            for start, end in placeholder_spans(line.plain, placeholders):
+                line.stylize(style, start, end)
+        return line
+
 
 class CooperApp(App):
     """Code Puppy's Textual UI (Phase 0 scaffold)."""
@@ -254,6 +273,24 @@ class CooperApp(App):
         # Animated thinking spinner (mirrors the classic ConsoleSpinner).
         self._spinner_timer = None
         self._spinner_frame = 0
+        # Ordered (placeholder, real_path) pairs for dragged attachments whose
+        # paths were swapped for friendly [png image] placeholders in the
+        # prompt. Expanded back to real paths just before the agent turn.
+        self._attachment_placeholders: list[tuple[str, str]] = []
+        # Reentrancy guard: our own buffer rewrite posts another Changed.
+        self._transforming_attachments = False
+
+    def register_attachment_placeholders(self, mapping: list[tuple[str, str]]) -> None:
+        """Record placeholder->path pairs from a dragged-in attachment paste."""
+        self._attachment_placeholders.extend(mapping)
+
+    def _expand_attachment_placeholders(self, text: str) -> str:
+        """Swap friendly placeholders back to real paths and reset the map."""
+        from .attachments import expand_placeholders
+
+        expanded = expand_placeholders(text, self._attachment_placeholders)
+        self._attachment_placeholders = []
+        return expanded
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -562,6 +599,9 @@ class CooperApp(App):
             # handled is False -> unknown command, fall through to the agent
 
         self._echo_prompt(original)
+        # Expand any [png image] placeholders back to real paths so attachment
+        # parsing can load the bytes (the echo above keeps the friendly form).
+        text = self._expand_attachment_placeholders(text)
         self._agent_worker = self._run_agent_turn(text)
 
     def _show_request_modal(self, message: AnyMessage) -> None:
@@ -1057,7 +1097,60 @@ class CooperApp(App):
     # ------------------------------------------------------------------ #
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if event.text_area.id == "prompt":
+            self._transform_prompt_attachments(event.text_area)
             self._refresh_completions()
+
+    # ------------------------------------------------------------------ #
+    # Drag-and-drop / paste capture                                        #
+    # ------------------------------------------------------------------ #
+    def on_paste(self, event: events.Paste) -> None:
+        """Catch pastes (incl. file drops) even when the prompt isn't focused.
+
+        A paste is delivered to the focused widget first; if that's the prompt,
+        its TextArea already inserted the text (and `on_text_area_changed`
+        transformed it), so we bail. Otherwise we route the text into the
+        prompt ourselves so a file dropped anywhere still lands in the box.
+        """
+        try:
+            prompt = self.query_one("#prompt", PromptArea)
+        except Exception:
+            return
+        if self.focused is prompt:
+            return  # already handled by the focused TextArea
+        if not event.text:
+            return
+        prompt.focus()
+        prompt.replace(event.text, *prompt.selection, maintain_selection_offset=False)
+        prompt.move_cursor(prompt.document.end)
+        event.stop()
+
+    def _transform_prompt_attachments(self, prompt: TextArea) -> None:
+        """Swap recognised image/doc paths in the buffer for friendly chips.
+
+        Reacts to *buffer content* (like the classic prompt_toolkit Processor)
+        rather than the paste event, so it works no matter how the path landed
+        in the box -- drag-drop, paste, or typing. Idempotent: placeholders
+        aren't re-detected, so repeated changes are no-ops.
+        """
+        if self._transforming_attachments:
+            return
+        from .attachments import transform_dragged_paths
+
+        text = prompt.text
+        # Skip the filesystem probing on very large inputs (pasted content).
+        if not text or len(text) > 4096:
+            return
+        display_text, mapping = transform_dragged_paths(text)
+        if not mapping or display_text == text:
+            return
+
+        self._transforming_attachments = True
+        try:
+            self.register_attachment_placeholders(mapping)
+            prompt.text = display_text
+            prompt.move_cursor(prompt.document.end)
+        finally:
+            self._transforming_attachments = False
 
     def completion_visible(self) -> bool:
         return self._completion is not None
