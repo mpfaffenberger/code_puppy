@@ -220,6 +220,7 @@ def test_pre_tool_call_notifies_for_interactive_tool(monkeypatch, mod):
     asyncio.run(mod._on_pre_tool_call("ask_user_question", {}))
     assert len(sent) == 1
     assert sent[0]["key"] == "interactive_tool"
+    assert sent[0]["title"] == "User Input Required: Ask User Question"
 
 
 def test_pre_tool_call_surfaces_question_header(monkeypatch, mod):
@@ -1264,7 +1265,7 @@ def test_pre_tool_call_fires_when_terminal_not_focused(monkeypatch, mod):
 
     asyncio.run(mod._on_pre_tool_call(tool_name="ask_user_question", tool_args={}))
 
-    assert sent == ["\U0001f436 User Selection Required"], (
+    assert sent == ["User Input Required: Ask User Question"], (
         "notification should fire when terminal is in background"
     )
 
