@@ -71,6 +71,7 @@ def _build_anthropic_beta_header(
     Combines beta flags based on model capabilities:
     - interleaved-thinking-2025-05-14  (when interleaved_thinking is enabled)
     - context-1m-2025-08-07            (when context_length >= 1_000_000)
+    - advisor-tool-2026-03-01          (when advisor_tool_enabled is True)
 
     Returns None if no beta flags are needed.
     """
@@ -79,6 +80,10 @@ def _build_anthropic_beta_header(
         parts.append("interleaved-thinking-2025-05-14")
     if model_config.get("context_length", 0) >= 1_000_000:
         parts.append(CONTEXT_1M_BETA)
+    # Dormant opt-in: no models.json entry sets ``advisor_tool_enabled`` yet,
+    # so this beta stays inert until a model config explicitly turns it on.
+    if model_config.get("advisor_tool_enabled"):
+        parts.append("advisor-tool-2026-03-01")
     return ",".join(parts) if parts else None
 
 
