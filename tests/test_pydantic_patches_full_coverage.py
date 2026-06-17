@@ -211,6 +211,70 @@ class TestWritebackToolArgs:
         assert json.loads(call.args) == {"content": "clean ascii"}
 
 
+class TestPatchTermflowClipboard:
+    """Regression guard: termflow must NEVER write to the system clipboard.
+
+    termflow's ``RenderFeatures.clipboard`` defaults to ``True``, which emits
+    OSC 52 escape sequences on every rendered code block — silently clobbering
+    the user's clipboard.  The patch replaces ``Renderer._copy_to_clipboard``
+    with a no-op so this can never happen, regardless of per-call feature flags.
+    """
+
+    def test_copy_to_clipboard_is_noop(self):
+        import io
+
+        from code_puppy.pydantic_patches import patch_termflow_clipboard
+
+        patch_termflow_clipboard()
+        from termflow.render.renderer import Renderer
+
+        buf = io.StringIO()
+        renderer = Renderer(output=buf, width=80)
+        renderer._copy_to_clipboard("secret clipboard payload")
+        assert buf.getvalue() == "", "_copy_to_clipboard must not write anything"
+
+    def test_code_block_render_emits_no_osc52(self):
+        """End-to-end: rendering a code block must not produce an OSC 52 seq."""
+        import io
+
+        from code_puppy.pydantic_patches import patch_termflow_clipboard
+
+        patch_termflow_clipboard()
+        from termflow import Parser as TermflowParser
+        from termflow import Renderer as TermflowRenderer
+        from termflow.render.style import RenderFeatures
+
+        # Even with clipboard=True explicitly, the patch must prevent writes.
+        buf = io.StringIO()
+        renderer = TermflowRenderer(
+            output=buf, width=80, features=RenderFeatures(clipboard=True)
+        )
+        parser = TermflowParser()
+        for line in ["```python", "print('hello')", "```"]:
+            for event in parser.parse_line(line):
+                renderer.render(event)
+        for event in parser.finalize():
+            renderer.render(event)
+        assert "\x1b]52" not in buf.getvalue(), (
+            "OSC 52 clipboard sequence leaked into output!"
+        )
+
+    def test_patch_does_not_crash_without_termflow(self):
+        import builtins
+
+        from code_puppy.pydantic_patches import patch_termflow_clipboard
+
+        _real_import = builtins.__import__
+
+        def _block_termflow(name, *args, **kwargs):
+            if name.startswith("termflow"):
+                raise ImportError("simulated: termflow not installed")
+            return _real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=_block_termflow):
+            patch_termflow_clipboard()  # must not raise
+
+
 class TestApplyAllPatches:
     def test_apply_all_patches(self):
         from code_puppy.pydantic_patches import apply_all_patches
