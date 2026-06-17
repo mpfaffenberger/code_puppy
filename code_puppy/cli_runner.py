@@ -144,7 +144,7 @@ async def main():
     parser.add_argument(
         "--tui",
         action="store_true",
-        help="Force the Textual UI (used internally by --serve; works without a TTY)",
+        help="Run in the Textual TUI instead of the classic interactive console",
     )
     parser.add_argument(
         "--serve",

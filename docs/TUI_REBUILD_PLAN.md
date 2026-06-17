@@ -1,19 +1,23 @@
 # Code Puppy TUI Rebuild — Phased Plan
 
-> **Decision:** rebuild the UI on **Textual** (Python, in-process) as a new
-> renderer + input provider over the existing `MessageBus`. Non-Python
-> frameworks were eliminated (see §1). **Strategy:** big-bang behind a feature
-> flag (`classic` still the default).
+> **Decision:** add a **Textual** (Python, in-process) UI as a new renderer +
+> input provider over the existing `MessageBus`. Non-Python frameworks were
+> eliminated (see §1). **Strategy (revised):** ship Textual as a **permanent,
+> opt-in second UI alongside classic** — NOT a cutover. Classic interactive
+> (`-i`) stays the default forever; the TUI is opt-in via `--tui` (or config /
+> `/ui`). Both renderers are supported indefinitely.
 
 ---
 
 ## 0. Current Status & Resume Guide (read this first)
 
-**Branch:** `feature/add-tui` · **Default UI:** still `classic` (safe) ·
-**~95 TUI tests passing**
+**Branch:** `feature/add-tui` · **Default UI:** `classic` (permanent default) ·
+**~180 TUI tests passing**
 
-**Run the new UI:** `CODE_PUPPY_UI=textual .venv/bin/code-puppy`
-(or `/ui textual` then relaunch). **Test:** `.venv/bin/python -m pytest tests/tui/ -o addopts="" -q`
+**Run the TUI:** `code-puppy --tui` (first-class flag). Also opt-in via
+`CODE_PUPPY_UI=textual code-puppy`, persisted `ui_mode=textual` in `puppy.cfg`,
+or `/ui textual` live. **Web:** `code-puppy --serve`.
+**Test:** `.venv/bin/python -m pytest tests/tui/ -o addopts="" -q`
 
 ### Phase status
 | Phase | State |
@@ -23,7 +27,7 @@
 | 2 Chat shell / input / control plane / completions / `!shell` / streaming | **DONE** |
 | 3 Menus + completers + onboarding + `register_screen` hook | **DONE** |
 | 4 Console-leak cleanup / output bridging | **DONE** (core; minor residuals) |
-| 5 Theming / web (`textual-serve`) / perf / cutover | **IN PROGRESS** (web serve DONE) |
+| 5 Polish / web / perf / **ship as opt-in** (no cutover) | **IN PROGRESS** (web + perf DONE) |
 
 ### What works in the TUI now
 Agent turns + live tool output + token streaming · interactive modals
@@ -59,18 +63,21 @@ argument completion. **First-run onboarding** auto-shows in the TUI (disabled in
 tests via the `CODE_PUPPY_SKIP_TUTORIAL` autouse fixture).
 
 ### What's left
-- **Phase 5:** flip default to `textual`, remove `classic`. DONE so far:
-  web serve (`textual-serve`) works; theming handled by Textual's built-in
-  themes (Ctrl+P palette); **perf pass DONE** (render-batching/coalescing —
-  see §10). The main remaining work is the cutover itself.
+- **Phase 5 (revised — NO cutover):** ship the TUI as a permanent opt-in second
+  UI. DONE: `--tui` first-class flag; web serve (`textual-serve`); theming via
+  Textual's built-in themes (Ctrl+P palette); **perf pass** (render-batching/
+  coalescing — see §10). REMAINING: docs/README pass advertising both modes;
+  a confidence sweep of the opt-in surface. Classic stays the default and is
+  NOT removed.
 - **Phase 4 residuals:** addressed. The two that actually fired during a TUI
   session (per-MCP-tool-call banner in `managed_server.py`; `/goal` banners in
   wiggum) now route through the queue console. The rest are non-issues:
   truecolor warning is classic-only (`interactive_mode`), `mcp_/dashboard.py`
   print methods have no callers (dead code), `terminal_utils:433` only reads
   `color_system` (no print).
-- **Phase 5:** flip default to `textual`, remove `classic`, delete this plan's
-  historical §9. (Theming = Textual built-in themes; web serve + perf pass DONE.)
+- **Phase 5 (revised):** docs/README advertising `--tui` + `--serve` alongside
+  `-i`; delete this plan's historical §9 / `spikes/`. (Theming = Textual
+  built-in themes; web serve + perf pass DONE; NO cutover — classic stays.)
 - **Optional:** more long-tail completers (skills, pin commands); native
   renderable promotion for hot paths (deferred from Phase 1); scrollback cap
   (deferred — see §10.6).
@@ -326,17 +333,30 @@ are dead code (no callers); terminal_utils:433 only reads color_system.*
 - **Exit:** legacy + bus output both render in the TUI; approval works as a
   modal; no console prints behind Textual's back during a session.
 
-### Phase 5 — Polish, theming, web, cutover (M)
-**Goal:** make it the default; light up web.
-- Theme pass (map existing banner/diff colors to Textual CSS variables; respect
-  `colors_menu` config).
-- Fix the web (`textual-serve`) errors deferred earlier; document the web launch.
-- Performance: batch high-frequency streaming writes to `RichLog`; verify firehose
-  shell output doesn't stutter.
-- Flip default to `CODE_PUPPY_UI=textual`; keep `classic` as fallback for one
-  release, then remove.
-- Update README + docs; remove the `spikes/` directory.
-- **Exit:** Textual is default, classic removed, docs updated.
+### Phase 5 — Polish, web, perf, ship as opt-in (M) — REVISED (no cutover)
+**Goal:** ship the TUI as a polished, permanent, **opt-in** second UI — classic
+stays the default and is NOT removed.
+- **Theming:** DONE via Textual's built-in themes (Ctrl+P command palette). No
+  custom CSS-variable mapping needed.
+- **Web:** DONE — `code-puppy --serve` runs the same app in a browser; errors
+  resolved (verified live).
+- **Performance:** DONE — render-pipeline batching/coalescing kills firehose
+  stutter and O(n²) streaming. See §10 for methodology/results/levers.
+- **Opt-in surface:** `--tui` promoted to a first-class, documented flag
+  (`code-puppy --tui`). Other entry points unchanged and supported:
+  `CODE_PUPPY_UI=textual`, persisted `ui_mode=textual` in `puppy.cfg`, and
+  `/ui textual` live. Classic remains the bare-`code-puppy` / `-i` default.
+- **Docs:** README + help advertise all three ways to run (`-i` classic,
+  `--tui` Textual, `--serve` web); remove `spikes/` + this plan's historical §9.
+- **Exit:** TUI ships opt-in beside classic; both supported indefinitely; docs
+  updated; `-i` behavior unchanged.
+
+> **Why no cutover?** A forced flip to Textual is a one-way door that risks
+> regressing every existing `-i` user over terminal/multiplexer edge cases
+> (cmux/tmux/ssh, no-TTY, exotic emulators). Keeping classic as the default and
+> the TUI as opt-in gives users the new UI with zero forced migration, and lets
+> the two renderers coexist on the same `MessageBus` indefinitely (the whole
+> point of the renderer/bus split in §2).
 
 ---
 
@@ -365,13 +385,15 @@ are dead code (no callers); terminal_utils:433 only reads color_system.*
 
 ---
 
-## 7. Big-Bang vs. Incremental (safety valve)
+## 7. Big-Bang vs. Incremental — superseded by permanent dual-mode
 
-Chosen: **big-bang** (one cohesive rebuilt UI). The feature flag in Phase 0 gives
-us an *optional* incremental path for free: ship the Textual chat shell (Phases
-0–2) behind the flag while menus (Phase 3) are still being ported, falling back to
-classic menus if needed. Same end state, lower risk. Recommend keeping the flag
-until Phase 5 cutover regardless.
+The build was done **big-bang** (one cohesive Textual UI) behind the Phase 0
+feature flag. The original plan ended in a **cutover** (flip default to Textual,
+remove classic). **That end state is cancelled.** Instead the feature flag
+becomes permanent: classic and Textual are two supported renderers over the same
+`MessageBus`, and the flag (`--tui` / `CODE_PUPPY_UI` / `ui_mode` / `/ui`) is the
+user's permanent choice, not a temporary migration aid. Classic stays the
+default; nothing is removed.
 
 ---
 
@@ -386,7 +408,13 @@ until Phase 5 cutover regardless.
 4. **Plugin hooks** — **DONE**: `register_screen` hook added (callbacks.py
    `on_register_screens`; menus.py `get_menu_opener` merges plugin openers;
    documented in AGENTS.md). Plugins return `{"command", "open", "aliases"?}`. *(Phase 3)*
-5. **Web errors** — **fix in this effort, Phase 5**, alongside cutover.
+5. **Web errors** — **DONE** (Phase 5): `--serve` works in a browser.
+6. **No cutover — permanent dual-mode (REVISED).** Classic interactive (`-i`)
+   stays the default **forever**; the Textual TUI ships as a permanent **opt-in**
+   second UI via `--tui` (first-class flag), `CODE_PUPPY_UI=textual`, persisted
+   `ui_mode=textual`, or `/ui textual`. Both renderers are supported
+   indefinitely; `classic` is NOT removed. Supersedes the original "flip default
+   + remove classic" plan. *(Phase 5)*
 
 ---
 
