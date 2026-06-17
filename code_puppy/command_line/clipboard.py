@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 # Try to import PIL - it's optional but needed for clipboard image support
@@ -46,7 +47,9 @@ MAX_IMAGE_DIMENSION = 4096  # Max width/height for resize
 MAX_PENDING_IMAGES = (
     10  # SEC-CLIP-001: Limit pending images to prevent memory exhaustion
 )
+MAX_IMAGE_FILE_SIZE_BYTES = 50 * 1024 * 1024  # Local image files only
 CLIPBOARD_RATE_LIMIT_SECONDS: float = 0.5  # SEC-CLIP-004: Max 2 captures per second
+_IMAGE_FILE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
 
 # Rate limiting state
 _last_clipboard_capture: float = 0.0
@@ -216,6 +219,54 @@ def _resize_image_if_needed(image: "Image.Image", max_bytes: int) -> "Image.Imag
     return resized
 
 
+def _image_to_png_bytes(image: "Image.Image") -> Optional[bytes]:
+    """Normalize a PIL image and return PNG bytes within configured limits."""
+    if Image is None:
+        return None
+    if image.mode in ("RGBA", "LA") or (
+        image.mode == "P" and "transparency" in image.info
+    ):
+        pass
+    elif image.mode != "RGB":
+        image = image.convert("RGB")
+
+    image = _resize_image_if_needed(image, MAX_IMAGE_SIZE_BYTES)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    image_bytes = buffer.getvalue()
+    logger.info(f"Clipboard image size: {len(image_bytes) / 1024:.1f}KB")
+    return image_bytes
+
+
+def get_image_file_as_png(file_path: str) -> Optional[bytes]:
+    """Read a local image file and normalize it to PNG bytes safely."""
+    if not PIL_AVAILABLE:
+        return None
+    try:
+        path = Path(file_path).expanduser()
+        if not path.is_file() or path.suffix.lower() not in _IMAGE_FILE_SUFFIXES:
+            return None
+        if path.stat().st_size > MAX_IMAGE_FILE_SIZE_BYTES:
+            logger.warning(f"Rejected oversized image file: {path}")
+            return None
+        image = _safe_open_image(path.read_bytes())
+        return None if image is None else _image_to_png_bytes(image)
+    except Exception as e:
+        logger.debug(f"Failed to read pasted image file {file_path!r}: {e}")
+        return None
+
+
+def _image_file_list_to_png_bytes(value) -> Optional[bytes]:
+    if not isinstance(value, (list, tuple)):
+        return None
+    for item in value:
+        if isinstance(item, str):
+            image_bytes = get_image_file_as_png(item)
+            if image_bytes is not None:
+                return image_bytes
+    return None
+
+
 def has_image_in_clipboard() -> bool:
     """Check if clipboard contains an image.
 
@@ -331,32 +382,14 @@ def get_clipboard_image() -> Optional[bytes]:
             return None
 
         if not isinstance(image, Image.Image):
-            # Could be a list of file paths on some systems
+            image_bytes = _image_file_list_to_png_bytes(image)
+            if image_bytes is not None:
+                return image_bytes
             logger.debug(f"Clipboard contains non-image data: {type(image)}")
             return None
 
-        # Log original dimensions
         logger.info(f"Captured clipboard image: {image.width}x{image.height}")
-
-        # Convert to RGB if necessary (handles RGBA, P mode, etc.)
-        if image.mode in ("RGBA", "LA") or (
-            image.mode == "P" and "transparency" in image.info
-        ):
-            # Keep alpha channel for PNG
-            pass
-        elif image.mode != "RGB":
-            image = image.convert("RGB")
-
-        # Resize if needed
-        image = _resize_image_if_needed(image, MAX_IMAGE_SIZE_BYTES)
-
-        # Convert to PNG bytes
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG", optimize=True)
-        image_bytes = buffer.getvalue()
-
-        logger.info(f"Clipboard image size: {len(image_bytes) / 1024:.1f}KB")
-        return image_bytes
+        return _image_to_png_bytes(image)
 
     except Exception as e:
         logger.warning(f"Error reading clipboard image: {e}")
