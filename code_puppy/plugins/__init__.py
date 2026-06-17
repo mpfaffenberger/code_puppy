@@ -106,7 +106,7 @@ def _load_user_plugins(
     Returns list of successfully loaded plugin names.
     """
     loaded = []
-    skip_names = skip_names or set()
+    skip_names = set(skip_names or ())
 
     if not user_plugins_dir.exists():
         return loaded
@@ -130,8 +130,9 @@ def _load_user_plugins(
 
             if plugin_name in skip_names:
                 logger.info(
-                    f"Skipping user plugin '{plugin_name}' — "
-                    f"overridden by project plugin of the same name"
+                    "Skipping user plugin '%s' because a higher-precedence "
+                    "plugin with the same name is already loaded or scheduled",
+                    plugin_name,
                 )
                 continue
 
@@ -423,7 +424,8 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
     )
 
     builtin_loaded = _load_builtin_plugins(plugins_dir)
-    user_loaded = _load_user_plugins(USER_PLUGINS_DIR, skip_names=project_plugin_names)
+    user_skip_names = set(builtin_loaded) | project_plugin_names
+    user_loaded = _load_user_plugins(USER_PLUGINS_DIR, skip_names=user_skip_names)
 
     # Load project plugins last (highest precedence)
     project_loaded = []
