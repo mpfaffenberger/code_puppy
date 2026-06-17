@@ -159,3 +159,86 @@ def test_schedule_pause_proceeds_when_shell_running(monkeypatch):
     assert len(scheduled_calls) == 1, (
         "pause must be scheduled even when a shell command is running"
     )
+
+
+# =============================================================================
+# Cancel hides the sub-agent status panel (mirrors the steer flow)
+# =============================================================================
+
+
+def _fake_loop_recording() -> Any:
+    """Loop stand-in that records call_soon_threadsafe scheduling."""
+
+    class _L:
+        def __init__(self):
+            self.scheduled: List[Any] = []
+
+        def call_soon_threadsafe(self, fn, *args):
+            self.scheduled.append((fn, args))
+
+    return _L()
+
+
+def _fake_cancelable_task(done: bool = False) -> Any:
+    """Task stand-in exposing both .done() and .cancel (cancel attr accessed)."""
+
+    class _T:
+        def done(self_inner) -> bool:  # noqa: N805 — duck-type
+            return done
+
+        def cancel(self_inner) -> None:  # noqa: N805 — duck-type
+            pass
+
+    return _T()
+
+
+def test_schedule_cancel_tears_down_panel_before_banner(monkeypatch):
+    """With active sub-agents, cancel must hide the panel so the banner shows."""
+    teardown_calls: List[int] = []
+    warnings: List[str] = []
+
+    # One active sub-agent task that isn't done yet.
+    class _SubTask:
+        def done(self):
+            return False
+
+        def cancel(self):
+            pass
+
+    monkeypatch.setattr(_run_signals, "_active_subagent_tasks", [_SubTask()])
+    monkeypatch.setattr(
+        _run_signals, "emit_warning", lambda msg, *a, **k: warnings.append(msg)
+    )
+    monkeypatch.setattr(
+        "code_puppy.tools.command_runner._tear_down_live_panels",
+        lambda: teardown_calls.append(1),
+    )
+    # No shells running so force isn't required.
+    monkeypatch.setattr("code_puppy.tools.command_runner._RUNNING_PROCESSES", set())
+
+    loop = _fake_loop_recording()
+    schedule_cancel = _run_signals.make_schedule_cancel(_fake_cancelable_task(), loop)
+    schedule_cancel()
+
+    assert teardown_calls == [1], "panel must be torn down exactly once"
+    assert warnings and "Cancelling" in warnings[0]
+
+
+def test_schedule_cancel_no_panel_teardown_without_subagents(monkeypatch):
+    """No active sub-agents → no panel banner, no teardown (just cancel task)."""
+    teardown_calls: List[int] = []
+
+    monkeypatch.setattr(_run_signals, "_active_subagent_tasks", [])
+    monkeypatch.setattr(
+        "code_puppy.tools.command_runner._tear_down_live_panels",
+        lambda: teardown_calls.append(1),
+    )
+    monkeypatch.setattr("code_puppy.tools.command_runner._RUNNING_PROCESSES", set())
+
+    loop = _fake_loop_recording()
+    schedule_cancel = _run_signals.make_schedule_cancel(_fake_cancelable_task(), loop)
+    schedule_cancel()
+
+    assert teardown_calls == [], "no sub-agent panel to hide → no teardown"
+    # The main agent task still gets cancelled.
+    assert len(loop.scheduled) == 1
