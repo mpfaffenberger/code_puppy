@@ -1,7 +1,8 @@
-"""Monkey patches for pydantic-ai.
+"""Monkey patches for third-party libraries.
 
-This module contains all monkey patches needed to customize pydantic-ai behavior.
-These patches MUST be applied before any other pydantic-ai imports to work correctly.
+Historically pydantic-ai focused, this module now collects all runtime
+monkey patches code-puppy applies to its dependencies.  Each patch is
+idempotent and fails silently if the target library is absent.
 
 Usage:
     from code_puppy.pydantic_patches import apply_all_patches
@@ -502,8 +503,34 @@ def patch_prompt_toolkit_emoji_width() -> None:
         pass  # Don't crash on patch failure
 
 
+def patch_termflow_clipboard() -> None:
+    """Disable termflow's OSC 52 clipboard hijacking globally.
+
+    termflow's ``RenderFeatures.clipboard`` defaults to ``True``.  When a
+    code block finishes rendering, the renderer emits an OSC 52 escape
+    sequence (``\x1b]52;c;<base64>\x07``) that modern terminals interpret
+    as a silent clipboard-write command — clobbering whatever the user had.
+
+    PR #335 added explicit ``RenderFeatures(clipboard=False)`` at the two
+    known instantiation sites, but that's whack-a-mole: any future code path
+    (or a new termflow version with changed defaults) reintroduces the bug.
+
+    This patch kills the behaviour at the source by replacing
+    ``Renderer._copy_to_clipboard`` with a no-op, so it does not matter
+    whether any caller remembers to disable the feature flag.
+    """
+    try:
+        from termflow.render.renderer import Renderer
+
+        Renderer._copy_to_clipboard = lambda self, text: None  # type: ignore[method-assign]
+    except ImportError:
+        pass  # termflow not available
+    except Exception:
+        pass  # never crash on patch failure
+
+
 def apply_all_patches() -> None:
-    """Apply all pydantic-ai monkey patches.
+    """Apply all monkey patches.
 
     Call this at the very top of main.py, before any other imports.
     """
@@ -513,3 +540,4 @@ def apply_all_patches() -> None:
     patch_tool_call_json_repair()
     patch_tool_call_callbacks()
     patch_prompt_toolkit_emoji_width()
+    patch_termflow_clipboard()
