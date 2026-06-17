@@ -65,7 +65,7 @@ async def test_legacy_human_input_request_opens_modal_and_replies(monkeypatch):
 async def test_user_approval_routes_through_bus_in_tui(monkeypatch):
     import asyncio
 
-    monkeypatch.setattr("code_puppy.config.get_ui_mode", lambda: "textual")
+    monkeypatch.setattr("code_puppy.config.get_ui_mode", lambda: "tui")
     from code_puppy.tools.common import get_user_approval_async
     from code_puppy.tui.screens.interactive import ConfirmModal
 

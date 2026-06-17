@@ -123,9 +123,9 @@ def ask_user_question(
     # In the Textual TUI, route through the message bus so the question renders
     # as a native ModalScreen instead of a prompt_toolkit app (which would
     # corrupt the Textual screen). The classic path below is untouched.
-    from code_puppy.config import get_ui_mode
+    from code_puppy.config import is_tui_mode
 
-    if get_ui_mode() == "textual":
+    if is_tui_mode():
         return _run_textual_picker(validated_input.questions, timeout)
 
     # Check for interactive environment

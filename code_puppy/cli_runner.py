@@ -170,11 +170,11 @@ async def main():
     # Resolve which UI to drive. The Textual TUI only takes over interactive
     # sessions (not -p single-prompt runs), and only when explicitly enabled
     # via the ui_mode setting / CODE_PUPPY_UI env / /ui command. Defaults off.
-    from code_puppy.config import get_ui_mode
+    from code_puppy.config import is_tui_mode
 
     # --tui forces Textual regardless of the configured ui_mode (the --serve
     # subprocess relies on this); otherwise honor the resolved ui_mode.
-    use_textual = (args.tui or get_ui_mode() == "textual") and not args.prompt
+    use_textual = (args.tui or is_tui_mode()) and not args.prompt
 
     # Create a shared console for both renderers
     display_console = Console()

@@ -619,9 +619,9 @@ async def run_with_mcp(
         # (swallowing ~half of them). The TUI binds Esc=cancel, Ctrl+T=steer,
         # and Ctrl+X=kill-shell natively instead. The listener cheaply no-ops
         # if stdin isn't a TTY.
-        from code_puppy.config import get_ui_mode
+        from code_puppy.config import is_tui_mode
 
-        if get_ui_mode() != "textual":
+        if not is_tui_mode():
             key_listener_stop_event = threading.Event()
             key_listener_handle = _key_listeners.spawn_key_listener(
                 key_listener_stop_event,

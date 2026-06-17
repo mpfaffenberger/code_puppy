@@ -174,23 +174,25 @@ def handle_paste_command(command: str) -> bool:
 
 @register_command(
     name="ui",
-    description="Show or set the UI mode (classic prompt_toolkit vs Textual TUI)",
-    usage="/ui [classic|textual]",
+    description="Show or set the UI mode (interactive console vs Textual TUI)",
+    usage="/ui [interactive|tui]",
     category="core",
     detailed_help=(
         "Controls which UI Code Puppy uses.\n\n"
-        "  /ui            Show current + resolved UI mode\n"
-        "  /ui textual    Switch to the new Textual TUI\n"
-        "  /ui classic    Switch back to the classic prompt_toolkit UI\n\n"
-        "Precedence: /ui (this session) > CODE_PUPPY_UI env > puppy.cfg > classic.\n"
-        "Note: the Textual TUI is still being built; a mode change takes effect "
-        "on the next interactive launch."
+        "  /ui              Show current + resolved UI mode\n"
+        "  /ui tui          Switch to the Textual TUI\n"
+        "  /ui interactive  Switch back to the classic interactive console\n\n"
+        "Precedence: /ui (this session) > CODE_PUPPY_UI env > puppy.cfg > "
+        "interactive.\n"
+        "Legacy values 'classic'/'textual' are still accepted as aliases.\n"
+        "A mode change takes effect on the next launch."
     ),
 )
 def handle_ui_command(command: str) -> bool:
     """Show or set the UI mode."""
     from code_puppy.config import (
         VALID_UI_MODES,
+        _normalize_ui_mode,
         get_ui_mode,
         get_value,
         set_session_ui_mode,
@@ -198,26 +200,28 @@ def handle_ui_command(command: str) -> bool:
     )
     from code_puppy.messaging import emit_info, emit_success, emit_warning
 
-    arg = command[len("/ui"):].strip().lower()
+    arg = command[len("/ui") :].strip().lower()
 
     if not arg:
         emit_info(f"Resolved UI mode: [bold]{get_ui_mode()}[/bold]")
         emit_info(f"  persisted (puppy.cfg): {get_value('ui_mode') or '(unset)'}")
         emit_info("  options: " + ", ".join(VALID_UI_MODES))
-        emit_info("  set with: /ui textual  or  /ui classic")
+        emit_info("  set with: /ui tui  or  /ui interactive")
         return True
 
-    if arg not in VALID_UI_MODES:
+    # Normalize so legacy aliases ('classic'/'textual') still work.
+    normalized = _normalize_ui_mode(arg)
+    if normalized is None:
         emit_warning(
             f"Unknown UI mode '{arg}'. Choose one of: {', '.join(VALID_UI_MODES)}"
         )
         return True
 
-    # Apply for this session AND persist as the new default.
-    set_session_ui_mode(arg)
-    set_ui_mode(arg)
-    emit_success(f"UI mode set to '{arg}' (persisted).")
-    emit_info("Takes effect on the next interactive launch.")
+    # Apply for this session AND persist as the new default (canonical value).
+    set_session_ui_mode(normalized)
+    set_ui_mode(normalized)
+    emit_success(f"UI mode set to '{normalized}' (persisted).")
+    emit_info("Takes effect on the next launch.")
     return True
 
 

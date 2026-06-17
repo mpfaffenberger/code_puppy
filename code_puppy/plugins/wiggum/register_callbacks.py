@@ -199,13 +199,13 @@ def _display_banner_message(
     from rich.console import Console
     from rich.text import Text
 
-    from code_puppy.config import get_banner_color, get_ui_mode
+    from code_puppy.config import get_banner_color, is_tui_mode
     from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
 
     # In the Textual TUI a raw Console() prints straight to stdout and corrupts
     # the screen. Route through the shared queue console (bridged into the TUI)
     # as a single composed line. Classic path below is untouched.
-    if get_ui_mode() == "textual":
+    if is_tui_mode():
         from code_puppy.messaging import get_queue_console
 
         color = get_banner_color(banner_name)

@@ -1339,9 +1339,9 @@ async def _get_user_approval_async_impl(
     # In the Textual TUI, route approval through the bus so it renders as a
     # ConfirmModal (with optional feedback). The classic console/arrow-key
     # path below would print to stdout and corrupt the Textual screen.
-    from code_puppy.config import get_ui_mode
+    from code_puppy.config import is_tui_mode
 
-    if get_ui_mode() == "textual":
+    if is_tui_mode():
         from code_puppy.messaging import get_message_bus
 
         text_content = content.plain if isinstance(content, Text) else str(content)
