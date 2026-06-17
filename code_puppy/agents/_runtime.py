@@ -577,6 +577,14 @@ async def run_with_mcp(
     schedule_agent_cancel = make_schedule_cancel(agent_task, loop)
     schedule_agent_pause = make_schedule_pause(agent_task, loop)
 
+    # Bridge the cancel callback to the shell SIGINT handler so a single
+    # Ctrl+C while shells are running stops the whole agent/sub-agent swarm
+    # (kill shells, then cancel every task) instead of only killing the
+    # current batch of shells.
+    from code_puppy.tools import command_runner as _command_runner
+
+    _command_runner.register_agent_cancel(schedule_agent_cancel)
+
     def keyboard_interrupt_handler(_sig, _frame):
         # Let input() handle its own KeyboardInterrupt if we're mid-prompt.
         if is_awaiting_user_input():
@@ -646,6 +654,12 @@ async def run_with_mcp(
         run_error = e
         raise
     finally:
+        try:
+            from code_puppy.tools import command_runner as _command_runner
+
+            _command_runner.clear_agent_cancel()
+        except Exception:
+            pass
         try:
             await on_agent_run_end(
                 agent_name=agent.name,

@@ -178,6 +178,11 @@ def register_load_image(agent):
     ) -> Union[ToolReturn, Dict[str, Any]]:
         """Load an image file so you can see and analyze it.
 
+        Only call this when the user gave you a concrete filesystem path to an
+        image that is not already attached to the message. If an image is
+        already visible in the conversation, analyze it directly; do not call
+        this tool with guessed paths like /tmp/screenshot.png.
+
         Args:
             image_path: Path to the image file.
 

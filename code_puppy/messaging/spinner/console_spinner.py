@@ -158,16 +158,24 @@ class ConsoleSpinner(SpinnerBase):
                 awaiting_input = is_awaiting_user_input()
                 agent_paused = get_pause_controller().is_paused()
 
-                # Update the live display only if not paused and not awaiting input
+                # Update the live display only if not paused and not awaiting input.
+                # Snapshot _live locally: pause()/stop() can set self._live = None
+                # from another thread between the guard and the refresh call.
+                live = self._live
                 if (
-                    self._live
+                    live is not None
                     and not self._paused
                     and not awaiting_input
                     and not agent_paused
                 ):
-                    # Manually refresh instead of auto-refresh to avoid wiping input
-                    self._live.update(self._generate_spinner_panel())
-                    self._live.refresh()
+                    # Manually refresh instead of auto-refresh to avoid wiping input.
+                    # If this Live is torn down mid-frame, skip this one frame
+                    # instead of poisoning the spinner thread for the whole session.
+                    try:
+                        live.update(self._generate_spinner_panel())
+                        live.refresh()
+                    except Exception:
+                        pass
 
                 # Short sleep to control animation speed
                 time.sleep(0.05)
@@ -182,17 +190,30 @@ class ConsoleSpinner(SpinnerBase):
         """Pause the spinner animation."""
         if self._is_spinning:
             self._paused = True
-            # Stop the live display completely to restore terminal echo during input
-            if self._live:
+            # Stop the live display completely to restore terminal echo during input.
+            # Clear _live before stopping so racing refresh threads see None instead
+            # of a Live that is midway through teardown.
+            live = self._live
+            self._live = None
+            if live:
                 try:
-                    self._live.stop()
-                    self._live = None
-                    # Clear the line to remove any artifacts
+                    live.stop()
+                except Exception:
+                    pass
+                try:
+                    # Clear the line to remove any artifacts. Only emit raw
+                    # ANSI when stdout is a real terminal: on redirected output
+                    # (CI logs, pipes) or a legacy non-VT Windows console the
+                    # escape would render as literal "←[K" garbage. This pause
+                    # path now fires on every Ctrl+C swarm-cancel via
+                    # _tear_down_live_panels, so guard it. On a macOS TTY
+                    # isatty() is True -> behavior is unchanged.
                     import sys
 
-                    sys.stdout.write("\r")  # Return to start of line
-                    sys.stdout.write("\x1b[K")  # Clear to end of line
-                    sys.stdout.flush()
+                    if sys.stdout.isatty():
+                        sys.stdout.write("\r")  # Return to start of line
+                        sys.stdout.write("\x1b[K")  # Clear to end of line
+                        sys.stdout.flush()
                 except Exception:
                     pass
 
@@ -216,12 +237,15 @@ class ConsoleSpinner(SpinnerBase):
             # Restart the live display if it was stopped during pause
             if not self._live:
                 try:
-                    # Clear any leftover artifacts before starting
+                    # Clear any leftover artifacts before starting. Same
+                    # isatty() guard as pause() so redirected/non-VT consoles
+                    # don't get literal escape garbage; macOS TTY is unchanged.
                     import sys
 
-                    sys.stdout.write("\r")  # Return to start of line
-                    sys.stdout.write("\x1b[K")  # Clear to end of line
-                    sys.stdout.flush()
+                    if sys.stdout.isatty():
+                        sys.stdout.write("\r")  # Return to start of line
+                        sys.stdout.write("\x1b[K")  # Clear to end of line
+                        sys.stdout.flush()
 
                     # Print blank line before spinner for visual separation
                     self.console.print()

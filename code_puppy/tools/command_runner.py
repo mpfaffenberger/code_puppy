@@ -115,6 +115,17 @@ _SHELL_CTRL_X_STOP_EVENT: Optional[threading.Event] = None
 _SHELL_CTRL_X_THREAD: Optional[threading.Thread] = None
 _ORIGINAL_SIGINT_HANDLER = None
 
+# Bridge from the shell SIGINT handler back to the active agent run's cancel
+# callback (``make_schedule_cancel``'s closure). Registered by the runtime at
+# run start, cleared at run end. Lets a single Ctrl+C during a sub-agent swarm
+# kill the shells AND cancel every sub-agent task + the main agent, instead of
+# only killing the current batch of shells (which forced the user to mash
+# Ctrl+C once per still-running sub-agent).
+_AGENT_CANCEL_CB: Optional[Callable[..., None]] = None
+# One-shot dedupe so mashing Ctrl+C during teardown doesn't reprint the banner
+# or re-fire the cancel sweep N times. Reset when a new cancel cb registers.
+_SIGINT_CANCEL_REQUESTED = False
+
 # Reference-counted keyboard context - stays active while ANY command is running
 _KEYBOARD_CONTEXT_REFCOUNT = 0
 _KEYBOARD_CONTEXT_LOCK = threading.Lock()
@@ -373,10 +384,103 @@ def _handle_ctrl_x_press() -> None:
     kill_all_running_shell_processes()
 
 
+def _tear_down_live_panels() -> None:
+    """Hide the spinner's Live region (and the sub-agent status panel it hosts).
+
+    Mirrors what the steer flow does via ``pause_all_spinners()``: the
+    sub-agent status panel is rendered INSIDE the puppy spinner's Rich Live,
+    which repaints ~20x/sec. Without tearing it down first, the cancel banner
+    prints once and the very next Live frame paints the panel right back over
+    it -- which is exactly why a single Ctrl+C *looked* like it did nothing and
+    the user had to mash it once per nesting level. We pause each active
+    spinner DIRECTLY (rather than ``pause_all_spinners()``) because the signal
+    handler fires on the main thread in an ambiguous contextvar state, where
+    the ``is_subagent()`` guard inside ``pause_all_spinners()`` could wrongly
+    no-op the teardown.
+    """
+    try:
+        from code_puppy.messaging.spinner import _active_spinners
+
+        for spinner in list(_active_spinners):
+            try:
+                spinner.pause()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def _shell_sigint_handler(_sig, _frame):
-    """During shell execution, Ctrl-C kills all shells but doesn't cancel agent."""
-    emit_warning("\n🛑 Ctrl-C detected! Interrupting all shell commands...")
-    kill_all_running_shell_processes()
+    """Ctrl-C during shell execution: stop the swarm responsively.
+
+    ORDER MATTERS, and it's the opposite of what you'd naively expect:
+
+    1. **Hide the panel** (``_tear_down_live_panels``) -- instant, non-blocking.
+    2. **Emit the banner** -- instant; the user gets immediate feedback.
+    3. **Kill the shells** (``kill_all_running_shell_processes``) -- SLOW and
+       BLOCKING. ``_kill_process_group`` sleeps up to ~2.1s *per process*
+       (SIGTERM->SIGINT->SIGKILL escalation), so a deep swarm with N nested
+       sub-agents each holding a ``sleep`` shell can block the main thread for
+       N x ~2s. If we killed first (the old order), the spinner's Rich Live
+       kept repainting the sub-agent panel for that entire window and the
+       teardown/banner only landed *after* every shell died -- which is
+       precisely the "panel stays up until all the shells finally stop" bug.
+    4. **Cancel the swarm** (``_AGENT_CANCEL_CB(force=True)``). Shells are
+       already dead by here, so the anti-orphan reason for force-cancel holds.
+
+    A one-shot ``_SIGINT_CANCEL_REQUESTED`` flag dedupes the banner + sweep
+    so mashing Ctrl+C during teardown doesn't spam either.
+    """
+    global _SIGINT_CANCEL_REQUESTED
+
+    if _SIGINT_CANCEL_REQUESTED:
+        # Already tearing this run down; swallow extra presses silently.
+        # Keep the panel hidden in case a late frame tried to bring it back.
+        _tear_down_live_panels()
+        kill_all_running_shell_processes()
+        return
+
+    if _AGENT_CANCEL_CB is not None:
+        _SIGINT_CANCEL_REQUESTED = True
+        # 1+2: hide the panel and announce the cancel BEFORE the slow kill,
+        # so the UI responds instantly instead of after every shell dies.
+        _tear_down_live_panels()
+        emit_warning(
+            "\nCtrl-C detected! Stopping the agent (shells + all sub-agents)..."
+        )
+        # 3: the slow, blocking part -- panel is already gone, banner is shown.
+        kill_all_running_shell_processes()
+        try:
+            # 4: force=True -- we just killed the shells, so the agent-cancel
+            # guard's anti-orphan reason no longer applies.
+            _AGENT_CANCEL_CB(force=True)
+        except Exception:
+            # A cancel-callback failure must never crash the signal handler.
+            pass
+    else:
+        # Headless / tool-only invocation with no active agent run to cancel.
+        _tear_down_live_panels()
+        emit_warning("\nCtrl-C detected! Interrupting all shell commands...")
+        kill_all_running_shell_processes()
+
+
+def register_agent_cancel(cb: Optional[Callable[..., None]]) -> None:
+    """Publish the active agent run's cancel callback for the SIGINT handler.
+
+    Called by the runtime at run start so a Ctrl+C arriving while shells are
+    running can collapse the whole agent/sub-agent tree, not just the shells.
+    Resets the one-shot dedupe flag so each fresh run can be cancelled once.
+    """
+    global _AGENT_CANCEL_CB, _SIGINT_CANCEL_REQUESTED
+    _AGENT_CANCEL_CB = cb
+    _SIGINT_CANCEL_REQUESTED = False
+
+
+def clear_agent_cancel() -> None:
+    """Drop the registered cancel callback at run end so it can't outlive its task."""
+    global _AGENT_CANCEL_CB, _SIGINT_CANCEL_REQUESTED
+    _AGENT_CANCEL_CB = None
+    _SIGINT_CANCEL_REQUESTED = False
 
 
 def _start_keyboard_listener() -> None:

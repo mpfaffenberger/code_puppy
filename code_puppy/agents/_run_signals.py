@@ -19,12 +19,21 @@ def make_schedule_cancel(
     agent_task: "asyncio.Task[Any]",
     loop: asyncio.AbstractEventLoop,
 ) -> Callable[[], None]:
-    """Build the ``schedule_agent_cancel`` callback for the key listener."""
+    """Build the ``schedule_agent_cancel`` callback for the key listener.
 
-    def schedule_agent_cancel() -> None:
+    The returned callback accepts ``force``: when ``True`` it skips the
+    "refuse to cancel while a shell is running" guard. The shell SIGINT
+    handler uses ``force=True`` because it kills all shells *before*
+    requesting the cancel, so the guard's anti-orphan rationale no longer
+    applies -- and during a sub-agent swarm shells are almost always
+    running, so without the bypass a single Ctrl+C could never stop the
+    swarm (it would only ever kill the current batch of shells).
+    """
+
+    def schedule_agent_cancel(force: bool = False) -> None:
         from code_puppy.tools.command_runner import _RUNNING_PROCESSES
 
-        if _RUNNING_PROCESSES:
+        if _RUNNING_PROCESSES and not force:
             emit_warning(
                 "Refusing to cancel Agent while a shell command is running — "
                 "press Ctrl+X to cancel the shell command."
@@ -33,6 +42,12 @@ def make_schedule_cancel(
         if agent_task.done():
             return
         if _active_subagent_tasks:
+            # Hide the sub-agent status panel (rendered inside the spinner's
+            # Live) the same way the steer flow does, so the cancel banner
+            # isn't instantly repainted over. Mirrors _shell_sigint_handler.
+            from code_puppy.tools.command_runner import _tear_down_live_panels
+
+            _tear_down_live_panels()
             emit_warning(
                 f"Cancelling {len(_active_subagent_tasks)} active subagent task(s)..."
             )
