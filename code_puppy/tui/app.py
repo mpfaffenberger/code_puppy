@@ -74,6 +74,19 @@ class PromptArea(TextArea):
     """
 
     def _on_key(self, event: events.Key) -> None:
+        # Vim mode (TUI-only) intercepts keys when no completion popup is open.
+        # In INSERT mode the engine only consumes Escape, so typing/completion
+        # behave exactly as before. Enter & Ctrl-combos always fall through.
+        if (
+            getattr(self.app, "vim_enabled", False)
+            and not self.app.completion_visible()
+        ):
+            from .vim_adapter import feed_key
+
+            if feed_key(self, self.app.vim_state, event):
+                self.app.update_vim_indicator()
+                return
+
         if self.app.completion_visible():
             if event.key in ("down", "up", "tab", "enter", "escape"):
                 event.prevent_default()
@@ -89,6 +102,7 @@ class PromptArea(TextArea):
                         self.app.hide_completions()
                         self.app.submit_prompt(self.text)
                         self.text = ""
+                        self.app.reset_vim_mode()
                     elif self.app.accept_completion(submit_if_terminal=True):
                         # Accepted a terminal command and ran it in one go.
                         self.text = ""
@@ -103,6 +117,7 @@ class PromptArea(TextArea):
             event.stop()
             self.app.submit_prompt(self.text)
             self.text = ""
+            self.app.reset_vim_mode()
             return
 
         # Shift+Enter / Ctrl+J insert a literal newline. Textual's TextArea
@@ -167,6 +182,9 @@ class CooperApp(App):
         /* Inset left/right by 1 to line up with the response area's
            `padding: 0 1`. */
         margin: 1 1 0 1;
+        /* Vim sub-mode indicator lives on the bottom border, left-aligned. */
+        border-subtitle-color: $accent;
+        border-subtitle-align: left;
     }
     #completions {
         display: none;
@@ -334,6 +352,9 @@ class CooperApp(App):
         # completion is populated from the first keystroke (not just after the
         # first /command is dispatched).
         import code_puppy.command_line.command_handler  # noqa: F401
+
+        # Restore the persisted vim-mode preference (TUI-only feature).
+        self._init_vim_mode()
 
         # The classic logo print (cli_runner.run) is skipped in Textual mode
         # because stdout is wiped when the app grabs the screen. Render it here
@@ -766,6 +787,61 @@ class CooperApp(App):
 
             self.push_screen(QuestionModal(message), _on_questions)
 
+    # --- Vim mode (TUI-only) ---------------------------------------------
+    def _init_vim_mode(self) -> None:
+        """Set up vim state and restore the persisted on/off preference."""
+        from code_puppy.config import get_value
+
+        from .vim import VimState
+
+        enabled = str(get_value("vim_mode") or "").lower() in ("1", "true", "yes", "on")
+        self.vim_enabled = enabled
+        self.vim_state = VimState()
+        self.update_vim_indicator()
+
+    def toggle_vim_mode(self) -> bool:
+        """Flip vim mode on/off, persist it, and return the new state."""
+        from code_puppy.config import set_config_value
+
+        from .vim import VimState
+
+        self.vim_enabled = not getattr(self, "vim_enabled", False)
+        self.vim_state = VimState()
+        try:
+            self.query_one("#prompt", PromptArea)._vim_anchor = None
+        except Exception:
+            pass
+        set_config_value("vim_mode", "true" if self.vim_enabled else "false")
+        self.update_vim_indicator()
+        return self.vim_enabled
+
+    def reset_vim_mode(self) -> None:
+        """Return to INSERT mode for a fresh prompt (no-op when disabled)."""
+        if not getattr(self, "vim_enabled", False):
+            return
+        from .vim import VimState
+
+        self.vim_state = VimState()
+        try:
+            self.query_one("#prompt", PromptArea)._vim_anchor = None
+        except Exception:
+            pass
+        self.update_vim_indicator()
+
+    def update_vim_indicator(self) -> None:
+        """Show the current vim sub-mode in the prompt's border title."""
+        try:
+            prompt = self.query_one("#prompt", PromptArea)
+        except Exception:
+            return
+        if not getattr(self, "vim_enabled", False):
+            prompt.border_subtitle = ""
+            return
+        from .vim import INSERT, NORMAL, VISUAL
+
+        labels = {INSERT: "INSERT", NORMAL: "NORMAL", VISUAL: "VISUAL"}
+        prompt.border_subtitle = f" {labels.get(self.vim_state.mode, 'INSERT')} "
+
     def _dispatch_command(self, command: str):
         """Route a /command through the shared command handler.
 
@@ -783,6 +859,22 @@ class CooperApp(App):
         # screens (register_screen hook) are resolved here too.
         parts = command[1:].split()
         name = parts[0].lower() if parts else ""
+
+        # /vim toggles the TUI-only vim editing mode for the prompt box.
+        if name == "vim" and len(parts) == 1:
+            enabled = self.toggle_vim_mode()
+            get_message_bus().emit(
+                TextMessage(
+                    level=MessageLevel.INFO,
+                    text=(
+                        "Vim mode ON -- ESC for NORMAL, i to insert."
+                        if enabled
+                        else "Vim mode OFF."
+                    ),
+                )
+            )
+            return True
+
         opener = get_menu_opener(name)
         if opener is not None and len(parts) == 1:
             opener(self)
