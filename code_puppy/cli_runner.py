@@ -143,6 +143,7 @@ async def main():
     )
     parser.add_argument(
         "--tui",
+        "-t",
         action="store_true",
         help="Run in the Textual TUI instead of the classic interactive console",
     )
@@ -170,11 +171,16 @@ async def main():
     # Resolve which UI to drive. The Textual TUI only takes over interactive
     # sessions (not -p single-prompt runs), and only when explicitly enabled
     # via the ui_mode setting / CODE_PUPPY_UI env / /ui command. Defaults off.
-    from code_puppy.config import is_tui_mode
+    from code_puppy.config import set_tui_mode
 
-    # --tui forces Textual regardless of the configured ui_mode (the --serve
-    # subprocess relies on this); otherwise honor the resolved ui_mode.
-    use_textual = (args.tui or is_tui_mode()) and not args.prompt
+    # --tui / -t = Textual TUI. Everything else (including bare `code-puppy`
+    # or explicit -i/--interactive) is the classic console. No config knob
+    # needed — use a shell alias if you want -t to be the default.
+    use_textual = args.tui and not args.prompt
+
+    # Lock in the mode once so every subsystem (wiggum, ask_user_question,
+    # _runtime key-listener, etc.) reads is_tui_mode() consistently.
+    set_tui_mode(use_textual)
 
     # Create a shared console for both renderers
     display_console = Console()

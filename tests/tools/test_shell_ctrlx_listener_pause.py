@@ -90,7 +90,7 @@ def test_start_keyboard_listener_spawns_when_headless():
 
     with (
         patch.object(_key_listeners, "get_active_handle", return_value=None),
-        patch("code_puppy.config.get_ui_mode", return_value="interactive"),
+        patch("code_puppy.config._TUI_MODE", False),
         patch.object(
             command_runner, "_spawn_ctrl_x_key_listener", return_value=None
         ) as mock_spawn,
@@ -112,7 +112,7 @@ def test_start_keyboard_listener_never_spawns_in_textual():
 
     with (
         patch.object(_key_listeners, "get_active_handle", return_value=None),
-        patch("code_puppy.config.get_ui_mode", return_value="tui"),
+        patch("code_puppy.config._TUI_MODE", True),
         patch.object(command_runner, "_spawn_ctrl_x_key_listener") as mock_spawn,
         patch("signal.signal", return_value=None),
     ):

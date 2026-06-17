@@ -337,7 +337,6 @@ class TestGetConfigKeys:
                 "summarization_model",
                 "suppress_directory_listing",
                 "temperature",
-                "ui_mode",
                 "yolo_mode",
             ]
         )
@@ -404,7 +403,6 @@ class TestGetConfigKeys:
                 "summarization_model",
                 "suppress_directory_listing",
                 "temperature",
-                "ui_mode",
                 "yolo_mode",
             ]
         )

@@ -37,7 +37,7 @@ async def test_mcp_tool_call_banner_uses_queue_console(monkeypatch):
 
 
 def test_wiggum_banner_routes_to_queue_in_tui(monkeypatch):
-    monkeypatch.setattr("code_puppy.config.get_ui_mode", lambda: "tui")
+    monkeypatch.setattr("code_puppy.config._TUI_MODE", True)
     printed = []
     monkeypatch.setattr(
         "code_puppy.messaging.get_queue_console",

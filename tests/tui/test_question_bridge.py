@@ -36,7 +36,7 @@ def test_handler_routes_to_bus_in_textual_mode(monkeypatch):
     """In textual mode the handler bridges to the bus and maps answers back."""
     monkeypatch.setattr(handler_mod, "is_subagent", lambda: False)
     monkeypatch.setattr(handler_mod, "is_wiggum_active", lambda: False)
-    monkeypatch.setattr("code_puppy.config.get_ui_mode", lambda: "tui")
+    monkeypatch.setattr("code_puppy.config._TUI_MODE", True)
 
     captured = {}
 
@@ -68,7 +68,7 @@ def test_handler_routes_to_bus_in_textual_mode(monkeypatch):
 def test_handler_maps_cancelled(monkeypatch):
     monkeypatch.setattr(handler_mod, "is_subagent", lambda: False)
     monkeypatch.setattr(handler_mod, "is_wiggum_active", lambda: False)
-    monkeypatch.setattr("code_puppy.config.get_ui_mode", lambda: "tui")
+    monkeypatch.setattr("code_puppy.config._TUI_MODE", True)
     monkeypatch.setattr(
         get_message_bus(),
         "ask_questions_blocking",
@@ -82,7 +82,7 @@ def test_handler_maps_cancelled(monkeypatch):
 def test_handler_maps_timeout(monkeypatch):
     monkeypatch.setattr(handler_mod, "is_subagent", lambda: False)
     monkeypatch.setattr(handler_mod, "is_wiggum_active", lambda: False)
-    monkeypatch.setattr("code_puppy.config.get_ui_mode", lambda: "tui")
+    monkeypatch.setattr("code_puppy.config._TUI_MODE", True)
     monkeypatch.setattr(
         get_message_bus(),
         "ask_questions_blocking",

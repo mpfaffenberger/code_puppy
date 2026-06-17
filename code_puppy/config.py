@@ -371,9 +371,6 @@ def get_config_keys():
     default_keys.append("goal_max_iterations")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
-    # Add UI mode key (classic prompt_toolkit UI vs new Textual TUI).
-    default_keys.append("ui_mode")
-
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
@@ -410,87 +407,22 @@ def reset_value(key: str) -> None:
             config.write(f)
 
 
-# --- UI MODE (classic console vs Textual TUI) ------------------------------
-# Layered precedence so the UI can be chosen three ways without conflict:
-#   /ui (session)  >  CODE_PUPPY_UI env  >  puppy.cfg ui_mode  >  "interactive"
-#
-# Canonical values: "interactive" = the classic prompt_toolkit console
-# (default), "tui" = the Textual full-screen UI. The older value names
-# ("classic"/"textual") are still accepted as aliases so existing puppy.cfg
-# files and CODE_PUPPY_UI exports keep working after the rename.
-UI_MODE_INTERACTIVE = "interactive"
-UI_MODE_TUI = "tui"
-VALID_UI_MODES = (UI_MODE_INTERACTIVE, UI_MODE_TUI)
-_UI_MODE_ALIASES = {
-    "interactive": UI_MODE_INTERACTIVE,
-    "classic": UI_MODE_INTERACTIVE,  # legacy
-    "tui": UI_MODE_TUI,
-    "textual": UI_MODE_TUI,  # legacy
-}
-
-# Session-only override set by the /ui command. None means "not overridden".
-_SESSION_UI_MODE = None
-
-
-def _normalize_ui_mode(value):
-    """Return a canonical UI mode ('interactive'/'tui'), or None if unknown.
-
-    Accepts the legacy aliases 'classic' -> 'interactive' and
-    'textual' -> 'tui' so pre-rename configs keep working.
-    """
-    if value is None:
-        return None
-    candidate = str(value).strip().lower()
-    return _UI_MODE_ALIASES.get(candidate)
-
-
-def get_ui_mode() -> str:
-    """Resolve the active UI mode with layered precedence.
-
-    Highest priority first: the in-session /ui override, then the
-    ``CODE_PUPPY_UI`` environment variable, then the persisted ``ui_mode``
-    key in puppy.cfg, finally the default of ``"interactive"``. Unknown
-    values at any layer are ignored (we fall through to the next layer).
-    """
-    session = _normalize_ui_mode(_SESSION_UI_MODE)
-    if session is not None:
-        return session
-    env = _normalize_ui_mode(os.environ.get("CODE_PUPPY_UI"))
-    if env is not None:
-        return env
-    cfg = _normalize_ui_mode(get_value("ui_mode"))
-    if cfg is not None:
-        return cfg
-    return UI_MODE_INTERACTIVE
+# --- UI MODE ---------------------------------------------------------------
+# Set once at startup by cli_runner from the --tui / -t flag.
+# Use -t/--tui to launch Textual; everything else is classic interactive.
+# Shell alias (alias pup='code-puppy -t') beats a config knob any day.
+_TUI_MODE: bool = False
 
 
 def is_tui_mode() -> bool:
-    """True when the resolved UI mode is the Textual TUI.
-
-    Single source of truth for the many call sites that branch on "are we
-    running under Textual?" so they don't hard-code the mode string.
-    """
-    return get_ui_mode() == UI_MODE_TUI
+    """True when running under the Textual TUI (set once at startup)."""
+    return _TUI_MODE
 
 
-def set_session_ui_mode(mode):
-    """Set the session-only UI override used by /ui. Pass None to clear it.
-
-    Returns the normalized mode that was stored (or None if cleared/invalid).
-    Does NOT persist to disk — that's what set_ui_mode is for.
-    """
-    global _SESSION_UI_MODE
-    _SESSION_UI_MODE = _normalize_ui_mode(mode)
-    return _SESSION_UI_MODE
-
-
-def set_ui_mode(mode: str) -> bool:
-    """Persist the default UI mode to puppy.cfg. Returns True if mode is valid."""
-    normalized = _normalize_ui_mode(mode)
-    if normalized is None:
-        return False
-    set_config_value("ui_mode", normalized)
-    return True
+def set_tui_mode(enabled: bool) -> None:
+    """Called once by cli_runner to lock in the UI mode for the process."""
+    global _TUI_MODE
+    _TUI_MODE = bool(enabled)
 
 
 # --- MODEL STICKY EXTENSION STARTS HERE ---

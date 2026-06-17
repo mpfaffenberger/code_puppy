@@ -61,7 +61,6 @@ from code_puppy.config import (
     get_suppress_informational_messages,
     get_suppress_thinking_messages,
     get_temperature,
-    get_ui_mode,
     get_universal_constructor_enabled,
     get_yolo_mode,
 )
@@ -550,27 +549,6 @@ _OUTPUT = SettingsCategory(
 )
 
 
-_UI = SettingsCategory(
-    name="UI",
-    settings=(
-        Setting(
-            key="ui_mode",
-            display_name="UI Mode",
-            description=(
-                "Which interface Code Puppy launches: 'interactive' (the "
-                "classic console, default) or 'tui' (the Textual full-screen "
-                "UI). Also settable per-launch via --tui / CODE_PUPPY_UI, or "
-                "live via /ui. Takes effect on the next launch."
-            ),
-            type_hint="choice",
-            valid_values=("interactive", "tui"),
-            effective_getter=get_ui_mode,
-            requires_restart=True,
-        ),
-    ),
-)
-
-
 _MCP = SettingsCategory(
     name="MCP",
     settings=(
@@ -621,7 +599,6 @@ SETTINGS_CATEGORIES: Tuple[SettingsCategory, ...] = (
     _OPENAI,
     _FEATURES,
     _MCP,
-    _UI,
     _GOAL,
     _KEYBOARD,
     _DIFF,
