@@ -52,6 +52,10 @@ from .renderer import TextualRenderer, message_to_renderable
 from .screens.interactive import ConfirmModal, SelectionModal, TextInputModal
 from .screens.question import QuestionModal
 
+# Sentinel for "no before-target captured yet" in the render-batch coalescer
+# (None is a valid before-target meaning "mount at the bottom").
+_UNSET = object()
+
 
 class CompletionList(OptionList):
     """Completion dropdown that never steals focus from the prompt."""
@@ -270,6 +274,20 @@ class CooperApp(App):
         # the committed widget from this buffer, which never loses anything.
         self._stream_text = ""
         self._stream_last_index = None
+        # --- Render batching (Phase 5 perf) -------------------------------
+        # Mounting one widget per bus message is superlinear in the
+        # VerticalScroll child count (a `cat bigfile` firehose mounts
+        # thousands of widgets and stutters). Instead we BUFFER renderables
+        # and flush them on a short timer, coalescing consecutive Text output
+        # into a single Static -- one mount per burst, not one per line.
+        self._pending: list[tuple[RenderableType, object]] = []
+        self._flush_handle = None
+        # Streamed response deltas are likewise batched: MarkdownStream
+        # re-renders the WHOLE accumulated doc on every write, so writing once
+        # per token is O(n^2) over a long response. We coalesce deltas and
+        # write them in fewer, larger chunks.
+        self._pending_deltas: list[str] = []
+        self._delta_handle = None
         # Animated thinking spinner (mirrors the classic ConsoleSpinner).
         self._spinner_timer = None
         self._spinner_frame = 0
@@ -415,22 +433,22 @@ class CooperApp(App):
             or log.size.width
         ) or None
 
-    def _append_log(self, renderable: RenderableType, *, before=None) -> None:
-        """Mount a renderable as a new entry in the scrollback.
+    # Batching cadence: ~20fps. Long enough to coalesce a firehose burst into
+    # one mount, short enough that output still feels live/streaming.
+    _FLUSH_INTERVAL = 0.05
 
+    def _append_log(self, renderable: RenderableType, *, before=None) -> None:
+        """Queue a renderable to be mounted into the scrollback (batched).
+
+        Renderables are buffered and flushed on a short timer so a firehose of
+        small messages mounts as one coalesced Static instead of thousands of
+        widgets (which is superlinear in the VerticalScroll child count).
         Defaults to the bottom; pass ``before`` (a mounted widget) to insert
         above it -- used to keep tool output above an actively streaming
         response.
         """
-        log = self.query_one("#log", VerticalScroll)
-        entry = Static(renderable, markup=False)
-        # Stash the source renderable for log_text() (Static hides it behind a
-        # name-mangled attribute we'd rather not reach into).
-        entry._cp_renderable = renderable
-        if before is not None:
-            log.mount(entry, before=before)
-        else:
-            log.mount(entry)
+        self._pending.append((renderable, before))
+        self._schedule_flush()
 
     def _append_output(self, renderable: RenderableType) -> None:
         """Mount agent/tool output, keeping it ABOVE a streaming response.
@@ -440,12 +458,91 @@ class CooperApp(App):
         """
         self._append_log(renderable, before=self._response_anchor)
 
+    def _schedule_flush(self) -> None:
+        if self._flush_handle is None:
+            self._flush_handle = self.set_timer(
+                self._FLUSH_INTERVAL, self._flush_output
+            )
+
+    def _flush_output(self) -> None:
+        """Mount all buffered renderables, coalescing consecutive Text output.
+
+        Consecutive ``Text`` renderables sharing the same ``before`` target are
+        joined into a SINGLE Static (newline-separated, matching the stacked
+        block layout) so a firehose costs one mount instead of N. Non-Text
+        renderables (panels/tables/markdown) mount individually to preserve
+        their structure.
+        """
+        self._flush_handle = None
+        if not self._pending:
+            return
+        items, self._pending = self._pending, []
+        try:
+            log = self.query_one("#log", VerticalScroll)
+        except Exception:
+            return
+        staged: list[tuple[Static, object]] = []
+        run: Text | None = None
+        run_before: object = _UNSET
+
+        def _emit_run() -> None:
+            nonlocal run, run_before
+            if run is not None:
+                staged.append((self._make_static(run), run_before))
+                run = None
+                run_before = _UNSET
+
+        for renderable, before in items:
+            if isinstance(renderable, Text):
+                if run is not None and before is run_before:
+                    run.append("\n")
+                    run.append_text(renderable)
+                else:
+                    _emit_run()
+                    run = renderable.copy()
+                    run_before = before
+            else:
+                _emit_run()
+                staged.append((self._make_static(renderable), before))
+        _emit_run()
+
+        for entry, before in staged:
+            if before is not None:
+                log.mount(entry, before=before)
+            else:
+                log.mount(entry)
+
+    @staticmethod
+    def _make_static(renderable: RenderableType) -> Static:
+        entry = Static(renderable, markup=False)
+        # Stash the source renderable for log_text() (Static hides it behind a
+        # name-mangled attribute we'd rather not reach into).
+        entry._cp_renderable = renderable
+        return entry
+
+    def _mount_now(self, widget, *, before=None) -> None:
+        """Flush pending output, then mount a live widget directly in order.
+
+        Used for non-buffered widgets (streamed MarkdownWidget, prompt-echo
+        rules) so they land AFTER everything queued before them rather than
+        racing ahead of the batch.
+        """
+        self._flush_output()
+        log = self.query_one("#log", VerticalScroll)
+        if before is not None:
+            log.mount(widget, before=before)
+        else:
+            log.mount(widget)
+
     def write_renderable(self, renderable: RenderableType) -> None:
         """Mount a renderable into the scrollback."""
         self._append_log(renderable)
 
     def log_text(self) -> str:
         """Concatenate the plain text of every scrollback entry (for tests)."""
+        # Flush buffered output so introspection sees the full scrollback even
+        # if the batch timer hasn't fired yet.
+        self._flush_output()
         parts: list[str] = []
         for child in self.query_one("#log", VerticalScroll).children:
             if isinstance(child, MarkdownWidget):
@@ -464,7 +561,6 @@ class CooperApp(App):
         Falls back to a minimal renderable only if capture yields nothing for
         a plain TextMessage (defensive; shouldn't normally happen).
         """
-        log = self.query_one("#log", VerticalScroll)
         width = self._log_width()
 
         # The agent's final response. When it streamed live (the common case)
@@ -474,7 +570,9 @@ class CooperApp(App):
             if not self._streamed_this_turn:
                 self._append_agent_response_banner()
                 if message.is_markdown:
-                    log.mount(MarkdownWidget(message.content))
+                    # Flush the buffered banner first so the widget lands AFTER
+                    # it (a direct mount would otherwise jump ahead of the batch).
+                    self._mount_now(MarkdownWidget(message.content))
                 else:
                     self._append_log(Text(message.content))
             self._finalize_stream()
@@ -520,6 +618,9 @@ class CooperApp(App):
         # the input-box border color) make each new turn pop in the scrollback.
         from datetime import datetime
 
+        # Flush any buffered output first so this turn header mounts AFTER the
+        # previous turn's tail (the four parts below are direct, ordered mounts).
+        self._flush_output()
         log = self.query_one("#log", VerticalScroll)
         stamp_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         stamp = Static(stamp_text, classes="prompt-timestamp")
@@ -536,7 +637,7 @@ class CooperApp(App):
         line.append(" PROMPT ", style=f"bold white on {color}")
         line.append(" ")
         line.append(text, style="bold")
-        self._append_log(line)
+        log.mount(self._make_static(line))
 
         # Closing rule below the prompt (same accent color + margins) so the
         # turn header reads as a framed block.
@@ -938,14 +1039,23 @@ class CooperApp(App):
                 # Never let one bad item kill the render loop.
                 pass
 
+    # Batch streamed deltas before writing: MarkdownStream re-renders the WHOLE
+    # accumulated doc on every write, so per-token writes are O(n^2) over a long
+    # response. Coalescing to ~20fps writes makes total cost grow with elapsed
+    # time, not token count.
+    _DELTA_INTERVAL = 0.05
+
     async def _stream_delta(self, content: str) -> None:
         """Append a response text delta to the inline markdown widget.
 
         Lazily mounts the banner + markdown widget at the bottom on the first
         delta (awaited, so the first chunk isn't lost). The banner becomes the
-        anchor that keeps subsequent tool output above the response.
+        anchor that keeps subsequent tool output above the response. The actual
+        ``MarkdownStream.write`` is deferred and batched (see ``_flush_deltas``).
         """
         if self._md_stream is None:
+            # Flush queued tool output first so it mounts ABOVE this banner.
+            self._flush_output()
             log = self.query_one("#log", VerticalScroll)
             banner_text = self._agent_response_banner_text()
             banner = Static(banner_text, markup=False)
@@ -956,10 +1066,38 @@ class CooperApp(App):
             self._md_widget = widget
             await log.mount(widget)
             self._md_stream = MarkdownWidget.get_stream(widget)
-        await self._md_stream.write(content)
+        self._pending_deltas.append(content)
+        self._schedule_delta_flush()
+
+    def _schedule_delta_flush(self) -> None:
+        if self._delta_handle is None:
+            self._delta_handle = self.set_timer(
+                self._DELTA_INTERVAL, self._flush_deltas
+            )
+
+    async def _flush_deltas(self) -> None:
+        """Write all buffered deltas to the live stream as one chunk."""
+        self._delta_handle = None
+        if not self._pending_deltas or self._md_stream is None:
+            return
+        chunk = "".join(self._pending_deltas)
+        self._pending_deltas.clear()
+        try:
+            await self._md_stream.write(chunk)
+        except Exception:
+            pass
 
     async def _stop_stream(self) -> None:
         """Stop the inline stream, leaving its widget as scrollback history."""
+        # Cancel any pending delta flush; the lossless rebuild below supersedes
+        # whatever was still buffered (and writing post-stop would error).
+        if self._delta_handle is not None:
+            try:
+                self._delta_handle.stop()
+            except Exception:
+                pass
+            self._delta_handle = None
+        self._pending_deltas.clear()
         if self._md_stream is not None:
             try:
                 await self._md_stream.stop()

@@ -59,18 +59,21 @@ argument completion. **First-run onboarding** auto-shows in the TUI (disabled in
 tests via the `CODE_PUPPY_SKIP_TUTORIAL` autouse fixture).
 
 ### What's left
-- **Phase 5:** theming, fix `textual-serve` web errors, perf pass, flip default
-  to `textual`, remove `classic`. The main remaining work.
+- **Phase 5:** flip default to `textual`, remove `classic`. DONE so far:
+  web serve (`textual-serve`) works; theming handled by Textual's built-in
+  themes (Ctrl+P palette); **perf pass DONE** (render-batching/coalescing —
+  see §10). The main remaining work is the cutover itself.
 - **Phase 4 residuals:** addressed. The two that actually fired during a TUI
   session (per-MCP-tool-call banner in `managed_server.py`; `/goal` banners in
   wiggum) now route through the queue console. The rest are non-issues:
   truecolor warning is classic-only (`interactive_mode`), `mcp_/dashboard.py`
   print methods have no callers (dead code), `terminal_utils:433` only reads
   `color_system` (no print).
-- **Phase 5:** theming, fix `textual-serve` web errors, perf pass, flip default
-  to `textual`, remove `classic`, delete this plan's historical §9.
+- **Phase 5:** flip default to `textual`, remove `classic`, delete this plan's
+  historical §9. (Theming = Textual built-in themes; web serve + perf pass DONE.)
 - **Optional:** more long-tail completers (skills, pin commands); native
-  renderable promotion for hot paths (deferred from Phase 1).
+  renderable promotion for hot paths (deferred from Phase 1); scrollback cap
+  (deferred — see §10.6).
 
 ### Key files / where things live
 - `code_puppy/tui/app.py` — `CooperApp`; `_dispatch_command` does menu
@@ -395,3 +398,119 @@ until Phase 5 cutover regardless.
 - `model_picker_screen.py` — real menu as modal w/ live data (bucket 3)
 - `serve.py` — browser via textual-serve (web roadmap; has known errors)
 - `preview.png` / `preview_modal.png` — visual proof
+
+---
+
+## 10. Performance Benchmarks (Phase 5 perf pass)
+
+The perf pass ("batch high-frequency writes; verify firehose output doesn't
+stutter") was done **measure-first**. This section is the durable record so a
+future dev tuning the render pipeline has the full context.
+
+### 10.1 The two hot paths
+
+The original plan assumed a single firehose `RichLog`. The actual architecture
+is different: the main chat log (`#log`) is a **`VerticalScroll` that mounts one
+widget per output chunk** (`Static` for tool output, a streamed `Markdown`
+widget for the in-progress response). That changes the perf story into two
+independent concerns:
+
+1. **Bus / tool output firehose** — every bus message was formatted (capture
+   bridge) and mounted as its **own `Static`**. Mounting into a `VerticalScroll`
+   gets more expensive as siblings accumulate → **superlinear (≈O(n²))**. A
+   noisy command (`cat bigfile`, big `grep`, chatty build) could mount thousands
+   of widgets and stutter.
+2. **Live token streaming** — the whole response is a **single** `Markdown`
+   widget (good, no DOM bloat), but Textual's `MarkdownStream.write`
+   **re-parses + re-renders the entire accumulated document on every write**, so
+   one write per token is **O(n²)** over a long response.
+
+### 10.2 Methodology
+
+Headless benchmark: `tests/tui/test_perf_firehose.py` (runs under
+`App.run_test()`, no TTY). It hammers each path and reports wall time, per-item
+cost, and resulting widget count. Knobs (CI-safe defaults):
+
+```bash
+# defaults: 500 bus msgs / 2000 deltas
+.venv/bin/python -m pytest tests/tui/test_perf_firehose.py -o addopts="" -s -q
+# crank the load to expose scaling
+CP_PERF_BUS_N=4000 CP_PERF_DELTA_N=12000 \
+  .venv/bin/python -m pytest tests/tui/test_perf_firehose.py -o addopts="" -s -q
+```
+
+The `-s` flag surfaces the printed `[firehose-bus]` / `[firehose-stream]`
+report lines. Assertions are deliberately **loose** (generous ceilings) so a
+slow CI box doesn't flake — the printed numbers are the real signal, and a
+widget-count assertion guards the coalescing win (a revert makes
+`widgets_added` jump back to `n`).
+
+*Gotcha:* the benchmark's `_drain()` must wait for the render queue **and** both
+batch buffers (`_pending`, `_pending_deltas`) to empty, otherwise it measures
+widget counts before the flush timer fires (you'll see a misleading
+`widgets_added=0`).
+
+### 10.3 Results (before → after)
+
+Measured on the dev machine (numbers are illustrative; re-run locally for your
+hardware — the *scaling shape* is the point, not the absolute ms).
+
+| Scenario | Metric | Before | After | Win |
+|---|---|---|---|---|
+| Bus firehose, n=4000 | total | 9.66 s | **1.57 s** | ~6× |
+| | per-msg | 2.42 ms | **0.39 ms** | ~6× |
+| | widgets mounted | 4000 | **1** | DOM bloat gone |
+| | scaling | superlinear | **linear** | the real fix |
+| Token stream, n=12000 | total | 50.4 s | **0.25 s** | **~200×** |
+| | per-delta | 4.20 ms | **0.02 ms** | ~200× |
+
+The headline: per-item cost is now **flat** as the buffer grows (≈0.4 ms/msg at
+both n=500 and n=4000) — the superlinear curve is dead.
+
+### 10.4 The fix (all in `code_puppy/tui/app.py`)
+
+1. **Output coalescing.** `_append_log` now *buffers* `(renderable, before)`
+   tuples into `self._pending` and schedules a flush (`_schedule_flush` →
+   `set_timer(_FLUSH_INTERVAL, _flush_output)`). `_flush_output` joins
+   **consecutive `Text` renderables sharing the same `before` target** into a
+   single `Static` (newline-separated, matching the stacked-block layout);
+   non-`Text` renderables (panels/tables/markdown) mount individually to
+   preserve structure. A firehose burst → **one mount**.
+2. **Delta batching.** Streamed tokens accumulate in `self._pending_deltas` and
+   are written to `MarkdownStream` in coalesced chunks
+   (`_schedule_delta_flush` → `_flush_deltas`), turning O(n²) re-renders into
+   cost that grows with *elapsed time*, not token count. The lossless rebuild
+   in `_stop_stream` (from `self._stream_text`) still guarantees final
+   correctness, so dropped trailing deltas never corrupt history.
+3. **Ordering safety.** Direct-mount sites (prompt echo rules, non-streamed
+   response widget, stream banner) route through `_mount_now`, which
+   **flushes the buffer first** so nothing jumps ahead of the batch.
+   `log_text()` also flushes, for test determinism.
+
+### 10.5 The levers (tuning knobs)
+
+Two `CooperApp` class constants in `code_puppy/tui/app.py`, defined next to the
+code that uses them:
+
+| Constant | Default | Controls | Lower it if… |
+|---|---|---|---|
+| `_FLUSH_INTERVAL` | `0.05` | how often buffered tool/bus output mounts | output feels laggy to *appear* |
+| `_DELTA_INTERVAL` | `0.05` | how often streamed tokens write to the markdown widget | the response feels chunky/steppy |
+
+Both are seconds (`0.05` ≈ 20fps). **Lower = snappier but more CPU**
+(more frequent mounts/re-renders); **higher = smoother under firehose but more
+visible latency.** Sweet spot for "feels live" is `0.03`–`0.05`; below ~`0.02`
+you start giving back the perf win. A/B tested `0.03` vs `0.05` live — `0.05`
+chosen (throughput identical since a firehose coalesces in one burst regardless
+of cadence; `0.05` felt smooth without measurable latency).
+
+### 10.6 Deliberately deferred
+
+- **Scrollback cap.** Coalescing bounds the *rate* of widget growth (one widget
+  per burst), so a marathon session grows slowly. A hard cap (prune oldest
+  widgets past N) was considered but **not** added — it risks silently deleting
+  scrollback the user scrolled to, and the coalescing already removes the
+  pathological case. Revisit only if real sessions show unbounded growth.
+- **Native renderable promotion** for hot paths (diff/markdown/shell) — still
+  deferred from Phase 1; the capture bridge formatting is linear per message,
+  so it wasn't the bottleneck.
