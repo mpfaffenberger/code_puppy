@@ -35,6 +35,7 @@ Runtime toggle with /set subagent_panel off|on.
 from __future__ import annotations
 
 import os
+import re
 from contextvars import ContextVar
 
 _TRUTHY = {"1", "true", "yes", "on"}
@@ -158,28 +159,74 @@ def _ordered_tree(rows):
     return out
 
 
+# Tier/variant qualifiers that distinguish models sharing a version number
+# (e.g. gpt-5.4 vs gpt-5.4-nano vs gpt-5.4-mini). Without these, three distinct
+# models all collapse to "GPT 5.4" in the panel -- the exact confusion this maps
+# away. key (lowercased token in the id) -> Display label.
+_MODEL_VARIANTS = (
+    ("nano", "Nano"),
+    ("mini", "Mini"),
+    ("micro", "Micro"),
+    ("lite", "Lite"),
+    ("turbo", "Turbo"),
+    ("flash", "Flash"),
+    ("instant", "Instant"),
+    ("codex", "Codex"),
+    ("thinking", "Thinking"),
+    ("reasoning", "Reasoning"),
+    ("preview", "Preview"),
+    ("pro", "Pro"),
+)
+
+
+def _model_variant(m):
+    """Extract a tier/variant qualifier (Nano, Mini, Flash, ...) from a lowercased
+    model id. Matched ONLY as a hyphen/underscore/dot/space-delimited token, so
+    'mini' inside 'gemini' (or 'pro' inside another word) can never false-fire.
+    Returns '' when the id carries no recognised variant."""
+    for key, label in _MODEL_VARIANTS:
+        if re.search(rf"(?:^|[-_. ]){re.escape(key)}(?:$|[-_. ])", m):
+            return label
+    return ""
+
+
+def _model_version(m):
+    """Extract a 'major.minor' version from a lowercased model id, tolerating
+    BOTH separators in the wild: a contiguous decimal ('gpt-5.4' -> '5.4') OR a
+    dash-separated pair ('gpt-5-4', 'claude-4-8-opus' -> '5.4'/'4.8'). Only joins
+    two integer groups when both are short (<=2 digits) so date/snapshot ids like
+    'gpt-4-0125' don't get mangled into '4.0125'. Returns '' when no number."""
+    dec = re.search(r"\d+\.\d+", m)
+    if dec:
+        return dec.group(0)
+    nums = re.findall(r"\d+", m)
+    if not nums:
+        return ""
+    if len(nums) >= 2 and len(nums[0]) <= 2 and len(nums[1]) <= 2:
+        return f"{nums[0]}.{nums[1]}"
+    return nums[0]
+
+
 def _model_short(model):
     """Human-readable shorthand for a model id, for live readability.
     e.g. 'claude-4-8-opus' -> 'Opus 4.8', 'claude-sonnet-4-6' -> 'Sonnet 4.6',
-    'gpt-5.5' -> 'GPT 5.5'. Falls back to the raw id if unrecognised."""
+    'gpt-5.5' -> 'GPT 5.5', 'gpt-5.4-nano' -> 'GPT 5.4-Nano'. The tier qualifier
+    is preserved so same-version-different-tier models stay distinct. Falls back
+    to the raw id if unrecognised."""
     if not model:
         return ""
-    import re
 
     m = str(model).lower()
+    variant = _model_variant(m)
+    suffix = f"-{variant}" if variant else ""
+    ver = _model_version(m)
     for key, label in (("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku")):
         if key in m:
-            nums = re.findall(r"\d+", m)
-            ver = (
-                f"{nums[0]}.{nums[1]}" if len(nums) >= 2 else (nums[0] if nums else "")
-            )
-            return f"{label} {ver}".strip()
+            return f"{label} {ver}{suffix}".strip()
     if "gpt" in m:
-        nums = re.findall(r"\d+(?:\.\d+)?", m)
-        return f"GPT {nums[0]}" if nums else "GPT"
+        return (f"GPT {ver}{suffix}" if ver else f"GPT{suffix}").strip()
     if "gemini" in m:
-        nums = re.findall(r"\d+(?:\.\d+)?", m)
-        return f"Gemini {nums[0]}" if nums else "Gemini"
+        return (f"Gemini {ver}{suffix}" if ver else f"Gemini{suffix}").strip()
     return str(model)
 
 
@@ -187,14 +234,20 @@ def _row_lines(ordered, frame):
     """Render a list of (entry, depth) as aligned single-line rows:
         <prefix><name>   <model>   <spin|check> <mm:ss>
     The model + indicator + time columns share a per-tree tab-stop computed
-    from the widest (prefix+name), so deeper-indented names push the whole
-    right block over together. Root rows carry the INVOKE AGENT badge; nested
-    rows carry the tree elbow. Used for BOTH the live block and the transcript.
+    from the widest (prefix+name) AND the widest model label, so longer model
+    names (e.g. 'GPT 5.4-Nano') and deeper-indented names both push the whole
+    right block over together -- columns stay aligned no matter what gets added.
+    Alignment is done purely with U+0020 spaces (never literal tabs), and widths
+    use Rich cell_len, so the layout renders identically on Windows and macOS.
+    Root rows carry the INVOKE AGENT badge; nested rows carry the tree elbow.
+    Used for BOTH the live block and the transcript.
     """
+    from rich.cells import cell_len
     from rich.text import Text
 
     color = _banner_color()
     lefts = []
+    models = []
     name_w = 0
     model_w = 0
     for e, depth in ordered:
@@ -208,11 +261,13 @@ def _row_lines(ordered, frame):
             left.append("\u2514\u2500 ", style="grey50")  # tree elbow
             left.append(e["name"], style="bold cyan")
         lefts.append(left)
+        ms = _model_short(e.get("model"))
+        models.append(ms)
         name_w = max(name_w, left.cell_len)
-        model_w = max(model_w, len(_model_short(e.get("model"))))
+        model_w = max(model_w, cell_len(ms))
 
     lines = []
-    for (e, depth), left in zip(ordered, lefts):
+    for (e, depth), left, ms in zip(ordered, lefts, models):
         done = bool(e.get("done"))
         failed = bool(e.get("failed"))
         line = left.copy()
@@ -223,9 +278,8 @@ def _row_lines(ordered, frame):
         line.no_wrap = True
         line.overflow = "ellipsis"
         line.append(" " * (name_w - left.cell_len + 2))
-        ms = _model_short(e.get("model"))
         line.append(ms, style="magenta")
-        line.append(" " * (model_w - len(ms) + 2))
+        line.append(" " * (model_w - cell_len(ms) + 2))
         if failed:
             line.append("\u2717 ", style="bold red")  # X mark
         elif done:
