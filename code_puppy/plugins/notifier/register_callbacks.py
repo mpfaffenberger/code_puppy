@@ -53,6 +53,10 @@ _last_notification_times: dict[str, float] = {}
 _user_interacted_this_run: bool = False
 
 INTERACTIVE_TOOLS = {"ask_user_question", "ask_user"}
+INTERACTIVE_TOOL_TITLES = {
+    "ask_user_question": "Ask User Question",
+    "ask_user": "Ask User",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +288,7 @@ async def _on_pre_tool_call(*args, **kwargs) -> None:
             if isinstance(first_q, dict) and first_q.get("header"):
                 message = f"Question: {first_q['header']}"
     _notify_with_context(
-        title="🐶 User Selection Required",
+        title=f"User Input Required: {INTERACTIVE_TOOL_TITLES.get(tool_name, 'User Input Required')}",
         message=message,
         rate_limit_key="interactive_tool",
     )
