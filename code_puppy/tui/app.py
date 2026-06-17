@@ -151,6 +151,72 @@ class PromptArea(TextArea):
         return line
 
 
+# ---------------------------------------------------------------------------
+# Status-bar helpers: convert prompt_toolkit FormattedText → Rich Text
+#
+# The TUI status bar calls the *same* get_prompt_with_active_model() that the
+# classic prompt uses (including all monkey-patches: context_indicator,
+# custom statusline command, …).  All we need is a style-string translation
+# layer so the prompt_toolkit tuples render correctly in Textual/Rich.
+# ---------------------------------------------------------------------------
+
+_ANSI_TO_RICH: dict[str, str] = {
+    "ansiblack": "black",
+    "ansired": "red",
+    "ansigreen": "green",
+    "ansiyellow": "yellow",
+    "ansiblue": "blue",
+    "ansimagenta": "magenta",
+    "ansicyan": "cyan",
+    "ansiwhite": "white",
+    "ansibrightblack": "bright_black",
+    "ansibrightred": "bright_red",
+    "ansibrightgreen": "bright_green",
+    "ansibrightyellow": "bright_yellow",
+    "ansibrightblue": "bright_blue",
+    "ansibrightmagenta": "bright_magenta",
+    "ansibrightcyan": "bright_cyan",
+    "ansibrightwhite": "bright_white",
+}
+
+# None → skip the fragment entirely (we don't want ">>> " in the status bar).
+_PT_CLASS_TO_RICH: dict[str, str | None] = {
+    "puppy": "",
+    "agent": "bold",
+    "model": "bold cyan",
+    "cwd": "",
+    "context-indicator": "",
+    "arrow": None,
+}
+
+
+def _pt_style_to_rich(style_str: str) -> str | None:
+    """Translate a prompt_toolkit style string to a Rich style string.
+
+    Returns ``None`` to signal the fragment should be dropped (e.g. the
+    ``class:arrow`` / ``>>> `` that belongs in the classic prompt but not
+    in the TUI status bar).
+    """
+    if style_str.startswith("class:"):
+        cls = style_str[6:]
+        return _PT_CLASS_TO_RICH.get(cls, "")
+
+    parts: list[str] = []
+    for token in style_str.split():
+        if token in ("bold", "italic", "underline", "reverse"):
+            parts.append(token)
+        elif token.startswith("fg:"):
+            c = token[3:]
+            parts.append(_ANSI_TO_RICH.get(c, c))
+        elif token.startswith("bg:"):
+            c = token[3:]
+            parts.append(f"on {_ANSI_TO_RICH.get(c, c)}")
+        elif token.startswith("#"):
+            parts.append(token)
+        # ignore "nobold", "noreverse", etc.
+    return " ".join(parts) if parts else ""
+
+
 class CooperApp(App):
     """Code Puppy's Textual UI (Phase 0 scaffold)."""
 
@@ -1256,26 +1322,52 @@ class CooperApp(App):
             pass
 
     def _build_status_text(self) -> Text:
-        from code_puppy.plugins.statusline.payload import build_payload
+        """Build the status bar text using the *same* logic as classic mode.
 
-        payload = build_payload()
-        ctx = payload.get("context_window") or {}
+        Two paths, same end result:
+
+        1. **Custom command configured** — call ``get_status_text()`` to get
+           the raw ANSI string the user's script produced, then hand it to
+           ``Text.from_ansi()``.  This is a zero-loss path: no intermediate
+           prompt_toolkit style representation, no conversion table that could
+           silently drop a color variant.
+
+        2. **No custom command** — call ``get_prompt_with_active_model(base="")``
+           (same patched function classic uses, including context_indicator)
+           and convert its ``FormattedText`` tuples via ``_pt_style_to_rich``.
+           The ``class:arrow`` / ``>>> `` fragment is dropped because the
+           status bar is not an interactive prompt.
+        """
+        try:
+            from code_puppy.plugins.statusline.config import get_command, is_enabled
+            from code_puppy.plugins.statusline.runner import get_status_text
+
+            if is_enabled() and get_command():
+                raw = get_status_text()
+                if raw:
+                    return Text.from_ansi(raw)
+        except Exception:
+            pass
+
+        from prompt_toolkit.formatted_text import to_formatted_text
+
+        from code_puppy.command_line.prompt_toolkit_completion import (
+            get_prompt_with_active_model,
+        )
+
+        try:
+            frags = list(to_formatted_text(get_prompt_with_active_model(base="")))
+        except Exception:
+            return Text("  ")
+
         t = Text()
-        t.append("\U0001f436 ")  # puppy face
-        indicator = ctx.get("indicator")
-        if indicator:
-            t.append(f"{indicator} ")
-        model = (payload.get("model") or {}).get("display_name") or "(default)"
-        t.append(f"[{model}] ", style="bold cyan")
-        agent = (payload.get("agent") or {}).get("name")
-        if agent:
-            t.append(f"{agent} ", style="bold")
-        branch = (payload.get("workspace") or {}).get("git_branch")
-        if branch:
-            t.append(f"({branch}) ", style="magenta")
-        pct = ctx.get("used_percentage")
-        if pct is not None:
-            t.append(f"{pct}%ctx", style="yellow")
+        for style_str, text in frags:
+            if not text:
+                continue
+            rich_style = _pt_style_to_rich(style_str)
+            if rich_style is None:  # arrow -> skip
+                continue
+            t.append(text, style=rich_style)
         return t
 
     # ------------------------------------------------------------------ #
